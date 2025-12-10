@@ -1,0 +1,445 @@
+.admin-root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: radial-gradient(circle at top left, #0b1220, #020617 55%, #000000);
+  color: #e5e7eb;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "Segoe UI", sans-serif;
+}
+
+/* Top nav bar */
+.admin-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.1rem 3.5rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.25);
+  backdrop-filter: blur(16px);
+  background: linear-gradient(
+    to bottom,
+    rgba(15, 23, 42, 0.9),
+    rgba(15, 23, 42, 0.4)
+  );
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.brand-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 999px;
+  background: radial-gradient(circle, #38bdf8, #0ea5e9);
+  box-shadow: 0 0 16px rgba(56, 189, 248, 0.9);
+}
+
+.brand-text {
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-size: 0.85rem;
+}
+
+.brand-tag {
+  font-size: 0.7rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.6);
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: #9ca3af;
+}
+
+.nav-logout {
+  padding: 0.4rem 1rem;
+  border-radius: 999px;
+  border: 1px solid rgba(248, 113, 113, 0.6);
+  background: transparent;
+  color: #fecaca;
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.nav-logout:hover {
+  background: rgba(248, 113, 113, 0.12);
+  box-shadow: 0 0 18px rgba(248, 113, 113, 0.3);
+  transform: translateY(-1px);
+}
+
+/* Main content */
+.admin-main {
+  flex: 1;
+  padding: 2.4rem 3.5rem 3.2rem;
+}
+
+.admin-heading h1 {
+  margin: 0;
+  font-size: 1.9rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.admin-heading p {
+  margin-top: 0.5rem;
+  max-width: 550px;
+  font-size: 0.92rem;
+  color: #9ca3af;
+}
+
+/* Cards grid */
+.admin-grid {
+  margin-top: 2.4rem;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1.6rem;
+}
+
+.admin-card {
+  position: relative;
+  padding: 1.4rem 1.4rem 1.1rem;
+  border-radius: 1.1rem;
+  background: radial-gradient(circle at top left, #111827, #020617);
+  border: 1px solid rgba(55, 65, 81, 0.9);
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.85);
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  overflow: hidden;
+}
+
+.admin-card::before {
+  content: "";
+  position: absolute;
+  inset: -20%;
+  background: radial-gradient(
+    circle at top right,
+    rgba(56, 189, 248, 0.18),
+    transparent 50%
+  );
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+}
+
+.admin-card:hover::before {
+  opacity: 1;
+}
+
+.card-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.9);
+  font-size: 1.4rem;
+}
+
+.card-body h2 {
+  margin: 0;
+  font-size: 1rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.card-body p {
+  margin: 0.35rem 0 0;
+  font-size: 0.86rem;
+  color: #9ca3af;
+}
+
+.card-footer {
+  margin-top: auto;
+}
+
+.card-button {
+  padding: 0.4rem 0.85rem;
+  border-radius: 999px;
+  border: none;
+  background: linear-gradient(to right, #38bdf8, #0ea5e9);
+  color: #0b1120;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.card-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 25px rgba(56, 189, 248, 0.5);
+}
+
+/* Extra section under the cards */
+.admin-section {
+  margin-top: 2.4rem;
+}
+
+/* Hint text when nothing selected */
+.admin-hint {
+  margin-top: 0.8rem;
+  font-size: 0.9rem;
+  color: #9ca3af;
+}
+
+/* Panel (detailed view) */
+.panel {
+  padding: 1.6rem 1.5rem 1.7rem;
+  border-radius: 1.1rem;
+  background: radial-gradient(circle at top left, #020617, #020617 40%, #000);
+  border: 1px solid rgba(55, 65, 81, 0.9);
+  box-shadow: 0 18px 50px rgba(15, 23, 42, 0.9);
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.4rem;
+}
+
+.panel-header h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.panel-header p {
+  margin: 0.35rem 0 0;
+  font-size: 0.9rem;
+  color: #9ca3af;
+}
+
+.panel-close {
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.6);
+  background: transparent;
+  color: #e5e7eb;
+  font-size: 0.78rem;
+  padding: 0.25rem 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+}
+
+/* Alerts */
+.panel-alert {
+  border-radius: 0.75rem;
+  padding: 0.55rem 0.9rem;
+  font-size: 0.85rem;
+  margin-bottom: 1rem;
+}
+
+.panel-alert-error {
+  background: rgba(248, 113, 113, 0.08);
+  border: 1px solid rgba(248, 113, 113, 0.5);
+  color: #fecaca;
+}
+
+/* Panel grid: form + table */
+.panel-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 320px) minmax(0, 1fr);
+  gap: 1.4rem;
+}
+
+.panel-card {
+  border-radius: 0.9rem;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(31, 41, 55, 0.9);
+  padding: 1.1rem 1.2rem 1.2rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.panel-card h3 {
+  margin: 0 0 0.9rem;
+  font-size: 0.95rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* Form */
+.teacher-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+.teachers-table-wrapper {
+  flex: 1;
+  margin-top: 0.4rem;
+  /* use most of the viewport height inside the panel */
+  max-height: 70vh;   /* you can tweak: 65vh, 75vh, etc */
+  overflow-y: auto;
+}
+
+
+.form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.form-row label {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: #9ca3af;
+}
+
+.form-row input {
+  border-radius: 0.6rem;
+  border: 1px solid rgba(55, 65, 81, 0.9);
+  background: rgba(15, 23, 42, 0.9);
+  padding: 0.45rem 0.7rem;
+  font-size: 0.87rem;
+  color: #e5e7eb;
+}
+
+.form-row input::placeholder {
+  color: #6b7280;
+}
+
+/* Buttons */
+.primary-btn {
+  margin-top: 0.45rem;
+  padding: 0.45rem 0.9rem;
+  border-radius: 999px;
+  border: none;
+  background: linear-gradient(to right, #38bdf8, #0ea5e9);
+  color: #0b1120;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.13em;
+  cursor: pointer;
+}
+
+.primary-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.ghost-btn {
+  padding: 0.28rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.6);
+  background: transparent;
+  color: #e5e7eb;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+}
+
+/* Teacher table */
+.panel-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.7rem;
+}
+
+.muted-text {
+  font-size: 0.85rem;
+  color: #9ca3af;
+}
+
+.teachers-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.87rem;
+}
+
+.teachers-table thead {
+  position: sticky;
+  top: 0;
+  background: rgba(15, 23, 42, 0.98);
+}
+
+.teachers-table th,
+.teachers-table td {
+  padding: 0.45rem 0.4rem;
+  text-align: left;
+}
+
+.teachers-table th {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: #9ca3af;
+  border-bottom: 1px solid rgba(31, 41, 55, 0.9);
+}
+
+.teachers-table tbody tr:nth-child(odd) {
+  background: rgba(15, 23, 42, 0.8);
+}
+
+.teachers-table tbody tr:nth-child(even) {
+  background: rgba(15, 23, 42, 0.5);
+}
+
+.teachers-actions {
+  text-align: right;
+}
+
+.danger-link {
+  border: none;
+  background: none;
+  color: #fecaca;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  cursor: pointer;
+}
+
+.danger-link:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* Basic responsiveness */
+@media (max-width: 1100px) {
+  .admin-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-main {
+    padding-inline: 1.8rem;
+  }
+
+  .admin-nav {
+    padding-inline: 1.8rem;
+  }
+}
+
+@media (max-width: 900px) {
+  .panel-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 700px) {
+  .admin-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-main {
+    padding-inline: 1.2rem;
+  }
+
+  .admin-nav {
+    padding-inline: 1.2rem;
+  }
+}

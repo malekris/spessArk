@@ -1,3 +1,4 @@
+// src/pages/LoginPage.jsx
 import React, { useState } from "react";
 import "./LoginPage.css";
 
@@ -78,31 +79,49 @@ function LoginPage({ onLogin }) {
           onSubmit={handleSubmit}
           style={{ marginBottom: "0.8rem", textAlign: "left" }}
         >
+          <label htmlFor="admin-username" style={{ display: "block", marginBottom: 6, color: "#9ca3af", fontSize: 12 }}>
+            Admin username
+          </label>
           <input
+            id="admin-username"
             name="username"
             type="text"
+            autoComplete="username"
             placeholder="Admin username (e.g. admin)"
             value={form.username}
             onChange={handleChange}
           />
 
+          <label htmlFor="admin-password" style={{ display: "block", marginTop: 8, marginBottom: 6, color: "#9ca3af", fontSize: 12 }}>
+            Admin password
+          </label>
           <input
+            id="admin-password"
             name="password"
             type="password"
+            autoComplete="current-password"
             placeholder="Admin password (e.g. admin)"
             value={form.password}
             onChange={handleChange}
           />
 
-          <button type="submit">
-            {loading ? "Signing in…" : "Sign in as Admin"}
-          </button>
+          <div style={{ marginTop: 14 }}>
+            <button
+              type="submit"
+              className="admin-btn"
+              disabled={loading}
+              aria-disabled={loading}
+            >
+              {loading ? "Signing in…" : "Sign in as Admin"}
+            </button>
+          </div>
         </form>
 
         <button
           type="button"
           onClick={handleTeacherClick}
-          style={{ marginTop: "0.4rem", background: "rgba(15,23,42,0.9)" }}
+          className="teacher-btn"
+          style={{ marginTop: "0.8rem" }}
         >
           I’m a Teacher — go to teacher login →
         </button>

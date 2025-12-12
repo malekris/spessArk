@@ -53,7 +53,7 @@
   box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.5);
 }
 
-/* Button */
+/* Default glass-container button (kept as fallback) */
 .glass-container button {
   width: 100%;
   padding: 0.75rem;
@@ -73,4 +73,110 @@
   transform: translateY(-1px);
   box-shadow: 0 14px 32px rgba(37, 99, 235, 0.55);
   opacity: 0.95;
+}
+
+/* ---------------------------
+   Specific Admin / Teacher buttons
+   --------------------------- */
+
+/* Admin button (red/orange neon) */
+.admin-btn {
+  width: 100%;
+  padding: 0.75rem;
+  border-radius: 999px;
+  border: none;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: 0.85rem;
+  cursor: pointer;
+
+  background: linear-gradient(135deg, #ef4444 0%, #f97316 100%);
+  color: #fff;
+
+  box-shadow: 0 6px 20px rgba(249, 115, 22, 0.12),
+              0 0 18px rgba(239, 68, 68, 0.18);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.admin-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 30px rgba(249,115,22,0.18), 0 0 36px rgba(239,68,68,0.32);
+}
+
+/* Teacher button (neon green/teal glow) */
+.teacher-btn {
+  width: 100%;
+  padding: 0.75rem;
+  border-radius: 999px;
+  border: none;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: 0.85rem;
+  cursor: pointer;
+
+  background: linear-gradient(135deg, #00ff7a 0%, #06b6d4 100%);
+  color: #062312; /* dark text for contrast */
+
+  box-shadow: 0 8px 28px rgba(0,255,122,0.12),
+              0 0 26px rgba(6,182,212,0.14);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.teacher-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 36px rgba(0,255,122,0.18), 0 0 44px rgba(6,182,212,0.28);
+}
+
+/* tiny accessibility focus styles */
+.admin-btn:focus, .teacher-btn:focus {
+  outline: 3px solid rgba(59,130,246,0.12);
+  outline-offset: 3px;
+}
+
+/* small helper spacing */
+.login-action-row { display: grid; gap: 0.6rem; margin-top: 0.6rem; }
+/* FORCE override glass-container button default */
+.admin-btn,
+.teacher-btn {
+  all: unset;
+  display: block;
+  width: 100%;
+  padding: 0.9rem;
+  border-radius: 999px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: 0.85rem;
+  cursor: pointer;
+  text-align: center;
+}
+
+/* ADMIN BUTTON — RED / ORANGE */
+.admin-btn {
+  background: linear-gradient(135deg, #ef4444, #f97316) !important;
+  color: #fff !important;
+  box-shadow: 0 8px 26px rgba(249, 115, 22, 0.28),
+              0 0 22px rgba(239, 68, 68, 0.35) !important;
+}
+
+.admin-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 36px rgba(249,115,22,0.42),
+              0 0 32px rgba(239,68,68,0.45) !important;
+}
+
+/* TEACHER BUTTON — NEON GREEN */
+.teacher-btn {
+  background: linear-gradient(135deg, #00ff7a, #06b6d4) !important;
+  color: #022c22 !important;
+  box-shadow: 0 8px 28px rgba(0,255,122,0.25),
+              0 0 26px rgba(6,182,212,0.30) !important;
+}
+
+.teacher-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 14px 40px rgba(0,255,122,0.34),
+              0 0 44px rgba(6,182,212,0.42) !important;
 }

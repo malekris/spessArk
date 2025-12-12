@@ -50,6 +50,34 @@ function authTeacher(req, res, next) {
   }
 }
 
+/**
+ * authAdmin middleware
+ * - In development (NODE_ENV !== 'production') OR when DISABLE_ADMIN_AUTH === 'true',
+ *   this middleware allows all requests (dev bypass).
+ * - Otherwise it compares x-admin-key header against process.env.ADMIN_KEY (if set).
+ *
+ * IMPORTANT: This is intentionally permissive for dev so you can assign teachers
+ * without an admin key. Do NOT enable DISABLE_ADMIN_AUTH=true in production.
+ */
+function authAdmin(req, res, next) {
+  try {
+    const disableForDev = process.env.DISABLE_ADMIN_AUTH === "true" || process.env.NODE_ENV !== "production";
+    if (disableForDev) {
+      return next();
+    }
+
+    const key = (req.headers["x-admin-key"] || "").trim();
+    const expected = process.env.ADMIN_KEY || "";
+    if (key && expected && key === expected) return next();
+
+    return res.status(401).json({ message: "Admin auth required" });
+  } catch (err) {
+    console.error("authAdmin error:", err);
+    // Fail closed in case of error (safer)
+    return res.status(401).json({ message: "Admin auth required" });
+  }
+}
+
 // MySQL pool
 const pool = mysql.createPool({
   host: process.env.DB_HOST || "localhost",
@@ -84,6 +112,19 @@ app.get("/api/teachers", async (req, res) => {
     res
       .status(500)
       .json({ message: "Database error while fetching teachers" });
+  }
+});
+
+// Admin: list teachers (thin wrapper) - used by admin UI
+app.get("/api/admin/teachers", authAdmin, async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      "SELECT id, name, email, subject1, subject2, created_at FROM teachers ORDER BY created_at DESC"
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error("Error in GET /api/admin/teachers:", err);
+    res.status(500).json({ message: "Database error while fetching teachers" });
   }
 });
 
@@ -184,7 +225,7 @@ app.post("/api/teacher/marks", authTeacher, async (req, res) => {
 
 // GET /api/admin/marks-sets
 // Returns list of mark "batches" grouped by assignment + term + year + AOI
-app.get("/api/admin/marks-sets", async (req, res) => {
+app.get("/api/admin/marks-sets", authAdmin, async (req, res) => {
   try {
     const [rows] = await pool.query(
       `SELECT
@@ -229,7 +270,7 @@ app.get("/api/admin/marks-sets", async (req, res) => {
 
 // GET /api/admin/marks-detail?assignmentId=...&term=...&year=...&aoi=AOI1
 // Returns detailed marks per learner for that batch
-app.get("/api/admin/marks-detail", async (req, res) => {
+app.get("/api/admin/marks-detail", authAdmin, async (req, res) => {
   try {
     const assignmentId = parseInt(req.query.assignmentId, 10);
     const term = req.query.term;
@@ -272,53 +313,146 @@ app.get("/api/admin/marks-detail", async (req, res) => {
   }
 });
 
-// POST /api/teachers - add a teacher
-app.post("/api/teachers", async (req, res) => {
+// ---- SUBJECTS & CLASSES (public endpoints used by admin UI) ----
+
+// GET /api/subjects
+app.get("/api/subjects", async (req, res) => {
   try {
-    const { name, email, subject1, subject2 } = req.body;
-
-    if (!name || !email || !subject1 || !subject2) {
-      return res.status(400).json({
-        message: "name, email, subject1 and subject2 are required",
-      });
+    // Try to read from subjects table if it exists, otherwise fall back to distinct subjects in assignments
+    try {
+      const [rows] = await pool.query("SELECT id, name FROM subjects ORDER BY name");
+      return res.json(rows);
+    } catch (_) {
+      // fallback
+      const [rows] = await pool.query("SELECT DISTINCT subject FROM teacher_assignments ORDER BY subject");
+      // map to { id, name } style to keep UI simple
+      const mapped = rows.map((r, idx) => ({ id: r.subject || idx, name: r.subject }));
+      return res.json(mapped);
     }
-
-    const [result] = await pool.query(
-      "INSERT INTO teachers (name, email, subject1, subject2) VALUES (?, ?, ?, ?)",
-      [name, email, subject1, subject2]
-    );
-
-    const [rows] = await pool.query(
-      "SELECT id, name, email, subject1, subject2, created_at FROM teachers WHERE id = ?",
-      [result.insertId]
-    );
-
-    res.status(201).json(rows[0]);
   } catch (err) {
-    console.error("Error in POST /api/teachers:", err);
-    res.status(500).json({ message: "Database error while adding teacher" });
+    console.error("Error in GET /api/subjects:", err);
+    res.status(500).json({ message: "Server error while loading subjects" });
   }
 });
 
-// DELETE /api/teachers/:id - delete a teacher
-app.delete("/api/teachers/:id", async (req, res) => {
+// GET /api/classes
+app.get("/api/classes", async (req, res) => {
   try {
-    const { id } = req.params;
+    // Try to read from classes table if it exists, otherwise use distinct class_level from teacher_assignments or students
+    try {
+      const [rows] = await pool.query("SELECT id, name FROM classes ORDER BY name");
+      return res.json(rows);
+    } catch (_) {
+      // fallback to assignments
+      const [rows] = await pool.query("SELECT DISTINCT class_level FROM teacher_assignments ORDER BY class_level");
+      const mapped = rows.map((r, idx) => ({ id: r.class_level || idx, name: r.class_level }));
+      return res.json(mapped);
+    }
+  } catch (err) {
+    console.error("Error in GET /api/classes:", err);
+    res.status(500).json({ message: "Server error while loading classes" });
+  }
+});
 
-    const [result] = await pool.query("DELETE FROM teachers WHERE id = ?", [
-      id,
-    ]);
+// ---- ADMIN ASSIGNMENTS (create/list/delete assignments) ----
 
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ message: "Teacher not found" });
+// GET /api/admin/assignments
+app.get("/api/admin/assignments", authAdmin, async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT ta.id, ta.class_level, ta.stream, ta.subject, ta.teacher_id, t.name AS teacher_name, ta.created_at
+       FROM teacher_assignments ta
+       LEFT JOIN teachers t ON ta.teacher_id = t.id
+       ORDER BY ta.class_level, ta.stream, ta.subject`
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error("Error in GET /api/admin/assignments:", err);
+    res.status(500).json({ message: "Server error while loading assignments" });
+  }
+});
+
+// POST /api/admin/assignments
+// Body: { classId or class_level (string), subjectId or subject (string), teacherId (number), stream (string) }
+app.post("/api/admin/assignments", authAdmin, async (req, res) => {
+  try {
+    // Support both { classId } (from classes table) or { class_level } directly
+    const { classId, class_level, subjectId, subject, teacherId, stream } = req.body;
+
+    // determine class_label and subject_label strings
+    let classLabel = class_level || null;
+    if (!classLabel && classId) {
+      // try lookup
+      const [clsRows] = await pool.query("SELECT name FROM classes WHERE id = ? LIMIT 1", [classId]);
+      if (clsRows.length > 0) classLabel = clsRows[0].name;
+    }
+    let subjectLabel = subject || null;
+    if (!subjectLabel && subjectId) {
+      const [subRows] = await pool.query("SELECT name FROM subjects WHERE id = ? LIMIT 1", [subjectId]);
+      if (subRows.length > 0) subjectLabel = subRows[0].name;
     }
 
-    res.json({ message: "Teacher deleted successfully" });
+    // fallback: if subjectLabel still missing, but "subject" field exists in body, use it
+    if (!subjectLabel && typeof subject === "string") subjectLabel = subject;
+
+    if (!classLabel || !subjectLabel || !teacherId) {
+      return res.status(400).json({ message: "class_level, subject and teacherId are required" });
+    }
+
+    const streamValue = stream || "Main";
+
+    // Insert assignment (avoid duplicates if same teacher/class/subject exists)
+  // --- replace the existing INSERT ... ON DUPLICATE KEY UPDATE ... block with this ---
+const [result] = await pool.query(
+  `INSERT INTO teacher_assignments (teacher_id, class_level, stream, subject)
+   VALUES (?, ?, ?, ?)
+   ON DUPLICATE KEY UPDATE
+     teacher_id = VALUES(teacher_id),
+     class_level = VALUES(class_level),
+     stream = VALUES(stream),
+     subject = VALUES(subject)`,
+  [teacherId, classLabel, streamValue, subjectLabel]
+);
+
+
+    // If insertId is 0 due to duplicate-key update, try to find existing row id
+    let insertedId = result.insertId;
+    if (!insertedId) {
+      const [rows] = await pool.query(
+        "SELECT id FROM teacher_assignments WHERE teacher_id = ? AND class_level = ? AND stream = ? AND subject = ? LIMIT 1",
+        [teacherId, classLabel, streamValue, subjectLabel]
+      );
+      if (rows.length > 0) insertedId = rows[0].id;
+    }
+
+    // Return created/updated assignment row
+    const [rows] = await pool.query(
+      `SELECT ta.id, ta.class_level, ta.stream, ta.subject, ta.teacher_id, t.name as teacher_name, ta.created_at
+       FROM teacher_assignments ta
+       LEFT JOIN teachers t ON ta.teacher_id = t.id
+       WHERE ta.id = ? LIMIT 1`,
+      [insertedId]
+    );
+
+    res.status(201).json(rows[0] || null);
   } catch (err) {
-    console.error("Error in DELETE /api/teachers/:id:", err);
-    res
-      .status(500)
-      .json({ message: "Database error while deleting teacher" });
+    console.error("Error in POST /api/admin/assignments:", err);
+    res.status(500).json({ message: "Server error while creating assignment" });
+  }
+});
+
+// DELETE /api/admin/assignments/:id
+app.delete("/api/admin/assignments/:id", authAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const [result] = await pool.query("DELETE FROM teacher_assignments WHERE id = ?", [id]);
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: "Assignment not found" });
+    }
+    res.json({ message: "Assignment deleted successfully" });
+  } catch (err) {
+    console.error("Error in DELETE /api/admin/assignments/:id:", err);
+    res.status(500).json({ message: "Server error while deleting assignment" });
   }
 });
 
@@ -656,6 +790,53 @@ app.delete("/api/students/:id", async (req, res) => {
       .json({ message: "Database error while deleting student" });
   }
 });
+// --- BEGIN: Ensure POST /api/teachers and DELETE /api/teachers/:id exist ---
+
+// POST /api/teachers - add a teacher (public)
+app.post("/api/teachers", async (req, res) => {
+  try {
+    const { name, email, subject1, subject2 } = req.body || {};
+
+    if (!name || !email || !subject1 || !subject2) {
+      return res.status(400).json({ message: "name, email, subject1 and subject2 are required" });
+    }
+
+    console.log("[POST /api/teachers] incoming:", { name, email, subject1, subject2 });
+
+    const [result] = await pool.query(
+      "INSERT INTO teachers (name, email, subject1, subject2) VALUES (?, ?, ?, ?)",
+      [name, email, subject1, subject2]
+    );
+
+    const [rows] = await pool.query(
+      "SELECT id, name, email, subject1, subject2, created_at FROM teachers WHERE id = ?",
+      [result.insertId]
+    );
+
+    return res.status(201).json(rows[0]);
+  } catch (err) {
+    console.error("Error in POST /api/teachers:", err);
+    return res.status(500).json({ message: "Database error while adding teacher" });
+  }
+});
+
+// DELETE /api/teachers/:id - delete a teacher (admin protected)
+app.delete("/api/teachers/:id", authAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const [result] = await pool.query("DELETE FROM teachers WHERE id = ?", [id]);
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: "Teacher not found" });
+    }
+    console.log(`[DELETE /api/teachers/${id}] deleted`);
+    return res.json({ message: "Teacher deleted successfully" });
+  } catch (err) {
+    console.error("Error in DELETE /api/teachers/:id:", err);
+    return res.status(500).json({ message: "Database error while deleting teacher" });
+  }
+});
+
+// --- END snippet ---
 
 // Start server
 app.listen(PORT, () => {

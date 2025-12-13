@@ -4,6 +4,7 @@ import "./AdminDashboard.css";
 import jsPDF from "jspdf";
 import AssignSubjectsPanel from "../components/AssignSubjectsPanel";
 import { plainFetch, adminFetch } from "../lib/api";
+import EditStudentModal from "../components/EditStudentModal";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 
@@ -57,6 +58,7 @@ function AdminDashboard({ onLogout }) {
   const [loadingStudents, setLoadingStudents] = useState(false);
   const [savingStudent, setSavingStudent] = useState(false);
   const [deletingStudentId, setDeletingStudentId] = useState(null);
+  const [editingStudent, setEditingStudent] = useState(null);
 
   /* ---------- Filters & marks ---------- */
   const [classFilter, setClassFilter] = useState("");
@@ -800,19 +802,35 @@ function AdminDashboard({ onLogout }) {
                       </tr>
                     </thead>
                     <tbody>
-                      {filteredStudents.map((s) => (
-                        <tr key={s.id}>
-                          <td>{s.name}</td>
-                          <td>{s.gender}</td>
-                          <td>{s.class_level}</td>
-                          <td>{s.stream}</td>
-                          <td>{Array.isArray(s.subjects) ? s.subjects.join(", ") : ""}</td>
-                          <td>{s.created_at ? formatDateTime(s.created_at) : "—"}</td>
-                          <td className="teachers-actions">
-                            <button type="button" className="danger-link" onClick={() => handleDeleteStudent(s.id)} disabled={deletingStudentId === s.id}>{deletingStudentId === s.id ? "Deleting…" : "Delete"}</button>
-                          </td>
-                        </tr>
-                      ))}
+                    {filteredStudents.map((s) => (
+  <tr key={s.id}>
+    <td>{s.name}</td>
+    <td>{s.gender}</td>
+    <td>{s.class_level}</td>
+    <td>{s.stream}</td>
+    <td>{Array.isArray(s.subjects) ? s.subjects.join(", ") : ""}</td>
+    <td>{s.created_at ? formatDateTime(s.created_at) : "—"}</td>
+    <td className="teachers-actions">
+      <button
+        type="button"
+        className="ghost-btn"
+        onClick={() => setEditingStudent(s)}
+      >
+        Edit
+      </button>
+
+      <button
+        type="button"
+        className="danger-link"
+        onClick={() => handleDeleteStudent(s.id)}
+        disabled={deletingStudentId === s.id}
+      >
+        {deletingStudentId === s.id ? "Deleting…" : "Delete"}
+      </button>
+    </td>
+  </tr>
+))}
+
                     </tbody>
                   </table>
                 </div>
@@ -966,7 +984,17 @@ function AdminDashboard({ onLogout }) {
 
     return <p className="admin-hint">Click a card above to open its detailed view.</p>;
   };
-
+  {editingStudent && (
+    <EditStudentModal
+      student={editingStudent}
+      onClose={() => setEditingStudent(null)}
+      onSave={() => {
+        setEditingStudent(null);
+        fetchStudents();
+      }}
+    />
+  )}
+  
   /* ------------------ main render ------------------ */
   return (
     <div className="admin-root">
@@ -982,7 +1010,7 @@ function AdminDashboard({ onLogout }) {
 
       <main className="admin-main">
         <section className="admin-heading">
-          <h1>Welcome to the Dashboard Dear Admin</h1>
+          <h1>Admin Dashboard</h1>
           <p>Quick actions for managing students, teachers and marks. Select a card below to open its detailed view.</p>
 
           <div style={{ marginTop: "1.8rem", display: "flex", flexWrap: "wrap", gap: "1rem" }}>
@@ -1027,6 +1055,21 @@ function AdminDashboard({ onLogout }) {
 
         <section className="admin-section">{renderSectionContent()}</section>
       </main>
+      {editingStudent && (
+  <EditStudentModal
+    student={editingStudent}
+    onClose={() => setEditingStudent(null)}
+    onSaved={(updatedStudent) => {
+      setStudents((prev) =>
+        prev.map((s) =>
+          s.id === updatedStudent.id ? updatedStudent : s
+        )
+      );
+      setEditingStudent(null);
+    }}
+  />
+)}
+
     </div>
   );
 }

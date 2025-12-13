@@ -768,6 +768,59 @@ app.post("/api/students", async (req, res) => {
     res.status(500).json({ message: "Database error while adding student" });
   }
 });
+// PATCH /api/students/:id - update a student
+app.patch("/api/students/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, class_level, stream, subjects } = req.body;
+
+    if (!name || !class_level || !stream) {
+      return res.status(400).json({
+        message: "name, class_level and stream are required",
+      });
+    }
+
+    if (!Array.isArray(subjects) || subjects.length === 0) {
+      return res.status(400).json({
+        message: "subjects must be a non-empty array",
+      });
+    }
+
+    const subjectsJson = JSON.stringify(subjects);
+
+    const [result] = await pool.query(
+      `
+      UPDATE students
+      SET name = ?, class_level = ?, stream = ?, subjects = ?
+      WHERE id = ?
+      `,
+      [name, class_level, stream, subjectsJson, id]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: "Student not found" });
+    }
+
+    // return updated student
+    const [rows] = await pool.query(
+      "SELECT id, name, gender, dob, class_level, stream, subjects, created_at FROM students WHERE id = ?",
+      [id]
+    );
+
+    const row = rows[0];
+    let subjectsArray = [];
+    try {
+      subjectsArray = row.subjects ? JSON.parse(row.subjects) : [];
+    } catch (_) {
+      subjectsArray = [];
+    }
+
+    res.json({ ...row, subjects: subjectsArray });
+  } catch (err) {
+    console.error("Error in PATCH /api/students/:id:", err);
+    res.status(500).json({ message: "Database error while updating student" });
+  }
+});
 
 // DELETE /api/students/:id - delete a student
 app.delete("/api/students/:id", async (req, res) => {

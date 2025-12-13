@@ -502,3 +502,34 @@
     padding-inline: 1.2rem;
   }
 }
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(2,6,23,0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.modal-card {
+  width: min(520px, 92%);
+  background: rgba(15,23,42,0.95);
+  border-radius: 16px;
+  padding: 1.4rem;
+  border: 1px solid rgba(148,163,184,0.3);
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  margin-top: 1rem;
+}
+
+.subjects-grid {
+  display: grid;
+  grid-template-columns: repeat(2,1fr);
+  gap: 0.4rem;
+  font-size: 0.8rem;
+}

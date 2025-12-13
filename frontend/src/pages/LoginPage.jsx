@@ -1,5 +1,5 @@
 // src/pages/LoginPage.jsx
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import "./LoginPage.css";
 
 function LoginPage({ onLogin }) {
@@ -7,12 +7,31 @@ function LoginPage({ onLogin }) {
     username: "",
     password: "",
   });
+
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
+  /* ---------- Carousel (PUBLIC URLs) ---------- */
+  const images = [
+    "/slide1.jpg",
+    "/slide2.jpg",
+    "/slide3.jpg",
+  ];
+
+  const [current, setCurrent] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrent((prev) => (prev + 1) % images.length);
+    }, 4000);
+
+    return () => clearInterval(interval);
+  }, [images.length]);
+
+  /* ---------- Handlers ---------- */
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setForm((prev) => ({ ...prev, [name]: value }));
+    setForm((p) => ({ ...p, [name]: value }));
     setError("");
   };
 
@@ -26,10 +45,8 @@ function LoginPage({ onLogin }) {
 
     setLoading(true);
 
-    // same simple frontend-only admin check as before
     setTimeout(() => {
       setLoading(false);
-
       if (form.username === "admin" && form.password === "admin") {
         onLogin("admin");
       } else {
@@ -42,8 +59,23 @@ function LoginPage({ onLogin }) {
     onLogin("teacher");
   };
 
+  /* ---------- Render ---------- */
   return (
     <div className="login-page">
+      {/* 🔥 Image Carousel */}
+      <div className="login-carousel">
+        {images.map((src, index) => (
+          <div
+            key={index}
+            className={`carousel-slide ${
+              index === current ? "active" : ""
+            }`}
+            style={{ backgroundImage: `url(${src})` }}
+          />
+        ))}
+      </div>
+
+      {/* Glass login card */}
       <div className="glass-container">
         <h1
           style={{
@@ -56,6 +88,7 @@ function LoginPage({ onLogin }) {
         >
           SPESS’s ARK
         </h1>
+
         <h2>Admin / Teacher Access</h2>
 
         {error && (
@@ -75,53 +108,51 @@ function LoginPage({ onLogin }) {
           </div>
         )}
 
-        <form
-          onSubmit={handleSubmit}
-          style={{ marginBottom: "0.8rem", textAlign: "left" }}
-        >
-          <label htmlFor="admin-username" style={{ display: "block", marginBottom: 6, color: "#9ca3af", fontSize: 12 }}>
+        <form onSubmit={handleSubmit} style={{ textAlign: "left" }}>
+          <label style={{ fontSize: 12, color: "#9ca3af" }}>
             Admin username
           </label>
           <input
-            id="admin-username"
             name="username"
             type="text"
-            autoComplete="username"
-            placeholder="Admin username (e.g. admin)"
+            placeholder="Admin username"
             value={form.username}
             onChange={handleChange}
           />
 
-          <label htmlFor="admin-password" style={{ display: "block", marginTop: 8, marginBottom: 6, color: "#9ca3af", fontSize: 12 }}>
+          <label
+            style={{
+              fontSize: 12,
+              color: "#9ca3af",
+              marginTop: 8,
+              display: "block",
+            }}
+          >
             Admin password
           </label>
           <input
-            id="admin-password"
             name="password"
             type="password"
-            autoComplete="current-password"
-            placeholder="Admin password (e.g. admin)"
+            placeholder="Admin password"
             value={form.password}
             onChange={handleChange}
           />
 
-          <div style={{ marginTop: 14 }}>
-            <button
-              type="submit"
-              className="admin-btn"
-              disabled={loading}
-              aria-disabled={loading}
-            >
-              {loading ? "Signing in…" : "Sign in as Admin"}
-            </button>
-          </div>
+          <button
+            type="submit"
+            className="admin-btn"
+            disabled={loading}
+            style={{ marginTop: 14 }}
+          >
+            {loading ? "Signing in…" : "Sign in as Admin"}
+          </button>
         </form>
 
         <button
           type="button"
-          onClick={handleTeacherClick}
           className="teacher-btn"
-          style={{ marginTop: "0.8rem" }}
+          onClick={handleTeacherClick}
+          style={{ marginTop: "0.9rem" }}
         >
           I’m a Teacher — go to teacher login →
         </button>

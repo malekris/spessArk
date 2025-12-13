@@ -1,4 +1,30 @@
-*,
+/* ================================
+   GLOBAL RESET & VIEWPORT FIX
+   ================================ */
+
+   *,
+   *::before,
+   *::after {
+     box-sizing: border-box;
+   }
+   
+   html,
+   body {
+     margin: 0;
+     padding: 0;
+     width: 100%;
+     height: 100%;
+     overflow-x: hidden;
+     background: #020617; /* match app background */
+   }
+   
+   /* root app container (Vite / React) */
+   #root {
+     min-height: 100vh;
+     width: 100%;
+     overflow-x: hidden;
+   }
+   
 *::before,
 *::after {
   box-sizing: border-box;
@@ -14,4 +40,57 @@ body {
 
 #root {
   min-height: 100vh;
+}
+img,
+video {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+/* ================================
+   HARD STOP FOR WHITE EDGE BUG
+   ================================ */
+
+   html,
+   body,
+   #root {
+     max-width: 100%;
+     overflow-x: hidden;
+   }
+   
+   /* kill 100vw overflow issues */
+   * {
+     max-width: 100vw;
+   }
+   
+   /* safety for absolute / fixed sections */
+   section,
+   main,
+   div {
+     overflow-x: clip;
+   }
+  /* =========================
+   GLOBAL RESET (CRITICAL)
+   ========================= */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow-x: hidden;
+  background: #020617; /* fallback */
+}
+
+#root {
+  width: 100%;
+  min-height: 100vh;
+  overflow-x: hidden;
 }

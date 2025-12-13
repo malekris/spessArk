@@ -1,209 +1,232 @@
-.app-root {
-  min-height: 100vh;
-  display: flex;
-}
+/* ================================
+   GLOBAL APP LAYOUT
+   ================================ */
 
-/* ---------- Splash ---------- */
-
-.splash {
-  position: relative;
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: radial-gradient(circle at top, #1d4ed8, #020617 55%, #000 100%);
-  overflow: hidden;
-}
-
-.splash-overlay {
-  position: absolute;
-  inset: -20%;
-  background-image: radial-gradient(
-      circle at 10% 20%,
-      rgba(56, 189, 248, 0.15) 0,
-      transparent 50%
-    ),
-    radial-gradient(circle at 80% 80%, rgba(251, 113, 133, 0.16) 0, transparent 55%);
-  opacity: 0.9;
-  filter: blur(2px);
-}
-
-.splash-content {
-  position: relative;
-  text-align: center;
-  padding: 2rem 1.5rem;
-}
-
-.splash-logo {
-  font-size: clamp(2rem, 5vw, 3rem);
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.splash-subtitle {
-  margin-top: 0.75rem;
-  font-size: 0.95rem;
-  opacity: 0.8;
-}
-
-.splash-hint {
-  margin-top: 0.75rem;
-  font-size: 0.8rem;
-  opacity: 0.7;
-}
-
-/* ---------- Login ---------- */
-
-.login,
-.admin {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1.5rem;
-}
-
-.login-card {
-  width: 100%;
-  max-width: 380px;
-  padding: 2.25rem 2rem;
-}
-
-.glass {
-  background: rgba(15, 23, 42, 0.82);
-  border-radius: 1.25rem;
-  border: 1px solid rgba(148, 163, 184, 0.35);
-  box-shadow: 0 18px 45px rgba(15, 23, 42, 0.8);
-  backdrop-filter: blur(18px);
-}
-
-.brand {
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  font-size: 0.9rem;
-}
-
-.muted {
-  margin-top: 0.4rem;
-  font-size: 0.85rem;
-  color: #9ca3af;
-}
-
-.center {
-  text-align: center;
-}
-
-.login-form {
-  margin-top: 1.75rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.9rem;
-}
-
-.input {
-  padding: 0.7rem 0.85rem;
-  border-radius: 0.75rem;
-  border: 1px solid rgba(148, 163, 184, 0.5);
-  background: rgba(15, 23, 42, 0.9);
-  color: #e5e7eb;
-  font-size: 0.9rem;
-}
-
-.input:focus {
-  outline: none;
-  border-color: #38bdf8;
-  box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.4);
-}
-
-/* ---------- Buttons ---------- */
-
-.primary-btn,
-.secondary-btn,
-.link-btn {
-  font-size: 0.9rem;
-  border-radius: 999px;
-  border: none;
-  cursor: pointer;
-  transition: transform 0.14s ease, box-shadow 0.14s ease, background 0.14s ease;
-}
-
-.primary-btn {
-  padding: 0.7rem 1.4rem;
-  background: linear-gradient(135deg, #38bdf8, #6366f1);
-  color: white;
-  box-shadow: 0 12px 28px rgba(59, 130, 246, 0.35);
-}
-
-.primary-btn.full {
-  width: 100%;
-}
-
-.primary-btn:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 14px 34px rgba(59, 130, 246, 0.45);
-}
-
-.secondary-btn {
-  padding: 0.45rem 1.1rem;
-  background: rgba(15, 23, 42, 0.9);
-  color: #e5e7eb;
-  border: 1px solid rgba(148, 163, 184, 0.6);
-}
-
-.secondary-btn:hover {
-  background: rgba(30, 64, 175, 0.5);
-}
-
-.link-btn {
-  margin-top: 0.8rem;
-  background: none;
-  color: #93c5fd;
-  padding: 0;
-}
-
-/* ---------- Admin ---------- */
-
-.admin {
-  flex-direction: column;
-  gap: 1.25rem;
-}
-
-.admin-header {
-  width: min(960px, 100%);
-  padding: 0.75rem 1.25rem;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.admin-main {
-  width: min(960px, 100%);
-}
-
-.admin-grid {
-  display: grid;
-  gap: 1rem;
-}
-
-.admin-card {
-  padding: 1.2rem 1.1rem;
-}
-
-.admin-card h2 {
-  margin: 0 0 0.35rem;
-  font-size: 1rem;
-}
-
-/* Small screens */
-
-@media (min-width: 640px) {
+   .app-root {
+    min-height: 100vh;
+    width: 100%;
+    display: flex;
+    justify-content: center;
+  }
+  
+  /* ================================
+     SPLASH
+     ================================ */
+  
+  .splash {
+    position: relative;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: radial-gradient(circle at top, #1d4ed8, #020617 55%, #000 100%);
+    overflow: hidden;
+  }
+  
+  .splash-overlay {
+    position: absolute;
+    inset: -20%;
+    background-image:
+      radial-gradient(circle at 10% 20%, rgba(56, 189, 248, 0.15), transparent 50%),
+      radial-gradient(circle at 80% 80%, rgba(251, 113, 133, 0.16), transparent 55%);
+    opacity: 0.9;
+    filter: blur(2px);
+  }
+  
+  .splash-content {
+    position: relative;
+    text-align: center;
+    padding: 2rem 1.5rem;
+  }
+  
+  .splash-logo {
+    font-size: clamp(2rem, 5vw, 3rem);
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  
   .splash-subtitle {
+    margin-top: 0.75rem;
+    font-size: 0.95rem;
+    opacity: 0.8;
+  }
+  
+  .splash-hint {
+    margin-top: 0.75rem;
+    font-size: 0.8rem;
+    opacity: 0.7;
+  }
+  
+  /* ================================
+     LOGIN + ADMIN WRAPPER
+     ================================ */
+  
+  .login,
+  .admin {
+    flex: 1;
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    padding: 1.5rem;
+  }
+  
+  /* ================================
+     LOGIN CARD
+     ================================ */
+  
+  .login-card {
+    width: 100%;
+    max-width: 380px;
+    padding: 2.25rem 2rem;
+  }
+  
+  /* ================================
+     GLASS BASE
+     ================================ */
+  
+  .glass {
+    background: rgba(15, 23, 42, 0.82);
+    border-radius: 1.25rem;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    box-shadow: 0 18px 45px rgba(15, 23, 42, 0.8);
+    backdrop-filter: blur(18px);
+  }
+  
+  /* ================================
+     TEXT HELPERS
+     ================================ */
+  
+  .brand {
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    font-size: 0.9rem;
+  }
+  
+  .muted {
+    margin-top: 0.4rem;
+    font-size: 0.85rem;
+    color: #9ca3af;
+  }
+  
+  .center {
+    text-align: center;
+  }
+  
+  /* ================================
+     LOGIN FORM
+     ================================ */
+  
+  .login-form {
+    margin-top: 1.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+  }
+  
+  .input {
+    padding: 0.7rem 0.85rem;
+    border-radius: 0.75rem;
+    border: 1px solid rgba(148, 163, 184, 0.5);
+    background: rgba(15, 23, 42, 0.9);
+    color: #e5e7eb;
+    font-size: 0.9rem;
+  }
+  
+  .input:focus {
+    outline: none;
+    border-color: #38bdf8;
+    box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.4);
+  }
+  
+  /* ================================
+     BUTTONS
+     ================================ */
+  
+  .primary-btn,
+  .secondary-btn,
+  .link-btn {
+    font-size: 0.9rem;
+    border-radius: 999px;
+    border: none;
+    cursor: pointer;
+    transition: transform 0.14s ease, box-shadow 0.14s ease;
+  }
+  
+  .primary-btn {
+    padding: 0.7rem 1.4rem;
+    background: linear-gradient(135deg, #38bdf8, #6366f1);
+    color: white;
+    box-shadow: 0 12px 28px rgba(59, 130, 246, 0.35);
+  }
+  
+  .primary-btn.full {
+    width: 100%;
+  }
+  
+  .primary-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 14px 34px rgba(59, 130, 246, 0.45);
+  }
+  
+  .secondary-btn {
+    padding: 0.45rem 1.1rem;
+    background: rgba(15, 23, 42, 0.9);
+    color: #e5e7eb;
+    border: 1px solid rgba(148, 163, 184, 0.6);
+  }
+  
+  /* ================================
+     ADMIN LAYOUT (FIXED)
+     ================================ */
+  
+  .admin {
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+  
+  /* CENTERED HEADER */
+  .admin-header {
+    width: 100%;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0.75rem 1.25rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  
+  /* CENTERED MAIN CONTENT */
+  .admin-main {
+    width: 100%;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  
+  /* GRID */
+  .admin-grid {
+    display: grid;
+    gap: 1.25rem;
+  }
+  
+  /* CARDS */
+  .admin-card {
+    padding: 1.2rem 1.1rem;
+  }
+  
+  .admin-card h2 {
+    margin: 0 0 0.35rem;
     font-size: 1rem;
   }
-
-  .admin-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+  
+  /* ================================
+     RESPONSIVE
+     ================================ */
+  
+  @media (min-width: 640px) {
+    .admin-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
   }
-}
+  

@@ -1,5 +1,5 @@
 // src/pages/LoginPage.jsx
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import "./LoginPage.css";
 
 function LoginPage({ onLogin }) {
@@ -11,27 +11,26 @@ function LoginPage({ onLogin }) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  /* ---------- Carousel (PUBLIC URLs) ---------- */
-  const images = [
+  /* Background images */
+  const backgroundImages = [
     "/slide1.jpg",
     "/slide2.jpg",
     "/slide3.jpg",
   ];
 
-  const [current, setCurrent] = useState(0);
+  const [activeIndex, setActiveIndex] = useState(0);
 
   useEffect(() => {
     const interval = setInterval(() => {
-      setCurrent((prev) => (prev + 1) % images.length);
-    }, 4000);
+      setActiveIndex((prev) => (prev + 1) % backgroundImages.length);
+    }, 6000);
 
     return () => clearInterval(interval);
-  }, [images.length]);
+  }, []);
 
-  /* ---------- Handlers ---------- */
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setForm((p) => ({ ...p, [name]: value }));
+    setForm((prev) => ({ ...prev, [name]: value }));
     setError("");
   };
 
@@ -59,18 +58,17 @@ function LoginPage({ onLogin }) {
     onLogin("teacher");
   };
 
-  /* ---------- Render ---------- */
   return (
     <div className="login-page">
-      {/* 🔥 Image Carousel */}
-      <div className="login-carousel">
-        {images.map((src, index) => (
+      {/* Background slideshow */}
+      <div className="login-background">
+        {backgroundImages.map((img, index) => (
           <div
-            key={index}
+            key={img}
             className={`carousel-slide ${
-              index === current ? "active" : ""
+              index === activeIndex ? "active" : ""
             }`}
-            style={{ backgroundImage: `url(${src})` }}
+            style={{ backgroundImage: `url(${img})` }}
           />
         ))}
       </div>

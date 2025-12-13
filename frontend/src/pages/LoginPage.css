@@ -1,5 +1,6 @@
 /* ================================
    LOGIN PAGE — LIQUID GLASS (iOS)
+   BACKGROUND IMAGES ONLY
    ================================ */
 
    .login-page {
@@ -9,48 +10,16 @@
     align-items: center;
     justify-content: center;
   
+    /* 🔥 Background images + gradients */
     background:
-      radial-gradient(1200px 600px at 20% 10%, rgba(99,102,241,0.12), transparent 40%),
-      radial-gradient(800px 500px at 80% 80%, rgba(56,189,248,0.12), transparent 45%),
-      linear-gradient(180deg, #020617, #020617);
+      linear-gradient(rgba(2, 6, 23, 0.6), rgba(2, 6, 23, 0.6)),
+      url("/slide1.jpg") center / cover no-repeat;
   
     color: #e5e7eb;
     font-family: system-ui, -apple-system, BlinkMacSystemFont,
       "SF Pro Text", "Segoe UI", sans-serif;
   
     overflow: hidden;
-  }
-  
-  /* ================================
-     BACKGROUND IMAGE CAROUSEL
-     ================================ */
-  
-  .login-carousel {
-    position: absolute;
-    inset: 0;
-    z-index: 1;
-    overflow: hidden;
-  }
-  
-  .carousel-slide {
-    position: absolute;
-    inset: 0;
-    background-size: cover;
-    background-position: center;
-    opacity: 0;
-    transition: opacity 1.2s ease-in-out;
-  }
-  
-  .carousel-slide.active {
-    opacity: 1;
-  }
-  
-  /* subtle dark overlay for readability */
-  .login-carousel::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: rgba(2, 6, 23, 0.55);
   }
   
   /* ================================
@@ -62,29 +31,29 @@
     z-index: 2;
     width: 100%;
     max-width: 420px;
-    padding: 2.6rem 3rem;
+    padding: 2.4rem 2.8rem;
     border-radius: 22px;
     text-align: center;
   
     background: linear-gradient(
       180deg,
-      rgba(255,255,255,0.14),
-      rgba(255,255,255,0.04)
+      rgba(255, 255, 255, 0.14),
+      rgba(255, 255, 255, 0.04)
     );
   
     backdrop-filter: blur(22px) saturate(160%);
     -webkit-backdrop-filter: blur(22px) saturate(160%);
   
-    border: 1px solid rgba(255,255,255,0.18);
+    border: 1px solid rgba(255, 255, 255, 0.18);
   
     box-shadow:
-      0 40px 80px rgba(0,0,0,0.55),
-      inset 0 1px 0 rgba(255,255,255,0.35);
+      0 40px 80px rgba(0, 0, 0, 0.55),
+      inset 0 1px 0 rgba(255, 255, 255, 0.35);
   
     overflow: hidden;
   }
   
-  /* shimmer highlight */
+  /* subtle shimmer */
   .glass-container::before {
     content: "";
     position: absolute;
@@ -92,9 +61,9 @@
     background: linear-gradient(
       120deg,
       transparent 35%,
-      rgba(255,255,255,0.08) 45%,
-      rgba(255,255,255,0.14) 50%,
-      rgba(255,255,255,0.08) 55%,
+      rgba(255, 255, 255, 0.08) 45%,
+      rgba(255, 255, 255, 0.14) 50%,
+      rgba(255, 255, 255, 0.08) 55%,
       transparent 65%
     );
     transform: translateX(-60%);
@@ -112,12 +81,18 @@
      HEADINGS
      ================================ */
   
+  .glass-container h1 {
+    font-size: 1.6rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+  }
+  
   .glass-container h2 {
-    margin-bottom: 1.6rem;
-    font-size: 0.8rem;
+    margin-bottom: 1.4rem;
+    font-size: 0.75rem;
     letter-spacing: 0.18em;
     text-transform: uppercase;
-    color: rgba(229,231,235,0.75);
+    color: rgba(229, 231, 235, 0.75);
   }
   
   /* ================================
@@ -130,8 +105,8 @@
     padding: 0.75rem 0.9rem;
     border-radius: 14px;
   
-    background: rgba(2,6,23,0.55);
-    border: 1px solid rgba(255,255,255,0.16);
+    background: rgba(2, 6, 23, 0.55);
+    border: 1px solid rgba(255, 255, 255, 0.16);
   
     color: #f9fafb;
     font-size: 0.9rem;
@@ -139,12 +114,12 @@
   }
   
   .glass-container input::placeholder {
-    color: rgba(148,163,184,0.65);
+    color: rgba(148, 163, 184, 0.65);
   }
   
   .glass-container input:focus {
-    border-color: rgba(56,189,248,0.7);
-    box-shadow: 0 0 0 1px rgba(56,189,248,0.45);
+    border-color: rgba(56, 189, 248, 0.7);
+    box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.45);
   }
   
   /* ================================
@@ -155,12 +130,12 @@
   .teacher-btn {
     all: unset;
     width: 100%;
-    padding: 0.9rem;
+    padding: 0.85rem;
     border-radius: 999px;
     text-align: center;
   
     font-weight: 700;
-    font-size: 0.85rem;
+    font-size: 0.8rem;
     letter-spacing: 0.08em;
     text-transform: uppercase;
   
@@ -171,8 +146,8 @@
   /* admin */
   .admin-btn {
     background: linear-gradient(135deg, #ef4444, #f97316);
-    color: #fff;
-    box-shadow: 0 10px 30px rgba(249,115,22,0.35);
+    color: #ffffff;
+    box-shadow: 0 10px 30px rgba(249, 115, 22, 0.35);
   }
   
   .admin-btn:hover {
@@ -181,12 +156,93 @@
   
   /* teacher */
   .teacher-btn {
+    margin-top: 0.9rem;
     background: linear-gradient(135deg, #00ff7a, #06b6d4);
     color: #022c22;
-    box-shadow: 0 10px 34px rgba(0,255,122,0.35);
+    box-shadow: 0 10px 34px rgba(0, 255, 122, 0.35);
   }
   
   .teacher-btn:hover {
     transform: translateY(-2px);
   }
   
+  /* ================================
+     MOBILE OPTIMIZATION
+     ================================ */
+  
+  @media (max-width: 640px) {
+    .glass-container {
+      padding: 1.9rem 1.6rem;
+      border-radius: 18px;
+    }
+  
+    .glass-container h1 {
+      font-size: 1.35rem;
+    }
+  
+    .glass-container h2 {
+      font-size: 0.65rem;
+    }
+  
+    .glass-container input {
+      padding: 0.6rem 0.75rem;
+      font-size: 0.85rem;
+    }
+  
+    .admin-btn,
+    .teacher-btn {
+      padding: 0.7rem;
+      font-size: 0.72rem;
+      letter-spacing: 0.06em;
+    }
+  }
+  
+  @media (max-width: 380px) {
+    .admin-btn,
+    .teacher-btn {
+      font-size: 0.68rem;
+      padding: 0.65rem;
+    }
+  }
+  /* ================================
+   BACKGROUND IMAGE SLIDESHOW
+   ================================ */
+
+.login-background {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+}
+
+/* each background image */
+.carousel-slide {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+
+  opacity: 0;
+  transition: opacity 1.8s ease-in-out;
+}
+
+/* active image */
+.carousel-slide.active {
+  opacity: 1;
+}
+
+/* dark overlay for readability */
+.login-background::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.55);
+  z-index: 1;
+}
+
+/* keep glass card above background */
+.glass-container {
+  position: relative;
+  z-index: 2;
+}

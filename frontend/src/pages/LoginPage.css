@@ -246,3 +246,44 @@
   position: relative;
   z-index: 2;
 }
+
+/* Secondary auth button (matches primary style) */
+.auth-secondary-btn {
+  width: 100%;
+  margin-top: 0.75rem;
+
+  padding: 0.9rem 1.1rem;
+  border-radius: 999px;
+
+  background: transparent;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+
+  color: #e5e7eb;
+  font-size: 0.85rem;
+  font-weight: 500;
+
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    transform 0.12s ease,
+    box-shadow 0.12s ease,
+    border-color 0.12s ease;
+}
+
+/* Hover / focus */
+.auth-secondary-btn:hover,
+.auth-secondary-btn:focus {
+  background: rgba(148, 163, 184, 0.08);
+  border-color: rgba(148, 163, 184, 0.7);
+  box-shadow: 0 0 18px rgba(148, 163, 184, 0.15);
+  transform: translateY(-1px);
+  outline: none;
+}
+
+/* Active press */
+.auth-secondary-btn:active {
+  transform: translateY(0);
+}

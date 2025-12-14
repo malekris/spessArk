@@ -1,10 +1,13 @@
 // src/pages/TeacherLogin.jsx
 import React, { useState } from "react";
-import "./LoginPage.css"; // reuse liquid glass styles
+import { useNavigate } from "react-router-dom";
+import "./LoginPage.css";
 
 const API_BASE = "http://localhost:5001";
 
-function TeacherLogin({ onLoginSuccess, onBackToAdmin }) {
+function TeacherLogin() {
+  const navigate = useNavigate(); // ✅ REQUIRED
+
   const [form, setForm] = useState({
     email: "",
     password: "",
@@ -38,12 +41,8 @@ function TeacherLogin({ onLoginSuccess, onBackToAdmin }) {
       });
 
       if (!res.ok) {
-        let message = `Login failed (${res.status})`;
-        try {
-          const body = await res.json();
-          if (body?.message) message = body.message;
-        } catch {}
-        throw new Error(message);
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.message || "Login failed");
       }
 
       const { token, teacher } = await res.json();
@@ -51,9 +50,8 @@ function TeacherLogin({ onLoginSuccess, onBackToAdmin }) {
       localStorage.setItem("teacherToken", token);
       localStorage.setItem("teacherProfile", JSON.stringify(teacher));
 
-      if (typeof onLoginSuccess === "function") {
-        onLoginSuccess(teacher, token);
-      }
+      // ✅ GO TO TEACHER DASHBOARD
+      navigate("/teacher");
     } catch (err) {
       setError(err.message || "Login failed. Please try again.");
     } finally {
@@ -64,51 +62,15 @@ function TeacherLogin({ onLoginSuccess, onBackToAdmin }) {
   return (
     <div className="login-page">
       <div className="glass-container">
-        {/* Title */}
-        <h1
-          style={{
-            margin: 0,
-            marginBottom: "0.35rem",
-            fontSize: "1.6rem",
-            fontWeight: 700,
-            letterSpacing: "0.1em",
-          }}
-        >
-          Teacher Access
-        </h1>
-
+        <h1>Teacher Access</h1>
         <h2>Manage Student Marks</h2>
 
-        <p
-          style={{
-            marginTop: "-0.3rem",
-            marginBottom: "1rem",
-            fontSize: "0.85rem",
-            color: "rgba(148,163,184,0.85)",
-          }}
-        >
+        <p style={{ fontSize: "0.85rem", color: "#9ca3af" }}>
           Sign in to enter and update marks for your assigned classes.
         </p>
 
-        {/* Error message */}
-        {error && (
-          <div
-            style={{
-              marginBottom: "0.9rem",
-              padding: "0.55rem 0.75rem",
-              borderRadius: "12px",
-              background: "rgba(239,68,68,0.12)",
-              border: "1px solid rgba(239,68,68,0.45)",
-              color: "#fecaca",
-              fontSize: "0.8rem",
-              textAlign: "left",
-            }}
-          >
-            {error}
-          </div>
-        )}
+        {error && <div className="login-error">{error}</div>}
 
-        {/* Login form */}
         <form onSubmit={handleSubmit}>
           <input
             name="email"
@@ -132,15 +94,16 @@ function TeacherLogin({ onLoginSuccess, onBackToAdmin }) {
               className="teacher-btn"
               disabled={loading}
             >
-              {loading ? <span className="btn-spinner" /> : "Sign in as Teacher"}
+              {loading ? "Signing in…" : "Sign in as Teacher"}
             </button>
 
+            {/* ✅ THIS NOW WORKS */}
             <button
               type="button"
-              onClick={onBackToAdmin}
-              className="back-link-btn"
+              className="auth-secondary-btn"
+              onClick={() => navigate("/")}
             >
-              ← Back to admin login
+              ← Back to Admin Login
             </button>
           </div>
         </form>

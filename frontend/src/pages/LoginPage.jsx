@@ -88,7 +88,7 @@ function LoginPage({ onLogin }) {
         </h1>
 
         <h2>Admin / Teacher Access</h2>
-
+        <h3> St.Phillip's Academic Records Kit</h3>  
         {error && (
           <div
             style={{

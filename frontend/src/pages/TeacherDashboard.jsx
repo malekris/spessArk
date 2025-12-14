@@ -1,13 +1,13 @@
-// src/pages/TeacherDashboard.jsx
 import React, { useEffect, useState } from "react";
-import "./AdminDashboard.css"; // reuse dark styling
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
+import "./AdminDashboard.css";
+import badge from "../assets/badge.png";
 
 const API_BASE = "http://localhost:5001";
 
 function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
-  /* =====================
-     ORIENTATION DETECTION
-     ===================== */
+  /* ================= ORIENTATION ================= */
   const [isPortrait, setIsPortrait] = useState(
     window.matchMedia("(orientation: portrait)").matches
   );
@@ -19,97 +19,47 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
     return () => mq.removeEventListener("change", handler);
   }, []);
 
-  /* =====================
-     PROFILE STATE
-     ===================== */
+  /* ================= PROFILE ================= */
   const [teacher, setTeacher] = useState(() => {
-    if (initialTeacher) return initialTeacher;
-    const stored = localStorage.getItem("teacherProfile");
     try {
-      return stored ? JSON.parse(stored) : null;
+      return initialTeacher
+        ? initialTeacher
+        : JSON.parse(localStorage.getItem("teacherProfile"));
     } catch {
       return null;
     }
   });
 
-  const [loadingProfile, setLoadingProfile] = useState(false);
-  const [profileError, setProfileError] = useState("");
-
-  /* =====================
-     ASSIGNMENTS
-     ===================== */
+  /* ================= ASSIGNMENTS ================= */
   const [assignments, setAssignments] = useState([]);
-  const [loadingAssignments, setLoadingAssignments] = useState(false);
-  const [assignError, setAssignError] = useState("");
-
-  /* =====================
-     MARKS ENTRY
-     ===================== */
   const [selectedAssignment, setSelectedAssignment] = useState(null);
+
+  /* ================= MARKS ================= */
   const [students, setStudents] = useState([]);
   const [studentMarks, setStudentMarks] = useState({});
+  const [studentStatus, setStudentStatus] = useState({});
 
-  const [marksTerm, setMarksTerm] = useState("Term 1");
   const [marksYear, setMarksYear] = useState(new Date().getFullYear());
+  const [marksTerm, setMarksTerm] = useState("Term 1");
   const [marksAoi, setMarksAoi] = useState("AOI1");
 
   const [marksLoading, setMarksLoading] = useState(false);
   const [marksSaving, setMarksSaving] = useState(false);
   const [marksError, setMarksError] = useState("");
-  const [marksSuccess, setMarksSuccess] = useState("");
 
-  /* =====================
-     INITIAL LOAD
-     ===================== */
+  /* ================= INITIAL LOAD ================= */
   useEffect(() => {
     const token = localStorage.getItem("teacherToken");
     if (!token) return;
 
-    const fetchProfile = async () => {
-      try {
-        setLoadingProfile(true);
-        const res = await fetch(`${API_BASE}/api/teacher/me`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (!res.ok) throw new Error();
-        const data = await res.json();
-        setTeacher(data);
-        localStorage.setItem("teacherProfile", JSON.stringify(data));
-      } catch {
-        setProfileError("Could not refresh profile.");
-      } finally {
-        setLoadingProfile(false);
-      }
-    };
-
-    const fetchAssignments = async () => {
-      try {
-        setLoadingAssignments(true);
-        const res = await fetch(`${API_BASE}/api/teacher/assignments`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (!res.ok) throw new Error();
-        const data = await res.json();
-        setAssignments(Array.isArray(data) ? data : []);
-      } catch {
-        setAssignError("Could not load assignments.");
-      } finally {
-        setLoadingAssignments(false);
-      }
-    };
-
-    fetchProfile();
-    fetchAssignments();
+    fetch(`${API_BASE}/api/teacher/assignments`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => r.json())
+      .then((d) => setAssignments(Array.isArray(d) ? d : []));
   }, []);
 
-  /* =====================
-     HELPERS
-     ===================== */
-  const handleLogoutClick = () => {
-    localStorage.clear();
-    onLogout?.();
-  };
-
+  /* ================= LOAD STUDENTS ================= */
   const loadStudentsAndMarks = async (assignment) => {
     const token = localStorage.getItem("teacherToken");
     if (!token) return;
@@ -123,13 +73,12 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
         { headers: { Authorization: `Bearer ${token}` } }
       );
       const data = await resStudents.json();
-      const list = Array.isArray(data.students) ? data.students : [];
-      setStudents(list);
+      setStudents(data.students || []);
 
       const params = new URLSearchParams({
         assignmentId: assignment.id,
-        term: marksTerm,
         year: marksYear,
+        term: marksTerm,
         aoi: marksAoi,
       });
 
@@ -138,39 +87,51 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
-      let map = {};
-      if (resMarks.ok) {
-        const marks = await resMarks.json();
-        if (Array.isArray(marks)) {
-          marks.forEach((m) => (map[m.student_id] = String(m.score)));
+      const marks = resMarks.ok ? await resMarks.json() : [];
+      const marksMap = {};
+      const statusMap = {};
+
+      marks.forEach((m) => {
+        if (m.score === "Missed") {
+          statusMap[m.student_id] = "Missed";
+        } else {
+          marksMap[m.student_id] = m.score;
+          statusMap[m.student_id] = "Present";
         }
-      }
-      setStudentMarks(map);
+      });
+
+      setStudentMarks(marksMap);
+      setStudentStatus(statusMap);
     } catch {
       setMarksError("Failed to load learners or marks.");
-      setStudents([]);
     } finally {
       setMarksLoading(false);
     }
   };
 
+  /* ================= SAVE MARKS ================= */
   const handleSaveMarks = async () => {
     if (!selectedAssignment) return;
-
     const token = localStorage.getItem("teacherToken");
     if (!token) return;
 
-    const payload = students.map((s) => ({
-      studentId: s.id,
-      score: studentMarks[s.id] ?? "",
-    }));
-
     try {
-      setMarksSaving(true);
-      setMarksError("");
-      setMarksSuccess("");
+      const payload = students.map((s) => {
+        if (studentStatus[s.id] === "Missed") {
+          return { studentId: s.id, score: "Missed" };
+        }
 
-      const res = await fetch(`${API_BASE}/api/teacher/marks`, {
+        const val = parseFloat(studentMarks[s.id]);
+        if (isNaN(val) || val < 0.9 || val > 3.0) {
+          throw new Error("Scores must be between 0.9 and 3.0");
+        }
+
+        return { studentId: s.id, score: val };
+      });
+
+      setMarksSaving(true);
+
+      await fetch(`${API_BASE}/api/teacher/marks`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -178,32 +139,139 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
         },
         body: JSON.stringify({
           assignmentId: selectedAssignment.id,
-          term: marksTerm,
           year: marksYear,
+          term: marksTerm,
           aoiLabel: marksAoi,
           marks: payload,
         }),
       });
 
-      if (!res.ok) throw new Error();
-      setMarksSuccess("Marks saved successfully.");
       alert("Marks saved successfully.");
-    } catch {
-      setMarksError("Failed to save marks.");
+    } catch (e) {
+      setMarksError(e.message);
     } finally {
       setMarksSaving(false);
     }
   };
 
-  /* =====================
-     RENDER
-     ===================== */
+  /* ================= PDF ================= */
+  const handleDownloadPDF = async () => {
+    if (!selectedAssignment || students.length === 0) {
+      alert("Select a class and load learners first.");
+      return;
+    }
+  
+    const doc = new jsPDF("p", "mm", "a4");
+  
+    /* ===== LOAD BADGE IMAGE ===== */
+    const img = new Image();
+    img.src = badge;
+  
+    img.onload = () => {
+      /* ===== HEADER (LIGHT & CLEAN) ===== */
+      doc.addImage(img, "PNG", 14, 10, 20, 20); // badge (left)
+  
+      doc.setFontSize(16);
+      doc.setTextColor(180, 0, 0); // red
+      doc.setFont("helvetica", "bold");
+      doc.text(
+        "St. Phillips Equatorial Secondary School",
+        105,
+        18,
+        { align: "center" }
+      );
+  
+      doc.setFontSize(10);
+      doc.setTextColor(55, 65, 81); // slate gray
+      doc.setFont("helvetica", "normal");
+  
+      doc.text(
+        `${selectedAssignment.subject} | ${selectedAssignment.class_level} ${selectedAssignment.stream}`,
+        105,
+        24,
+        { align: "center" }
+      );
+  
+      doc.text(
+        `${marksYear} • ${marksTerm} • ${marksAoi}`,
+        105,
+        29,
+        { align: "center" }
+      );
+  
+      /* ===== TABLE DATA ===== */
+      const tableBody = students.map((s, i) => [
+        i + 1,
+        s.name,
+        s.gender,
+        studentStatus[s.id] === "Missed"
+          ? "Missed"
+          : studentMarks[s.id] ?? "—",
+      ]);
+  
+      /* ===== TABLE ===== */
+      autoTable(doc, {
+        startY: 38,
+        head: [["#", "Learner Name", "Gender", "Score"]],
+        body: tableBody,
+  
+        theme: "grid",
+  
+        styles: {
+          fontSize: 9,
+          cellPadding: 3,
+          valign: "middle",
+        },
+  
+        headStyles: {
+          fillColor: [226, 232, 240], // light gray
+          textColor: 15,
+          fontStyle: "bold",
+        },
+  
+        alternateRowStyles: {
+          fillColor: [248, 250, 252],
+        },
+  
+        columnStyles: {
+          0: { cellWidth: 10 },
+          1: { cellWidth: 90 },
+          2: { cellWidth: 30 },
+          3: { cellWidth: 30 },
+        },
+  
+        didDrawPage: () => {
+          const pageHeight = doc.internal.pageSize.height;
+  
+          doc.setFontSize(8);
+          doc.setTextColor(100);
+  
+          doc.text(
+            `Submitted by ${teacher?.name || "Teacher"} on ${new Date().toLocaleString()}`,
+            14,
+            pageHeight - 10
+          );
+  
+          doc.text(
+            `Page ${doc.internal.getNumberOfPages()}`,
+            180,
+            pageHeight - 10
+          );
+        },
+      });
+  
+      /* ===== OPEN (MOBILE SAFE) ===== */
+      window.open(doc.output("bloburl"), "_blank");
+    };
+  };
+  
+  /* ================= RENDER ================= */
   return (
-    <div className="admin-root">
-      {/* ROTATE NOTICE */}
+    <div className="admin-root teacher-root">
+
       {isPortrait && (
-        <div className="panel-alert" style={{ margin: "1rem" }}>
-          📱 For best experience, rotate your phone to landscape mode.
+        <div className="panel-alert">
+          📱 Rotate your phone for better mark entry
         </div>
       )}
 
@@ -212,7 +280,7 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
           <span className="brand-text">SPESS’s ARK</span>
           <span className="brand-tag">Teacher</span>
         </div>
-        <button className="nav-logout" onClick={handleLogoutClick}>
+        <button className="nav-logout" onClick={onLogout}>
           Logout
         </button>
       </header>
@@ -225,86 +293,124 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
 
         {/* ASSIGNMENTS */}
         <section className="panel">
-          <div className="panel-header">
-            <h2>My Teaching Assignments</h2>
-          </div>
-
           <div className="panel-card">
-            <div className="teachers-table-wrapper">
+            <table className="teachers-table">
+              <thead>
+                <tr>
+                  <th>Class</th>
+                  <th>Stream</th>
+                  <th>Subject</th>
+                </tr>
+              </thead>
+              <tbody>
+                {assignments.map((a) => (
+                  <tr
+                    key={a.id}
+                    onClick={() => {
+                      setSelectedAssignment(a);
+                      loadStudentsAndMarks(a);
+                    }}
+                  >
+                    <td>{a.class_level}</td>
+                    <td>{a.stream}</td>
+                    <td>{a.subject}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        {/* MARK ENTRY */}
+        {selectedAssignment && (
+          <section className="panel">
+            <div className="panel-card">
+              {/* CONTEXT BANNER */}
+              <div className="panel-alert">
+                You are entering marks for{" "}
+                <strong>
+                  {selectedAssignment.class_level} {selectedAssignment.stream} —{" "}
+                  {selectedAssignment.subject}
+                </strong>{" "}
+                ({marksYear}, {marksTerm}, {marksAoi})
+              </div>
+
+              <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap" }}>
+                <input
+                  type="number"
+                  value={marksYear}
+                  onChange={(e) => setMarksYear(e.target.value)}
+                />
+                <select value={marksTerm} onChange={(e) => setMarksTerm(e.target.value)}>
+                  <option>Term 1</option>
+                  <option>Term 2</option>
+                  <option>Term 3</option>
+                </select>
+                <select value={marksAoi} onChange={(e) => setMarksAoi(e.target.value)}>
+                  <option>AOI1</option>
+                  <option>AOI2</option>
+                  <option>AOI3</option>
+                </select>
+                <button onClick={() => loadStudentsAndMarks(selectedAssignment)}>
+                  Reload
+                </button>
+              </div>
+
               <table className="teachers-table">
                 <thead>
                   <tr>
-                    <th>Class</th>
-                    <th>Stream</th>
-                    <th>Subject</th>
+                    <th>Learner</th>
+                    <th>Gender</th>
+                    <th>Status</th>
+                    <th>Score</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {assignments.map((a) => (
-                    <tr
-                      key={a.id}
-                      onClick={() => {
-                        setSelectedAssignment(a);
-                        loadStudentsAndMarks(a);
-                      }}
-                    >
-                      <td>{a.class_level}</td>
-                      <td>{a.stream}</td>
-                      <td>{a.subject}</td>
+                  {students.map((s) => (
+                    <tr key={s.id}>
+                      <td>{s.name}</td>
+                      <td>{s.gender}</td>
+                      <td>
+                        <select
+                          value={studentStatus[s.id] || "Present"}
+                          onChange={(e) =>
+                            setStudentStatus((p) => ({
+                              ...p,
+                              [s.id]: e.target.value,
+                            }))
+                          }
+                        >
+                          <option>Present</option>
+                          <option>Missed</option>
+                        </select>
+                      </td>
+                      <td>
+                        <input
+                          type="number"
+                          min="0.9"
+                          max="3.0"
+                          step="0.1"
+                          disabled={studentStatus[s.id] === "Missed"}
+                          value={studentMarks[s.id] ?? ""}
+                          onChange={(e) =>
+                            setStudentMarks((p) => ({
+                              ...p,
+                              [s.id]: e.target.value,
+                            }))
+                          }
+                        />
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-            </div>
-          </div>
-        </section>
-
-        {/* MARKS */}
-        {selectedAssignment && (
-          <section className="panel">
-            <div className="panel-card">
-              <div className="teachers-table-wrapper">
-                <table className="teachers-table">
-                  <thead>
-                    <tr>
-                      <th>Learner</th>
-                      <th>Gender</th>
-                      <th>Score</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {students.map((s) => (
-                      <tr key={s.id}>
-                        <td>{s.name}</td>
-                        <td>{s.gender}</td>
-                        <td>
-                          <input
-                            type="number"
-                            min="0.9"
-                            max="3.0"
-                            step="0.1"
-                            value={studentMarks[s.id] ?? ""}
-                            onChange={(e) =>
-                              setStudentMarks((p) => ({
-                                ...p,
-                                [s.id]: e.target.value,
-                              }))
-                            }
-                          />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
 
               <div style={{ textAlign: "right", marginTop: "1rem" }}>
-                <button
-                  className="primary-btn"
-                  onClick={handleSaveMarks}
-                  disabled={marksSaving}
-                >
-                  {marksSaving ? "Saving…" : "Save AOI Marks"}
+                <button className="secondary-btn" onClick={handleDownloadPDF}>
+                  Download PDF
+                </button>
+                <button className="primary-btn" onClick={handleSaveMarks}>
+                  Save Marks
                 </button>
               </div>
             </div>

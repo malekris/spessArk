@@ -5,6 +5,7 @@ import dotenv from "dotenv";
 import mysql from "mysql2/promise";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
 
 import teacherRoutes from "./routes/teachers.js";
 
@@ -27,6 +28,9 @@ app.use("/api/teachers", teacherRoutes);
 /* =======================
    AUTH HELPERS
 ======================= */
+function generateVerifyToken() {
+  return crypto.randomBytes(32).toString("hex");
+}
 function signTeacherToken(teacher) {
   return jwt.sign(
     {
@@ -615,6 +619,83 @@ app.get("/api/admin/marks-detail", authAdmin, async (req, res) => {
   } catch (err) {
     console.error("Error loading admin marks detail:", err);
     res.status(500).json({ message: "Failed to load marks detail" });
+  }
+});
+app.post("/api/teacher/marks", authTeacher, async (req, res) => {
+  try {
+    const teacherId = req.teacher.id;
+    const { assignmentId, term, year, aoiLabel, marks } = req.body;
+
+    if (!assignmentId || !term || !year || !aoiLabel) {
+      return res.status(400).json({
+        message: "assignmentId, term, year and aoiLabel are required",
+      });
+    }
+
+    for (const m of marks) {
+      if (m.score === "" || m.score === null || m.score === undefined) continue;
+
+      const score = parseFloat(m.score);
+      if (score < 0.9 || score > 3.0) {
+        return res.status(400).json({
+          message: "Score must be between 0.9 and 3.0",
+        });
+      }
+
+      await pool.query(
+        `INSERT INTO marks
+         (teacher_id, assignment_id, student_id, term, year, aoi_label, score)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           score = VALUES(score),
+           updated_at = CURRENT_TIMESTAMP`,
+        [
+          teacherId,
+          assignmentId,
+          m.studentId,
+          term.trim(),
+          parseInt(year, 10),
+          aoiLabel.trim(),
+          score,
+        ]
+      );
+    }
+
+    res.json({ message: "Marks saved successfully" });
+  } catch (err) {
+    console.error("Save marks error:", err);
+    res.status(500).json({ message: "Failed to save marks" });
+  }
+});
+app.get("/api/teacher/marks", authTeacher, async (req, res) => {
+  try {
+    const teacherId = req.teacher.id;
+    const assignmentId = parseInt(req.query.assignmentId, 10);
+    const term = req.query.term?.trim();
+    const year = parseInt(req.query.year, 10);
+    const aoi = req.query.aoi?.trim();
+
+    if (!assignmentId || !term || !year || !aoi) {
+      return res.status(400).json({
+        message: "assignmentId, term, year and aoi are required",
+      });
+    }
+
+    const [rows] = await pool.query(
+      `SELECT student_id, score
+       FROM marks
+       WHERE teacher_id = ?
+         AND assignment_id = ?
+         AND term = ?
+         AND year = ?
+         AND aoi_label = ?`,
+      [teacherId, assignmentId, term, year, aoi]
+    );
+
+    res.json(rows);
+  } catch (err) {
+    console.error("Load marks error:", err);
+    res.status(500).json({ message: "Failed to load marks" });
   }
 });
 

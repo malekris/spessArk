@@ -1,3 +1,4 @@
+// src/pages/TeacherSignup.jsx
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "./LoginPage.css";
@@ -20,22 +21,27 @@ function TeacherSignup() {
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setForm((p) => ({ ...p, [name]: value }));
+    setForm((prev) => ({ ...prev, [name]: value }));
     setError("");
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-  
-    if (!form.name || !form.email || !form.password) {
+
+    if (!form.name || !form.email || !form.password || !form.confirmPassword) {
       setError("All fields are required.");
       return;
     }
-  
+
+    if (form.password !== form.confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+
     try {
       setLoading(true);
       setError("");
-  
+
       const res = await fetch(`${API_BASE}/api/teachers/register`, {
         method: "POST",
         headers: {
@@ -47,26 +53,27 @@ function TeacherSignup() {
           password: form.password,
         }),
       });
-  
+
       const data = await res.json();
-  
+
       if (!res.ok) {
         throw new Error(data.message || "Registration failed");
       }
-  
-      alert(
+
+      setSuccess(
         "Account created successfully. Please check your email to verify your account."
       );
-  
-      // send teacher back to login
-      navigate("/teacher-login");
+
+      // Small delay so user sees success
+      setTimeout(() => {
+        navigate("/teacher-login");
+      }, 2000);
     } catch (err) {
       setError(err.message || "Something went wrong");
     } finally {
       setLoading(false);
     }
   };
-  
 
   return (
     <div className="login-page">
@@ -74,8 +81,8 @@ function TeacherSignup() {
         <h1>Teacher Sign Up</h1>
         <p>Create your teacher account</p>
 
-        {error && <div className="error-box">{error}</div>}
-        {success && <div className="success-box">{success}</div>}
+        {error && <div className="login-error">{error}</div>}
+        {success && <div className="login-success">{success}</div>}
 
         <form onSubmit={handleSubmit}>
           <input
@@ -109,11 +116,7 @@ function TeacherSignup() {
             onChange={handleChange}
           />
 
-          <button
-            type="submit"
-            className="teacher-btn"
-            disabled={loading}
-          >
+          <button type="submit" className="teacher-btn" disabled={loading}>
             {loading ? "Creating account…" : "Create Account"}
           </button>
         </form>

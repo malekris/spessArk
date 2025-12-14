@@ -1,44 +1,178 @@
+// backend/routes/teachers.js
 import express from "express";
 import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
+import mysql from "mysql2/promise";
+import dotenv from "dotenv";
+import { sendVerificationEmail } from "../utils/email.js";
 
+dotenv.config();
 const router = express.Router();
 
-// TEMP in-memory check (replace with DB query)
-const fakeTeachers = []; // remove later
+/* =======================
+   DATABASE
+======================= */
+const pool = mysql.createPool({
+  host: process.env.DB_HOST || "localhost",
+  user: process.env.DB_USER || "root",
+  password: process.env.DB_PASSWORD || "",
+  database: process.env.DB_NAME || "spess_ark",
+  waitForConnections: true,
+  connectionLimit: 10,
+});
 
+/* =======================
+   REGISTER TEACHER
+======================= */
 router.post("/register", async (req, res) => {
+  console.log("🟢 /api/teachers/register HIT:", req.body);
+
+  const { name, email, password } = req.body;
+
+  if (!name || !email || !password) {
+    return res
+      .status(400)
+      .json({ message: "Name, email and password are required" });
+  }
+
   try {
-    const { name, email, password } = req.body;
+    // 🔍 Check if teacher exists
+    const [rows] = await pool.query(
+      "SELECT id, is_verified FROM teachers WHERE email = ?",
+      [email]
+    );
 
-    if (!name || !email || !password) {
-      return res.status(400).json({
-        message: "Name, email and password are required",
-      });
-    }
+    // 🔁 EXISTS
+    if (rows.length > 0) {
+      const teacher = rows[0];
 
-    // Example duplicate check
-    const exists = fakeTeachers.find((t) => t.email === email);
-    if (exists) {
+      // Not verified → resend email
+      if (!teacher.is_verified) {
+        console.log("🔁 Resending verification email to:", email);
+        await sendVerificationEmail(email, teacher.id);
+
+        return res.json({
+          message:
+            "Account exists but is not verified. Verification email resent.",
+        });
+      }
+
+      // Verified → block duplicate
       return res.status(409).json({
-        message: "Teacher already registered",
+        message: "Teacher already exists",
       });
     }
 
-    const hashed = await bcrypt.hash(password, 10);
+    // 🔐 Hash password
+    const passwordHash = await bcrypt.hash(password, 10);
 
-    fakeTeachers.push({
-      name,
-      email,
-      password: hashed,
-      verified: false,
-    });
+    // 🧑‍🏫 Create teacher
+    const [result] = await pool.query(
+      `INSERT INTO teachers (name, email, password_hash, is_verified)
+       VALUES (?, ?, ?, 0)`,
+      [name, email, passwordHash]
+    );
 
-    return res.json({
+    const teacherId = result.insertId;
+    console.log("✅ Teacher created with ID:", teacherId);
+
+    // 📧 Send verification email
+    await sendVerificationEmail(email, teacherId);
+
+    res.status(201).json({
       message:
-        "Account created successfully. Please check your email for verification.",
+        "Account created successfully. Please check your email to verify your account.",
     });
   } catch (err) {
-    console.error(err);
+    console.error("❌ Teacher register error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+/* =======================
+   VERIFY EMAIL
+======================= */
+router.get("/verify/:token", async (req, res) => {
+  try {
+    const { token } = req.params;
+
+    const decoded = jwt.verify(
+      token,
+      process.env.JWT_SECRET || "dev_secret"
+    );
+
+    await pool.query(
+      "UPDATE teachers SET is_verified = 1 WHERE id = ?",
+      [decoded.id]
+    );
+
+    res.send(`
+      <h2>Email verified successfully ✅</h2>
+      <p>You may now return to the app and log in.</p>
+    `);
+  } catch (err) {
+    console.error("❌ Verification error:", err);
+    res.status(400).send("Invalid or expired verification link.");
+  }
+});
+
+/* =======================
+   LOGIN (LOCKED UNTIL VERIFIED)
+======================= */
+router.post("/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    const [rows] = await pool.query(
+      "SELECT * FROM teachers WHERE email = ?",
+      [email]
+    );
+
+    if (rows.length === 0) {
+      return res
+        .status(401)
+        .json({ message: "Invalid email or password" });
+    }
+
+    const teacher = rows[0];
+
+    // 🔒 Block unverified
+    if (!teacher.is_verified) {
+      return res.status(403).json({
+        message:
+          "Your email is not verified. Please check your inbox and verify your account.",
+      });
+    }
+
+    // 🔐 Password check
+    const match = await bcrypt.compare(password, teacher.password_hash);
+    if (!match) {
+      return res
+        .status(401)
+        .json({ message: "Invalid email or password" });
+    }
+
+    // 🎫 Token
+    const token = jwt.sign(
+      {
+        id: teacher.id,
+        email: teacher.email,
+        role: "teacher",
+      },
+      process.env.JWT_SECRET || "dev_secret",
+      { expiresIn: "7d" }
+    );
+
+    res.json({
+      token,
+      teacher: {
+        id: teacher.id,
+        name: teacher.name,
+        email: teacher.email,
+      },
+    });
+  } catch (err) {
+    console.error("❌ Teacher login error:", err);
     res.status(500).json({ message: "Server error" });
   }
 });

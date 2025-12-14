@@ -1,10 +1,10 @@
 // src/pages/LoginPage.jsx
 import React, { useEffect, useState } from "react";
-import "./LoginPage.css";
 import { useNavigate } from "react-router-dom";
+import "./LoginPage.css";
 
-function LoginPage({ onLogin }) {
-  const navigate = useNavigate(); // ✅ CORRECT PLACE
+function LoginPage() {
+  const navigate = useNavigate();
 
   const [form, setForm] = useState({
     username: "",
@@ -14,7 +14,9 @@ function LoginPage({ onLogin }) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  /* Background images */
+  /* ======================
+     BACKGROUND SLIDESHOW
+  ====================== */
   const backgroundImages = ["/slide1.jpg", "/slide2.jpg", "/slide3.jpg"];
   const [activeIndex, setActiveIndex] = useState(0);
 
@@ -22,9 +24,13 @@ function LoginPage({ onLogin }) {
     const interval = setInterval(() => {
       setActiveIndex((prev) => (prev + 1) % backgroundImages.length);
     }, 6000);
+
     return () => clearInterval(interval);
   }, []);
 
+  /* ======================
+     FORM HANDLERS
+  ====================== */
   const handleChange = (e) => {
     const { name, value } = e.target;
     setForm((prev) => ({ ...prev, [name]: value }));
@@ -41,17 +47,22 @@ function LoginPage({ onLogin }) {
 
     setLoading(true);
 
+    // 🔐 TEMP ADMIN LOGIN (DEV)
     setTimeout(() => {
       setLoading(false);
+
       if (form.username === "admin" && form.password === "admin") {
-        onLogin("admin");
-        navigate("/admin"); // ✅ redirect admin
+        // ✅ ADMIN LOGIN SUCCESS
+        navigate("/admin");
       } else {
         setError("Invalid admin credentials.");
       }
     }, 400);
   };
 
+  /* ======================
+     RENDER
+  ====================== */
   return (
     <div className="login-page">
       {/* Background slideshow */}
@@ -59,12 +70,15 @@ function LoginPage({ onLogin }) {
         {backgroundImages.map((img, index) => (
           <div
             key={img}
-            className={`carousel-slide ${index === activeIndex ? "active" : ""}`}
+            className={`carousel-slide ${
+              index === activeIndex ? "active" : ""
+            }`}
             style={{ backgroundImage: `url(${img})` }}
           />
         ))}
       </div>
 
+      {/* Login Card */}
       <div className="glass-container">
         <h1>SPESS’s ARK</h1>
         <h2>Admin / Teacher Access</h2>
@@ -72,10 +86,13 @@ function LoginPage({ onLogin }) {
 
         {error && <div className="login-error">{error}</div>}
 
+        {/* ADMIN LOGIN */}
         <form onSubmit={handleSubmit}>
           <label>Admin username</label>
           <input
             name="username"
+            type="text"
+            placeholder="Admin username"
             value={form.username}
             onChange={handleChange}
           />
@@ -84,16 +101,21 @@ function LoginPage({ onLogin }) {
           <input
             name="password"
             type="password"
+            placeholder="Admin password"
             value={form.password}
             onChange={handleChange}
           />
 
-          <button type="submit" className="admin-btn" disabled={loading}>
+          <button
+            type="submit"
+            className="admin-btn"
+            disabled={loading}
+          >
             {loading ? "Signing in…" : "Sign in as Admin"}
           </button>
         </form>
 
-        {/* ✅ THIS NOW WORKS */}
+        {/* TEACHER ENTRY */}
         <button
           type="button"
           className="teacher-btn"

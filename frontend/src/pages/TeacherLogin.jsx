@@ -6,7 +6,7 @@ import "./LoginPage.css";
 const API_BASE = "http://localhost:5001";
 
 function TeacherLogin() {
-  const navigate = useNavigate(); // ✅ REQUIRED
+  const navigate = useNavigate();
 
   const [form, setForm] = useState({
     email: "",
@@ -50,7 +50,7 @@ function TeacherLogin() {
       localStorage.setItem("teacherToken", token);
       localStorage.setItem("teacherProfile", JSON.stringify(teacher));
 
-      // ✅ GO TO TEACHER DASHBOARD
+      // ✅ Redirect to teacher dashboard
       navigate("/teacher");
     } catch (err) {
       setError(err.message || "Login failed. Please try again.");
@@ -62,14 +62,33 @@ function TeacherLogin() {
   return (
     <div className="login-page">
       <div className="glass-container">
-        <h1>Teacher Access</h1>
+        <h1
+          style={{
+            marginBottom: "0.3rem",
+            letterSpacing: "0.1em",
+            fontWeight: 700,
+          }}
+        >
+          Teacher Access
+        </h1>
+
         <h2>Manage Student Marks</h2>
 
-        <p style={{ fontSize: "0.85rem", color: "#9ca3af" }}>
+        <p
+          style={{
+            fontSize: "0.85rem",
+            color: "#9ca3af",
+            marginBottom: "1rem",
+          }}
+        >
           Sign in to enter and update marks for your assigned classes.
         </p>
 
-        {error && <div className="login-error">{error}</div>}
+        {error && (
+          <div className="login-error">
+            {error}
+          </div>
+        )}
 
         <form onSubmit={handleSubmit}>
           <input
@@ -97,7 +116,6 @@ function TeacherLogin() {
               {loading ? "Signing in…" : "Sign in as Teacher"}
             </button>
 
-            {/* ✅ THIS NOW WORKS */}
             <button
               type="button"
               className="auth-secondary-btn"
@@ -107,6 +125,17 @@ function TeacherLogin() {
             </button>
           </div>
         </form>
+
+        {/* ✅ SIGN UP ENTRY POINT */}
+        <div style={{ marginTop: "1rem", textAlign: "center" }}>
+          <button
+            type="button"
+            className="auth-secondary-btn"
+            onClick={() => navigate("/teacher-signup")}
+          >
+            ✨ First time here? Sign up
+          </button>
+        </div>
       </div>
     </div>
   );

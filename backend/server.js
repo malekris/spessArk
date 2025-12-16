@@ -266,21 +266,32 @@ app.get("/api/admin/marks-sets", authAdmin, async (req, res) => {
         m.term,
         m.year,
         m.aoi_label,
-        COUNT(m.id) AS marks_count
+        COUNT(m.id) AS marks_count,
+        MAX(m.updated_at) AS submitted_at
       FROM marks m
       JOIN teacher_assignments ta ON m.assignment_id = ta.id
       JOIN teachers t ON m.teacher_id = t.id
       GROUP BY
-        m.assignment_id, ta.class_level, ta.stream,
-        ta.subject, t.name, m.term, m.year, m.aoi_label
-      ORDER BY m.year DESC, m.term
+        m.assignment_id,
+        ta.class_level,
+        ta.stream,
+        ta.subject,
+        t.name,
+        m.term,
+        m.year,
+        m.aoi_label
+      ORDER BY
+        m.year DESC,
+        m.term DESC
     `);
+
     res.json(rows);
   } catch (err) {
     console.error("Admin marks sets error:", err);
     res.status(500).json({ message: "Failed to load marks sets" });
   }
 });
+
 app.get("/api/students", async (req, res) => {
   try {
     const [rows] = await pool.query(

@@ -160,7 +160,21 @@ function AdminDashboard({ onLogout }) {
     try {
       const data = await plainFetch("/api/students");
       if (!Array.isArray(data)) throw new Error("Invalid response");
-      setStudents(data);
+  
+      const normalized = data.map((s) => ({
+        ...s,
+        subjects: Array.isArray(s.subjects)
+          ? s.subjects
+          : (() => {
+              try {
+                return JSON.parse(s.subjects || "[]");
+              } catch {
+                return [];
+              }
+            })(),
+      }));
+  
+      setStudents(normalized);
     } catch (err) {
       console.error("Error loading students:", err);
       setStudentError(err.message || "Could not load students.");
@@ -169,6 +183,7 @@ function AdminDashboard({ onLogout }) {
       setLoadingStudents(false);
     }
   };
+  
 
   const handleAddStudent = async (e) => {
     e?.preventDefault();
@@ -696,9 +711,21 @@ function AdminDashboard({ onLogout }) {
                 </div>
 
                 <div className="form-row">
-                  <label htmlFor="class_level">Class</label>
-                  <input id="class_level" name="class_level" type="text" value={studentForm.class_level} onChange={handleStudentInputChange} placeholder="e.g. S1, S2, S3" autoComplete="off" />
-                </div>
+  <label htmlFor="class_level">Class</label>
+  <select
+    id="class_level"
+    name="class_level"
+    value={studentForm.class_level}
+    onChange={handleStudentInputChange}
+  >
+    <option value="">Select class</option>
+    <option value="S1">S1</option>
+    <option value="S2">S2</option>
+    <option value="S3">S3</option>
+    <option value="S4">S4</option>
+  </select>
+</div>
+
 
                 <div className="form-row">
                   <label htmlFor="stream">Stream</label>

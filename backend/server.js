@@ -202,41 +202,43 @@ app.get(
    🔥 THIS IS THE FIX (MARKS LOAD)
 =============================== */
 app.get("/api/teacher/marks", authTeacher, async (req, res) => {
-  const assignmentId = Number(req.query.assignmentId);
-  const year = Number(req.query.year);
-
-  // 🔧 normalize strings
-  const term = (req.query.term || "").trim();
-  const aoi = (req.query.aoi || "").trim();
-
-  if (!assignmentId || !year || !term || !aoi) {
-    return res.status(400).json({ message: "Missing query parameters" });
-  }
-
-  const [rows] = await pool.query(
-    `SELECT student_id, score
-     FROM marks
-     WHERE teacher_id = ?
-       AND assignment_id = ?
-       AND term = ?
-       AND year = ?
-       AND aoi_label = ?`,
-    [req.teacher.id, assignmentId, term, year, aoi]
-  );
-
-  res.json(rows);
-});
-app.get("/api/admin/teachers", authAdmin, async (req, res) => {
   try {
+    const teacherId = req.teacher.id;
+
+    const assignmentId = parseInt(req.query.assignmentId, 10);
+    const year = parseInt(req.query.year, 10);
+
+    /* 🔧 NORMALIZE TERM & AOI */
+    const term = req.query.term?.trim();
+    const aoi = req.query.aoi?.trim().toUpperCase();
+
+    if (!assignmentId || !year || !term || !aoi) {
+      return res.status(400).json({ message: "Missing parameters" });
+    }
+
     const [rows] = await pool.query(
-      "SELECT id, name, email, subject1, subject2, created_at FROM teachers ORDER BY created_at DESC"
+      `
+      SELECT
+        student_id,
+        score
+      FROM marks
+      WHERE teacher_id = ?
+        AND assignment_id = ?
+        AND year = ?
+        AND term = ?
+        AND aoi_label = ?
+      ORDER BY student_id
+      `,
+      [teacherId, assignmentId, year, term, aoi]
     );
+
     res.json(rows);
   } catch (err) {
-    console.error("Admin teachers error:", err);
-    res.status(500).json({ message: "Failed to load teachers" });
+    console.error("❌ GET MARKS ERROR:", err);
+    res.status(500).json({ message: "Failed to load marks" });
   }
 });
+
 app.get("/api/admin/assignments", authAdmin, async (req, res) => {
   try {
     const [rows] = await pool.query(`
@@ -624,49 +626,67 @@ app.get("/api/admin/marks-detail", authAdmin, async (req, res) => {
 app.post("/api/teacher/marks", authTeacher, async (req, res) => {
   try {
     const teacherId = req.teacher.id;
-    const { assignmentId, term, year, aoiLabel, marks } = req.body;
 
-    if (!assignmentId || !term || !year || !aoiLabel) {
-      return res.status(400).json({
-        message: "assignmentId, term, year and aoiLabel are required",
-      });
+    const assignmentId = parseInt(req.body.assignmentId, 10);
+    const year = parseInt(req.body.year, 10);
+    const term = req.body.term?.trim();
+    const aoi = req.body.aoiLabel?.trim().toUpperCase();
+    const marks = req.body.marks;
+
+    if (!assignmentId || !year || !term || !aoi || !Array.isArray(marks)) {
+      return res.status(400).json({ message: "Invalid marks payload" });
     }
-
-    for (const m of marks) {
-      if (m.score === "" || m.score === null || m.score === undefined) continue;
-
-      const score = parseFloat(m.score);
-      if (score < 0.9 || score > 3.0) {
-        return res.status(400).json({
-          message: "Score must be between 0.9 and 3.0",
-        });
+     /* 💾 INSERT OR UPDATE MARKS */
+     for (const m of marks) {
+      const isMissed = m.score === "Missed";
+    
+      // 🚨 HARD BACKEND VALIDATION
+      if (!isMissed) {
+        if (
+          m.score === "" ||
+          m.score === null ||
+          m.score === undefined ||
+          Number.isNaN(Number(m.score))
+        ) {
+          return res.status(400).json({
+            message: "Present students must have a valid score",
+          });
+        }
       }
-
+    
       await pool.query(
-        `INSERT INTO marks
-         (teacher_id, assignment_id, student_id, term, year, aoi_label, score)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE
-           score = VALUES(score),
-           updated_at = CURRENT_TIMESTAMP`,
+        `
+        INSERT INTO marks
+          (teacher_id, assignment_id, student_id, score, status, year, term, aoi_label)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+          score = VALUES(score),
+          status = VALUES(status),
+          year = VALUES(year),
+          term = VALUES(term),
+          teacher_id = VALUES(teacher_id)
+        `,
         [
           teacherId,
           assignmentId,
           m.studentId,
-          term.trim(),
-          parseInt(year, 10),
-          aoiLabel.trim(),
-          score,
+          isMissed ? null : Number(m.score),
+          isMissed ? "Missed" : "Present",
+          year,
+          term,
+          aoi,
         ]
       );
     }
-
+    
+    
     res.json({ message: "Marks saved successfully" });
   } catch (err) {
-    console.error("Save marks error:", err);
+    console.error("❌ Save marks error:", err);
     res.status(500).json({ message: "Failed to save marks" });
   }
 });
+
 app.get("/api/teacher/marks", authTeacher, async (req, res) => {
   try {
     const teacherId = req.teacher.id;
@@ -682,20 +702,89 @@ app.get("/api/teacher/marks", authTeacher, async (req, res) => {
     }
 
     const [rows] = await pool.query(
-      `SELECT student_id, score
-       FROM marks
-       WHERE teacher_id = ?
-         AND assignment_id = ?
-         AND term = ?
-         AND year = ?
-         AND aoi_label = ?`,
+      `
+      SELECT
+        student_id,
+        CASE
+          WHEN status = 'Missed' THEN 'Missed'
+          ELSE score
+        END AS score
+      FROM marks
+      WHERE teacher_id = ?
+        AND assignment_id = ?
+        AND term = ?
+        AND year = ?
+        AND aoi_label = ?
+      `,
       [teacherId, assignmentId, term, year, aoi]
     );
+    
 
     res.json(rows);
   } catch (err) {
     console.error("Load marks error:", err);
     res.status(500).json({ message: "Failed to load marks" });
+  }
+});
+// ===============================
+// TEACHER ANALYTICS — CLASS PERFORMANCE
+// ===============================
+app.get("/api/teacher/analytics/class", authTeacher, async (req, res) => {
+  try {
+    const teacherId = req.teacher.id;
+    const { assignmentId, term, year, aoi } = req.query;
+
+    if (!assignmentId || !term || !year || !aoi) {
+      return res.status(400).json({
+        message: "assignmentId, term, year and aoi are required",
+      });
+    }
+
+    const [rows] = await pool.query(
+      `
+      SELECT
+        COUNT(score) AS learners,
+        ROUND(AVG(score), 2) AS average,
+        MIN(score) AS lowest,
+        MAX(score) AS highest
+      FROM marks
+      WHERE
+        teacher_id = ?
+        AND assignment_id = ?
+        AND term = ?
+        AND year = ?
+        AND aoi_label = ?
+      `,
+      [teacherId, assignmentId, term, year, aoi]
+    );
+
+    const stats = rows[0];
+
+    // Distribution buckets
+    const [distribution] = await pool.query(
+      `
+      SELECT
+        SUM(score BETWEEN 0.9 AND 1.5) AS low,
+        SUM(score BETWEEN 1.6 AND 2.2) AS mid,
+        SUM(score BETWEEN 2.3 AND 3.0) AS high
+      FROM marks
+      WHERE
+        teacher_id = ?
+        AND assignment_id = ?
+        AND term = ?
+        AND year = ?
+        AND aoi_label = ?
+      `,
+      [teacherId, assignmentId, term, year, aoi]
+    );
+
+    res.json({
+      ...stats,
+      distribution: distribution[0],
+    });
+  } catch (err) {
+    console.error("Teacher analytics error:", err);
+    res.status(500).json({ message: "Failed to load analytics" });
   }
 });
 

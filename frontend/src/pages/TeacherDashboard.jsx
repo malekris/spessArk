@@ -7,6 +7,17 @@ import badge from "../assets/badge.png";
 const API_BASE = "http://localhost:5001";
 
 function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
+  const handleLogout = () => {
+    localStorage.removeItem("teacherToken");
+    localStorage.removeItem("teacherProfile");
+  
+    if (typeof onLogout === "function") {
+      onLogout();
+    } else {
+      window.location.href = "/teacher-login";
+    }
+  };
+  
   /* ================= ORIENTATION ================= */
   const [isPortrait, setIsPortrait] = useState(
     window.matchMedia("(orientation: portrait)").matches
@@ -33,6 +44,9 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
   /* ================= ASSIGNMENTS ================= */
   const [assignments, setAssignments] = useState([]);
   const [selectedAssignment, setSelectedAssignment] = useState(null);
+/* ================= ANALYTICS ================= */
+  const [analytics, setAnalytics] = useState(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
 
   /* ================= MARKS ================= */
   const [students, setStudents] = useState([]);
@@ -46,6 +60,7 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
   const [marksLoading, setMarksLoading] = useState(false);
   const [marksSaving, setMarksSaving] = useState(false);
   const [marksError, setMarksError] = useState("");
+  const [markErrors, setMarkErrors] = useState({});
 
   /* ================= INITIAL LOAD ================= */
   useEffect(() => {
@@ -108,7 +123,47 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
       setMarksLoading(false);
     }
   };
-
+  const loadAnalytics = async (assignment) => {
+    const token = localStorage.getItem("teacherToken");
+    if (!token) return;
+  
+    try {
+      setAnalyticsLoading(true);
+  
+      const params = new URLSearchParams({
+        assignmentId: assignment.id,
+        term: marksTerm,
+        year: marksYear,
+        aoi: marksAoi,
+      });
+  
+      const res = await fetch(
+        `${API_BASE}/api/teacher/analytics/class?${params}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+  
+      if (!res.ok) throw new Error("Failed to load analytics");
+  
+      const data = await res.json();
+      setAnalytics(data);
+    } catch (err) {
+      console.error("Analytics load error:", err);
+      setAnalytics(null);
+      
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  };
+    
+  useEffect(() => {
+    if (selectedAssignment) {
+      loadStudentsAndMarks(selectedAssignment);
+    }
+  }, [marksTerm, marksAoi, marksYear]);
+  
+  
   /* ================= SAVE MARKS ================= */
   const handleSaveMarks = async () => {
     if (!selectedAssignment) return;
@@ -280,9 +335,10 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
           <span className="brand-text">SPESS’s ARK</span>
           <span className="brand-tag">Teacher</span>
         </div>
-        <button className="nav-logout" onClick={onLogout}>
-          Logout
-        </button>
+            <button className="nav-logout" onClick={handleLogout}>
+              Logout
+            </button>
+
       </header>
 
       <main className="admin-main">
@@ -309,7 +365,9 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
                     onClick={() => {
                       setSelectedAssignment(a);
                       loadStudentsAndMarks(a);
+                      loadAnalytics(a); // ✅ ADD THIS
                     }}
+                    
                   >
                     <td>{a.class_level}</td>
                     <td>{a.stream}</td>
@@ -385,20 +443,55 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
                         </select>
                       </td>
                       <td>
-                        <input
-                          type="number"
-                          min="0.9"
-                          max="3.0"
-                          step="0.1"
-                          disabled={studentStatus[s.id] === "Missed"}
-                          value={studentMarks[s.id] ?? ""}
-                          onChange={(e) =>
-                            setStudentMarks((p) => ({
-                              ...p,
-                              [s.id]: e.target.value,
-                            }))
-                          }
-                        />
+                      <input
+  type="number"
+  min="0.9"
+  max="3.0"
+  step="0.1"
+  disabled={studentStatus[s.id] === "Missed"}
+  value={studentMarks[s.id] ?? ""}
+  onChange={(e) => {
+    const val = e.target.value;
+
+    // allow temporary empty
+    if (val === "") {
+      setStudentMarks((p) => ({ ...p, [s.id]: "" }));
+      setMarkErrors((p) => ({
+        ...p,
+        [s.id]: "Score required",
+      }));
+      return;
+    }
+
+    const num = Number(val);
+
+    if (num < 0.9 || num > 3.0) {
+      setMarkErrors((p) => ({
+        ...p,
+        [s.id]: "Score must be between 0.9 and 3.0",
+      }));
+    } else {
+      setMarkErrors((p) => {
+        const copy = { ...p };
+        delete copy[s.id];
+        return copy;
+      });
+    }
+
+    setStudentMarks((p) => ({ ...p, [s.id]: val }));
+  }}
+  onBlur={(e) => {
+    if (markErrors[s.id]) {
+      e.target.focus(); // 🔒 lock cursor here
+    }
+  }}
+  style={{
+    border: markErrors[s.id] ? "2px solid #dc2626" : undefined,
+    backgroundColor: markErrors[s.id] ? "#fef2f2" : undefined,
+  }}
+/>
+
+                        
                       </td>
                     </tr>
                   ))}
@@ -409,13 +502,19 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
                 <button className="secondary-btn" onClick={handleDownloadPDF}>
                   Download PDF
                 </button>
-                <button className="primary-btn" onClick={handleSaveMarks}>
-                  Save Marks
+                <button
+                  className="primary-btn"
+                  disabled={Object.keys(markErrors).length > 0}
+                  onClick={handleSaveMarks}
+                  >
+                Save Marks
                 </button>
+
               </div>
             </div>
           </section>
         )}
+        
       </main>
     </div>
   );

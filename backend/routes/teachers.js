@@ -2,24 +2,14 @@
 import express from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import mysql from "mysql2/promise";
 import dotenv from "dotenv";
 import { sendVerificationEmail } from "../utils/email.js";
+import { pool } from "../server.js";
 
 dotenv.config();
 const router = express.Router();
 
-/* =======================
-   DATABASE
-======================= */
-const pool = mysql.createPool({
-  host: process.env.DB_HOST || "localhost",
-  user: process.env.DB_USER || "root",
-  password: process.env.DB_PASSWORD || "",
-  database: process.env.DB_NAME || "spess_ark",
-  waitForConnections: true,
-  connectionLimit: 10,
-});
+
 
 /* =======================
    REGISTER TEACHER

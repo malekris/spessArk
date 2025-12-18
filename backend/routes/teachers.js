@@ -64,7 +64,7 @@ router.post("/register", async (req, res) => {
     // 🧑‍🏫 Create teacher
     const [result] = await pool.query(
       `INSERT INTO teachers (name, email, password_hash, is_verified)
-       VALUES (?, ?, ?, 0)`,
+       VALUES (?, ?, ?, 1)`,
       [name, email, passwordHash]
     );
 

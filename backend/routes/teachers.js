@@ -39,7 +39,12 @@ router.post("/register", async (req, res) => {
       // Not verified → resend email
       if (!teacher.is_verified) {
         console.log("🔁 Resending verification email to:", email);
-        await sendVerificationEmail(email, teacher.id);
+        try {
+          await sendVerificationEmail(email, teacher.id);
+        } catch (emailErr) {
+          console.warn("⚠️ Email resend failed, continuing:", emailErr.message);
+        }
+        
 
         return res.json({
           message:
@@ -67,7 +72,13 @@ router.post("/register", async (req, res) => {
     console.log("✅ Teacher created with ID:", teacherId);
 
     // 📧 Send verification email
-    await sendVerificationEmail(email, teacherId);
+      // 📧 Send verification email (non-blocking)
+try {
+  await sendVerificationEmail(email, teacherId);
+} catch (emailErr) {
+  console.warn("⚠️ Verification email failed, continuing:", emailErr.message);
+}
+
 
     res.status(201).json({
       message:

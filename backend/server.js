@@ -99,7 +99,7 @@ function authAdmin(req, res, next) {
 // ===============================
 // ADMIN → LIST TEACHERS
 // ===============================
-app.get("/api/teachers", authAdmin, async (req, res) => {
+app.get("/api/admin/teachers", authAdmin, async (req, res) => {
   try {
     const [rows] = await pool.query(
       `SELECT id, name, email, subject1, subject2, created_at

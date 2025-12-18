@@ -542,6 +542,19 @@ app.get("/api/classes", async (req, res) => {
     res.status(500).json({ message: "Failed to load classes" });
   }
 });
+// LOOKUP → TEACHERS (no admin auth, safe)
+app.get("/api/lookup/teachers", async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      "SELECT id, name FROM teachers ORDER BY name"
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error("Lookup teachers error:", err);
+    res.status(500).json({ message: "Failed to load teachers" });
+  }
+});
+
 // ===============================
 // ADMIN → ASSIGN SUBJECT TO TEACHER
 // ===============================

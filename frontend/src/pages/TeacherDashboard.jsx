@@ -4,7 +4,7 @@ import autoTable from "jspdf-autotable";
 import "./AdminDashboard.css";
 import badge from "../assets/badge.png";
 
-const API_BASE = "http://localhost:5001";
+const API_BASE = import.meta.env.VITE_API_BASE;
 
 function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
   const handleLogout = () => {

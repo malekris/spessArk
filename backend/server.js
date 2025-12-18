@@ -24,6 +24,25 @@ app.use(express.json());
    ROUTES
 ======================= */
 app.use("/api/teachers", teacherRoutes);
+app.use("/api/teachers", teacherRoutes);
+
+/* =======================
+   PUBLIC LOOKUPS
+======================= */
+app.get("/api/teachers", async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT id, name, email
+       FROM teachers
+       WHERE is_verified = 1
+       ORDER BY name`
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error("Error loading teachers:", err);
+    res.status(500).json({ message: "Failed to load teachers" });
+  }
+});
 
 /* =======================
    AUTH HELPERS

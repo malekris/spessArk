@@ -3,6 +3,13 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import badge from "../assets/badge.png";
 const RHYTHM = 6; // mm — base vertical unit
+const getMedal = (position) => {
+  if (position === 1) return " (1st)";
+  if (position === 2) return " (2nd)";
+  if (position === 3) return " (3rd)";
+  return "";
+};
+
 
 const calculateAge = (dob) => {
   if (!dob) return "—";
@@ -275,20 +282,22 @@ const classTeacherComment = pickComment(
     =========================== */
    // ---------- POSITION CALCULATION (SAFE) ----------
 
-const classRanked = [...studentAverages].sort(
-  (a, b) => b.average - a.average
-);
-
-const classPosition =
-  classRanked.findIndex(
-    (s) => s.id === student.info.student_id
-  ) + 1;
-
-const currentStream = (student.info.stream || "")
+   const classRanked = [...studentAverages].sort(
+    (a, b) => b.average - a.average
+  );
+  
+  const classPosition =
+    classRanked.findIndex(
+      (s) => s.id === student.info.student_id
+    ) + 1;
+  
+  const classTotal = classRanked.length;
+  
+  const currentStream = (student.info.stream || "")
   .trim()
   .toLowerCase();
 
-const streamRanked = studentAverages
+  const streamRanked = studentAverages
   .filter((s) => s.stream === currentStream)
   .sort((a, b) => b.average - a.average);
 
@@ -297,36 +306,93 @@ const streamPosition =
     (s) => s.id === student.info.student_id
   ) + 1;
 
-  const summaryY = doc.lastAutoTable.finalY + RHYTHM;
-
+const streamTotal = streamRanked.length;
 
 // Draw line
-doc.setFont("times", "bold");
-doc.text(`Overall Average: ${overallAverage}`, 15, summaryY);
-doc.text(`Class Position: ${classPosition}`, pageWidth / 2 - 20, summaryY);
-doc.text(`Stream Position: ${streamPosition}`, pageWidth - 65, summaryY);
+/* ===========================
+   SUMMARY TABLE (ONE ROW)
+=========================== */
+
+autoTable(doc, {
+  startY: afterTableY + 8,
+
+  body: [[
+    `Overall Average: ${overallAverage}`,
+    `Class Position: ${classPosition} / ${classTotal}${getMedal(classPosition)}`,
+    `Stream Position: ${streamPosition} / ${streamTotal}${getMedal(streamPosition)}`
+  ]],
+
+  styles: {
+    font: "times",
+    fontSize: 11,
+    halign: "center",
+    valign: "middle",
+    cellPadding: 6,
+  },
+
+  bodyStyles: {
+    fillColor: [30, 41, 59],   // dark theme
+    textColor: 255,
+    fontStyle: "bold",
+  },
+
+  columnStyles: {
+    0: { cellWidth: (pageWidth - 30) / 3 },
+    1: { cellWidth: (pageWidth - 30) / 3 },
+    2: { cellWidth: (pageWidth - 30) / 3 },
+  },
+
+  theme: "plain",
+});
 
 /* ===========================
    GRADING SCALE (COMPACT)
 =========================== */
+ /* ===========================
+   GRADING SCALE (COMPACT)
+=========================== */
 
 autoTable(doc, {
-  startY: summaryY + RHYTHM * 1.5,
-  head: [["BASIC", "MODERATE", "OUTSTANDING"]],
-  body: [["0.9 – 1.4", "1.5 – 2.4", "2.5 – 3.0"]],
+  startY: doc.lastAutoTable.finalY + 6,
+
+  head: [[
+    "BASIC",
+    "MODERATE",
+    "OUTSTANDING"
+  ]],
+
+  body: [[
+    "0.9 – 1.4",
+    "1.5 – 2.4",
+    "2.5 – 3.0"
+  ]],
+
   styles: {
     font: "times",
+    fontSize: 10,
     halign: "center",
-    cellPadding: 3,
+    cellPadding: 4,
   },
+
   headStyles: {
     fillColor: [39, 55, 78],
     textColor: 255,
     fontStyle: "bold",
   },
-  theme: "striped",
-  tableWidth: pageWidth - 30,
+
+  bodyStyles: {
+    textColor: 60,
+  },
+
+  columnStyles: {
+    0: { cellWidth: (pageWidth - 30) / 3 },
+    1: { cellWidth: (pageWidth - 30) / 3 },
+    2: { cellWidth: (pageWidth - 30) / 3 },
+  },
+
+  theme: "grid",
 });
+
 
 /* ✅ DEFINE commentY HERE */
 const commentY = doc.lastAutoTable.finalY + 10;
@@ -335,71 +401,30 @@ const commentY = doc.lastAutoTable.finalY + 10;
    COMMENTS TABLE
 =========================== */
 autoTable(doc, {
-  startY: doc.lastAutoTable.finalY + RHYTHM,
+  startY: doc.lastAutoTable.finalY + 8,
 
-  head: [[
-    "HEAD TEACHER",
-    "CLASS TEACHER"
-  ]],
+  head: [[ "HEAD TEACHER", "CLASS TEACHER" ]],
 
   body: [
-    [
-      headTeacherComment,
-      classTeacherComment
-    ],
-    [
-      "Signature: ____________________",
-      "Signature: ____________________"
-    ]
+    [headTeacherComment, classTeacherComment],
+    ["Signature: ____________________", "Signature: ____________________"]
   ],
 
   styles: {
     font: "times",
-    fontSize: 12,              // 👈 keep your 12
-    lineHeight: 1.0,           // 👈 CRITICAL
-    minCellHeight: 0,          // 👈 CRITICAL
-    cellPadding: {
-      top: 2,
-      bottom: 2,
-      left: 4,
-      right: 4,
-    },
-    valign: "middle",
+    fontSize: 12,
+    lineHeight: 1.0,
+    cellPadding: { top: 2, bottom: 2, left: 4, right: 4 },
   },
 
   headStyles: {
     fillColor: [39, 55, 78],
     textColor: 255,
     fontStyle: "bold",
-    fontSize: 12,
-  
-    // 🔥 CRITICAL COMPACT SETTINGS
-    lineHeight: 1.0,
-    minCellHeight: 0,
-    cellPadding: {
-      top: 3,
-      bottom: 3,
-      left: 4,
-      right: 4,
-    },
-  
-    halign: "center",
-    valign: "middle",
-  },
-  
-
-  bodyStyles: {
-    textColor: 40,
   },
 
-  columnStyles: {
-    0: { cellWidth: (pageWidth - 30) / 2 },
-    1: { cellWidth: (pageWidth - 30) / 2 },
-  },
-
-  theme: "striped",
+  theme: "grid",
 });
-
 
 /* ===========================
    REQUIREMENTS

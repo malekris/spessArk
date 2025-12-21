@@ -5,6 +5,7 @@ import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
 import { sendVerificationEmail } from "../utils/email.js";
 import { pool } from "../server.js";
+import authTeacher from "../middleware/authTeacher.js";
 
 dotenv.config();
 const router = express.Router();
@@ -175,6 +176,34 @@ router.post("/login", async (req, res) => {
   } catch (err) {
     console.error("❌ Teacher login error:", err);
     res.status(500).json({ message: "Server error" });
+  }
+});
+// GET teacher assigned subjects (classes + streams)
+router.get("/assignments", authTeacher, async (req, res) => {
+  try {
+    const teacherId = req.teacher.id;
+
+    const [rows] = await pool.query(
+      `
+      SELECT
+        ta.id,
+        ta.subject,
+        ta.class_level,
+        ta.stream
+      FROM teacher_assignments ta
+      WHERE ta.teacher_id = ?
+      ORDER BY ta.class_level, ta.stream, ta.subject
+      `,
+      [teacherId]
+    );
+
+    // ✅ Always return JSON
+    return res.json(rows || []);
+  } catch (err) {
+    console.error("❌ Teacher assignments error:", err);
+    return res.status(500).json({
+      message: "Failed to load teacher assignments",
+    });
   }
 });
 

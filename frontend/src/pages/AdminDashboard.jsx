@@ -5,6 +5,7 @@ import jsPDF from "jspdf";
 import AssignSubjectsPanel from "../components/AssignSubjectsPanel";
 import { plainFetch, adminFetch } from "../lib/api";
 import EditStudentModal from "../components/EditStudentModal";
+import EndOfTermReports from "./EndOfTermReports";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 
@@ -83,6 +84,19 @@ function AdminDashboard({ onLogout }) {
     { title: "Assign Subjects", subtitle: "Link teachers to classes", icon: "📘" },
     { title: "Download Marks", subtitle: "View & export assessment scores", icon: "📊" },
     { title: "Manage Teachers", subtitle: "Accounts & permissions", icon: "🧑🏽‍🏫" },
+    {
+      title: "End of Term Reports",
+      subtitle: "Term 1 & Term 2 report cards",
+      icon: "📘",
+      route: "/admin/reports/term",
+    },
+    {
+      title: "End of Year Reports",
+      subtitle: "Final student performance (coming soon)",
+      icon: "📕",
+      route: null, // disabled for now
+    },
+    
   ];
 
   /* ------------------ API / fetch functions ------------------ */
@@ -1008,7 +1022,31 @@ function AdminDashboard({ onLogout }) {
         </section>
       );
     }
-
+    if (activeSection === "End of Term Reports") {
+      return (
+        <section className="panel">
+          <div className="panel-header">
+            <div>
+              <h2>End of Term Reports</h2>
+              <p>Generate printable report cards (Term 1 & Term 2).</p>
+            </div>
+            <button
+              className="panel-close"
+              type="button"
+              onClick={() => setActiveSection("")}
+            >
+              ✕ Close
+            </button>
+          </div>
+    
+          {/* 🔽 REAL UI LIVES HERE */}
+          <EndOfTermReports />
+        </section>
+      );
+    }
+    
+    
+    
     return <p className="admin-hint">Click a card above to open its detailed view.</p>;
   };
   {editingStudent && (

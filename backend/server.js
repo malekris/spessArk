@@ -6,8 +6,11 @@ import mysql from "mysql2/promise";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
-
 import teacherRoutes from "./routes/teachers.js";
+import adminReportsRoutes from "./routes/adminReports.js";
+import authAdmin from "./middleware/authAdmin.js";
+import studentRoutes from "./routes/students.js";
+
 
 dotenv.config();
 
@@ -19,6 +22,9 @@ const PORT = process.env.PORT || 5001;
 ======================= */
 app.use(cors());
 app.use(express.json());
+app.use("/api/teachers", teacherRoutes);
+app.use("/api/students", studentRoutes);
+app.use("/api/admin/reports", adminReportsRoutes);
 
 /* =======================
    ROUTES
@@ -81,25 +87,6 @@ function authTeacher(req, res, next) {
     next();
   } catch {
     return res.status(401).json({ message: "Invalid or expired token" });
-  }
-}
-function authAdmin(req, res, next) {
-  try {
-    const devBypass =
-      process.env.DISABLE_ADMIN_AUTH === "true" ||
-      process.env.NODE_ENV !== "production";
-
-    if (devBypass) return next();
-
-    const key = (req.headers["x-admin-key"] || "").trim();
-    const expected = process.env.ADMIN_KEY || "";
-
-    if (key && expected && key === expected) return next();
-
-    return res.status(401).json({ message: "Admin auth required" });
-  } catch (err) {
-    console.error("authAdmin error:", err);
-    return res.status(401).json({ message: "Admin auth required" });
   }
 }
 

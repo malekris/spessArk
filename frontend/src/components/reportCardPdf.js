@@ -312,28 +312,57 @@ const streamTotal = streamRanked.length;
 /* ===========================
    SUMMARY TABLE (ONE ROW)
 =========================== */
-
 autoTable(doc, {
-  startY: afterTableY + 8,
+  startY: afterTableY + 6,
+
+  head: [[
+    "Overall Average",
+    "Class Position",
+    "Stream Position"
+  ]],
 
   body: [[
     `Overall Average: ${overallAverage}`,
-    `Class Position: ${classPosition} / ${classTotal}${getMedal(classPosition)}`,
-    `Stream Position: ${streamPosition} / ${streamTotal}${getMedal(streamPosition)}`
+    `Class Position: ${classPosition} / ${classTotal} ${getMedal(classPosition)}`,
+    `Stream Position: ${streamPosition} / ${streamTotal} ${getMedal(streamPosition)}`
   ]],
 
   styles: {
     font: "times",
-    fontSize: 11,
+    fontSize: 10,
     halign: "center",
     valign: "middle",
-    cellPadding: 6,
+
+    // 🔽 THESE THREE CONTROL HEIGHT
+    cellPadding: {
+      top: 2,
+      bottom: 2,
+      left: 3,
+      right: 3,
+    },
+    lineHeight: 1.0,
+    minCellHeight: 0,
+  },
+
+  headStyles: {
+    fillColor: [30, 41, 59],
+    textColor: 255,
+    fontStyle: "bold",
+    fontSize: 10,
+
+    // 🔽 ALSO SHRINK HEADER ROW
+    cellPadding: {
+      top: 3,
+      bottom: 3,
+      left: 3,
+      right: 3,
+    },
+    lineHeight: 1.0,
+    minCellHeight: 0,
   },
 
   bodyStyles: {
-    fillColor: [30, 41, 59],   // dark theme
-    textColor: 255,
-    fontStyle: "bold",
+    textColor: 40,
   },
 
   columnStyles: {
@@ -342,12 +371,10 @@ autoTable(doc, {
     2: { cellWidth: (pageWidth - 30) / 3 },
   },
 
-  theme: "plain",
+  theme: "grid",
 });
 
-/* ===========================
-   GRADING SCALE (COMPACT)
-=========================== */
+
  /* ===========================
    GRADING SCALE (COMPACT)
 =========================== */
@@ -371,17 +398,38 @@ autoTable(doc, {
     font: "times",
     fontSize: 10,
     halign: "center",
-    cellPadding: 4,
+    valign: "middle",
+
+    // 🔽 THESE THREE CONTROL HEIGHT
+    cellPadding: {
+      top: 2,
+      bottom: 2,
+      left: 3,
+      right: 3,
+    },
+    lineHeight: 1.0,
+    minCellHeight: 0,
   },
 
   headStyles: {
-    fillColor: [39, 55, 78],
+    fillColor: [30, 41, 59],
     textColor: 255,
     fontStyle: "bold",
+    fontSize: 10,
+
+    // 🔽 ALSO SHRINK HEADER ROW
+    cellPadding: {
+      top: 3,
+      bottom: 3,
+      left: 3,
+      right: 3,
+    },
+    lineHeight: 1.0,
+    minCellHeight: 0,
   },
 
   bodyStyles: {
-    textColor: 60,
+    textColor: 40,
   },
 
   columnStyles: {
@@ -392,6 +440,7 @@ autoTable(doc, {
 
   theme: "grid",
 });
+
 
 
 /* ✅ DEFINE commentY HERE */
@@ -430,16 +479,17 @@ autoTable(doc, {
    REQUIREMENTS
 =========================== */
 
-
 const reqY = doc.lastAutoTable.finalY + RHYTHM;
 
 doc.setFont("times", "bold");
 doc.text("Requirements for Next Term:", 15, reqY);
 
 doc.setFont("times", "normal");
-doc.text("• Toilet paper", 20, reqY + 6);
-doc.text("• Reams of paper", 20, reqY + 12);
-doc.text("• Brooms", 20, reqY + 18);
+doc.text(
+  "Toilet paper • Reams of paper • Brooms",
+  70,
+  reqY
+);
 
 
 /* ===========================

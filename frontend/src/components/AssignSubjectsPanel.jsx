@@ -1,6 +1,9 @@
 // src/components/AssignSubjectsPanel.jsx
 import React, { useEffect, useState } from "react";
 import { plainFetch } from "../lib/api";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
+
 
 // fallback master subjects
 const FALLBACK_SUBJECTS = [
@@ -10,21 +13,40 @@ const FALLBACK_SUBJECTS = [
 ];
 
 export default function AssignSubjectsPanel({ active }) {
+
+  // 1️⃣ ALL useState FIRST
   const [loading, setLoading] = useState(false);
   const [classes, setClasses] = useState([]);
   const [subjects, setSubjects] = useState([]);
   const [teachers, setTeachers] = useState([]);
   const [assignments, setAssignments] = useState([]);
-  const [form, setForm] = useState({ classId: "", subjectId: "", teacherId: "", stream: "" });
+  const [form, setForm] = useState({
+    classId: "",
+    subjectId: "",
+    teacherId: "",
+    stream: ""
+  });
   const [error, setError] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
 
+  // 🔹 PRINT FILTER STATE (MOVE UP)
+  const [printClass, setPrintClass] = useState("");
+  const [printStream, setPrintStream] = useState("");
+
+  // 2️⃣ DERIVED DATA (NOW SAFE)
+  const filteredAssignments = assignments.filter(a => {
+    const classMatch = !printClass || a.class_level === printClass;
+    const streamMatch = !printStream || a.stream === printStream;
+    return classMatch && streamMatch;
+  });
+
+  // 3️⃣ EFFECTS
   useEffect(() => {
     if (!active) return;
     loadAll();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
 
+  // 4️⃣ FUNCTIONS
   async function loadAll() {
     setLoading(true);
     setError("");
@@ -36,6 +58,8 @@ export default function AssignSubjectsPanel({ active }) {
         plainFetch("/api/teachers").catch(() => []),
         plainFetch("/api/admin/assignments").catch(() => [])
       ]);
+      
+
 
       // normalize classes
       const cls = (Array.isArray(clsRes) ? clsRes : []).map((c, i) => {
@@ -142,7 +166,179 @@ export default function AssignSubjectsPanel({ active }) {
       setError(err?.message || "Failed to create assignment. Check server logs.");
     }
   }
+  function handlePrintAssignments() {
+    const printWindow = window.open("", "_blank", "width=900,height=650");
+  
+    const rows = assignments.map(a => `
+      <tr>
+        <td>${a.class_level || "—"}</td>
+        <td>${a.stream || "—"}</td>
+        <td>${a.subject || "—"}</td>
+        <td>${a.teacher_name || a.teacher_id || "—"}</td>
+      </tr>
+    `).join("");
+  
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Teacher Assignments</title>
+          <style>
+            body {
+              font-family: Arial, sans-serif;
+              padding: 20px;
+            }
+            h2 {
+              text-align: center;
+              margin-bottom: 20px;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+            }
+            th, td {
+              border: 1px solid #333;
+              padding: 8px;
+              text-align: left;
+            }
+            th {
+              background: #1e293b;
+              color: #fff;
+            }
+          </style>
+        </head>
+        <body>
+          <h2>Teacher Assignments</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Class</th>
+                <th>Stream</th>
+                <th>Subject</th>
+                <th>Teacher</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows}
+            </tbody>
+          </table>
+        </body>
+      </html>
+    `);
+  
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+  }
+  function addWatermark(doc, text) {
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+  
+    doc.saveGraphicsState();
+  
+    doc.setFont("times", "italic");
+    doc.setFontSize(18);
+    doc.setTextColor(120); // light gray
+    doc.setGState(new doc.GState({ opacity: 0.12 }));
+  
+    doc.text(
+      text,
+      pageWidth / 2,
+      pageHeight / 2,
+      {
+        align: "center",
+        angle: 35,
+      }
+    );
+  
+    doc.restoreGraphicsState();
+  }
+  
+  function handleExportAssignmentsPDF() {
+    if (filteredAssignments.length === 0) {
+      alert("No assignments to export.");
+      return;
+    }
+    const footerText = `Generated from SPESS ARK • Downloaded by Admin • ${new Date().toLocaleString()} • Not valid without stamp`;
 
+    const doc = new jsPDF("p", "mm", "a4");
+    const exportedBy =
+    localStorage.getItem("adminName") ||
+    localStorage.getItem("teacherName") ||
+    "SPESS ARK User";
+
+  const timestamp = new Date().toLocaleString();
+  const watermarkText = `Downloaded by ${exportedBy}\n${timestamp}`;
+    doc.setFont("times", "bold");
+    doc.setFontSize(14);
+    doc.text("Teacher Assignments", 105, 15, { align: "center" });
+  
+    doc.setFontSize(10);
+    doc.setFont("times", "normal");
+    doc.text(
+      `Class: ${printClass || "All"}   |   Stream: ${printStream || "All"}`,
+      105,
+      22,
+      { align: "center" }
+    );
+  
+    autoTable(doc, {
+      startY: 30,
+    
+      head: [["Class", "Stream", "Subject", "Teacher"]],
+    
+      body: filteredAssignments.map(a => [
+        a.class_level || "—",
+        a.stream || "—",
+        a.subject || "—",
+        a.teacher_name || a.teacher_id || "—",
+      ]),
+    
+      styles: {
+        font: "times",
+        fontSize: 10,
+        cellPadding: 3,
+      },
+    
+      headStyles: {
+        fillColor: [30, 41, 59],
+        textColor: 255,
+        fontStyle: "bold",
+      },
+    
+      theme: "grid",
+    
+      // ✅ FOOTER ON EVERY PAGE
+      didDrawPage: () => {
+        addFooter(doc, footerText);
+      },
+    });
+    
+    
+
+    // Preview in new tab (NOT auto-download)
+    const blobUrl = doc.output("bloburl");
+    window.open(blobUrl, "_blank");
+  }
+  function addFooter(doc, footerText) {
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const pageWidth = doc.internal.pageSize.getWidth();
+  
+    doc.setFont("times", "italic");
+    doc.setFontSize(8);
+    doc.setTextColor(120);
+  
+    doc.text(
+      footerText,
+      pageWidth / 2,
+      pageHeight - 10,
+      { align: "center" }
+    );
+  
+    // Reset color so it doesn't affect tables
+    doc.setTextColor(0);
+  }
+  
+  
   async function deleteAssignment(id) {
     if (!window.confirm("Delete this assignment?")) return;
     setError("");
@@ -245,6 +441,44 @@ export default function AssignSubjectsPanel({ active }) {
                     ))}
                   </tbody>
                 </table>
+                <div style={{ marginTop: 16 }}>
+                <div style={{ display: "flex", gap: 12, marginTop: 12 }}>
+  <select value={printClass} onChange={e => setPrintClass(e.target.value)}>
+    <option value="">All Classes</option>
+    {classes.map(c => (
+      <option key={c.id} value={c.name}>{c.name}</option>
+    ))}
+  </select>
+
+  <select value={printStream} onChange={e => setPrintStream(e.target.value)}>
+    <option value="">All Streams</option>
+    <option value="North">North</option>
+    <option value="South">South</option>
+  </select>
+</div>
+
+<div style={{ marginTop: 16, display: "flex", gap: 10 }}>
+  <button
+    type="button"
+    className="ghost-btn"
+    onClick={handlePrintAssignments}
+    disabled={filteredAssignments.length === 0}
+  >
+    🖨️ Print
+  </button>
+
+  <button
+    type="button"
+    className="primary-btn"
+    onClick={handleExportAssignmentsPDF}
+    disabled={filteredAssignments.length === 0}
+  >
+    📄 Export PDF
+  </button>
+</div>
+
+</div>
+
               </div>
             )}
           </div>

@@ -609,6 +609,45 @@ app.post("/api/admin/assignments", authAdmin, async (req, res) => {
     res.status(500).json({ message: "Failed to assign subject" });
   }
 });
+app.delete(
+  "/api/admin/assignments/:id",
+  authAdmin,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      // 1️⃣ Check if marks exist for this assignment
+      const [marks] = await pool.query(
+        "SELECT COUNT(*) AS count FROM marks WHERE assignment_id = ?",
+        [id]
+      );
+
+      if (marks[0].count > 0) {
+        return res.status(409).json({
+          message:
+            "This assignment already has marks recorded and cannot be deleted.",
+        });
+      }
+
+      // 2️⃣ Safe to delete
+      const [result] = await pool.query(
+        "DELETE FROM teacher_assignments WHERE id = ?",
+        [id]
+      );
+
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ message: "Assignment not found" });
+      }
+
+      res.json({ message: "Assignment deleted successfully" });
+    } catch (err) {
+      console.error("Delete assignment error:", err);
+      res.status(500).json({ message: "Failed to delete assignment" });
+    }
+  }
+);
+
+
 // ===============================
 // ADMIN → MARKS DETAIL (PREVIEW)
 // ===============================

@@ -341,8 +341,8 @@ function AdminDashboard({ onLogout }) {
     setStudentError("");
     setSelectedOptionals((prev) => {
       if (prev.includes(subject)) return prev.filter((s) => s !== subject);
-      if (prev.length >= 5) {
-        setStudentError("You can only add up to 5 optional subjects (12 total).");
+      if (prev.length >= 6) {
+        setStudentError("You can only add up to 6 optional subjects (12 total).");
         return prev;
       }
       return [...prev, subject];

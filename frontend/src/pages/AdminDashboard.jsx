@@ -6,9 +6,8 @@ import AssignSubjectsPanel from "../components/AssignSubjectsPanel";
 import { plainFetch, adminFetch } from "../lib/api";
 import EditStudentModal from "../components/EditStudentModal";
 import EndOfTermReports from "./EndOfTermReports";
-
+import { useNavigate } from "react-router-dom";
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5001";
-
 // Compulsory / optional subjects (used for student form)
 const COMPULSORY_SUBJECTS = [
   "English",
@@ -20,7 +19,7 @@ const COMPULSORY_SUBJECTS = [
   "Geography",
 ];
 
-const OPTIONAL_SUBJECTS = [
+  const OPTIONAL_SUBJECTS = [
   "ICT",
   "Agriculture",
   "Physical Education",
@@ -31,17 +30,34 @@ const OPTIONAL_SUBJECTS = [
   "Entrepreneurship",
   "IRE",
   "Kiswahili",
-];
+  ];
 
-const formatDateTime = (value) => {
+  const formatDateTime = (value) => {
   if (!value) return "—";
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return String(value);
   return d.toLocaleString();
-};
+  };
 
+  function AdminDashboard() {
+    const navigate = useNavigate();
+  
+    useEffect(() => {
+      const isAdmin = sessionStorage.getItem("isAdmin");
+      if (!isAdmin) {
+        navigate("/", { replace: true });
+      }
+    }, [navigate]);
+  
+    const handleLogout = () => {
+      sessionStorage.removeItem("isAdmin");
+      navigate("/", { replace: true });
+    };
+  
+  
+  
+  
 
-function AdminDashboard({ onLogout }) {
   const [activeSection, setActiveSection] = useState("");
 
   /* ---------- Teachers ---------- */
@@ -1130,7 +1146,10 @@ function AdminDashboard({ onLogout }) {
           <span className="brand-tag">Admin</span>
         </div>
 
-        <button className="nav-logout" onClick={onLogout || (() => window.location.reload())}>Logout</button>
+        <button className="nav-logout" onClick={handleLogout}>
+  Logout
+</button>
+
       </header>
 
       <main className="admin-main">
@@ -1197,6 +1216,17 @@ function AdminDashboard({ onLogout }) {
 
     </div>
   );
-}
 
+  return (
+    <div className="admin-root">
+      <header className="admin-nav">
+        ...
+        <button className="nav-logout" onClick={handleLogout}>
+          Logout
+        </button>
+      </header>
+      ...
+    </div>
+  );
+}
 export default AdminDashboard;

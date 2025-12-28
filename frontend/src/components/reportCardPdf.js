@@ -174,7 +174,7 @@ let currentY = 95; // below header + student info
         doc.addImage(badge, "PNG", 15, 12, 18, 18);
 
         // School name
-        doc.setFont("times", "bold");
+        doc.setFont("helvetica", "bold");
         doc.setFontSize(15);
         doc.text(
          "ST. PHILLIP'S EQUATORIAL SECONDARY SCHOOL",
@@ -184,7 +184,7 @@ let currentY = 95; // below header + student info
 );
 
 // Address
-doc.setFont("times", "normal");
+doc.setFont("helvetica", "normal");
 doc.setFontSize(10);
 doc.text(
   "P.O. BOX 53, Kayabwe, Mpigi",
@@ -207,7 +207,7 @@ doc.setLineWidth(0.6);
 doc.line(15, 34, pageWidth - 15, 34);
 
 // Report title (ONLY ONCE)
-doc.setFont("times", "bold");
+doc.setFont("helvetica", "bold");
 doc.setFontSize(12);
 doc.text(
   `END OF TERM REPORT — TERM ${meta.term}`,
@@ -229,7 +229,7 @@ const rightX = pageWidth / 2 + 10;
 doc.setFontSize(11);
 
 // Labels
-doc.setFont("times", "bold");
+doc.setFont("helvetica", "bold");
 doc.text("Name:", leftX, infoStartY);
 doc.text("Age:", leftX, infoStartY + 6);
 
@@ -237,7 +237,7 @@ doc.text("Class:", rightX, infoStartY);
 doc.text("Stream:", rightX, infoStartY + 6);
 
 // Values
-doc.setFont("times", "normal");
+doc.setFont("helvetica", "normal");
 doc.text(student.info.student_name || "—", leftX + 22, infoStartY);
 doc.text(
   String(calculateAge(student.info.dob)),
@@ -287,7 +287,7 @@ autoTable(doc, {
   body: tableData,
 
   styles: {
-    font: "times",
+    font: "helvetica",
     fontSize: 9,
     cellPadding: 2,
     overflow: "linebreak",
@@ -461,7 +461,7 @@ autoTable(doc, {
   ]],
 
   styles: {
-    font: "times",
+    font: "helvetica",
     fontSize: 9,
     halign: "center",
     cellPadding: 2,
@@ -499,7 +499,7 @@ autoTable(doc, {
   body: [["0.9 – 1.4", "1.5 – 2.4", "2.5 – 3.0"]],
 
   styles: {
-    font: "times",
+    font: "helvetica",
     fontSize: 9,
     halign: "center",
     cellPadding: 2,
@@ -544,7 +544,7 @@ autoTable(doc, {
   ],
 
   styles: {
-    font: "times",
+    font: "helvetica",
     fontSize: 11,
     lineHeight: 1.0,
     cellPadding: 2,
@@ -571,7 +571,7 @@ currentY = doc.lastAutoTable.finalY + RHYTHM;
 =========================== */
 ensureSpace(10);
 
-doc.setFont("times", "bold");
+doc.setFont("helvetica", "bold");
 doc.text("Requirements for Next Term:", getColumnX(), currentY);
 
 doc.setFont("times", "normal");
@@ -589,11 +589,11 @@ currentY += RHYTHM * 2;
 
 ensureSpace(12);
 
-doc.setFont("times", "bold");
+doc.setFont("helvetica", "bold");
 doc.text("This Term Has Ended On:", getColumnX(), currentY);
 doc.text("Next Term Begins On:", getColumnX(), currentY + RHYTHM);
 
-doc.setFont("times", "normal");
+doc.setFont("helvetica", "normal");
 doc.text("_________________", getColumnX() + 45, currentY);
 doc.text("_________________", getColumnX() + 45, currentY + RHYTHM);
 
@@ -628,7 +628,7 @@ function addFooter(doc) {
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
 
-  doc.setFont("times", "normal");
+  doc.setFont("helvetica", "normal");
   doc.setFontSize(8);
 
   for (let i = 1; i <= pageCount; i++) {

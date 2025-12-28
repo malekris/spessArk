@@ -72,3 +72,23 @@ export async function adminFetch(path, opts = {}) {
     throw err;
   }
 }
+import express from "express";
+const router = express.Router();
+
+/**
+ * STATIC MASTER CLASSES
+ * (Decoupled from students & assignments)
+ */
+router.get("/", (req, res) => {
+  res.json([
+    { id: "S1", name: "S1" },
+    { id: "S2", name: "S2" },
+    { id: "S3", name: "S3" },
+    { id: "S4", name: "S4" },
+    { id: "S5", name: "S5" },
+    { id: "S6", name: "S6" },
+  ]);
+});
+
+export default router;
+

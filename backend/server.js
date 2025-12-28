@@ -10,6 +10,7 @@ import teacherRoutes from "./routes/teachers.js";
 import adminReportsRoutes from "./routes/adminReports.js";
 import authAdmin from "./middleware/authAdmin.js";
 import studentRoutes from "./routes/students.js";
+import classesRoutes from "./routes/classes.js";
 
 
 dotenv.config();
@@ -25,6 +26,7 @@ app.use(express.json());
 app.use("/api/teachers", teacherRoutes);
 app.use("/api/students", studentRoutes);
 app.use("/api/admin/reports", adminReportsRoutes);
+app.use("/api/classes", classesRoutes);
 
 /* =======================
    ROUTES

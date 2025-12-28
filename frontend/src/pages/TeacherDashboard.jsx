@@ -74,7 +74,10 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
       .then((r) => r.json())
       .then((d) => setAssignments(Array.isArray(d) ? d : []));
   }, []);
-
+  useEffect(() => {
+    document.title = "Teacher Dashboard | SPESS ARK";
+  }, []);
+  
   /* ================= LOAD STUDENTS ================= */
   const loadStudentsAndMarks = async (assignment) => {
     const token = localStorage.getItem("teacherToken");

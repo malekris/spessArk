@@ -315,6 +315,27 @@ app.get("/api/students", async (req, res) => {
     res.status(500).json({ message: "Failed to load students" });
   }
 });
+      // DELETE /api/students/:id  (admin only)
+app.delete("/api/students/:id", authAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const [result] = await pool.query(
+      "DELETE FROM students WHERE id = ?",
+      [id]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: "Student not found" });
+    }
+
+    res.json({ message: "Student deleted successfully" });
+  } catch (err) {
+    console.error("Error deleting student:", err);
+    res.status(500).json({ message: "Server error while deleting student" });
+  }
+});
+
 // ===============================
 // ADMIN → TEACHERS
 // ===============================

@@ -801,13 +801,10 @@ app.get("/api/teacher/marks", authTeacher, async (req, res) => {
     res.status(500).json({ message: "Failed to load marks" });
   }
 });
-// ===============================
-// TEACHER ANALYTICS — CLASS PERFORMANCE
-// ===============================
-app.get("/api/teacher/analytics/class", authTeacher, async (req, res) => {
+// DELETE /api/admin/marks-set
+app.delete("/api/admin/marks-set", authAdmin, async (req, res) => {
   try {
-    const teacherId = req.teacher.id;
-    const { assignmentId, term, year, aoi } = req.query;
+    const { assignmentId, term, year, aoi } = req.body;
 
     if (!assignmentId || !term || !year || !aoi) {
       return res.status(400).json({
@@ -815,53 +812,26 @@ app.get("/api/teacher/analytics/class", authTeacher, async (req, res) => {
       });
     }
 
-    const [rows] = await pool.query(
-      `
-      SELECT
-        COUNT(score) AS learners,
-        ROUND(AVG(score), 2) AS average,
-        MIN(score) AS lowest,
-        MAX(score) AS highest
-      FROM marks
-      WHERE
-        teacher_id = ?
-        AND assignment_id = ?
-        AND term = ?
-        AND year = ?
-        AND aoi_label = ?
-      `,
-      [teacherId, assignmentId, term, year, aoi]
-    );
-
-    const stats = rows[0];
-
-    // Distribution buckets
-    const [distribution] = await pool.query(
-      `
-      SELECT
-        SUM(score BETWEEN 0.9 AND 1.5) AS low,
-        SUM(score BETWEEN 1.6 AND 2.2) AS mid,
-        SUM(score BETWEEN 2.3 AND 3.0) AS high
-      FROM marks
-      WHERE
-        teacher_id = ?
-        AND assignment_id = ?
-        AND term = ?
-        AND year = ?
-        AND aoi_label = ?
-      `,
-      [teacherId, assignmentId, term, year, aoi]
+    const [result] = await pool.query(
+      `DELETE FROM marks
+       WHERE assignment_id = ?
+         AND term = ?
+         AND year = ?
+         AND aoi_label = ?`,
+      [assignmentId, term, year, aoi]
     );
 
     res.json({
-      ...stats,
-      distribution: distribution[0],
+      message: "Mark set deleted successfully",
+      deletedRows: result.affectedRows,
     });
   } catch (err) {
-    console.error("Teacher analytics error:", err);
-    res.status(500).json({ message: "Failed to load analytics" });
+    console.error("Error deleting mark set:", err);
+    res.status(500).json({ message: "Server error while deleting mark set" });
   }
 });
+
+
 
 /* =======================
    START SERVER

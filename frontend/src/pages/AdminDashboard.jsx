@@ -384,7 +384,66 @@ function AdminDashboard({ onLogout }) {
     link.remove();
     URL.revokeObjectURL(url);
   };
-
+  const handleDeleteMarkSet = async (set) => {
+    const ok = window.confirm(
+      `Delete this mark set?\n\n` +
+      `${set.class_level} ${set.stream}\n` +
+      `${set.subject} — ${set.aoi_label}\n` +
+      `Term ${set.term} ${set.year}\n\n` +
+      `This cannot be undone.`
+    );
+  
+    if (!ok) return;
+  
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/marks-set`, {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-key": localStorage.getItem("SPESS_ADMIN_KEY"),
+        },
+        body: JSON.stringify({
+          assignmentId: set.assignment_id,
+          term: set.term,
+          year: set.year,
+          aoi: set.aoi_label,
+        }),
+      });
+  
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || "Failed to delete mark set");
+      }
+  
+      // Remove from table immediately
+      setMarksSets((prev) =>
+        prev.filter(
+          (m) =>
+            !(
+              m.assignment_id === set.assignment_id &&
+              m.term === set.term &&
+              m.year === set.year &&
+              m.aoi_label === set.aoi_label
+            )
+        )
+      );
+  
+      // Clear preview if this set was open
+      if (
+        selectedMarksSet &&
+        selectedMarksSet.assignment_id === set.assignment_id &&
+        selectedMarksSet.term === set.term &&
+        selectedMarksSet.year === set.year &&
+        selectedMarksSet.aoi_label === set.aoi_label
+      ) {
+        setSelectedMarksSet(null);
+        setMarksDetail([]);
+      }
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+  
   const handleDownloadPdf = () => {
     if (!selectedMarksSet || marksDetail.length === 0) return;
     const doc = new jsPDF();
@@ -963,6 +1022,7 @@ function AdminDashboard({ onLogout }) {
                             <td>{set.marks_count}</td>
                             <td className="teachers-actions">
                               <button type="button" className="ghost-btn" onClick={(e) => { e.stopPropagation(); setSelectedMarksSet(set); }}>View</button>
+                              <button type="button" className="danger-link" onClick={(e)=>{e.stopPropagation();handleDeleteMarkSet(set);}} >Delete</button>
                             </td>
                           </tr>
                         );
@@ -971,8 +1031,7 @@ function AdminDashboard({ onLogout }) {
                   </table>
                 </div>
               )}
-            </div>
-
+            </div>      
             <div className="panel-card">
               <div className="panel-card-header">
                 <h3>Marks preview</h3>
@@ -983,7 +1042,7 @@ function AdminDashboard({ onLogout }) {
                   </div>
                 )}
               </div>
-
+                  
               {!selectedMarksSet ? (
                 <p className="muted-text">Select a mark set on the left to preview scores.</p>
               ) : loadingMarksDetail && marksDetail.length === 0 ? (

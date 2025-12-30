@@ -318,26 +318,30 @@ app.get("/api/students", async (req, res) => {
   }
 });
       // DELETE /api/students/:id  (admin only)
-app.delete("/api/students/:id", authAdmin, async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const [result] = await pool.query(
-      "DELETE FROM students WHERE id = ?",
-      [id]
-    );
-
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ message: "Student not found" });
-    }
-
-    res.json({ message: "Student deleted successfully" });
-  } catch (err) {
-    console.error("Error deleting student:", err);
-    res.status(500).json({ message: "Server error while deleting student" });
-  }
-});
-
+      app.delete("/api/admin/students/:id", authAdmin, async (req, res) => {
+        try {
+          const { id } = req.params;
+      
+          const [result] = await pool.query(
+            "DELETE FROM students WHERE id = ?",
+            [id]
+          );
+      
+          if (result.affectedRows === 0) {
+            return res.status(404).json({ message: "Student not found" });
+          }
+      
+          res.json({
+            message: "Student deleted successfully",
+            deletedId: id,
+            affectedRows: result.affectedRows,
+          });
+        } catch (err) {
+          console.error("Error deleting student:", err);
+          res.status(500).json({ message: "Server error while deleting student" });
+        }
+      });
+      
 // ===============================
 // ADMIN → TEACHERS
 // ===============================
@@ -381,24 +385,7 @@ app.post("/api/admin/teachers", authAdmin, async (req, res) => {
   }
 });
 
-app.delete("/api/admin/teachers/:id", authAdmin, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const [result] = await pool.query(
-      "DELETE FROM teachers WHERE id = ?",
-      [id]
-    );
 
-    if (!result.affectedRows) {
-      return res.status(404).json({ message: "Teacher not found" });
-    }
-
-    res.json({ message: "Teacher deleted" });
-  } catch (err) {
-    console.error("Error deleting teacher:", err);
-    res.status(500).json({ message: "Failed to delete teacher" });
-  }
-});
 // ===============================
 // ADMIN → ADD TEACHER
 // ===============================
@@ -441,10 +428,8 @@ app.post("/api/teachers", authAdmin, async (req, res) => {
     res.status(500).json({ message: "Failed to add teacher" });
   }
 });
-// ===============================
 // ADMIN → DELETE TEACHER
-// ===============================
-app.delete("/api/teachers/:id", authAdmin, async (req, res) => {
+app.delete("/api/admin/teachers/:id", authAdmin, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -457,12 +442,17 @@ app.delete("/api/teachers/:id", authAdmin, async (req, res) => {
       return res.status(404).json({ message: "Teacher not found" });
     }
 
-    res.json({ message: "Teacher deleted successfully" });
+    res.json({
+      message: "Teacher deleted successfully",
+      deletedId: id,
+      affectedRows: result.affectedRows,
+    });
   } catch (err) {
     console.error("Error deleting teacher:", err);
     res.status(500).json({ message: "Failed to delete teacher" });
   }
 });
+
 
 // ===============================
 // ADMIN → STUDENTS

@@ -193,7 +193,7 @@ const COMPULSORY_SUBJECTS = [
     setTeacherError("");
     try {
       // Use adminFetch to be safe (server may allow public delete but this is fine)
-      await adminFetch(`/api/teachers/${id}`, { method: "DELETE" });
+      await adminFetch(`/api/admin/teachers/${id}`, { method: "DELETE" });
       setTeachers((prev) => prev.filter((t) => t.id !== id));
     } catch (err) {
       console.error("Error deleting teacher:", err);
@@ -276,7 +276,8 @@ const COMPULSORY_SUBJECTS = [
     setDeletingStudentId(id);
     setStudentError("");
     try {
-      await adminFetch(`/api/students/${id}`, { method: "DELETE" });
+      await adminFetch(`/api/admin/students/${id}`, { method: "DELETE" });
+
       setStudents((prev) => prev.filter((s) => s.id !== id));
     } catch (err) {
       console.error("Error deleting student:", err);

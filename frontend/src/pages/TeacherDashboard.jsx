@@ -40,7 +40,7 @@ useIdleLogout(() => {
     mq.addEventListener("change", handler);
     return () => mq.removeEventListener("change", handler);
   }, []);
-
+  
   /* ================= PROFILE ================= */
   const [teacher, setTeacher] = useState(() => {
     try {
@@ -138,7 +138,20 @@ useIdleLogout(() => {
     }
   };
   const [notices, setNotices] = useState([]);
-
+  const [loadingNotices, setLoadingNotices] = useState(false);
+  const fetchNotices = async () => {
+    try {
+      setLoadingNotices(true);
+      const data = await plainFetch("/api/notices");
+      setNotices(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error("Failed to load notices:", err);
+      setNotices([]);
+    } finally {
+      setLoadingNotices(false);
+    }
+  };
+  
   const loadAnalytics = async (assignment) => {
     const token = localStorage.getItem("teacherToken");
     if (!token) return;
@@ -185,6 +198,10 @@ useIdleLogout(() => {
       .then(setNotices)
       .catch(() => setNotices([]));
   }, []);
+  useEffect(() => {
+    fetchNotices();
+  }, []);
+  
   
   /* ================= SAVE MARKS ================= */
   const handleSaveMarks = async () => {
@@ -368,19 +385,23 @@ useIdleLogout(() => {
           <h1>Teacher Dashboard</h1>
           {teacher && <h2>👋 Hello {teacher.name}</h2>}
           <section className="teacher-notices">
-  <h3>School Notices</h3>
-  {notices.length === 0 ? (
+  <h2>School Notices</h2>
+
+  {loadingNotices ? (
+    <p className="muted-text">Loading notices…</p>
+  ) : notices.length === 0 ? (
     <p className="muted-text">No notices at the moment.</p>
   ) : (
-    notices.map(n => (
-      <div key={n.id} className="notice-card">
+    notices.map((n) => (
+      <div key={n.id} className="notice-item">
         <h4>{n.title}</h4>
         <p>{n.body}</p>
-        <span className="notice-date">{formatDateTime(n.created_at)}</span>
+        <small>{formatDateTime(n.created_at)}</small>
       </div>
     ))
   )}
 </section>
+
 
         </section>
         

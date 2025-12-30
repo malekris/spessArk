@@ -843,7 +843,7 @@ app.delete("/api/admin/marks-set", authAdmin, async (req, res) => {
     res.status(500).json({ message: "Server error while deleting mark set" });
   }
 });
-// GET /api/notices
+// GET /api/notices (teachers)
 app.get("/api/notices", async (req, res) => {
   try {
     const [rows] = await pool.query(
@@ -855,6 +855,7 @@ app.get("/api/notices", async (req, res) => {
     res.status(500).json({ message: "Failed to load notices" });
   }
 });
+
 // POST /api/admin/notices
 app.post("/api/admin/notices", authAdmin, async (req, res) => {
   try {
@@ -889,16 +890,17 @@ app.delete("/api/admin/notices/:id", authAdmin, async (req, res) => {
       [id]
     );
 
-    if (!result.affectedRows) {
+    if (result.affectedRows === 0) {
       return res.status(404).json({ message: "Notice not found" });
     }
 
-    res.json({ message: "Notice deleted" });
+    res.json({ message: "Notice deleted successfully" });
   } catch (err) {
     console.error("Delete notice error:", err);
     res.status(500).json({ message: "Failed to delete notice" });
   }
 });
+
 
 
 /* =======================

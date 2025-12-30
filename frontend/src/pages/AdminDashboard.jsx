@@ -9,8 +9,6 @@ import EndOfTermReports from "./EndOfTermReports";
 import { useNavigate } from "react-router-dom";
 import useIdleLogout from "../hooks/useIdleLogout";
 
-
-
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 // Compulsory / optional subjects (used for student form)
 const COMPULSORY_SUBJECTS = [
@@ -78,7 +76,15 @@ const COMPULSORY_SUBJECTS = [
       document.title = `${activeSection} | SPESS ARK`;
     }
   }, [activeSection]);
+  const [notices, setNotices] = useState([]);
+  const [loadingNotices, setLoadingNotices] = useState(false);
+  const [noticesError, setNoticesError] = useState("");
+  const [noticeError, setNoticeError] = useState("");
+  const [noticeTitle, setNoticeTitle] = useState("");
+  const [noticeBody, setNoticeBody] = useState("");
+
   
+
   /* ---------- Teachers ---------- */
   const [teachers, setTeachers] = useState([]);
   const [teacherForm, setTeacherForm] = useState({ name: "", email: "", subject1: "", subject2: "" });
@@ -132,11 +138,70 @@ const COMPULSORY_SUBJECTS = [
       icon: "📕",
       route: null, // disabled for now
     },
-    
+    { title: "Notices", subtitle: "Create school notices", icon: "📢" }
+   
   ];
 
   /* ------------------ API / fetch functions ------------------ */
 
+  // FETCH noticenotices
+  const fetchNotices = async () => {
+    setLoadingNotices(true);
+    setNoticeError("");
+    try {
+      const data = await adminFetch("/api/notices");
+      if (!Array.isArray(data)) throw new Error("Invalid notices response");
+      setNotices(data);
+    } catch (err) {
+      console.error(err);
+      setNoticeError("Could not load notices");
+      setNotices([]);
+    } finally {
+      setLoadingNotices(false);
+    }
+  };
+  const handleCreateNotice = async () => {
+    if (!noticeTitle.trim() || !noticeBody.trim()) {
+      setNoticesError("Title and message are required.");
+      return;
+    }
+  
+    try {
+      setLoadingNotices(true);
+  
+      await adminFetch("/api/admin/notices", {
+        method: "POST",
+        body: {
+          title: noticeTitle,
+          body: noticeBody,
+        },
+      });
+  
+      setNoticeTitle("");
+      setNoticeBody("");
+      fetchNotices();
+    } catch (err) {
+      setNoticesError(err.message || "Failed to create notice.");
+    } finally {
+      setLoadingNotices(false);
+    }
+  };
+  
+  const handleDeleteNotice = async (id) => {
+    if (!window.confirm("Delete this notice?")) return;
+  
+    try {
+      await adminFetch(`/api/admin/notices/${id}`, {
+        method: "DELETE",
+      });
+  
+      setNotices((prev) => prev.filter((n) => n.id !== id));
+    } catch (err) {
+      alert(err.message || "Failed to delete notice");
+    }
+  };
+  
+  
   // Teachers
   const fetchTeachers = async () => {
     setLoadingTeachers(true);
@@ -336,7 +401,13 @@ const COMPULSORY_SUBJECTS = [
     fetchStudents();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
+  useEffect(() => {
+    if (activeSection === "Notices") {
+      fetchNotices();
+    }
+  }, [activeSection]);
+  
+  
   // load relevant data when section opens
   useEffect(() => {
     if (activeSection === "Manage Teachers") {
@@ -977,7 +1048,122 @@ const COMPULSORY_SUBJECTS = [
         </section>
       );
     }
+    if (activeSection === "Notices") {
+      return (
+        <section className="panel">
+          <div className="panel-header">
+            <div>
+              <h2>Notices</h2>
+              <p>Create and manage notices visible to teachers.</p>
+            </div>
+            <button
+              className="panel-close"
+              onClick={() => setActiveSection("")}
+            >
+              ✕ Close
+            </button>
+          </div>
+    
+          {noticesError && (
+            <div className="panel-alert panel-alert-error">
+              {noticesError}
+            </div>
+          )}
+    
+          <div className="panel-grid">
+            {/* ================= CREATE NOTICE ================= */}
+            <div className="panel-card">
+              <h3>Create Notice</h3>
+    
+              <form
+                className="teacher-form"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleCreateNotice();
+                }}
+              >
+                <div className="form-row">
+                  <label>Title</label>
+                  <input
+                    type="text"
+                    value={noticeTitle}
+                    onChange={(e) => setNoticeTitle(e.target.value)}
+                    placeholder="e.g. End of Term Schedule"
+                  />
+                </div>
+    
+                <div className="form-row">
+                  <label>Message</label>
+                  <textarea
+                    rows={4}
+                    value={noticeBody}
+                    onChange={(e) => setNoticeBody(e.target.value)}
+                    placeholder="Write the notice here…"
+                    style={{
+                      resize: "vertical",
+                      borderRadius: "0.6rem",
+                      padding: "0.6rem",
+                      background: "rgba(15,23,42,0.9)",
+                      color: "#e5e7eb",
+                      border: "1px solid rgba(55,65,81,0.9)",
+                    }}
+                  />
+                </div>
+    
+                <button className="primary-btn" type="submit">
+                  Publish Notice
+                </button>
+                
+              </form>
+              {notices.map((n) => (
+  <div key={n.id} className="notice-item">
+    <h4>{n.title}</h4>
+    <p>{n.body}</p>
+    <small>{formatDateTime(n.created_at)}</small>
 
+    <button
+      className="danger-link"
+      onClick={() => handleDeleteNotice(n.id)}
+    >
+      Delete
+    </button>
+  </div>
+))}
+
+            </div>
+                      
+            {/* ================= EXISTING NOTICES ================= */}
+            <div className="panel-card">
+              <h3>Published Notices</h3>
+    
+              {loadingNotices ? (
+                <p className="muted-text">Loading notices…</p>
+              ) : notices.length === 0 ? (
+                <p className="muted-text">No notices yet.</p>
+              ) : (
+                notices.map((n) => (
+                  <div
+                    key={n.id}
+                    style={{
+                      padding: "0.8rem 0",
+                      borderBottom: "1px solid rgba(148,163,184,0.15)",
+                    }}
+                  >
+                    <h4 style={{ marginBottom: "0.3rem" }}>{n.title}</h4>
+                    <p style={{ marginBottom: "0.4rem" }}>{n.body}</p>
+                    <small className="muted-text">
+                      {formatDateTime(n.created_at)}
+                    </small>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </section>
+      );
+    }
+    
+    
     // --- Assign Subjects branch (guaranteed to render when activeSection matches) ---
     if (activeSection === "Assign Subjects") {
       return (
@@ -1167,8 +1353,8 @@ const COMPULSORY_SUBJECTS = [
         </div>
 
         <button className="nav-logout" onClick={handleLogout}>
-  Logout
-</button>
+          Logout
+            </button>
 
       </header>
 
@@ -1227,26 +1413,16 @@ const COMPULSORY_SUBJECTS = [
       setStudents((prev) =>
         prev.map((s) =>
           s.id === updatedStudent.id ? updatedStudent : s
-        )
-      );
+              )
+            );
       setEditingStudent(null);
-    }}
-  />
-)}
+              }}
+                           />
+      )}
 
     </div>
   );
 
-  return (
-    <div className="admin-root">
-      <header className="admin-nav">
-        ...
-        <button className="nav-logout" onClick={handleLogout}>
-          Logout
-        </button>
-      </header>
-      ...
-    </div>
-  );
+ 
 }
 export default AdminDashboard;

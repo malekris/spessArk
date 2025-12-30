@@ -7,6 +7,10 @@ import { plainFetch, adminFetch } from "../lib/api";
 import EditStudentModal from "../components/EditStudentModal";
 import EndOfTermReports from "./EndOfTermReports";
 import { useNavigate } from "react-router-dom";
+import useIdleLogout from "../hooks/useIdleLogout";
+
+
+
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 // Compulsory / optional subjects (used for student form)
 const COMPULSORY_SUBJECTS = [
@@ -40,6 +44,7 @@ const COMPULSORY_SUBJECTS = [
   };
 
   function AdminDashboard() {
+    
     const navigate = useNavigate();
   
     useEffect(() => {
@@ -48,18 +53,32 @@ const COMPULSORY_SUBJECTS = [
         navigate("/", { replace: true });
       }
     }, [navigate]);
-  
+    useIdleLogout(() => {
+      localStorage.clear(); // or remove only auth token
+      navigate("/", { replace: true });
+
+    });
     const handleLogout = () => {
       sessionStorage.removeItem("isAdmin");
       navigate("/", { replace: true });
     };
-  
-  
+    useEffect(() => {
+      document.title = "Admin Dashboard | SPESS ARK";
+    }, []);
+    
+    
   
   
 
   const [activeSection, setActiveSection] = useState("");
-
+  useEffect(() => {
+    if (!activeSection) {
+      document.title = "Admin Dashboard | SPESS ARK";
+    } else {
+      document.title = `${activeSection} | SPESS ARK`;
+    }
+  }, [activeSection]);
+  
   /* ---------- Teachers ---------- */
   const [teachers, setTeachers] = useState([]);
   const [teacherForm, setTeacherForm] = useState({ name: "", email: "", subject1: "", subject2: "" });

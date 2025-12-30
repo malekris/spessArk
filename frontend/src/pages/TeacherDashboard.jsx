@@ -3,6 +3,9 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import "./AdminDashboard.css";
 import badge from "../assets/badge.png";
+import useIdleLogout from "../hooks/useIdleLogout";
+import { useNavigate } from "react-router-dom";
+
 
 const API_BASE =
   import.meta.env.VITE_API_BASE || "http://localhost:5001";
@@ -18,7 +21,14 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
       window.location.href = "/teacher-login";
     }
   };
-  
+  const navigate = useNavigate();
+
+useIdleLogout(() => {
+  localStorage.clear(); // or remove only auth token
+  navigate("/", { replace: true });
+
+});
+
   /* ================= ORIENTATION ================= */
   const [isPortrait, setIsPortrait] = useState(
     window.matchMedia("(orientation: portrait)").matches

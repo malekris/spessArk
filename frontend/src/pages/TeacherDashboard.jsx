@@ -137,6 +137,8 @@ useIdleLogout(() => {
       setMarksLoading(false);
     }
   };
+  const [notices, setNotices] = useState([]);
+
   const loadAnalytics = async (assignment) => {
     const token = localStorage.getItem("teacherToken");
     if (!token) return;
@@ -177,6 +179,12 @@ useIdleLogout(() => {
     }
   }, [marksTerm, marksAoi, marksYear]);
   
+  useEffect(() => {
+    fetch("/api/notices")
+      .then(res => res.json())
+      .then(setNotices)
+      .catch(() => setNotices([]));
+  }, []);
   
   /* ================= SAVE MARKS ================= */
   const handleSaveMarks = async () => {
@@ -359,8 +367,23 @@ useIdleLogout(() => {
         <section className="admin-heading">
           <h1>Teacher Dashboard</h1>
           {teacher && <h2>👋 Hello {teacher.name}</h2>}
-        </section>
+          <section className="teacher-notices">
+  <h3>School Notices</h3>
+  {notices.length === 0 ? (
+    <p className="muted-text">No notices at the moment.</p>
+  ) : (
+    notices.map(n => (
+      <div key={n.id} className="notice-card">
+        <h4>{n.title}</h4>
+        <p>{n.body}</p>
+        <span className="notice-date">{formatDateTime(n.created_at)}</span>
+      </div>
+    ))
+  )}
+</section>
 
+        </section>
+        
         {/* ASSIGNMENTS */}
         <section className="panel">
           <div className="panel-card">

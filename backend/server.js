@@ -843,7 +843,62 @@ app.delete("/api/admin/marks-set", authAdmin, async (req, res) => {
     res.status(500).json({ message: "Server error while deleting mark set" });
   }
 });
+// GET /api/notices
+app.get("/api/notices", async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      "SELECT id, title, body, created_at FROM notices ORDER BY created_at DESC"
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error("Load notices error:", err);
+    res.status(500).json({ message: "Failed to load notices" });
+  }
+});
+// POST /api/admin/notices
+app.post("/api/admin/notices", authAdmin, async (req, res) => {
+  try {
+    const { title, body } = req.body;
+    if (!title || !body) {
+      return res.status(400).json({ message: "Title and body required" });
+    }
 
+    const [result] = await pool.query(
+      "INSERT INTO notices (title, body) VALUES (?, ?)",
+      [title, body]
+    );
+
+    res.json({
+      id: result.insertId,
+      title,
+      body,
+      created_at: new Date(),
+    });
+  } catch (err) {
+    console.error("Create notice error:", err);
+    res.status(500).json({ message: "Failed to create notice" });
+  }
+});
+// DELETE /api/admin/notices/:id
+app.delete("/api/admin/notices/:id", authAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const [result] = await pool.query(
+      "DELETE FROM notices WHERE id = ?",
+      [id]
+    );
+
+    if (!result.affectedRows) {
+      return res.status(404).json({ message: "Notice not found" });
+    }
+
+    res.json({ message: "Notice deleted" });
+  } catch (err) {
+    console.error("Delete notice error:", err);
+    res.status(500).json({ message: "Failed to delete notice" });
+  }
+});
 
 
 /* =======================

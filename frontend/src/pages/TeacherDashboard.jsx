@@ -392,22 +392,40 @@ useIdleLogout(() => {
           <h1>Teacher Dashboard</h1>
           {teacher && <h2>👋 Hello {teacher.name}</h2>}
           <section className="teacher-notices">
-  <h2>School Notices</h2>
+  <h2 className="section-title">School Notices</h2>
 
-  {loadingNotices ? (
-    <p className="muted-text">Loading notices…</p>
-  ) : notices.length === 0 ? (
+  {notices.length === 0 ? (
     <p className="muted-text">No notices at the moment.</p>
   ) : (
-    notices.map((n) => (
-      <div key={n.id} className="notice-item">
-        <h4>{n.title}</h4>
-        <p>{n.body}</p>
-        <small>{formatDateTime(n.created_at)}</small>
+    <div className="notices-grid">
+      {notices.map((n) => {
+  const isNew =
+    Date.now() - new Date(n.created_at).getTime() < 24 * 60 * 60 * 1000;
+
+  return (
+    <div key={n.id} className="notice-card">
+      <div className="notice-header">
+        <h3>
+          {n.title}
+          {isNew && <span className="notice-badge">NEW</span>}
+        </h3>
       </div>
-    ))
+
+      <div className="notice-body">
+        <p>{n.body}</p>
+      </div>
+
+      <div className="notice-footer">
+        <span>{formatDateTime(n.created_at)}</span>
+      </div>
+    </div>
+  );
+})}
+
+    </div>
   )}
 </section>
+
 
 
         </section>

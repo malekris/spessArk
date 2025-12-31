@@ -5,7 +5,14 @@ import "./AdminDashboard.css";
 import badge from "../assets/badge.png";
 import useIdleLogout from "../hooks/useIdleLogout";
 import { useNavigate } from "react-router-dom";
+import { plainFetch } from "../lib/api";
 
+const formatDateTime = (value) => {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return d.toLocaleString();
+};
 
 const API_BASE =
   import.meta.env.VITE_API_BASE || "http://localhost:5001";

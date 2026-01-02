@@ -210,11 +210,12 @@ doc.line(15, 34, pageWidth - 15, 34);
 doc.setFont("helvetica", "bold");
 doc.setFontSize(12);
 doc.text(
-  `END OF TERM REPORT — TERM ${meta.term}`,
+  `END OF TERM REPORT — TERM ${meta.term} ${meta.year}`,
   pageWidth / 2,
   42,
   { align: "center" }
 );
+
 
 
 

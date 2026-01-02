@@ -2,7 +2,8 @@
 // Minimal, robust client helper used by the admin UI.
 // Keeps dev-friendly behaviour (localStorage admin key) and throws friendly errors.
 
-export const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5001";
+// revert back before export
+const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 
 export function getAdminHeaders() {
   try {

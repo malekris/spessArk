@@ -10,16 +10,25 @@ const router = express.Router();
 */
 router.get("/term", authAdmin, async (req, res) => {
   try {
-    const { year, term, class_level, stream, student_id } = req.query;
+    // ✅ EXTRACT QUERY PARAMS (THIS WAS MISSING)
+    const {
+      year,
+      term,
+      class_level,
+      stream,
+      student_id,
+    } = req.query;
 
+    // ✅ SAFE YEAR DEFAULT (2026 FIX)
+    const yearParam = year || new Date().getFullYear();
 
-    if (!year || !term || !class_level || !stream) {
+    if (!term || !class_level || !stream) {
       return res.status(400).json({
-        message: "year, term, class_level and stream are required",
+        message: "term, class_level and stream are required",
       });
     }
 
-    // Normalize term
+    // 🔧 Normalize term (UI sends 1 / 2)
     let normalizedTerm = term;
     if (term === "1") normalizedTerm = "Term 1";
     if (term === "2") normalizedTerm = "Term 2";
@@ -49,8 +58,8 @@ router.get("/term", authAdmin, async (req, res) => {
         m.year = ?
         AND m.term = ?
         AND s.class_level = ?
+        AND LOWER(TRIM(s.stream)) = LOWER(TRIM(?))
         AND (? IS NULL OR s.id = ?)
-
 
       GROUP BY
         s.id,
@@ -62,34 +71,33 @@ router.get("/term", authAdmin, async (req, res) => {
         ta.subject
       `,
       [
-        year,
+        yearParam,
         normalizedTerm,
         class_level,
+        stream,
         student_id ?? null,
         student_id ?? null,
       ]
-      
-      
-      
     );
 
     // ✅ SINGLE processed block (average + remark)
     const processed = rows.map((r) => {
       const scores = [r.AOI1, r.AOI2, r.AOI3]
-        .filter((v) => v !== null && v !== "Missed")
+        .filter((v) => v !== null)
         .map(Number);
 
       let average = null;
       let remark = "MISSED";
 
       if (scores.length > 0) {
-        average = Math.round(
-          (scores.reduce((a, b) => a + b, 0) / scores.length) * 10
-        ) / 10;
+        average =
+          Math.round(
+            (scores.reduce((a, b) => a + b, 0) / scores.length) * 10
+          ) / 10;
 
         if (average >= 0.9 && average <= 1.4) remark = "BASIC";
         else if (average >= 1.5 && average <= 2.4) remark = "MODERATE";
-        else if (average >= 2.5 && average <= 3.0) remark = "OUTSTANDING";
+        else if (average >= 2.5) remark = "OUTSTANDING";
       }
 
       return {

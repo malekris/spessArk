@@ -5,7 +5,8 @@ import generateReportCardPDF from "../components/reportCardPdf";
   const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 
   function EndOfTermReports() {
-  const [year, setYear] = useState("2025");
+  const currentYear = new Date().getFullYear();
+  const [year, setYear] = useState(String(currentYear));  
   const [term, setTerm] = useState("1");
   const [classLevel, setClassLevel] = useState("S3");
   const [stream, setStream] = useState("North");
@@ -92,8 +93,9 @@ import generateReportCardPDF from "../components/reportCardPdf";
       {/* FILTERS */}
       <div className="filter-grid">
         <select value={year} onChange={(e) => setYear(e.target.value)}>
-          <option value="2024">2024</option>
-          <option value="2025">2025</option>
+        <option value={currentYear}>{currentYear}</option>
+        <option value={currentYear - 1}>{currentYear - 1}</option>
+
         </select>
 
         <select value={term} onChange={(e) => setTerm(e.target.value)}>

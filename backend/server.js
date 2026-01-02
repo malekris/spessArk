@@ -31,8 +31,6 @@ app.use("/api/classes", classesRoutes);
 /* =======================
    ROUTES
 ======================= */
-app.use("/api/teachers", teacherRoutes);
-app.use("/api/teachers", teacherRoutes);
 
 /* =======================
    PUBLIC LOOKUPS
@@ -212,46 +210,7 @@ app.get(
   }
 );
 
-/* ===============================
-   🔥 THIS IS THE FIX (MARKS LOAD)
-=============================== */
-app.get("/api/teacher/marks", authTeacher, async (req, res) => {
-  try {
-    const teacherId = req.teacher.id;
 
-    const assignmentId = parseInt(req.query.assignmentId, 10);
-    const year = parseInt(req.query.year, 10);
-
-    /* 🔧 NORMALIZE TERM & AOI */
-    const term = req.query.term?.trim();
-    const aoi = req.query.aoi?.trim().toUpperCase();
-
-    if (!assignmentId || !year || !term || !aoi) {
-      return res.status(400).json({ message: "Missing parameters" });
-    }
-
-    const [rows] = await pool.query(
-      `
-      SELECT
-        student_id,
-        score
-      FROM marks
-      WHERE teacher_id = ?
-        AND assignment_id = ?
-        AND year = ?
-        AND term = ?
-        AND aoi_label = ?
-      ORDER BY student_id
-      `,
-      [teacherId, assignmentId, year, term, aoi]
-    );
-
-    res.json(rows);
-  } catch (err) {
-    console.error("❌ GET MARKS ERROR:", err);
-    res.status(500).json({ message: "Failed to load marks" });
-  }
-});
 
 app.get("/api/admin/assignments", authAdmin, async (req, res) => {
   try {
@@ -718,16 +677,23 @@ app.post("/api/teacher/marks", authTeacher, async (req, res) => {
     const assignmentId = parseInt(req.body.assignmentId, 10);
     const year = parseInt(req.body.year, 10);
     const term = req.body.term?.trim();
-    const aoi = req.body.aoiLabel?.trim().toUpperCase();
     const marks = req.body.marks;
 
-    if (!assignmentId || !year || !term || !aoi || !Array.isArray(marks)) {
+    if (!assignmentId || !year || !term || !Array.isArray(marks)) {
+
       return res.status(400).json({ message: "Invalid marks payload" });
     }
      /* 💾 INSERT OR UPDATE MARKS */
      for (const m of marks) {
       const isMissed = m.score === "Missed";
-    
+      const aoi = m.aoi?.trim().toUpperCase();
+
+      if (!aoi || !["AOI1", "AOI2", "AOI3"].includes(aoi)) {
+      return res.status(400).json({
+       message: "Each mark must include a valid AOI (AOI1, AOI2, AOI3)",
+       });
+      }
+
       // 🚨 HARD BACKEND VALIDATION
       if (!isMissed) {
         if (
@@ -777,43 +743,36 @@ app.post("/api/teacher/marks", authTeacher, async (req, res) => {
 
 app.get("/api/teacher/marks", authTeacher, async (req, res) => {
   try {
-    const teacherId = req.teacher.id;
     const assignmentId = parseInt(req.query.assignmentId, 10);
-    const term = req.query.term?.trim();
     const year = parseInt(req.query.year, 10);
-    const aoi = req.query.aoi?.trim();
+    const term = req.query.term?.trim();
 
-    if (!assignmentId || !term || !year || !aoi) {
-      return res.status(400).json({
-        message: "assignmentId, term, year and aoi are required",
-      });
+    if (!assignmentId || !year || !term) {
+      return res.status(400).json({ message: "Missing parameters" });
     }
 
     const [rows] = await pool.query(
       `
       SELECT
         student_id,
-        CASE
-          WHEN status = 'Missed' THEN 'Missed'
-          ELSE score
-        END AS score
+        score,
+        status,
+        aoi_label
       FROM marks
-      WHERE teacher_id = ?
-        AND assignment_id = ?
-        AND term = ?
+      WHERE assignment_id = ?
         AND year = ?
-        AND aoi_label = ?
+        AND term = ?
       `,
-      [teacherId, assignmentId, term, year, aoi]
+      [assignmentId, year, term]
     );
-    
 
     res.json(rows);
   } catch (err) {
-    console.error("Load marks error:", err);
+    console.error("❌ Load marks error:", err);
     res.status(500).json({ message: "Failed to load marks" });
   }
 });
+
 // DELETE /api/admin/marks-set
 app.delete("/api/admin/marks-set", authAdmin, async (req, res) => {
   try {
@@ -901,6 +860,46 @@ app.delete("/api/admin/notices/:id", authAdmin, async (req, res) => {
   }
 });
 
+app.post("/api/teacher/change-password", authTeacher, async (req, res) => {
+  try {
+    const teacherId = req.teacher.id;
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ message: "Missing fields" });
+    }
+
+    const [rows] = await pool.query(
+      "SELECT password FROM teachers WHERE id = ?",
+      [teacherId]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ message: "Teacher not found" });
+    }
+
+    const valid = await bcrypt.compare(
+      currentPassword,
+      rows[0].password
+    );
+
+    if (!valid) {
+      return res.status(401).json({ message: "Incorrect current password" });
+    }
+
+    const hashed = await bcrypt.hash(newPassword, 10);
+
+    await pool.query(
+      "UPDATE teachers SET password = ? WHERE id = ?",
+      [hashed, teacherId]
+    );
+
+    res.json({ message: "Password updated successfully" });
+  } catch (err) {
+    console.error("❌ Change password error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
 
 
 /* =======================

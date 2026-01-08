@@ -563,15 +563,16 @@ export default function AdminDashboard() {
     const streamLabel = marksheetStream || "North & South";
   
     const topMargin = 16;
-    const headerHeight = 44; // total header block height
+    const firstHeaderHeight = 50;
+    const continuationHeaderHeight = 16;
     const tableHeaderHeight = 10;
     const bottomMargin = 18;
     const baseRowHeight = 8;
   
     let y;
   
-    /* ---------- HEADER ---------- */
-    const drawHeaderBlock = () => {
+    /* ---------- FIRST PAGE HEADER ---------- */
+    const drawFirstPageHeader = () => {
       doc.setFont("helvetica", "bold");
       doc.setFontSize(14);
       doc.text(schoolName, pageW / 2, 16, { align: "center" });
@@ -584,6 +585,17 @@ export default function AdminDashboard() {
       doc.text(`Class: ${classLabel}`, 14, 38);
       doc.text(`Stream: ${streamLabel}`, 14, 44);
       doc.text(`Generated: ${generatedAt}`, 14, 50);
+    };
+  
+    /* ---------- CONTINUATION HEADER ---------- */
+    const drawContinuationHeader = () => {
+      doc.setFont("helvetica", "italic");
+      doc.setFontSize(9);
+      doc.text(
+        `Class ${classLabel} — ${streamLabel}`,
+        14,
+        14
+      );
     };
   
     /* ---------- TABLE HEADER ---------- */
@@ -617,18 +629,18 @@ export default function AdminDashboard() {
       );
     };
   
+    /* ---------- PAGE 1 ---------- */
+    drawFirstPageHeader();
+    y = topMargin + firstHeaderHeight;
+    drawTableHeader();
+  
     /* ---------- NEW PAGE ---------- */
     const startNewPage = () => {
       doc.addPage();
-      drawHeaderBlock();
-      y = topMargin + headerHeight;
+      drawContinuationHeader();
+      y = topMargin + continuationHeaderHeight;
       drawTableHeader();
     };
-  
-    /* ---------- PAGE 1 ---------- */
-    drawHeaderBlock();
-    y = topMargin + headerHeight;
-    drawTableHeader();
   
     /* ---------- ROWS ---------- */
     list.forEach((s, index) => {
@@ -644,7 +656,6 @@ export default function AdminDashboard() {
         subjectLines.length * 6
       );
   
-      // 🔥 PRECISE PAGE BREAK CHECK
       if (y + rowHeight > pageH - bottomMargin) {
         startNewPage();
       }
@@ -673,6 +684,7 @@ export default function AdminDashboard() {
     window.open(blobUrl, "_blank");
     setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
   };
+  
   
   
 

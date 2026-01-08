@@ -1434,13 +1434,10 @@ export default function AdminDashboard() {
                   </div>
 
                   <div style={{ fontSize: "0.9rem" }}>
-                    👦 Boys: <strong>{stats.Male}</strong>
-                    <br />
-                    👧 Girls: <strong>{stats.Female}</strong>
-                    <br />
-                    🧑 Other: <strong>{stats.Other}</strong>
-                  </div>
-
+                      👦 Boys: <strong>{stats.Male}</strong>
+                        <br />
+                      👧 Girls: <strong>{stats.Female}</strong>
+                      </div>
                   <div
                     style={{
                       marginTop: "0.4rem",

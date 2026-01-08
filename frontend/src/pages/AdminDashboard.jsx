@@ -44,30 +44,21 @@ const COMPULSORY_SUBJECTS = [
   function AdminDashboard() {
     
     const navigate = useNavigate();
-  
-    useEffect(() => {
-      const isAdmin = sessionStorage.getItem("isAdmin");
-      if (!isAdmin) {
-        navigate("/", { replace: true });
-      }
-    }, [navigate]);
+    useEffect(() => { const isAdmin = sessionStorage.getItem("isAdmin"); if (!isAdmin) { navigate("/", { replace: true }); } }, [navigate]);
     useIdleLogout(() => {
-      localStorage.clear(); // or remove only auth token
+      // 🔐 remove only admin-related keys
+      localStorage.removeItem("adminToken");
+      localStorage.removeItem("isAdmin");
+    
+      // 🔁 redirect to login
       navigate("/", { replace: true });
-
     });
-    const handleLogout = () => {
-      sessionStorage.removeItem("isAdmin");
-      navigate("/", { replace: true });
-    };
+    
+    const handleLogout = () => { sessionStorage.removeItem("isAdmin"); navigate("/", { replace: true }); };
     useEffect(() => {
       document.title = "Admin Dashboard | SPESS ARK";
     }, []);
     
-    
-  
-  
-
   const [activeSection, setActiveSection] = useState("");
   useEffect(() => {
     if (!activeSection) {

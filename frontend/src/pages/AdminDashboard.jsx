@@ -533,94 +533,136 @@ export default function AdminDashboard() {
 
   const handleDownloadMarksheetPdf = () => {
     setMarksheetError("");
+  
     if (!marksheetClass) {
       setMarksheetError("Select a class for the marksheet.");
       return;
     }
-    const list = students.filter((s) => {
-      if (s.class_level !== marksheetClass) return false;
-      if (!marksheetStream) return true;
-      return s.stream === marksheetStream;
-    });
+  
+    const list = students
+      .filter((s) => {
+        if (s.class_level !== marksheetClass) return false;
+        if (!marksheetStream) return true;
+        return s.stream === marksheetStream;
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+  
     if (list.length === 0) {
       setMarksheetError("No learners found for that class/stream selection.");
       return;
     }
-
-    const doc = new jsPDF();
+  
+    const doc = new jsPDF("p", "mm", "a4");
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
+  
+    const generatedAt = formatDateTime(new Date().toISOString());
     const schoolName = "St. Phillip's Equatorial Secondary School (SPESS)";
+    const title = "Class Marksheet";
     const classLabel = marksheetClass;
     const streamLabel = marksheetStream || "North & South";
-    const headerTitle = "Class Marksheet";
-
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(14);
-    doc.text(schoolName, 105, 16, { align: "center" });
-    doc.setFontSize(16);
-    doc.text(headerTitle, 105, 26, { align: "center" });
-    doc.setFontSize(11);
-    doc.setFont("helvetica", "normal");
-    doc.text(`Class: ${classLabel}`, 14, 38);
-    doc.text(`Stream: ${streamLabel}`, 14, 45);
-
-    let startY = 58;
-    let y = startY;
-    const rowHeight = 7;
-    const pageHeight = doc.internal.pageSize.getHeight();
-    const bottomMargin = 15;
-
+  
+    const topMargin = 20;
+    const bottomMargin = 18;
+    const tableStartY = 66;
+    const rowBaseHeight = 7;
+  
+    /* ---------- HEADER ---------- */
+    const drawHeaderBlock = () => {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(14);
+      doc.text(schoolName, pageW / 2, 16, { align: "center" });
+  
+      doc.setFontSize(16);
+      doc.text(title, pageW / 2, 26, { align: "center" });
+  
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "normal");
+      doc.text(`Class: ${classLabel}`, 14, 38);
+      doc.text(`Stream: ${streamLabel}`, 14, 44);
+      doc.text(`Generated: ${generatedAt}`, 14, 50);
+    };
+  
+    /* ---------- TABLE HEADER ---------- */
     const drawTableHeader = () => {
       doc.setFont("helvetica", "bold");
       doc.setFontSize(9);
+  
       doc.text("#", 12, y);
       doc.text("Name", 20, y);
-      doc.text("Gender", 95, y);
-      doc.text("Class", 115, y);
-      doc.text("Stream", 135, y);
-      doc.text("Optional Subjects", 155, y);
-      doc.setDrawColor(200);
-      doc.line(10, y + 1.5, 200, y + 1.5);
-      y += rowHeight;
+      doc.text("Gender", 92, y);
+      doc.text("Class", 112, y);
+      doc.text("Stream", 130, y);
+      doc.text("Optional Subjects", 148, y);
+  
+      doc.setDrawColor(180);
+      doc.line(10, y + 2, pageW - 10, y + 2);
+  
+      y += rowBaseHeight;
       doc.setFont("helvetica", "normal");
     };
-
-    drawTableHeader();
-    doc.setFontSize(9);
-
-    list.sort((a, b) => a.name.localeCompare(b.name)).forEach((s, index) => {
-      if (y > pageHeight - bottomMargin) {
-        doc.addPage();
-        y = startY;
-        drawTableHeader();
-      }
-      const subs = Array.isArray(s.subjects) ? s.subjects : [];
-      const optionalSubs = subs.filter((sub) => OPTIONAL_SUBJECTS.includes(sub));
-      const optionalText = optionalSubs.join(", ");
-      doc.text(String(index + 1), 12, y);
-      doc.text(s.name || "", 20, y);
-      doc.text(s.gender || "", 95, y);
-      doc.text(s.class_level || "", 115, y);
-      doc.text(s.stream || "", 135, y);
-      const split = doc.splitTextToSize(optionalText, 50);
-      doc.text(split, 155, y);
-      y += rowHeight * Math.max(1, split.length);
-    });
-
-    const pageCount = doc.internal.getNumberOfPages();
-    const generatedAt = formatDateTime(new Date().toISOString());
-    const footerText = `Generated from SPESS's ARK · ${generatedAt}`;
-    for (let i = 1; i <= pageCount; i++) {
-      doc.setPage(i);
-      const ph = doc.internal.pageSize.getHeight();
+  
+    /* ---------- FOOTER ---------- */
+    const drawFooter = (pageNo, totalPages) => {
       doc.setFont("helvetica", "italic");
       doc.setFontSize(8);
-      doc.text(footerText, 105, ph - 8, { align: "center" });
+      doc.text(
+        `Generated from SPESS ARK · ${generatedAt} · Page ${pageNo} of ${totalPages}`,
+        pageW / 2,
+        pageH - 8,
+        { align: "center" }
+      );
+    };
+  
+    /* ---------- START DOCUMENT ---------- */
+    let y = tableStartY;
+  
+    drawHeaderBlock();
+    drawTableHeader();
+  
+    list.forEach((s, index) => {
+      const subs = Array.isArray(s.subjects) ? s.subjects : [];
+      const optionalSubs = subs.filter((sub) =>
+        OPTIONAL_SUBJECTS.includes(sub)
+      );
+      const optionalText = optionalSubs.join(", ");
+  
+      const subjectLines = doc.splitTextToSize(optionalText, pageW - 160);
+      const rowHeight = Math.max(rowBaseHeight, subjectLines.length * 6);
+  
+      // 🔥 PRE-CHECK SPACE BEFORE DRAWING
+      if (y + rowHeight > pageH - bottomMargin) {
+        doc.addPage();
+        y = tableStartY;
+        drawHeaderBlock();
+        drawTableHeader();
+      }
+  
+      doc.setFontSize(9);
+      doc.text(String(index + 1), 12, y);
+      doc.text(s.name || "", 20, y);
+      doc.text(s.gender || "", 92, y);
+      doc.text(s.class_level || "", 112, y);
+      doc.text(s.stream || "", 130, y);
+      doc.text(subjectLines, 148, y);
+  
+      y += rowHeight;
+    });
+  
+    /* ---------- FINAL FOOTERS ---------- */
+    const totalPages = doc.internal.getNumberOfPages();
+    for (let i = 1; i <= totalPages; i++) {
+      doc.setPage(i);
+      drawFooter(i, totalPages);
     }
-
-    const slug = (str) => String(str || "").toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
-    const filename = `marksheet_${slug(classLabel)}_${slug(marksheetStream || "all_streams")}.pdf`;
-    doc.save(filename);
+  
+    /* ---------- OPEN AS BLOB ---------- */
+    const blob = doc.output("blob");
+    const blobUrl = URL.createObjectURL(blob);
+    window.open(blobUrl, "_blank");
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
   };
+  
 
   /* ------------------ Card click handler ------------------ */
   const handleCardClick = (title) => {

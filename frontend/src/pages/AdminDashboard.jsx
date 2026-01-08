@@ -9,6 +9,7 @@ import EndOfTermReports from "./EndOfTermReports";
 import { useNavigate } from "react-router-dom";
 import useIdleLogout from "../hooks/useIdleLogout";
 import EnrollmentInsightsPanel from "../components/EnrollmentInsightsPanel";
+import EnrollmentCharts from "../components/EnrollmentCharts";
 
 // API base (fallback for local dev)
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5001";
@@ -1455,6 +1456,9 @@ export default function AdminDashboard() {
       )
     )}
   </div>
+  <EnrollmentCharts
+    enrollmentData={enrollmentByStreamClassGender}
+  />
 </section>
 
 

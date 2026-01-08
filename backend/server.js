@@ -103,8 +103,7 @@ export const pool = mysql.createPool({
   waitForConnections: true,
   connectionLimit: 10,
 });
-
-  
+export const db = pool;//alias, no behavior change
 // ===============================
 // ADMIN → LIST TEACHERS
 // ===============================
@@ -1446,6 +1445,100 @@ app.get("/api/teachers/analytics/subject", authTeacher, async (req, res) => {
     res.status(500).json({ message: "Failed to load subject analytics" });
   }
 });
+// server.js
+// Put this in server.js (or your admin router) where `app` and `db` are available
+app.put("/api/admin/students/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const payload = req.body;
+
+    console.log("[UPDATE STUDENT] route hit, id =", id);
+    console.log("[UPDATE STUDENT] body:", JSON.stringify(payload));
+
+    if (!payload || typeof payload !== "object") {
+      console.error("[UPDATE STUDENT] missing body or invalid JSON");
+      return res.status(400).json({ message: "Invalid request body" });
+    }
+
+    const { name, gender, class_level, stream, subjects } = payload;
+
+    if (!name || !gender || !class_level || !stream) {
+      console.warn("[UPDATE STUDENT] validation failed", { name, gender, class_level, stream });
+      return res.status(400).json({ message: "Missing required fields" });
+    }
+
+    const subjectsJson = JSON.stringify(Array.isArray(subjects) ? subjects : []);
+
+    const sql =
+      "UPDATE students SET name = ?, gender = ?, class_level = ?, stream = ?, subjects = ? WHERE id = ?";
+
+    const params = [name, gender, class_level, stream, subjectsJson, id];
+
+    // If your db client supports .query (mysql) or .execute (mysql2/promise)
+    if (db && typeof db.query === "function") {
+      db.query(sql, params, (err, result) => {
+        if (err) {
+          console.error("[UPDATE STUDENT] SQL error (query):", err);
+          return res.status(500).json({ message: "Database update error", detail: err.message });
+        }
+        if (!result || result.affectedRows === 0) {
+          return res.status(404).json({ message: "Student not found" });
+        }
+
+        // fetch updated row
+        db.query("SELECT * FROM students WHERE id = ?", [id], (err2, rows) => {
+          if (err2) {
+            console.error("[UPDATE STUDENT] SQL error (fetch):", err2);
+            return res.status(500).json({ message: "Database fetch error", detail: err2.message });
+          }
+          const row = rows && rows[0];
+          if (!row) return res.status(404).json({ message: "Student not found after update" });
+
+          try {
+            row.subjects = row.subjects ? JSON.parse(row.subjects) : [];
+          } catch (e) {
+            console.warn("[UPDATE STUDENT] subjects JSON parse failed:", e);
+            row.subjects = [];
+          }
+          return res.json(row);
+        });
+      });
+      return;
+    }
+
+    if (db && typeof db.execute === "function") {
+      // mysql2/promise
+      try {
+        const [result] = await db.execute(sql, params);
+        if (!result || result.affectedRows === 0) {
+          return res.status(404).json({ message: "Student not found" });
+        }
+        const [rows] = await db.execute("SELECT * FROM students WHERE id = ?", [id]);
+        const row = rows && rows[0];
+        if (!row) return res.status(404).json({ message: "Student not found after update" });
+        try {
+          row.subjects = row.subjects ? JSON.parse(row.subjects) : [];
+        } catch (e) {
+          console.warn("[UPDATE STUDENT] subjects JSON parse failed:", e);
+          row.subjects = [];
+        }
+        return res.json(row);
+      } catch (errExec) {
+        console.error("[UPDATE STUDENT] SQL error (execute):", errExec);
+        return res.status(500).json({ message: "Database error", detail: errExec.message });
+      }
+    }
+
+    // If no supported db client found
+    console.error("[UPDATE STUDENT] db client not detected or unsupported", { dbType: typeof db });
+    return res.status(500).json({ message: "Server database configuration error" });
+  } catch (err) {
+    console.error("[UPDATE STUDENT] Unexpected server error:", err && err.stack ? err.stack : err);
+    return res.status(500).json({ message: "Server error", detail: err.message || String(err) });
+  }
+});
+
+
 
 /* =======================
    START SERVER

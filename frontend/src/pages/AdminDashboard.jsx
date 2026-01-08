@@ -1,5 +1,5 @@
 // src/pages/AdminDashboard.jsx
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import "./AdminDashboard.css";
 import jsPDF from "jspdf";
 import AssignSubjectsPanel from "../components/AssignSubjectsPanel";
@@ -8,9 +8,12 @@ import EditStudentModal from "../components/EditStudentModal";
 import EndOfTermReports from "./EndOfTermReports";
 import { useNavigate } from "react-router-dom";
 import useIdleLogout from "../hooks/useIdleLogout";
+import EnrollmentInsightsPanel from "../components/EnrollmentInsightsPanel";
 
+// API base (fallback for local dev)
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5001";
-// Compulsory / optional subjects (used for student form)
+
+// Subjects
 const COMPULSORY_SUBJECTS = [
   "English",
   "Mathematics",
@@ -21,7 +24,7 @@ const COMPULSORY_SUBJECTS = [
   "Geography",
 ];
 
-  const OPTIONAL_SUBJECTS = [
+const OPTIONAL_SUBJECTS = [
   "ICT",
   "Agriculture",
   "Physical Education",
@@ -32,49 +35,52 @@ const COMPULSORY_SUBJECTS = [
   "Entrepreneurship",
   "IRE",
   "Kiswahili",
-  ];
+];
 
-  const formatDateTime = (value) => {
+const formatDateTime = (value) => {
   if (!value) return "—";
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return String(value);
   return d.toLocaleString();
+};
+
+export default function AdminDashboard() {
+  const navigate = useNavigate();
+
+  // Auth / navigation
+  useEffect(() => {
+    const isAdmin = sessionStorage.getItem("isAdmin");
+    if (!isAdmin) navigate("/", { replace: true });
+  }, [navigate]);
+
+  useIdleLogout(() => {
+    // remove admin-related keys (non-destructive)
+    localStorage.removeItem("SPESS_ADMIN_KEY");
+    localStorage.removeItem("isAdmin");
+    sessionStorage.removeItem("isAdmin");
+    navigate("/", { replace: true });
+  });
+
+  const handleLogout = () => {
+    sessionStorage.removeItem("isAdmin");
+    navigate("/", { replace: true });
   };
 
-  function AdminDashboard() {
-    
-    const navigate = useNavigate();
-    useEffect(() => { const isAdmin = sessionStorage.getItem("isAdmin"); if (!isAdmin) { navigate("/", { replace: true }); } }, [navigate]);
-    useIdleLogout(() => {
-      // 🔐 remove only admin-related keys
-      localStorage.removeItem("adminToken");
-      localStorage.removeItem("isAdmin");
-    
-      // 🔁 redirect to login
-      navigate("/", { replace: true });
-    });
-    
-    const handleLogout = () => { sessionStorage.removeItem("isAdmin"); navigate("/", { replace: true }); };
-    useEffect(() => {
-      document.title = "Admin Dashboard | SPESS ARK";
-    }, []);
-    
+  useEffect(() => {
+    document.title = "Admin Dashboard | SPESS ARK";
+  }, []);
+
+  /* -------------------- UI state -------------------- */
   const [activeSection, setActiveSection] = useState("");
   useEffect(() => {
-    if (!activeSection) {
-      document.title = "Admin Dashboard | SPESS ARK";
-    } else {
-      document.title = `${activeSection} | SPESS ARK`;
-    }
+    document.title = activeSection ? `${activeSection} | SPESS ARK` : "Admin Dashboard | SPESS ARK";
   }, [activeSection]);
+
+  /* ---------- Notices ---------- */
   const [notices, setNotices] = useState([]);
   const [loadingNotices, setLoadingNotices] = useState(false);
   const [noticesError, setNoticesError] = useState("");
-  const [noticeError, setNoticeError] = useState("");
-  const [noticeTitle, setNoticeTitle] = useState("");
-  const [noticeBody, setNoticeBody] = useState("");
-
-  
+  const [noticeForm, setNoticeForm] = useState({ title: "", body: "" });
 
   /* ---------- Teachers ---------- */
   const [teachers, setTeachers] = useState([]);
@@ -112,64 +118,45 @@ const COMPULSORY_SUBJECTS = [
   const [marksheetStream, setMarksheetStream] = useState("");
   const [marksheetError, setMarksheetError] = useState("");
 
+  /* ---------- Cards ---------- */
   const cards = [
     { title: "Add Students", subtitle: "Enroll new learners", icon: "🎓" },
     { title: "Assign Subjects", subtitle: "Link teachers to classes", icon: "📘" },
     { title: "Download Marks", subtitle: "View & export assessment scores", icon: "📊" },
     { title: "Manage Teachers", subtitle: "Accounts & permissions", icon: "🧑🏽‍🏫" },
-    {
-      title: "End of Term Reports",
-      subtitle: "Term 1 & Term 2 report cards",
-      icon: "📘",
-      route: "/admin/reports/term",
-    },
-    {
-      title: "End of Year Reports",
-      subtitle: "Final student performance (coming soon)",
-      icon: "📕",
-      route: null, // disabled for now
-    },
-    { title: "Notices", subtitle: "Create school notices", icon: "📢" }
-   
+    { title: "End of Term Reports", subtitle: "Term 1 & Term 2 report cards", icon: "📘", route: "/admin/reports/term" },
+    { title: "End of Year Reports", subtitle: "Final student performance (coming soon)", icon: "📕", route: null },
+    { title: "Notices", subtitle: "Create school notices", icon: "📢" },
+    { title: "Enrollment Insights", subtitle: "Registration statistics per class/stream/subject", icon: "📈" },
   ];
 
   /* ------------------ API / fetch functions ------------------ */
-
-  // FETCH noticenotices
   const fetchNotices = async () => {
     setLoadingNotices(true);
-    setNoticeError("");
+    setNoticesError("");
     try {
       const data = await adminFetch("/api/notices");
       if (!Array.isArray(data)) throw new Error("Invalid notices response");
       setNotices(data);
     } catch (err) {
       console.error(err);
-      setNoticeError("Could not load notices");
       setNotices([]);
+      setNoticesError("Could not load notices");
     } finally {
       setLoadingNotices(false);
     }
   };
+
   const handleCreateNotice = async () => {
-    if (!noticeTitle.trim() || !noticeBody.trim()) {
+    if (!noticeForm.title.trim() || !noticeForm.body.trim()) {
       setNoticesError("Title and message are required.");
       return;
     }
-  
+    setLoadingNotices(true);
+    setNoticesError("");
     try {
-      setLoadingNotices(true);
-  
-      await adminFetch("/api/admin/notices", {
-        method: "POST",
-        body: {
-          title: noticeTitle,
-          body: noticeBody,
-        },
-      });
-  
-      setNoticeTitle("");
-      setNoticeBody("");
+      await adminFetch("/api/admin/notices", { method: "POST", body: noticeForm });
+      setNoticeForm({ title: "", body: "" });
       fetchNotices();
     } catch (err) {
       setNoticesError(err.message || "Failed to create notice.");
@@ -177,23 +164,18 @@ const COMPULSORY_SUBJECTS = [
       setLoadingNotices(false);
     }
   };
-  
+
   const handleDeleteNotice = async (id) => {
     if (!window.confirm("Delete this notice?")) return;
-  
     try {
-      await adminFetch(`/api/admin/notices/${id}`, {
-        method: "DELETE",
-      });
-  
-      setNotices((prev) => prev.filter((n) => n.id !== id));
+      await adminFetch(`/api/admin/notices/${id}`, { method: "DELETE" });
+      setNotices((p) => p.filter((n) => n.id !== id));
     } catch (err) {
       alert(err.message || "Failed to delete notice");
     }
   };
-  
-  
-  // Teachers
+
+  /* ---------- Teachers ---------- */
   const fetchTeachers = async () => {
     setLoadingTeachers(true);
     setTeacherError("");
@@ -220,11 +202,7 @@ const COMPULSORY_SUBJECTS = [
     setSavingTeacher(true);
     setTeacherError("");
     try {
-      const created = await plainFetch("/api/teachers", {
-        method: "POST",
-        body: { name, email, subject1, subject2 },
-      });
-      // add created to list
+      const created = await plainFetch("/api/teachers", { method: "POST", body: { name, email, subject1, subject2 } });
       const teacherToAdd = {
         id: created.id ?? Date.now(),
         name: created.name ?? name,
@@ -248,7 +226,6 @@ const COMPULSORY_SUBJECTS = [
     setDeletingTeacherId(id);
     setTeacherError("");
     try {
-      // Use adminFetch to be safe (server may allow public delete but this is fine)
       await adminFetch(`/api/admin/teachers/${id}`, { method: "DELETE" });
       setTeachers((prev) => prev.filter((t) => t.id !== id));
     } catch (err) {
@@ -259,14 +236,13 @@ const COMPULSORY_SUBJECTS = [
     }
   };
 
-  // Students
+  /* ---------- Students ---------- */
   const fetchStudents = async () => {
     setLoadingStudents(true);
     setStudentError("");
     try {
       const data = await plainFetch("/api/students");
       if (!Array.isArray(data)) throw new Error("Invalid response");
-  
       const normalized = data.map((s) => ({
         ...s,
         subjects: Array.isArray(s.subjects)
@@ -279,7 +255,6 @@ const COMPULSORY_SUBJECTS = [
               }
             })(),
       }));
-  
       setStudents(normalized);
     } catch (err) {
       console.error("Error loading students:", err);
@@ -289,7 +264,6 @@ const COMPULSORY_SUBJECTS = [
       setLoadingStudents(false);
     }
   };
-  
 
   const handleAddStudent = async (e) => {
     e?.preventDefault();
@@ -302,10 +276,7 @@ const COMPULSORY_SUBJECTS = [
     setSavingStudent(true);
     setStudentError("");
     try {
-      const created = await plainFetch("/api/students", {
-        method: "POST",
-        body: { name, gender, dob, class_level, stream, subjects },
-      });
+      const created = await plainFetch("/api/students", { method: "POST", body: { name, gender, dob, class_level, stream, subjects } });
       const studentToAdd = {
         id: created.id ?? Date.now(),
         name: created.name ?? name,
@@ -333,7 +304,6 @@ const COMPULSORY_SUBJECTS = [
     setStudentError("");
     try {
       await adminFetch(`/api/admin/students/${id}`, { method: "DELETE" });
-
       setStudents((prev) => prev.filter((s) => s.id !== id));
     } catch (err) {
       console.error("Error deleting student:", err);
@@ -343,7 +313,7 @@ const COMPULSORY_SUBJECTS = [
     }
   };
 
-  // Admin: marks sets (protected)
+  /* ---------- Marks sets (admin) ---------- */
   const fetchMarksSets = async () => {
     setLoadingMarksSets(true);
     setMarksError("");
@@ -366,12 +336,7 @@ const COMPULSORY_SUBJECTS = [
     setMarksError("");
     setMarksDetail([]);
     try {
-      const params = new URLSearchParams({
-        assignmentId: set.assignment_id,
-        term: set.term,
-        year: String(set.year),
-        aoi: set.aoi_label,
-      });
+      const params = new URLSearchParams({ assignmentId: set.assignment_id, term: set.term, year: String(set.year), aoi: set.aoi_label });
       const data = await adminFetch(`/api/admin/marks-detail?${params.toString()}`);
       if (!Array.isArray(data)) throw new Error("Invalid response");
       setMarksDetail(data);
@@ -384,47 +349,37 @@ const COMPULSORY_SUBJECTS = [
     }
   };
 
-  /* ---------- Effects ---------- */
-
+  /* ------------------ Effects (initial & section load) ------------------ */
   useEffect(() => {
-    // initial public loads
     fetchTeachers();
     fetchStudents();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
   useEffect(() => {
-    if (activeSection === "Notices") {
-      fetchNotices();
-    }
+    if (activeSection === "Notices") fetchNotices();
   }, [activeSection]);
-  
-  
-  // load relevant data when section opens
+
   useEffect(() => {
-    if (activeSection === "Manage Teachers") {
-      fetchTeachers();
-    } else if (activeSection === "Add Students") {
-      fetchStudents();
-    } else if (activeSection === "Download Marks") {
+    if (activeSection === "Manage Teachers") fetchTeachers();
+    else if (activeSection === "Add Students") fetchStudents();
+    else if (activeSection === "Download Marks") {
       fetchMarksSets();
       setSelectedMarksSet(null);
       setMarksDetail([]);
     } else if (activeSection === "Assign Subjects") {
-      // nothing heavy here — AssignSubjectsPanel will load its own resources independently
       console.log("[AdminDashboard] opening Assign Subjects panel");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSection]);
 
-  // when user picks a marks set, load its detail
   useEffect(() => {
     if (selectedMarksSet) fetchMarksDetail(selectedMarksSet);
     else setMarksDetail([]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedMarksSet]);
 
-  /* ---------- UI helpers ---------- */
-
+  /* ------------------ UI helpers ------------------ */
   const handleTeacherInputChange = (e) => {
     const { name, value } = e.target;
     setTeacherForm((p) => ({ ...p, [name]: value }));
@@ -455,20 +410,10 @@ const COMPULSORY_SUBJECTS = [
   };
 
   /* ---------- Export helpers (CSV / PDF) ---------- */
-
   const handleDownloadCsv = () => {
     if (!selectedMarksSet || marksDetail.length === 0) return;
     const header = ["Student ID", "Name", "Class", "Stream", "Term", "Year", "AOI", "Score"];
-    const rows = marksDetail.map((row) => [
-      csvEscape(row.student_id),
-      csvEscape(row.student_name),
-      csvEscape(row.class_level),
-      csvEscape(row.stream),
-      csvEscape(selectedMarksSet.term),
-      csvEscape(selectedMarksSet.year),
-      csvEscape(selectedMarksSet.aoi_label),
-      csvEscape(row.score),
-    ]);
+    const rows = marksDetail.map((row) => [csvEscape(row.student_id), csvEscape(row.student_name), csvEscape(row.class_level), csvEscape(row.stream), csvEscape(selectedMarksSet.term), csvEscape(selectedMarksSet.year), csvEscape(selectedMarksSet.aoi_label), csvEscape(row.score)]);
     const csvLines = [header.join(","), ...rows.map((r) => r.join(","))];
     const csvContent = csvLines.join("\n");
     const slug = (str) => String(str || "").toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
@@ -483,58 +428,18 @@ const COMPULSORY_SUBJECTS = [
     link.remove();
     URL.revokeObjectURL(url);
   };
+
   const handleDeleteMarkSet = async (set) => {
-    const ok = window.confirm(
-      `Delete this mark set?\n\n` +
-      `${set.class_level} ${set.stream}\n` +
-      `${set.subject} — ${set.aoi_label}\n` +
-      `Term ${set.term} ${set.year}\n\n` +
-      `This cannot be undone.`
-    );
-  
+    const ok = window.confirm(`Delete this mark set?\n\n${set.class_level} ${set.stream}\n${set.subject} — ${set.aoi_label}\nTerm ${set.term} ${set.year}\n\nThis cannot be undone.`);
     if (!ok) return;
-  
     try {
-      const res = await fetch(`${API_BASE}/api/admin/marks-set`, {
-        method: "DELETE",
-        headers: {
-          "Content-Type": "application/json",
-          "x-admin-key": localStorage.getItem("SPESS_ADMIN_KEY"),
-        },
-        body: JSON.stringify({
-          assignmentId: set.assignment_id,
-          term: set.term,
-          year: set.year,
-          aoi: set.aoi_label,
-        }),
-      });
-  
+      const res = await fetch(`${API_BASE}/api/admin/marks-set`, { method: "DELETE", headers: { "Content-Type": "application/json", "x-admin-key": localStorage.getItem("SPESS_ADMIN_KEY") }, body: JSON.stringify({ assignmentId: set.assignment_id, term: set.term, year: set.year, aoi: set.aoi_label }) });
       if (!res.ok) {
         const err = await res.json();
         throw new Error(err.message || "Failed to delete mark set");
       }
-  
-      // Remove from table immediately
-      setMarksSets((prev) =>
-        prev.filter(
-          (m) =>
-            !(
-              m.assignment_id === set.assignment_id &&
-              m.term === set.term &&
-              m.year === set.year &&
-              m.aoi_label === set.aoi_label
-            )
-        )
-      );
-  
-      // Clear preview if this set was open
-      if (
-        selectedMarksSet &&
-        selectedMarksSet.assignment_id === set.assignment_id &&
-        selectedMarksSet.term === set.term &&
-        selectedMarksSet.year === set.year &&
-        selectedMarksSet.aoi_label === set.aoi_label
-      ) {
+      setMarksSets((prev) => prev.filter((m) => !(m.assignment_id === set.assignment_id && m.term === set.term && m.year === set.year && m.aoi_label === set.aoi_label)));
+      if (selectedMarksSet && selectedMarksSet.assignment_id === set.assignment_id && selectedMarksSet.term === set.term && selectedMarksSet.year === set.year && selectedMarksSet.aoi_label === set.aoi_label) {
         setSelectedMarksSet(null);
         setMarksDetail([]);
       }
@@ -542,7 +447,7 @@ const COMPULSORY_SUBJECTS = [
       alert(err.message);
     }
   };
-  
+
   const handleDownloadPdf = () => {
     if (!selectedMarksSet || marksDetail.length === 0) return;
     const doc = new jsPDF();
@@ -557,7 +462,6 @@ const COMPULSORY_SUBJECTS = [
     const submittedAtRaw = selectedMarksSet.submitted_at || selectedMarksSet.created_at || null;
     const submittedAt = formatDateTime(submittedAtRaw);
 
-    // Header
     doc.setFont("helvetica", "bold");
     doc.setFontSize(14);
     doc.text(schoolName, 105, 16, { align: "center" });
@@ -570,7 +474,6 @@ const COMPULSORY_SUBJECTS = [
     doc.text(`Submitted by: ${teacherName}`, 14, 54);
     doc.text(`Submitted at: ${submittedAt}`, 14, 61);
 
-    // table
     let startY = 72;
     let y = startY;
     const rowHeight = 7;
@@ -612,7 +515,6 @@ const COMPULSORY_SUBJECTS = [
       y += rowHeight;
     });
 
-    // footer
     const pageCount = doc.internal.getNumberOfPages();
     const generatedAt = formatDateTime(new Date().toISOString());
     const footerText = `Generated from SPESS's ARK · ${generatedAt}`;
@@ -723,11 +625,7 @@ const COMPULSORY_SUBJECTS = [
   /* ------------------ Card click handler ------------------ */
   const handleCardClick = (title) => {
     console.log("[AdminDashboard] card clicked:", title);
-    setActiveSection((prev) => {
-      const next = prev === title ? "" : title;
-      console.log("[AdminDashboard] activeSection ->", next);
-      return next;
-    });
+    setActiveSection((prev) => (prev === title ? "" : title));
   };
 
   /* ------------------ Derived values / filters ------------------ */
@@ -1039,6 +937,7 @@ const COMPULSORY_SUBJECTS = [
         </section>
       );
     }
+
     if (activeSection === "Notices") {
       return (
         <section className="panel">
@@ -1047,104 +946,50 @@ const COMPULSORY_SUBJECTS = [
               <h2>Notices</h2>
               <p>Create and manage notices visible to teachers.</p>
             </div>
-            <button
-              className="panel-close"
-              onClick={() => setActiveSection("")}
-            >
-              ✕ Close
-            </button>
+            <button className="panel-close" onClick={() => setActiveSection("")}>✕ Close</button>
           </div>
-    
-          {noticesError && (
-            <div className="panel-alert panel-alert-error">
-              {noticesError}
-            </div>
-          )}
-    
+
+          {noticesError && <div className="panel-alert panel-alert-error">{noticesError}</div>}
+
           <div className="panel-grid">
-            {/* ================= CREATE NOTICE ================= */}
+            {/* create notice */}
             <div className="panel-card">
               <h3>Create Notice</h3>
-    
-              <form
-                className="teacher-form"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  handleCreateNotice();
-                }}
-              >
+              <form className="teacher-form" onSubmit={(e) => { e.preventDefault(); handleCreateNotice(); }}>
                 <div className="form-row">
                   <label>Title</label>
-                  <input
-                    type="text"
-                    value={noticeTitle}
-                    onChange={(e) => setNoticeTitle(e.target.value)}
-                    placeholder="e.g. End of Term Schedule"
-                  />
+                  <input value={noticeForm.title} onChange={(e) => setNoticeForm((p) => ({ ...p, title: e.target.value }))} />
                 </div>
-    
                 <div className="form-row">
                   <label>Message</label>
-                  <textarea
-                    rows={4}
-                    value={noticeBody}
-                    onChange={(e) => setNoticeBody(e.target.value)}
-                    placeholder="Write the notice here…"
-                    style={{
-                      resize: "vertical",
-                      borderRadius: "0.6rem",
-                      padding: "0.6rem",
-                      background: "rgba(15,23,42,0.9)",
-                      color: "#e5e7eb",
-                      border: "1px solid rgba(55,65,81,0.9)",
-                    }}
-                  />
+                  <textarea rows={4} value={noticeForm.body} onChange={(e) => setNoticeForm((p) => ({ ...p, body: e.target.value }))} />
                 </div>
-    
-                <button className="primary-btn" type="submit">
-                  Publish Notice
-                </button>
-                
+                <button className="primary-btn" type="submit" disabled={loadingNotices}>{loadingNotices ? "Posting…" : "Publish Notice"}</button>
               </form>
+
+              {/* quick list below create form */}
               {notices.map((n) => (
-  <div key={n.id} className="notice-item">
-    <h4>{n.title}</h4>
-    <p>{n.body}</p>
-    <small>{formatDateTime(n.created_at)}</small>
-
-    <button
-      className="danger-link"
-      onClick={() => handleDeleteNotice(n.id)}
-    >
-      Delete
-    </button>
-  </div>
-))}
-
+                <div key={n.id} className="notice-item">
+                  <h4>{n.title}</h4>
+                  <p>{n.body}</p>
+                  <small>{formatDateTime(n.created_at)}</small>
+                  <button className="danger-link" onClick={() => handleDeleteNotice(n.id)}>Delete</button>
+                </div>
+              ))}
             </div>
-                      
-            {/* ================= EXISTING NOTICES ================= */}
+
             <div className="panel-card">
               <h3>Published Notices</h3>
-    
               {loadingNotices ? (
                 <p className="muted-text">Loading notices…</p>
               ) : notices.length === 0 ? (
                 <p className="muted-text">No notices yet.</p>
               ) : (
                 notices.map((n) => (
-                  <div
-                    key={n.id}
-                    style={{
-                      padding: "0.8rem 0",
-                      borderBottom: "1px solid rgba(148,163,184,0.15)",
-                    }}
-                  >
+                  <div key={n.id} style={{ padding: "0.8rem 0", borderBottom: "1px solid rgba(148,163,184,0.15)" }}>
                     <h4 style={{ marginBottom: "0.3rem" }}>{n.title}</h4>
                     <p style={{ marginBottom: "0.4rem" }}>{n.body}</p>
-                    <small className="muted-text">
-                      {formatDateTime(n.created_at)}
-                    </small>
+                    <small className="muted-text">{formatDateTime(n.created_at)}</small>
                   </div>
                 ))
               )}
@@ -1153,9 +998,7 @@ const COMPULSORY_SUBJECTS = [
         </section>
       );
     }
-    
-    
-    // --- Assign Subjects branch (guaranteed to render when activeSection matches) ---
+
     if (activeSection === "Assign Subjects") {
       return (
         <section className="panel">
@@ -1166,7 +1009,6 @@ const COMPULSORY_SUBJECTS = [
             </div>
             <button className="panel-close" type="button" onClick={() => setActiveSection("")}>✕ Close</button>
           </div>
-
           <div style={{ padding: "0.6rem 0" }}>
             <AssignSubjectsPanel active={true} />
           </div>
@@ -1197,7 +1039,6 @@ const COMPULSORY_SUBJECTS = [
                 <h3>Available mark sets</h3>
                 <button type="button" className="ghost-btn" onClick={fetchMarksSets} disabled={loadingMarksSets}>{loadingMarksSets ? "Refreshing…" : "Refresh"}</button>
               </div>
-
               {loadingMarksSets && marksSets.length === 0 ? (
                 <p className="muted-text">Loading marks summary…</p>
               ) : marksSets.length === 0 ? (
@@ -1236,7 +1077,7 @@ const COMPULSORY_SUBJECTS = [
                             <td>{set.marks_count}</td>
                             <td className="teachers-actions">
                               <button type="button" className="ghost-btn" onClick={(e) => { e.stopPropagation(); setSelectedMarksSet(set); }}>View</button>
-                              <button type="button" className="danger-link" onClick={(e)=>{e.stopPropagation();handleDeleteMarkSet(set);}} >Delete</button>
+                              <button type="button" className="danger-link" onClick={(e) => { e.stopPropagation(); handleDeleteMarkSet(set); }}>Delete</button>
                             </td>
                           </tr>
                         );
@@ -1245,7 +1086,8 @@ const COMPULSORY_SUBJECTS = [
                   </table>
                 </div>
               )}
-            </div>      
+            </div>
+
             <div className="panel-card">
               <div className="panel-card-header">
                 <h3>Marks preview</h3>
@@ -1256,7 +1098,7 @@ const COMPULSORY_SUBJECTS = [
                   </div>
                 )}
               </div>
-                  
+
               {!selectedMarksSet ? (
                 <p className="muted-text">Select a mark set on the left to preview scores.</p>
               ) : loadingMarksDetail && marksDetail.length === 0 ? (
@@ -1295,13 +1137,13 @@ const COMPULSORY_SUBJECTS = [
         </section>
       );
     }
-    if (activeSection === "End of Term Reports") {
+    if (activeSection === "Enrollment Insights") {
       return (
         <section className="panel">
           <div className="panel-header">
             <div>
-              <h2>End of Term Reports</h2>
-              <p>Generate printable report cards (Term 1 & Term 2).</p>
+              <h2>Enrollment Insights</h2>
+              <p>See how learners are distributed by class, stream and subject.</p>
             </div>
             <button
               className="panel-close"
@@ -1312,27 +1154,31 @@ const COMPULSORY_SUBJECTS = [
             </button>
           </div>
     
-          {/* 🔽 REAL UI LIVES HERE */}
-          <EndOfTermReports />
+          <EnrollmentInsightsPanel students={students} />
         </section>
       );
     }
     
     
-    
+    if (activeSection === "End of Term Reports") {
+      return (
+        <section className="panel">
+          <div className="panel-header">
+            <div>
+              <h2>End of Term Reports</h2>
+              <p>Generate printable report cards (Term 1 & Term 2).</p>
+            </div>
+            <button className="panel-close" type="button" onClick={() => setActiveSection("")}>✕ Close</button>
+          </div>
+          <EndOfTermReports />
+        </section>
+      );
+    }
+
+
     return <p className="admin-hint">Click a card above to open its detailed view.</p>;
   };
-  {editingStudent && (
-    <EditStudentModal
-      student={editingStudent}
-      onClose={() => setEditingStudent(null)}
-      onSave={() => {
-        setEditingStudent(null);
-        fetchStudents();
-      }}
-    />
-  )}
-  
+
   /* ------------------ main render ------------------ */
   return (
     <div className="admin-root">
@@ -1343,10 +1189,7 @@ const COMPULSORY_SUBJECTS = [
           <span className="brand-tag">Admin</span>
         </div>
 
-        <button className="nav-logout" onClick={handleLogout}>
-          Logout
-            </button>
-
+        <button className="nav-logout" onClick={handleLogout}>Logout</button>
       </header>
 
       <main className="admin-main">
@@ -1396,24 +1239,18 @@ const COMPULSORY_SUBJECTS = [
 
         <section className="admin-section">{renderSectionContent()}</section>
       </main>
-      {editingStudent && (
-  <EditStudentModal
-    student={editingStudent}
-    onClose={() => setEditingStudent(null)}
-    onSaved={(updatedStudent) => {
-      setStudents((prev) =>
-        prev.map((s) =>
-          s.id === updatedStudent.id ? updatedStudent : s
-              )
-            );
-      setEditingStudent(null);
-              }}
-                           />
-      )}
 
+      {/* single modal instance */}
+      {editingStudent && (
+        <EditStudentModal
+          student={editingStudent}
+          onClose={() => setEditingStudent(null)}
+          onSaved={(updatedStudent) => {
+            setStudents((prev) => prev.map((s) => (s.id === updatedStudent.id ? updatedStudent : s)));
+            setEditingStudent(null);
+          }}
+        />
+      )}
     </div>
   );
-
- 
 }
-export default AdminDashboard;

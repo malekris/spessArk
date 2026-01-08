@@ -558,7 +558,7 @@ export default function AdminDashboard() {
   
     const generatedAt = formatDateTime(new Date().toISOString());
     const schoolName = "St. Phillip's Equatorial Secondary School (SPESS)";
-    const title = "Class Marksheet";
+    const title = "Class List";
     const classLabel = marksheetClass;
     const streamLabel = marksheetStream || "North & South";
   
@@ -709,6 +709,34 @@ export default function AdminDashboard() {
     }
     return true;
   });
+    /* ---------- Enrollment breakdown by stream / class / gender ---------- */
+  const enrollmentByStreamClassGender = React.useMemo(() => {
+  const result = {};
+
+  students.forEach((s) => {
+    const stream = s.stream || "Unknown";
+    const cls = s.class_level || "Unknown";
+    const gender = s.gender || "Other";
+
+    if (!result[stream]) result[stream] = {};
+    if (!result[stream][cls]) {
+      result[stream][cls] = {
+        Male: 0,
+        Female: 0,
+        Other: 0,
+        total: 0,
+      };
+    }
+
+    if (gender === "Male") result[stream][cls].Male += 1;
+    else if (gender === "Female") result[stream][cls].Female += 1;
+    else result[stream][cls].Other += 1;
+
+    result[stream][cls].total += 1;
+  });
+
+  return result;
+  }, [students]);
 
   const classOptions = Array.from(new Set(students.map((s) => s.class_level))).filter(Boolean);
   const classOptionsForMarksheet = classOptions.length > 0 ? classOptions : ["S1", "S2", "S3", "S4"];
@@ -1259,34 +1287,179 @@ export default function AdminDashboard() {
       </header>
 
       <main className="admin-main">
-        <section className="admin-heading">
-          <h1>Admin Dashboard</h1>
-          <p>Quick actions for managing students, teachers and marks. Select a card below to open its detailed view.</p>
+      <section className="admin-heading">
+  <h1>Admin Dashboard</h1>
+  <p>
+    Quick actions for managing students, teachers and marks. Select a card below
+    to open its detailed view.
+  </p>
 
-          <div style={{ marginTop: "1.8rem", display: "flex", flexWrap: "wrap", gap: "1rem" }}>
-            <div style={{ flex: "1 1 260px", padding: "1.4rem 1.6rem", borderRadius: "1rem", background: "linear-gradient(135deg, rgba(56,189,248,0.22), rgba(79,70,229,0.35))", border: "1px solid rgba(59,130,246,0.6)", boxShadow: "0 18px 40px rgba(15,23,42,0.8)" }}>
-              <div style={{ fontSize: "0.78rem", textTransform: "uppercase", letterSpacing: "0.18em", color: "#bfdbfe", marginBottom: "0.4rem" }}>Total School Population</div>
-              <div style={{ fontSize: "2.3rem", fontWeight: 700, lineHeight: 1.1 }}>{totalStudents}</div>
-              <div style={{ marginTop: "0.4rem", fontSize: "0.85rem", color: "#e5e7eb" }}>Boys: <strong>{totalBoys}</strong> • Girls: <strong>{totalGirls}</strong></div>
-            </div>
+  {/* ================= OVERVIEW CARDS ================= */}
+  <div
+    style={{
+      marginTop: "1.8rem",
+      display: "flex",
+      flexWrap: "wrap",
+      gap: "1rem",
+    }}
+  >
+    {/* TOTAL POPULATION */}
+    <div
+      style={{
+        flex: "1 1 260px",
+        padding: "1.4rem 1.6rem",
+        borderRadius: "1rem",
+        background:
+          "linear-gradient(135deg, rgba(56,189,248,0.22), rgba(79,70,229,0.35))",
+        border: "1px solid rgba(59,130,246,0.6)",
+        boxShadow: "0 18px 40px rgba(15,23,42,0.8)",
+      }}
+    >
+      <div
+        style={{
+          fontSize: "0.78rem",
+          textTransform: "uppercase",
+          letterSpacing: "0.18em",
+          color: "#bfdbfe",
+          marginBottom: "0.4rem",
+        }}
+      >
+        Total School Population
+      </div>
+      <div style={{ fontSize: "2.3rem", fontWeight: 700 }}>
+        {totalStudents}
+      </div>
+      <div style={{ marginTop: "0.4rem", fontSize: "0.85rem" }}>
+        Boys: <strong>{totalBoys}</strong> • Girls:{" "}
+        <strong>{totalGirls}</strong>
+      </div>
+    </div>
 
-            <div style={{ flex: "1 1 180px", padding: "1.1rem 1.3rem", borderRadius: "1rem", background: "linear-gradient(135deg, rgba(34,197,94,0.2), rgba(22,163,74,0.35))", border: "1px solid rgba(34,197,94,0.7)" }}>
-              <div style={{ fontSize: "0.8rem", textTransform: "uppercase", letterSpacing: "0.14em", color: "#bbf7d0", marginBottom: "0.2rem" }}>Learners by Gender</div>
-              <div style={{ fontSize: "0.95rem", color: "#e5e7eb" }}>Boys enrolled: <strong style={{ fontSize: "1.1rem" }}>{totalBoys}</strong><br/>Girls enrolled: <strong style={{ fontSize: "1.1rem" }}>{totalGirls}</strong></div>
-            </div>
+    {/* TEACHERS */}
+    <div
+      style={{
+        flex: "1 1 200px",
+        padding: "1.1rem 1.3rem",
+        borderRadius: "1rem",
+        background:
+          "linear-gradient(135deg, rgba(244,114,182,0.22), rgba(236,72,153,0.35))",
+        border: "1px solid rgba(244,114,182,0.8)",
+      }}
+    >
+      <div
+        style={{
+          fontSize: "0.8rem",
+          textTransform: "uppercase",
+          letterSpacing: "0.14em",
+          color: "#fce7f3",
+          marginBottom: "0.2rem",
+        }}
+      >
+        Teachers Enrolled
+      </div>
+      <div style={{ fontSize: "2rem", fontWeight: 600 }}>
+        {totalTeachers}
+      </div>
+    </div>
+  </div>
 
-            <div style={{ flex: "1 1 220px", padding: "1.1rem 1.3rem", borderRadius: "1rem", background: "linear-gradient(135deg, rgba(14,165,233,0.22), rgba(59,130,246,0.35))", border: "1px solid rgba(56,189,248,0.8)" }}>
-              <div style={{ fontSize: "0.8rem", textTransform: "uppercase", letterSpacing: "0.14em", color: "#e0f2fe", marginBottom: "0.2rem" }}>Class Breakdown (S1–S4)</div>
-              <div style={{ fontSize: "0.95rem", color: "#e5e7eb" }}>S1: <strong style={{ fontSize: "1.05rem" }}>{s1Students}</strong><br/>S2: <strong style={{ fontSize: "1.05rem" }}>{s2Students}</strong><br/>S3: <strong style={{ fontSize: "1.05rem" }}>{s3Students}</strong><br/>S4: <strong style={{ fontSize: "1.05rem" }}>{s4Students}</strong></div>
-            </div>
+  {/* ================= BIGASS BREAKDOWN CARD ================= */}
+  <div
+    style={{
+      marginTop: "1.6rem",
+      padding: "1.6rem",
+      borderRadius: "1.2rem",
+      background:
+        "linear-gradient(135deg, rgba(15,23,42,0.95), rgba(30,41,59,0.95))",
+      border: "1px solid rgba(148,163,184,0.35)",
+      boxShadow: "0 22px 60px rgba(0,0,0,0.6)",
+    }}
+  >
+    <div
+      style={{
+        fontSize: "0.85rem",
+        textTransform: "uppercase",
+        letterSpacing: "0.18em",
+        color: "#93c5fd",
+        marginBottom: "0.6rem",
+      }}
+    >
+      Enrollment Breakdown by Stream • Class • Gender
+    </div>
 
-            <div style={{ flex: "1 1 180px", padding: "1.1rem 1.3rem", borderRadius: "1rem", background: "linear-gradient(135deg, rgba(244,114,182,0.22), rgba(236,72,153,0.35))", border: "1px solid rgba(244,114,182,0.8)" }}>
-              <div style={{ fontSize: "0.8rem", textTransform: "uppercase", letterSpacing: "0.14em", color: "#fce7f3", marginBottom: "0.2rem" }}>Teachers Enrolled</div>
-              <div style={{ fontSize: "2rem", fontWeight: 600, lineHeight: 1.1, color: "#f9a8d4" }}>{totalTeachers}</div>
-              <div style={{ marginTop: "0.4rem", fontSize: "0.85rem", color: "#fdf2f8" }}>Active teachers in the system.</div>
+    {Object.keys(enrollmentByStreamClassGender).length === 0 ? (
+      <p className="muted-text">No enrollment data available.</p>
+    ) : (
+      Object.entries(enrollmentByStreamClassGender).map(
+        ([stream, classes]) => (
+          <div key={stream} style={{ marginBottom: "1.4rem" }}>
+            <h3
+              style={{
+                marginBottom: "0.6rem",
+                color: "#e5e7eb",
+                fontSize: "1.1rem",
+              }}
+            >
+              Stream: {stream}
+            </h3>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns:
+                  "repeat(auto-fit, minmax(220px, 1fr))",
+                gap: "0.8rem",
+              }}
+            >
+              {Object.entries(classes).map(([cls, stats]) => (
+                <div
+                  key={cls}
+                  style={{
+                    padding: "1rem",
+                    borderRadius: "0.9rem",
+                    background: "rgba(15,23,42,0.9)",
+                    border: "1px solid rgba(148,163,184,0.25)",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: "0.75rem",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.14em",
+                      color: "#9ca3af",
+                      marginBottom: "0.25rem",
+                    }}
+                  >
+                    Class {cls}
+                  </div>
+
+                  <div style={{ fontSize: "0.9rem" }}>
+                    👦 Boys: <strong>{stats.Male}</strong>
+                    <br />
+                    👧 Girls: <strong>{stats.Female}</strong>
+                    <br />
+                    🧑 Other: <strong>{stats.Other}</strong>
+                  </div>
+
+                  <div
+                    style={{
+                      marginTop: "0.4rem",
+                      fontSize: "0.85rem",
+                      color: "#93c5fd",
+                    }}
+                  >
+                    Total: <strong>{stats.total}</strong>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
-        </section>
+        )
+      )
+    )}
+  </div>
+</section>
+
 
         <section className="admin-grid">
           {cards.map((card) => (

@@ -562,10 +562,13 @@ export default function AdminDashboard() {
     const classLabel = marksheetClass;
     const streamLabel = marksheetStream || "North & South";
   
-    const topMargin = 20;
+    const topMargin = 16;
+    const headerHeight = 44; // total header block height
+    const tableHeaderHeight = 10;
     const bottomMargin = 18;
-    const tableStartY = 66;
-    const rowBaseHeight = 7;
+    const baseRowHeight = 8;
+  
+    let y;
   
     /* ---------- HEADER ---------- */
     const drawHeaderBlock = () => {
@@ -598,7 +601,7 @@ export default function AdminDashboard() {
       doc.setDrawColor(180);
       doc.line(10, y + 2, pageW - 10, y + 2);
   
-      y += rowBaseHeight;
+      y += tableHeaderHeight;
       doc.setFont("helvetica", "normal");
     };
   
@@ -614,28 +617,36 @@ export default function AdminDashboard() {
       );
     };
   
-    /* ---------- START DOCUMENT ---------- */
-    let y = tableStartY;
+    /* ---------- NEW PAGE ---------- */
+    const startNewPage = () => {
+      doc.addPage();
+      drawHeaderBlock();
+      y = topMargin + headerHeight;
+      drawTableHeader();
+    };
   
+    /* ---------- PAGE 1 ---------- */
     drawHeaderBlock();
+    y = topMargin + headerHeight;
     drawTableHeader();
   
+    /* ---------- ROWS ---------- */
     list.forEach((s, index) => {
       const subs = Array.isArray(s.subjects) ? s.subjects : [];
       const optionalSubs = subs.filter((sub) =>
         OPTIONAL_SUBJECTS.includes(sub)
       );
       const optionalText = optionalSubs.join(", ");
-  
       const subjectLines = doc.splitTextToSize(optionalText, pageW - 160);
-      const rowHeight = Math.max(rowBaseHeight, subjectLines.length * 6);
   
-      // 🔥 PRE-CHECK SPACE BEFORE DRAWING
+      const rowHeight = Math.max(
+        baseRowHeight,
+        subjectLines.length * 6
+      );
+  
+      // 🔥 PRECISE PAGE BREAK CHECK
       if (y + rowHeight > pageH - bottomMargin) {
-        doc.addPage();
-        y = tableStartY;
-        drawHeaderBlock();
-        drawTableHeader();
+        startNewPage();
       }
   
       doc.setFontSize(9);
@@ -649,7 +660,7 @@ export default function AdminDashboard() {
       y += rowHeight;
     });
   
-    /* ---------- FINAL FOOTERS ---------- */
+    /* ---------- FOOTERS ---------- */
     const totalPages = doc.internal.getNumberOfPages();
     for (let i = 1; i <= totalPages; i++) {
       doc.setPage(i);
@@ -662,6 +673,7 @@ export default function AdminDashboard() {
     window.open(blobUrl, "_blank");
     setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
   };
+  
   
 
   /* ------------------ Card click handler ------------------ */

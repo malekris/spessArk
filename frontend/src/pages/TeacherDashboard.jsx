@@ -106,7 +106,7 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
     const token = localStorage.getItem("teacherToken");
     if (!token) return;
 
-    fetch(`${API_BASE}/api/teacher/assignments`, {
+    fetch(`${API_BASE}/api/teachers/assignments`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((r) => r.json())
@@ -145,24 +145,32 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
 
   // load analytics when selected assignment changes or term/year changes
   useEffect(() => {
-    if (selectedAssignment) loadAnalytics(selectedAssignment);
-  }, [selectedAssignment, marksTerm, marksYear]);
+    if (selectedAssignment) {
+      loadAnalytics(selectedAssignment);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedAssignment, marksYear, marksTerm]);
 
   // -------- load analytics --------
   const loadAnalytics = async (assignment) => {
-    const token = localStorage.getItem("teacherToken");
-    if (!token || !assignment) return;
+    if (!assignment) return;
+
     try {
       setAnalyticsLoading(true);
-      const params = new URLSearchParams({
-        assignmentId: assignment.id,
-        term: marksTerm,
-        year: marksYear,
-      });
-      const res = await fetch(`${API_BASE}/api/teacher/analytics/class?${params}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+
+      const token = localStorage.getItem("teacherToken");
+
+      const res = await fetch(
+        `${API_BASE}/api/teachers/analytics/subject?assignmentId=${assignment.id}&year=${marksYear}&term=${marksTerm}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
       if (!res.ok) throw new Error("Failed to load analytics");
+
       const data = await res.json();
       setAnalytics(data);
     } catch (err) {
@@ -182,20 +190,45 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
       setMarksLoading(true);
       setMarksError("");
 
+      // 1) students for assignment (plural route)
       const resStudents = await fetch(
-        `${API_BASE}/api/teacher/assignments/${assignment.id}/students`,
+        `${API_BASE}/api/teachers/assignments/${assignment.id}/students`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      const data = await resStudents.json();
-      const studentsList = Array.isArray(data.students) ? data.students : data || [];
 
-      const params = new URLSearchParams({ assignmentId: assignment.id, year: marksYear, term: marksTerm });
-      const resMarks = await fetch(`${API_BASE}/api/teacher/marks?${params}`, {
+      if (!resStudents.ok) {
+        const text = await resStudents.text();
+        throw new Error(text || `Failed to load students (${resStudents.status})`);
+      }
+
+      const dataStudents = await resStudents.json();
+      // many server implementations return { students: [...] } or [] — handle both
+      const studentsList = Array.isArray(dataStudents)
+        ? dataStudents
+        : Array.isArray(dataStudents.students)
+        ? dataStudents.students
+        : [];
+
+      // 2) marks for assignment (plural route)
+      const params = new URLSearchParams({
+        assignmentId: assignment.id,
+        year: marksYear,
+        term: marksTerm,
+      });
+      const resMarks = await fetch(`${API_BASE}/api/teachers/marks?${params}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      const marks = resMarks.ok ? await resMarks.json() : [];
+      let marks = [];
+      if (resMarks.ok) {
+        marks = await resMarks.json();
+      } else {
+        // if marks endpoint returns 404/500, treat marks as empty but continue
+        console.warn("Marks load warning:", await resMarks.text());
+        marks = [];
+      }
 
+      // build maps like before
       const marksMap = {};
       const statusMap = {};
 
@@ -215,9 +248,9 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
         }
       });
 
+      // init student maps (this preserves original behavior)
       const studentMarksInit = {};
       const studentStatusInit = {};
-
       studentsList.forEach((s) => {
         studentMarksInit[s.id] = {
           AOI1: marksMap[s.id]?.AOI1 ?? marksMap[s.id]?.aoi1 ?? undefined,
@@ -270,7 +303,7 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
 
       const token = localStorage.getItem("teacherToken");
 
-      const res = await fetch(`${API_BASE}/api/teacher/change-password`, {
+      const res = await fetch(`${API_BASE}/api/teachers/change-password`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -348,7 +381,7 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
       setMarkErrors({});
       setMarksSaving(true);
 
-      const res = await fetch(`${API_BASE}/api/teacher/marks`, {
+      const res = await fetch(`${API_BASE}/api/teachers/marks`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ assignmentId: selectedAssignment.id, year: Number(marksYear), term: marksTerm, marks: payload }),
@@ -566,6 +599,64 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
               <div className="panel-alert">
                 You are entering marks for <strong>{selectedAssignment.class_level} {selectedAssignment.stream} — {selectedAssignment.subject}</strong> ({marksYear}, {marksTerm})
               </div>
+
+              {/* ===== Analytics panel (READ-ONLY) ===== */}
+              {analyticsLoading && <div className="panel-alert">Loading analytics…</div>}
+
+              {analytics && (
+                <div className="panel-card" style={{ marginBottom: "1rem" }}>
+                  <h3 style={{ marginBottom: "0.6rem" }}>📊 Subject Analytics — {analytics.assignment?.subject}</h3>
+
+                  <div style={{ display: "flex", gap: "1.2rem", flexWrap: "wrap" }}>
+                    <div>
+                      <strong>Registered Learners</strong>
+                      <div>{analytics.meta?.registered_learners ?? "—"}</div>
+                    </div>
+
+                    <div>
+                      <strong>Overall Average</strong>
+                      <div>{analytics.overall_average ?? "—"}</div>
+                    </div>
+
+                    <div>
+                      <strong>Term</strong>
+                      <div>{analytics.meta?.term ?? marksTerm}</div>
+                    </div>
+
+                    <div>
+                      <strong>Year</strong>
+                      <div>{analytics.meta?.year ?? marksYear}</div>
+                    </div>
+                  </div>
+
+                  <table className="teachers-table" style={{ marginTop: "0.8rem" }}>
+                    <thead>
+                      <tr>
+                        <th>AOI</th>
+                        <th>Attempts</th>
+                        <th>Average</th>
+                        <th>Missed</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Array.isArray(analytics.aois) && analytics.aois.length > 0 ? (
+                        analytics.aois.map((aoi) => (
+                          <tr key={aoi.aoi_label}>
+                            <td>{aoi.aoi_label}</td>
+                            <td>{aoi.attempts}</td>
+                            <td>{aoi.average_score ?? "—"}</td>
+                            <td>{aoi.missed_count}</td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={4} className="muted-text">No AOI data yet</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              )}
 
               <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap", marginBottom: "0.6rem" }}>
                 <input

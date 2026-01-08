@@ -164,25 +164,85 @@ app.post("/api/teachers/login", async (req, res) => {
 });
 
 /* ===============================
-   TEACHER ASSIGNMENTS
-=============================== */
-app.get("/api/teacher/assignments", authTeacher, async (req, res) => {
-  const [rows] = await pool.query(
-    `SELECT id, class_level, stream, subject
-     FROM teacher_assignments
-     WHERE teacher_id = ?
-     ORDER BY class_level, stream, subject`,
-    [req.teacher.id]
+   LOAD STUDENTS (subject-aware)
+   ================================ */
+   app.get( "/api/teachers/assignments/:assignmentId/students",
+    authTeacher,
+    async (req, res) => {
+      try {
+        const assignmentId = Number(req.params.assignmentId);
+        if (!assignmentId) return res.status(400).json({ message: "Invalid assignment id" });
+  
+        // 1) Load assignment including subject
+        const [[assignment]] = await pool.query(
+          `SELECT class_level, stream, subject
+           FROM teacher_assignments
+           WHERE id = ? AND teacher_id = ?`,
+          [assignmentId, req.teacher.id]
+        );
+  
+        if (!assignment) {
+          return res.status(404).json({ message: "Assignment not found" });
+        }
+  
+        const assignmentSubject = (assignment.subject || "").trim();
+  
+        // 2) Detect whether we have a normalized subject_registrations table
+        const [[{ registrations_table_count }]] = await pool.query(
+          `SELECT COUNT(*) AS registrations_table_count
+           FROM information_schema.tables
+           WHERE table_schema = ? AND table_name = 'subject_registrations'`,
+          [process.env.DB_NAME]
+        );
+  
+        let studentsQuery;
+        let params;
+  
+        if (registrations_table_count > 0) {
+          // Use normalized subject_registrations table (preferred)
+          studentsQuery = `
+            SELECT s.id, s.name, s.gender
+            FROM students s
+            INNER JOIN subject_registrations sr
+              ON sr.student_id = s.id
+            WHERE s.class_level = ?
+              AND s.stream = ?
+              AND sr.subject = ?
+            ORDER BY s.name
+          `;
+          params = [assignment.class_level, assignment.stream, assignmentSubject];
+        } else {
+          // Fallback — students.subjects is stored as JSON (e.g. ["Kiswahili","Math"])
+          // JSON_CONTAINS checks if students.subjects contains the subject string
+          studentsQuery = `
+            SELECT id, name, gender
+            FROM students
+            WHERE class_level = ?
+              AND stream = ?
+              AND JSON_CONTAINS(subjects, JSON_QUOTE(?))
+            ORDER BY name
+          `;
+          params = [assignment.class_level, assignment.stream, assignmentSubject];
+        }
+  
+        const [students] = await pool.query(studentsQuery, params);
+  
+        // Ensure we always return an array
+        res.json({ students: Array.isArray(students) ? students : [] });
+      } catch (err) {
+        console.error("Load students error:", err);
+        res.status(500).json({ message: "Failed to load learners" });
+      }
+    }
   );
+  
 
-  res.json(rows);
-});
 
 /* ===============================
    LOAD STUDENTS
 =============================== */
 app.get(
-  "/api/teacher/assignments/:assignmentId/students",
+  "/api/teachers/assignments/:assignmentId/students",
   authTeacher,
   async (req, res) => {
     const assignmentId = Number(req.params.assignmentId);
@@ -671,6 +731,7 @@ app.get("/api/admin/marks-detail", authAdmin, async (req, res) => {
   }
 });
 app.post("/api/teacher/marks", authTeacher, async (req, res) => {
+  let conn;
   try {
     const teacherId = req.teacher.id;
 
@@ -680,21 +741,114 @@ app.post("/api/teacher/marks", authTeacher, async (req, res) => {
     const marks = req.body.marks;
 
     if (!assignmentId || !year || !term || !Array.isArray(marks)) {
-
       return res.status(400).json({ message: "Invalid marks payload" });
     }
-     /* 💾 INSERT OR UPDATE MARKS */
-     for (const m of marks) {
+
+    // 1) Ensure assignment exists and belongs to this teacher
+    const [[assignmentRow]] = await pool.query(
+      `SELECT subject, class_level, stream
+       FROM teacher_assignments
+       WHERE id = ? AND teacher_id = ?`,
+      [assignmentId, teacherId]
+    );
+
+    if (!assignmentRow) {
+      return res.status(404).json({ message: "Assignment not found or not assigned to this teacher" });
+    }
+
+    const assignmentSubject = (assignmentRow.subject || "").trim();
+
+    // 2) Collect unique studentIds from payload
+    const studentIds = Array.from(
+      new Set(
+        marks
+          .map((m) => Number(m.studentId))
+          .filter((id) => Number.isInteger(id) && id > 0)
+      )
+    );
+
+    if (studentIds.length === 0) {
+      return res.status(400).json({ message: "No valid studentIds provided" });
+    }
+
+    // 3) Start transaction and validate registrations in batch
+    conn = await pool.getConnection();
+    await conn.beginTransaction();
+
+    // detect if subject_registrations table exists
+    const [[{ registrations_table_count }]] = await conn.query(
+      `SELECT COUNT(*) AS registrations_table_count
+       FROM information_schema.tables
+       WHERE table_schema = ? AND table_name = 'subject_registrations'`,
+      [process.env.DB_NAME]
+    );
+
+    const placeholders = studentIds.map(() => "?").join(",");
+
+    const registeredIdsSet = new Set();
+
+    if (registrations_table_count > 0) {
+      // detect if 'year' column exists in subject_registrations
+      const [[{ year_col_count }]] = await conn.query(
+        `SELECT COUNT(*) AS year_col_count
+         FROM information_schema.columns
+         WHERE table_schema = ? AND table_name = 'subject_registrations' AND column_name = 'year'`,
+        [process.env.DB_NAME]
+      );
+
+      if (year_col_count > 0) {
+        const [rows] = await conn.query(
+          `SELECT student_id FROM subject_registrations
+           WHERE student_id IN (${placeholders}) AND subject = ? AND year = ?`,
+          [...studentIds, assignmentSubject, year]
+        );
+        rows.forEach((r) => registeredIdsSet.add(r.student_id));
+      } else {
+        const [rows] = await conn.query(
+          `SELECT student_id FROM subject_registrations
+           WHERE student_id IN (${placeholders}) AND subject = ?`,
+          [...studentIds, assignmentSubject]
+        );
+        rows.forEach((r) => registeredIdsSet.add(r.student_id));
+      }
+    } else {
+      // fallback: students.subjects stored as JSON array
+      const [rows] = await conn.query(
+        `SELECT id AS student_id FROM students
+         WHERE id IN (${placeholders}) AND JSON_CONTAINS(subjects, JSON_QUOTE(?))`,
+        [...studentIds, assignmentSubject]
+      );
+      rows.forEach((r) => registeredIdsSet.add(r.student_id));
+    }
+
+    const notRegistered = studentIds.filter((id) => !registeredIdsSet.has(id));
+    if (notRegistered.length > 0) {
+      await conn.rollback();
+      return res.status(400).json({
+        message: `Students not registered for ${assignmentSubject}: ${notRegistered.join(",")}`,
+      });
+    }
+
+    // 4) Validate each mark entry and insert/upsert using the transaction connection
+    for (const m of marks) {
       const isMissed = m.score === "Missed";
-      const aoi = m.aoi?.trim().toUpperCase();
+      const aoi = (m.aoi || "").trim().toUpperCase();
 
       if (!aoi || !["AOI1", "AOI2", "AOI3"].includes(aoi)) {
-      return res.status(400).json({
-       message: "Each mark must include a valid AOI (AOI1, AOI2, AOI3)",
-       });
+        await conn.rollback();
+        return res.status(400).json({
+          message: "Each mark must include a valid AOI (AOI1, AOI2, AOI3)",
+        });
       }
 
-      // 🚨 HARD BACKEND VALIDATION
+      // Ensure the student is actually part of the validated list (extra safety)
+      const sid = Number(m.studentId);
+      if (!registeredIdsSet.has(sid)) {
+        await conn.rollback();
+        return res.status(400).json({ message: `Student ${sid} is not registered for ${assignmentSubject}` });
+      }
+
+      // score presence/format for present students
       if (!isMissed) {
         if (
           m.score === "" ||
@@ -702,13 +856,15 @@ app.post("/api/teacher/marks", authTeacher, async (req, res) => {
           m.score === undefined ||
           Number.isNaN(Number(m.score))
         ) {
+          await conn.rollback();
           return res.status(400).json({
             message: "Present students must have a valid score",
           });
         }
       }
-    
-      await pool.query(
+
+      // upsert mark (same logic as before), use transaction connection
+      await conn.query(
         `
         INSERT INTO marks
           (teacher_id, assignment_id, student_id, score, status, year, term, aoi_label)
@@ -723,7 +879,7 @@ app.post("/api/teacher/marks", authTeacher, async (req, res) => {
         [
           teacherId,
           assignmentId,
-          m.studentId,
+          sid,
           isMissed ? null : Number(m.score),
           isMissed ? "Missed" : "Present",
           year,
@@ -732,14 +888,27 @@ app.post("/api/teacher/marks", authTeacher, async (req, res) => {
         ]
       );
     }
-    
-    
+
+    // commit transaction
+    await conn.commit();
+    conn.release();
+    conn = null;
+
     res.json({ message: "Marks saved successfully" });
   } catch (err) {
+    if (conn) {
+      try {
+        await conn.rollback();
+      } catch (e) {
+        console.error("Rollback error:", e);
+      }
+      conn.release();
+    }
     console.error("❌ Save marks error:", err);
     res.status(500).json({ message: "Failed to save marks" });
   }
 });
+
 
 app.get("/api/teacher/marks", authTeacher, async (req, res) => {
   try {
@@ -770,6 +939,251 @@ app.get("/api/teacher/marks", authTeacher, async (req, res) => {
   } catch (err) {
     console.error("❌ Load marks error:", err);
     res.status(500).json({ message: "Failed to load marks" });
+  }
+});
+// -----------------------
+// PLURAL ALIAS: students for an assignment
+// -----------------------
+app.get(
+  "/api/teachers/assignments/:assignmentId/students",
+  authTeacher,
+  async (req, res) => {
+    try {
+      const assignmentId = Number(req.params.assignmentId);
+      if (!assignmentId) return res.status(400).json({ message: "Invalid assignment id" });
+
+      const [[assignment]] = await pool.query(
+        `SELECT class_level, stream, subject
+         FROM teacher_assignments
+         WHERE id = ? AND teacher_id = ?`,
+        [assignmentId, req.teacher.id]
+      );
+
+      if (!assignment) {
+        return res.status(404).json({ message: "Assignment not found" });
+      }
+
+      const subject = assignment.subject;
+
+      // If you have subject_registrations, change JOIN accordingly;
+      // this fallback uses JSON stored subjects (existing pattern).
+      const [students] = await pool.query(
+        `
+        SELECT s.id, s.name, s.gender
+        FROM students s
+        WHERE s.class_level = ?
+          AND s.stream = ?
+          AND JSON_CONTAINS(s.subjects, JSON_QUOTE(?))
+        ORDER BY s.name
+        `,
+        [assignment.class_level, assignment.stream, subject]
+      );
+
+      res.json({ students: Array.isArray(students) ? students : [] });
+    } catch (err) {
+      console.error("❌ Load students error (plural):", err);
+      res.status(500).json({ message: "Failed to load learners" });
+    }
+  }
+);
+// -----------------------
+// PLURAL: GET marks (for frontend 'load marks')
+// -----------------------
+app.get("/api/teachers/marks", authTeacher, async (req, res) => {
+  try {
+    const assignmentId = parseInt(req.query.assignmentId, 10);
+    const year = parseInt(req.query.year, 10);
+    const term = req.query.term?.trim();
+
+    if (!assignmentId || !year || !term) {
+      return res.status(400).json({ message: "Missing parameters" });
+    }
+
+    const [rows] = await pool.query(
+      `
+      SELECT
+        student_id,
+        score,
+        status,
+        aoi_label
+      FROM marks
+      WHERE assignment_id = ?
+        AND year = ?
+        AND term = ?
+      `,
+      [assignmentId, year, term]
+    );
+
+    res.json(rows);
+  } catch (err) {
+    console.error("❌ Load marks error (plural):", err);
+    res.status(500).json({ message: "Failed to load marks" });
+  }
+});
+// -----------------------
+// PLURAL: POST marks (save) — transactional, validates registration
+// Paste this if your frontend posts to /api/teachers/marks
+// -----------------------
+app.post("/api/teachers/marks", authTeacher, async (req, res) => {
+  let conn;
+  try {
+    const teacherId = req.teacher.id;
+
+    const assignmentId = parseInt(req.body.assignmentId, 10);
+    const year = parseInt(req.body.year, 10);
+    const term = req.body.term?.trim();
+    const marks = req.body.marks;
+
+    if (!assignmentId || !year || !term || !Array.isArray(marks)) {
+      return res.status(400).json({ message: "Invalid marks payload" });
+    }
+
+    // ensure assignment belongs to teacher
+    const [[assignmentRow]] = await pool.query(
+      `SELECT subject, class_level, stream
+       FROM teacher_assignments
+       WHERE id = ? AND teacher_id = ?`,
+      [assignmentId, teacherId]
+    );
+    if (!assignmentRow) {
+      return res.status(404).json({ message: "Assignment not found or not assigned to this teacher" });
+    }
+    const assignmentSubject = (assignmentRow.subject || "").trim();
+
+    // build unique student id list
+    const studentIds = Array.from(
+      new Set(
+        marks.map((m) => Number(m.studentId)).filter((id) => Number.isInteger(id) && id > 0)
+      )
+    );
+    if (studentIds.length === 0) {
+      return res.status(400).json({ message: "No valid studentIds provided" });
+    }
+
+    // transaction
+    conn = await pool.getConnection();
+    await conn.beginTransaction();
+
+    // check if subject_registrations exists
+    const [[{ registrations_table_count }]] = await conn.query(
+      `SELECT COUNT(*) AS registrations_table_count
+       FROM information_schema.tables
+       WHERE table_schema = ? AND table_name = 'subject_registrations'`,
+      [process.env.DB_NAME]
+    );
+
+    const placeholders = studentIds.map(() => "?").join(",");
+    const registeredIdsSet = new Set();
+
+    if (registrations_table_count > 0) {
+      // detect year column presence
+      const [[{ year_col_count }]] = await conn.query(
+        `SELECT COUNT(*) AS year_col_count
+         FROM information_schema.columns
+         WHERE table_schema = ? AND table_name = 'subject_registrations' AND column_name = 'year'`,
+        [process.env.DB_NAME]
+      );
+
+      if (year_col_count > 0) {
+        const [rows] = await conn.query(
+          `SELECT student_id FROM subject_registrations
+           WHERE student_id IN (${placeholders}) AND subject = ? AND year = ?`,
+          [...studentIds, assignmentSubject, year]
+        );
+        rows.forEach((r) => registeredIdsSet.add(r.student_id));
+      } else {
+        const [rows] = await conn.query(
+          `SELECT student_id FROM subject_registrations
+           WHERE student_id IN (${placeholders}) AND subject = ?`,
+          [...studentIds, assignmentSubject]
+        );
+        rows.forEach((r) => registeredIdsSet.add(r.student_id));
+      }
+    } else {
+      // fallback: JSON_CONTAINS on students.subjects
+      const [rows] = await conn.query(
+        `SELECT id AS student_id FROM students
+         WHERE id IN (${placeholders}) AND JSON_CONTAINS(subjects, JSON_QUOTE(?))`,
+        [...studentIds, assignmentSubject]
+      );
+      rows.forEach((r) => registeredIdsSet.add(r.student_id));
+    }
+
+    const notRegistered = studentIds.filter((id) => !registeredIdsSet.has(id));
+    if (notRegistered.length > 0) {
+      await conn.rollback();
+      return res.status(400).json({
+        message: `Students not registered for ${assignmentSubject}: ${notRegistered.join(",")}`,
+      });
+    }
+
+    // validate and upsert marks using transaction connection
+    for (const m of marks) {
+      const isMissed = m.score === "Missed";
+      const aoi = (m.aoi || "").trim().toUpperCase();
+
+      if (!aoi || !["AOI1", "AOI2", "AOI3"].includes(aoi)) {
+        await conn.rollback();
+        return res.status(400).json({
+          message: "Each mark must include a valid AOI (AOI1, AOI2, AOI3)",
+        });
+      }
+
+      const sid = Number(m.studentId);
+      if (!registeredIdsSet.has(sid)) {
+        await conn.rollback();
+        return res.status(400).json({ message: `Student ${sid} is not registered for ${assignmentSubject}` });
+      }
+
+      if (!isMissed) {
+        if (
+          m.score === "" ||
+          m.score === null ||
+          m.score === undefined ||
+          Number.isNaN(Number(m.score))
+        ) {
+          await conn.rollback();
+          return res.status(400).json({ message: "Present students must have a valid score" });
+        }
+      }
+
+      await conn.query(
+        `
+        INSERT INTO marks
+          (teacher_id, assignment_id, student_id, score, status, year, term, aoi_label)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+          score = VALUES(score),
+          status = VALUES(status),
+          year = VALUES(year),
+          term = VALUES(term),
+          teacher_id = VALUES(teacher_id)
+        `,
+        [
+          teacherId,
+          assignmentId,
+          sid,
+          isMissed ? null : Number(m.score),
+          isMissed ? "Missed" : "Present",
+          year,
+          term,
+          aoi,
+        ]
+      );
+    }
+
+    await conn.commit();
+    conn.release();
+    conn = null;
+
+    res.json({ message: "Marks saved successfully" });
+  } catch (err) {
+    if (conn) {
+      try { await conn.rollback(); } catch (e) { console.error("Rollback error:", e); }
+      conn.release();
+    }
+    console.error("❌ Save marks error (plural):", err);
+    res.status(500).json({ message: "Failed to save marks" });
   }
 });
 
@@ -900,7 +1314,138 @@ app.post("/api/teacher/change-password", authTeacher, async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 });
+// add to server.js (or routes/teachers.js if you keep teacher routes there)
+// GET analytics for a class (AOI breakdown)
+app.get("/api/teachers/analytics/class", authTeacher, async (req, res) => {
+  try {
+    const assignmentId = parseInt(req.query.assignmentId, 10);
+    const term = (req.query.term || "").trim();
+    const year = parseInt(req.query.year, 10);
 
+    if (!assignmentId || !term || !year) {
+      return res.status(400).json({ message: "assignmentId, term and year are required" });
+    }
+
+    const [rows] = await pool.query(
+      `
+      SELECT 
+        m.aoi_label AS aoi_label,
+        COUNT(*) AS total,
+        AVG(m.score) AS average,
+        SUM(CASE WHEN m.status = 'Missed' THEN 1 ELSE 0 END) AS missed
+      FROM marks m
+      WHERE m.assignment_id = ?
+        AND m.term = ?
+        AND m.year = ?
+      GROUP BY m.aoi_label
+      `,
+      [assignmentId, term, year]
+    );
+
+    res.json({
+      assignmentId,
+      term,
+      year,
+      breakdown: Array.isArray(rows) ? rows : []
+    });
+  } catch (err) {
+    console.error("Analytics error:", err);
+    res.status(500).json({ message: "Failed to load analytics" });
+  }
+});
+// ===============================
+// TEACHER → SUBJECT ANALYTICS
+// ===============================
+app.get("/api/teachers/analytics/subject", authTeacher, async (req, res) => {
+  try {
+    const teacherId = req.teacher.id;
+    const assignmentId = parseInt(req.query.assignmentId, 10);
+    const year = parseInt(req.query.year, 10);
+    const term = req.query.term?.trim();
+
+    if (!assignmentId || !year || !term) {
+      return res.status(400).json({
+        message: "assignmentId, year and term are required",
+      });
+    }
+
+    // 1️⃣ Validate assignment belongs to teacher
+    const [[assignment]] = await pool.query(
+      `
+      SELECT class_level, stream, subject
+      FROM teacher_assignments
+      WHERE id = ? AND teacher_id = ?
+      `,
+      [assignmentId, teacherId]
+    );
+
+    if (!assignment) {
+      return res.status(404).json({ message: "Assignment not found" });
+    }
+
+    // 2️⃣ Count registered learners for this subject
+    const [[{ registered_count }]] = await pool.query(
+      `
+      SELECT COUNT(*) AS registered_count
+      FROM students
+      WHERE class_level = ?
+        AND stream = ?
+        AND JSON_CONTAINS(subjects, JSON_QUOTE(?))
+      `,
+      [assignment.class_level, assignment.stream, assignment.subject]
+    );
+
+    // 3️⃣ AOI analytics (only for this assignment)
+    const [aoiRows] = await pool.query(
+      `
+      SELECT
+        aoi_label,
+        COUNT(*) AS attempts,
+        ROUND(AVG(score), 2) AS average_score,
+        SUM(status = 'Missed') AS missed_count
+      FROM marks
+      WHERE assignment_id = ?
+        AND year = ?
+        AND term = ?
+      GROUP BY aoi_label
+      ORDER BY aoi_label
+      `,
+      [assignmentId, year, term]
+    );
+
+    // 4️⃣ Overall subject average (across all AOIs)
+    const [[overall]] = await pool.query(
+      `
+      SELECT ROUND(AVG(score), 2) AS overall_average
+      FROM marks
+      WHERE assignment_id = ?
+        AND year = ?
+        AND term = ?
+        AND status = 'Present'
+      `,
+      [assignmentId, year, term]
+    );
+
+    res.json({
+      assignment: {
+        id: assignmentId,
+        subject: assignment.subject,
+        class_level: assignment.class_level,
+        stream: assignment.stream,
+      },
+      meta: {
+        registered_learners: registered_count,
+        year,
+        term,
+      },
+      aois: aoiRows || [],
+      overall_average: overall?.overall_average ?? "—",
+    });
+  } catch (err) {
+    console.error("❌ Subject analytics error:", err);
+    res.status(500).json({ message: "Failed to load subject analytics" });
+  }
+});
 
 /* =======================
    START SERVER

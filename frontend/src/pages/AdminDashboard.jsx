@@ -368,24 +368,47 @@ export default function AdminDashboard() {
     }
   };
 
-  const fetchMarksDetail = async (set) => {
+  const fetchMarksDetail = async (set, returnOnly = false) => {
     if (!set) return;
-    setLoadingMarksDetail(true);
-    setMarksError("");
-    setMarksDetail([]);
+  
+    // Only reset UI state if NOT used for combined
+    if (!returnOnly) {
+      setLoadingMarksDetail(true);
+      setMarksError("");
+      setMarksDetail([]);
+    }
+  
     try {
-      const params = new URLSearchParams({ assignmentId: set.assignment_id, term: set.term, year: String(set.year), aoi: set.aoi_label });
+      const params = new URLSearchParams({
+        assignmentId: set.assignment_id,
+        term: set.term,
+        year: String(set.year),
+        aoi: set.aoi_label,
+      });
+  
       const data = await adminFetch(`/api/admin/marks-detail?${params.toString()}`);
+  
       if (!Array.isArray(data)) throw new Error("Invalid response");
+  
+      // 👇 new behavior for combined mode
+      if (returnOnly) return data;
+  
+      // 👇 existing behavior preserved
       setMarksDetail(data);
     } catch (err) {
       console.error("Error loading marks detail:", err);
-      setMarksError(err.message || "Could not load marks detail.");
-      setMarksDetail([]);
+  
+      if (!returnOnly) {
+        setMarksError(err.message || "Could not load marks detail.");
+        setMarksDetail([]);
+      }
     } finally {
-      setLoadingMarksDetail(false);
+      if (!returnOnly) {
+        setLoadingMarksDetail(false);
+      }
     }
   };
+  
 
   /* ------------------ Effects (initial & section load) ------------------ */
   useEffect(() => {
@@ -1278,142 +1301,107 @@ export default function AdminDashboard() {
           {marksError && <div className="panel-alert panel-alert-error">{marksError}</div>}
     
           <div className="panel-grid">
-            {/* LEFT: SUBJECT GROUPS */}
+    
+            {/* LEFT PANEL */}
             <div className="panel-card">
               <div className="panel-card-header">
                 <h3>Available Subjects</h3>
-                <button
-                  type="button"
-                  className="ghost-btn"
-                  onClick={fetchMarksSets}
-                  disabled={loadingMarksSets}
-                >
+                <button className="ghost-btn" onClick={fetchMarksSets} disabled={loadingMarksSets}>
                   {loadingMarksSets ? "Refreshing…" : "Refresh"}
                 </button>
               </div>
     
-              {loadingMarksSets && groupedMarkSets.length === 0 ? (
-                <p className="muted-text">Loading marks…</p>
-              ) : groupedMarkSets.length === 0 ? (
-                <p className="muted-text">No marks available.</p>
-              ) : (
-                <div className="teachers-table-wrapper">
-                  <table className="teachers-table">
-                    <thead>
-                      <tr>
-                        <th>Class</th>
-                        <th>Stream</th>
-                        <th>Subject</th>
-                        <th>AOIs</th>
-                        <th>Term</th>
-                        <th>Year</th>
-                        <th>Action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {groupedMarkSets.map((group) => {
-                        const isSelected =
-                          selectedGroup &&
-                          selectedGroup.class_level === group.class_level &&
-                          selectedGroup.stream === group.stream &&
-                          selectedGroup.subject === group.subject &&
-                          selectedGroup.term === group.term &&
-                          selectedGroup.year === group.year;
+              <div className="teachers-table-wrapper">
+                <table className="teachers-table">
+                  <thead>
+                    <tr>
+                      <th>Class</th>
+                      <th>Stream</th>
+                      <th>Subject</th>
+                      <th>AOIs</th>
+                      <th>Term</th>
+                      <th>Year</th>
+                      <th>Submitted by</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {groupedMarkSets.map((group) => (
+                      <tr
+                        key={`${group.class_level}-${group.stream}-${group.subject}-${group.term}-${group.year}`}
+                        onClick={() => {
+                          setSelectedGroup(group);
+                          setSelectedAoi(null);
+                          setMarksDetail([]);
+                        }}
+                        style={{ cursor: "pointer" }}
+                      >
+                        <td>{group.class_level}</td>
+                        <td>{group.stream}</td>
+                        <td>{group.subject}</td>
+                        <td>{group.aois.length}</td>
+                        <td>{group.term}</td>
+                        <td>{group.year}</td>
+                        <td>{group.submitted_by || "—"}</td>
+                        <td>
+                          <button
+                            className="danger-link"
+                            onClick={async (e) => {
+                              e.stopPropagation();
     
-                        return (
-                          <tr
-                            key={`${group.class_level}-${group.stream}-${group.subject}-${group.term}-${group.year}`}
-                            onClick={() => {
-                              setSelectedGroup(group);
-                              setSelectedAoi(null);
-                              setMarksDetail([]);
-                            }}
-                            style={{
-                              cursor: "pointer",
-                              background: isSelected ? "rgba(37,99,235,0.25)" : "transparent",
+                              const ok = window.confirm(
+                                `Delete ALL marks for:\n\n${group.subject}\n${group.class_level} ${group.stream}\nTerm ${group.term}, ${group.year}`
+                              );
+    
+                              if (!ok) return;
+    
+                              try {
+                                for (const aoi of group.aois) {
+                                  await adminFetch("/api/admin/marks-set", {
+                                    method: "DELETE",
+                                    body: {
+                                      assignmentId: aoi.assignment_id,
+                                      term: aoi.term,
+                                      year: aoi.year,
+                                      aoi: aoi.aoi_label,
+                                    },
+                                  });
+                                }
+    
+                                await fetchMarksSets();
+                                setSelectedGroup(null);
+                                setSelectedAoi(null);
+                                setMarksDetail([]);
+                              } catch {
+                                alert("Failed to delete subject");
+                              }
                             }}
                           >
-                            <td>{group.class_level}</td>
-                            <td>{group.stream}</td>
-                            <td>{group.subject}</td>
-                            <td>{group.aois.length}</td>
-                            <td>{group.term}</td>
-                            <td>{group.year}</td>
-    
-                            {/* DELETE BUTTON */}
-                            <td className="teachers-actions">
-                              <button
-                                className="danger-link"
-                                onClick={async (e) => {
-                                  e.stopPropagation();
-    
-                                  const ok = window.confirm(
-                                    `Delete ALL marks for:\n\n` +
-                                      `${group.class_level} ${group.stream}\n` +
-                                      `${group.subject}\n` +
-                                      `Term ${group.term}, ${group.year}\n\n` +
-                                      `This deletes all AOIs under this subject.`
-                                  );
-    
-                                  if (!ok) return;
-    
-                                  try {
-                                    for (const aoi of group.aois) {
-                                      await adminFetch("/api/admin/marks-set", {
-                                        method: "DELETE",
-                                        body: {
-                                          assignmentId: aoi.assignment_id,
-                                          term: aoi.term,
-                                          year: aoi.year,
-                                          aoi: aoi.aoi_label,
-                                        },
-                                      });
-                                    }
-    
-                                    await fetchMarksSets();
-                                    setSelectedGroup(null);
-                                    setSelectedAoi(null);
-                                    setMarksDetail([]);
-                                  } catch (err) {
-                                    alert(err.message || "Failed to delete marks");
-                                  }
-                                }}
-                              >
-                                Delete
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+                            Delete
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
     
-            {/* RIGHT: PREVIEW */}
+            {/* RIGHT PANEL */}
             <div className="panel-card">
               <div className="panel-card-header">
                 <h3>Marks Preview</h3>
     
                 {selectedAoi && marksDetail.length > 0 && (
                   <div style={{ display: "flex", gap: "0.5rem" }}>
-                    <button
-                      type="button"
-                      className="ghost-btn"
-                      onClick={handleDownloadCsv}
-                      disabled={loadingMarksDetail}
-                    >
-                      Download CSV
-                    </button>
-                    <button
-                      type="button"
-                      className="primary-btn"
-                      onClick={handleDownloadPdf}
-                      disabled={loadingMarksDetail}
-                    >
-                      Download PDF
-                    </button>
+                    <button className="ghost-btn" onClick={handleDownloadCsv}>Download CSV</button>
+                    <button className="primary-btn" onClick={handleDownloadPdf}>Download PDF</button>
+    
+                    {selectedAoi === "ALL" && (
+                      <button className="ghost-btn" onClick={handleDownloadPdf}>
+                        📦 Download Combined Report
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -1422,36 +1410,96 @@ export default function AdminDashboard() {
                 <p className="muted-text">Select a subject on the left.</p>
               ) : (
                 <>
-                  <p className="muted-text" style={{ marginBottom: "0.6rem" }}>
+                  <p className="muted-text">
                     {selectedGroup.class_level} {selectedGroup.stream} —{" "}
-                    <strong>{selectedGroup.subject}</strong> (Term {selectedGroup.term},{" "}
-                    {selectedGroup.year})
+                    <strong>{selectedGroup.subject}</strong> (Term {selectedGroup.term}, {selectedGroup.year})
                   </p>
     
-                  {/* AOI buttons */}
-                  <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap", marginBottom: "0.8rem" }}>
+                  {/* AOI CONTROLS */}
+                  <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap", marginBottom: "0.8rem" }}>
+    
+                    {/* ALL AOIs */}
+                    <button
+                      className={`ghost-btn ${selectedAoi === "ALL" ? "active" : ""}`}
+                      onClick={async () => {
+                        setSelectedAoi("ALL");
+                        setLoadingMarksDetail(true);
+                        setMarksDetail([]);
+    
+                        try {
+                          const combined = [];
+    
+                          for (const aoi of selectedGroup.aois) {
+                            const data = await fetchMarksDetail(aoi, true);
+                            combined.push(...data.map(r => ({
+                              ...r,
+                              aoi_label: aoi.aoi_label,
+                            })));
+                          }
+    
+                          setMarksDetail(combined);
+                        } catch {
+                          alert("Failed to load combined AOIs");
+                        } finally {
+                          setLoadingMarksDetail(false);
+                        }
+                      }}
+                    >
+                      📦 All AOIs
+                    </button>
+    
+                    {/* INDIVIDUAL AOIs */}
                     {selectedGroup.aois.map((aoi) => (
-                      <button
-                        key={aoi.aoi_label}
-                        className={`ghost-btn ${
-                          selectedAoi?.aoi_label === aoi.aoi_label ? "active" : ""
-                        }`}
-                        onClick={() => {
-                          setSelectedAoi(aoi);
-                          fetchMarksDetail(aoi);
-                        }}
-                      >
-                        {aoi.aoi_label}
-                      </button>
+                      <div key={aoi.aoi_label} style={{ display: "flex", gap: "0.2rem" }}>
+                        <button
+                          className="ghost-btn"
+                          onClick={() => {
+                            setSelectedAoi(aoi);
+                            fetchMarksDetail(aoi);
+                          }}
+                        >
+                          {aoi.aoi_label}
+                        </button>
+    
+                        <button
+                          className="danger-link"
+                          onClick={async (e) => {
+                            e.stopPropagation();
+    
+                            const ok = window.confirm(
+                              `Delete AOI?\n\n${aoi.aoi_label}\n${selectedGroup.subject}`
+                            );
+                            if (!ok) return;
+    
+                            try {
+                              await adminFetch("/api/admin/marks-set", {
+                                method: "DELETE",
+                                body: {
+                                  assignmentId: aoi.assignment_id,
+                                  term: aoi.term,
+                                  year: aoi.year,
+                                  aoi: aoi.aoi_label,
+                                },
+                              });
+    
+                              await fetchMarksSets();
+                              setSelectedAoi(null);
+                              setMarksDetail([]);
+                            } catch {
+                              alert("Failed to delete AOI");
+                            }
+                          }}
+                        >
+                          ✕
+                        </button>
+                      </div>
                     ))}
                   </div>
     
-                  {!selectedAoi ? (
-                    <p className="muted-text">Select an AOI above to view marks.</p>
-                  ) : loadingMarksDetail ? (
+                  {loadingMarksDetail ? (
                     <p className="muted-text">Loading marks…</p>
                   ) : marksDetail.length === 0 ? (
-                    <p className="muted-text">No marks for this AOI.</p>
+                    <p className="muted-text">No marks loaded.</p>
                   ) : (
                     <div className="teachers-table-wrapper">
                       <table className="teachers-table">
@@ -1460,15 +1508,17 @@ export default function AdminDashboard() {
                             <th>Name</th>
                             <th>Class</th>
                             <th>Stream</th>
+                            {selectedAoi === "ALL" && <th>AOI</th>}
                             <th>Score</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {marksDetail.map((row) => (
-                            <tr key={row.student_id}>
+                          {marksDetail.map((row, i) => (
+                            <tr key={i}>
                               <td>{row.student_name}</td>
                               <td>{row.class_level}</td>
                               <td>{row.stream}</td>
+                              {selectedAoi === "ALL" && <td>{row.aoi_label}</td>}
                               <td>{row.score}</td>
                             </tr>
                           ))}
@@ -1483,7 +1533,6 @@ export default function AdminDashboard() {
         </section>
       );
     }
-    
     
     if (activeSection === "Enrollment Insights") {
       return (

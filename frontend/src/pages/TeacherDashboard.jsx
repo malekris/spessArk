@@ -507,23 +507,36 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
       {isPortrait && <div className="panel-alert">📱 Rotate your phone for better mark entry</div>}
 
       <header className="admin-nav">
-        <div className="brand">
-          <span className="brand-text">SPESS’s ARK</span>
-          <span className="brand-tag">Teacher</span>
-        </div>
+  <div className="brand" style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+    
+    {/* Brand dot */}
+    <span
+      style={{
+        width: "10px",
+        height: "10px",
+        borderRadius: "50%",
+        backgroundColor: "#b8860b", // golden brown
+        display: "inline-block"
+      }}
+    />
 
-        <div style={{ display: "flex", gap: "0.6rem", alignItems: "center" }}>
-          <div style={{ display: "flex", gap: "0.6rem" }}>
-            <button className="secondary-btn" onClick={() => setShowChangePassword(true)}>
-              Change Password
-            </button>
+    <span className="brand-text">SPESS’s ARK</span>
+    <span className="brand-tag">Teacher</span>
+  </div>
 
-            <button className="nav-logout" onClick={handleLogout}>
-              Logout
-            </button>
-          </div>
-        </div>
+  <div style={{ display: "flex", gap: "0.6rem", alignItems: "center" }}>
+    <div style={{ display: "flex", gap: "0.6rem" }}>
+      <button className="secondary-btn" onClick={() => setShowChangePassword(true)}>
+        Change Password
+      </button>
+
+      <button className="nav-logout" onClick={handleLogout}>
+        Logout
+      </button>
+    </div>
+  </div>
       </header>
+
 
       <main className="admin-main">
         <section className="admin-heading">

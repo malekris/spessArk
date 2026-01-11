@@ -177,7 +177,42 @@ export default function AdminDashboard() {
       alert(err.message || "Failed to delete notice");
     }
   };
-
+  const handleDeleteGroup = async (group) => {
+    const ok = window.confirm(
+      `Delete ALL marks for:\n\n` +
+      `${group.class_level} ${group.stream}\n` +
+      `${group.subject}\n` +
+      `Term ${group.term}, ${group.year}\n\n` +
+      `This will delete all AOIs under this subject.`
+    );
+  
+    if (!ok) return;
+  
+    try {
+      // delete every AOI in this subject group
+      for (const set of group.aois) {
+        await adminFetch("/api/admin/marks-set", {
+          method: "DELETE",
+          body: {
+            assignmentId: set.assignment_id,
+            term: set.term,
+            year: set.year,
+            aoi: set.aoi_label,
+          },
+        });
+      }
+  
+      // Refresh UI
+      await fetchMarksSets();
+      setSelectedGroup(null);
+      setSelectedAoi(null);
+      setMarksDetail([]);
+  
+    } catch (err) {
+      alert(err.message || "Failed to delete marks");
+    }
+  };
+  
   /* ---------- Teachers ---------- */
   const fetchTeachers = async () => {
     setLoadingTeachers(true);
@@ -1272,6 +1307,7 @@ export default function AdminDashboard() {
                         <th>AOIs</th>
                         <th>Term</th>
                         <th>Year</th>
+                        <th>Action</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1303,6 +1339,49 @@ export default function AdminDashboard() {
                             <td>{group.aois.length}</td>
                             <td>{group.term}</td>
                             <td>{group.year}</td>
+    
+                            {/* DELETE BUTTON */}
+                            <td className="teachers-actions">
+                              <button
+                                className="danger-link"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+    
+                                  const ok = window.confirm(
+                                    `Delete ALL marks for:\n\n` +
+                                      `${group.class_level} ${group.stream}\n` +
+                                      `${group.subject}\n` +
+                                      `Term ${group.term}, ${group.year}\n\n` +
+                                      `This deletes all AOIs under this subject.`
+                                  );
+    
+                                  if (!ok) return;
+    
+                                  try {
+                                    for (const aoi of group.aois) {
+                                      await adminFetch("/api/admin/marks-set", {
+                                        method: "DELETE",
+                                        body: {
+                                          assignmentId: aoi.assignment_id,
+                                          term: aoi.term,
+                                          year: aoi.year,
+                                          aoi: aoi.aoi_label,
+                                        },
+                                      });
+                                    }
+    
+                                    await fetchMarksSets();
+                                    setSelectedGroup(null);
+                                    setSelectedAoi(null);
+                                    setMarksDetail([]);
+                                  } catch (err) {
+                                    alert(err.message || "Failed to delete marks");
+                                  }
+                                }}
+                              >
+                                Delete
+                              </button>
+                            </td>
                           </tr>
                         );
                       })}
@@ -1404,6 +1483,7 @@ export default function AdminDashboard() {
         </section>
       );
     }
+    
     
     if (activeSection === "Enrollment Insights") {
       return (

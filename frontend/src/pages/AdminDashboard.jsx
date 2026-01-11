@@ -897,7 +897,7 @@ export default function AdminDashboard() {
           subject: m.subject,
           term: m.term,
           year: m.year,
-          teacher_name: m.teacher_name,
+          teacher_name: m.teacher_name || "—",
           aois: [],
         };
       }
@@ -1342,7 +1342,7 @@ export default function AdminDashboard() {
                         <td>{group.aois.length}</td>
                         <td>{group.term}</td>
                         <td>{group.year}</td>
-                        <td>{group.submitted_by || "—"}</td>
+                        <td>{group.teacher_name || "—"}</td>
                         <td>
                           <button
                             className="danger-link"

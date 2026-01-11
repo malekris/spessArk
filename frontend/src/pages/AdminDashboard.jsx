@@ -1,5 +1,5 @@
 // src/pages/AdminDashboard.jsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import "./AdminDashboard.css";
 import jsPDF from "jspdf";
 import AssignSubjectsPanel from "../components/AssignSubjectsPanel";
@@ -113,6 +113,8 @@ export default function AdminDashboard() {
   const [loadingMarksSets, setLoadingMarksSets] = useState(false);
   const [loadingMarksDetail, setLoadingMarksDetail] = useState(false);
   const [marksError, setMarksError] = useState("");
+  const [selectedGroup, setSelectedGroup] = useState(null);
+  const [selectedAoi, setSelectedAoi] = useState(null);
 
   /* ---------- Marksheet ---------- */
   const [marksheetClass, setMarksheetClass] = useState("");
@@ -412,23 +414,68 @@ export default function AdminDashboard() {
 
   /* ---------- Export helpers (CSV / PDF) ---------- */
   const handleDownloadCsv = () => {
-    if (!selectedMarksSet || marksDetail.length === 0) return;
-    const header = ["Student ID", "Name", "Class", "Stream", "Term", "Year", "AOI", "Score"];
-    const rows = marksDetail.map((row) => [csvEscape(row.student_id), csvEscape(row.student_name), csvEscape(row.class_level), csvEscape(row.stream), csvEscape(selectedMarksSet.term), csvEscape(selectedMarksSet.year), csvEscape(selectedMarksSet.aoi_label), csvEscape(row.score)]);
-    const csvLines = [header.join(","), ...rows.map((r) => r.join(","))];
-    const csvContent = csvLines.join("\n");
-    const slug = (str) => String(str || "").toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
-    const filename = `marks_${slug(selectedMarksSet.class_level)}_${slug(selectedMarksSet.stream)}_${slug(selectedMarksSet.subject)}_${slug(selectedMarksSet.aoi_label)}_T${slug(selectedMarksSet.term)}_${selectedMarksSet.year}.csv`;
+    if (!selectedAoi || marksDetail.length === 0) return;
+  
+    const csvEscape = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  
+    const header = [
+      "Student ID",
+      "Name",
+      "Class",
+      "Stream",
+      "Score",
+      "Subject",
+      "AOI",
+      "Term",
+      "Year",
+      "Submitted By",
+      "Submitted At",
+    ];
+  
+    const submittedAt = formatDateTime(
+      selectedAoi.submitted_at || selectedAoi.created_at
+    );
+  
+    const rows = marksDetail.map((row) => [
+      csvEscape(row.student_id),
+      csvEscape(row.student_name),
+      csvEscape(row.class_level),
+      csvEscape(row.stream),
+      csvEscape(row.score),
+      csvEscape(selectedAoi.subject),
+      csvEscape(selectedAoi.aoi_label),
+      csvEscape(selectedAoi.term),
+      csvEscape(selectedAoi.year),
+      csvEscape(selectedAoi.teacher_name || ""),
+      csvEscape(submittedAt),
+    ]);
+  
+    const csvContent = [
+      header.map(csvEscape).join(","),
+      ...rows.map((r) => r.join(",")),
+    ].join("\n");
+  
+    const slug = (str) =>
+      String(str || "")
+        .toLowerCase()
+        .replace(/\s+/g, "_")
+        .replace(/[^a-z0-9_]/g, "");
+  
+    const filename = `marks_${slug(selectedAoi.class_level)}_${slug(
+      selectedAoi.stream
+    )}_${slug(selectedAoi.subject)}_${slug(
+      selectedAoi.aoi_label
+    )}_T${slug(selectedAoi.term)}_${selectedAoi.year}.csv`;
+  
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.setAttribute("download", filename);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    URL.revokeObjectURL(url);
+  
+    // Open in new tab (user chooses to save / download)
+    window.open(url, "_blank");
+  
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
   };
+  
 
   const handleDeleteMarkSet = async (set) => {
     const ok = window.confirm(`Delete this mark set?\n\n${set.class_level} ${set.stream}\n${set.subject} — ${set.aoi_label}\nTerm ${set.term} ${set.year}\n\nThis cannot be undone.`);
@@ -450,88 +497,122 @@ export default function AdminDashboard() {
   };
 
   const handleDownloadPdf = () => {
-    if (!selectedMarksSet || marksDetail.length === 0) return;
-    const doc = new jsPDF();
+    if (!selectedAoi || marksDetail.length === 0) return;
+  
+    const doc = new jsPDF("p", "mm", "a4");
+  
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
+  
     const schoolName = "St. Phillip's Equatorial Secondary School (SPESS)";
-    const aoiTitle = selectedMarksSet.aoi_label || "AOI";
-    const classLabel = selectedMarksSet.class_level;
-    const streamLabel = selectedMarksSet.stream;
-    const subjectLabel = selectedMarksSet.subject;
-    const termLabel = selectedMarksSet.term;
-    const yearLabel = selectedMarksSet.year;
-    const teacherName = selectedMarksSet.teacher_name || "—";
-    const submittedAtRaw = selectedMarksSet.submitted_at || selectedMarksSet.created_at || null;
-    const submittedAt = formatDateTime(submittedAtRaw);
-
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(14);
-    doc.text(schoolName, 105, 16, { align: "center" });
-    doc.setFontSize(18);
-    doc.text(aoiTitle, 105, 28, { align: "center" });
-    doc.setFontSize(11);
-    doc.setFont("helvetica", "normal");
-    doc.text(`Class: ${classLabel}   Stream: ${streamLabel}   Subject: ${subjectLabel}`, 14, 40);
-    doc.text(`Term: ${termLabel}   Year: ${yearLabel}`, 14, 47);
-    doc.text(`Submitted by: ${teacherName}`, 14, 54);
-    doc.text(`Submitted at: ${submittedAt}`, 14, 61);
-
-    let startY = 72;
-    let y = startY;
-    const rowHeight = 7;
-    const pageHeight = doc.internal.pageSize.getHeight();
-    const bottomMargin = 15;
-
-    const drawTableHeader = () => {
+    const title = `${selectedAoi.subject} — ${selectedAoi.aoi_label}`;
+    const generatedAt = formatDateTime(new Date().toISOString());
+  
+    const meta = {
+      Class: selectedAoi.class_level,
+      Stream: selectedAoi.stream,
+      Subject: selectedAoi.subject,
+      Term: selectedAoi.term,
+      Year: selectedAoi.year,
+      "Submitted by": selectedAoi.teacher_name || "—",
+      "Submitted at": formatDateTime(
+        selectedAoi.submitted_at || selectedAoi.created_at
+      ),
+    };
+  
+    /* ========== HEADER (only drawn on first page) ========== */
+    const drawHeader = () => {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(14);
+      doc.text(schoolName, pageW / 2, 18, { align: "center" });
+  
+      doc.setFontSize(17);
+      doc.text(title, pageW / 2, 28, { align: "center" });
+  
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+  
+      let y = 38;
+      Object.entries(meta).forEach(([label, value]) => {
+        doc.text(`${label}: ${value}`, 14, y);
+        y += 6;
+      });
+  
+      return y + 4;
+    };
+  
+    /* ========== TABLE HEADER ========== */
+    const drawTableHeader = (y) => {
       doc.setFont("helvetica", "bold");
       doc.setFontSize(10);
+  
       doc.text("#", 14, y);
       doc.text("Student Name", 24, y);
-      doc.text("Class", 120, y);
-      doc.text("Stream", 140, y);
-      doc.text("Score", 165, y);
-      doc.setDrawColor(200);
-      doc.line(12, y + 1.5, 198, y + 1.5);
-      y += rowHeight;
+      doc.text("Class", 122, y);
+      doc.text("Stream", 142, y);
+      doc.text("Score", 168, y);
+  
+      doc.setDrawColor(180);
+      doc.line(12, y + 2, pageW - 12, y + 2);
+  
       doc.setFont("helvetica", "normal");
+      return y + 8;
     };
-
-    drawTableHeader();
-    doc.setFontSize(10);
-
-    marksDetail.forEach((row, index) => {
-      if (y > pageHeight - bottomMargin) {
-        doc.addPage();
-        y = startY;
-        drawTableHeader();
-      }
-      const studentName = row.student_name || "";
-      const cls = row.class_level || "";
-      const str = row.stream || "";
-      const score = row.score != null ? String(row.score) : "";
-      doc.text(String(index + 1), 14, y);
-      doc.text(studentName, 24, y);
-      doc.text(cls, 120, y);
-      doc.text(str, 140, y);
-      doc.text(score, 165, y);
-      y += rowHeight;
-    });
-
-    const pageCount = doc.internal.getNumberOfPages();
-    const generatedAt = formatDateTime(new Date().toISOString());
-    const footerText = `Generated from SPESS's ARK · ${generatedAt}`;
-    for (let i = 1; i <= pageCount; i++) {
-      doc.setPage(i);
-      const ph = doc.internal.pageSize.getHeight();
+  
+    /* ========== FOOTER ========== */
+    const drawFooter = (pageNo, total) => {
       doc.setFont("helvetica", "italic");
       doc.setFontSize(8);
-      doc.text(footerText, 105, ph - 8, { align: "center" });
+      doc.text(
+        `Generated from SPESS ARK · ${generatedAt} · Page ${pageNo} of ${total}`,
+        pageW / 2,
+        pageH - 8,
+        { align: "center" }
+      );
+    };
+  
+    /* ========== BUILD DOCUMENT ========== */
+    let y = drawHeader();
+    y = drawTableHeader(y);
+  
+    const bottomMargin = 18;
+    const rowHeight = 7;
+  
+    marksDetail.forEach((row, index) => {
+      if (y + rowHeight > pageH - bottomMargin) {
+        doc.addPage();
+        y = 20;
+        y = drawTableHeader(y);
+      }
+  
+      doc.text(String(index + 1), 14, y);
+      doc.text(row.student_name || "", 24, y);
+      doc.text(row.class_level || "", 122, y);
+      doc.text(row.stream || "", 142, y);
+      doc.text(
+        row.score != null ? String(row.score) : "",
+        168,
+        y,
+        { align: "right" }
+      );
+  
+      y += rowHeight;
+    });
+  
+    /* ========== FOOTERS ========== */
+    const totalPages = doc.internal.getNumberOfPages();
+    for (let i = 1; i <= totalPages; i++) {
+      doc.setPage(i);
+      drawFooter(i, totalPages);
     }
-
-    const slug = (str) => String(str || "").toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
-    const filename = `marks_${slug(classLabel)}_${slug(streamLabel)}_${slug(subjectLabel)}_${slug(aoiTitle)}_T${slug(termLabel)}_${yearLabel}.pdf`;
-    doc.save(filename);
+  
+    /* ========== OPEN AS BLOB (NOT FORCED DOWNLOAD) ========== */
+    const blob = doc.output("blob");
+    const url = URL.createObjectURL(blob);
+    window.open(url, "_blank");
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
   };
-
+  
   const handleDownloadMarksheetPdf = () => {
     setMarksheetError("");
   
@@ -738,7 +819,37 @@ export default function AdminDashboard() {
 
   return result;
   }, [students]);
-
+  // derived grouping
+  const groupedMarkSets = useMemo(() => {
+    const map = {};
+  
+    marksSets.forEach((m) => {
+      const key = [
+        m.class_level,
+        m.stream,
+        m.subject,
+        m.term,
+        m.year,
+      ].join("|");
+  
+      if (!map[key]) {
+        map[key] = {
+          class_level: m.class_level,
+          stream: m.stream,
+          subject: m.subject,
+          term: m.term,
+          year: m.year,
+          teacher_name: m.teacher_name,
+          aois: [],
+        };
+      }
+  
+      map[key].aois.push(m);
+    });
+  
+    return Object.values(map);
+  }, [marksSets]);
+  
   const classOptions = Array.from(new Set(students.map((s) => s.class_level))).filter(Boolean);
   const classOptionsForMarksheet = classOptions.length > 0 ? classOptions : ["S1", "S2", "S3", "S4"];
 
@@ -1117,7 +1228,10 @@ export default function AdminDashboard() {
           <div className="panel-header">
             <div>
               <h2>Download Marks</h2>
-              <p>View submitted AOI scores by class, stream and subject, and export them to Excel or PDF.</p>
+              <p>
+                Browse marks by subject. Select a subject to view available AOIs,
+                then choose an AOI to preview and export.
+              </p>
             </div>
             <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
               <button className="ghost-btn" onClick={() => setActiveSection("Add Students")}>Add Students</button>
@@ -1125,19 +1239,28 @@ export default function AdminDashboard() {
               <button className="panel-close" type="button" onClick={() => setActiveSection("")}>✕ Close</button>
             </div>
           </div>
-
+    
           {marksError && <div className="panel-alert panel-alert-error">{marksError}</div>}
-
+    
           <div className="panel-grid">
+            {/* LEFT: SUBJECT GROUPS */}
             <div className="panel-card">
               <div className="panel-card-header">
-                <h3>Available mark sets</h3>
-                <button type="button" className="ghost-btn" onClick={fetchMarksSets} disabled={loadingMarksSets}>{loadingMarksSets ? "Refreshing…" : "Refresh"}</button>
+                <h3>Available Subjects</h3>
+                <button
+                  type="button"
+                  className="ghost-btn"
+                  onClick={fetchMarksSets}
+                  disabled={loadingMarksSets}
+                >
+                  {loadingMarksSets ? "Refreshing…" : "Refresh"}
+                </button>
               </div>
-              {loadingMarksSets && marksSets.length === 0 ? (
-                <p className="muted-text">Loading marks summary…</p>
-              ) : marksSets.length === 0 ? (
-                <p className="muted-text">No marks recorded yet or admin access required. Use Refresh after setting admin key.</p>
+    
+              {loadingMarksSets && groupedMarkSets.length === 0 ? (
+                <p className="muted-text">Loading marks…</p>
+              ) : groupedMarkSets.length === 0 ? (
+                <p className="muted-text">No marks available.</p>
               ) : (
                 <div className="teachers-table-wrapper">
                   <table className="teachers-table">
@@ -1146,34 +1269,40 @@ export default function AdminDashboard() {
                         <th>Class</th>
                         <th>Stream</th>
                         <th>Subject</th>
-                        <th>AOI</th>
+                        <th>AOIs</th>
                         <th>Term</th>
                         <th>Year</th>
-                        <th>Submitted by</th>
-                        <th>Submitted at</th>
-                        <th>Learners</th>
-                        <th>Action</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {marksSets.map((set) => {
-                        const isSelected = selectedMarksSet && selectedMarksSet.assignment_id === set.assignment_id && selectedMarksSet.term === set.term && selectedMarksSet.year === set.year && selectedMarksSet.aoi_label === set.aoi_label;
-                        const submittedAt = set.submitted_at || set.created_at || null;
+                      {groupedMarkSets.map((group) => {
+                        const isSelected =
+                          selectedGroup &&
+                          selectedGroup.class_level === group.class_level &&
+                          selectedGroup.stream === group.stream &&
+                          selectedGroup.subject === group.subject &&
+                          selectedGroup.term === group.term &&
+                          selectedGroup.year === group.year;
+    
                         return (
-                          <tr key={`${set.assignment_id}-${set.term}-${set.year}-${set.aoi_label}`} onClick={() => setSelectedMarksSet(set)} style={{ cursor: "pointer", background: isSelected ? "rgba(37,99,235,0.25)" : "transparent" }}>
-                            <td>{set.class_level}</td>
-                            <td>{set.stream}</td>
-                            <td>{set.subject}</td>
-                            <td>{set.aoi_label}</td>
-                            <td>{set.term}</td>
-                            <td>{set.year}</td>
-                            <td>{set.teacher_name}</td>
-                            <td>{formatDateTime(submittedAt)}</td>
-                            <td>{set.marks_count}</td>
-                            <td className="teachers-actions">
-                              <button type="button" className="ghost-btn" onClick={(e) => { e.stopPropagation(); setSelectedMarksSet(set); }}>View</button>
-                              <button type="button" className="danger-link" onClick={(e) => { e.stopPropagation(); handleDeleteMarkSet(set); }}>Delete</button>
-                            </td>
+                          <tr
+                            key={`${group.class_level}-${group.stream}-${group.subject}-${group.term}-${group.year}`}
+                            onClick={() => {
+                              setSelectedGroup(group);
+                              setSelectedAoi(null);
+                              setMarksDetail([]);
+                            }}
+                            style={{
+                              cursor: "pointer",
+                              background: isSelected ? "rgba(37,99,235,0.25)" : "transparent",
+                            }}
+                          >
+                            <td>{group.class_level}</td>
+                            <td>{group.stream}</td>
+                            <td>{group.subject}</td>
+                            <td>{group.aois.length}</td>
+                            <td>{group.term}</td>
+                            <td>{group.year}</td>
                           </tr>
                         );
                       })}
@@ -1182,49 +1311,92 @@ export default function AdminDashboard() {
                 </div>
               )}
             </div>
-
+    
+            {/* RIGHT: PREVIEW */}
             <div className="panel-card">
               <div className="panel-card-header">
-                <h3>Marks preview</h3>
-                {selectedMarksSet && marksDetail.length > 0 && (
+                <h3>Marks Preview</h3>
+    
+                {selectedAoi && marksDetail.length > 0 && (
                   <div style={{ display: "flex", gap: "0.5rem" }}>
-                    <button type="button" className="ghost-btn" onClick={handleDownloadCsv} disabled={loadingMarksDetail}>Download CSV</button>
-                    <button type="button" className="primary-btn" onClick={handleDownloadPdf} disabled={loadingMarksDetail}>Download PDF</button>
+                    <button
+                      type="button"
+                      className="ghost-btn"
+                      onClick={handleDownloadCsv}
+                      disabled={loadingMarksDetail}
+                    >
+                      Download CSV
+                    </button>
+                    <button
+                      type="button"
+                      className="primary-btn"
+                      onClick={handleDownloadPdf}
+                      disabled={loadingMarksDetail}
+                    >
+                      Download PDF
+                    </button>
                   </div>
                 )}
               </div>
-
-              {!selectedMarksSet ? (
-                <p className="muted-text">Select a mark set on the left to preview scores.</p>
-              ) : loadingMarksDetail && marksDetail.length === 0 ? (
-                <p className="muted-text">Loading marks…</p>
-              ) : marksDetail.length === 0 ? (
-                <p className="muted-text">No marks found for this selection.</p>
+    
+              {!selectedGroup ? (
+                <p className="muted-text">Select a subject on the left.</p>
               ) : (
                 <>
-                  <p className="muted-text" style={{ marginBottom: "0.6rem" }}>{selectedMarksSet.class_level} {selectedMarksSet.stream} — {selectedMarksSet.subject}, {selectedMarksSet.aoi_label}, Term {selectedMarksSet.term} {selectedMarksSet.year}</p>
-                  <div className="teachers-table-wrapper">
-                    <table className="teachers-table">
-                      <thead>
-                        <tr>
-                          <th>Name</th>
-                          <th>Class</th>
-                          <th>Stream</th>
-                          <th>Score</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {marksDetail.map((row) => (
-                          <tr key={row.student_id}>
-                            <td>{row.student_name}</td>
-                            <td>{row.class_level}</td>
-                            <td>{row.stream}</td>
-                            <td>{row.score}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                  <p className="muted-text" style={{ marginBottom: "0.6rem" }}>
+                    {selectedGroup.class_level} {selectedGroup.stream} —{" "}
+                    <strong>{selectedGroup.subject}</strong> (Term {selectedGroup.term},{" "}
+                    {selectedGroup.year})
+                  </p>
+    
+                  {/* AOI buttons */}
+                  <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap", marginBottom: "0.8rem" }}>
+                    {selectedGroup.aois.map((aoi) => (
+                      <button
+                        key={aoi.aoi_label}
+                        className={`ghost-btn ${
+                          selectedAoi?.aoi_label === aoi.aoi_label ? "active" : ""
+                        }`}
+                        onClick={() => {
+                          setSelectedAoi(aoi);
+                          fetchMarksDetail(aoi);
+                        }}
+                      >
+                        {aoi.aoi_label}
+                      </button>
+                    ))}
                   </div>
+    
+                  {!selectedAoi ? (
+                    <p className="muted-text">Select an AOI above to view marks.</p>
+                  ) : loadingMarksDetail ? (
+                    <p className="muted-text">Loading marks…</p>
+                  ) : marksDetail.length === 0 ? (
+                    <p className="muted-text">No marks for this AOI.</p>
+                  ) : (
+                    <div className="teachers-table-wrapper">
+                      <table className="teachers-table">
+                        <thead>
+                          <tr>
+                            <th>Name</th>
+                            <th>Class</th>
+                            <th>Stream</th>
+                            <th>Score</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {marksDetail.map((row) => (
+                            <tr key={row.student_id}>
+                              <td>{row.student_name}</td>
+                              <td>{row.class_level}</td>
+                              <td>{row.stream}</td>
+                              <td>{row.score}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </>
               )}
             </div>
@@ -1232,6 +1404,7 @@ export default function AdminDashboard() {
         </section>
       );
     }
+    
     if (activeSection === "Enrollment Insights") {
       return (
         <section className="panel">

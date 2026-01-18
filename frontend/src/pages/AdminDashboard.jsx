@@ -10,6 +10,7 @@ import { useNavigate } from "react-router-dom";
 import useIdleLogout from "../hooks/useIdleLogout";
 import EnrollmentInsightsPanel from "../components/EnrollmentInsightsPanel";
 import EnrollmentCharts from "../components/EnrollmentCharts";
+import AssessmentSubmissionTracker from "../components/AssessmentSubmissionTracker";
 
 // API base (fallback for local dev)
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5001";
@@ -132,6 +133,12 @@ export default function AdminDashboard() {
     { title: "End of Year Reports", subtitle: "Final student performance (coming soon)", icon: "📕", route: null },
     { title: "Notices", subtitle: "Create school notices", icon: "📢" },
     { title: "Enrollment Insights", subtitle: "Registration statistics per class/stream/subject", icon: "📈" },
+    {
+      title: "Assessment Submission Tracker",
+      subtitle: "Track missing and submitted subjects",
+      icon: "📊",
+    }
+    
   ];
 
   /* ------------------ API / fetch functions ------------------ */
@@ -415,8 +422,11 @@ export default function AdminDashboard() {
   useEffect(() => {
     fetchTeachers();
     fetchStudents();
+    // prefetch marks summary so tracker / download panels are snappy
+    fetchMarksSets();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  
 
   useEffect(() => {
     if (activeSection === "Notices") fetchNotices();
@@ -429,11 +439,15 @@ export default function AdminDashboard() {
       fetchMarksSets();
       setSelectedMarksSet(null);
       setMarksDetail([]);
+    } else if (activeSection === "Assessment Submission Tracker") {
+      // load marks so tracker has data
+      fetchMarksSets();
     } else if (activeSection === "Assign Subjects") {
       console.log("[AdminDashboard] opening Assign Subjects panel");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSection]);
+  
 
   useEffect(() => {
     if (selectedMarksSet) fetchMarksDetail(selectedMarksSet);
@@ -1556,8 +1570,6 @@ export default function AdminDashboard() {
         </section>
       );
     }
-    
-    
     if (activeSection === "End of Term Reports") {
       return (
         <section className="panel">
@@ -1572,7 +1584,29 @@ export default function AdminDashboard() {
         </section>
       );
     }
-
+    if (activeSection === "Assessment Submission Tracker") {
+      return (
+        <section className="panel">
+          <div className="panel-header">
+            <div>
+              <h2>Assessment Submission Tracker</h2>
+              <p>Track subject submissions per class and stream for the current term.</p>
+            </div>
+            <button className="panel-close" onClick={() => setActiveSection("")}>
+              ✕ Close
+            </button>
+          </div>
+    
+          <AssessmentSubmissionTracker
+            marksSets={marksSets}
+            refreshMarks={fetchMarksSets}
+          />
+        </section>
+      );
+    }
+    
+    
+    
 
     return <p className="admin-hint">Click a card above to open its detailed view.</p>;
   };

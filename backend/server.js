@@ -620,6 +620,18 @@ app.post("/api/admin/assignments", authAdmin, async (req, res) => {
         message: "This assignment already exists",
       });
     }
+    // Prevent same subject being assigned to multiple teachers in same class + stream
+    const [conflict] = await pool.query(
+     `SELECT teacher_id FROM teacher_assignments
+       WHERE class_level = ? AND stream = ? AND subject = ?`,
+       [class_level, stream, subject]
+      );
+
+          if (conflict.length > 0) {
+          return res.status(409).json({
+       message: `This subject is already assigned to another teacher for ${class_level} ${stream}.`,
+        });
+}
 
     const [result] = await pool.query(
       `INSERT INTO teacher_assignments

@@ -8,19 +8,19 @@
     min-height: 100vh;
     display: flex;
     align-items: center;
-    justify-content: center;
   
-    /* 🔥 Background images + gradients */
+    /* move card to the right */
+    justify-content: flex-end;
+    padding-right: 6rem;
+  
     background:
       linear-gradient(rgba(2, 6, 23, 0.6), rgba(2, 6, 23, 0.6)),
       url("/slide1.jpg") center / cover no-repeat;
   
-    color: #e5e7eb;
-    font-family: system-ui, -apple-system, BlinkMacSystemFont,
-      "SF Pro Text", "Segoe UI", sans-serif;
-  
     overflow: hidden;
   }
+  
+  
   
   /* ================================
      GLASS LOGIN CARD
@@ -286,4 +286,39 @@
 /* Active press */
 .auth-secondary-btn:active {
   transform: translateY(0);
+}
+/* iOS-style floating effect (desktop only) */
+@media (min-width: 769px) {
+  .glass-container {
+    transform: translateY(-28px);
+  }
+}
+@media (min-width: 769px) {
+  .glass-container {
+    animation: floatCard 6s ease-in-out infinite;
+  }
+}
+
+@keyframes floatCard {
+  0%   { transform: translateY(-22px); }
+  50%  { transform: translateY(-32px); }
+  100% { transform: translateY(-22px); }
+}
+/* Card reacts when user is typing */
+.glass-container:focus-within {
+  box-shadow:
+    0 40px 80px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(56, 189, 248, 0.25),
+    0 0 40px rgba(56, 189, 248, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+/* Smooth transition for background overlay */
+.login-background::after {
+  transition: background 0.4s ease, backdrop-filter 0.4s ease;
+}
+
+/* When user is typing anywhere in card */
+.login-page:has(.glass-container:focus-within) .login-background::after {
+  background: rgba(2, 6, 23, 0.68);
+  backdrop-filter: blur(2px);
 }

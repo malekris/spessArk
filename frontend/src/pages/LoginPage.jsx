@@ -67,7 +67,7 @@ const [loading, setLoading] = useState(false);
       if (form.username === "admin" && form.password === "admin") {
         // TEMP admin auth
         sessionStorage.setItem("isAdmin", "true");
-        navigate("/admin");
+        navigate("/ark/admin");
       } else {
         setError("Invalid admin credentials.");
       }
@@ -105,7 +105,7 @@ const [loading, setLoading] = useState(false);
           <button
             type="button"
             className="teacher-btn"
-            onClick={() => navigate("/teacher-login")}
+            onClick={() => navigate("/ark/teacher-login")}
           >
             I’m a Teacher — go to teacher login →
           </button>

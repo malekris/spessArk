@@ -53,7 +53,7 @@ function TeacherLogin() {
       localStorage.setItem("teacherProfile", JSON.stringify(teacher));
 
       // ✅ Redirect to teacher dashboard
-      navigate("/teacher");
+      navigate("/ark/teacher");
     } catch (err) {
       setError(err.message || "Login failed. Please try again.");
     } finally {
@@ -121,7 +121,7 @@ function TeacherLogin() {
             <button
               type="button"
               className="auth-secondary-btn"
-              onClick={() => navigate("/")}
+              onClick={() => navigate("/ark")}
             >
               ← Back to Admin Login
             </button>
@@ -133,7 +133,7 @@ function TeacherLogin() {
           <button
             type="button"
             className="auth-secondary-btn"
-            onClick={() => navigate("/teacher-signup")}
+            onClick={() => navigate("/ark/teacher-signup")}
           >
             ✨ First time here? Sign up
           </button>

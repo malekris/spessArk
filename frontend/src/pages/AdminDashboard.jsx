@@ -64,8 +64,9 @@ export default function AdminDashboard() {
 
   const handleLogout = () => {
     sessionStorage.removeItem("isAdmin");
-    navigate("/", { replace: true });
+    navigate("/ark", { replace: true });
   };
+  
 
   useEffect(() => {
     document.title = "Admin Dashboard | SPESS ARK";

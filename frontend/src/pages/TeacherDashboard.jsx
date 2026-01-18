@@ -31,13 +31,15 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
   const handleLogout = () => {
     localStorage.removeItem("teacherToken");
     localStorage.removeItem("teacherProfile");
-
+  
     if (typeof onLogout === "function") {
       onLogout();
     } else {
-      window.location.href = "/teacher-login";
+      window.location.href = "/ark/teacher-login";
+
     }
   };
+  
 
   useIdleLogout(() => {
     // clear and go to splash

@@ -1,37 +1,68 @@
 // src/App.jsx
 import { Routes, Route } from "react-router-dom";
-import { useEffect, useState } from "react";
 
-import SplashScreen from "./pages/SplashScreen";
 import LoginPage from "./pages/LoginPage";
 import TeacherLogin from "./pages/TeacherLogin";
 import TeacherDashboard from "./pages/TeacherDashboard";
 import AdminDashboard from "./pages/AdminDashboard";
 import TeacherSignup from "./pages/TeacherSignup";
 
+import LandingPage from "./components/LandingPage";
+import ArkLayout from "./components/ArkLayout";
+
 function App() {
-  const [showSplash, setShowSplash] = useState(true);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setShowSplash(false);
-    }, 1800);
-
-    return () => clearTimeout(timer);
-  }, []);
-
-  if (showSplash) {
-    return <SplashScreen />;
-  }
-
   return (
     <Routes>
-      <Route path="/" element={<LoginPage />} />
-      <Route path="/teacher-login" element={<TeacherLogin />} />
-      <Route path="/teacher-signup" element={<TeacherSignup />} />
-      <Route path="/teacher" element={<TeacherDashboard />} />
-      <Route path="/admin" element={<AdminDashboard />} />
-    </Routes>
+    {/* 🌍 Public website */}
+    <Route path="/" element={<LandingPage />} />
+  
+    {/* 🔐 ARK system */}
+    <Route
+      path="/ark"
+      element={
+        <ArkLayout>
+          <LoginPage />
+        </ArkLayout>
+      }
+    />
+  
+    <Route
+      path="/ark/teacher-login"
+      element={
+        <ArkLayout>
+          <TeacherLogin />
+        </ArkLayout>
+      }
+    />
+  
+    <Route
+      path="/ark/teacher-signup"
+      element={
+        <ArkLayout>
+          <TeacherSignup />
+        </ArkLayout>
+      }
+    />
+  
+    <Route
+      path="/ark/teacher"
+      element={
+        <ArkLayout>
+          <TeacherDashboard />
+        </ArkLayout>
+      }
+    />
+  
+    <Route
+      path="/ark/admin"
+      element={
+        <ArkLayout>
+          <AdminDashboard />
+        </ArkLayout>
+      }
+    />
+  </Routes>
+  
   );
 }
 

@@ -20,7 +20,7 @@ const [loading, setLoading] = useState(false);
   /* ======================
      BACKGROUND SLIDESHOW
   ====================== */
-  const backgroundImages = ["/slide1.jpg", "/slide2.jpg", "/slide3.jpg", "/slide4.jpg", "/slide5.jpg", "/slide6.jpg", "/slide7.jpg","/slide8.jpg","/slide9.jpg"];
+  const backgroundImages = ["/slide1.jpg", "/slide2.jpg", "/slide3.jpg", "/slide4.jpg", "/slide5.jpg", "/slide6.jpg", "/slide7.jpg","/slide8.jpg","/slide9.jpg","/slide10.jpg","/slide11.jpg"];
   const [activeIndex, setActiveIndex] = useState(0);
 
   useEffect(() => {

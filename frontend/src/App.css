@@ -229,4 +229,28 @@
       grid-template-columns: repeat(3, minmax(0, 1fr));
     }
   }
-  
+  html {
+    scroll-behavior: smooth;
+  }
+  /* Scroll reveal base */
+.reveal {
+  opacity: 0;
+  transform: translateY(40px);
+  transition: all 0.9s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* When visible */
+.reveal.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+.reveal {
+  opacity: 0;
+  transform: translateY(40px);
+  transition: all 0.9s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.reveal.visible {
+  opacity: 1;
+  transform: translateY(0);
+}

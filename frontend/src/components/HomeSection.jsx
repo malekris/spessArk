@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
 import "./HomeSection.css";
+import useScrollReveal from "../hooks/useScrollReveal"; // 👈 add this
 
 const images = ["/image1.jpg", "/image2.jpg", "/image3.jpg"];
 
 export default function HomeSection() {
   const [index, setIndex] = useState(0);
+
+  useScrollReveal(); // 👈 add this (doesn't affect slideshow)
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -35,17 +38,15 @@ export default function HomeSection() {
       </div>
 
       {/* CONTENT */}
-      <div className="home-content">
+      <div className="home-content reveal"> {/* 👈 only change here */}
         <h2>Welcome to Our School</h2>
 
         <p>
-          Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. 
-          Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.
+          Lorem ipsum dolor sit amet, consectetur adipiscing elit...
         </p>
 
         <p>
-          Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. 
-          Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.
+          Duis aute irure dolor in reprehenderit...
         </p>
       </div>
     </section>

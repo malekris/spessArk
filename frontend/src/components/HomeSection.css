@@ -1,74 +1,90 @@
 .home-section {
-    width: 100%;
-    background: #020617;
-    color: #e5e7eb;
-  }
-  
-  /* HERO */
-  .hero {
-    position: relative;
-    height: 85vh;
-    padding-top: 4rem; /* space for navbar */
-    width: 100%;
-    overflow: hidden;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  
-  .hero-bg {
-    position: absolute;
-    inset: 0;
-    background-size: cover;
-    background-position: center;
-    opacity: 0;
-    transition: opacity 1.5s ease-in-out;
-  }
-  
-  .hero-bg.active {
-    opacity: 1;
-  }
-  
-  .hero-overlay {
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(
-      to bottom,
-      rgba(2, 6, 23, 0.3),
-      rgba(2, 6, 23, 0.85)
-    );
-  }
-  
-  .hero-content {
-    position: relative;
-    text-align: center;
-    padding: 0 1rem;
-    max-width: 900px;
-    z-index: 2;
-  }
-  
-  .hero-content h1 {
-    font-size: clamp(2rem, 5vw, 3.5rem);
-    font-weight: 800;
-    letter-spacing: 0.03em;
-    margin-bottom: 0.6rem;
-  }
-  
-  .hero-content p {
-    font-size: clamp(1rem, 2.5vw, 1.3rem);
-    color: #cbd5e1;
-  }
-  
-  /* CONTENT BELOW HERO */
-  .home-content {
-    max-width: 1000px;
-    margin: 0 auto;
-    padding: 3rem 1.2rem;
-    line-height: 1.7;
-  }
-  
-  .home-content h2 {
-    font-size: 1.8rem;
-    margin-bottom: 1rem;
-  }
-  
+  width: 100%;
+  background: #020617;
+  color: #e5e7eb;
+}
+
+/* HERO */
+.hero {
+  position: relative;
+  height: 85vh;
+  padding-top: 4rem; /* space for navbar */
+  width: 100%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Background slides */
+.hero-bg {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  opacity: 0;
+  transition: opacity 1.4s ease-in-out, transform 8s ease;
+  transform: scale(1.08); /* start slightly zoomed */
+  z-index: 0;
+}
+
+.hero-bg.active {
+  opacity: 1;
+  transform: scale(1); /* slow cinematic settle */
+}
+
+/* DARK CINEMATIC OVERLAY */
+.hero-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to bottom,
+    rgba(2, 6, 23, 0.15),
+    rgba(2, 6, 23, 0.92)
+  );
+  z-index: 1;
+}
+
+/* Extra vignette depth */
+.hero::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  box-shadow: inset 0 0 180px rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Text */
+.hero-content {
+  position: relative;
+  text-align: center;
+  padding: 0 1rem;
+  max-width: 900px;
+  z-index: 2;
+}
+
+.hero-content h1 {
+  font-size: clamp(2rem, 5vw, 3.5rem);
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  margin-bottom: 0.6rem;
+}
+
+.hero-content p {
+  font-size: clamp(1rem, 2.5vw, 1.3rem);
+  color: #cbd5e1;
+}
+
+/* CONTENT BELOW HERO */
+.home-content {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 3rem 1.2rem;
+  line-height: 1.7;
+}
+
+.home-content h2 {
+  font-size: 1.8rem;
+  margin-bottom: 1rem;
+}

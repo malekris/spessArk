@@ -32,7 +32,13 @@ const [loading, setLoading] = useState(false);
   }, []);
 
   return (
-    <div className="login-page">
+      <div className="login-page">
+        <button
+      className="back-to-site-btn"
+      onClick={() => navigate("/")}
+    >
+      ← Back to School Website
+    </button>
       <div className="login-background">
         {backgroundImages.map((img, index) => (
           <div

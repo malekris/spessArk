@@ -1,0 +1,88 @@
+/* SECTION */
+.activities-section {
+    min-height: 100vh;
+    padding: 3rem 1.2rem;
+    background: #020617;
+    color: #e5e7eb;
+  }
+  
+  .activities-section h2 {
+    font-size: 1.8rem;
+    margin-bottom: 1.5rem;
+    text-align: center;
+  }
+  
+  /* GRID */
+  .activities-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 0.8rem;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+  
+  /* THUMBNAILS */
+  .activities-img {
+    width: 100%;
+    height: 160px;              /* 🔥 this keeps them gallery-sized */
+    object-fit: cover;
+    border-radius: 0.8rem;
+    cursor: pointer;
+    transition: transform 0.25s ease, box-shadow 0.25s ease;
+  }
+  
+  .activities-img:hover {
+    transform: scale(1.03);
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+  }
+  
+  /* LIGHTBOX */
+  .lightbox {
+    position: fixed;
+    inset: 0;
+    background: rgba(2, 6, 23, 0.92);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 5000;
+    padding: 1rem;
+  }
+  
+  .lightbox-img {
+    max-width: 95%;
+    max-height: 90vh;
+    border-radius: 0.8rem;
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.7);
+    animation: zoomIn 0.25s ease;
+  }
+  
+  .lightbox-close {
+    position: fixed;
+    top: 1.2rem;
+    right: 1.4rem;
+    background: rgba(255, 255, 255, 0.1);
+    border: none;
+    color: white;
+    font-size: 1.5rem;
+    border-radius: 50%;
+    width: 42px;
+    height: 42px;
+    cursor: pointer;
+  }
+  
+  .lightbox-close:hover {
+    background: rgba(255, 255, 255, 0.2);
+  }
+  
+  @keyframes zoomIn {
+    from {
+      transform: scale(0.92);
+      opacity: 0;
+    }
+    to {
+      transform: scale(1);
+      opacity: 1;
+    }
+  }
+  

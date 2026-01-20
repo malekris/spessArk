@@ -1621,7 +1621,19 @@ export default function AdminDashboard() {
           <span className="brand-tag">Admin</span>
         </div>
 
-        <button className="nav-logout" onClick={handleLogout}>Logout</button>
+        <div style={{ display: "flex", gap: "0.6rem", alignItems: "center" }}>
+  <button
+    className="ghost-btn"
+    onClick={() => navigate("/ark/admin/alevel")}
+  >
+    A-Level
+  </button>
+
+  <button className="nav-logout" onClick={handleLogout}>
+    Logout
+  </button>
+</div>
+
       </header>
 
       <main className="admin-main">

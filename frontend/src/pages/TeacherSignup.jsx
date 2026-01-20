@@ -3,9 +3,27 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "./LoginPage.css";
 
-const API_BASE =
-import.meta.env.VITE_API_BASE || "http://localhost:5001";
+const API_BASE =import.meta.env.VITE_API_BASE || "http://localhost:5001";
+const toSentenceCase = (str) =>
+  str
+    .toLowerCase()
+    .split(" ")
+    .filter(Boolean)
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
 
+    const formatName = (name) => {
+      return name
+        .toLowerCase()
+        .replace(/\s+/g, " ")       // collapse multiple spaces
+        .trim()
+        .split(" ")
+        .map(word =>
+          word.charAt(0).toUpperCase() + word.slice(1)
+        )
+        .join(" ");
+    };
+    
 function TeacherSignup() {
   const navigate = useNavigate();
 
@@ -25,6 +43,8 @@ function TeacherSignup() {
     setForm((prev) => ({ ...prev, [name]: value }));
     setError("");
   };
+  
+  
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -33,7 +53,11 @@ function TeacherSignup() {
       setError("All fields are required.");
       return;
     }
-
+    if (form.name === form.name.toUpperCase()) {
+      setError("Please use proper name format e.g. 'Male Lincoln', not all caps.");
+      return;
+    }
+    
     if (form.password !== form.confirmPassword) {
       setError("Passwords do not match.");
       return;
@@ -67,8 +91,8 @@ function TeacherSignup() {
 
       // Small delay so user sees success
       setTimeout(() => {
-        navigate("/teacher-login");
-      }, 2000);
+        navigate("/ark/teacher-login", { replace: true });
+       }, 2000);
     } catch (err) {
       setError(err.message || "Something went wrong");
     } finally {
@@ -86,12 +110,19 @@ function TeacherSignup() {
         {success && <div className="login-success">{success}</div>}
 
         <form onSubmit={handleSubmit}>
-          <input
-            name="name"
-            placeholder="Full Name"
-            value={form.name}
-            onChange={handleChange}
-          />
+        <input
+           name="name"
+             placeholder="Full Name"
+             value={form.name}
+                 onChange={handleChange}
+              onBlur={() =>
+               setForm(prev => ({
+      ...prev,
+      name: formatName(prev.name)
+    }))
+  }
+/>
+
 
           <input
             name="email"
@@ -124,7 +155,7 @@ function TeacherSignup() {
 
         <button
           className="auth-secondary-btn"
-          onClick={() => navigate("/teacher-login")}
+          onClick={() => navigate("/ark/teacher-login")}
         >
           ← Back to Teacher Login
         </button>

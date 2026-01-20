@@ -11,6 +11,7 @@ import adminReportsRoutes from "./routes/adminReports.js";
 import authAdmin from "./middleware/authAdmin.js";
 import studentRoutes from "./routes/students.js";
 import classesRoutes from "./routes/classes.js";
+import alevelRoutes from "./modules/alevel/alevel.routes.js";
 
 
 dotenv.config();
@@ -27,6 +28,7 @@ app.use("/api/teachers", teacherRoutes);
 app.use("/api/students", studentRoutes);
 app.use("/api/admin/reports", adminReportsRoutes);
 app.use("/api/classes", classesRoutes);
+app.use("/api/alevel", alevelRoutes);
 
 /* =======================
    ROUTES

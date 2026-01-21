@@ -206,6 +206,228 @@ router.get("/assignments", authTeacher, async (req, res) => {
     });
   }
 });
+// =======================
+// GET A-Level teacher assignments (this powers the dashboard list)
+// =======================
+router.get("/alevel-assignments", authTeacher, async (req, res) => {
+  try {
+    const teacherId = req.teacher.id;
+
+    const [rows] = await pool.query(
+      `
+      SELECT
+        ats.id,
+        ats.stream,
+        s.name AS subject,
+        NULL AS class_level
+      FROM alevel_teacher_subjects ats
+      LEFT JOIN alevel_subjects s 
+        ON s.id = ats.subject_id
+      WHERE ats.teacher_id = ?
+      ORDER BY ats.stream, s.name
+      `,
+      [teacherId]
+    );
+
+    return res.json(rows || []);
+  } catch (err) {
+    console.error("❌ A-Level teacher assignments error:", err);
+    return res.status(500).json({
+      message: "Failed to load A-Level assignments",
+    });
+  }
+});
+
+
+// =======================
+// GET A-Level learners for assignment
+// =======================
+router.get("/teachers/alevel-assignments/:id/students", authTeacher, async (req, res) => {
+  try {
+    const teacherSubjectId = req.params.id;
+
+    // Get subject_id from teacher_subjects
+    const [[ts]] = await pool.query(
+      `SELECT subject_id FROM alevel_teacher_subjects WHERE id = ?`,
+      [teacherSubjectId]
+    );
+
+    if (!ts) return res.json([]);
+
+    const subjectId = ts.subject_id;
+
+    const [rows] = await pool.query(`
+      SELECT 
+        l.id,
+        CONCAT(l.first_name, ' ', l.last_name) AS name,
+        l.gender
+      FROM alevel_learner_subjects als
+      JOIN alevel_learners l ON l.id = als.learner_id
+      WHERE als.subject_id = ?
+      ORDER BY l.first_name, l.last_name
+    `, [subjectId]);
+
+    res.json(rows || []);
+  } catch (err) {
+    console.error("❌ A-Level learners error:", err);
+    res.status(500).json({ message: "Failed to load learners" });
+  }
+});
+
+// =======================
+// GET A-Level marks
+// =======================
+router.get("/alevel-marks", authTeacher, async (req, res) => {
+  try {
+    const { assignmentId, term } = req.query;
+    const teacherId = req.teacher.id;
+
+    const [[ts]] = await pool.query(
+      `SELECT subject_id FROM alevel_teacher_subjects WHERE id = ?`,
+      [assignmentId]
+    );
+
+    if (!ts || !term) return res.json([]);
+
+    const [rows] = await pool.query(`
+      SELECT 
+        am.learner_id AS student_id,
+        ae.name AS aoi_label,
+        am.score,
+        CASE WHEN am.score IS NULL THEN 'Missed' ELSE 'Present' END AS status
+      FROM alevel_marks am
+      JOIN alevel_exams ae ON ae.id = am.exam_id
+      WHERE am.subject_id = ?
+        AND am.teacher_id = ?
+        AND am.term = ?
+    `, [ts.subject_id, teacherId, term]);
+
+    res.json(rows || []);
+  } catch (err) {
+    console.error("❌ A-Level marks error:", err);
+    res.status(500).json({ message: "Failed to load marks" });
+  }
+});
+
+
+// =======================
+// POST save A-Level marks
+// =======================
+router.post("/alevel-marks", authTeacher, async (req, res) => {
+  try {
+    const { assignmentId, examType, term, marks } = req.body;
+    const teacherId = req.teacher.id;
+
+    // 1. Resolve subject from assignment
+    const [[ts]] = await pool.query(
+      `SELECT subject_id FROM alevel_teacher_subjects WHERE id = ?`,
+      [assignmentId]
+    );
+
+    // 2. Resolve exam from name (MID / EOT)
+    const [[exam]] = await pool.query(
+      `SELECT id FROM alevel_exams WHERE name = ?`,
+      [examType]
+    );
+
+    if (!ts || !exam || !term) {
+      return res.status(400).json({ message: "Invalid assignment, exam or term" });
+    }
+
+    // 3. Save marks scoped by subject + exam + teacher + term
+for (const m of marks) {
+  // Resolve exam per column (MID / EOT)
+  const [[exam]] = await pool.query(
+    `SELECT id FROM alevel_exams WHERE name = ?`,
+    [m.aoi]   // 🔥 THIS IS THE KEY FIX
+  );
+
+  if (!exam) {
+    console.warn("Unknown exam type:", m.aoi);
+    continue;
+  }
+
+  await pool.query(`
+    INSERT INTO alevel_marks 
+      (learner_id, subject_id, exam_id, teacher_id, term, score)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ON DUPLICATE KEY UPDATE score = VALUES(score)
+  `, [
+    m.studentId,
+    ts.subject_id,
+    exam.id,
+    teacherId,
+    term,
+    m.score === "Missed" ? null : m.score
+  ]);
+}
+
+
+    res.json({ message: "A-Level marks saved successfully" });
+  } catch (err) {
+    console.error("❌ Save A-Level marks error:", err);
+    res.status(500).json({ message: "Failed to save marks" });
+  }
+});
+
+// =======================
+// GET A-Level analytics
+// =======================
+router.get("/alevel-analytics/subject", authTeacher, async (req, res) => {
+  try {
+    const { assignmentId, examType, term } = req.query;
+    const teacherId = req.teacher.id;
+
+    const [[ts]] = await pool.query(
+      `SELECT subject_id FROM alevel_teacher_subjects WHERE id = ?`,
+      [assignmentId]
+    );
+
+    const [[exam]] = await pool.query(
+      `SELECT id FROM alevel_exams WHERE name = ?`,
+      [examType]
+    );
+
+    if (!ts || !exam || !term) {
+      return res.json({ aois: [], overall_average: "—" });
+    }
+
+    const [[stats]] = await pool.query(`
+      SELECT
+        COUNT(*) AS attempts,
+        AVG(score) AS average_score,
+        SUM(CASE WHEN score IS NULL THEN 1 ELSE 0 END) AS missed_count
+      FROM alevel_marks
+      WHERE subject_id = ?
+        AND exam_id = ?
+        AND teacher_id = ?
+        AND term = ?
+    `, [ts.subject_id, exam.id, teacherId, term]);
+
+    const avg = Number(stats?.average_score);
+
+    res.json({
+      meta: {
+        registered_learners: stats?.attempts ?? 0,
+      },
+      aois: [
+        {
+          aoi_label: examType,
+          attempts: stats?.attempts ?? 0,
+          average_score: Number.isFinite(avg) ? avg.toFixed(2) : "—",
+          missed_count: stats?.missed_count ?? 0,
+        },
+      ],
+      overall_average: Number.isFinite(avg) ? avg.toFixed(2) : "—",
+      assignment: { subject: "A-Level" },
+    });
+  } catch (err) {
+    console.error("❌ A-Level analytics error:", err);
+    res.status(500).json({ message: "Failed to load analytics" });
+  }
+});
+
+
 router.delete("/assignments/:id", async (req, res) => {
   try {
     const { id } = req.params;

@@ -8,8 +8,14 @@ import useIdleLogout from "../hooks/useIdleLogout";
 import { useNavigate } from "react-router-dom";
 import { plainFetch } from "../lib/api";
 
+// ============================
+// CONSTANTS / CONFIG
+// ============================
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 
+// ============================
+// HELPERS
+// ============================
 const formatDateTime = (value) => {
   if (!value) return "—";
   const d = new Date(value);
@@ -24,30 +30,34 @@ const calculateAverage = (marksObj) => {
   return avg.toFixed(2);
 };
 
-function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
+// ============================
+// MAIN COMPONENT
+// ============================
+export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
   const navigate = useNavigate();
 
-  // -------- session / logout --------
-  const handleLogout = () => {
+  // ----------------------------
+  // Session / Idle logout
+  // ----------------------------
+  const handleLogout = useCallback(() => {
     localStorage.removeItem("teacherToken");
     localStorage.removeItem("teacherProfile");
-  
+
     if (typeof onLogout === "function") {
       onLogout();
     } else {
       window.location.href = "/ark/teacher-login";
-
     }
-  };
-  
+  }, [onLogout]);
 
   useIdleLogout(() => {
-    // clear and go to splash
     localStorage.clear();
     navigate("/", { replace: true });
   });
 
-  // -------- orientation --------
+  // ----------------------------
+  // Orientation hint (mobile)
+  // ----------------------------
   const [isPortrait, setIsPortrait] = useState(
     typeof window !== "undefined" && window.matchMedia("(orientation: portrait)").matches
   );
@@ -55,7 +65,6 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
   useEffect(() => {
     const mq = window.matchMedia("(orientation: portrait)");
     const handler = (e) => setIsPortrait(e.matches);
-    // modern browsers
     if (mq.addEventListener) mq.addEventListener("change", handler);
     else if (mq.addListener) mq.addListener(handler);
     return () => {
@@ -64,13 +73,17 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
     };
   }, []);
 
-  // -------- change password modal state --------
+  // ----------------------------
+  // Password modal
+  // ----------------------------
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [passwordForm, setPasswordForm] = useState({ current: "", next: "", confirm: "" });
   const [passwordError, setPasswordError] = useState("");
   const [passwordSaving, setPasswordSaving] = useState(false);
 
-  // -------- profile --------
+  // ----------------------------
+  // Profile
+  // ----------------------------
   const [teacher, setTeacher] = useState(() => {
     try {
       return initialTeacher ? initialTeacher : JSON.parse(localStorage.getItem("teacherProfile"));
@@ -79,14 +92,23 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
     }
   });
 
-  // -------- assignments & analytics --------
+  // ----------------------------
+  // Assignments / Notices / Analytics state
+  // ----------------------------
   const [assignments, setAssignments] = useState([]);
+  const [aLevelAssignments, setALevelAssignments] = useState([]);
   const [selectedAssignment, setSelectedAssignment] = useState(null);
 
+  const [examType, setExamType] = useState("MID"); // For A-Level
   const [analytics, setAnalytics] = useState(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
 
-  // -------- marks (AOI grid) --------
+  const [notices, setNotices] = useState([]);
+  const [loadingNotices, setLoadingNotices] = useState(false);
+
+  // ----------------------------
+  // Marks (AOI / A-Level) state
+  // ----------------------------
   const [students, setStudents] = useState([]);
   const [studentMarks, setStudentMarks] = useState({});
   const [studentStatus, setStudentStatus] = useState({});
@@ -99,21 +121,28 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
   const [marksError, setMarksError] = useState("");
   const [markErrors, setMarkErrors] = useState({});
 
-  // -------- notices --------
-  const [notices, setNotices] = useState([]);
-  const [loadingNotices, setLoadingNotices] = useState(false);
-
-  // -------- initial loads --------
+  // ----------------------------
+  // Initial data fetches
+  // ----------------------------
   useEffect(() => {
     const token = localStorage.getItem("teacherToken");
     if (!token) return;
 
+    // O-Level assignments
     fetch(`${API_BASE}/api/teachers/assignments`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((r) => r.json())
       .then((d) => setAssignments(Array.isArray(d) ? d : []))
       .catch(() => setAssignments([]));
+
+    // A-Level assignments
+    fetch(`${API_BASE}/api/alevel/teachers/alevel-assignments`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => r.json())
+      .then((d) => setALevelAssignments(Array.isArray(d) ? d : []))
+      .catch(() => setALevelAssignments([]));
   }, []);
 
   useEffect(() => {
@@ -121,7 +150,6 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
   }, []);
 
   useEffect(() => {
-    // load teacher-visible notices
     const load = async () => {
       try {
         setLoadingNotices(true);
@@ -137,42 +165,44 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
     load();
   }, []);
 
-  // reload students + marks when class, term or year change
-  useEffect(() => {
-    if (selectedAssignment) {
-      loadStudentsAndMarks(selectedAssignment);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedAssignment, marksTerm, marksYear]);
+  // Reload marks when class, term or year changes
+useEffect(() => {
+  if (selectedAssignment) loadStudentsAndMarks(selectedAssignment);
+}, [selectedAssignment, marksTerm, marksYear]);
 
-  // load analytics when selected assignment changes or term/year changes
-  useEffect(() => {
-    if (selectedAssignment) {
-      loadAnalytics(selectedAssignment);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedAssignment, marksYear, marksTerm]);
+// Reload analytics when class, term or year changes
+useEffect(() => {
+  if (selectedAssignment) loadAnalytics(selectedAssignment);
+}, [selectedAssignment, marksYear, marksTerm]);
 
-  // -------- load analytics --------
+  // ============================
+  // API: load analytics
+  // ============================
   const loadAnalytics = async (assignment) => {
     if (!assignment) return;
 
     try {
       setAnalyticsLoading(true);
-
       const token = localStorage.getItem("teacherToken");
+      const isAlevel = assignment.isAlevel === true;
 
-      const res = await fetch(
-        `${API_BASE}/api/teachers/analytics/subject?assignmentId=${assignment.id}&year=${marksYear}&term=${marksTerm}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
+      const params = new URLSearchParams({
+        assignmentId: assignment.id,
+        year: marksYear,
+        term: marksTerm,      // ✅ ALWAYS include term
+        ...(isAlevel ? { examType } : {}), // keep examType only for A-Level
+      });
+      
+
+      const endpoint = isAlevel
+        ? "/api/alevel/alevel-analytics/subject"
+        : "/api/teachers/analytics/subject";
+
+      const res = await fetch(`${API_BASE}${endpoint}?${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
       if (!res.ok) throw new Error("Failed to load analytics");
-
       const data = await res.json();
       setAnalytics(data);
     } catch (err) {
@@ -183,8 +213,11 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
     }
   };
 
-  // -------- load students & marks (all AOIs) --------
+  // ============================
+  // API: load students & marks (handles O-Level AOIs and A-Level MID/EOT)
+  // ============================
   const loadStudentsAndMarks = async (assignment) => {
+    const isAlevel = assignment.isAlevel === true;
     const token = localStorage.getItem("teacherToken");
     if (!token || !assignment) return;
 
@@ -192,45 +225,43 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
       setMarksLoading(true);
       setMarksError("");
 
-      // 1) students for assignment (plural route)
-      const resStudents = await fetch(
-        `${API_BASE}/api/teachers/assignments/${assignment.id}/students`,
+      // 1) fetch students
+      const studentsRes = await fetch(
+        `${API_BASE}${isAlevel ? 
+          `/api/alevel/teachers/alevel-assignments/${assignment.id}/students` :
+          `/api/teachers/assignments/${assignment.id}/students`
+        }`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
+      
 
-      if (!resStudents.ok) {
-        const text = await resStudents.text();
-        throw new Error(text || `Failed to load students (${resStudents.status})`);
+      if (!studentsRes.ok) {
+        const text = await studentsRes.text();
+        throw new Error(text || `Failed to load students (${studentsRes.status})`);
       }
 
-      const dataStudents = await resStudents.json();
-      // many server implementations return { students: [...] } or [] — handle both
+      const dataStudents = await studentsRes.json();
       const studentsList = Array.isArray(dataStudents)
         ? dataStudents
         : Array.isArray(dataStudents.students)
         ? dataStudents.students
         : [];
 
-      // 2) marks for assignment (plural route)
-      const params = new URLSearchParams({
-        assignmentId: assignment.id,
-        year: marksYear,
-        term: marksTerm,
-      });
-      const resMarks = await fetch(`${API_BASE}/api/teachers/marks?${params}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
+      // 2) fetch marks
       let marks = [];
-      if (resMarks.ok) {
-        marks = await resMarks.json();
+      if (isAlevel) {
+        const params = new URLSearchParams({ assignmentId: assignment.id, year: marksYear,term:marksTerm });
+        const resMarks = await fetch(`${API_BASE}/api/alevel/teachers/alevel-marks?${params}`, { headers: { Authorization: `Bearer ${token}` } });
+        if (resMarks.ok) marks = await resMarks.json();
+        else console.warn("A-Level marks warning:", await resMarks.text());
       } else {
-        // if marks endpoint returns 404/500, treat marks as empty but continue
-        console.warn("Marks load warning:", await resMarks.text());
-        marks = [];
+        const params = new URLSearchParams({ assignmentId: assignment.id, year: marksYear, term: marksTerm });
+        const resMarks = await fetch(`${API_BASE}/api/teachers/marks?${params}`, { headers: { Authorization: `Bearer ${token}` } });
+        if (resMarks.ok) marks = await resMarks.json();
+        else console.warn("O-Level marks warning:", await resMarks.text());
       }
 
-      // build maps like before
+      // 3) normalize marks into maps: marksMap[studentId][aoiLabel] = value/status
       const marksMap = {};
       const statusMap = {};
 
@@ -250,20 +281,22 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
         }
       });
 
-      // init student maps (this preserves original behavior)
+      // 4) initialize student marks/status using the appropriate columns
+      const columns = isAlevel ? ["MID", "EOT"] : ["AOI1", "AOI2", "AOI3"];
+
       const studentMarksInit = {};
       const studentStatusInit = {};
+
       studentsList.forEach((s) => {
-        studentMarksInit[s.id] = {
-          AOI1: marksMap[s.id]?.AOI1 ?? marksMap[s.id]?.aoi1 ?? undefined,
-          AOI2: marksMap[s.id]?.AOI2 ?? marksMap[s.id]?.aoi2 ?? undefined,
-          AOI3: marksMap[s.id]?.AOI3 ?? marksMap[s.id]?.aoi3 ?? undefined,
-        };
-        studentStatusInit[s.id] = {
-          AOI1: statusMap[s.id]?.AOI1 ?? "Present",
-          AOI2: statusMap[s.id]?.AOI2 ?? "Present",
-          AOI3: statusMap[s.id]?.AOI3 ?? "Present",
-        };
+        studentMarksInit[s.id] = {};
+        studentStatusInit[s.id] = {};
+        columns.forEach((col) => {
+          // support lower-case keys from older servers as well
+          studentMarksInit[s.id][col] =
+            marksMap[s.id]?.[col] ?? marksMap[s.id]?.[col.toLowerCase()] ?? undefined;
+
+          studentStatusInit[s.id][col] = statusMap[s.id]?.[col] ?? "Present";
+        });
       });
 
       setStudents(studentsList);
@@ -281,7 +314,9 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
     }
   };
 
-  // -------- change password handler (moved to top-level) --------
+  // ----------------------------
+  // Change password handler
+  // ----------------------------
   const handleChangePassword = async () => {
     setPasswordError("");
 
@@ -302,7 +337,6 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
 
     try {
       setPasswordSaving(true);
-
       const token = localStorage.getItem("teacherToken");
 
       const res = await fetch(`${API_BASE}/api/teachers/change-password`, {
@@ -315,10 +349,7 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
       });
 
       const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.message || "Failed to change password");
-      }
+      if (!res.ok) throw new Error(data.message || "Failed to change password");
 
       alert("Password updated successfully.");
       setShowChangePassword(false);
@@ -330,135 +361,9 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
     }
   };
 
-  // -------- Save marks (AOI-aware) --------
-  const handleSaveMarks = async () => {
-    if (!selectedAssignment) return;
-
-    const token = localStorage.getItem("teacherToken");
-    if (!token) return;
-
-    try {
-      const payload = [];
-      const errors = {};
-
-      for (const s of students) {
-        const marksByAoi = studentMarks[s.id] || {};
-        const statusByAoi = studentStatus[s.id] || {};
-
-        for (const aoi of ["AOI1", "AOI2", "AOI3"]) {
-          const score = marksByAoi[aoi];
-          const status = statusByAoi[aoi];
-
-          const scoreTouched = score !== undefined && score !== null && score !== "";
-          const statusTouched = status === "Missed";
-
-          if (!scoreTouched && !statusTouched) continue; // never used
-
-          if (status === "Missed") {
-            payload.push({ studentId: s.id, aoi, score: "Missed" });
-            continue;
-          }
-
-          if (!scoreTouched) {
-            errors[`${s.id}_${aoi}`] = "Score required";
-            continue;
-          }
-
-          const num = Number(score);
-          if (Number.isNaN(num) || num < 0.9 || num > 3.0) {
-            errors[`${s.id}_${aoi}`] = "Score must be between 0.9 and 3.0";
-            continue;
-          }
-
-          payload.push({ studentId: s.id, aoi, score: num });
-        }
-      }
-
-      if (Object.keys(errors).length > 0) {
-        setMarkErrors(errors);
-        setMarksError("Please fix highlighted AOI scores.");
-        return;
-      }
-
-      setMarkErrors({});
-      setMarksSaving(true);
-
-      const res = await fetch(`${API_BASE}/api/teachers/marks`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ assignmentId: selectedAssignment.id, year: Number(marksYear), term: marksTerm, marks: payload }),
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.message || "Failed to save marks");
-      }
-
-      alert("Marks saved successfully.");
-      loadStudentsAndMarks(selectedAssignment);
-    } catch (err) {
-      console.error("Save marks error:", err);
-      setMarksError(err.message);
-    } finally {
-      setMarksSaving(false);
-    }
-  };
-
-  // -------- PDF export (AOI columns + average) --------
-  const handleDownloadPDF = async () => {
-    if (!selectedAssignment || students.length === 0) {
-      alert("Select a class and load learners first.");
-      return;
-    }
-
-    const doc = new jsPDF("p", "mm", "a4");
-    const img = new Image();
-    img.src = badge;
-
-    img.onload = () => {
-      doc.addImage(img, "PNG", 14, 10, 20, 20);
-
-      doc.setFontSize(14);
-      doc.setFont("helvetica", "bold");
-      doc.text("St. Phillips Equatorial Secondary School", 105, 18, { align: "center" });
-
-      doc.setFontSize(10);
-      doc.setFont("helvetica", "normal");
-      doc.text(`${selectedAssignment.subject} | ${selectedAssignment.class_level} ${selectedAssignment.stream}`, 105, 24, { align: "center" });
-      doc.text(`${marksYear} • ${marksTerm}`, 105, 29, { align: "center" });
-
-      const tableBody = students.map((s, i) => {
-        const m = studentMarks[s.id] || {};
-        const a1 = m.AOI1 === undefined ? "—" : m.AOI1 === "Missed" ? "Missed" : String(m.AOI1);
-        const a2 = m.AOI2 === undefined ? "—" : m.AOI2 === "Missed" ? "Missed" : String(m.AOI2);
-        const a3 = m.AOI3 === undefined ? "—" : m.AOI3 === "Missed" ? "Missed" : String(m.AOI3);
-        const numeric = [m.AOI1, m.AOI2, m.AOI3].filter((v) => typeof v === "number");
-        const avg = numeric.length ? (numeric.reduce((a, b) => a + b, 0) / numeric.length).toFixed(2) : "—";
-        return [i + 1, s.name, s.gender, a1, a2, a3, avg];
-      });
-
-      autoTable(doc, {
-        startY: 38,
-        head: [["#", "Learner", "Gender", "AOI1", "AOI2", "AOI3", "Avg"]],
-        body: tableBody,
-        theme: "grid",
-        styles: { fontSize: 9, cellPadding: 3, valign: "middle" },
-        headStyles: { fillColor: [226, 232, 240], textColor: 15, fontStyle: "bold" },
-        columnStyles: { 0: { cellWidth: 8 }, 1: { cellWidth: 70 }, 2: { cellWidth: 20 }, 3: { cellWidth: 18 }, 4: { cellWidth: 18 }, 5: { cellWidth: 18 }, 6: { cellWidth: 18 } },
-        didDrawPage: () => {
-          const ph = doc.internal.pageSize.height;
-          doc.setFontSize(8);
-          doc.setTextColor(100);
-          doc.text(`Submitted by ${teacher?.name || "Teacher"} on ${new Date().toLocaleString()}`, 14, ph - 10);
-          doc.text(`Page ${doc.internal.getNumberOfPages()}`, 180, ph - 10);
-        },
-      });
-
-      window.open(doc.output("bloburl"), "_blank");
-    };
-  };
-
-  // -------- small helpers used in UI --------
+  // ----------------------------
+  // Helpers for mark UI
+  // ----------------------------
   const setAOIStatus = (studentId, aoi, value) => {
     setStudentStatus((p) => {
       const copy = { ...(p || {}) };
@@ -490,55 +395,218 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
     }
 
     const num = Number(raw);
-    if (Number.isNaN(num) || num < 0.9 || num > 3.0) {
-      setMarkErrors((p) => ({ ...(p || {}), [`${studentId}_${aoi}`]: "Score must be between 0.9 and 3.0" }));
+    const isAlevel = selectedAssignment?.isAlevel === true;
+
+    if (isAlevel) {
+      if (Number.isNaN(num) || num < 0 || num > 100) {
+        setMarkErrors((p) => ({ ...(p || {}), [`${studentId}_${aoi}`]: "Score must be between 0 and 100" }));
+        return;
+      }
     } else {
-      setMarkErrors((p) => {
-        const copy = { ...(p || {}) };
-        delete copy[`${studentId}_${aoi}`];
-        return copy;
-      });
+      if (Number.isNaN(num) || num < 0.9 || num > 3.0) {
+        setMarkErrors((p) => ({ ...(p || {}), [`${studentId}_${aoi}`]: "Score must be between 0.9 and 3.0" }));
+        return;
+      }
     }
+
+    setMarkErrors((p) => {
+      const copy = { ...(p || {}) };
+      delete copy[`${studentId}_${aoi}`];
+      return copy;
+    });
 
     setStudentMarks((p) => ({ ...(p || {}), [studentId]: { ...(p?.[studentId] || {}), [aoi]: num } }));
   };
 
-  // -------- UI --------
+  // ----------------------------
+  // Save marks (respects AOI columns or A-Level MID/EOT)
+  // ----------------------------
+  const handleSaveMarks = async () => {
+    if (!selectedAssignment) return;
+    const token = localStorage.getItem("teacherToken");
+    if (!token) return;
+
+    try {
+      const payload = [];
+      const errors = {};
+      const isAlevel = selectedAssignment?.isAlevel === true;
+      const columns = isAlevel ? ["MID", "EOT"] : ["AOI1", "AOI2", "AOI3"];
+
+      for (const s of students) {
+        const marksByAoi = studentMarks[s.id] || {};
+        const statusByAoi = studentStatus[s.id] || {};
+
+        for (const aoi of columns) {
+          const score = marksByAoi[aoi];
+          const status = statusByAoi[aoi];
+
+          const scoreTouched = score !== undefined && score !== null && score !== "";
+          const statusTouched = status === "Missed";
+
+          if (!scoreTouched && !statusTouched) continue;
+
+          if (status === "Missed") {
+            payload.push({ studentId: s.id, aoi, score: "Missed" });
+            continue;
+          }
+
+          if (!scoreTouched) {
+            errors[`${s.id}_${aoi}`] = "Score required";
+            continue;
+          }
+
+          const num = Number(score);
+
+          if (isAlevel) {
+            if (Number.isNaN(num) || num < 0 || num > 100) {
+              errors[`${s.id}_${aoi}`] = "Score must be between 0 and 100";
+              continue;
+            }
+          } else {
+            if (Number.isNaN(num) || num < 0.9 || num > 3.0) {
+              errors[`${s.id}_${aoi}`] = "Score must be between 0.9 and 3.0";
+              continue;
+            }
+          }
+
+          payload.push({ studentId: s.id, aoi, score: num });
+        }
+      }
+
+      if (Object.keys(errors).length > 0) {
+        setMarkErrors(errors);
+        setMarksError("Please fix highlighted AOI scores.");
+        return;
+      }
+
+      setMarkErrors({});
+      setMarksSaving(true);
+
+      const endpoint = isAlevel ? "/api/alevel/teachers/alevel-marks" : "/api/teachers/marks";
+      const payloadBody = isAlevel
+        ? { assignmentId: selectedAssignment.id, year: Number(marksYear),term:marksTerm, examType, marks: payload }
+        : { assignmentId: selectedAssignment.id, year: Number(marksYear), term: marksTerm, marks: payload };
+
+      const res = await fetch(`${API_BASE}${endpoint}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(payloadBody),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message || "Failed to save marks");
+      }
+
+      alert("Marks saved successfully.");
+      loadStudentsAndMarks(selectedAssignment);
+    } catch (err) {
+      console.error("Save marks error:", err);
+      setMarksError(err.message);
+    } finally {
+      setMarksSaving(false);
+    }
+  };
+
+  // ----------------------------
+  // PDF export (dynamic columns)
+  // ----------------------------
+  const handleDownloadPDF = async () => {
+    if (!selectedAssignment || students.length === 0) {
+      alert("Select a class and load learners first.");
+      return;
+    }
+
+    const doc = new jsPDF("p", "mm", "a4");
+    const img = new Image();
+    img.src = badge;
+
+    img.onload = () => {
+      doc.addImage(img, "PNG", 14, 10, 20, 20);
+      doc.setFontSize(14);
+      doc.setFont("helvetica", "bold");
+      doc.text("St. Phillips Equatorial Secondary School", 105, 18, { align: "center" });
+
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "normal");
+      doc.text(`${selectedAssignment.subject} | ${selectedAssignment.class_level} ${selectedAssignment.stream}`, 105, 24, { align: "center" });
+      doc.text(`${marksYear} • ${selectedAssignment?.isAlevel ? examType : marksTerm}`, 105, 29, { align: "center" });
+
+      const columns = selectedAssignment?.isAlevel ? ["MID", "EOT"] : ["AOI1", "AOI2", "AOI3"];
+      const head = ["#", "Learner", "Gender", ...columns, "Avg"];
+
+      const tableBody = students.map((s, i) => {
+        const m = studentMarks[s.id] || {};
+        const cells = columns.map((c) => {
+          const v = m[c];
+          return v === undefined ? "—" : v === "Missed" ? "Missed" : String(v);
+        });
+        const numeric = columns.map((c) => m[c]).filter((v) => typeof v === "number");
+        const avg = numeric.length ? (numeric.reduce((a, b) => a + b, 0) / numeric.length).toFixed(2) : "—";
+        return [i + 1, s.name, s.gender, ...cells, avg];
+      });
+
+      autoTable(doc, {
+        startY: 38,
+        head: [head],
+        body: tableBody,
+        theme: "grid",
+        styles: { fontSize: 9, cellPadding: 3, valign: "middle" },
+        headStyles: { fillColor: [226, 232, 240], textColor: 15, fontStyle: "bold" },
+        columnStyles: { 0: { cellWidth: 8 }, 1: { cellWidth: 70 }, 2: { cellWidth: 20 } },
+        didDrawPage: () => {
+          const ph = doc.internal.pageSize.height;
+          doc.setFontSize(8);
+          doc.setTextColor(100);
+          doc.text(`Submitted by ${teacher?.name || "Teacher"} on ${new Date().toLocaleString()}`, 14, ph - 10);
+          doc.text(`Page ${doc.internal.getNumberOfPages()}`, 180, ph - 10);
+        },
+      });
+
+      window.open(doc.output("bloburl"), "_blank");
+    };
+  };
+
+  // ----------------------------
+  // Compute dynamic columns for render
+  // ----------------------------
+  const renderColumns = selectedAssignment?.isAlevel ? ["MID", "EOT"] : ["AOI1", "AOI2", "AOI3"];
+
+  // ============================
+  // RENDER
+  // ============================
   return (
     <div className="admin-root teacher-root">
       {isPortrait && <div className="panel-alert">📱 Rotate your phone for better mark entry</div>}
 
       <header className="admin-nav">
-  <div className="brand" style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-    
-    {/* Brand dot */}
-    <span
-      style={{
-        width: "10px",
-        height: "10px",
-        borderRadius: "50%",
-        backgroundColor: "#b8860b", // golden brown
-        display: "inline-block"
-      }}
-    />
+        <div className="brand" style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <span
+            style={{
+              width: "10px",
+              height: "10px",
+              borderRadius: "50%",
+              backgroundColor: "#b8860b",
+              display: "inline-block",
+            }}
+          />
 
-    <span className="brand-text">SPESS’s ARK</span>
-    <span className="brand-tag">Teacher</span>
-  </div>
+          <span className="brand-text">SPESS’s ARK</span>
+          <span className="brand-tag">Teacher</span>
+        </div>
 
-  <div style={{ display: "flex", gap: "0.6rem", alignItems: "center" }}>
-    <div style={{ display: "flex", gap: "0.6rem" }}>
-      <button className="secondary-btn" onClick={() => setShowChangePassword(true)}>
-        Change Password
-      </button>
+        <div style={{ display: "flex", gap: "0.6rem", alignItems: "center" }}>
+          <div style={{ display: "flex", gap: "0.6rem" }}>
+            <button className="secondary-btn" onClick={() => setShowChangePassword(true)}>
+              Change Password
+            </button>
 
-      <button className="nav-logout" onClick={handleLogout}>
-        Logout
-      </button>
-    </div>
-  </div>
+            <button className="nav-logout" onClick={handleLogout}>
+              Logout
+            </button>
+          </div>
+        </div>
       </header>
-
 
       <main className="admin-main">
         <section className="admin-heading">
@@ -582,6 +650,7 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
             <table className="teachers-table">
               <thead>
                 <tr>
+                  <th>Level</th>
                   <th>Class</th>
                   <th>Stream</th>
                   <th>Subject</th>
@@ -590,14 +659,33 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
               <tbody>
                 {assignments.map((a) => (
                   <tr
-                    key={a.id}
+                    key={`ol-${a.id}`}
                     style={{ cursor: "pointer" }}
                     onClick={() => {
-                      setSelectedAssignment(a);
-                      loadStudentsAndMarks(a);
+                      const obj = { ...a, isAlevel: false };
+                      setSelectedAssignment(obj);
+                      loadStudentsAndMarks(obj);
                     }}
                   >
+                    <td>O-Level</td>
                     <td>{a.class_level}</td>
+                    <td>{a.stream}</td>
+                    <td>{a.subject}</td>
+                  </tr>
+                ))}
+
+                {aLevelAssignments.map((a) => (
+                  <tr
+                    key={`al-${a.id}`}
+                    style={{ cursor: "pointer", background: "rgba(255,255,255,0.02)" }}
+                    onClick={() => {
+                      const obj = { ...a, isAlevel: true };
+                      setSelectedAssignment(obj);
+                      loadStudentsAndMarks(obj);
+                    }}
+                  >
+                    <td style={{ fontWeight: "bold", color: "#f59e0b" }}>A-Level</td>
+                    <td>{a.class_level ?? "—"}</td>
                     <td>{a.stream}</td>
                     <td>{a.subject}</td>
                   </tr>
@@ -612,10 +700,10 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
           <section className="panel" style={{ marginTop: "1rem" }}>
             <div className="panel-card">
               <div className="panel-alert">
-                You are entering marks for <strong>{selectedAssignment.class_level} {selectedAssignment.stream} — {selectedAssignment.subject}</strong> ({marksYear}, {marksTerm})
+                You are entering marks for <strong>{selectedAssignment.class_level} {selectedAssignment.stream} — {selectedAssignment.subject}</strong> ({marksYear}, {selectedAssignment?.isAlevel ? examType : marksTerm})
               </div>
 
-              {/* ===== Analytics panel (READ-ONLY) ===== */}
+              {/* Analytics (read-only) */}
               {analyticsLoading && <div className="panel-alert">Loading analytics…</div>}
 
               {analytics && (
@@ -674,18 +762,13 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
               )}
 
               <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap", marginBottom: "0.6rem" }}>
-                <input
-                  type="number"
-                  value={marksYear}
-                  onChange={(e) => setMarksYear(e.target.value)}
-                  style={{ width: "6rem" }}
-                />
-
+                <input type="number" value={marksYear} onChange={(e) => setMarksYear(e.target.value)} style={{ width: "6rem" }} />
                 <select value={marksTerm} onChange={(e) => setMarksTerm(e.target.value)}>
                   <option>Term 1</option>
                   <option>Term 2</option>
-                  <option>Term 3</option>
+                   <option>Term 3</option>
                 </select>
+
 
                 <button className="ghost-btn" onClick={() => loadStudentsAndMarks(selectedAssignment)} disabled={marksLoading}>
                   {marksLoading ? "Reloading…" : "Reload"}
@@ -697,9 +780,9 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
                   <tr>
                     <th>Learner</th>
                     <th>Gender</th>
-                    <th>AOI1</th>
-                    <th>AOI2</th>
-                    <th>AOI3</th>
+                    {renderColumns.map((c) => (
+                      <th key={c}>{c}</th>
+                    ))}
                     <th>Avg</th>
                   </tr>
                 </thead>
@@ -713,10 +796,11 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
                         <td>{s.name}</td>
                         <td>{s.gender}</td>
 
-                        {["AOI1", "AOI2", "AOI3"].map((aoi) => {
+                        {renderColumns.map((aoi) => {
                           const status = statusForS[aoi] ?? "Present";
                           const value = marksForS[aoi];
                           const errorKey = `${s.id}_${aoi}`;
+
                           return (
                             <td key={aoi}>
                               <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
@@ -727,9 +811,9 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
 
                                 <input
                                   type="number"
-                                  min="0.9"
-                                  max="3.0"
-                                  step="0.1"
+                                  min={selectedAssignment?.isAlevel ? 0 : 0.9}
+                                  max={selectedAssignment?.isAlevel ? 100 : 3.0}
+                                  step={selectedAssignment?.isAlevel ? 1 : 0.1}
                                   disabled={status === "Missed"}
                                   value={value === undefined || value === null ? "" : (value === "Missed" ? "" : value)}
                                   onChange={(e) => setAOIScore(s.id, aoi, e.target.value)}
@@ -799,5 +883,3 @@ function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
     </div>
   );
 }
-
-export default TeacherDashboard;

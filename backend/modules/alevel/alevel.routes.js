@@ -1,12 +1,20 @@
 import express from "express";
 import { db } from "../../server.js";
 import authTeacher from "../../middleware/authTeacher.js";
+import {
+  getLearners,
+  createLearner,
+  updateLearner,
+  deleteLearner,
+} from "./alevel.controller.js";
 
 const router = express.Router();
+// ===== A-LEVEL LEARNERS =====
+router.get("/learners", getLearners);
+router.post("/learners", createLearner);
+router.put("/learners/:id", updateLearner);
+router.delete("/learners/:id", deleteLearner);
 
-/* =========================================================
-   A-LEVEL TEACHER DASHBOARD ENDPOINTS
-========================================================= */
 /* =========================================================
    A-LEVEL ADMIN ENDPOINTS
 ========================================================= */
@@ -400,6 +408,32 @@ router.get("/admin/marks-detail", async (req, res) => {
   } catch (err) {
     console.error("A-Level marks detail error:", err);
     res.status(500).json({ message: "Failed to load marks detail" });
+  }
+});
+router.get("/stats", async (req, res) => {
+  try {
+    const [learners] = await db.query(`
+      SELECT 
+        stream,
+        SUM(gender = 'Male') AS boys,
+        SUM(gender = 'Female') AS girls,
+        COUNT(*) AS total
+      FROM alevel_learners
+      GROUP BY stream
+      ORDER BY stream
+    `);
+
+    const [[teachers]] = await db.query(`
+      SELECT COUNT(*) AS total FROM teachers
+    `);
+
+    res.json({
+      streams: learners,
+      teachers: teachers.total
+    });
+  } catch (err) {
+    console.error("A-Level stats error:", err);
+    res.status(500).json({ message: "Failed to load stats" });
   }
 });
 

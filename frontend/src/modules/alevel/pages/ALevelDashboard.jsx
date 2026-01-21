@@ -1,8 +1,18 @@
 import { useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+
+
 
 export default function ALevelDashboard() {
   const navigate = useNavigate();
-
+  const [stats, setStats] = useState(null);
+  useEffect(() => {
+    fetch("http://localhost:5001/api/alevel/stats")
+      .then(res => res.json())
+      .then(setStats)
+      .catch(console.error);
+  }, []);
+  
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: "#0f172a", color: "#e5e7eb" }}>
       
@@ -22,25 +32,11 @@ export default function ALevelDashboard() {
           🎓 A-Level Admin
         </h2>
 
-        <button className="ghost-btn" onClick={() => navigate("/ark/admin/alevel")}>
-          Dashboard
-        </button>
-
-        <button className="ghost-btn" onClick={() => navigate("/ark/admin/alevel/learners")}>
-          Learners
-        </button>
-
-        <button className="ghost-btn" onClick={() => navigate("/ark/admin/alevel/assign")}>
-          Assign Subjects
-        </button>
-
-        <button className="ghost-btn" onClick={() => navigate("/ark/admin/alevel/downloads")}>
-          Downloads
-        </button>
-
-        <button className="ghost-btn" onClick={() => navigate("/ark/admin/alevel/reports")}>
-          Reports
-        </button>
+        <button className="ghost-btn" onClick={() => navigate("/ark/admin/alevel")}>Dashboard</button>
+        <button className="ghost-btn" onClick={() => navigate("/ark/admin/alevel/learners")}>Learners</button>
+        <button className="ghost-btn" onClick={() => navigate("/ark/admin/alevel/assign")}>Assign Subjects</button>
+        <button className="ghost-btn" onClick={() => navigate("/ark/admin/alevel/downloads")}>Downloads</button>
+        <button className="ghost-btn" onClick={() => navigate("/ark/admin/alevel/reports")}>Reports</button>
 
         <div style={{ marginTop: "auto" }}>
           <button className="danger-link" onClick={() => navigate("/ark/admin")}>
@@ -50,52 +46,103 @@ export default function ALevelDashboard() {
       </aside>
 
       {/* Main content */}
-      <main style={{ flex: 1, padding: "2rem" }}>
-        <h1 style={{ fontSize: "1.8rem", marginBottom: "0.6rem" }}>
-          A-Level Administration
-        </h1>
+      <main style={{ flex: 1, padding: "0" }}>
 
-        <p style={{ color: "#94a3b8", marginBottom: "2rem" }}>
-          Manage S5/S6 learners, subject allocations, reports and downloads.
-        </p>
-
+        {/* ===== HERO IMAGE (BANK / AIRPORT STYLE) ===== */}
         <div
           style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-            gap: "1rem"
+            height: "260px",
+            backgroundImage: "url(/image1.jpg)",
+            backgroundSize: "cover",
+            backgroundPosition: "center",
+            position: "relative"
           }}
         >
-          <div className="panel-card">
-            <h3>Learners</h3>
-            <p className="muted-text">Register and manage S5/S6 students.</p>
-            <button className="ghost-btn" onClick={() => navigate("/ark/admin/alevel/learners")}>
-              Open
-            </button>
-          </div>
+          {/* Dark overlay */}
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              background: "linear-gradient(to bottom, rgba(0,0,0,0.4), #0f172a)"
+            }}
+          />
 
-          <div className="panel-card">
-            <h3>Assign Subjects</h3>
-            <p className="muted-text">Assign teachers to A-Level subjects.</p>
-            <button className="ghost-btn" onClick={() => navigate("/ark/admin/alevel/assign")}>
-              Open
-            </button>
+          {/* Text on banner */}
+          <div style={{ position: "relative", padding: "2rem" }}>
+            <h1 style={{ fontSize: "2.2rem", fontWeight: "bold" }}>
+              A-Level Administration
+            </h1>
+            <p style={{ color: "#cbd5e1", maxWidth: "600px" }}>
+              Manage S5/S6 learners, subject allocations, reports and downloads.
+            </p>
           </div>
+        </div>
 
-          <div className="panel-card">
-            <h3>Downloads</h3>
-            <p className="muted-text">Download submitted marks.</p>
-            <button className="ghost-btn" onClick={() => navigate("/ark/admin/alevel/downloads")}>
-              Open
-            </button>
-          </div>
+        {/* Actual content padding */}
+        <div style={{ padding: "2rem" }}>
 
-          <div className="panel-card">
-            <h3>Reports</h3>
-            <p className="muted-text">Generate A-Level term reports.</p>
-            <button className="ghost-btn" onClick={() => navigate("/ark/admin/alevel/reports")}>
-              Open
-            </button>
+          {/* ===== STATS CARDS ===== */}
+          {stats && (
+  <div
+    style={{
+      display: "grid",
+      gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+      gap: "1rem",
+      marginBottom: "2rem"
+    }}
+  >
+    {stats.streams.map((s) => (
+      <div key={s.stream} className="panel-card">
+        <h3>{s.stream}</h3>
+        <p className="muted-text">
+          👦 Boys: <strong>{s.boys}</strong><br />
+          👧 Girls: <strong>{s.girls}</strong><br />
+          📚 Total: <strong>{s.total}</strong>
+        </p>
+      </div>
+    ))}
+
+    <div className="panel-card">
+      <h3>Teachers</h3>
+      <p className="muted-text">
+        👨‍🏫 Registered teachers: <strong>{stats.teachers}</strong>
+      </p>
+    </div>
+  </div>
+)}
+
+
+          {/* ===== YOUR ORIGINAL CARDS (UNCHANGED) ===== */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+              gap: "1rem"
+            }}
+          >
+            <div className="panel-card">
+              <h3>Learners</h3>
+              <p className="muted-text">Register and manage S5/S6 students.</p>
+              <button className="ghost-btn" onClick={() => navigate("/ark/admin/alevel/learners")}>Open</button>
+            </div>
+
+            <div className="panel-card">
+              <h3>Assign Subjects</h3>
+              <p className="muted-text">Assign teachers to A-Level subjects.</p>
+              <button className="ghost-btn" onClick={() => navigate("/ark/admin/alevel/assign")}>Open</button>
+            </div>
+
+            <div className="panel-card">
+              <h3>Downloads</h3>
+              <p className="muted-text">Download submitted marks.</p>
+              <button className="ghost-btn" onClick={() => navigate("/ark/admin/alevel/downloads")}>Open</button>
+            </div>
+
+            <div className="panel-card">
+              <h3>Reports</h3>
+              <p className="muted-text">Generate A-Level term reports.</p>
+              <button className="ghost-btn" onClick={() => navigate("/ark/admin/alevel/reports")}>Open</button>
+            </div>
           </div>
         </div>
       </main>

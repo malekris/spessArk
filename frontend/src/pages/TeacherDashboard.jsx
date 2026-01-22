@@ -734,7 +734,8 @@ useEffect(() => {
                     }}
                   >
                     <td style={{ fontWeight: "bold", color: "#f59e0b" }}>A-Level</td>
-                    <td>{a.class_level ?? "—"}</td>
+                    <td>{a.stream?.split(" ")[0] ?? "—"}</td>
+
                     <td>{a.stream}</td>
                     <td>{a.subject}</td>
                   </tr>

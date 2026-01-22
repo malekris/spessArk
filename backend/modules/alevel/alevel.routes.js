@@ -92,21 +92,21 @@ router.delete("/admin/assignments/:id", async (req, res) => {
   }
 });
 
-/* GET A-Level assignments */
-router.get("/teachers/alevel-assignments", async (req, res) => {
+/* GET A-Level assignments (scoped to logged-in teacher) */
+router.get("/teachers/alevel-assignments", authTeacher, async (req, res) => {
   try {
+    const teacherId = req.teacher.id;
+
     const [rows] = await db.query(`
       SELECT
         ats.id,
         ats.stream,
-        ats.teacher_id,
-        s.name AS subject,
-        t.name AS teacher_name
+        s.name AS subject
       FROM alevel_teacher_subjects ats
-      LEFT JOIN alevel_subjects s ON s.id = ats.subject_id
-      LEFT JOIN teachers t ON t.id = ats.teacher_id
+      JOIN alevel_subjects s ON s.id = ats.subject_id
+      WHERE ats.teacher_id = ?
       ORDER BY ats.id DESC
-    `);
+    `, [teacherId]);
 
     res.json(rows || []);
   } catch (err) {

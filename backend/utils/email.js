@@ -1,36 +1,27 @@
-// backend/utils/email.js
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 import jwt from "jsonwebtoken";
 
-export async function sendVerificationEmail(email, teacherId) {
+const resend = new Resend(process.env.RESEND_API_KEY);
+
+export async function sendVerificationEmail(email, teacherId, name = "") {
   console.log("📧 Preparing verification email for:", email);
 
   const token = jwt.sign(
     { id: teacherId },
-    process.env.JWT_SECRET || "dev_secret",
+    process.env.JWT_SECRET,
     { expiresIn: "24h" }
   );
 
   const verifyUrl = `http://localhost:5001/api/teachers/verify/${token}`;
 
-  const transporter = nodemailer.createTransport({
-    host: process.env.EMAIL_HOST,
-    port: process.env.EMAIL_PORT,
-    secure: false, // TLS
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS,
-    },
-  });
-
-  const mailOptions = {
-    from: process.env.EMAIL_FROM,
+  const { error } = await resend.emails.send({
+    from: "SPESS ARK <onboarding@resend.dev>", // works instantly
     to: email,
     subject: "Verify your SPESS Ark teacher account",
     html: `
       <div style="font-family: Arial, sans-serif">
-        <h2>Welcome to SPESS Ark</h2>
-        <p>Please verify your email address to activate your teacher account.</p>
+        <h2>Welcome to SPESS Ark${name ? `, ${name}` : ""}</h2>
+        <p>Please verify your email to activate your account.</p>
         <p>
           <a href="${verifyUrl}"
              style="padding:10px 16px;
@@ -44,8 +35,12 @@ export async function sendVerificationEmail(email, teacherId) {
         <p>This link expires in 24 hours.</p>
       </div>
     `,
-  };
+  });
 
-  const info = await transporter.sendMail(mailOptions);
-  console.log("✅ Verification email sent:", info.messageId);
+  if (error) {
+    console.warn("⚠️ Email failed:", error.message);
+    throw new Error(error.message);
+  }
+
+  console.log("✅ Verification email sent to:", email);
 }

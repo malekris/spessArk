@@ -1,4 +1,5 @@
 // backend/server.js
+import "./config/env.js";   // 👈 must be first, before everything
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
@@ -14,7 +15,7 @@ import classesRoutes from "./routes/classes.js";
 import alevelRoutes from "./modules/alevel/alevel.routes.js";
 
 
-dotenv.config();
+
 
 const app = express();
 const PORT = process.env.PORT || 5001;

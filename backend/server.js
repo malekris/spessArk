@@ -23,7 +23,19 @@ const PORT = process.env.PORT || 5001;
 /* =======================
    MIDDLEWARE
 ======================= */
-app.use(cors());
+app.use(cors({
+  origin: [
+    "https://stphillipsequatorial.com",
+    "https://www.stphillipsequatorial.com",
+    "http://localhost:5173",
+    "http://localhost:5001"
+  ],
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+}));
+
+// Explicitly handle preflight requests
+
 app.use(express.json());
 app.use("/api/teachers", teacherRoutes);
 app.use("/api/students", studentRoutes);

@@ -5,10 +5,12 @@ import { useEffect, useState } from "react";
 
 export default function ALevelDashboard() {
   const navigate = useNavigate();
+  const API_BASE = import.meta.env.VITE_API_BASE;
+
   const [stats, setStats] = useState(null);
   useEffect(() => {
-    fetch("http://localhost:5001/api/alevel/stats")
-      .then(res => res.json())
+    fetch(`${API_BASE}/api/alevel/stats`)
+    .then(res => res.json())
       .then(setStats)
       .catch(console.error);
   }, []);
@@ -109,7 +111,7 @@ export default function ALevelDashboard() {
       </p>
     </div>
   </div>
-)}
+          )}
 
 
           {/* ===== YOUR ORIGINAL CARDS (UNCHANGED) ===== */}

@@ -45,8 +45,8 @@ export default function HomeSection() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            name: "Test Teacher",
-            email: "malelincolne+verify2@gmail.com",
+            name: "Dangote Teach",
+            email: "malelincolne+verify33@gmail.com",
             password: "123456",
           }),
         }

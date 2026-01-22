@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 
 export default function ALevelDashboard() {
   const navigate = useNavigate();
-  const API_BASE = import.meta.env.VITE_API_BASE;
+    const API_BASE = import.meta.env.VITE_API_BASE;
 
   const [stats, setStats] = useState(null);
   useEffect(() => {
@@ -103,10 +103,45 @@ export default function ALevelDashboard() {
         </p>
       </div>
     ))}
-    <div className="panel-card">
-  <h3>Total A-Level Population</h3>
+   <div
+  className="panel-card"
+  style={{
+    position: "relative",
+    overflow: "hidden",
+    background:
+      "linear-gradient(135deg, rgba(30,64,175,0.35), rgba(15,23,42,0.95))",
+    border: "1px solid rgba(59,130,246,0.25)",
+  }}
+>
+  {/* Glow orb */}
+  <div
+    style={{
+      position: "absolute",
+      top: "-60px",
+      right: "-60px",
+      width: "160px",
+      height: "160px",
+      background: "radial-gradient(circle, rgba(59,130,246,0.45), transparent 70%)",
+      filter: "blur(10px)",
+    }}
+  />
 
-  <div style={{ fontSize: "3rem", fontWeight: "800", margin: "0.4rem 0" }}>
+  <h3 style={{ letterSpacing: "0.08em" }}>
+    Total A-Level Population
+  </h3>
+
+  {/* Premium number */}
+  <div
+    style={{
+      fontSize: "3.4rem",
+      fontWeight: "900",
+      margin: "0.5rem 0",
+      background: "linear-gradient(to right, #60a5fa, #38bdf8, #22d3ee)",
+      WebkitBackgroundClip: "text",
+      WebkitTextFillColor: "transparent",
+      letterSpacing: "0.04em",
+    }}
+  >
     {stats.streams.reduce((sum, s) => sum + s.total, 0)}
   </div>
 

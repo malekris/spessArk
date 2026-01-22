@@ -27,42 +27,22 @@ router.post("/register", async (req, res) => {
   }
 
   try {
-    // 🔍 Check if teacher exists
+    // Check if teacher exists
     const [rows] = await pool.query(
-      "SELECT id, is_verified FROM teachers WHERE email = ?",
+      "SELECT id FROM teachers WHERE email = ?",
       [email]
     );
 
-    // 🔁 EXISTS
     if (rows.length > 0) {
-      const teacher = rows[0];
-
-      // Not verified → resend email
-      if (!teacher.is_verified) {
-        console.log("🔁 Resending verification email to:", email);
-        try {
-          await sendVerificationEmail(email, teacher.id);
-        } catch (emailErr) {
-          console.warn("⚠️ Email resend failed, continuing:", emailErr.message);
-        }
-        
-
-        return res.json({
-          message:
-            "Account exists but is not verified. Verification email resent.",
-        });
-      }
-
-      // Verified → block duplicate
       return res.status(409).json({
         message: "Teacher already exists",
       });
     }
 
-    // 🔐 Hash password
+    // Hash password
     const passwordHash = await bcrypt.hash(password, 10);
 
-    // 🧑‍🏫 Create teacher
+    // Create teacher (verification OFF = is_verified = 1)
     const [result] = await pool.query(
       `INSERT INTO teachers (name, email, password_hash, is_verified)
        VALUES (?, ?, ?, 1)`,
@@ -72,19 +52,18 @@ router.post("/register", async (req, res) => {
     const teacherId = result.insertId;
     console.log("✅ Teacher created with ID:", teacherId);
 
-    // 📧 Send verification email
-      // 📧 Send verification email (non-blocking)
-try {
-  await sendVerificationEmail(email, teacherId);
-} catch (emailErr) {
-  console.warn("⚠️ Verification email failed, continuing:", emailErr.message);
-}
-
-
+    // ✅ IMPORTANT PART: Respond immediately (never block)
     res.status(201).json({
-      message:
-        "Account created successfully. Please check your email to verify your account.",
+      message: "Account created successfully.",
     });
+
+    // 🔕 Optional: attempt email in background (won’t break anything if it fails)
+    sendVerificationEmail(email, teacherId)
+      .then(() => console.log("📧 Email sent to:", email))
+      .catch((err) =>
+        console.warn("⚠️ Email failed (ignored):", err.message)
+      );
+
   } catch (err) {
     console.error("❌ Teacher register error:", err);
     res.status(500).json({ message: "Server error" });

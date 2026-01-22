@@ -79,16 +79,17 @@ function TeacherSignup() {
         }),
       });
 
-      let data = {};
-      const contentType = res.headers.get("content-type");
-
-      if (contentType && contentType.includes("application/json")) {
-      data = await res.json();
+      let data;
+      try {
+        data = await res.json();
+      } catch {
+        data = {};
       }
-
+      
       if (!res.ok) {
         throw new Error(data.message || "Registration failed");
       }
+      
 
       setSuccess(
         "Account created successfully. Please check your email to verify your account."

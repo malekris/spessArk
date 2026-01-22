@@ -49,10 +49,11 @@ router.post("/register", async (req, res) => {
     console.log("✅ Teacher created:", teacherId);
 
     // Respond immediately (no waiting for email)
-    res.status(201).json({
+    return res.status(201).json({
+      success: true,
       message: "Account created successfully. Please check your email for further information.",
     });
-
+    
     // Send welcome email in background (never blocks UI)
     sendWelcomeEmail(email, name)
       .then(() => console.log("📧 Welcome email sent to:", email))

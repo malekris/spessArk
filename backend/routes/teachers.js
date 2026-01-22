@@ -35,10 +35,10 @@ router.post("/register", async (req, res) => {
       return res.status(409).json({ message: "Teacher already exists" });
     }
 
-    // Hash password (keep it light for performance)
+    // Hash password
     const passwordHash = await bcrypt.hash(password, 6);
 
-    // Create teacher (always verified)
+    // Create teacher
     const [result] = await pool.query(
       `INSERT INTO teachers (name, email, password_hash, is_verified)
        VALUES (?, ?, ?, 1)`,
@@ -48,16 +48,16 @@ router.post("/register", async (req, res) => {
     const teacherId = result.insertId;
     console.log("✅ Teacher created:", teacherId);
 
-    // Respond immediately (no waiting for email)
+    // 🔥 Trigger email (non-blocking)
+    sendWelcomeEmail(email, name)
+      .then(() => console.log("📧 Welcome email sent to:", email))
+      .catch((err) => console.warn("⚠️ Welcome email failed:", err.message));
+
+    // ✅ Respond immediately
     return res.status(201).json({
       success: true,
       message: "Account created successfully. Please check your email for further information.",
     });
-    
-    // Send welcome email in background (never blocks UI)
-    sendWelcomeEmail(email, name)
-      .then(() => console.log("📧 Welcome email sent to:", email))
-      .catch((err) => console.warn("⚠️ Welcome email failed:", err.message));
 
   } catch (err) {
     console.error("❌ Register error:", err);

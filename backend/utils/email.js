@@ -15,7 +15,7 @@ export async function sendVerificationEmail(email, teacherId, name = "") {
   const verifyUrl = `http://localhost:5001/api/teachers/verify/${token}`;
 
   const { error } = await resend.emails.send({
-    from: "SPESS ARK <onboarding@resend.dev>", // works instantly
+    from: "SPESS ARK <no-reply@stphillipsequatorial.com>", // works instantly
     to: email,
     subject: "Verify your SPESS Ark teacher account",
     html: `

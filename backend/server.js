@@ -13,6 +13,7 @@ import authAdmin from "./middleware/authAdmin.js";
 import studentRoutes from "./routes/students.js";
 import classesRoutes from "./routes/classes.js";
 import alevelRoutes from "./modules/alevel/alevel.routes.js";
+import newSignupRoutes from "./routes/newSignup.js";
 
 
 
@@ -42,6 +43,7 @@ app.use("/api/students", studentRoutes);
 app.use("/api/admin/reports", adminReportsRoutes);
 app.use("/api/classes", classesRoutes);
 app.use("/api/alevel", alevelRoutes);
+app.use("/api/new-signup", newSignupRoutes);
 
 /* =======================
    ROUTES

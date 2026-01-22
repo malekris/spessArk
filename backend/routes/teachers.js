@@ -3,7 +3,7 @@ import express from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
-import { sendVerificationEmail } from "../utils/email.js";
+import { sendWelcomeEmail } from "../utils/email.js";
 import { pool } from "../server.js";
 import authTeacher from "../middleware/authTeacher.js";
 
@@ -21,9 +21,7 @@ router.post("/register", async (req, res) => {
   const { name, email, password } = req.body;
 
   if (!name || !email || !password) {
-    return res
-      .status(400)
-      .json({ message: "Name, email and password are required" });
+    return res.status(400).json({ message: "Name, email and password are required" });
   }
 
   try {
@@ -34,15 +32,13 @@ router.post("/register", async (req, res) => {
     );
 
     if (rows.length > 0) {
-      return res.status(409).json({
-        message: "Teacher already exists",
-      });
+      return res.status(409).json({ message: "Teacher already exists" });
     }
 
-    // Hash password
+    // Hash password (keep it light for performance)
     const passwordHash = await bcrypt.hash(password, 6);
 
-    // Create teacher (verification OFF = is_verified = 1)
+    // Create teacher (always verified)
     const [result] = await pool.query(
       `INSERT INTO teachers (name, email, password_hash, is_verified)
        VALUES (?, ?, ?, 1)`,
@@ -50,25 +46,24 @@ router.post("/register", async (req, res) => {
     );
 
     const teacherId = result.insertId;
-    console.log("✅ Teacher created with ID:", teacherId);
+    console.log("✅ Teacher created:", teacherId);
 
-    // ✅ IMPORTANT PART: Respond immediately (never block)
+    // Respond immediately (no waiting for email)
     res.status(201).json({
-      message: "Account created successfully.",
+      message: "Account created successfully. Please check your email for further information.",
     });
 
-    // 🔕 Optional: attempt email in background (won’t break anything if it fails)
-    sendVerificationEmail(email, teacherId)
-      .then(() => console.log("📧 Email sent to:", email))
-      .catch((err) =>
-        console.warn("⚠️ Email failed (ignored):", err.message)
-      );
+    // Send welcome email in background (never blocks UI)
+    sendWelcomeEmail(email, name)
+      .then(() => console.log("📧 Welcome email sent to:", email))
+      .catch((err) => console.warn("⚠️ Welcome email failed:", err.message));
 
   } catch (err) {
-    console.error("❌ Teacher register error:", err);
+    console.error("❌ Register error:", err);
     res.status(500).json({ message: "Server error" });
   }
 });
+
 
 /* =======================
    VERIFY EMAIL

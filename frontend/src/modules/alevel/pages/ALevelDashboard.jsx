@@ -103,6 +103,17 @@ export default function ALevelDashboard() {
         </p>
       </div>
     ))}
+    <div className="panel-card">
+  <h3>Total A-Level Population</h3>
+
+  <div style={{ fontSize: "3rem", fontWeight: "800", margin: "0.4rem 0" }}>
+    {stats.streams.reduce((sum, s) => sum + s.total, 0)}
+  </div>
+
+  <p className="muted-text">
+    Total learners across S5 & S6
+  </p>
+</div>
 
     <div className="panel-card">
       <h3>Teachers</h3>

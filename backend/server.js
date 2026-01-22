@@ -1553,6 +1553,15 @@ app.put("/api/admin/students/:id", async (req, res) => {
   }
 });
 
+app.get("/health", async (req, res) => {
+  try {
+    // if you have a pool
+    await pool.query("SELECT 1");
+    res.status(200).json({ status: "ok", db: "connected" });
+  } catch (err) {
+    res.status(500).json({ status: "error", db: "disconnected" });
+  }
+});
 
 
 /* =======================

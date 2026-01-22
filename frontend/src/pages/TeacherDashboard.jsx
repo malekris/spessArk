@@ -579,39 +579,88 @@ useEffect(() => {
     <div className="admin-root teacher-root">
       {isPortrait && <div className="panel-alert">📱 Rotate your phone for better mark entry</div>}
 
-      <header className="admin-nav">
-        <div className="brand" style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-          <span
-            style={{
-              width: "10px",
-              height: "10px",
-              borderRadius: "50%",
-              backgroundColor: "#b8860b",
-              display: "inline-block",
-            }}
-          />
+      <header
+  style={{
+    position: "relative",
+    height: "220px",
+    backgroundImage: "url(/weasel.jpg)",
+    backgroundSize: "cover",
+    backgroundPosition: "center",
+    overflow: "hidden",
+  }}
+>
+  {/* overlay */}
+  <div
+    style={{
+      position: "absolute",
+      inset: 0,
+      background:
+        "linear-gradient(to bottom, rgba(0,0,0,0.55), rgba(15,23,42,0.95))",
+    }}
+  />
 
-          <span className="brand-text">SPESS’s ARK</span>
-          <span className="brand-tag">Teacher</span>
-        </div>
+  {/* content */}
+  <div
+    style={{
+      position: "relative",
+      zIndex: 2,
+      height: "100%",
+      padding: "1.2rem 2.5rem",
+      display: "flex",
+      flexDirection: "column",
+      gap: "1.4rem",
+    }}
+  >
+    {/* Top bar */}
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+      }}
+    >
+      {/* Left brand */}
+      <div className="brand">
+        <span className="brand-dot" />
+        <span className="brand-text">SPESS’S ARK</span>
+        <span className="brand-tag">Teacher</span>
+      </div>
 
-        <div style={{ display: "flex", gap: "0.6rem", alignItems: "center" }}>
-          <div style={{ display: "flex", gap: "0.6rem" }}>
-            <button className="secondary-btn" onClick={() => setShowChangePassword(true)}>
-              Change Password
-            </button>
+      {/* Right buttons */}
+      <div
+        style={{
+          display: "flex",
+          gap: "0.8rem",
+          marginLeft: "auto",
+        }}
+      >
+        <button className="secondary-btn" onClick={() => setShowChangePassword(true)}>
+          Change Password
+        </button>
 
-            <button className="nav-logout" onClick={handleLogout}>
-              Logout
-            </button>
-          </div>
-        </div>
-      </header>
+        <button className="nav-logout" onClick={handleLogout}>
+          Logout
+        </button>
+      </div>
+    </div>
+
+    {/* Hero text */}
+    <div>
+      <h1 style={{ fontSize: "1.9rem", marginBottom: "0.4rem" }}>
+        Teacher Dashboard
+      </h1>
+      <p style={{ color: "#cbd5e1", maxWidth: "620px" }}>
+        Manage marks, learners, analytics and reports with clarity and control.
+      </p>
+    </div>
+  </div>
+</header>
+
+
 
       <main className="admin-main">
         <section className="admin-heading">
-          <h1>Teacher Dashboard</h1>
-          {teacher && <h2>👋 Hello {teacher.name}</h2>}
+          
+          {teacher && <h2>👋 Hello Teacher {teacher.name}</h2>}
 
           <section className="teacher-notices" style={{ marginTop: "0.6rem" }}>
             <h2 className="section-title">School Notices</h2>

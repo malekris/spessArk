@@ -52,7 +52,7 @@ export default function ALevelDashboard() {
         <div
           style={{
             height: "260px",
-            backgroundImage: "url(/image1.jpg)",
+            backgroundImage: "url(/carey.jpg)",
             backgroundSize: "cover",
             backgroundPosition: "center",
             position: "relative"

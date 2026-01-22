@@ -34,7 +34,6 @@ export async function getLearners(req, res) {
   }
 }
 
-
 // POST /api/alevel/learners
 export async function createLearner(req, res) {
   const {

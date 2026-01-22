@@ -40,7 +40,7 @@ router.post("/register", async (req, res) => {
     }
 
     // Hash password
-    const passwordHash = await bcrypt.hash(password, 10);
+    const passwordHash = await bcrypt.hash(password, 6);
 
     // Create teacher (verification OFF = is_verified = 1)
     const [result] = await pool.query(

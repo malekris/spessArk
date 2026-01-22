@@ -36,43 +36,7 @@ export default function HomeSection() {
           <p>Excellence in Academics, Discipline and Character</p>
         </div>
       </div>
-      <button
-  onClick={async () => {
-    try {
-      const res = await fetch(
-        `${import.meta.env.VITE_API_BASE}/api/new-signup`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: "Dangote Teach",
-            email: "malelincolne+verify33@gmail.com",
-            password: "123456",
-          }),
-        }
-      );
-
-      const raw = await res.text(); // read ONCE
-
-      let data;
-      try {
-        data = JSON.parse(raw);
-      } catch {
-        console.log("Non-JSON response:", raw);
-        alert("Server returned non-JSON. Check console.");
-        return;
-      }
-
-      alert(data.message || "Request finished");
-      console.log("Response:", data);
-    } catch (err) {
-      console.error(err);
-      alert("Request failed: " + err.message);
-    }
-  }}
->
-  🔬 Test New Signup Flow
-</button>
+ 
 
 
 

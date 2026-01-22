@@ -1,11 +1,53 @@
 import { Resend } from "resend";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Custom fetch with timeout
+async function fetchWithTimeout(url, options = {}, timeoutMs = 20000) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+    return response;
+  } finally {
+    clearTimeout(id);
+  }
+}
+
+// Resend client with custom fetch
+const resend = new Resend(process.env.RESEND_API_KEY, {
+  fetch: fetchWithTimeout,
+});
+
+// Retry wrapper (important on flaky networks)
+async function sendWithRetry(payload, retries = 2) {
+  let lastError;
+
+  for (let attempt = 1; attempt <= retries + 1; attempt++) {
+    try {
+      console.log(`📨 Resend attempt ${attempt}`);
+      const result = await resend.emails.send(payload);
+      return result;
+    } catch (err) {
+      lastError = err;
+      console.warn(`⚠️ Email attempt ${attempt} failed:`, err.message);
+
+      // small delay before retry
+      if (attempt <= retries) {
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+    }
+  }
+
+  throw lastError;
+}
 
 export async function sendWelcomeEmail(email, name = "") {
   console.log("📧 Sending welcome email to:", email);
 
-  const { error } = await resend.emails.send({
+  const payload = {
     from: "SPESS ARK <no-reply@stphillipsequatorial.com>",
     to: email,
     subject: "Welcome to SPESS ARK 🎓",
@@ -51,9 +93,19 @@ export async function sendWelcomeEmail(email, name = "") {
         </div>
       </div>
     `,
-  });
+  };
 
-  if (error) {
-    throw new Error(error.message);
+  const start = Date.now();
+
+  try {
+    const result = await sendWithRetry(payload, 2); // 2 retries = up to 3 attempts
+    console.log(`✅ Email sent to ${email} in ${Date.now() - start}ms`);
+    return result;
+  } catch (err) {
+    console.error(
+      `❌ Email permanently failed after ${Date.now() - start}ms:`,
+      err.message
+    );
+    throw err;
   }
 }

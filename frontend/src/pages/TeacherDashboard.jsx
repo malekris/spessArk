@@ -586,7 +586,7 @@ useEffect(() => {
     backgroundImage: "url(/weasel.jpg)",
     backgroundSize: "cover",
     backgroundPosition: "center",
-    overflow: "hidden",
+    overflow: "hidden", 
   }}
 >
   {/* overlay */}

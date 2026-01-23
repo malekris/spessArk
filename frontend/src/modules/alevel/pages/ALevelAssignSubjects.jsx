@@ -126,48 +126,72 @@ export default function ALevelAssignSubjects() {
      7. PDF EXPORT
   ====================================================== */
   function exportPDF() {
-    if (filteredAssignments.length === 0) {
-      alert("No data to export");
-      return;
-    }
-
+    if (filteredAssignments.length === 0) return;
+  
     const doc = new jsPDF("p", "mm", "a4");
-
-    doc.setFont("times", "bold");
-    doc.setFontSize(14);
-    doc.text("A-Level Teacher Assignments", 105, 14, { align: "center" });
-
-    doc.setFontSize(10);
-    doc.setFont("times", "normal");
-    doc.text(
-      `Stream: ${printStream || "All"}`,
-      105,
-      20,
-      { align: "center" }
-    );
-
+    const W = doc.internal.pageSize.getWidth();
+  
+    const school = "St. Phillip's Equatorial Secondary School";
+    const title = "A-Level Teaching Assignments";
+    const generated = new Date().toLocaleString();
+  
     autoTable(doc, {
-      startY: 26,
+      startY: 50, // push table down to make space for header
+  
       head: [["Stream", "Subject", "Teacher"]],
       body: filteredAssignments.map((a) => [
-        a.stream || "—",
-        a.subject || "—",
-        a.teacher_name || "—",
+        a.stream,
+        a.subject,
+        a.teacher_name,
       ]),
-      styles: {
-        font: "times",
-        fontSize: 10,
-      },
+  
       headStyles: {
-        fillColor: [30, 41, 59],
+        fillColor: [15, 23, 42], // dark header
         textColor: 255,
+        fontStyle: "bold",
       },
-      theme: "grid",
+  
+      styles: {
+        fontSize: 9,
+      },
+  
+      didDrawPage: function () {
+        // ===== HEADER =====
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(14);
+        doc.text(school, W / 2, 18, { align: "center" });
+  
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(11);
+        doc.text(title, W / 2, 26, { align: "center" });
+  
+        doc.setFontSize(9);
+        doc.text(`Generated: ${generated}`, 14, 36);
+  
+        // Divider line
+        doc.setDrawColor(200);
+        doc.line(14, 40, W - 14, 40);
+  
+        // ===== FOOTER =====
+        const pageCount = doc.internal.getNumberOfPages();
+        const page = doc.internal.getCurrentPageInfo().pageNumber;
+  
+        doc.setFontSize(8);
+        doc.setTextColor(120);
+        doc.text(
+          `Generated from SPESS ARK · Page ${page} of ${pageCount}`,
+          W / 2,
+          doc.internal.pageSize.getHeight() - 10,
+          { align: "center" }
+        );
+  
+        doc.setTextColor(0);
+      },
     });
-
-    const url = doc.output("bloburl");
-    window.open(url, "_blank");
+  
+    window.open(doc.output("bloburl"), "_blank");
   }
+  
 
   /* ======================================================
      8. RENDER

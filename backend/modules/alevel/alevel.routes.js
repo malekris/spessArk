@@ -1,6 +1,8 @@
 import express from "express";
 import { db } from "../../server.js";
 import authTeacher from "../../middleware/authTeacher.js";
+import { pool } from "../../server.js";
+
 import {
   getLearners,
   createLearner,
@@ -437,6 +439,133 @@ router.get("/stats", async (req, res) => {
     res.status(500).json({ message: "Failed to load stats" });
   }
 });
+router.get("/download/sets", async (req, res) => {
+  try {
+    const [rows] = await pool.query(`
+      SELECT
+        CONCAT(am.subject_id, '-', am.teacher_id, '-', am.term, '-', am.exam_id) AS setId,
+        subj.name AS subject,
+        t.name AS submitted_by,
+        am.term,
+        ae.name AS exam
+      FROM alevel_marks am
+      JOIN alevel_subjects subj ON subj.id = am.subject_id
+      JOIN teachers t ON t.id = am.teacher_id
+      JOIN alevel_exams ae ON ae.id = am.exam_id
+      GROUP BY 
+        am.subject_id,
+        am.teacher_id,
+        am.term,
+        am.exam_id,
+        subj.name,
+        t.name,
+        ae.name
+      ORDER BY am.term DESC, subj.name, ae.name
+    `);
+
+    res.json(rows || []);
+  } catch (err) {
+    console.error("❌ Download sets error:", err);
+    res.status(500).json({ message: "Failed to load mark sets" });
+  }
+});
+
+
+router.get("/download/sets/:setId", async (req, res) => {
+  try {
+    const { setId } = req.params;
+
+    const [subject_id, teacher_id, term, exam_id] = setId.split("-");
+
+    const [rows] = await pool.query(`
+      SELECT 
+        CONCAT(l.first_name, ' ', l.last_name) AS learner,
+        ae.name AS exam,
+        am.score
+      FROM alevel_marks am
+      JOIN alevel_learners l ON l.id = am.learner_id
+      JOIN alevel_exams ae ON ae.id = am.exam_id
+      WHERE am.subject_id = ?
+        AND am.teacher_id = ?
+        AND am.term = ?
+        AND am.exam_id = ?
+      ORDER BY learner
+    `, [subject_id, teacher_id, term, exam_id]);
+
+    res.json({
+      columns: ["learner", "exam", "score"],
+      rows
+    });
+  } catch (err) {
+    console.error("❌ Preview set error:", err);
+    res.status(500).json({ message: "Failed to preview marks" });
+  }
+});
+
+
+router.delete("/download/sets/:setId", async (req, res) => {
+  try {
+    const { setId } = req.params;
+    const [subject_id, teacher_id, term, exam_id] = setId.split("-");
+
+    await pool.query(`
+      DELETE FROM alevel_marks
+      WHERE subject_id = ?
+        AND teacher_id = ?
+        AND term = ?
+        AND exam_id = ?
+    `, [subject_id, teacher_id, term, exam_id]);
+
+    res.status(204).end();
+  } catch (err) {
+    console.error("❌ Delete set error:", err);
+    res.status(500).json({ message: "Failed to delete marks" });
+  }
+});
+
+
+router.get("/download/sets/:assignmentId/export", async (req, res) => {
+  try {
+    const { assignmentId } = req.params;
+    const { term } = req.query;
+
+    const [[ts]] = await pool.query(
+      `SELECT subject_id, teacher_id 
+       FROM alevel_teacher_subjects 
+       WHERE id = ?`,
+      [assignmentId]
+    );
+
+    if (!ts || !term) return res.status(400).send("Invalid request");
+
+    const [rows] = await pool.query(`
+      SELECT 
+        CONCAT(l.first_name, ' ', l.last_name) AS Learner,
+        ae.name AS Exam,
+        am.score AS Score
+      FROM alevel_marks am
+      JOIN alevel_learners l ON l.id = am.learner_id
+      JOIN alevel_exams ae ON ae.id = am.exam_id
+      WHERE am.subject_id = ?
+        AND am.teacher_id = ?
+        AND am.term = ?
+      ORDER BY Learner
+    `, [ts.subject_id, ts.teacher_id, term]);
+
+    const csv = [
+      Object.keys(rows[0] || {}).join(","),
+      ...rows.map(r => Object.values(r).join(","))
+    ].join("\n");
+
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", `attachment; filename="marks_${assignmentId}_${term}.csv"`);
+    res.send(csv);
+  } catch (err) {
+    console.error("❌ Export error:", err);
+    res.status(500).send("Export failed");
+  }
+});
+
 
 
 

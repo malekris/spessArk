@@ -1,5 +1,8 @@
 // backend/modules/alevel/alevel.controller.js
 import { db } from "../../server.js";
+import express from "express";
+
+const router = express.Router();
 
 // GET /api/alevel/learners
 export async function getLearners(req, res) {
@@ -157,3 +160,5 @@ export async function updateLearner(req, res) {
     conn.release();
   }
 }
+
+export default router;

@@ -32,7 +32,7 @@ app.use(cors({
     "http://localhost:5001"
   ],
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
+  allowedHeaders: ["Content-Type", "Authorization", "x-admin-key"],
 }));
 
 // Explicitly handle preflight requests

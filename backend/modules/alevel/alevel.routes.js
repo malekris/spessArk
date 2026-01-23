@@ -426,6 +426,7 @@ router.get("/stats", async (req, res) => {
     const [[teachers]] = await db.query(`
       SELECT COUNT(*) AS total FROM teachers
     `);
+    
 
     res.json({
       streams: learners,

@@ -1576,7 +1576,6 @@ app.get("/health", async (req, res) => {
     res.status(500).json({ status: "error", db: "disconnected" });
   }
 });
-console.log("🚀 Backend version: new-signup-enabled");
 
 
 /* =======================

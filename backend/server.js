@@ -14,6 +14,7 @@ import studentRoutes from "./routes/students.js";
 import classesRoutes from "./routes/classes.js";
 import alevelRoutes from "./modules/alevel/alevel.routes.js";
 import newSignupRoutes from "./routes/newSignup.js";
+import alevelReports from "./modules/alevel/alevelReports.js";
 
 
 
@@ -36,7 +37,7 @@ app.use(cors({
 }));
 
 // Explicitly handle preflight requests
-
+app.use("/public", express.static("public"));
 app.use(express.json());
 app.use("/api/teachers", teacherRoutes);
 app.use("/api/students", studentRoutes);
@@ -44,6 +45,7 @@ app.use("/api/admin/reports", adminReportsRoutes);
 app.use("/api/classes", classesRoutes);
 app.use("/api/alevel", alevelRoutes);
 app.use("/api/new-signup", newSignupRoutes);
+app.use("/api/alevel/reports", alevelReports);
 
 /* =======================
    ROUTES

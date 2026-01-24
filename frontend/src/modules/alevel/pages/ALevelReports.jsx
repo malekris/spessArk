@@ -204,42 +204,47 @@ doc.setFont("helvetica", "normal");
 const y = 60;
 doc.setFontSize(10);
 
+const gap = 3;
 
-// Name
+// LEFT SIDE
 doc.setFont("helvetica", "bold");
 doc.text("Name:", 15, y);
+let w = doc.getTextWidth("Name:");
 doc.setFont("helvetica", "normal");
-doc.text(learner.name, 30, y);
+doc.text(learner.name, 15 + w + gap, y);
 
-// Age
-doc.setFont("helvetica", "bold");
-doc.text("Age:", 110, y);
-doc.setFont("helvetica", "normal");
-doc.text(String(learner.age), 125, y);
-
-// House
 doc.setFont("helvetica", "bold");
 doc.text("House:", 15, y + 6);
+w = doc.getTextWidth("House:");
 doc.setFont("helvetica", "normal");
-doc.text(learner.house, 35, y + 6);
+doc.text(learner.house, 15 + w + gap, y + 6);
 
-// Class
-doc.setFont("helvetica", "bold");
-doc.text("Class:", 110, y + 6);
-doc.setFont("helvetica", "normal");
-doc.text(learner.class, 130, y + 6);
-
-// Stream
 doc.setFont("helvetica", "bold");
 doc.text("Stream:", 15, y + 12);
+w = doc.getTextWidth("Stream:");
 doc.setFont("helvetica", "normal");
-doc.text(learner.stream, 40, y + 12);
+doc.text(learner.stream, 15 + w + gap, y + 12);
 
-// Combination
+
+// RIGHT SIDE
+doc.setFont("helvetica", "bold");
+doc.text("Age:", 110, y);
+w = doc.getTextWidth("Age:");
+doc.setFont("helvetica", "normal");
+doc.text(String(learner.age), 110 + w + gap, y);
+
+doc.setFont("helvetica", "bold");
+doc.text("Class:", 110, y + 6);
+w = doc.getTextWidth("Class:");
+doc.setFont("helvetica", "normal");
+doc.text(learner.class, 110 + w + gap, y + 6);
+
 doc.setFont("helvetica", "bold");
 doc.text("Combination:", 110, y + 12);
+w = doc.getTextWidth("Combination:");
 doc.setFont("helvetica", "normal");
-doc.text(learner.combination, 150, y + 12);
+doc.text(learner.combination, 110 + w + gap, y + 12);
+
 
     autoTable(doc, {
       startY: y + 20,
@@ -275,12 +280,13 @@ doc.text(learner.combination, 150, y + 12);
 
     doc.setFontSize(10);
 
-// Class Teacher Comment
+    // Class Teacher Comment
 doc.setFont("helvetica", "bold");
 doc.text("Class Teacher's Comment:", 15, commentY);
 
+w = doc.getTextWidth("Class Teacher's Comment:");
 doc.setFont("helvetica", "normal");
-doc.text(comments.classTeacher, 65, commentY);
+doc.text(comments.classTeacher, 15 + w + gap, commentY);
 
 doc.text("Signature: ____________________________", 15, commentY + 6);
 
@@ -288,8 +294,9 @@ doc.text("Signature: ____________________________", 15, commentY + 6);
 doc.setFont("helvetica", "bold");
 doc.text("Head Teacher's Comment:", 15, commentY + 16);
 
+w = doc.getTextWidth("Head Teacher's Comment:");
 doc.setFont("helvetica", "normal");
-doc.text(comments.headTeacher, 70, commentY + 16);
+doc.text(comments.headTeacher, 15 + w + gap, commentY + 16);
 
 doc.text("Signature: ____________________________", 15, commentY + 22);
 
@@ -345,8 +352,10 @@ const rightTableEnd = doc.lastAutoTable.finalY;
 let afterTablesY = Math.max(leftTableEnd, rightTableEnd) + 10;
 
 doc.setFontSize(9);
+
 doc.text("This term ended on: ____________________", 15, afterTablesY);
-doc.text("Next term begins on: ____________________", 15, afterTablesY + 6);
+
+doc.text("Next term begins on: ____________________", 110, afterTablesY);
 
 doc.setFont("helvetica", "bold");
 doc.text("Requirements:", 15, afterTablesY + 16);

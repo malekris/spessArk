@@ -253,7 +253,8 @@ doc.text(learner.combination, 110 + w + gap, y + 12);
         p.subject, p.mid ?? "-", p.eot ?? "-", p.avg ?? "-", p.score, p.grade, p.points, p.teacher
       ]),
       styles: { fontSize: 9 },
-      headStyles: { fillColor: [30, 41, 59] }
+      headStyles: { fillColor: [230, 230, 230], textColor: 0 }
+
     });
 
     let nextY = doc.lastAutoTable.finalY + 6;
@@ -268,7 +269,8 @@ doc.text(learner.combination, 110 + w + gap, y + 12);
         s.subject, s.mid ?? "-", s.eot ?? "-", s.avg ?? "-", s.grade, s.points, s.teacher
       ]),
       styles: { fontSize: 9 },
-      headStyles: { fillColor: [30, 41, 59] }
+      headStyles: { fillColor: [230, 230, 230], textColor: 0 }
+
     });
 
     nextY = doc.lastAutoTable.finalY + 6;
@@ -300,56 +302,40 @@ doc.text(comments.headTeacher, 15 + w + gap, commentY + 16);
 
 doc.text("Signature: ____________________________", 15, commentY + 22);
 
-    let tableStartY = commentY + 32;
+let tableStartY = commentY + 32;
 
-   // LEFT TABLE
+/* =========================
+   MARKS → SCORES TABLE (COMPACT)
+========================= */
 autoTable(doc, {
   startY: tableStartY,
-  head: [["Score", "Range"]],
-  body: [
-    ["F9", "00-34"],
-    ["P8", "35-44"],
-    ["P7", "45-49"],
-    ["C6", "50-54"],
-    ["C5", "55-59"],
-    ["C4", "60-64"],
-    ["C3", "65-74"],
-    ["D2", "75-79"],
-    ["D1", "80-100"],
-  ],
-  styles: { fontSize: 8 },
-  tableWidth: 60,
-  margin: { left: 15 }
+  head: [[
+    "Mark", "00–34", "35–44", "45–49", "50–54", "55–59", "60–64", "65–74", "75–79", "80–100"
+  ]],
+  body: [[
+    "Score", "F9", "P8", "P7", "C6", "C5", "C4", "C3", "D2", "D1"
+  ]],
+  styles: { fontSize: 8, halign: "center" },
+  headStyles: { fillColor: [230, 230, 230], textColor: 0 },
+  theme: "grid",
+  margin: { left: 15 },
 });
 
-// ✅ store left end immediately
-const leftTableEnd = doc.lastAutoTable.finalY;
-
-
-// RIGHT TABLE
+/* =========================
+   GRADE → POINTS TABLE (COMPACT)
+========================= */
 autoTable(doc, {
-  startY: tableStartY,
-  head: [["Grade", "Points"]],
-  body: [
-    ["A", "6"],
-    ["B", "5"],
-    ["C", "4"],
-    ["D", "3"],
-    ["E", "2"],
-    ["O", "1"],
-    ["F", "0"],
-  ],
-  styles: { fontSize: 8 },
-  tableWidth: 60,
-  margin: { left: 100 }
+  startY: doc.lastAutoTable.finalY + 4,
+  head: [["Grade Points", "F", "O", "E", "D", "C", "B", "A"]],
+  body: [["", "0", "1", "2", "3", "4", "5", "6"]],
+  styles: { fontSize: 8, halign: "center" },
+  headStyles: { fillColor: [230, 230, 230], textColor: 0 },
+  theme: "grid",
+  margin: { left: 15 },
 });
 
-// ✅ store right end immediately
-const rightTableEnd = doc.lastAutoTable.finalY;
-
-
-// ✅ real bottom
-let afterTablesY = Math.max(leftTableEnd, rightTableEnd) + 10;
+// Final Y after both tables
+let afterTablesY = doc.lastAutoTable.finalY + 8;
 
 doc.setFontSize(9);
 

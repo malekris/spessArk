@@ -4,6 +4,7 @@ import "./AlevelReport.css";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import badge from "../../../assets/badge.png";
+const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 
 export default function AlevelReport() {
   const [term, setTerm] = useState("");
@@ -27,8 +28,9 @@ export default function AlevelReport() {
     try {
       setLoading(true);
 
-      const res = await fetch("/api/alevel/reports/preview", {
-        method: "POST",
+      const res = await fetch(`${API_BASE}/api/alevel/reports/preview`, {
+
+      method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ term, class: cls, stream, year }),
       });
@@ -46,8 +48,9 @@ export default function AlevelReport() {
 
   const handleDownload = async () => {
     try {
-      const res = await fetch("/api/alevel/reports/download", {
-        method: "POST",
+      const res = await fetch(`${API_BASE}/api/alevel/reports/download`, {
+
+      method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ term, class: cls, stream, year }),
       });

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import "./AlevelReport.css";
+import { useNavigate } from "react-router-dom";
 
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -15,6 +16,7 @@ export default function AlevelReport() {
   const [loading, setLoading] = useState(false);
   const [previewData, setPreviewData] = useState(null);
   const [error, setError] = useState("");
+  const navigate = useNavigate(); // 👈 THIS WAS MISSING
 
   const handlePreview = async () => {
     setError("");
@@ -64,72 +66,202 @@ export default function AlevelReport() {
       alert("Failed to download report");
     }
   };
+   // --- Theme Constants (Matching your Amethyst/Cinematic Black theme) ---
+  const amethyst = "#a78bfa";
+  const cinematicBlack = "#0a0c10";
+  const glassBg = "rgba(30, 41, 59, 0.45)";
+  const platinum = "#f1f5f9";
 
+  const inputStyle = {
+    width: "100%",
+    padding: "12px",
+    background: "rgba(0, 0, 0, 0.3)",
+    border: "1px solid rgba(255, 255, 255, 0.1)",
+    borderRadius: "12px",
+    color: "#fff",
+    fontSize: "0.9rem",
+    outline: "none",
+    marginTop: "8px"
+  };
+
+  const labelStyle = {
+    fontSize: "0.7rem",
+    fontWeight: "800",
+    color: amethyst,
+    textTransform: "uppercase",
+    letterSpacing: "0.1em"
+  };
   return (
-    <div className="alevel-reports">
-      <div className="panel-card">
-        <h2 style={{ marginBottom: "1rem" }}>A-Level Reports</h2>
+    <div style={{ minHeight: "100vh", background: cinematicBlack, color: platinum, paddingBottom: "4rem", fontFamily: "'Inter', sans-serif" }}>
+      
+      {/* CINEMATIC BANNER */}
+      <div style={{
+        position: "relative",
+        height: "350px",
+        width: "100%",
+        backgroundImage: `linear-gradient(to bottom, rgba(10, 12, 16, 0.1), ${cinematicBlack}), url('/tracy.jpg')`,
+        backgroundSize: "cover",
+        backgroundPosition: "center 20%",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "center",
+        padding: "0 4rem"
+      }}>
+        <button 
+  onClick={() => navigate("/ark/admin/alevel")} 
+  style={{
+    position: "absolute",
+    top: "2rem",
+    left: "4rem",
+    background: "rgba(0,0,0,0.5)",
+    border: "none",
+    color: "#c084fc", // use real color instead of amethyst
+    cursor: "pointer",
+    padding: "8px 16px",
+    borderRadius: "10px",
+    fontWeight: "700",
+    fontSize: "0.7rem",
+    backdropFilter: "blur(5px)",
+    zIndex: 50   // 👈 THIS FIXES IT
+  }}
+>
+  ← BACK TO A LEVEL MANAGER
+</button>
 
-        <div className="filters-grid">
-          <div className="form-group">
-            <label>Term</label>
-            <select value={term} onChange={(e) => setTerm(e.target.value)}>
-              <option value="">Select Term</option>
-              <option>Term 1</option>
-              <option>Term 2</option>
-              <option>Term 3</option>
-            </select>
-          </div>
 
-          <div className="form-group">
-            <label>Class</label>
-            <select value={cls} onChange={(e) => setCls(e.target.value)}>
-              <option value="">Select Class</option>
-              <option value="S5">S5</option>
-              <option value="S6">S6</option>
-            </select>
-          </div>
-
-          <div className="form-group">
-            <label>Stream</label>
-            <select value={stream} onChange={(e) => setStream(e.target.value)}>
-              <option value="">Select Stream</option>
-              <option value="Arts">Arts</option>
-              <option value="Sciences">Sciences</option>
-            </select>
-          </div>
-
-          <div className="form-group">
-            <label>Year</label>
-            <input
-              type="number"
-              value={year}
-              onChange={(e) => setYear(e.target.value)}
-            />
-          </div>
-        </div>
-
-        <div style={{ marginTop: "1rem" }}>
-          <button className="primary-btn" onClick={handlePreview} disabled={loading}>
-            {loading ? "Processing..." : "Preview Reports"}
-          </button>
-        </div>
-
-        {error && <p style={{ color: "tomato", marginTop: "0.8rem" }}>{error}</p>}
+        <h1 style={{ fontSize: "3.5rem", fontWeight: "900", margin: 0, textShadow: "0 4px 20px rgba(0,0,0,0.6)" }}>
+          Academic <span style={{ color: amethyst }}>Reports</span>
+        </h1>
+        <p style={{ fontSize: "1.1rem", opacity: 0.8, maxWidth: "600px", marginTop: "0.5rem" }}>
+          Generate and analyze comprehensive student performance statements for A-Level candidates.
+        </p>
       </div>
 
-      {previewData && (
-        <div className="panel-card" style={{ marginTop: "1rem" }}>
-          <p>
-            <strong>{previewData.learners}</strong> student reports available ·{" "}
-            <strong>{previewData.subjects}</strong> subjects included
-          </p>
+      <div style={{ maxWidth: "1200px", margin: "-60px auto 0 auto", padding: "0 2rem", position: "relative", zIndex: 10 }}>
+        
+        {/* MAIN FILTER CARD */}
+        <div style={{
+          background: glassBg,
+          backdropFilter: "blur(16px)",
+          borderRadius: "28px",
+          padding: "2.5rem",
+          border: "1px solid rgba(255, 255, 255, 0.05)",
+          boxShadow: "0 8px 32px 0 rgba(0, 0, 0, 0.37)"
+        }}>
+          <h2 style={{ fontSize: "1.25rem", fontWeight: "800", marginBottom: "2rem", color: "#fff" }}>Report Generation Parameters</h2>
 
-          <button className="secondary-btn" onClick={handleDownload}>
-            Download Reports
-          </button>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1.5rem" }}>
+            
+            <div className="form-group">
+              <label style={labelStyle}>Term</label>
+              <select style={inputStyle} value={term} onChange={(e) => setTerm(e.target.value)}>
+                <option value="" style={{background: cinematicBlack}}>Select Term</option>
+                <option style={{background: cinematicBlack}}>Term 1</option>
+                <option style={{background: cinematicBlack}}>Term 2</option>
+                <option style={{background: cinematicBlack}}>Term 3</option>
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label style={labelStyle}>Class</label>
+              <select style={inputStyle} value={cls} onChange={(e) => setCls(e.target.value)}>
+                <option value="" style={{background: cinematicBlack}}>Select Class</option>
+                <option value="S5" style={{background: cinematicBlack}}>S5</option>
+                <option value="S6" style={{background: cinematicBlack}}>S6</option>
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label style={labelStyle}>Stream</label>
+              <select style={inputStyle} value={stream} onChange={(e) => setStream(e.target.value)}>
+                <option value="" style={{background: cinematicBlack}}>Select Stream</option>
+                <option value="Arts" style={{background: cinematicBlack}}>Arts</option>
+                <option value="Sciences" style={{background: cinematicBlack}}>Sciences</option>
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label style={labelStyle}>Year</label>
+              <input
+                type="number"
+                style={inputStyle}
+                value={year}
+                onChange={(e) => setYear(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div style={{ marginTop: "2.5rem", display: "flex", alignItems: "center", gap: "1.5rem" }}>
+            <button 
+              style={{
+                background: amethyst,
+                color: cinematicBlack,
+                border: "none",
+                padding: "14px 28px",
+                borderRadius: "14px",
+                fontWeight: "800",
+                fontSize: "0.9rem",
+                cursor: loading ? "not-allowed" : "pointer",
+                transition: "transform 0.2s ease",
+                opacity: loading ? 0.7 : 1
+              }}
+              onClick={handlePreview} 
+              disabled={loading}
+            >
+              {loading ? "PROCESSING..." : "PREVIEW REPORTS"}
+            </button>
+            {error && <p style={{ color: "#fca5a5", fontSize: "0.85rem", fontWeight: "600", margin: 0 }}>{error}</p>}
+          </div>
         </div>
-      )}
+
+        {/* PREVIEW STATUS CARD */}
+        {previewData && (
+          <div style={{
+            marginTop: "1.5rem",
+            background: "rgba(167, 139, 250, 0.05)",
+            backdropFilter: "blur(12px)",
+            borderRadius: "20px",
+            padding: "1.5rem 2.5rem",
+            border: `1px solid rgba(167, 139, 250, 0.2)`,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            animation: "fadeIn 0.5s ease forwards"
+          }}>
+            <p style={{ margin: 0, fontSize: "1rem", opacity: 0.9 }}>
+              <span style={{ color: amethyst, fontWeight: "800" }}>{previewData.learners}</span> student reports available ·{" "}
+              <span style={{ color: amethyst, fontWeight: "800" }}>{previewData.subjects}</span> subjects included
+            </p>
+
+            <button 
+              style={{
+                background: "rgba(255, 255, 255, 0.05)",
+                color: platinum,
+                border: "1px solid rgba(255, 255, 255, 0.1)",
+                padding: "10px 20px",
+                borderRadius: "12px",
+                fontWeight: "700",
+                fontSize: "0.8rem",
+                cursor: "pointer"
+              }}
+              onClick={handleDownload}
+            >
+              DOWNLOAD REPORTS
+            </button>
+          </div>
+        )}
+      </div>
+
+      <style>
+        {`
+          @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+          }
+          select { cursor: pointer; }
+          input:focus, select:focus { border-color: ${amethyst} !important; }
+        `}
+      </style>
     </div>
   );
 }

@@ -120,7 +120,7 @@ export default function ALevelDashboard() {
         {/* ===== CINEMATIC HERO (NETFLIX STYLE) ===== */}
         <div style={{
           height: "450px", // Increased height for cinematic impact
-          backgroundImage: "url(/carey.jpg)",
+          backgroundImage: "url(/weasel.jpg)",
           backgroundSize: "cover",
           backgroundPosition: "center 20%",
           position: "relative",

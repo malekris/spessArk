@@ -65,7 +65,7 @@ export default function ContactSection() {
                 required
                 onChange={(e) => setFormData({...formData, message: e.target.value})}
               ></textarea>
-              <button type="submit" className="submit-btn">SEND TO REGISTRY</button>
+              <button type="submit" className="submit-btn">Send to school EMAIL</button>
             </form>
           </div>
 

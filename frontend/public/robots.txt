@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+
+Disallow: /ark/
+
+Sitemap: https://stphillipsequatorial.com/sitemap.xml

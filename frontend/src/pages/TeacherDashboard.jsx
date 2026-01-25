@@ -578,61 +578,56 @@ useEffect(() => {
   return (
     <div className="admin-root teacher-root">
       {isPortrait && <div className="panel-alert">📱 Rotate your phone for better mark entry</div>}
-
       <header
   style={{
     position: "relative",
-    height: "220px",
+    height: "auto", // Changed to auto to accommodate wrapping on mobile
+    minHeight: "220px",
     backgroundImage: "url(/weasel.jpg)",
     backgroundSize: "cover",
     backgroundPosition: "center",
-    overflow: "hidden", 
+    overflow: "hidden",
   }}
 >
-  {/* overlay */}
+  {/* Overlay */}
   <div
     style={{
       position: "absolute",
       inset: 0,
-      background:
-        "linear-gradient(to bottom, rgba(0,0,0,0.55), rgba(15,23,42,0.95))",
+      background: "linear-gradient(to bottom, rgba(0,0,0,0.4), rgba(15,23,42,1))",
     }}
   />
 
-  {/* content */}
+  {/* Content */}
   <div
     style={{
       position: "relative",
       zIndex: 2,
-      height: "100%",
-      padding: "1.2rem 2.5rem",
+      padding: "1.5rem 1.5rem", // Slightly tighter for mobile
       display: "flex",
       flexDirection: "column",
-      gap: "1.4rem",
+      gap: "2rem",
     }}
   >
-    {/* Top bar */}
+    {/* Top Bar */}
     <div
       style={{
         display: "flex",
         alignItems: "center",
+        justifyContent: "space-between",
+        flexWrap: "wrap", // Allows buttons to drop down on tiny screens
+        gap: "1rem"
       }}
     >
-      {/* Left brand */}
+      {/* Left Brand */}
       <div className="brand">
         <span className="brand-dot" />
         <span className="brand-text">SPESS’S ARK</span>
         <span className="brand-tag">Teacher</span>
       </div>
 
-      {/* Right buttons */}
-      <div
-        style={{
-          display: "flex",
-          gap: "0.8rem",
-          marginLeft: "auto",
-        }}
-      >
+      {/* Right Buttons (The Pill Container) */}
+      <div style={{ display: "flex", gap: "0.6rem", alignItems: "center" }}>
         <button className="secondary-btn" onClick={() => setShowChangePassword(true)}>
           Change Password
         </button>
@@ -643,13 +638,13 @@ useEffect(() => {
       </div>
     </div>
 
-    {/* Hero text */}
-    <div>
-      <h1 style={{ fontSize: "1.9rem", marginBottom: "0.4rem" }}>
+    {/* Hero Text */}
+    <div style={{ marginTop: "auto" }}>
+      <h1 style={{ fontSize: "1.8rem", fontWeight: "900", marginBottom: "0.4rem", color: "#fff" }}>
         Teacher Dashboard
       </h1>
-      <p style={{ color: "#cbd5e1", maxWidth: "620px" }}>
-        Manage marks, learners, analytics and reports with clarity and control.
+      <p style={{ color: "#94a3b8", maxWidth: "500px", fontSize: "0.9rem", lineHeight: "1.5" }}>
+        Manage marks, learners, and analytics with precision.
       </p>
     </div>
   </div>

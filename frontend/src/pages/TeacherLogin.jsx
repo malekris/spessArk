@@ -1,20 +1,12 @@
-// src/pages/TeacherLogin.jsx
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "./LoginPage.css";
 
-const API_BASE =
-  import.meta.env.VITE_API_BASE || "https://spessark.onrender.com";
-
+const API_BASE = import.meta.env.VITE_API_BASE || "https://spessark.onrender.com";
 
 function TeacherLogin() {
   const navigate = useNavigate();
-
-  const [form, setForm] = useState({
-    email: "",
-    password: "",
-  });
-
+  const [form, setForm] = useState({ email: "", password: "" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -26,7 +18,6 @@ function TeacherLogin() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-
     if (!form.email || !form.password) {
       setError("Please fill in both email and password.");
       return;
@@ -48,11 +39,9 @@ function TeacherLogin() {
       }
 
       const { token, teacher } = await res.json();
-
       localStorage.setItem("teacherToken", token);
       localStorage.setItem("teacherProfile", JSON.stringify(teacher));
 
-      // ✅ Redirect to teacher dashboard
       navigate("/ark/teacher");
     } catch (err) {
       setError(err.message || "Login failed. Please try again.");
@@ -63,81 +52,72 @@ function TeacherLogin() {
 
   return (
     <div className="login-page">
+      {/* Reusing the background slideshow logic from Admin Login is recommended 
+          to keep the "ARK" look consistent across both portals */}
+      <div className="login-background">
+        <div className="carousel-slide active" style={{ backgroundImage: `url('/slide1.jpg')` }} />
+      </div>
+
+      <button className="back-to-site-btn" onClick={() => navigate("/")}>
+        ← School Website
+      </button>
+
       <div className="glass-container">
-        <h1
-          style={{
-            marginBottom: "0.3rem",
-            letterSpacing: "0.1em",
-            fontWeight: 700,
-          }}
-        >
-          Teacher Access
-        </h1>
+        <div className="glass-header">
+          <h1>TEACHER ACCESS</h1>
+          <h2>Student Marks Management</h2>
+          <p className="ark-subtitle">Sign in to update marks for your assigned classes.</p>
+        </div>
 
-        <h2>Manage Student Marks</h2>
+        {error && <div className="login-error">{error}</div>}
 
-        <p
-          style={{
-            fontSize: "0.85rem",
-            color: "#9ca3af",
-            marginBottom: "1rem",
-          }}
-        >
-          Sign in to enter and update marks for your assigned classes.
-        </p>
-
-        {error && (
-          <div className="login-error">
-            {error}
+        <form onSubmit={handleSubmit} className="login-actions">
+          <div className="input-group">
+            <label>Registered Email</label>
+            <input
+              name="email"
+              type="email"
+              placeholder="e.g. name@spess.edu"
+              value={form.email}
+              onChange={handleChange}
+              required
+            />
           </div>
-        )}
 
-        <form onSubmit={handleSubmit}>
-          <input
-            name="email"
-            type="email"
-            placeholder="Teacher email"
-            value={form.email}
-            onChange={handleChange}
-          />
-
-          <input
-            name="password"
-            type="password"
-            placeholder="Password"
-            value={form.password}
-            onChange={handleChange}
-          />
-
-          <div className="login-action-row">
-            <button
-              type="submit"
-              className="teacher-btn"
-              disabled={loading}
-            >
-              {loading ? "Signing in…" : "Sign in as Teacher"}
-            </button>
-
-            <button
-              type="button"
-              className="auth-secondary-btn"
-              onClick={() => navigate("/ark")}
-            >
-              ← Back to Admin Login
-            </button>
+          <div className="input-group">
+            <label>Password</label>
+            <input
+              name="password"
+              type="password"
+              placeholder="••••••••"
+              value={form.password}
+              onChange={handleChange}
+              required
+            />
           </div>
+
+          <button type="submit" className="teacher-btn" disabled={loading} style={{ background: '#a78bfa', color: '#0a0c10' }}>
+            {loading ? "Authenticating..." : "Sign in as Teacher"}
+          </button>
+
+          <button
+  type="button"
+  className="auth-black-btn"
+  onClick={() => navigate("/ark")}
+>
+  <span>←</span> Admin Login
+</button>
         </form>
 
-        {/* ✅ SIGN UP ENTRY POINT */}
-        <div style={{ marginTop: "1rem", textAlign: "center" }}>
-          <button
-            type="button"
-            className="auth-secondary-btn"
-            onClick={() => navigate("/ark/teacher-signup")}
-          >
-            ✨ First time here? Sign up
-          </button>
-        </div>
+        <div className="divider"><span>OR</span></div>
+
+        <button
+  type="button"
+  className="auth-gold-btn"
+  onClick={() => navigate("/ark/teacher-signup")}
+>
+  ✨ First time? Create Account
+</button>
       </div>
     </div>
   );

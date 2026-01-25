@@ -100,7 +100,7 @@ function TeacherSignup() {
             <label>Full Name</label>
             <input
               name="name"
-              placeholder="e.g. Namale Malone"
+              placeholder="e.g. Namale Sapphire"
               value={form.name}
               onChange={handleChange}
               onBlur={() => setForm(prev => ({ ...prev, name: formatName(prev.name) }))}
@@ -112,7 +112,7 @@ function TeacherSignup() {
             <input
               name="email"
               type="email"
-              placeholder="e.g yourname@gmail.com"
+              placeholder="e.g namalesapphire@gmail.com"
               value={form.email}
               onChange={handleChange}
             />

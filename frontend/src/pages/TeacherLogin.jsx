@@ -77,7 +77,7 @@ function TeacherLogin() {
             <input
               name="email"
               type="email"
-              placeholder="e.g. name@spess.edu"
+              placeholder="e.g. namalemalone@gmail.com"
               value={form.email}
               onChange={handleChange}
               required

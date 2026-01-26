@@ -68,6 +68,16 @@ export default function HomeSection() {
             </div>
           </div>
         </div>
+        <div className="vine-entry">
+        <p className="vine-subtext">
+            Find out what’s happening around St. Phillip’s
+        </p>
+
+          <a href="/vine/login" className="vine-btn-landing">
+             🌱 Enter Vine
+            </a>
+</div>
+
       </div>
     </section>
   );

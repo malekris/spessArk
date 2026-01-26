@@ -1,0 +1,104 @@
+/* ───── Background & Layout ───── */
+.vine-auth-bg {
+    min-height: 100vh;
+    width: 100%;
+    /* Your original background logic kept intact */
+    background: 
+      linear-gradient(rgba(0,0,0,0.55), rgba(0,0,0,0.55)),
+      url("/slide9.jpg") center center / contain no-repeat;
+    background-color: #000; /* Black bars if image is 'contain' */
+  
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+  
+  /* ───── The Login Card (Rounded Mint Style) ───── */
+  .vine-auth-card {
+    background: rgba(225, 245, 233, 0.95); /* Slightly transparent mint */
+    backdrop-filter: blur(8px); /* Optional: makes card look high-end over the image */
+    width: 100%;
+    max-width: 400px;
+    padding: 40px 30px;
+    border-radius: 35px; /* That fire rounding */
+    border: 1.5px solid #c8e6c9;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+    text-align: center;
+  }
+  
+  .vine-title {
+    color: #052e16;
+    font-size: 1.8rem;
+    font-weight: 900;
+    margin-bottom: 30px;
+  }
+  
+  /* ───── Form Styling ───── */
+  .vine-form {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+  }
+  
+  .vine-form input {
+    background: #ffffff;
+    border: 2px solid #c8e6c9;
+    border-radius: 50px; 
+    padding: 14px 20px;
+    font-size: 1rem;
+    color: #052e16;
+    outline: none;
+  }
+  
+  .vine-form input:focus {
+    border-color: #2e7d32;
+  }
+  
+  /* ───── Action Button ───── */
+  .vine-btn {
+    background: #2e7d32;
+    color: #ffffff;
+    border: none;
+    border-radius: 50px;
+    padding: 14px;
+    font-size: 1.1rem;
+    font-weight: 800;
+    cursor: pointer;
+    margin-top: 10px;
+    transition: all 0.2s ease;
+  }
+  
+  .vine-btn:hover:not(:disabled) {
+    background: #1b5e20;
+    transform: translateY(-2px);
+  }
+  
+  /* ───── Links & Footer ───── */
+  .vine-links a, 
+  .vine-footer a {
+    color: #2e7d32;
+    text-decoration: none;
+    font-weight: 700;
+  }
+  
+  .vine-footer {
+    margin-top: 30px;
+    padding-top: 20px;
+    border-top: 1px dashed #c8e6c9;
+    color: #4e7d52;
+  }
+  
+  /* ───── Mobile Responsiveness ───── */
+  @media (max-width: 768px) {
+    .vine-auth-bg {
+      background-size: cover; /* Mobile gets full immersive image */
+    }
+    
+    .vine-auth-card {
+      padding: 30px 20px;
+      border-radius: 28px;
+      width: 95%;
+    }
+  }

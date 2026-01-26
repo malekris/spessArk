@@ -15,9 +15,8 @@ import classesRoutes from "./routes/classes.js";
 import alevelRoutes from "./modules/alevel/alevel.routes.js";
 import newSignupRoutes from "./routes/newSignup.js";
 import alevelReports from "./modules/alevel/alevelReports.js";
-
-
-
+import vineRoutes from "./modules/vine/vineRoutes.js";
+import vineAuth from "./modules/vine/vineAuth.js";
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -46,6 +45,10 @@ app.use("/api/classes", classesRoutes);
 app.use("/api/alevel", alevelRoutes);
 app.use("/api/new-signup", newSignupRoutes);
 app.use("/api/alevel/reports", alevelReports);
+app.use("/api/vine", vineRoutes);
+app.use("/api/vine/auth", vineAuth);
+app.use("/api/vine", vineRoutes);
+app.use("/uploads", express.static("uploads"));
 
 /* =======================
    ROUTES

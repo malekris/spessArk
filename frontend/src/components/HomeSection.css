@@ -156,3 +156,32 @@
   .home-content { padding: 4rem 1.5rem; }
   .lead-text { font-size: 1.1rem; }
 }
+/* 🌱 SPESS VINE entry on landing page */
+
+.vine-entry {
+  margin-top: 2rem;
+  text-align: center;
+}
+
+.vine-subtext {
+  color: #94a3b8;
+  font-size: 0.95rem;
+  margin-bottom: 0.6rem;
+}
+
+.vine-btn-landing {
+  display: inline-block;
+  background: #16a34a;
+  color: white;
+  padding: 0.7rem 1.6rem;
+  border-radius: 999px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 15px rgba(22, 163, 74, 0.35);
+}
+
+.vine-btn-landing:hover {
+  background: #15803d;
+  transform: translateY(-1px);
+}

@@ -1,0 +1,125 @@
+/* --- LAYOUT & THEME --- */
+.vine-feed-container {
+    background-color: #f8f9fa;
+    min-height: 100vh;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  
+  /* --- TOP NAVIGATION (MOBILE-FIRST) --- */
+  .vine-nav-top {
+    background-color: #2e7d32; /* The requested Green */
+    color: white;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 16px;
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  }
+  
+  .vine-nav-top h2 {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    cursor: pointer;
+  }
+  
+  .nav-right {
+    display: flex;
+    gap: 10px;
+  }
+  
+  .nav-btn {
+    padding: 6px 14px;
+    border-radius: 20px;
+    border: none;
+    font-size: 0.85rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: transform 0.1s active;
+  }
+  
+  .profile-btn {
+    background: rgba(255, 255, 255, 0.15);
+    color: white;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+  }
+  
+  .logout-btn {
+    background: #b71c1c;
+    color: white;
+  }
+  
+  /* --- FEED CONTENT --- */
+  .vine-content-wrapper {
+    width: 100%;
+    max-width: 600px; /* Standard mobile-app width for desktop */
+    margin: 0 auto;
+    padding: 12px;
+    box-sizing: border-box;
+  }
+  
+  /* --- CREATE POST (FIXED TEXTAREA) --- */
+  .vine-create-box {
+    background: white;
+    padding: 16px;
+    border-radius: 16px;
+    margin-bottom: 20px;
+    border: 1px solid #e0e0e0;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  }
+  
+  .vine-create-box textarea {
+    width: 100%;
+    border: none;
+    resize: none;
+    font-size: 1.1rem; /* Better readability */
+    outline: none;
+    min-height: 80px;
+    margin-bottom: 10px;
+    color: #1c1e21;
+  }
+  
+  .create-footer {
+    display: flex;
+    justify-content: flex-end;
+    border-top: 1px solid #f0f2f5;
+    padding-top: 10px;
+  }
+  
+  .post-submit-btn {
+    background: #2e7d32;
+    color: white;
+    border: none;
+    padding: 8px 24px;
+    border-radius: 30px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  
+  /* --- FEED LIST --- */
+  .vine-posts-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  
+  .no-posts-hint {
+    text-align: center;
+    margin-top: 40px;
+    color: #65676b;
+    font-style: italic;
+  }
+  
+  /* --- DESKTOP ADJUSTMENTS --- */
+  @media (min-width: 768px) {
+    .vine-nav-top {
+      padding: 12px 15%;
+    }
+  }

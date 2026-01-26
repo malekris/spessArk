@@ -143,3 +143,53 @@ export async function sendWelcomeEmail(email, name = "") {
     throw err;
   }
 }
+
+export async function sendVineWelcomeEmail(email, username) {
+  console.log("📧 Sending VINE welcome email to:", email);
+
+  const payload = {
+    from: "SPESS VINE 🌱 <no-reply@stphillipsequatorial.com>",
+    to: email,
+    subject: "Welcome to SPESS VINE 🌱",
+    html: `
+      <div style="font-family: Arial; background:#f0fdf4; padding:30px;">
+        <div style="max-width:600px; margin:auto; background:white; padding:32px; border-radius:18px;">
+          
+          <h2 style="color:#14532d;">Welcome to SPESS VINE 🌱</h2>
+
+          <p>Hello ${username},</p>
+
+          <p>
+            You’re now part of the student community at  
+            <strong>St. Phillips Equatorial Secondary School</strong>.
+          </p>
+
+          <p>
+            SPESS VINE is your space to:
+          </p>
+
+          <ul>
+            <li>📢 Share updates</li>
+            <li>💬 Comment on posts</li>
+            <li>🤝 Follow friends</li>
+            <li>📸 Post photos</li>
+          </ul>
+
+          <div style="text-align:center;margin:30px 0;">
+            <a href="https://stphillipsequatorial.com/vine/login"
+              style="background:#22c55e;color:white;padding:12px 22px;border-radius:10px;text-decoration:none;font-weight:bold;">
+              Enter SPESS VINE 🌱
+            </a>
+          </div>
+
+          <p style="font-size:13px;color:#777;text-align:center;">
+            SPESS VINE — Student community platform
+          </p>
+        </div>
+      </div>
+    `
+  };
+
+  await sendWithRetry(payload, 2);
+  console.log("📧 Vine welcome email sent");
+}

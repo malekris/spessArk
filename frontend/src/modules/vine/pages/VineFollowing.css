@@ -1,0 +1,24 @@
+/* Styling for the "Following" state in the list */
+.row-follow-btn.following {
+  background: transparent;
+  color: #eff3f4;
+  border: 1px solid #536471;
+}
+
+.row-follow-btn.following:hover {
+  border-color: #f4212e; /* Red border on hover to signify 'Unfollow' */
+  color: #f4212e;
+  background: rgba(244, 33, 46, 0.1);
+}
+
+.row-follow-btn.following:hover::after {
+  content: "Unfollow";
+}
+
+.row-follow-btn.following:hover {
+  font-size: 0; /* Hide the word 'Following' */
+}
+
+.row-follow-btn.following:hover::after {
+  font-size: 0.9rem; /* Show 'Unfollow' instead */
+}

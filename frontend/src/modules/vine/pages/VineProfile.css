@@ -1,0 +1,179 @@
+/* ───── Main Wrapper ───── */
+.vine-profile-wrapper {
+  background: #f1f8f4; /* Very light mint wash for the whole page */
+  min-height: 100vh;
+  color: #1b5e20;
+}
+
+/* ───── Top Bar ───── */
+.vine-profile-topbar {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 10px 15px;
+  background: rgba(225, 245, 233, 0.9); /* Mint glass effect */
+  backdrop-filter: blur(10px);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  border-bottom: 1px solid #c8e6c9;
+}
+
+.back-btn {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  color: #2e7d32;
+  cursor: pointer;
+  padding: 5px 10px;
+  border-radius: 50%;
+  transition: background 0.2s;
+}
+
+.back-btn:hover { background: #c8e6c9; }
+
+.profile-title { font-weight: 800; font-size: 1.1rem; color: #052e16; }
+.post-count-mini { font-size: 0.8rem; color: #4e7d52; display: block; }
+
+/* ───── Banner & Avatar ───── */
+.vine-profile-banner {
+  height: 200px;
+  background: #c8e6c9; /* Default mint banner */
+  display: block;
+  overflow: hidden;
+}
+
+.vine-profile-banner img { width: 100%; height: 100%; object-fit: cover; }
+
+.vine-profile-header {
+  padding: 0 20px;
+  margin-top: -60px; /* Pulls avatar over banner */
+  position: relative;
+}
+
+.header-top-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-bottom: 15px;
+}
+
+.avatar-circle {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  border: 5px solid #f1f8f4;
+  background: #2e7d32;
+  overflow: hidden;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+}
+
+.avatar-circle img { width: 100%; height: 100%; object-fit: cover; }
+
+/* ───── Buttons ───── */
+.edit-profile-btn, .follow-btn {
+  background: #2e7d32;
+  color: white;
+  border: none;
+  border-radius: 50px;
+  padding: 10px 22px;
+  font-weight: 800;
+  cursor: pointer;
+  margin-bottom: 10px;
+  transition: transform 0.2s;
+}
+
+.follow-btn:hover { transform: scale(1.05); background: #1b5e20; }
+
+/* ───── Meta Info ───── */
+.profile-name { font-size: 1.5rem; font-weight: 900; color: #052e16; margin: 0; }
+.handle { color: #4e7d52; font-size: 1rem; margin-top: 2px; }
+.bio { color: #052e16; line-height: 1.4; margin: 12px 0; font-size: 1.05rem; }
+
+.profile-extra {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 15px;
+  color: #4e7d52;
+  font-size: 0.95rem;
+  margin-bottom: 15px;
+}
+
+.profile-stats {
+  display: flex;
+  gap: 20px;
+  border-bottom: 1px solid #c8e6c9;
+  padding-bottom: 15px;
+}
+
+.profile-stats span { cursor: pointer; color: #4e7d52; font-size: 1rem; }
+.profile-stats span:hover { text-decoration: underline; }
+.profile-stats strong { color: #052e16; }
+
+/* ───── Tabs ───── */
+.vine-profile-tabs {
+  display: flex;
+  border-bottom: 1px solid #c8e6c9;
+  background: #f1f8f4;
+}
+
+.tab {
+  flex: 1;
+  padding: 15px;
+  background: none;
+  border: none;
+  color: #4e7d52;
+  font-weight: 700;
+  cursor: pointer;
+  text-transform: capitalize;
+  transition: 0.2s;
+}
+
+.tab:hover { background: #e1f5e9; }
+.tab.active {
+  color: #2e7d32;
+  border-bottom: 4px solid #2e7d32;
+}
+
+/* ───── Post Feed Wrapper ───── */
+.vine-profile-posts {
+  padding: 15px;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+/* ───── Editing Form ───── */
+.edit-profile-form {
+  background: #ffffff;
+  padding: 20px;
+  border-radius: 20px;
+  border: 1px solid #c8e6c9;
+  margin: 15px 0;
+}
+
+.edit-input {
+  width: 100%;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid #c8e6c9;
+  margin-bottom: 10px;
+  background: #f1f8f4;
+}
+
+.bio-edit-input {
+  width: 100%;
+  height: 80px;
+  border-radius: 12px;
+  border: 1px solid #c8e6c9;
+  padding: 12px;
+}
+
+/* ───── Skeleton / Loading ───── */
+.skeleton-wrapper {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 300px;
+  color: #2e7d32;
+  font-weight: bold;
+}

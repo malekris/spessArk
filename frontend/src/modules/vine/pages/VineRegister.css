@@ -1,0 +1,112 @@
+/* ───── Background & Layout ───── */
+.vine-auth {
+  min-height: 100vh;
+  width: 100%;
+  background: 
+    linear-gradient(rgba(0,0,0,0.55), rgba(0,0,0,0.55)),
+    /* Change 'contain' to 'cover' right here 👇 */
+    url("/slide2.jpg") center center / cover no-repeat;
+  
+  /* background-color is no longer visible but good to keep as a fallback */
+  background-color: #000; 
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+/* ───── The Register Card ───── */
+.vine-card {
+  background: rgba(225, 245, 233, 0.95); 
+  backdrop-filter: blur(8px);
+  width: 100%;
+  max-width: 440px;
+  padding: 35px;
+  border-radius: 35px; 
+  border: 1.5px solid #c8e6c9;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.vine-card h2 {
+  color: #052e16;
+  font-size: 1.5rem;
+  font-weight: 800;
+  text-align: center;
+  margin-bottom: 10px;
+}
+
+/* ───── Form Inputs ───── */
+.vine-card input {
+  background: #ffffff;
+  border: 2px solid #c8e6c9;
+  border-radius: 50px; 
+  padding: 12px 20px;
+  font-size: 0.95rem;
+  color: #052e16;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.vine-card input:focus {
+  border-color: #2e7d32;
+}
+
+/* ───── 🔥 THE VALIDATION (Real-time Feedback) ───── */
+/* When the user types a space or input is too short based on HTML pattern/minlength */
+.vine-card input:not(:placeholder-shown):invalid {
+  border-color: #ef4444 !important; /* Red border for errors */
+  background-color: #fef2f2;
+  animation: shake 0.2s ease-in-out 0s 2;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(5px); }
+  75% { transform: translateX(-5px); }
+}
+
+/* ───── Action Button ───── */
+.vine-card button {
+  background: #2e7d32;
+  color: #ffffff;
+  border: none;
+  border-radius: 50px;
+  padding: 14px;
+  font-size: 1.1rem;
+  font-weight: 800;
+  cursor: pointer;
+  margin-top: 10px;
+  transition: all 0.2s ease;
+}
+
+.vine-card button:hover:not(:disabled) {
+  background: #1b5e20;
+  transform: translateY(-2px);
+}
+
+.vine-card button:disabled {
+  background: #a5d6a7;
+  cursor: not-allowed;
+}
+
+/* ───── Mobile Responsiveness ───── */
+@media (max-width: 768px) {
+  .vine-auth {
+    background-size: cover; 
+  }
+  .vine-card {
+    padding: 25px 20px;
+    border-radius: 28px;
+    width: 95%;
+  }
+}
+
+/* Feedback & Links */
+.error { color: #b91c1c; background: #fee2e2; padding: 10px; border-radius: 15px; text-align: center; font-size: 0.85rem; font-weight: 600; }
+.success { color: #15803d; background: #dcfce7; padding: 10px; border-radius: 15px; text-align: center; font-size: 0.85rem; font-weight: 600; }
+.switch-auth { text-align: center; margin-top: 15px; color: #4e7d52; font-size: 0.9rem; }
+.switch-auth a { color: #2e7d32; text-decoration: none; font-weight: 700; }

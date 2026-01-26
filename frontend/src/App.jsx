@@ -15,6 +15,15 @@ import ALevelLearners from "./modules/alevel/pages/ALevelLearners";
 import ALevelAssignSubjects from "./modules/alevel/pages/ALevelAssignSubjects";
 import ALevelDownloads from "./modules/alevel/pages/ALevelDownloads";
 import ALevelReports from "./modules/alevel/pages/ALevelReports";
+// vine imports 
+import VineLogin from "./modules/vine/pages/VineLogin";
+import VineRegister from "./modules/vine/pages/VineRegister";
+import VineFeed from "./modules/vine/pages/VineFeed";
+import VineProfile from "./modules/vine/pages/VineProfile";
+import VineForgotPassword from "./modules/vine/pages/VineForgotPassword";
+import VineResetPassword from "./modules/vine/pages/VineResetPassword";
+import VineFollowers from "./modules/vine/pages/VineFollowers";
+import VineFollowing from "./modules/vine/pages/VineFollowing";
 
 function App() {
   return (
@@ -73,6 +82,15 @@ function App() {
 <Route path="/ark/admin/alevel/downloads" element={<ArkLayout><ALevelDownloads /></ArkLayout>} />
 <Route path="/ark/admin/alevel/reports" element={<ArkLayout><ALevelReports /></ArkLayout>} />
 
+{/* 🌱 SPESS VINE */}
+<Route path="/vine/login" element={<VineLogin />} />
+<Route path="/vine/register" element={<VineRegister />} />
+<Route path="/vine/feed" element={<VineFeed />} />
+<Route path="/vine/profile/:username" element={<VineProfile />} />
+<Route path="/vine/forgot-password" element={<VineForgotPassword />} />
+<Route path="/vine/reset-password" element={<VineResetPassword />} />
+<Route path="/vine/:username/followers" element={<VineFollowers />} />
+<Route path="/vine/:username/following" element={<VineFollowing />} />
 
   </Routes>
   

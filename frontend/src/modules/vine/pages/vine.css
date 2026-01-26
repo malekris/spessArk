@@ -1,0 +1,987 @@
+:root {
+    --vine-green: #16a34a;
+    --vine-green-dark: #166534;
+    --vine-bg: #0f172a;
+    --vine-card: #111827;
+    --vine-text: #e5e7eb;
+  }
+  
+  /* Container */
+  .vine-container {
+    font-size: 16px; /* desktop default */
+  }
+  
+  .vine-card {
+    width: 420px;
+    max-width: 100%;
+    padding: 1.5rem;
+  }
+  
+  
+  /* Card */
+  .vine-card {
+    background: var(--vine-card);
+    padding: 14px;
+    border-radius: 14px;
+    margin-bottom: 12px;
+    box-shadow: 0 6px 25px rgba(0, 0, 0, 0.4);
+    color: var(--vine-text);
+  }
+  
+  /* Buttons */
+  .vine-btn {
+    background: var(--vine-green);
+    color: white;
+    padding: 10px 14px;
+    border-radius: 10px;
+    border: none;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  
+  .vine-btn:hover {
+    background: var(--vine-green-dark);
+  }
+  
+  .vine-btn-outline {
+    background: transparent;
+    border: 1px solid var(--vine-green);
+    color: var(--vine-green);
+    padding: 8px 12px;
+    border-radius: 10px;
+    cursor: pointer;
+  }
+  
+  /* Inputs */
+  .vine-input {
+    width: 100%;
+    padding: 10px;
+    border-radius: 10px;
+    background: #020617;
+    color: white;
+    border: 1px solid #1f2937;
+    margin-bottom: 10px;
+  }
+  
+  /* Post content */
+  .vine-post {
+    line-height: 1.5;
+    margin-top: 4px;
+  }
+  
+  /* Avatar */
+  .vine-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--vine-green);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    color: white;
+    flex-shrink: 0;
+  }
+/* Auth card tweaks */
+.vine-auth-card {
+  margin-top: 3rem;
+}
+
+.vine-title {
+  font-size: 1.4rem;
+  margin-bottom: 0.2rem;
+}
+
+.vine-subtitle {
+  font-size: 0.9rem;
+  opacity: 0.7;
+  margin-bottom: 1rem;
+}
+
+.vine-auth-links {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.85rem;
+  margin-top: 0.6rem;
+}
+
+.vine-auth-links a {
+  color: #86efac;
+  text-decoration: none;
+}
+
+.vine-auth-links a:hover {
+  text-decoration: underline;
+}
+
+.vine-divider {
+  height: 1px;
+  background: #1f2937;
+  margin: 1rem 0;
+}
+
+.vine-switch {
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+.vine-link-strong {
+  color: #22c55e;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.vine-link-strong:hover {
+  text-decoration: underline;
+}
+.vine-container {
+  min-height: 100vh;
+  background-color: #000;
+  background-image:
+    linear-gradient(rgba(0,0,0,0.55), rgba(0,0,0,0.55)),
+    url("/slide9.jpg");
+
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: contain;   /* 👈 shows full image on desktop */
+
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 1rem;
+}
+@media (max-width: 768px) {
+  .vine-container {
+    background-size: cover; /* mobile gets immersive full background */
+  }
+}
+@media (max-width: 768px) {
+  .vine-container {
+    font-size: 14px;
+  }
+
+  .vine-card {
+    padding: 1rem;
+  }
+}
+
+.vine-auth-bg {
+  min-height: 100vh;
+  width: 100%;
+  background: 
+    linear-gradient(rgba(0,0,0,0.55), rgba(0,0,0,0.55)),
+    url("/slide9.jpg") center center / cover no-repeat;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.vine-auth-card {
+  width: 100%;
+  max-width: 420px;
+  background: #ffffff;
+  border-radius: 14px;
+  padding: 1.8rem;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+}
+
+.vine-title {
+  font-size: 1.6rem;
+  font-weight: bold;
+  color: #1b7f3a;
+  margin-bottom: 0.3rem;
+}
+
+.vine-subtitle {
+  font-size: 0.95rem;
+  color: #555;
+  margin-bottom: 1.4rem;
+}
+
+.vine-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.vine-form input {
+  padding: 0.75rem;
+  border-radius: 8px;
+  border: 1px solid #ddd;
+  font-size: 0.95rem;
+}
+
+.vine-btn {
+  background: #1b7f3a;
+  color: white;
+  border: none;
+  padding: 0.75rem;
+  border-radius: 10px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.vine-btn:hover {
+  background: #166532;
+}
+
+.vine-links {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.8rem;
+  font-size: 0.85rem;
+}
+
+.vine-links a {
+  color: #1b7f3a;
+  text-decoration: none;
+}
+
+.vine-footer {
+  margin-top: 1.2rem;
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+.vine-footer a {
+  color: #1b7f3a;
+  font-weight: bold;
+  text-decoration: none;
+}
+
+/* Mobile tuning */
+@media (max-width: 480px) {
+  .vine-auth-card {
+    padding: 1.3rem;
+  }
+
+  .vine-title {
+    font-size: 1.3rem;
+  }
+}
+/* ===========================
+   VINE AUTH SCREENS (SCOPED)
+=========================== */
+
+.vine-auth {
+  min-height: 100vh;
+  width: 100%;
+  background: linear-gradient(135deg, #0f3d2e, #1b7a57);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.2rem;
+  box-sizing: border-box;
+}
+
+/* Card */
+.vine-card {
+  width: 100%;
+  max-width: 420px;
+  background: #ffffff;
+  padding: 1.6rem 1.4rem;
+  border-radius: 18px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+/* Title */
+.vine-card h2 {
+  font-size: 1.3rem;
+  text-align: center;
+  margin-bottom: 0.4rem;
+  color: #14532d;
+}
+
+/* Inputs */
+.vine-card input {
+  padding: 0.7rem 0.9rem;
+  font-size: 0.95rem;
+  border-radius: 10px;
+  border: 1px solid #ddd;
+  outline: none;
+  transition: border 0.2s, box-shadow 0.2s;
+}
+
+.vine-card input:focus {
+  border-color: #22c55e;
+  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.15);
+}
+
+/* Button */
+.vine-card button {
+  margin-top: 0.4rem;
+  background: #22c55e;
+  color: white;
+  font-weight: 600;
+  border: none;
+  padding: 0.75rem;
+  border-radius: 12px;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: transform 0.1s ease, box-shadow 0.1s ease, background 0.2s;
+}
+
+.vine-card button:hover {
+  background: #16a34a;
+}
+
+.vine-card button:active {
+  transform: translateY(1px);
+}
+
+/* Error / success */
+.vine-card .error {
+  color: #dc2626;
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.vine-card .success {
+  color: #15803d;
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+/* Switch link */
+.switch-auth {
+  font-size: 0.85rem;
+  text-align: center;
+  color: #555;
+}
+
+.switch-auth a {
+  color: #22c55e;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.switch-auth a:hover {
+  text-decoration: underline;
+}
+
+/* ===========================
+   DESKTOP ENHANCEMENT
+=========================== */
+@media (min-width: 768px) {
+  .vine-card {
+    padding: 2rem;
+  }
+
+  .vine-card h2 {
+    font-size: 1.5rem;
+  }
+
+  .vine-card input {
+    font-size: 1rem;
+  }
+}
+/* ===========================
+   VINE FEED
+=========================== */
+
+.vine-feed {
+  min-height: 100vh;
+  background: #f0fdf4;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Header */
+.vine-feed-header {
+  background: #14532d;
+  color: white;
+  padding: 0.9rem;
+  text-align: center;
+  font-weight: bold;
+  position: sticky;
+  top: 0;
+}
+
+/* Create post */
+.vine-create {
+  background: white;
+  padding: 0.8rem;
+  border-bottom: 1px solid #e5e7eb;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.vine-create textarea {
+  resize: none;
+  min-height: 70px;
+  border-radius: 12px;
+  border: 1px solid #ddd;
+  padding: 0.6rem;
+  font-size: 0.95rem;
+}
+
+.vine-create button {
+  align-self: flex-end;
+  background: #22c55e;
+  color: white;
+  border: none;
+  padding: 0.4rem 1rem;
+  border-radius: 999px;
+  font-weight: 600;
+}
+
+/* Posts list */
+.vine-posts {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Individual post */
+.vine-post {
+  background: white;
+  padding: 0.9rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.vine-post-header {
+  display: flex;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.vine-post-header span {
+  color: #6b7280;
+  font-size: 0.85rem;
+}
+
+.vine-post-content {
+  margin: 0.5rem 0;
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+
+.vine-post-footer {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8rem;
+  color: #555;
+}
+
+.vine-post-footer button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+/* Desktop improvements */
+@media (min-width: 768px) {
+  .vine-feed {
+    align-items: center;
+  }
+
+  .vine-create,
+  .vine-posts {
+    width: 100%;
+    max-width: 600px;
+  }
+
+  .vine-post {
+    border-radius: 12px;
+    margin-bottom: 0.6rem;
+  }
+}
+.vine-post {
+  background: white;
+  color: #111827; /* dark readable text */
+}
+
+.vine-post-header strong {
+  color: #111827;
+}
+
+.vine-post-header span {
+  color: #6b7280; /* softer for @username */
+}
+
+.vine-post-content {
+  color: #1f2937;
+}
+.vine-post-footer button.revined {
+  background: #16a34a;
+  color: white;
+  font-weight: 600;
+}
+.vine-post-footer button.revined {
+  background: #22c55e;
+  color: white;
+}
+.vine-post-footer button.revined {
+  color: #22c55e;
+  font-weight: bold;
+}
+.vine-post-footer button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.9rem;
+  opacity: 0.85;
+}
+
+.vine-post-footer button:hover {
+  opacity: 1;
+}
+
+.vine-post-footer .revined {
+  color: #22c55e;
+  font-weight: 600;
+}
+.vine-comments {
+  margin-top: 8px;
+  border-top: 1px solid #e5e7eb;
+  padding-top: 6px;
+}
+
+.vine-comment {
+  padding: 6px 0;
+}
+
+.vine-reply {
+  margin-left: 14px;
+  background: #f0fdf4;
+  padding: 6px;
+  border-radius: 6px;
+  margin-top: 4px;
+}
+
+.vine-comment-input,
+.vine-reply-box {
+  display: flex;
+  gap: 6px;
+  margin: 6px 0;
+}
+
+.vine-comment-input input,
+.vine-reply-box input {
+  flex: 1;
+  padding: 6px;
+}
+.active-revine {
+  color: #16a34a;
+  font-weight: bold;
+}
+.vine-comments {
+  margin-top: 10px;
+  border-top: 1px solid #e5e7eb;
+  padding-top: 8px;
+}
+
+.vine-comment {
+  padding: 8px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.vine-comment-input {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.vine-comment-input input {
+  flex: 1;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid #ddd;
+}
+
+.vine-comment-input button {
+  background: #22c55e;
+  color: white;
+  border: none;
+  padding: 8px 12px;
+  border-radius: 8px;
+}
+
+.reply-btn {
+  font-size: 12px;
+  color: #16a34a;
+  background: none;
+  border: none;
+  cursor: pointer;
+  margin-top: 4px;
+}
+
+.vine-replies {
+  margin-left: 20px;
+  margin-top: 6px;
+  border-left: 2px solid #e5e7eb;
+  padding-left: 10px;
+}
+
+.vine-reply {
+  padding: 4px 0;
+}
+
+.vine-reply-box {
+  display: flex;
+  gap: 6px;
+  margin: 6px 0;
+}
+
+.vine-reply-box input {
+  flex: 1;
+  padding: 6px;
+  border-radius: 6px;
+  border: 1px solid #ddd;
+}
+
+.vine-reply-box button {
+  background: #22c55e;
+  color: white;
+  border: none;
+  padding: 6px 10px;
+  border-radius: 6px;
+}
+.vine-comment {
+  background: #f9fafb;
+  padding: 8px;
+  border-radius: 8px;
+  margin-top: 6px;
+}
+
+.vine-replies {
+  margin-left: 16px;
+  border-left: 2px solid #e5e7eb;
+  padding-left: 10px;
+  margin-top: 6px;
+}
+
+.vine-time {
+  font-size: 11px;
+  color: #6b7280;
+}
+.vine-replies {
+  margin-left: 20px;
+  border-left: 2px solid #e5e7eb;
+  padding-left: 10px;
+}
+
+.vine-comment {
+  margin-top: 10px;
+}
+/* Container for the whole comment section */
+.vine-comments {
+  margin-top: 15px;
+  border-top: 1px solid #eff3f4;
+}
+
+/* Individual comment wrapper */
+.vine-comment-container {
+  position: relative;
+  margin-left: 10px;
+}
+
+/* The vertical thread line */
+.vine-replies {
+  margin-left: 20px;
+  border-left: 2px solid #cfd9de; /* This is the Twitter gray line */
+  padding-left: 10px;
+}
+
+.vine-comment {
+  padding: 10px 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.comment-actions button {
+  background: none;
+  border: none;
+  color: #536471;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 5px 0;
+}
+
+.comment-actions button:hover {
+  text-decoration: underline;
+}
+
+.vine-reply-box {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.vine-comments {
+  margin-top: 10px;
+  padding-left: 10px;
+}
+
+.vine-comment {
+  padding: 8px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+/* The vertical thread line */
+.vine-replies-branch {
+  margin-left: 15px; /* Offset the replies */
+  border-left: 2px solid #e1e8ed; /* Twitter-style gray line */
+  padding-left: 15px;
+}
+
+.comment-actions {
+  display: flex;
+  gap: 15px;
+  margin-top: 5px;
+}
+
+.comment-actions button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: #657786;
+}
+
+.comment-actions button.active {
+  color: #e0245e; /* Like color */
+}
+
+.vine-time {
+  font-size: 0.75rem;
+  color: #888;
+}
+.comments-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid #eff3f4;
+}
+
+.close-btn {
+  background: #f44336;
+  color: white;
+  border: none;
+  border-radius: 20px;
+  padding: 5px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.vine-replies-branch {
+  margin-left: 15px;
+  border-left: 2px solid #cfd9de;
+  padding-left: 15px;
+  margin-top: 5px;
+}
+
+.show-more-btn {
+  background: none;
+  border: none;
+  color: #1d9bf0;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 10px 0;
+  font-weight: bold;
+}
+
+.show-more-btn:hover {
+  text-decoration: underline;
+}
+
+.comment-header {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.vine-time {
+    color: #536471;
+    font-size: 12px;
+}
+/* Base button styles */
+.comment-actions button, .vine-post-footer button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: #657786; /* Default gray */
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  transition: color 0.2s;
+}
+
+/* ❤️ Like Active State (Pink/Red) */
+.like-btn.active {
+  color: #e0245e !important;
+}
+
+/* 🔁 Revine Active State (Twitter Green) */
+.revine-btn.active {
+  color: #00ba7c !important;
+}
+
+/* Hover effects for a better feel */
+.like-btn:hover { color: #e0245e; }
+.revine-btn:hover { color: #00ba7c; }
+
+/* ... keep your existing threading and show-more CSS ... */
+.vine-replies-branch {
+  margin-left: 15px;
+  border-left: 2px solid #cfd9de;
+  padding-left: 15px;
+  margin-top: 5px;
+}
+.show-more-btn {
+  background: none;
+  border: none;
+  color: #1d9bf0;
+  font-size: 13px;
+  cursor: pointer;
+  font-weight: bold;
+}
+.delete-btn {
+  color: #657786;
+  font-size: 12px;
+  margin-left: auto; /* Push it to the right */
+  opacity: 0.6;
+}
+
+.delete-btn:hover {
+  color: #f44336 !important;
+  opacity: 1;
+}
+
+.comment-actions {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  width: 100%;
+}
+.vine-feed-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 15px;
+  border-bottom: 1px solid #e1e8ed;
+  background: white;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.profile-nav-btn {
+  background-color: #007bff;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.profile-nav-btn:hover {
+  background-color: #0056b3;
+}
+/* Navigation */
+.vine-nav-top {
+  background-color: #2e7d32; /* Deep Green */
+  color: white;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px;
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.vine-nav-top h2 {
+  margin: 0;
+  font-size: 1.3rem;
+  cursor: pointer;
+}
+
+.nav-right {
+  display: flex;
+  gap: 8px;
+}
+
+.nav-btn {
+  padding: 6px 12px;
+  border-radius: 20px;
+  border: none;
+  font-size: 0.85rem;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.profile-btn {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+}
+
+.logout-btn {
+  background: #c62828;
+  color: white;
+}
+
+/* Feed Container */
+.vine-content-container {
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 10px;
+}
+
+/* Create Post Box */
+.vine-create {
+  background: white;
+  padding: 15px;
+  border-radius: 12px;
+  margin-bottom: 20px;
+  border: 1px solid #e0e0e0;
+}
+
+.vine-create textarea {
+  width: 100%;
+  border: none;
+  resize: none;
+  font-size: 1.1rem;
+  outline: none;
+  min-height: 80px;
+}
+
+.post-submit-btn {
+  background: #2e7d32;
+  color: white;
+  border: none;
+  padding: 8px 20px;
+  border-radius: 20px;
+  font-weight: bold;
+  float: right;
+}
+.vine-create {
+  background: white;
+  padding: 12px; /* Reduced padding for more horizontal space */
+  border-radius: 12px;
+  margin: 10px auto;
+  border: 1px solid #e0e0e0;
+  width: 95%; /* Ensure it fills the mobile width */
+}
+
+.vine-create textarea {
+  width: 100%; /* Force it to use all available space */
+  box-sizing: border-box; /* Includes padding in width calculation */
+  border: none;
+  resize: none;
+  font-size: 1rem; /* Slightly smaller font prevents excessive wrapping */
+  outline: none;
+  min-height: 60px;
+  line-height: 1.4; /* Better spacing between lines */
+}

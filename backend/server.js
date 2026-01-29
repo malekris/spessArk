@@ -1,5 +1,7 @@
 // backend/server.js
 import "./config/env.js";   // 👈 must be first, before everything
+import http from "http";
+import { Server } from "socket.io";
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
@@ -17,10 +19,15 @@ import newSignupRoutes from "./routes/newSignup.js";
 import alevelReports from "./modules/alevel/alevelReports.js";
 import vineRoutes from "./modules/vine/vineRoutes.js";
 import vineAuth from "./modules/vine/vineAuth.js";
+import dmRoutes from "./modules/vine/dms.js";
+import path from "path";
+import { fileURLToPath } from "url";
+
 
 const app = express();
 const PORT = process.env.PORT || 5001;
-
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 /* =======================
    MIDDLEWARE
 ======================= */
@@ -48,6 +55,8 @@ app.use("/api/alevel/reports", alevelReports);
 app.use("/api/vine", vineRoutes);
 app.use("/api/vine/auth", vineAuth);
 app.use("/api/vine", vineRoutes);
+app.use("/uploads", express.static("uploads"));
+app.use("/api/dms", dmRoutes);
 app.use("/uploads", express.static("uploads"));
 
 /* =======================
@@ -257,8 +266,6 @@ app.post("/api/teachers/login", async (req, res) => {
     }
   );
   
-
-
 /* ===============================
    LOAD STUDENTS
 =============================== */
@@ -674,43 +681,33 @@ app.post("/api/admin/assignments", authAdmin, async (req, res) => {
     res.status(500).json({ message: "Failed to assign subject" });
   }
 });
-app.delete(
-  "/api/admin/assignments/:id",
-  authAdmin,
-  async (req, res) => {
-    try {
-      const { id } = req.params;
+// delete assignment 
+app.delete("/api/admin/assignments/:id", authAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
 
-      // 1️⃣ Check if marks exist for this assignment
-      const [marks] = await pool.query(
-        "SELECT COUNT(*) AS count FROM marks WHERE assignment_id = ?",
-        [id]
-      );
+    // 1) Always delete related marks first (admin authority)
+    await pool.query(
+      "DELETE FROM marks WHERE assignment_id = ?",
+      [id]
+    );
 
-      if (marks[0].count > 0) {
-        return res.status(409).json({
-          message:
-            "This assignment already has marks recorded and cannot be deleted.",
-        });
-      }
+    // 2) Then delete the assignment itself
+    const [result] = await pool.query(
+      "DELETE FROM teacher_assignments WHERE id = ?",
+      [id]
+    );
 
-      // 2️⃣ Safe to delete
-      const [result] = await pool.query(
-        "DELETE FROM teacher_assignments WHERE id = ?",
-        [id]
-      );
-
-      if (result.affectedRows === 0) {
-        return res.status(404).json({ message: "Assignment not found" });
-      }
-
-      res.json({ message: "Assignment deleted successfully" });
-    } catch (err) {
-      console.error("Delete assignment error:", err);
-      res.status(500).json({ message: "Failed to delete assignment" });
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: "Assignment not found" });
     }
+
+    res.json({ message: "Assignment deleted successfully" });
+  } catch (err) {
+    console.error("Delete assignment error:", err);
+    res.status(500).json({ message: "Failed to delete assignment" });
   }
-);
+});
 
 
 // ===============================
@@ -1479,7 +1476,6 @@ app.get("/api/teachers/analytics/subject", authTeacher, async (req, res) => {
     res.status(500).json({ message: "Failed to load subject analytics" });
   }
 });
-// server.js
 // Put this in server.js (or your admin router) where `app` and `db` are available
 app.put("/api/admin/students/:id", async (req, res) => {
   try {
@@ -1582,10 +1578,40 @@ app.get("/health", async (req, res) => {
   }
 });
 
-
 /* =======================
    START SERVER
 ======================= */
-app.listen(PORT, () => {
-  console.log(`✅ Spess Ark backend running on http://localhost:${PORT}`);
+
+const server = http.createServer(app);
+
+export const io = new Server(server, {
+  cors: {
+    origin: "*", // fine for dev
+  },
 });
+io.on("connection", (socket) => {
+  console.log("🔌 Socket connected:", socket.id);
+
+  socket.on("register", (userId) => {
+    socket.join(`user-${userId}`);
+    console.log("👤 User joined room:", userId);
+  });
+
+  socket.on("join_conversation", (conversationId) => {
+    socket.join(`conversation-${conversationId}`);
+    console.log("💬 Joined conversation:", conversationId);
+  });
+
+  socket.on("send_dm", ({ conversationId, message }) => {
+    io.to(`conversation-${conversationId}`).emit("dm_received", message);
+  });
+
+  socket.on("disconnect", () => {
+    console.log("❌ Socket disconnected:", socket.id);
+  });
+});
+
+server.listen(PORT, () => {
+  console.log(`✅ Spess Ark backend + WS running on http://localhost:${PORT}`);
+});
+

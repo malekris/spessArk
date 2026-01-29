@@ -105,15 +105,35 @@ export async function deleteLearner(req, res) {
   const { id } = req.params;
 
   try {
-    await db.query("DELETE FROM alevel_learner_subjects WHERE learner_id = ?", [id]);
-    await db.query("DELETE FROM alevel_learners WHERE id = ?", [id]);
+    // 1. Delete marks first (foreign key blocker)
+    await db.query(
+      "DELETE FROM alevel_marks WHERE learner_id = ?",
+      [id]
+    );
+
+    // 2. Delete subject registrations
+    await db.query(
+      "DELETE FROM alevel_learner_subjects WHERE learner_id = ?",
+      [id]
+    );
+
+    // 3. Finally delete the learner
+    const [result] = await db.query(
+      "DELETE FROM alevel_learners WHERE id = ?",
+      [id]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: "Learner not found" });
+    }
 
     res.json({ success: true });
   } catch (err) {
-    console.error(err);
+    console.error("deleteLearner error:", err);
     res.status(500).json({ message: "Failed to delete learner" });
   }
 }
+
 export async function updateLearner(req, res) {
   const { id } = req.params;
   const { name, gender, dob, house, stream, combination, subjects } = req.body;

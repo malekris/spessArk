@@ -57,7 +57,6 @@ router.get("/admin/assignments", async (req, res) => {
     res.status(500).json({ message: "Failed to fetch assignments" });
   }
 });
-
 // create assignment
 router.post("/admin/assignments", async (req, res) => {
   const { teacherId, subjectId, stream } = req.body;
@@ -117,7 +116,6 @@ router.get("/teachers/alevel-assignments", authTeacher, async (req, res) => {
   }
 });
 
-
 /* GET learners for an A-Level assignment */
 router.get("/teachers/alevel-assignments/:id/students", async (req, res) => {
   const { id } = req.params;
@@ -151,8 +149,6 @@ router.get("/teachers/alevel-assignments/:id/students", async (req, res) => {
     res.status(500).json({ message: "Failed to load learners" });
   }
 });
-
-
 /* GET marks */
 router.get("/teachers/alevel-marks", async (req, res) => {
   try {
@@ -362,8 +358,6 @@ router.get("/admin/marks-sets", async (req, res) => {
     res.status(500).json({ message: "Failed to load A-Level mark sets" });
   }
 });
-
-
 // =======================================
 // A-LEVEL DOWNLOAD — FETCH MARK DETAILS
 // =======================================
@@ -470,7 +464,6 @@ router.get("/download/sets", async (req, res) => {
   }
 });
 
-
 router.get("/download/sets/:setId", async (req, res) => {
   try {
     const { setId } = req.params;
@@ -501,7 +494,6 @@ router.get("/download/sets/:setId", async (req, res) => {
     res.status(500).json({ message: "Failed to preview marks" });
   }
 });
-
 
 router.delete("/download/sets/:setId", async (req, res) => {
   try {

@@ -1,118 +1,154 @@
+/* ───── THE NUCLEAR FULL-SCREEN FIX ───── */
 .vine-follow-container {
-  max-width: 600px;
-  margin: 0 auto;
+  /* Force it to cover the entire screen and kill the black void */
+  width: 100vw; 
   min-height: 100vh;
-  background-color: #000;
-  color: #fff;
+  margin: 0;
+  padding: 40px;
+  box-sizing: border-box;
+
+  /* The Spess Vine Theme */
+  background: radial-gradient(circle at top, #f0fdf4 0%, #dcfce7 100%);
+  background-attachment: fixed;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center; /* Centers the content block in the middle of the PC */
 }
 
+/* ───── The Top Header (Now readable) ───── */
 .vine-follow-topbar {
+  width: 100%;
+  max-width: 1200px;
+  background: #ffffff;
+  border-radius: 20px;
+  padding: 20px 30px;
+  margin-bottom: 30px;
   display: flex;
   align-items: center;
-  padding: 8px 16px;
-  position: sticky;
-  top: 0;
-  background: rgba(0, 0, 0, 0.8);
-  backdrop-filter: blur(10px);
-  z-index: 10;
-  border-bottom: 1px solid #2f3336;
-}
-
-.topbar-text {
-  margin-left: 20px;
+  gap: 20px;
+  border: 2px solid #b9f6ca;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
 }
 
 .topbar-text h3 {
+  color: #052e16; /* Near-black green for maximum readability */
   margin: 0;
-  font-size: 1.1rem;
+  font-size: 1.8rem;
+  font-weight: 900;
 }
 
 .subtitle {
-  font-size: 0.8rem;
-  color: #71767b;
+  color: #059669;
+  font-weight: 800;
+  text-transform: uppercase;
 }
 
-/* List Item Styles */
+/* ───── The Grid (Fills the Screen Glory) ───── */
+.follow-list {
+  width: 100%;
+  max-width: 1200px;
+  display: grid;
+  /* On PC, this will automatically make 3 columns. On Tablet, 2. */
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 25px;
+}
+
+/* ───── The User Card ───── */
 .user-row {
+  background: #ffffff;
+  border-radius: 24px;
+  padding: 25px;
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  align-items: flex-start;
-  padding: 12px 16px;
-  transition: 0.2s;
-  cursor: pointer;
-  border-bottom: 1px solid #16181c;
+  border: 1px solid #e2e8f0;
+  transition: all 0.2s ease-in-out;
 }
 
 .user-row:hover {
-  background-color: rgba(255, 255, 255, 0.03);
+  transform: translateY(-5px);
+  border-color: #10b981;
+  box-shadow: 0 15px 35px rgba(16, 185, 129, 0.1);
 }
 
-.user-row-left {
-  display: flex;
-  gap: 12px;
-  flex: 1;
-}
-
-.follow-avatar {
-  width: 48px;
-  height: 48px;
+/* ───── Avatar (Total Distortion Fix) ───── */
+.follow-avatar, .initial-circle {
+  width: 65px;
+  height: 65px;
+  border-radius: 50%;
   flex-shrink: 0;
+  overflow: hidden;
+  aspect-ratio: 1/1; /* Forces it to stay a circle */
+  border: 3px solid #10b981;
 }
 
-.follow-avatar img, .initial-circle {
+.follow-avatar img {
   width: 100%;
   height: 100%;
-  border-radius: 50%;
-  object-fit: cover;
+  object-fit: cover; /* Stops stretching faces */
 }
 
-.initial-circle {
-  background: #2e7d32;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: bold;
-}
-
+/* ───── TEXT READABILITY FIX ───── */
 .user-details {
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
+  flex: 1;
+  margin-left: 15px;
+  min-width: 0; /* Prevents text from pushing the button off screen */
 }
 
-.name-container {
-  display: flex;
-  flex-direction: column;
+.name-container strong {
+  color: #052e16 !important; /* DARKEST GREEN FOR PC READING */
+  font-size: 1.25rem;
+  font-weight: 900;
+  display: block;
 }
 
 .handle {
-  color: #71767b;
-  font-size: 0.9rem;
+  color: #374151; /* Dark Gray for the @handle */
+  font-weight: 600;
+  font-size: 1rem;
 }
 
-.row-bio {
-  margin: 4px 0 0 0;
-  font-size: 0.9rem;
-  color: #eff3f4;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
+/* ───── The Green Pill Button ───── */
 .row-follow-btn {
-  background: #eff3f4;
-  color: #000;
+  background: #064e3b; 
+  color: #ffffff !important;
   border: none;
-  border-radius: 999px;
-  padding: 6px 16px;
-  font-weight: bold;
-  font-size: 0.9rem;
+  padding: 12px 24px;
+  border-radius: 50px;
+  font-weight: 800;
+  text-transform: uppercase;
+  font-size: 0.8rem;
   cursor: pointer;
-  margin-left: 12px;
+  box-shadow: 0 4px 12px rgba(6, 78, 59, 0.2);
 }
 
-.empty-state, .loading-msg {
-  text-align: center;
-  padding: 40px;
-  color: #71767b;
+/* ───── MOBILE OVERRIDES ───── */
+@media (max-width: 768px) {
+  .vine-follow-container {
+    width: 100%;
+    padding: 0;
+    background: #ffffff;
+    align-items: stretch;
+  }
+  
+  .vine-follow-topbar {
+    border-radius: 0;
+    margin-bottom: 0;
+    padding: 15px;
+    border: none;
+    border-bottom: 1px solid #eee;
+  }
+
+  .follow-list {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  .user-row {
+    border-radius: 0;
+    border: none;
+    border-bottom: 1px solid #f1f5f9;
+    padding: 15px;
+  }
 }

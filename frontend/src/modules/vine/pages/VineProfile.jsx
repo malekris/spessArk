@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import "./VineProfile.css";
 import VinePostCard from "./VinePostCard";
+import { useRef } from "react";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 
@@ -20,6 +21,10 @@ export default function VineProfile() {
   const [tempLocation, setTempLocation] = useState("");
   const [tempWebsite, setTempWebsite] = useState("");
   const [isFollowing, setIsFollowing] = useState(false);
+  const avatarInputRef = useRef(null);
+  const bannerInputRef = useRef(null);
+  const [bannerUrl, setBannerUrl] = useState(null);
+  const userObj = profile?.user || profile; 
 
   // Decode User ID
   let currentUserId = null;
@@ -45,7 +50,11 @@ export default function VineProfile() {
       setError(err.message);
     }
   };
-
+  useEffect(() => {
+    if (userObj?.banner_url) {
+      setBannerUrl(userObj.banner_url);
+    }
+  }, [userObj]);
   useEffect(() => {
     if (username) loadProfile();
   }, [username]);
@@ -83,7 +92,33 @@ export default function VineProfile() {
       posts: prev.posts.filter(p => p.id !== postId)
     }));
   };
-
+  const handleMessage = async () => {
+    try {
+      const res = await fetch(`${API}/api/dms/start`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          userId: userObj.id
+        })
+      });
+  
+      const data = await res.json();
+  
+      if (!res.ok) {
+        alert(data.error || "Cannot start conversation");
+        return;
+      }
+  
+      navigate(`/vine/dms/${data.conversationId}`);
+    } catch (err) {
+      console.error("Start DM error:", err);
+    }
+  };
+  
+  
   const handleAvatarUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -110,13 +145,42 @@ export default function VineProfile() {
 
   if (error) return <div className="error-screen">❌ {error} <button onClick={() => navigate(-1)}>Go Back</button></div>;
   if (!profile) return <div className="skeleton-wrapper">...Loading...</div>;
+  const handleBannerUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+  
+    const formData = new FormData();
+    formData.append("banner", file);
+  
+    try {
+      const res = await fetch(`${API}/api/vine/users/banner`, {
 
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: formData,
+      });
+  
+      const data = await res.json();
+  
+      if (!res.ok) {
+        alert(data.error || "Banner upload failed");
+        return;
+      }
+  
+      // Update UI instantly
+      setBannerUrl(data.banner_url);
+ 
+    } catch (err) {
+      console.error("Banner upload error:", err);
+    }
+  };
+  
   // REBUST DATA ACCESS - Checks both nested and flat structures
-  const userObj = profile?.user || profile; 
   const resolvedUsername = userObj?.username || "user";
   const displayName = userObj?.display_name || resolvedUsername;
   const avatarUrl = userObj?.avatar_url;
-  const bannerUrl = userObj?.banner_url;
  
   return (
     <div className="vine-profile-wrapper">
@@ -130,64 +194,95 @@ export default function VineProfile() {
       </div>
 
       {/* Banner */}
-      <label className={`vine-profile-banner ${isMe ? "uploadable" : ""}`}>
-        {isMe && <input type="file" hidden accept="image/*" />}
-        {bannerUrl ? (
-          <img src={`${API}${bannerUrl}`} alt="banner" />
-        ) : (
-          <div className="default-banner" />
-        )}
-      </label>
+      <div
+  className={`vine-profile-banner ${isMe ? "uploadable" : ""}`}
+  onClick={() => isMe && bannerInputRef.current?.click()}
+>
+  {isMe && (
+    <input
+      ref={bannerInputRef}
+      type="file"
+      hidden
+      accept="image/*"
+      onChange={handleBannerUpload}
+    />
+  )}
+
+  {bannerUrl ? (
+    <img src={`${API}${bannerUrl}`} alt="banner" />
+  ) : (
+    <div className="default-banner" />
+  )}
+
+  <div className="banner-overlay" />
+</div>
+
+
 
       {/* Header */}
       <div className="vine-profile-header">
 
 {/* Top row: Avatar + Action button */}
 <div className="header-top-row">
-  <label className={`avatar-circle ${isMe ? "uploadable" : ""}`}>
-    {isMe && (
-      <input
-        type="file"
-        hidden
-        accept="image/*"
-        onChange={handleAvatarUpload}
-      />
-    )}
+<div
+  className={`avatar-circle ${isMe ? "uploadable" : ""}`}
+  onClick={() => isMe && avatarInputRef.current?.click()}
+>
+  {isMe && (
+    <input
+      ref={avatarInputRef}
+      type="file"
+      hidden
+      accept="image/*"
+      onChange={handleAvatarUpload}
+    />
+  )}
 
-    {avatarUrl ? (
-      <img src={`${API}${avatarUrl}`} alt="avatar" />
-    ) : (
-      <div className="avatar-placeholder">
-        {resolvedUsername[0].toUpperCase()}
-      </div>
-    )}
-  </label>
+  {avatarUrl ? (
+    <img src={`${API}${avatarUrl}`} alt="avatar" />
+  ) : (
+    <div className="avatar-placeholder">
+      {resolvedUsername[0].toUpperCase()}
+    </div>
+  )}
+</div>
+
 
   {isMe ? (
-    <button
-      className="edit-profile-btn"
-      onClick={() => (isEditing ? handleUpdateBio() : setIsEditing(true))}
-    >
-      {isEditing ? "Save Profile" : "Edit Profile"}
-    </button>
-  ) : (
-    <button
-    className="follow-btn"
-    onClick={async () => {
-      await fetch(`${API}/api/vine/users/${userObj.id}/follow`, {
-        method: isFollowing ? "DELETE" : "POST",
-        headers: { Authorization: `Bearer ${token}` }
-      });
-  
-      setIsFollowing(!isFollowing);
-      loadProfile(); // 🔥 refresh counts immediately
-    }}
+  <button
+    className="edit-profile-btn"
+    onClick={() => (isEditing ? handleUpdateBio() : setIsEditing(true))}
   >
-    {isFollowing ? "Unfollow" : "Follow"}
+    {isEditing ? "Save Profile" : "Edit Profile"}
   </button>
-  
-   
-  )}
+) : (
+  <div style={{ display: "flex", gap: "10px" }}>
+    <button
+      className="follow-btn"
+      onClick={async () => {
+        await fetch(`${API}/api/vine/users/${userObj.id}/follow`, {
+          method: isFollowing ? "DELETE" : "POST",
+          headers: { Authorization: `Bearer ${token}` }
+        });
+
+        setIsFollowing(!isFollowing);
+        loadProfile();
+      }}
+    >
+      {isFollowing ? "Unfollow" : "Follow"}
+    </button>
+
+    {isFollowing && (
+      <button
+        className="message-btn"
+        onClick={handleMessage}
+      >
+        📧 DM
+      </button>
+    )}
+  </div>
+)}
+
 </div>
 
 {/* Meta */}
@@ -231,7 +326,11 @@ export default function VineProfile() {
   </div>
 ) : (
   <>
-    <h2 className="profile-name">{displayName}</h2>
+    <h2 className="profile-name">
+  {displayName}
+  {userObj?.is_verified === 1 && <span className="verified">✓</span>}
+</h2>
+
     <p className="handle">@{resolvedUsername}</p>
     <p className="bio">{userObj?.bio || "No bio yet 🌱"}</p>
   </>
@@ -301,7 +400,7 @@ export default function VineProfile() {
         {activeTab === "posts" ? (
           profile?.posts?.length > 0 ? (
             profile.posts.map(post => (
-              <VinePostCard key={post.id} post={post} onDeletePost={handlePostDeleted} />
+              <VinePostCard key={post.feed_id} post={post} />
             ))
           ) : (
             <p className="empty-msg">No posts yet.</p>

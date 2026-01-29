@@ -1,0 +1,77 @@
+.vine-chat-wrapper {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: #f9f9f9;
+}
+
+.chat-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-bottom: 1px solid #ddd;
+  background: white;
+}
+
+.back-btn {
+  border: none;
+  background: none;
+  font-size: 20px;
+  cursor: pointer;
+}
+
+.chat-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.chat-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.messages-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.chat-footer {
+  border-top: 1px solid #ddd;
+  background: white;
+}
+.chat-header {
+  background: #ffffff;
+  color: #111; /* 👈 force text visible */
+}
+
+.chat-header .display-name {
+  color: #111;
+  font-weight: 700;
+  font-size: 16px;
+}
+
+.chat-header .username {
+  color: #666;
+  font-size: 13px;
+}
+.chat-header {
+  background: #ffffff;
+  color: #1b5e20;
+}
+
+.chat-header .display-name {
+  color: #2e7d32;   /* Mint green (strong) */
+  font-weight: 700;
+  font-size: 16px;
+}
+
+.chat-header .username {
+  color: #66bb6a;   /* Softer mint */
+  font-size: 13px;
+}

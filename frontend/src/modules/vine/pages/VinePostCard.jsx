@@ -1,22 +1,36 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import "./VinePostCard.css";
 import { useNavigate } from "react-router-dom";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
+const ORIGIN = API.replace(/\/api$/, "");
 
-const formatRelativeTime = (date) => {
-  if (!date) return "now";
+const formatRelativeTime = (dateString) => {
+  if (!dateString) return "now";
+
+  // Force safe parsing for MySQL timestamps
+  const parsed = new Date(dateString.replace(" ", "T"));
   const now = new Date();
-  const diffInSeconds = Math.floor((now - new Date(date)) / 1000);
+
+  const diffInSeconds = Math.floor((now.getTime() - parsed.getTime()) / 1000);
+
+  // Guard against bad values
+  if (isNaN(diffInSeconds) || diffInSeconds < 0) return "now";
+
   if (diffInSeconds < 60) return "just now";
+
   const minutes = Math.floor(diffInSeconds / 60);
   if (minutes < 60) return `${minutes}m`;
+
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}h`;
+
   const days = Math.floor(hours / 24);
   if (days < 7) return `${days}d`;
-  return new Date(date).toLocaleDateString();
+
+  return parsed.toLocaleDateString();
 };
+
 
 export default function VinePostCard({ post, onDeletePost }) {
   const token = localStorage.getItem("vine_token");
@@ -98,6 +112,7 @@ export default function VinePostCard({ post, onDeletePost }) {
     });
     if (res.ok) fetchComments();
   };
+  
 
   return (
     <div className="vine-post light-green-theme" id={`post-${post.id}`}>
@@ -111,13 +126,41 @@ export default function VinePostCard({ post, onDeletePost }) {
         </div>
 
         <div className="post-user-meta">
-          <div className="meta-top">
-            <strong className="display-name" onClick={() => navigate(`/vine/profile/${post.username}`)}>
-              {post.display_name || post.username}
-            </strong>
-            <span className="username">@{post.username}</span>
-            <span className="time">• {formatRelativeTime(post.created_at)}</span>
-          </div>
+          {/* 🔁 Revine label (TOP) */}
+          {post.revined_by && (
+          <div className="revine-top">
+           🔁 {post.reviner_username} revined
+         </div>
+           )}
+
+<div className="meta-top">
+<div className="name-row">
+  <strong className="display-name">
+    {post.display_name || post.username}
+  </strong>
+
+  {post.is_verified === 1 && <span className="verified">
+  <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
+    <path 
+      d="M20 6L9 17l-5-5" 
+      stroke="white" 
+      strokeWidth="3" 
+      strokeLinecap="round" 
+      strokeLinejoin="round"
+    />
+  </svg>
+</span>
+}
+</div>
+
+
+  <span className="username">@{post.username}</span>
+  <span className="time">
+  • {post.created_at} | {formatRelativeTime(post.sort_time)}
+</span>
+
+</div>
+
           {isPostAuthor && (
             <button className="delete-post-btn" onClick={deleteMainPost}>🗑️</button>
           )}
@@ -125,6 +168,8 @@ export default function VinePostCard({ post, onDeletePost }) {
       </div>
 
       <p className="vine-post-content">{post.content}</p>
+      
+      {post.image_url && <ImageCarousel imageUrl={post.image_url} />}
 
       <div className="vine-post-footer">
         <button className={`action-btn ${userLiked ? "active-like" : ""}`} onClick={handleLike}>
@@ -208,11 +253,17 @@ function Comment({ comment, onReply, onDelete, isPostOwner, currentUserId }) {
   const canDelete = isPostOwner || Number(currentUserId) === Number(comment.user_id);
 
   return (
-    <div className="vine-comment-node">
-      <div className="comment-main">
+<div className="vine-comment-node" id={`comment-${comment.id}`}>
+
+  <div className="comment-main">
         <div className="comment-meta">
           <strong>{comment.display_name || comment.username}</strong>
-          <span className="time">• {formatRelativeTime(comment.created_at)}</span>
+          <span className="time">
+  • {formatRelativeTime(comment.created_at || comment.sort_time)}
+</span>
+   
+
+ 
         </div>
         <p className="comment-text">{comment.content}</p>
         
@@ -261,4 +312,91 @@ function buildThreads(comments) {
     else roots.push(map[c.id]);
   });
   return roots;
+}
+function ImageCarousel({ imageUrl }) {
+  let images = [];
+  console.log("ORIGIN:", ORIGIN);
+console.log("imageUrl:", imageUrl);
+
+  try {
+    images = JSON.parse(imageUrl);
+  } catch {
+    images = [imageUrl]; // backward compatibility
+  }
+
+  const containerRef = useRef(null);
+  const [index, setIndex] = useState(0);
+
+  const handleScroll = () => {
+    const container = containerRef.current;
+    if (!container) return;
+    const newIndex = Math.round(
+      container.scrollLeft / container.offsetWidth
+    );
+    setIndex(newIndex);
+  };
+
+  const scrollTo = (i) => {
+    const container = containerRef.current;
+    if (!container) return;
+    container.scrollTo({
+      left: container.offsetWidth * i,
+      behavior: "smooth",
+    });
+  };
+  const [viewerOpen, setViewerOpen] = useState(false);
+
+  return (
+    <div className="carousel-wrapper">
+      <div
+        className="carousel"
+        ref={containerRef}
+        onScroll={handleScroll}
+      >
+        {images.map((src, i) => (
+          <img
+            key={i}
+            src={`${ORIGIN}${src}`}
+            alt=""
+            className="carousel-img"
+            onClick={() => setViewerOpen(true)}
+
+          />
+        ))}
+      </div>
+      {images.length > 1 && (
+  <div className="carousel-counter">
+    {index + 1} / {images.length}
+  </div>
+)}
+
+      <div className="carousel-dots">
+        {images.map((_, i) => (
+          <span
+            key={i}
+            className={`dot ${i === index ? "active" : ""}`}
+            onClick={() => scrollTo(i)}
+          />
+        ))}
+      </div>
+      {viewerOpen && (
+  <div className="image-viewer-overlay" onClick={() => setViewerOpen(false)}>
+    <button
+  className="viewer-close"
+  onClick={() => setViewerOpen(false)}
+>✕</button>
+
+    <img
+      src={`${ORIGIN}${images[index]}`}
+      className="image-viewer-img"
+      onClick={(e) => e.stopPropagation()}
+      alt=""
+    />
+    
+  </div>
+)}
+
+    </div>
+  );
+  
 }

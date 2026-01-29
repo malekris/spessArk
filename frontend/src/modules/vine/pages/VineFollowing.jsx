@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import "./VineFollowers.css"; // Reuse the same CSS for consistency
+import "./VineFollowing.css"; // Reuse the same CSS for consistency
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 

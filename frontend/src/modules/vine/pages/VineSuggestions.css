@@ -1,108 +1,204 @@
-/* ───── Main Suggestions Container ───── */
+/* ───── Main Page Container ───── */
 .vine-suggestions {
-  background: #e1f5e9; /* Light Mint Green to match PostCard */
-  border: 1px solid #c8e6c9;
-  border-radius: 28px; /* Large rounded edges */
-  padding: 20px;
+  min-height: 100vh;
+  width: 100%;
+  padding: 40px 20px;
+  box-sizing: border-box;
+  
+  /* Subtle Green Glow Background */
+  background: radial-gradient(circle at top, #f0fdf4 0%, #dcfce7 100%);
+  background-attachment: fixed;
+  display: flex;
+  justify-content: center;
+}
+
+/* ───── Content Wrapper (PC Optimized) ───── */
+.suggestions-content {
+  width: 100%;
+  max-width: 1100px;
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-radius: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  padding: 40px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
+}
+
+/* ───── Navigation & Title ───── */
+.back-btn {
+  background: #10b981; /* Solid Mint for better legibility */
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 50px;
+  font-weight: 800;
+  cursor: pointer;
   margin-bottom: 20px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.03);
-  color: #1b5e20;
+  box-shadow: 0 4px 10px rgba(16, 185, 129, 0.2);
 }
 
 .suggestions-title {
-  font-size: 1.1rem;
-  font-weight: 800;
-  margin-bottom: 15px;
-  padding-left: 5px;
-  color: #052e16;
+  color: #064e3b; /* Deep Forest Green - now highly readable */
+  font-size: 2rem;
+  font-weight: 900;
+  margin: 10px 0 30px 0;
+  letter-spacing: -0.5px;
 }
 
-/* ───── Suggestion Rows ───── */
+/* ───── The Grid (Fixes Distortion) ───── */
+.suggestions-list {
+  display: grid;
+  /* 3 columns on PC, 2 on small tablets, 1 on mobile */
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 20px;
+}
+
+/* ───── Suggestion Row (The "Card") ───── */
 .suggestion-row {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  padding: 10px;
-  border-radius: 20px; /* Internal rounding for the hover effect */
-  transition: all 0.2s ease;
+  justify-content: space-between;
+  padding: 16px;
+  background: #ffffff;
+  border-radius: 18px;
+  border: 1px solid #e2e8f0;
+  transition: all 0.25s ease;
   cursor: pointer;
-  margin-bottom: 5px;
 }
 
 .suggestion-row:hover {
-  background: rgba(255, 255, 255, 0.4);
-  transform: translateX(4px); /* Subtle slide effect on hover */
+  border-color: #34d399;
+  transform: translateY(-3px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.04);
 }
 
+/* ───── Profile Area (Fixed Image Distortion) ───── */
 .user-left {
   display: flex;
   align-items: center;
   gap: 12px;
+  min-width: 0; /* Prevents text overflow */
 }
 
-/* ───── Avatar Styling ───── */
-.avatar {
-  width: 40px;
-  height: 40px;
+.avatar, .avatar-initial {
+  width: 50px;
+  height: 50px;
   border-radius: 50%;
-  overflow: hidden;
-  border: 2px solid #ffffff;
   flex-shrink: 0;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+  overflow: hidden;
+  /* Ensures circles stay circles */
+  aspect-ratio: 1 / 1; 
 }
 
 .avatar img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: cover; /* Prevents "squishing" the face */
 }
 
 .avatar-initial {
-  width: 100%;
-  height: 100%;
-  background: #2e7d32;
-  color: #ffffff;
+  background: #dcfce7;
+  color: #065f46;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: bold;
+  font-weight: 700;
+  border: 1px solid #b9f6ca;
 }
 
-/* ───── User Text ───── */
+/* ───── User Text (High Visibility) ───── */
 .user-info {
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 
 .user-info strong {
-  font-size: 0.95rem;
-  color: #052e16;
+  color: #064e3b; /* Dark Green */
+  font-size: 1rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .user-info span {
+  color: #4b5563; /* Darker grey for username legibility */
   font-size: 0.85rem;
-  color: #4e7d52;
 }
 
-/* ───── The "Follow" Pill Button ───── */
+/* ───── Follow Button (The Interaction) ───── */
 .follow-mini {
-  background: #2e7d32;
-  color: #ffffff;
+  background: #064e3b;
+  color: white;
   border: none;
-  border-radius: 50px; /* Pill shape */
-  padding: 6px 16px;
+  padding: 8px 16px;
+  border-radius: 12px; /* Matching the soft edges */
+  font-weight: 700;
   font-size: 0.85rem;
-  font-weight: bold;
   cursor: pointer;
-  transition: all 0.2s ease;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  margin-left: 10px;
+  transition: background 0.2s;
 }
 
 .follow-mini:hover {
-  background: #1b5e20;
-  transform: scale(1.05);
+  background: #059669;
 }
 
-.follow-mini:active {
-  transform: scale(0.95);
+/* ───── Mobile Settings (Kept as is but polished) ───── */
+@media (max-width: 600px) {
+  .vine-suggestions {
+    padding: 10px;
+    background: #ffffff; /* White bg on mobile for speed */
+  }
+
+  .suggestions-content {
+    padding: 10px;
+    background: none;
+    border: none;
+    box-shadow: none;
+  }
+
+  .suggestions-list {
+    grid-template-columns: 1fr;
+  }
+
+  .suggestions-title {
+    font-size: 1.5rem;
+  }
+}
+.suggestion-row {
+  animation: riseUp 0.3s ease both;
+}
+
+@keyframes riseUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.discover-header {
+  position: sticky;
+  top: 0;
+  background: #ecfdf5;
+  padding: 12px 0;
+  z-index: 10;
+}
+
+.back-btn {
+  background: #10b981;
+  color: white;
+  border: none;
+  padding: 8px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.back-btn:hover {
+  background: #059669;
 }

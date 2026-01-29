@@ -1,0 +1,167 @@
+/* ───── Main Search Container ───── */
+.search-page {
+  min-height: 100vh;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* Matching your Sugestions/Followers theme */
+  background: radial-gradient(circle at top, #f0fdf4 0%, #dcfce7 100%);
+  background-attachment: fixed;
+  font-family: 'Inter', system-ui, sans-serif;
+  padding: 20px;
+  box-sizing: border-box;
+}
+
+/* ───── Search Bar Header ───── */
+.search-header {
+  width: 100%;
+  max-width: 800px;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  padding: 15px 20px;
+  border-radius: 20px;
+  border: 1px solid rgba(167, 243, 208, 0.6);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.05);
+  position: sticky;
+  top: 10px;
+  z-index: 100;
+}
+
+.search-header button {
+  background: #10b981;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 50px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+
+.search-header button:hover {
+  transform: scale(1.05);
+  background: #059669;
+}
+
+.search-header input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 1.1rem;
+  color: #064e3b;
+  font-weight: 500;
+}
+
+.search-header input::placeholder {
+  color: #6b7280;
+}
+
+/* ───── Results List ───── */
+.search-results {
+  width: 100%;
+  max-width: 800px;
+  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ───── Individual User Card ───── */
+.search-user {
+  background: #ffffff;
+  padding: 15px 20px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  cursor: pointer;
+  border: 1px solid #e2e8f0;
+  transition: all 0.2s ease;
+}
+
+.search-user:hover {
+  border-color: #10b981;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.1);
+}
+
+/* ───── Avatar Polish (Perfect Circles) ───── */
+.search-user img, .avatar-fallback {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  border: 2px solid #10b981; /* That pop you asked for */
+}
+
+.avatar-fallback {
+  background: #d1fae5;
+  color: #064e3b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 1.2rem;
+}
+
+/* ───── User Text Readability ───── */
+.search-user div {
+  display: flex;
+  flex-direction: column;
+}
+
+.search-user strong {
+  color: #052e16; /* High contrast dark green */
+  font-size: 1.1rem;
+}
+
+.search-user span {
+  color: #6b7280;
+  font-size: 0.9rem;
+}
+
+.empty {
+  text-align: center;
+  color: #064e3b;
+  font-weight: 600;
+  margin-top: 40px;
+}
+
+/* ───── Mobile Tweaks ───── */
+@media (max-width: 768px) {
+  .search-page {
+    padding: 10px;
+    background: #ffffff; /* Cleaner mobile look */
+  }
+
+  .search-header {
+    top: 0;
+    border-radius: 0;
+    border: none;
+    border-bottom: 1px solid #eef2f1;
+    padding: 12px;
+  }
+
+  .search-user {
+    border-radius: 0;
+    border: none;
+    border-bottom: 1px solid #f1f5f9;
+    padding: 12px;
+  }
+
+  .search-user:hover {
+    transform: none;
+  }
+  
+  .search-user img, .avatar-fallback {
+    width: 45px;
+    height: 45px;
+    border-width: 1px; /* Slightly thinner on mobile */
+  }
+}

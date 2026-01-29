@@ -102,3 +102,61 @@
       width: 95%;
     }
   }
+  .back-home-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  
+    width: fit-content;
+    padding: 14px 22px;
+    margin-bottom: 1.5rem;
+  
+    font-size: 0.95rem;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    color: #fff;
+    text-decoration: none;
+  
+    border-radius: 999px;
+  
+    /* Elite glass + vibrant red */
+    background: linear-gradient(
+      135deg,
+      rgba(255, 60, 60, 0.95),
+      rgba(200, 0, 0, 0.95)
+    );
+  
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+  
+    border: 1px solid rgba(255, 255, 255, 0.25);
+  
+    box-shadow:
+      0 10px 25px rgba(0, 0, 0, 0.4),
+      0 0 0 0 rgba(255, 0, 0, 0.6);
+  
+    transition: all 0.25s ease;
+  }
+  
+  /* Desktop hover = glow */
+  .back-home-btn:hover {
+    transform: translateY(-2px);
+    box-shadow:
+      0 14px 35px rgba(0, 0, 0, 0.5),
+      0 0 20px rgba(255, 0, 0, 0.6);
+  }
+  
+  /* Mobile tap feedback */
+  .back-home-btn:active {
+    transform: scale(0.96);
+  }
+  
+  /* Mobile optimization */
+  @media (max-width: 480px) {
+    .back-home-btn {
+      width: 100%;
+      padding: 16px;
+      font-size: 1rem;
+    }
+  }
+  

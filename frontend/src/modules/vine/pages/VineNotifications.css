@@ -1,0 +1,196 @@
+/* ───── Main Container ───── */
+.vine-notifications-page {
+  min-height: 100vh;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* Signature Mint-Glow Theme */
+  background: radial-gradient(circle at top, #f0fdf4 0%, #dcfce7 100%);
+  background-attachment: fixed;
+  padding: 40px 20px;
+  box-sizing: border-box;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+/* ───── Topbar (Glass Style) ───── */
+.vine-profile-topbar {
+  width: 100%;
+  max-width: 800px;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  padding: 15px 25px;
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  border: 1px solid rgba(167, 243, 208, 0.6);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.04);
+  margin-bottom: 25px;
+  position: sticky;
+  top: 10px;
+  z-index: 100;
+}
+
+.vine-profile-topbar button {
+  background: #10b981;
+  color: white;
+  border: none;
+  width: 35px;
+  height: 35px;
+  border-radius: 50%;
+  font-weight: bold;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.vine-profile-topbar h3 {
+  margin: 0;
+  color: #052e16; /* Near-black green for PC reading */
+  font-size: 1.4rem;
+  font-weight: 900;
+}
+
+/* ───── Notification Rows ───── */
+.notif-row {
+  width: 100%;
+  max-width: 800px;
+  background: #ffffff;
+  margin-bottom: 12px;
+  padding: 18px 22px;
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  border: 1px solid #e2e8f0;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.notif-row:hover {
+  transform: translateY(-2px);
+  border-color: #10b981;
+  box-shadow: 0 10px 20px rgba(16, 185, 129, 0.08);
+}
+
+/* Unread State Glow */
+.notif-row.unread {
+  background: #f0fdf4; /* Very light mint tint */
+  border-left: 4px solid #10b981; /* Green indicator stripe */
+}
+
+/* ───── Avatar Polish (The "Pop" Border) ───── */
+.notif-avatar {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  overflow: hidden;
+  border: 2px solid #10b981; /* Pop border from Search/Followers */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #d1fae5;
+}
+
+.notif-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.notif-avatar span {
+  font-weight: 800;
+  color: #064e3b;
+  font-size: 1.2rem;
+}
+
+/* ───── Notification Text Readability ───── */
+.notif-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.notif-text {
+  color: #374151; /* Dark gray for prose */
+  font-size: 1.05rem;
+  line-height: 1.4;
+}
+
+.notif-user {
+  color: #052e16 !important; /* DARKEST GREEN for names */
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.notif-user:hover {
+  text-decoration: underline;
+}
+
+.new-badge {
+  background: #10b981;
+  color: white;
+  font-size: 0.65rem;
+  font-weight: 900;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
+.notif-time {
+  font-size: 0.85rem;
+  color: #6b7280;
+  font-weight: 500;
+}
+
+.empty-notifs {
+  color: #064e3b;
+  font-weight: 700;
+  margin-top: 50px;
+}
+
+/* ───── MOBILE TWEAKS (DESKTOP AS IS) ───── */
+@media (max-width: 768px) {
+  .vine-notifications-page {
+    padding: 0;
+    background: #ffffff; /* Clean mobile list style */
+    align-items: stretch;
+  }
+
+  .vine-profile-topbar {
+    top: 0;
+    border-radius: 0;
+    margin-bottom: 0;
+    border: none;
+    border-bottom: 1px solid #eef2f1;
+    padding: 12px 15px;
+  }
+
+  .notif-row {
+    border-radius: 0;
+    border: none;
+    border-bottom: 1px solid #f1f5f9;
+    margin-bottom: 0;
+    padding: 15px;
+  }
+
+  .notif-row:hover {
+    transform: none;
+    box-shadow: none;
+  }
+
+  .notif-avatar {
+    width: 45px;
+    height: 45px;
+  }
+
+  .notif-text {
+    font-size: 0.95rem;
+  }
+}

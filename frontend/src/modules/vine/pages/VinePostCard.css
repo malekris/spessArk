@@ -1,330 +1,555 @@
-/* ───── Main Card Container ───── */
-.vine-post.light-green-theme {
-  background: #e1f5e9; 
-  /* Increased border-radius for that "pill" or "bubble" feel */
-  border: 1px solid #c8e6c9;
-  border-radius: 28px; 
+/* ───── Main Card ───── */
+.vine-post {
+  width: 100%;
+  max-width: 650px;
+  background: #ffffff;
+  border-radius: 24px;
   padding: 20px;
   margin-bottom: 20px;
-  display: flex;
-  flex-direction: column;
-  color: #1b5e20; 
-  box-shadow: 0 4px 12px rgba(0,0,0,0.03);
-  transition: transform 0.2s ease;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.02);
+  transition: border-color 0.2s;
+  box-sizing: border-box;
 }
 
-/* ───── Header ───── */
+.vine-post:hover {
+  border-color: #10b981;
+}
+
+/* ───── Header & Meta ───── */
 .vine-post-header {
   display: flex;
-  gap: 15px;
-  align-items: center;
+  gap: 12px;
   margin-bottom: 12px;
+  position: relative;
 }
 
-.post-avatar {
+.post-avatar, .avatar-fallback {
   width: 48px;
   height: 48px;
-  border-radius: 50%; /* Keeps avatar perfectly circular */
-  overflow: hidden;
-  border: 2px solid #ffffff;
+  border-radius: 50%;
   flex-shrink: 0;
-  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+  border: 2px solid #10b981;
+  cursor: pointer;
+  overflow: hidden;
 }
 
-.display-name { 
-  font-weight: 800; 
-  color: #1b5e20; 
-  font-size: 1.05rem;
+.post-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
-/* ───── Post Content ───── */
-.vine-post-content {
+.post-user-meta {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.revine-top {
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: #64748b;
+  margin-bottom: 4px;
+}
+
+.meta-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.display-name {
+  color: #052e16;
+  font-weight: 900;
   font-size: 1.1rem;
+}
+
+/* ───── Verified Badge ───── */
+.verified {
+  background: #10b981;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 4px;
+}
+
+.username, .time {
+  color: #64748b;
+  font-size: 0.9rem;
+}
+
+/* ───── Post Body ───── */
+.vine-post-content {
+  font-size: 1.15rem;
   line-height: 1.5;
-  color: #052e16; 
-  margin: 4px 4px 18px 4px;
+  color: #1f2937;
+  margin: 12px 0;
   word-wrap: break-word;
 }
 
 /* ───── Footer Actions ───── */
 .vine-post-footer {
   display: flex;
-  justify-content: space-around; /* Spaced out better for round cards */
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
-  padding-top: 12px;
+  justify-content: space-between;
+  border-top: 1px solid #f1f5f9;
+  padding-top: 15px;
+  margin-top: 10px;
 }
 
 .action-btn {
-  background: rgba(255, 255, 255, 0.3); /* Soft pill background */
+  background: transparent;
   border: none;
-  color: #4e7d52;
-  font-size: 0.9rem;
+  color: #64748b;
+  font-weight: 700;
+  font-size: 0.95rem;
   cursor: pointer;
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 16px;
-  border-radius: 50px; /* Perfectly round buttons */
-  transition: 0.2s;
+  padding: 8px 12px;
+  border-radius: 50px;
+  transition: all 0.2s;
 }
 
-.action-btn:hover { 
-  background: #ffffff; 
-  transform: translateY(-2px);
+.action-btn:hover {
+  background: #f0fdf4;
+  color: #10b981;
 }
 
-/* ───── Threaded Comments ───── */
-.comment-main {
-  background: #ffffff; /* White bubbles for comments */
-  padding: 12px 16px;
-  border-radius: 20px; /* Rounded comment bubbles */
-  margin-bottom: 8px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.02);
-}
+.active-like { color: #ef4444; }
+.active-revine { color: #10b981; }
 
-.nested-replies {
-  margin-left: 30px;
-  padding-left: 15px;
-  border-left: 2.5px solid #c8e6c9; 
-  /* Rounded thread branch */
-  border-bottom-left-radius: 20px; 
-}
-
-/* ───── Input Styling ───── */
-.comment-input-row input {
-  flex: 1;
-  background: #ffffff;
-  border: 2px solid #c8e6c9;
-  border-radius: 30px; /* Super round input */
-  padding: 12px 20px;
-  outline: none;
-  transition: border-color 0.2s;
-}
-
-.comment-input-row input:focus {
-  border-color: #2e7d32;
-}
-
-.comment-input-row button {
-  background: #2e7d32;
-  color: white;
-  border: none;
-  border-radius: 30px;
-  padding: 0 20px;
-  font-weight: bold;
-  cursor: pointer;
-}
-
-/* ───── Desktop vs Mobile ───── */
-@media (max-width: 600px) {
-  .vine-post.light-green-theme {
-    border-radius: 24px;
-    margin: 10px; /* Gives it a floating look on mobile */
-    padding: 16px;
-  }
-}
-/* ───── Reply Box (The "Spreadsheet" Fix) ───── */
-.comment-reply-box {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 12px;
-  padding: 10px 15px;
-  background: rgba(255, 255, 255, 0.6); /* Glassy white */
-  border-radius: 30px; /* pill shape */
-  border: 1.5px solid #c8e6c9;
-  box-shadow: inset 0 1px 3px rgba(0,0,0,0.02);
-}
-
-.comment-reply-box input {
-  flex: 1;
-  background: transparent; /* Seamless with the container */
-  border: none;
-  padding: 8px 5px;
-  font-size: 0.95rem;
-  color: #052e16;
-  outline: none; /* Removes the ugly blue box */
-}
-
-.comment-reply-box input::placeholder {
-  color: #8da391;
-  font-style: italic;
-}
-
-.comment-reply-box button {
-  background: #2e7d32;
-  color: #ffffff;
-  border: none;
+/* ───── Comments Section ───── */
+.vine-comments-area {
+  margin-top: 20px;
+  background: #f8fafc;
   border-radius: 20px;
-  padding: 6px 18px;
-  font-size: 0.85rem;
-  font-weight: 800;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  box-shadow: 0 2px 4px rgba(46, 125, 50, 0.2);
+  padding: 15px;
+  border: 1px solid #edf2f7;
 }
 
-.comment-reply-box button:hover {
-  background: #1b5e20;
-  transform: scale(1.05);
-}
-
-.comment-reply-box button:active {
-  transform: scale(0.95);
-}
-
-/* ───── Main Comment Input (The top level one) ───── */
 .comment-input-row {
   display: flex;
   gap: 10px;
-  background: #ffffff;
-  padding: 8px;
-  border-radius: 40px;
-  border: 2px solid #c8e6c9;
   margin-bottom: 20px;
 }
 
-.comment-input-row input {
+.comment-input-row textarea {
   flex: 1;
-  border: none;
-  background: none;
-  padding-left: 15px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 10px;
+  resize: none;
+  font-family: inherit;
   outline: none;
-  font-size: 1rem;
 }
 
 .comment-input-row button {
-  background: #2e7d32;
+  background: #064e3b;
   color: white;
   border: none;
-  border-radius: 30px;
-  padding: 8px 20px;
-  font-weight: bold;
+  padding: 0 20px;
+  border-radius: 50px;
+  font-weight: 800;
   cursor: pointer;
 }
-/* ───── Auto-Expanding Reply Box ───── */
-.comment-reply-box {
-  display: flex;
-  align-items: flex-end; /* Aligns button to bottom of text */
-  gap: 8px;
-  margin-top: 10px;
-  padding: 10px;
-  background: #ffffff;
-  border-radius: 18px;
-  border: 1.5px solid #c8e6c9;
+
+/* ───── Threaded Comments ───── */
+.vine-comment-node {
+  margin-top: 15px;
+  position: relative;
 }
 
-.comment-reply-box textarea {
-  flex: 1;
+.comment-main {
+  padding-left: 10px;
+}
+
+.comment-meta strong {
+  color: #052e16;
+  font-size: 0.95rem;
+}
+
+.comment-text {
+  margin: 5px 0;
+  font-size: 0.95rem;
+  color: #374151;
+}
+
+/* The Vertical Thread Line */
+.nested-replies {
+  margin-left: 20px;
+  border-left: 2px solid #cbd5e1;
+  padding-left: 15px;
+}
+
+.mini-btn {
   background: transparent;
   border: none;
-  padding: 5px;
-  font-size: 0.95rem;
-  color: #052e16;
-  outline: none;
-  resize: none; /* Hides the manual resize handle */
-  min-height: 24px;
-  max-height: 150px; /* Prevents it from getting too huge */
-  font-family: inherit;
-  line-height: 1.4;
-}
-
-/* ───── Mobile Threading Optimization ───── */
-.nested-replies {
-  margin-left: 20px; /* Standard for Desktop */
-  padding-left: 10px;
-  border-left: 2px solid #c8e6c9;
-}
-
-@media (max-width: 600px) {
-  /* On mobile, we reduce indentation so buttons don't disappear */
-  .nested-replies {
-    margin-left: 10px; 
-    padding-left: 8px;
-  }
-
-  /* After 3 levels of nesting, stop indenting to save space */
-  .nested-replies .nested-replies .nested-replies {
-    margin-left: 5px;
-    padding-left: 5px;
-    border-left: 1px solid #c8e6c9;
-  }
-
-  /* Make sure the send button doesn't shrink */
-  .comment-reply-box button {
-    padding: 6px 12px;
-    flex-shrink: 0; 
-    font-size: 0.8rem;
-  }
-}
-.close-thread-btn {
-  background: rgba(211, 47, 47, 0.1); 
-  color: #d32f2f;
-  border: 1px solid rgba(211, 47, 47, 0.2);
-  border-radius: 20px;
-  padding: 5px 12px;
   font-size: 0.8rem;
-  font-weight: bold;
+  font-weight: 700;
+  color: #64748b;
   cursor: pointer;
+  margin-right: 12px;
 }
 
-.close-thread-btn.bottom {
+.del-text:hover { color: #ef4444; }
+
+/* ───── Mobile ───── */
+@media (max-width: 768px) {
+  .vine-post {
+    border-radius: 0;
+    border: none;
+    border-bottom: 1px solid #f1f5f9;
+    margin-bottom: 0;
+  }
+
+  .vine-post-content {
+    font-size: 1rem;
+  }
+
+  .action-btn {
+    font-size: 0.85rem;
+    padding: 6px 8px;
+  }
+}
+/* ───── Header Alignment Fix ───── */
+.vine-post-header {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start; /* Keeps items at their natural height */
+  position: relative;
   width: 100%;
-  margin-top: 15px;
-  padding: 10px;
-  background: #e1f5e9; /* Light green to match your theme */
-  border: 1px dashed #c8e6c9;
-  color: #2e7d32;
-}
-/* ───── Clean Up the Shady Textarea ───── */
-.comment-input-row textarea,
-.comment-reply-box textarea {
-  flex: 1;
-  background: transparent;
-  border: none;           /* Removes that "shady" spreadsheet box */
-  outline: none;          /* Removes the blue/black highlight when clicking */
-  resize: none;           /* Hides the drag handle */
-  padding: 8px 5px;
-  font-size: 1rem;
-  color: #052e16;
-  font-family: inherit;
-  line-height: 1.4;
-  min-height: 24px;
 }
 
-/* Ensure the parent container looks like the rounded bubble */
-.comment-input-row,
-.comment-reply-box {
+/* ───── The Delete Button ───── */
+.delete-post-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 1.1rem;
+  padding: 8px;
+  border-radius: 50%;
+  transition: all 0.2s;
+  
+  /* CRITICAL: This stops the stretching */
+  align-self: flex-start; 
+  flex-shrink: 0;
+  width: 40px; 
+  height: 40px;
   display: flex;
   align-items: center;
-  gap: 10px;
-  background: #ffffff;
-  border-radius: 25px;    /* Keeps it bubbly */
-  border: 1.5px solid #c8e6c9;
-  padding: 5px 15px;      /* Internal spacing */
-  transition: border-color 0.2s;
+  justify-content: center;
+  
+  /* Positioning */
+  margin-left: auto; /* Pushes it to the far right */
 }
 
-.comment-input-row:focus-within,
-.comment-reply-box:focus-within {
-  border-color: #2e7d32;  /* Highlights the whole bubble when typing */
+.delete-post-btn:hover {
+  background: rgba(244, 33, 46, 0.1); /* Subtle red glow */
+  transform: scale(1.1);
 }
-@media (max-width: 600px) {
-  /* Reduce the left gap so threads don't push off-screen */
-  .nested-replies {
-    margin-left: 12px; 
-    padding-left: 8px;
-  }
 
-  /* After 2 levels of nesting, stop moving right */
-  .nested-replies .nested-replies {
-    margin-left: 6px;
-    padding-left: 6px;
-  }
-
-  /* Make sure the text inside comments stays readable */
-  .comment-main {
-    padding: 10px;
-    font-size: 0.95rem;
-  }
+/* ───── Ensure Meta doesn't fight for space ───── */
+.post-user-meta {
+  flex: 1;
+  min-width: 0; /* Prevents text from pushing button off screen */
+  display: flex;
+  flex-direction: column;
 }
+
+
+/* Ensure post container never blocks scrolling */
+.vine-post {
+  overflow: visible;
+}
+.carousel-wrapper {
+  width: 100%;
+  margin: 12px 0;
+  border-radius: 20px;
+  overflow: hidden;
+  background: #f1f5f9;
+}
+
+/* Track */
+.carousel {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+}
+
+.carousel::-webkit-scrollbar {
+  display: none;
+}
+
+/* Each slide becomes a fixed viewport */
+.carousel-slide {
+  flex: 0 0 100%;
+  width: 100%;
+  scroll-snap-align: start;
+
+  position: relative;
+  aspect-ratio: 4 / 5; /* gives real height */
+  background: #000;
+}
+
+/* Image fills the viewport properly */
+.carousel-slide img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+/* === FINAL OVERRIDE: CAROUSEL MUST WORK === */
+
+.carousel-wrapper {
+  width: 100%;
+  margin: 12px 0;
+  border-radius: 20px;
+  overflow: hidden;
+  background: #f1f5f9;
+}
+
+.carousel {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+}
+
+.carousel::-webkit-scrollbar {
+  display: none;
+}
+
+.carousel-slide {
+  flex: 0 0 100%;
+  width: 100%;
+  scroll-snap-align: start;
+  position: relative;
+
+  /* This forces visible height */
+  aspect-ratio: 4 / 5;
+  background: #000;
+}
+
+/* This must defeat all other img rules */
+.carousel-slide > img {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: contain !important;
+  display: block !important;
+  max-height: none !important;
+}
+.carousel-slide {
+  position: relative !important;
+  overflow: hidden !important;
+}
+
+.carousel-slide > img {
+  position: absolute !important;
+  inset: 0 !important;
+  z-index: 9999 !important;   /* <-- this is the key */
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: contain !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+.carousel-wrapper {
+  width: 100%;
+  margin: 12px 0;
+}
+
+.carousel {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+  gap: 0;
+}
+
+.carousel::-webkit-scrollbar {
+  display: none;
+}
+
+.carousel-img {
+  flex: 0 0 100%;
+  width: 100%;
+  max-height: 520px;
+  object-fit: contain;
+  border-radius: 18px;
+  scroll-snap-align: start;
+  background: #f1f5f9;
+}
+.carousel {
+  scrollbar-width: none;        /* Firefox */
+}
+
+.carousel::-webkit-scrollbar {
+  display: none;               /* Chrome, Safari */
+}
+.carousel-wrapper {
+  width: 100%;
+  margin: 12px 0;
+  position: relative;   /* ← THIS IS THE KEY */
+  isolation: isolate;   /* 🔥 THIS IS THE KEY LINE */
+
+}
+
+
+.carousel {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+  scrollbar-width: none;
+}
+
+.carousel::-webkit-scrollbar {
+  display: none;
+}
+
+.carousel-img {
+  flex: 0 0 100%;
+  width: 100%;
+  max-height: 520px;
+  object-fit: cover;            /* looks more premium than contain */
+  border-radius: 18px;
+  scroll-snap-align: center;
+  background: #f1f5f9;
+}
+
+/* Dots */
+.carousel-dots {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 0 4px;
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  background: #d1fae5;
+  border-radius: 50%;
+  transition: all 0.2s ease;
+}
+
+.dot.active {
+  width: 18px;
+  background: #10b981;
+  border-radius: 10px;
+}
+.carousel {
+  cursor: grab;
+}
+
+.carousel:active {
+  cursor: grabbing;
+}
+.carousel-counter {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 100;          /* higher */
+  background: rgba(0,0,0,0.65);
+  color: white;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  pointer-events: none;  /* prevents it blocking swipe */
+}
+.carousel-wrapper {
+  width: 100%;
+  margin: 12px 0;
+  position: relative;
+  isolation: isolate;
+}
+
+.carousel {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+  scrollbar-width: none;
+}
+
+.carousel::-webkit-scrollbar {
+  display: none;
+}
+
+/* Each slide is a fixed full-width frame */
+.carousel-slide {
+  flex: 0 0 100%;
+  width: 100%;
+  scroll-snap-align: start;
+}
+
+/* Image fills slide */
+.carousel-img {
+  display: block;
+  width: 100%;
+  max-height: 520px;
+  object-fit: cover;
+  border-radius: 18px;
+  background: #f1f5f9;
+}
+.image-viewer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.92);
+  z-index: 99999;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  padding-top: env(safe-area-inset-top, 20px);
+  padding-bottom: env(safe-area-inset-bottom, 20px);
+
+  backdrop-filter: blur(4px);
+}
+
+
+.image-viewer-img {
+  max-width: 95vw;
+  max-height: 95vh;
+  object-fit: contain;
+  border-radius: 16px;
+}
+.viewer-close {
+  position: absolute;
+  top: calc(env(safe-area-inset-top, 20px) + 10px);
+  right: 14px;
+
+  background: rgba(0,0,0,0.7);
+  color: white;
+  border: none;
+  font-size: 1.3rem;
+  padding: 8px 14px;
+  border-radius: 50%;
+  cursor: pointer;
+
+  z-index: 100000;
+}
+
+.image-viewer-img {
+  max-width: 95vw;
+  max-height: 95vh;
+  object-fit: contain;
+  border-radius: 16px;
+}
+.viewer-close {
+  backdrop-filter: blur(6px);
+}
+

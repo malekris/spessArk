@@ -1,12 +1,12 @@
 // src/App.jsx
+import { useEffect } from "react";
+import { socket } from "./socket";
 import { Routes, Route } from "react-router-dom";
-
 import LoginPage from "./pages/LoginPage";
 import TeacherLogin from "./pages/TeacherLogin";
 import TeacherDashboard from "./pages/TeacherDashboard";
 import AdminDashboard from "./pages/AdminDashboard";
 import TeacherSignup from "./pages/TeacherSignup";
-
 import LandingPage from "./components/LandingPage";
 import ArkLayout from "./components/ArkLayout";
 // A-Level pages (new imports)
@@ -24,8 +24,43 @@ import VineForgotPassword from "./modules/vine/pages/VineForgotPassword";
 import VineResetPassword from "./modules/vine/pages/VineResetPassword";
 import VineFollowers from "./modules/vine/pages/VineFollowers";
 import VineFollowing from "./modules/vine/pages/VineFollowing";
+import VineNotifications from "./modules/vine/pages/VineNotifications";
+import ConversationList from "./components/dms/ConversationList";
+import ChatWindow from "./components/dms/ChatWindow";
+import DmsPage from "./components/dms/DmsPage";
+import VineSuggestions from "./modules/vine/pages/VineSuggestions";
+import VineSearch from "./modules/vine/pages/VineSearch";
+
+
 
 function App() {
+
+  useEffect(() => {
+    const user = JSON.parse(localStorage.getItem("vine_user"));
+    if (!user?.id) return;
+  
+    socket.connect();
+  
+    const handleConnect = () => {
+      console.log("🟢 Socket connected:", socket.id);
+      socket.emit("register", user.id);
+    };
+  
+    const handleDisconnect = () => {
+      console.log("🔴 Socket disconnected");
+    };
+  
+    socket.on("connect", handleConnect);
+    socket.on("disconnect", handleDisconnect);
+  
+    return () => {
+      socket.off("connect", handleConnect);
+      socket.off("disconnect", handleDisconnect);
+    };
+  }, []);
+  
+
+  
   return (
     <Routes>
     {/* 🌍 Public website */}
@@ -91,6 +126,13 @@ function App() {
 <Route path="/vine/reset-password" element={<VineResetPassword />} />
 <Route path="/vine/:username/followers" element={<VineFollowers />} />
 <Route path="/vine/:username/following" element={<VineFollowing />} />
+<Route path="/vine/notifications" element={<VineNotifications />} />
+<Route path="/vine/dms" element={<ConversationList />} />
+<Route path="/vine/dms" element={<DmsPage />} />
+<Route path="/vine/dms/:conversationId" element={<ChatWindow />} />
+<Route path="/vine/suggestions" element={<VineSuggestions />} />
+<Route path="/vine/search" element={<VineSearch />} />
+
 
   </Routes>
   

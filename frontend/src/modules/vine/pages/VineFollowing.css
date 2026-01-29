@@ -1,24 +1,150 @@
-/* Styling for the "Following" state in the list */
-.row-follow-btn.following {
-  background: transparent;
-  color: #eff3f4;
-  border: 1px solid #536471;
+/* ───── Follow Button Base (The Solid Pill) ───── */
+.row-follow-btn {
+  min-width: 110px; 
+  padding: 10px 20px;
+  border-radius: 50px;
+  font-weight: 800; /* Extra bold for readability */
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  
+  /* High-Contrast Colors */
+  background: #064e3b; /* Deep Forest Green */
+  color: #ffffff !important; /* Force White Text */
+  box-shadow: 0 4px 12px rgba(6, 78, 59, 0.15);
 }
 
+/* ───── The "Following" State (Clear & Solid) ───── */
+.row-follow-btn.following {
+  background: #059669; /* Slightly lighter minty green */
+  color: #ffffff !important;
+  border: none;
+}
+
+/* ───── Hover State (NO RED - Just High Contrast) ───── */
 .row-follow-btn.following:hover {
-  border-color: #f4212e; /* Red border on hover to signify 'Unfollow' */
-  color: #f4212e;
-  background: rgba(244, 33, 46, 0.1);
+  background: #064e3b; /* Darkens on hover to signal action */
+  color: #ffffff !important;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 15px rgba(0, 0, 0, 0.1);
+}
+
+/* Text swapping logic - Now crystal clear */
+.row-follow-btn.following:hover {
+  font-size: 0; 
 }
 
 .row-follow-btn.following:hover::after {
   content: "Unfollow";
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: #ffffff; /* Keeps it white on dark green */
 }
 
-.row-follow-btn.following:hover {
-  font-size: 0; /* Hide the word 'Following' */
+/* ───── PC Reading Optimization ───── */
+@media (min-width: 769px) {
+  /* Ensuring the text inside the row cards is black-green */
+  .name-container strong {
+    color: #042f2e !important; 
+    font-size: 1.2rem;
+  }
+  
+  .handle {
+    color: #374151 !important;
+    font-weight: 600;
+  }
 }
+/* ... [KEEP ALL YOUR EXISTING DESKTOP CSS ABOVE THIS] ... */
 
-.row-follow-btn.following:hover::after {
-  font-size: 0.9rem; /* Show 'Unfollow' instead */
+/* ... [KEEP ALL YOUR EXISTING DESKTOP CSS EXACTLY AS IT IS] ... */
+
+/* ───── MOBILE ONLY TWEAKS ───── */
+@media (max-width: 768px) {
+  .vine-follow-container {
+    padding: 0;
+    background: #ffffff; 
+    width: 100%;
+    display: block;
+  }
+
+  .user-row {
+    display: flex;
+    flex-direction: row; 
+    align-items: center; /* Vertically centers avatar with names */
+    justify-content: space-between;
+    padding: 12px 15px;
+    border-bottom: 1px solid #f1f5f9;
+    background: #ffffff;
+  }
+
+  .user-row-left {
+    display: flex;
+    flex-direction: row; 
+    align-items: center; 
+    gap: 14px; /* Slightly wider gap for the new border */
+    flex: 1;
+  }
+
+  /* ───── Mobile Avatar Pop ───── */
+  .follow-avatar, .initial-circle {
+    width: 50px;
+    height: 50px;
+    flex-shrink: 0;
+    aspect-ratio: 1/1;
+    overflow: hidden;
+    border-radius: 50%;
+    /* The Border: High-contrast Mint to make it pop */
+    border: 2px solid #10b981 !important; 
+    box-shadow: 0 2px 8px rgba(16, 185, 129, 0.15);
+  }
+
+  .follow-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  /* ───── Text & Button Alignment ───── */
+  .user-details {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  .name-container strong {
+    font-size: 1.05rem;
+    color: #052e16; /* Near-black green for readability */
+    line-height: 1.2;
+  }
+  
+  .handle {
+    font-size: 0.85rem;
+    color: #4b5563;
+  }
+
+  /* Following/Follow Buttons (Solid & Readable) */
+  .row-follow-btn {
+    background: #064e3b !important; 
+    color: #ffffff !important; 
+    padding: 8px 16px;
+    font-size: 0.75rem;
+    font-weight: 800;
+    border-radius: 50px;
+    border: none;
+    min-width: 95px;
+  }
+
+  .row-follow-btn.following {
+    background: #d1fae5 !important; 
+    color: #064e3b !important; 
+    border: 1px solid #a7f3d0 !important;
+  }
+
+  .row-bio {
+    display: none; /* Keeps alignment perfect on mobile */
+  }
 }

@@ -10,6 +10,11 @@
   .vine-container {
     font-size: 16px; /* desktop default */
   }
+  html, body, #root {
+    height: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
   
   .vine-card {
     width: 420px;
@@ -984,4 +989,29 @@
   outline: none;
   min-height: 60px;
   line-height: 1.4; /* Better spacing between lines */
+}
+.notif-bell {
+  position: relative;
+  cursor: pointer;
+  font-size: 22px;        /* slightly bigger */
+  padding: 6px 10px;      /* gives breathing space */
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.notif-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: #22c55e;
+  color: black;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-weight: bold;
+  min-width: 18px;
+  text-align: center;
+  box-shadow: 0 0 0 2px #2e7d32; /* ring to separate from green nav */
 }

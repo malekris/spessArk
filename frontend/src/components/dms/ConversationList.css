@@ -1,0 +1,219 @@
+/* ───── Main Container ───── */
+.dm-list {
+  min-height: 100vh;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* Mint-Glow Radial Theme */
+  background: radial-gradient(circle at top, #f0fdf4 0%, #dcfce7 100%);
+  background-attachment: fixed;
+  padding: 40px 20px;
+  box-sizing: border-box;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+/* ───── Header (Glassmorphism) ───── */
+.dm-header {
+  width: 100%;
+  max-width: 800px;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  padding: 15px 25px;
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid rgba(167, 243, 208, 0.6);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.04);
+  margin-bottom: 25px;
+  position: sticky;
+  top: 10px;
+  z-index: 100;
+}
+
+.dm-mint-pill-btn {
+  background: #10b981;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 50px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: transform 0.2s;
+}
+
+.dm-mint-pill-btn:hover {
+  transform: scale(1.05);
+  background: #059669;
+}
+
+.dm-title {
+  color: #052e16;
+  font-weight: 900;
+  font-size: 1.4rem;
+}
+
+/* ───── Conversation Item (Card) ───── */
+.dm-item {
+  width: 100%;
+  max-width: 800px;
+  background: #ffffff;
+  margin-bottom: 12px;
+  padding: 18px 22px;
+  border-radius: 24px;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  border: 1px solid #e2e8f0;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+}
+
+.dm-item:hover {
+  transform: translateY(-3px);
+  border-color: #10b981;
+  box-shadow: 0 12px 24px rgba(16, 185, 129, 0.08);
+}
+
+.dm-unread {
+  background: #f0fdf4;
+  border-left: 5px solid #10b981;
+}
+
+/* ───── Avatar (The Pop Border) ───── */
+.dm-avatar, .dm-avatar-fallback {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  border: 2px solid #10b981; /* Consistent Pop Border */
+  object-fit: cover;
+}
+
+.dm-avatar-fallback {
+  background: #d1fae5;
+  color: #064e3b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+  font-size: 1.4rem;
+}
+
+/* ───── Meta Content ───── */
+.dm-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.dm-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.dm-top strong {
+  color: #052e16; /* Near-black Green */
+  font-size: 1.15rem;
+  font-weight: 800;
+}
+
+/* ───── Preview Text ───── */
+.dm-preview {
+  color: #64748b;
+  font-size: 0.95rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 90%;
+}
+
+.dm-unread .dm-preview {
+  color: #064e3b;
+  font-weight: 600;
+}
+
+/* ───── Badges & Buttons ───── */
+.dm-badge {
+  background: #10b981;
+  color: white;
+  padding: 2px 8px;
+  border-radius: 50px;
+  font-size: 0.75rem;
+  font-weight: 900;
+  margin-right: 10px;
+}
+
+.dm-delete {
+  background: transparent;
+  border: none;
+  font-size: 1.1rem;
+  cursor: pointer;
+  opacity: 0.3;
+  transition: opacity 0.2s;
+}
+
+.dm-item:hover .dm-delete {
+  opacity: 1;
+}
+
+.dm-delete:hover {
+  transform: scale(1.2);
+}
+
+.dm-empty {
+  color: #064e3b;
+  font-weight: 700;
+  margin-top: 50px;
+}
+
+/* ───── MOBILE ONLY (DESKTOP AS IS) ───── */
+@media (max-width: 768px) {
+  .dm-list {
+    padding: 0;
+    background: #ffffff;
+    align-items: stretch;
+  }
+
+  .dm-header {
+    top: 0;
+    border-radius: 0;
+    margin-bottom: 0;
+    border: none;
+    border-bottom: 1px solid #eef2f1;
+    padding: 12px 15px;
+  }
+
+  .dm-item {
+    border-radius: 0;
+    border: none;
+    border-bottom: 1px solid #f1f5f9;
+    margin-bottom: 0;
+    padding: 15px;
+  }
+
+  .dm-item:hover {
+    transform: none;
+    box-shadow: none;
+  }
+
+  .dm-avatar, .dm-avatar-fallback {
+    width: 50px;
+    height: 50px;
+  }
+
+  .dm-delete {
+    opacity: 0.6; /* More visible on mobile for tapability */
+  }
+
+  .dm-preview {
+    font-size: 0.85rem;
+  }
+}

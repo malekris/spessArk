@@ -1,0 +1,139 @@
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import "./ConversationList.css";
+import { socket } from "../../socket";
+
+const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
+
+export default function ConversationList() {
+  /* ---------------------------
+     STATE & GLOBALS
+  ---------------------------- */
+  const [conversations, setConversations] = useState([]);
+  const navigate = useNavigate();
+  const token = localStorage.getItem("vine_token");
+
+  /* ---------------------------
+     FETCH CONVERSATIONS
+  ---------------------------- */
+  const loadConversations = async () => {
+    try {
+      const res = await fetch(`${API}/api/dms/conversations`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      const data = await res.json();
+      setConversations(data || []);
+    } catch (err) {
+      console.error("Failed to load conversations", err);
+    }
+  };
+
+  /* ---------------------------
+     DELETE CONVERSATION
+  ---------------------------- */
+  const deleteConversation = async (id) => {
+    try {
+      await fetch(`${API}/api/dms/conversations/${id}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      loadConversations(); // refresh inbox instantly
+    } catch (err) {
+      console.error("Delete failed", err);
+    }
+  };
+
+  /* ---------------------------
+     INITIAL LOAD + SOCKET UPDATES
+  ---------------------------- */
+  useEffect(() => {
+    loadConversations();
+
+    // Listen for realtime inbox updates
+    const refreshInbox = () => loadConversations();
+
+    socket.on("dm_received", refreshInbox);
+    socket.on("inbox_updated", refreshInbox);
+
+    return () => {
+      socket.off("dm_received", refreshInbox);
+      socket.off("inbox_updated", refreshInbox);
+    };
+  }, []);
+
+  /* ---------------------------
+     UI
+  ---------------------------- */
+  return (
+    <div className="dm-list">
+ {/* HEADER */}
+<div className="dm-header">
+  <button className="dm-mint-pill-btn" onClick={() => navigate("/vine/feed")}>
+    <span className="icon">←</span>
+    <span className="label">🌱 Vine Feed</span>
+  </button>
+
+  <span className="dm-title">💬 Messages</span>
+</div>
+
+      {/* EMPTY STATE */}
+      {conversations.length === 0 && (
+        <div className="dm-empty">No conversations yet</div>
+      )}
+
+      {/* CONVERSATIONS */}
+      {conversations.map((c) => {
+        const avatar = c.avatar_url ? `${API}${c.avatar_url}` : null;
+
+        return (
+          <div
+            key={c.conversation_id}
+            className={`dm-item ${c.unread_count > 0 ? "dm-unread" : ""}`}
+            onClick={() => navigate(`/vine/dms/${c.conversation_id}`)}
+          >
+            {/* AVATAR */}
+            {avatar ? (
+              <img src={avatar} className="dm-avatar" alt="" />
+            ) : (
+              <div className="dm-avatar-fallback">
+                {c.username?.[0]?.toUpperCase() || "?"}
+              </div>
+            )}
+
+            {/* META */}
+            <div className="dm-meta">
+              <div className="dm-top">
+                <strong>@{c.username}</strong>
+
+                {c.unread_count > 0 && (
+                  <span className="dm-badge">{c.unread_count}</span>
+                )}
+
+                {/* DELETE BUTTON */}
+                <button
+                  className="dm-delete"
+                  onClick={(e) => {
+                    e.stopPropagation(); // don't open conversation
+                    deleteConversation(c.conversation_id);
+                  }}
+                >
+                  🗑️
+                </button>
+              </div>
+
+              <div className="dm-preview">
+                {c.last_message || "No messages yet 🌱"}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}

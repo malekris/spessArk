@@ -50,6 +50,9 @@ export default function VineLogin() {
   return (
     <div className="vine-auth-bg">
       <div className="vine-auth-card">
+      <Link to="/" className="back-home-btn">
+    ← Back to website
+  </Link>   
         <h2 className="vine-title">Welcome to SPESS VINE 🌱</h2>
 
         <form className="vine-form" onSubmit={handleLogin}>
@@ -79,6 +82,7 @@ export default function VineLogin() {
         <div className="vine-footer">
           New to Vine? <Link to="/vine/register">Sign Up</Link>
         </div>
+      
       </div>
     </div>
   );

@@ -21,7 +21,8 @@
     "multer": "^2.0.2",
     "mysql2": "^3.15.3",
     "nodemailer": "^7.0.11",
-    "resend": "^6.8.0"
+    "resend": "^6.8.0",
+    "socket.io": "^4.8.3"
   },
   "devDependencies": {
     "nodemon": "^3.1.11"

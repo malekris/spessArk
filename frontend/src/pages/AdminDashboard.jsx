@@ -51,10 +51,33 @@ export default function AdminDashboard() {
 
   // Auth / navigation
   useEffect(() => {
-    const isAdmin = sessionStorage.getItem("isAdmin");
-    if (!isAdmin) navigate("/", { replace: true });
+    const token = localStorage.getItem("adminToken");
+  
+    // No token at all → kick out immediately
+    if (!token) {
+      navigate("/", { replace: true });
+      return;
+    }
+  
+    // Verify token with backend
+    fetch(`${API_BASE}/api/admin/me`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
+      .then((res) => {
+        if (!res.ok) {
+          throw new Error("Unauthorized");
+        }
+      })
+      .catch(() => {
+        // Token is invalid or expired
+        localStorage.removeItem("adminToken");
+        localStorage.removeItem("isAdmin");
+        navigate("/", { replace: true });
+      });
   }, [navigate]);
-
+  
   useIdleLogout(() => {
     // remove admin-related keys (non-destructive)
     localStorage.removeItem("SPESS_ADMIN_KEY");

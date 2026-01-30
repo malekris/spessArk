@@ -120,6 +120,35 @@ function authTeacher(req, res, next) {
     return res.status(401).json({ message: "Invalid or expired token" });
   }
 }
+//AdminAuth route//
+app.post("/api/admin/login", async (req, res) => {
+  const { username, password } = req.body;
+
+  // Example static admin (you can later move to DB)
+  if (username !== "admin" || password !== "admin") {
+    return res.status(401).json({ message: "Invalid credentials" });
+  }
+
+  const token = jwt.sign(
+    { id: 1, username: "admin", role: "admin" },
+    process.env.JWT_SECRET || "dev_secret",
+    { expiresIn: "1d" }
+  );
+
+  res.json({ token });
+});
+app.get("/api/admin/me", authAdmin, (req, res) => {
+  try {
+    res.json({
+      id: req.admin?.id || null,
+      username: req.admin?.username || null,
+    });
+  } catch (err) {
+    console.error("admin/me error:", err);
+    res.status(500).json({ message: "Failed to verify admin" });
+  }
+});
+
 
 /* =======================
    DATABASE

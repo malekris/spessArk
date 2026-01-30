@@ -1,576 +1,402 @@
-/* ================================
-   1. GLOBAL PAGE SETUP
-   ================================ */
-   .login-page {
-    position: relative;
-    min-height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 1rem;
-    overflow: hidden;
-    background: #020617;
-  }
-  
-  /* CAROUSEL BACKGROUND */
-  .login-background {
-    position: absolute;
-    inset: 0;
-    z-index: 0;
-  }
-  
-  .carousel-slide {
-    position: absolute;
-    inset: 0;
-    background-size: cover;
-    background-position: center;
-    opacity: 0;
-    transition: opacity 2s ease-in-out;
-  }
-  
-  .carousel-slide.active {
-    opacity: 1;
-  }
-  
-  .login-background::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: radial-gradient(circle at center, rgba(2, 6, 23, 0.4), rgba(2, 6, 23, 0.85));
-    z-index: 1;
-  }
-  
-  /* ================================
-     2. THE GLASS CARD
-     =============================== */
-  .glass-container {
-    position: relative;
-    z-index: 2;
-    width: 100%;
-    max-width: 420px;
-    padding: 3rem 2.5rem;
-    background: rgba(255, 255, 255, 0.05);
-    backdrop-filter: blur(25px);
-    -webkit-backdrop-filter: blur(25px);
-    border-radius: 30px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    box-shadow: 0 40px 100px rgba(0, 0, 0, 0.6);
-    box-sizing: border-box;
-  }
-  
-  .glass-header h1 {
-    font-size: 1.8rem;
-    font-weight: 900;
-    letter-spacing: 0.15em;
-    color: #fff;
-    margin: 0;
-  }
-  
-  .glass-header h2 {
-    font-size: 0.7rem;
-    letter-spacing: 0.3em;
-    color: #a78bfa;
-    margin: 0.5rem 0;
-    text-transform: uppercase;
-  }
-  
-  .ark-subtitle {
-    font-size: 0.75rem;
-    opacity: 0.5;
-    margin-bottom: 2rem;
-    color: #fff;
-  }
-  
-  /* ================================
-     3. INPUTS & LABELS
-     =============================== */
-  .input-group {
-    text-align: left;
-    margin-bottom: 1.2rem;
-  }
-  
-  .input-group label {
-    display: block;
-    font-size: 0.65rem;
-    font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    color: rgba(255, 255, 255, 0.6);
-    margin-left: 0.5rem;
-    margin-bottom: 0.4rem;
-  }
-  
-  .glass-container input {
-    width: 100%;
-    padding: 1rem;
-    background: rgba(0, 0, 0, 0.4);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 15px;
-    color: #fff;
-    font-size: 1rem; /* Prevents iOS Zoom */
-    outline: none;
-    box-sizing: border-box;
-  }
-  
-  .glass-container input:focus {
-    border-color: #a78bfa;
-    background: rgba(0, 0, 0, 0.6);
-  }
-  
-  /* ================================
-     4. BUTTONS & ACTIONS
-     =============================== */
-  .admin-btn {
-    width: 100%;
-    padding: 1rem;
-    background: #a78bfa;
-    color: #0a0c10;
-    border: none;
-    border-radius: 15px;
-    font-weight: 900;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    cursor: pointer;
-    transition: all 0.3s;
-  }
-  
-  .admin-btn:hover:not(:disabled) {
-    transform: translateY(-2px);
-    box-shadow: 0 5px 15px rgba(167, 139, 250, 0.4);
-  }
-  
-  .teacher-btn {
-    width: 100%;
-    background: transparent;
-    color: #fff;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    padding: 1rem;
-    border-radius: 15px;
-    font-size: 0.8rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    cursor: pointer;
-    transition: all 0.3s;
-  }
-  
-  .teacher-btn:hover { background: rgba(255, 255, 255, 0.05); }
-  
-  .auth-secondary-btn {
-    all: unset;
-    display: block;
-    width: 100%;
-    margin-top: 1.2rem;
-    padding: 0.8rem;
-    font-size: 0.8rem;
-    font-weight: 600;
-    color: rgba(255, 255, 255, 0.5);
-    text-align: center;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    cursor: pointer;
-    border-radius: 12px;
-    transition: all 0.3s;
-    box-sizing: border-box;
-  }
-  
-  .auth-secondary-btn:hover { color: #fff; }
-  
-  /* ================================
-     5. SPECIAL ELEMENTS
-     =============================== */
-  .back-to-site-btn {
-    position: fixed;
-    top: 1.5rem;
-    left: 1.5rem;
-    z-index: 9999;
-    width: auto;
-    padding: 0.6rem 1rem;
-    font-size: 0.75rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    background: rgba(10, 12, 16, 0.6);
-    color: #fff;
-    backdrop-filter: blur(10px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 12px;
-    cursor: pointer;
-    white-space: nowrap;
-  }
-  
-  .divider {
-    margin: 1.5rem 0;
-    height: 1px;
-    background: rgba(255, 255, 255, 0.1);
-    position: relative;
-  }
-  
-  .divider span {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    background: #020617; /* Matches page bg */
-    padding: 0 10px;
-    font-size: 0.6rem;
-    opacity: 0.4;
-    color: #fff;
-  }
-  
-  /* ================================
-     6. RESPONSIVE OVERRIDES
-     =============================== */
-  @media (max-width: 640px) {
-    .glass-container {
-      padding: 2.5rem 1.5rem;
-      max-width: 100%;
-      border-radius: 20px;
-    }
-    
-    .back-to-site-btn {
-      top: 10px;
-      left: 10px;
-      font-size: 0.65rem;
-      padding: 0.5rem 0.8rem;
-    }
-  }
-  .auth-secondary-btn-red {
-    display: block;
-    width: 100%;
-    margin-top: 1.5rem;
-    padding: 1rem;
-    
-    /* Styling */
-    background: rgba(239, 68, 68, 0.1); /* Subtle red tint */
-    border: 1px solid rgba(239, 68, 68, 0.4);
-    border-radius: 15px;
-    
-    /* Typography */
-    color: #fca5a5; /* Soft red text for readability */
-    font-size: 0.8rem;
-    font-weight: 800;
-    text-align: center;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
-    
-    cursor: pointer;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    box-sizing: border-box;
-  }
-  
-  .auth-secondary-btn-red span {
-    display: inline-block;
-    transition: transform 0.3s ease;
-    margin-right: 8px;
-  }
-  
-  /* Hover & Active States */
-  .auth-secondary-btn-red:hover {
-    background: rgba(239, 68, 68, 0.2);
-    border-color: #ef4444;
-    color: #fff;
-  }
-  
-  .auth-secondary-btn-red:hover span {
-    transform: translateX(-5px);
-  }
-  
-  /* Specific Mobile Fix */
-  @media (max-width: 640px) {
-    .auth-secondary-btn-red {
-      padding: 1.1rem; /* Slightly larger for easier thumb-tapping */
-      background: rgba(239, 68, 68, 0.2); /* Higher opacity for mobile screens */
-      border-color: rgba(239, 68, 68, 0.5);
-      font-size: 0.75rem;
-    }
-  }
- /* --- Desktop Only Positioning (RIGHT) --- */
-@media (min-width: 1024px) {
-  .login-page {
-    /* Moves the card to the right */
-    justify-content: flex-end; 
-    
-    /* Adds breathing room from the right edge */
-    padding-right: 8%; 
-    
-    /* Reset left padding so it doesn't interfere */
-    padding-left: 0; 
-  }
+/* login.css */
 
-  .glass-container {
-    /* Floating animation with a slight right-side drift */
-    animation: floatCardRight 6s ease-in-out infinite;
-  }
+/* Force high-level container to behave */
+.ark-login-wrapper {
+  position: fixed !important; /* Fixed ensures it covers everything */
+  top: 0;
+  left: 0;
+  width: 100vw !important;
+  height: 100vh !important;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  z-index: 999; /* Stay above global wrappers */
+  background-color: black;
 }
 
-/* Updated floating animation for right side */
-@keyframes floatCardRight {
-  0%, 100% { transform: translateY(0) translateX(0); }
-  50% { transform: translateY(-20px) translateX(-5px); }
+.ark-bg-slideshow {
+  position: absolute;
+  inset: 0;
+  z-index: -1; /* Behind the card */
 }
 
-/* --- Mobile Remains Centered --- */
-@media (max-width: 1023px) {
-  .login-page {
-    justify-content: center;
-    padding: 1rem;
-    align-items: center; /* Ensures vertical centering on mobile */
-  }
+/* THE GLASS CARD - ADMIN RED */
+.ark-glass-card {
+  position: relative;
+  z-index: 1000;
+  width: 90%;
+  max-width: 400px;
+  padding: 40px;
+  border-radius: 24px;
+  
+  /* Red Glass Effect */
+  background: rgba(139, 0, 0, 0.25) !important; 
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px);
+  
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7);
+  color: white;
 }
-.auth-gold-btn {
-  display: block;
-  width: 100%;
-  margin-top: 1.5rem;
-  padding: 1rem;
+
+.ark-header h1 {
+  font-size: 1.8rem;
+  letter-spacing: 2px;
+  margin-bottom: 5px;
+}
+/* --- PREVIOUS BG CODE REMAINS THE SAME --- */
+
+/* THE GLASS CARD */
+/* Note: I'm targeting the class exactly as you have it in JSX */
+.glass-container {
+  position: relative;
+  z-index: 1000;
+  width: 90%;
+  max-width: 400px;
+  padding: 40px;
+  border-radius: 24px;
   
-  /* Gold Gradient & Border */
-  background: linear-gradient(135deg, rgba(212, 175, 55, 0.1), rgba(184, 134, 11, 0.2));
-  border: 1px solid rgba(212, 175, 55, 0.5);
-  border-radius: 15px;
-  
-  /* Typography */
-  color: #f3cf7a; /* Soft Metallic Gold */
-  font-size: 0.8rem;
-  font-weight: 800;
+  /* Admin Red Glass Theme */
+  background: rgba(139, 0, 0, 0.2) !important; 
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+  color: white;
   text-align: center;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  
+}
+
+/* BACK BUTTON */
+.ark-back-btn {
+  position: absolute;
+  top: 25px;
+  left: 25px;
+  z-index: 1001;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: white;
+  padding: 8px 16px;
+  border-radius: 30px;
   cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  backdrop-filter: blur(5px);
+  transition: 0.3s;
+}
+
+.ark-back-btn:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* HEADER STYLES */
+.ark-header h1 { font-size: 1.8rem; margin: 0; letter-spacing: 3px; font-weight: 800; }
+.ark-header h2 { font-size: 1.1rem; margin: 5px 0; font-weight: 300; opacity: 0.9; }
+.ark-subtitle { font-size: 0.75rem; opacity: 0.6; margin-bottom: 25px; text-transform: uppercase; }
+
+/* INPUTS */
+.input-group {
+  text-align: left;
+  margin-bottom: 18px;
+}
+
+.input-group label {
+  display: block;
+  font-size: 0.8rem;
+  margin-bottom: 6px;
+  margin-left: 4px;
+  font-weight: 500;
+}
+
+.input-group input {
+  width: 100%;
+  padding: 12px 15px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+  color: white !important;
+  font-size: 1rem;
   box-sizing: border-box;
-  box-shadow: 0 0 15px rgba(212, 175, 55, 0.1);
+  transition: 0.3s;
+}
+
+.input-group input:focus {
+  outline: none;
+  background: rgba(255, 255, 255, 0.15) !important;
+  border-color: rgba(255, 255, 255, 0.5) !important;
+}
+
+/* BUTTONS */
+.admin-btn-hot {
+  width: 100%;
+  padding: 14px;
+  border: none;
+  border-radius: 12px;
+  background: #d32f2f !important; /* Solid Red */
+  color: white;
+  font-weight: 700;
+  font-size: 1rem;
+  cursor: pointer;
+  margin-top: 10px;
+  transition: transform 0.2s, background 0.2s;
+}
+
+.admin-btn-hot:hover {
+  background: #b71c1c !important;
+  transform: translateY(-2px);
+}
+
+.admin-btn-hot:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* DIVIDER */
+.divider {
+  display: flex;
+  align-items: center;
+  margin: 25px 0;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 0.8rem;
+}
+
+.divider::before, .divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.divider span { padding: 0 10px; }
+
+/* TEACHER BUTTON - GREEN THEME */
+.auth-green-btn {
+  width: 100%;
+  padding: 14px;
+  background: rgba(76, 175, 80, 0.1) !important;
+  border: 1px solid rgba(76, 175, 80, 0.5) !important;
+  border-radius: 12px;
+  color: #81c784 !important;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: 0.3s;
+}
+
+.auth-green-btn:hover {
+  background: rgba(76, 175, 80, 0.25) !important;
+  color: #ffffff !important;
+}
+
+/* ERROR MESSAGE */
+.login-error {
+  background: rgba(255, 0, 0, 0.2);
+  color: #ffcdd2;
+  font-size: 0.85rem;
+  padding: 10px;
+  border-radius: 8px;
+  margin-bottom: 15px;
+  border: 1px solid rgba(255, 0, 0, 0.3);
+}
+
+/* MOBILE RESPONSIVENESS */
+@media (max-width: 480px) {
+  .glass-container {
+    width: 85%;
+    padding: 30px 20px;
+  }
+}
+/* TEACHER SPECIFIC GLASS (Green Tint) */
+/* Apply this class to the glass-container when in teacher view */
+.glass-teacher {
+  background: rgba(20, 45, 30, 0.3) !important; 
+  border: 1px solid rgba(129, 199, 132, 0.3) !important;
+  box-shadow: 0 20px 50px rgba(0, 20, 0, 0.6);
+}
+
+/* THE TEACHER BUTTON (Violet/Purple) */
+.teacher-btn {
+  width: 100%;
+  padding: 14px;
+  border: none;
+  border-radius: 12px;
+  background: #a78bfa !important; /* The violet color from your snippet */
+  color: #0a0c10 !important;
+  font-weight: 700;
+  font-size: 1rem;
+  cursor: pointer;
+  margin-top: 10px;
+  transition: transform 0.2s, background 0.2s;
+}
+
+.teacher-btn:hover {
+  background: #8b5cf6 !important;
+  transform: translateY(-2px);
+}
+
+/* THE GOLD BUTTON (Signup) */
+.auth-gold-btn {
+  width: 100%;
+  padding: 14px;
+  background: rgba(255, 215, 0, 0.1) !important;
+  border: 1px solid rgba(255, 215, 0, 0.4) !important;
+  border-radius: 12px;
+  color: #ffd700 !important;
+  font-weight: 600;
+  cursor: pointer;
+  transition: 0.3s;
 }
 
 .auth-gold-btn:hover {
-  background: linear-gradient(135deg, rgba(212, 175, 55, 0.2), rgba(184, 134, 11, 0.3));
-  border-color: #d4af37; /* Brighter Gold */
-  color: #fff;
-  box-shadow: 0 0 25px rgba(212, 175, 55, 0.25);
-  transform: translateY(-2px);
+  background: rgba(255, 215, 0, 0.2) !important;
+  box-shadow: 0 0 15px rgba(255, 215, 0, 0.2);
 }
 
-/* Specific Mobile Optimization */
-@media (max-width: 640px) {
-  .auth-gold-btn {
-    background: rgba(212, 175, 55, 0.15); /* Slightly more solid for mobile visibility */
-    padding: 1.1rem;
-  }
-}
+/* THE BLACK/NAVY BACK BUTTON */
 .auth-black-btn {
-  display: block;
   width: 100%;
-  margin-top: 1rem;
-  padding: 1rem;
-  
-  /* Solid Obsidian Styling */
-  background: rgba(0, 0, 0, 0.85); /* Deep black with slight glass transparency */
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 15px;
-  
-  /* Typography */
-  color: #ffffff;
-  font-size: 0.8rem;
-  font-weight: 800;
-  text-align: center;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  
+  margin-top: 15px;
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.4) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 10px;
+  color: #ccc !important;
   cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-sizing: border-box;
-}
-
-.auth-black-btn span {
-  display: inline-block;
-  transition: transform 0.3s ease;
-  margin-right: 8px;
-}
-
-/* Hover State */
-.auth-black-btn:hover {
-  background: #000000;
-  border-color: rgba(255, 255, 255, 0.4);
-  transform: translateY(-2px);
-  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.4);
-}
-
-.auth-black-btn:hover span {
-  transform: translateX(-5px);
-}
-
-/* Mobile Fix */
-@media (max-width: 640px) {
-  .auth-black-btn {
-    background: #000000; /* Full solid on mobile for maximum contrast */
-    padding: 1.1rem;
-  }
-}
-.auth-green-btn {
-  display: block;
-  width: 100%;
-  margin-top: 1rem;
-  padding: 1rem;
-  
-  /* Emerald Cinematic Gradient */
-  background: linear-gradient(135deg, #059669, #064e3b); 
-  border: 1px solid rgba(110, 231, 183, 0.3);
-  border-radius: 15px;
-  
-  /* Typography */
-  color: #ffffff;
   font-size: 0.85rem;
-  font-weight: 800;
+}
+.login-success {
+  background: rgba(76, 175, 80, 0.2);
+  border: 1px solid rgba(76, 175, 80, 0.4);
+  padding: 10px;
+  border-radius: 8px;
+  font-size: 0.85rem;
   text-align: center;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  
-  cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-sizing: border-box;
-  box-shadow: 0 10px 25px rgba(5, 150, 105, 0.2);
 }
+/* login.css */
 
-.auth-green-btn span {
-  display: inline-block;
-  transition: transform 0.3s ease;
-  margin-left: 8px;
-}
-
-/* Hover & Animation */
-.auth-green-btn:hover {
-  background: linear-gradient(135deg, #10b981, #065f46);
-  transform: translateY(-2px);
-  box-shadow: 0 15px 30px rgba(5, 150, 105, 0.4);
-  border-color: rgba(110, 231, 183, 0.6);
-}
-
-.auth-green-btn:hover span {
-  transform: translateX(5px); /* Arrow nudges right */
-}
-
-/* Mobile Optimization */
-@media (max-width: 640px) {
-  .auth-green-btn {
-    padding: 1.1rem;
-    font-size: 0.8rem;
-    background: #059669; /* Solid emerald for mobile clarity */
-  }
-}
-.admin-btn-hot {
-  width: 100%;
-  padding: 1rem;
-  margin-top: 1rem;
-  
-  /* Super Red Hot Lava Gradient */
-  background: linear-gradient(135deg, #ff0000, #8b0000);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 15px;
-  
-  /* Typography */
-  color: #ffffff;
-  font-weight: 900;
-  text-transform: uppercase;
-  letter-spacing: 0.15em;
-  font-size: 0.9rem;
-  
-  cursor: pointer;
-  transition: all 0.3s ease;
-  position: relative;
-  overflow: hidden;
-  
-  /* Initial Glow */
-  box-shadow: 0 0 15px rgba(255, 0, 0, 0.4);
-  animation: heatPulse 2s infinite;
-}
-
-/* Heat Pulse Animation */
-@keyframes heatPulse {
-  0% { box-shadow: 0 0 10px rgba(255, 0, 0, 0.4); }
-  50% { box-shadow: 0 0 25px rgba(255, 0, 0, 0.7); }
-  100% { box-shadow: 0 0 10px rgba(255, 0, 0, 0.4); }
-}
-
-.admin-btn-hot:hover:not(:disabled) {
-  background: linear-gradient(135deg, #ff4500, #ff0000); /* Brightens to orange-red */
-  transform: translateY(-2px) scale(1.02);
-  box-shadow: 0 0 30px rgba(255, 0, 0, 0.8);
-}
-
-.admin-btn-hot:active {
-  transform: scale(0.98);
-}
-
-.admin-btn-hot:disabled {
-  background: #450000;
-  color: #991b1b;
-  cursor: not-allowed;
-  animation: none;
-  opacity: 0.7;
-}
-
-/* Mobile Touch Target */
-@media (max-width: 640px) {
-  .admin-btn-hot {
-    padding: 1.1rem;
-    font-size: 0.85rem;
-  }
-}
-/* --- THE "WRONG PASSWORD" EARTHQUAKE --- */
-.shake-error {
-  animation: earthquake 0.5s cubic-bezier(.36,.07,.19,.97) both;
-  border-color: rgba(255, 0, 0, 0.8) !important; /* Force border red during shake */
-}
-
-@keyframes earthquake {
-  10%, 90% { transform: translate3d(-1px, 0, 0); }
-  20%, 80% { transform: translate3d(2px, 0, 0); }
-  30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
-  40%, 60% { transform: translate3d(4px, 0, 0); }
-}
-
-/* Make sure your Admin button still has its "Hot" style */
-.admin-btn-hot:disabled {
-  filter: grayscale(0.5); /* Looks like cooling lava when disabled */
-  animation: none;
-}
-/* Update your existing carousel styles */
-.carousel-slide {
+.ark-slide {
   position: absolute;
   inset: 0;
+  width: 100%;
+  height: 100%;
   background-size: cover;
   background-position: center;
+  
+  /* --- Cinematic Effects --- */
   opacity: 0;
-  filter: blur(10px) scale(1.1); /* Starts blurred and slightly larger */
+  transform: scale(1.2); /* Start slightly zoomed in */
+  filter: grayscale(100%) brightness(0.3) blur(5px); /* Start dark, gray, and blurry */
+  
+  /* Smooth transition for all properties */
   transition: 
-    opacity 2s ease-in-out, 
-    filter 2s ease-in-out;
-  z-index: 0;
+    opacity 4s ease-in-out, 
+    transform 12s linear, 
+    filter 5s ease-in-out;
 }
 
-.carousel-slide.active {
-  opacity: 1;
-  filter: blur(0px) scale(1); /* Sharpens and shrinks into place */
-  animation: kenBurns 8s linear infinite forwards;
-  z-index: 1;
+.ark-active {
+  opacity: 1 !important;
+  /* The slow zoom-out happens over 12 seconds */
+  transform: scale(1.05) !important; 
+  filter: grayscale(0%) brightness(0.6) blur(0px) !important;
 }
 
-/* The subtle zoom effect */
-@keyframes kenBurns {
+/* Add a dark vignette overlay to draw eyes to the glass card */
+.ark-bg-slideshow::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle, transparent 20%, rgba(0,0,0,0.8) 100%);
+  z-index: 2;
+  pointer-events: none;
+}
+
+/* login.css */
+
+/* --- Desktop Only Styles (Screens wider than 1024px) --- */
+@media (min-width: 1024px) {
+  .ark-login-wrapper {
+    /* Moves the card to the right */
+    justify-content: flex-end !important; 
+    
+    /* Adds space from the right edge */
+    padding-right: 10%; 
+  }
+
+  .glass-container {
+    /* Optional: Slightly larger card for desktop screens */
+    max-width: 420px;
+    
+    /* Optional: Subtle entrance animation from the right */
+    animation: slideInRight 0.8s ease-out;
+  }
+}
+
+@keyframes slideInRight {
   from {
-    transform: scale(1);
+    opacity: 0;
+    transform: translateX(50px);
   }
   to {
-    transform: scale(1.15);
+    opacity: 1;
+    transform: translateX(0);
   }
 }
-.carousel-slide.active {
-  animation: 
-    kenBurns 8s linear forwards,
-    glitchFlash 0.3s ease-out;
+/* Container for the smoke */
+.ark-smoke-wrap {
+  position: absolute;
+  inset: 0;
+  z-index: 5; /* Ensure this is HIGHER than .ark-slide (which is 1) but LOWER than .glass-container (which is 10) */
+  overflow: hidden;
+  pointer-events: none;
 }
 
-@keyframes glitchFlash {
-  0% { opacity: 0; filter: hue-rotate(90deg) brightness(2); }
-  50% { opacity: 0.5; filter: hue-rotate(0deg) brightness(1); }
-  100% { opacity: 1; }
+.smoke-particle {
+  position: absolute;
+  width: 2px; /* Slightly larger to ensure rendering */
+  height: 2px;
+  background: rgba(255, 255, 255, 0.2); /* Give the center a little kick */
+  border-radius: 50%;
+  filter: blur(50px); /* Heavy blur is key */
+}
+
+/* S1: Left Drift */
+.s1 {
+  bottom: -100px;
+  left: 15%;
+  box-shadow: 0 0 150px 100px rgba(255, 255, 255, 0.2); 
+  animation: driftUp 20s infinite ease-out;
+}
+
+/* S2: Center Drift */
+.s2 {
+  bottom: -120px;
+  left: 45%;
+  box-shadow: 0 0 200px 130px rgba(255, 255, 255, 0.15); 
+  animation: driftUp 28s infinite ease-out 2s; /* Added 2s delay */
+}
+
+/* S3: Right Drift */
+.s3 {
+  bottom: -100px;
+  right: 20%;
+  box-shadow: 0 0 140px 90px rgba(255, 255, 255, 0.2); 
+  animation: driftUp 24s infinite ease-out 5s; /* Added 5s delay */
+}
+
+@keyframes driftUp {
+  0% {
+    transform: translateY(0) scale(1) rotate(0deg);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.6; /* Smoke is visible shortly after rising */
+  }
+  80% {
+    opacity: 0.3; /* Slowly fading out */
+  }
+  100% {
+    transform: translateY(-120vh) translateX(150px) scale(4) rotate(180deg);
+    opacity: 0;
+  }
 }

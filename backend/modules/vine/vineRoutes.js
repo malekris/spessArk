@@ -115,20 +115,28 @@ router.post("/auth/login", async (req, res) => {
     }
   }
 
-//middleware 
-  function requireVineAuth(req, res, next) {
-    const auth = req.headers.authorization;
-    if (!auth) return res.status(401).json({ message: "No token" });
-  
-    try {
-      const token = auth.split(" ")[1];
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      req.user = decoded;
-      next();
-    } catch {
-      res.status(401).json({ message: "Invalid token" });
-    }
+// middleware
+async function requireVineAuth(req, res, next) {
+  const auth = req.headers.authorization;
+  if (!auth) return res.status(401).json({ message: "No token" });
+
+  try {
+    const token = auth.split(" ")[1];
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = decoded;
+
+    // 🔑 UPDATE LAST ACTIVE
+    await db.query(
+      "UPDATE vine_users SET last_active_at = NOW() WHERE id = ?",
+      [req.user.id]
+    );
+
+    next();
+  } catch {
+    res.status(401).json({ message: "Invalid token" });
   }
+}
+
   // create posts
   router.get("/posts", authOptional, async (req, res) => {
     try {
@@ -371,6 +379,7 @@ router.get("/users/:username", authOptional, async (req, res) => {
         u.location,
         u.website,
         u.created_at,
+        u.last_active_at,
         u.is_verified,
 
         (SELECT COUNT(*) FROM vine_follows WHERE following_id = u.id) AS follower_count,
@@ -406,6 +415,7 @@ router.get("/users/:username", authOptional, async (req, res) => {
           p.content,
           p.image_url,
           p.created_at,
+          p.is_pinned,
           p.created_at AS sort_time,
 
           u.username,
@@ -445,6 +455,7 @@ router.get("/users/:username", authOptional, async (req, res) => {
           p.content,
           p.image_url,
           p.created_at,
+          p.is_pinned,
           r.created_at AS sort_time,
 
           u.username,
@@ -476,7 +487,7 @@ router.get("/users/:username", authOptional, async (req, res) => {
         JOIN vine_users ru ON r.user_id = ru.id
         WHERE r.user_id = ?
       ) profile_feed
-      ORDER BY sort_time DESC
+      ORDER BY is_pinned DESC, sort_time DESC
       `,
       [user.id, user.id]
     );
@@ -488,27 +499,40 @@ router.get("/users/:username", authOptional, async (req, res) => {
     res.status(500).json({ message: "Failed to load profile" });
   }
 });
+// Get comments for post (threaded, enriched)
+router.get("/posts/:id/comments", authOptional, async (req, res) => {
 
-// Get comments for post (threaded-ready)
-router.get("/posts/:id/comments", async (req, res) => {
-  const postId = req.params.id;
+try {
+    const postId = req.params.id;
+    const userId = req.user?.id || 0;
 
-  const [rows] = await db.query(`
-    SELECT 
-      c.id,
-      c.content,
-      c.created_at,
-      c.parent_comment_id,
-      u.username,
-      u.display_name
-    FROM vine_comments c
-    JOIN vine_users u ON u.id = c.user_id
-    WHERE c.post_id = ?
-    ORDER BY c.created_at ASC
-  `, [postId]);
+    const [rows] = await db.query(`
+      SELECT 
+        c.id,
+        c.user_id,
+        c.content,
+        c.created_at,
+        c.parent_comment_id,
+        u.username,
+        u.display_name,
+        COALESCE(u.avatar_url, '/uploads/avatars/default.png') AS avatar_url,
+        COUNT(cl.id) AS like_count,
+        MAX(cl.user_id = ?) AS user_liked
+      FROM vine_comments c
+      JOIN vine_users u ON u.id = c.user_id
+      LEFT JOIN vine_comment_likes cl ON cl.comment_id = c.id
+      WHERE c.post_id = ?
+      GROUP BY c.id
+      ORDER BY c.created_at ASC
+    `, [userId, postId]);
 
-  res.json(rows);
+    res.json(rows);
+  } catch (err) {
+    console.error("Fetch comments failed:", err);
+    res.status(500).json([]);
+  }
 });
+
 // Ranked Feed (open network)
 router.get("/posts", authOptional, async (req, res) => {
   try {
@@ -530,9 +554,10 @@ router.get("/posts", authOptional, async (req, res) => {
           u.avatar_url,
           u.is_verified,
 
-          (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id) AS likes,
-          (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comments,
-          (SELECT COUNT(*) FROM vine_revines WHERE post_id = p.id) AS revines,
+          (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id)    AS like_count,
+          (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comment_count,
+          (SELECT COUNT(*) FROM vine_revines WHERE post_id = p.id)  AS revine_count,
+
 
           0 AS user_liked,
           0 AS user_revined,
@@ -568,9 +593,9 @@ router.get("/posts", authOptional, async (req, res) => {
         u.avatar_url,
         u.is_verified,
 
-        (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id) AS likes,
-        (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comments,
-        (SELECT COUNT(*) FROM vine_revines WHERE post_id = p.id) AS revines,
+        (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id)    AS like_count,
+        (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comment_count,
+        (SELECT COUNT(*) FROM vine_revines WHERE post_id = p.id)  AS revine_count,
 
         (SELECT COUNT(*) > 0 
           FROM vine_likes 
@@ -606,7 +631,6 @@ router.get("/posts", authOptional, async (req, res) => {
     res.status(500).json([]);
   }
 });
-
 
 // 🔁 Toggle revine (single source of truth)
 router.post("/posts/:id/revine", authMiddleware, async (req, res) => {
@@ -798,32 +822,6 @@ router.post("/posts/:id/comments", authMiddleware, async (req, res) => {
   } catch (err) {
     console.error("COMMENT ROUTE ERROR:", err);
     res.status(500).json({ message: "Failed to add comment" });
-  }
-});
-
-// get all coments for a post
-router.get("/posts/:id/comments", async (req, res) => {
-  try {
-    const postId = req.params.id;
-
-    const [rows] = await db.query(`
-      SELECT 
-        c.id,
-        c.content,
-        c.parent_comment_id,
-        c.created_at,
-        u.username,
-        u.display_name
-      FROM vine_comments c
-      JOIN vine_users u ON c.user_id = u.id
-      WHERE c.post_id = ?
-      ORDER BY c.created_at ASC
-    `, [postId]);
-
-    res.json(rows);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Failed to fetch comments" });
   }
 });
 // ❤️ Like / Unlike a comment
@@ -1238,6 +1236,171 @@ router.post("/notifications/mark-read", authenticate, async (req, res) => {
   await db.query(
     "UPDATE vine_notifications SET is_read = 1 WHERE user_id = ?",
     [req.user.id]
+  );
+
+  res.json({ success: true });
+});
+// Update banner position
+router.post("/users/banner-position", requireVineAuth, async (req, res) => {
+  const userId = req.user.id;
+  const { offsetY } = req.body;
+
+  await db.query(
+    "UPDATE vine_users SET banner_offset_y = ? WHERE id = ?",
+    [offsetY, userId]
+  );
+
+  res.json({ success: true });
+});
+// ❤️ GET liked posts by a user (Profile Likes tab)
+router.get("/users/:username/likes", async (req, res) => {
+  const { username } = req.params;
+
+  try {
+    // 1️⃣ Resolve user ID from username
+    const [[user]] = await db.query(
+      "SELECT id FROM vine_users WHERE username = ?",
+      [username]
+    );
+
+    if (!user) {
+      return res.status(200).json([]);
+    }
+
+    // 2️⃣ Fetch liked posts (feed-compatible)
+    const [rows] = await db.query(
+      `
+      SELECT DISTINCT
+        p.id,
+        CONCAT('post-', p.id) AS feed_id,
+        p.user_id,
+        p.content,
+        p.image_url,
+        p.created_at,
+        l.created_at AS sort_time,
+        u.username,
+        u.display_name,
+        u.avatar_url,
+        u.is_verified,
+        1 AS user_liked
+      FROM vine_likes l
+      JOIN vine_posts p ON l.post_id = p.id
+      JOIN vine_users u ON p.user_id = u.id
+      WHERE l.user_id = ?
+      ORDER BY sort_time DESC
+      `,
+      [user.id]
+    );
+
+    // 3️⃣ Return feed-ready rows
+    res.status(200).json(rows);
+  } catch (err) {
+    console.error("Fetch liked posts error:", err);
+    res.status(500).json([]);
+  }
+});
+// 📸 GET photo posts by a user (Profile Photos tab)
+router.get("/users/:username/photos", async (req, res) => {
+  const { username } = req.params;
+
+  try {
+    // 1️⃣ Resolve user
+    const [[user]] = await db.query(
+      "SELECT id FROM vine_users WHERE username = ?",
+      [username]
+    );
+
+    if (!user) {
+      return res.status(200).json([]);
+    }
+
+    // 2️⃣ Fetch posts with images only
+    const [rows] = await db.query(
+      `
+      SELECT
+        p.id,
+        CONCAT('post-', p.id) AS feed_id,
+        p.user_id,
+        p.content,
+        p.image_url,
+        p.created_at AS sort_time,
+        u.username,
+        u.display_name,
+        u.avatar_url,
+        u.is_verified
+      FROM vine_posts p
+      JOIN vine_users u ON p.user_id = u.id
+      WHERE p.user_id = ?
+        AND p.image_url IS NOT NULL
+      ORDER BY sort_time DESC
+      `,
+      [user.id]
+    );
+
+    res.status(200).json(rows);
+  } catch (err) {
+    console.error("Fetch photo posts error:", err);
+    res.status(500).json([]);
+  }
+});
+// 🗑️ Delete comment or reply (author only)
+router.delete("/comments/:id", requireVineAuth, async (req, res) => {
+  try {
+    const commentId = req.params.id;
+    const userId = req.user.id;
+
+    const [[comment]] = await db.query(
+      "SELECT user_id FROM vine_comments WHERE id = ?",
+      [commentId]
+    );
+
+    if (!comment) {
+      return res.status(404).json({ message: "Comment not found" });
+    }
+
+    if (comment.user_id !== userId) {
+      return res.status(403).json({ message: "Not allowed" });
+    }
+
+    // delete replies first (safe for threaded)
+    await db.query(
+      "DELETE FROM vine_comments WHERE parent_comment_id = ?",
+      [commentId]
+    );
+
+    await db.query(
+      "DELETE FROM vine_comments WHERE id = ?",
+      [commentId]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Delete comment failed:", err);
+    res.status(500).json({ message: "Delete failed" });
+  }
+});
+// 📌 Pin / Unpin post
+router.post("/posts/:id/pin", requireVineAuth, async (req, res) => {
+  const postId = req.params.id;
+  const userId = req.user.id;
+
+  // Ensure post belongs to user
+  const [[post]] = await db.query(
+    "SELECT id FROM vine_posts WHERE id = ? AND user_id = ?",
+    [postId, userId]
+  );
+  if (!post) return res.status(403).json({ message: "Not allowed" });
+
+  // Unpin any existing pinned post by this user
+  await db.query(
+    "UPDATE vine_posts SET is_pinned = 0 WHERE user_id = ?",
+    [userId]
+  );
+
+  // Pin this one
+  await db.query(
+    "UPDATE vine_posts SET is_pinned = 1 WHERE id = ?",
+    [postId]
   );
 
   res.json({ success: true });

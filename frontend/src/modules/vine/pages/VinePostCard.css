@@ -1,37 +1,49 @@
-/* ───── Main Card ───── */
+/* ==========================================================================
+   VINE POST CARD + COMMENTS + CAROUSEL + IMAGE VIEWER
+   Colors: Mint #10b981, Forest #064e3b, Dark #052e16
+   ========================================================================== */
+
+/* ── Main Post Card ── */
 .vine-post {
   width: 100%;
   max-width: 650px;
-  background: #ffffff;
-  border-radius: 24px;
+  margin: 0 auto 24px auto;       /* space between cards */
   padding: 20px;
-  margin-bottom: 20px;
-  border: 1px solid #e2e8f0;
-  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.02);
-  transition: border-color 0.2s;
+  background: #ffffff;
+  border: 1px solid rgba(226, 232, 240, 0.6); /* softer border */
+  border-radius: 32px;            /* ← bigger radius = softer rounder edges */
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.04); /* gentler shadow */
   box-sizing: border-box;
+  overflow: hidden;               /* prevents inner content from poking out corners */
+  transition: all 0.25s ease;
 }
 
 .vine-post:hover {
   border-color: #10b981;
+  box-shadow: 0 12px 32px rgba(16, 185, 129, 0.12);
+  transform: translateY(-3px);
 }
 
-/* ───── Header & Meta ───── */
+/* ── Header ── */
 .vine-post-header {
   display: flex;
+  align-items: flex-start;
   gap: 12px;
   margin-bottom: 12px;
   position: relative;
+  width: 100%;
 }
 
-.post-avatar, .avatar-fallback {
+.post-avatar,
+.avatar-fallback {
   width: 48px;
   height: 48px;
   border-radius: 50%;
-  flex-shrink: 0;
   border: 2px solid #10b981;
-  cursor: pointer;
+  flex-shrink: 0;
   overflow: hidden;
+  cursor: pointer;
+  background: #f1f5f9;
 }
 
 .post-avatar img {
@@ -42,15 +54,22 @@
 
 .post-user-meta {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
 }
-
 .revine-top {
-  font-size: 0.8rem;
-  font-weight: 800;
-  color: #64748b;
-  margin-bottom: 4px;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #10b981;                /* your signature mint — stands out nicely */
+  background: rgba(16, 185, 129, 0.08); /* subtle mint bg for visibility */
+  padding: 4px 10px;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  display: block !important;     /* force it — no hiding */
+  line-height: 1.4;
+  width: fit-content;            /* doesn't stretch full width */
+  max-width: 100%;
 }
 
 .meta-top {
@@ -66,7 +85,6 @@
   font-size: 1.1rem;
 }
 
-/* ───── Verified Badge ───── */
 .verified {
   background: #10b981;
   width: 16px;
@@ -78,21 +96,52 @@
   margin-left: 4px;
 }
 
-.username, .time {
+.username,
+.time {
   color: #64748b;
   font-size: 0.9rem;
 }
+/* Keep your existing delete button styles, just tweak positioning */
+.delete-post-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 1.1rem;
+  padding: 8px;
+  border-radius: 50%;
+  color: #64748b;
+  transition: all 0.2s;
+  flex-shrink: 0;
+  width: 36px;                    /* slightly smaller so it doesn't dominate */
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 8px;               /* ← small gap from username/time */
+  opacity: 0.7;                   /* subtle when not hovered */
+}
 
-/* ───── Post Body ───── */
+/* Show more prominently on hover/focus */
+.delete-post-btn:hover,
+.delete-post-btn:focus {
+  opacity: 1;
+  background: rgba(244, 33, 46, 0.1);
+  color: #ef4444;
+  transform: scale(1.1);
+}
+
+/* ── Post Content ── */
 .vine-post-content {
   font-size: 1.15rem;
   line-height: 1.5;
   color: #1f2937;
   margin: 12px 0;
-  word-wrap: break-word;
+  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
-/* ───── Footer Actions ───── */
+
+/* ── Footer Actions ── */
 .vine-post-footer {
   display: flex;
   justify-content: space-between;
@@ -124,7 +173,7 @@
 .active-like { color: #ef4444; }
 .active-revine { color: #10b981; }
 
-/* ───── Comments Section ───── */
+/* ── Comments Area ── */
 .vine-comments-area {
   margin-top: 20px;
   background: #f8fafc;
@@ -143,8 +192,9 @@
   flex: 1;
   border: 1px solid #e2e8f0;
   border-radius: 12px;
-  padding: 10px;
-  resize: none;
+  padding: 10px 14px;
+  resize: vertical;
+  min-height: 54px;
   font-family: inherit;
   outline: none;
 }
@@ -157,9 +207,10 @@
   border-radius: 50px;
   font-weight: 800;
   cursor: pointer;
+  white-space: nowrap;
 }
 
-/* ───── Threaded Comments ───── */
+/* ── Threaded Comments ── */
 .vine-comment-node {
   margin-top: 15px;
   position: relative;
@@ -167,6 +218,25 @@
 
 .comment-main {
   padding-left: 10px;
+}
+
+.comment-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.comment-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.comment-meta-text {
+  display: flex;
+  gap: 6px;
+  align-items: center;
 }
 
 .comment-meta strong {
@@ -180,13 +250,6 @@
   color: #374151;
 }
 
-/* The Vertical Thread Line */
-.nested-replies {
-  margin-left: 20px;
-  border-left: 2px solid #cbd5e1;
-  padding-left: 15px;
-}
-
 .mini-btn {
   background: transparent;
   border: none;
@@ -197,243 +260,105 @@
   margin-right: 12px;
 }
 
-.del-text:hover { color: #ef4444; }
-
-/* ───── Mobile ───── */
-@media (max-width: 768px) {
-  .vine-post {
-    border-radius: 0;
-    border: none;
-    border-bottom: 1px solid #f1f5f9;
-    margin-bottom: 0;
-  }
-
-  .vine-post-content {
-    font-size: 1rem;
-  }
-
-  .action-btn {
-    font-size: 0.85rem;
-    padding: 6px 8px;
-  }
-}
-/* ───── Header Alignment Fix ───── */
-.vine-post-header {
-  display: flex;
-  gap: 12px;
-  align-items: flex-start; /* Keeps items at their natural height */
-  position: relative;
-  width: 100%;
+.del-text:hover {
+  color: #ef4444;
 }
 
-/* ───── The Delete Button ───── */
-.delete-post-btn {
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  font-size: 1.1rem;
-  padding: 8px;
-  border-radius: 50%;
-  transition: all 0.2s;
-  
-  /* CRITICAL: This stops the stretching */
-  align-self: flex-start; 
-  flex-shrink: 0;
-  width: 40px; 
-  height: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  
-  /* Positioning */
-  margin-left: auto; /* Pushes it to the far right */
-}
-
-.delete-post-btn:hover {
-  background: rgba(244, 33, 46, 0.1); /* Subtle red glow */
-  transform: scale(1.1);
-}
-
-/* ───── Ensure Meta doesn't fight for space ───── */
-.post-user-meta {
-  flex: 1;
-  min-width: 0; /* Prevents text from pushing button off screen */
+.nested-replies {
+  margin: 6px 0 0 32px;
+  border-left: 2px solid rgba(0, 0, 0, 0.05);
+  padding-left: 10px;
   display: flex;
   flex-direction: column;
+  gap: 6px;
 }
 
-
-/* Ensure post container never blocks scrolling */
-.vine-post {
-  overflow: visible;
-}
+/* ── Image Carousel ── */
 .carousel-wrapper {
   width: 100%;
   margin: 12px 0;
   border-radius: 20px;
   overflow: hidden;
-  background: #f1f5f9;
+  background: #e6fbf3;
+  position: relative;
+  isolation: isolate;
+  aspect-ratio: 4 / 5;            /* ← controls the frame shape */
 }
-
-/* Track */
 .carousel {
   display: flex;
   overflow-x: auto;
   scroll-snap-type: x mandatory;
   scroll-behavior: smooth;
-}
-
-.carousel::-webkit-scrollbar {
-  display: none;
-}
-
-/* Each slide becomes a fixed viewport */
-.carousel-slide {
-  flex: 0 0 100%;
-  width: 100%;
-  scroll-snap-align: start;
-
-  position: relative;
-  aspect-ratio: 4 / 5; /* gives real height */
-  background: #000;
-}
-
-/* Image fills the viewport properly */
-.carousel-slide img {
-  position: absolute;
-  inset: 0;
-  width: 100%;
+  scrollbar-width: none;          /* Firefox: no scrollbar */
+  -ms-overflow-style: none;       /* Edge/IE */
   height: 100%;
-  object-fit: contain;
-  display: block;
-}
-/* === FINAL OVERRIDE: CAROUSEL MUST WORK === */
-
-.carousel-wrapper {
   width: 100%;
-  margin: 12px 0;
-  border-radius: 20px;
-  overflow: hidden;
-  background: #f1f5f9;
+  scroll-snap-stop: always;       /* stronger snap */
+  -webkit-overflow-scrolling: touch; /* smooth momentum */
+  padding: 0;
+  margin: 0;
 }
 
-.carousel {
-  display: flex;
-  overflow-x: auto;
-  scroll-snap-type: x mandatory;
-  scroll-behavior: smooth;
+.carousel:active {
+  cursor: grabbing;
 }
-
+/* Kill scrollbar completely (Chrome/Safari) */
 .carousel::-webkit-scrollbar {
   display: none;
+  width: 0 !important;
+  height: 0 !important;
+  background: transparent;
 }
 
+/* Each slide MUST take exactly 100% of the visible area */
 .carousel-slide {
-  flex: 0 0 100%;
-  width: 100%;
+  flex: 0 0 100% !important;
+  width: 100% !important;
+  min-width: 100% !important;
+  max-width: 100% !important;
+  height: 100%;
   scroll-snap-align: start;
   position: relative;
-
-  /* This forces visible height */
-  aspect-ratio: 4 / 5;
-  background: #000;
+  overflow: hidden;
+  background: #e6fbf3;
+  box-sizing: border-box;
 }
 
-/* This must defeat all other img rules */
-.carousel-slide > img {
-  position: absolute !important;
-  inset: 0 !important;
+/* Images fill the slide */
+.carousel-img {
   width: 100% !important;
   height: 100% !important;
-  object-fit: contain !important;
-  display: block !important;
-  max-height: none !important;
-}
-.carousel-slide {
-  position: relative !important;
-  overflow: hidden !important;
+  object-fit: cover;              /* crops to fill — the zoom you want */
+  object-position: center;
+  display: block;
+  background: #e6fbf3;            /* mint loading fallback */
 }
 
-.carousel-slide > img {
-  position: absolute !important;
-  inset: 0 !important;
-  z-index: 9999 !important;   /* <-- this is the key */
-  width: 100% !important;
-  height: 100% !important;
-  object-fit: contain !important;
-  opacity: 1 !important;
-  visibility: visible !important;
-}
-.carousel-wrapper {
-  width: 100%;
-  margin: 12px 0;
-}
-
-.carousel {
-  display: flex;
-  overflow-x: auto;
-  scroll-snap-type: x mandatory;
-  scroll-behavior: smooth;
-  gap: 0;
+/* Indicators */
+.carousel-counter {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 10;
+  background: rgba(0,0,0,0.65);
+  color: white;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  pointer-events: none;
 }
 
-.carousel::-webkit-scrollbar {
-  display: none;
-}
-
-.carousel-img {
-  flex: 0 0 100%;
-  width: 100%;
-  max-height: 520px;
-  object-fit: contain;
-  border-radius: 18px;
-  scroll-snap-align: start;
-  background: #f1f5f9;
-}
-.carousel {
-  scrollbar-width: none;        /* Firefox */
-}
-
-.carousel::-webkit-scrollbar {
-  display: none;               /* Chrome, Safari */
-}
-.carousel-wrapper {
-  width: 100%;
-  margin: 12px 0;
-  position: relative;   /* ← THIS IS THE KEY */
-  isolation: isolate;   /* 🔥 THIS IS THE KEY LINE */
-
-}
-
-
-.carousel {
-  display: flex;
-  overflow-x: auto;
-  scroll-snap-type: x mandatory;
-  scroll-behavior: smooth;
-  scrollbar-width: none;
-}
-
-.carousel::-webkit-scrollbar {
-  display: none;
-}
-
-.carousel-img {
-  flex: 0 0 100%;
-  width: 100%;
-  max-height: 520px;
-  object-fit: cover;            /* looks more premium than contain */
-  border-radius: 18px;
-  scroll-snap-align: center;
-  background: #f1f5f9;
-}
-
-/* Dots */
 .carousel-dots {
+  position: absolute;
+  bottom: 12px;
+  left: 0;
+  right: 0;
   display: flex;
   justify-content: center;
-  gap: 6px;
-  padding: 10px 0 4px;
+  gap: 8px;
+  padding: 0 20px;
+  z-index: 10;
 }
 
 .dot {
@@ -449,77 +374,20 @@
   background: #10b981;
   border-radius: 10px;
 }
-.carousel {
-  cursor: grab;
-}
 
-.carousel:active {
-  cursor: grabbing;
-}
-.carousel-counter {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  z-index: 100;          /* higher */
-  background: rgba(0,0,0,0.65);
-  color: white;
-  padding: 4px 10px;
-  border-radius: 20px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  pointer-events: none;  /* prevents it blocking swipe */
-}
-.carousel-wrapper {
-  width: 100%;
-  margin: 12px 0;
-  position: relative;
-  isolation: isolate;
-}
-
-.carousel {
-  display: flex;
-  overflow-x: auto;
-  scroll-snap-type: x mandatory;
-  scroll-behavior: smooth;
-  scrollbar-width: none;
-}
-
-.carousel::-webkit-scrollbar {
-  display: none;
-}
-
-/* Each slide is a fixed full-width frame */
-.carousel-slide {
-  flex: 0 0 100%;
-  width: 100%;
-  scroll-snap-align: start;
-}
-
-/* Image fills slide */
-.carousel-img {
-  display: block;
-  width: 100%;
-  max-height: 520px;
-  object-fit: cover;
-  border-radius: 18px;
-  background: #f1f5f9;
-}
+/* ── Fullscreen Image Viewer ── */
 .image-viewer-overlay {
   position: fixed;
   inset: 0;
   background: rgba(0,0,0,0.92);
   z-index: 99999;
-
   display: flex;
   align-items: center;
   justify-content: center;
-
-  padding-top: env(safe-area-inset-top, 20px);
-  padding-bottom: env(safe-area-inset-bottom, 20px);
-
+  padding: env(safe-area-inset-top, 20px) env(safe-area-inset-right, 16px)
+          env(safe-area-inset-bottom, 20px) env(safe-area-inset-left, 16px);
   backdrop-filter: blur(4px);
 }
-
 
 .image-viewer-img {
   max-width: 95vw;
@@ -527,11 +395,12 @@
   object-fit: contain;
   border-radius: 16px;
 }
+
 .viewer-close {
   position: absolute;
   top: calc(env(safe-area-inset-top, 20px) + 10px);
   right: 14px;
-
+  z-index: 100000;
   background: rgba(0,0,0,0.7);
   color: white;
   border: none;
@@ -539,17 +408,90 @@
   padding: 8px 14px;
   border-radius: 50%;
   cursor: pointer;
-
-  z-index: 100000;
-}
-
-.image-viewer-img {
-  max-width: 95vw;
-  max-height: 95vh;
-  object-fit: contain;
-  border-radius: 16px;
-}
-.viewer-close {
   backdrop-filter: blur(6px);
 }
 
+/* ── Mobile Adjustments ── */
+@media (max-width: 768px) {
+  .vine-post {
+    max-width: 100%;
+    margin: 0 0 16px 0;
+    padding: 16px;
+    border-radius: 16px;          /* ← soft corners on mobile too (or 0 for flat) */
+    border: none;
+    border-bottom: 1px solid #e2e8f0;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.03); /* light shadow stays */
+    background: #ffffff;
+  }
+  .vine-post:last-child {
+    margin-bottom: 0;
+    border-bottom: none;
+  }
+
+  .vine-post-content {
+    font-size: 1rem;
+  }
+
+  .action-btn {
+    font-size: 0.85rem;
+    padding: 6px 10px;
+  }
+
+  .carousel-img,
+  .carousel-wrapper {
+    border-radius: 0;
+  }
+
+  .carousel-wrapper {
+    margin: 8px -16px;
+    width: calc(100% + 32px);
+  }
+}
+/* Username + time + delete on same line */
+.meta-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;              /* allows wrapping on very small screens */
+  gap: 8px;                     /* space between username, time, and trash */
+  margin-top: 4px;              /* small breathing room from name row */
+}
+
+/* Delete button – now compact and inline */
+.delete-post-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 1rem;              /* fits nicely */
+  padding: 4px 8px;             /* smaller touch target but still clickable */
+  border-radius: 50%;
+  color: #64748b;
+  opacity: 0.65;                /* subtle until needed */
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;              /* prevents squishing */
+}
+
+/* Hover makes it pop */
+.delete-post-btn:hover,
+.delete-post-btn:focus {
+  opacity: 1;
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.12);
+  transform: scale(1.15);
+}
+.photo-like-flash {
+  position: absolute;
+  font-size: 64px;
+  color: white;
+  opacity: 0.9;
+  animation: pop 0.6s ease-out forwards;
+}
+
+@keyframes pop {
+  0% { transform: scale(0.5); opacity: 0; }
+  50% { transform: scale(1.2); opacity: 1; }
+  100% { transform: scale(1); opacity: 0; }
+}

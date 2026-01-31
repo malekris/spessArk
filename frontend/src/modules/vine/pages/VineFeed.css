@@ -1,207 +1,41 @@
-/* ───── Root Container ───── */
+/* ==========================================================================
+   VINE FEED PAGE – Final Cleaned & Optimized
+   Colors: Forest #064e3b, Mint #10b981, Light Mint #dcfce7
+   ========================================================================== */
+
+/* ── Root Container ── */
 .vine-feed-container {
   min-height: 100vh;
   width: 100%;
+  margin: 0;
+  padding: 0 10px 80px;
   background: radial-gradient(circle at top, #f0fdf4 0%, #dcfce7 100%);
   background-attachment: fixed;
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding-bottom: 50px;
-}
-
-/* ───── Top Navigation ───── */
-.vine-nav-top {
-  width: 100%;
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(15px);
-  -webkit-backdrop-filter: blur(15px);
-  padding: 12px 25px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  position: sticky;
-  top: 0;
-  z-index: 1000;
-  border-bottom: 1px solid rgba(167, 243, 208, 0.6);
   box-sizing: border-box;
 }
 
-.vine-nav-top h2 {
-  color: #052e16;
-  font-weight: 900;
-  cursor: pointer;
-  margin: 0;
-  font-size: 1.6rem;
-}
-
-.nav-right {
-  display: flex;
-  gap: 12px;
-}
-
-/* ───── Notifications & Badges ───── */
-.notif-bell {
-  position: relative;
-  font-size: 1.4rem;
-  cursor: pointer;
-  padding: 8px;
-  border-radius: 50%;
-  transition: background 0.2s;
-}
-
-.notif-bell:hover { background: #d1fae5; }
-
-.notif-badge, .dm-unread-badge {
-  position: absolute;
-  top: -2px;
-  right: -2px;
-  background: #10b981;
-  color: white;
-  font-size: 0.7rem;
-  font-weight: 900;
-  padding: 3px 6px;
-  border-radius: 50px;
-  border: 2px solid white;
-}
-
-/* ───── Search & DM Bar ───── */
-.vine-dm-bar {
-  width: 100%;
-  max-width: 650px;
-  display: flex;
-  gap: 10px;
-  margin: 20px 0;
-}
-
-.vine-search {
-  flex: 1;
-  background: white;
-  border: 1px solid #c6f6d5;
-  padding: 10px 15px;
-  border-radius: 50px;
-  outline: none;
-  cursor: pointer;
-  color: #052e16;
-}
-
-.discover-btn, .messages-btn {
-  background: white;
-  border: 1px solid #c6f6d5;
-  padding: 8px 15px;
-  border-radius: 50px;
-  font-weight: 700;
-  color: #064e3b;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
-
-/* ───── The Post Composer ───── */
-.vine-create-box {
-  width: 100%;
-  max-width: 650px;
-  background: white;
-  border-radius: 24px;
-  padding: 20px;
-  border: 1px solid #e2e8f0;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.03);
-  margin-bottom: 25px;
-}
-
-.vine-create-box textarea {
-  width: 100%;
-  border: none;
-  resize: none;
-  font-size: 1.2rem;
-  color: #052e16;
-  outline: none;
-  min-height: 80px;
-  font-family: inherit;
-}
-
-.create-footer {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-top: 15px;
-  border-top: 1px solid #f1f5f9;
-  padding-top: 15px;
-}
-
-.greeting { color: #64748b; font-size: 0.9rem; }
-.greeting .name { color: #10b981; font-weight: 800; }
-
-.post-submit-btn {
-  background: #064e3b;
-  color: white;
-  border: none;
-  padding: 10px 24px;
-  border-radius: 50px;
-  font-weight: 800;
-  cursor: pointer;
-  transition: transform 0.2s;
-}
-
-.post-submit-btn:hover { transform: scale(1.05); background: #059669; }
-
-/* ───── Post List ───── */
-.vine-content-wrapper {
-  width: 100%;
-  max-width: 650px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-.vine-posts-list { width: 100%; }
-
-/* ───── Buttons ───── */
-.nav-btn {
-  padding: 8px 16px;
-  border-radius: 50px;
-  font-weight: 700;
-  cursor: pointer;
-  border: none;
-}
-
-.profile-btn { background: #d1fae5; color: #064e3b; }
-.logout-btn { background: #f1f5f9; color: #64748b; }
-
-/* ───── MOBILE ONLY ───── */
-@media (max-width: 768px) {
-  .vine-feed-container { padding: 0 10px 80px 10px; }
-  
-  .vine-dm-bar {
-    flex-wrap: wrap;
-    justify-content: center;
-  }
-
-  .vine-search { width: 100%; flex: none; }
-
-  .vine-create-box { border-radius: 15px; }
-
-  .nav-right .profile-btn { display: none; } /* Profile usually in side menu on mobile */
-}
-/* ───── The Solid Green Nav Bar ───── */
+/* ── Top Navigation Bar (Edge-to-Edge Solid Green) ── */
 .vine-nav-top {
   width: 100%;
-  background: #064e3b !important; /* Solid Forest Green */
-  padding: 8px 16px;
+  background: #064e3b !important;
+  padding: 10px 20px;
   display: flex;
   align-items: center;
-  justify-content: space-between; /* Spreads Title, Bell, and Nav-Right */
+  justify-content: space-between;
   position: sticky;
   top: 0;
+  left: 0;
+  right: 0;
   z-index: 1000;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
   box-sizing: border-box;
 }
 
-/* ───── Title ───── */
 .vine-nav-top h2 {
-  color: #ffffff !important;
+  color: white;
   font-weight: 900;
   font-size: 1.4rem;
   margin: 0;
@@ -209,41 +43,36 @@
   flex-shrink: 0;
 }
 
-/* ───── The Bell (Middle) ───── */
+/* Notifications Bell (centered-ish) */
 .notif-bell {
   position: relative;
   font-size: 1.3rem;
+  color: white;
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   padding: 8px;
   border-radius: 50%;
   transition: background 0.2s;
-  color: #ffffff;
-  /* This centers it better between the left and right items */
-  margin: 0 auto; 
 }
 
 .notif-bell:hover {
   background: rgba(255, 255, 255, 0.1);
 }
 
-/* ───── Badge Pop ───── */
-.notif-badge {
+.notif-badge,
+.dm-unread-badge {
   position: absolute;
   top: 2px;
   right: 2px;
-  background: #10b981; /* Signature Mint Pop */
+  background: #10b981;
   color: white;
   font-size: 0.7rem;
   font-weight: 900;
   padding: 2px 6px;
   border-radius: 50px;
-  border: 2px solid #064e3b; /* Matches Nav background to look "cut out" */
+  border: 2px solid #064e3b;
 }
 
-/* ───── Right Side Buttons ───── */
+/* Right-side buttons */
 .nav-right {
   display: flex;
   gap: 8px;
@@ -265,92 +94,18 @@
   transform: scale(0.95);
 }
 
-/* Profile Button: Minty contrast */
 .profile-btn {
-  background: #d1fae5 !important;
-  color: #064e3b !important;
-  display: block !important; /* Never hide this */
+  background: #d1fae5;
+  color: #064e3b;
 }
 
-/* Logout Button: Ghost style */
 .logout-btn {
   background: rgba(255, 255, 255, 0.15);
-  color: #ffffff;
+  color: white;
   border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
-/* ───── Mobile Consistency ───── */
-@media (max-width: 768px) {
-  .vine-nav-top {
-    padding: 8px 12px;
-  }
-
-  .vine-nav-top h2 {
-    font-size: 1.2rem;
-  }
-
-  .notif-bell {
-    font-size: 1.1rem;
-    margin: 0 10px; /* Tighter spacing for mobile */
-  }
-
-  .nav-btn {
-    padding: 5px 10px;
-    font-size: 0.75rem;
-  }
-}
-/* ───── Container Reset ───── */
-.vine-feed-container {
-  width: 100%;
-  margin: 0;
-  padding: 0; /* Remove any padding that might be squeezing the nav */
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-/* ───── Edge-to-Edge Solid Green Nav ───── */
-.vine-nav-top {
-  width: 100vw; /* Force it to the full width of the viewport */
-  background: #064e3b !important;
-  padding: 10px 20px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  position: sticky;
-  top: 0;
-  left: 0; /* Align to the absolute left */
-  right: 0; /* Align to the absolute right */
-  z-index: 1000;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
-  box-sizing: border-box; /* Ensures padding doesn't push width past 100% */
-}
-
-/* ───── Desktop Full Glory Consistency ───── */
-@media (min-width: 769px) {
-  .vine-nav-top {
-    width: 100%; /* On desktop, it can stay relative to the container if you prefer */
-    padding: 12px 40px;
-  }
-}
-
-/* ───── Mobile Edge-to-Edge Override ───── */
-@media (max-width: 768px) {
-  .vine-nav-top {
-    width: 100vw;
-    margin-left: 0;
-    margin-right: 0;
-    padding: 10px 15px;
-    border-radius: 0; /* Ensure no rounded corners are cutting into the edges */
-  }
-  
-  /* Ensure the body hasn't got any weird margin */
-  body {
-    margin: 0;
-    overflow-x: hidden; /* Prevents any accidental horizontal scroll */
-  }
-}
-/* ───── DM Bar Container ───── */
+/* ── Quick Actions Bar (Search + Discover + DM) ── */
 .vine-dm-bar {
   width: 100%;
   max-width: 650px;
@@ -360,10 +115,9 @@
   box-sizing: border-box;
 }
 
-/* 🔍 Search Input */
 .vine-search {
-  flex: 2; /* Takes up more space */
-  background: #ffffff;
+  flex: 2;
+  background: white;
   border: 1px solid #c6f6d5;
   padding: 12px 18px;
   border-radius: 50px;
@@ -374,10 +128,10 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
-/* 👥 Discover & 💬 DM Buttons */
-.discover-btn, .messages-btn {
-  flex: 1; /* Equal width for the two buttons */
-  background: #ffffff;
+.discover-btn,
+.messages-btn {
+  flex: 1;
+  background: white;
   border: 1px solid #c6f6d5;
   padding: 10px;
   border-radius: 50px;
@@ -394,48 +148,17 @@
   transition: all 0.2s ease;
 }
 
-.discover-btn:hover, .messages-btn:hover {
+.discover-btn:hover,
+.messages-btn:hover {
   border-color: #10b981;
   background: #f0fdf4;
 }
 
-/* ───── MOBILE: The "Cohesive" Look ───── */
-@media (max-width: 768px) {
-  .vine-dm-bar {
-    padding: 0 15px; /* Keeps it from hitting the screen edges */
-    gap: 8px; /* Tighter gap so they feel connected */
-    margin: 15px 0;
-  }
-
-  /* Make the search bar full width and stack the buttons below, 
-     OR keep them inline but balanced. Let's go for balanced inline: */
-  .vine-search {
-    flex: 1.5; /* Slightly shrink search to give buttons breathing room */
-    font-size: 0.85rem;
-    padding: 10px 14px;
-  }
-
-  .discover-btn, .messages-btn {
-    flex: 1;
-    font-size: 0.8rem;
-    padding: 10px 5px; /* Narrower padding for small screens */
-  }
-}
-
-/* Special Case: Very small screens (e.g., iPhone SE) */
-@media (max-width: 380px) {
-  .vine-dm-bar {
-    flex-direction: column; /* Stack them if the screen is too narrow to avoid text clipping */
-  }
-  
-  .vine-search, .discover-btn, .messages-btn {
-    width: 100%;
-    flex: none;
-  }
-}
-/* ───── Main Box Container ───── */
+/* ── Create Post Box ── */
 .vine-create-box {
-  background: #ffffff;
+  width: 100%;
+  max-width: 650px;
+  background: white;
   border-radius: 24px;
   padding: 20px;
   border: 1px solid rgba(6, 78, 59, 0.1);
@@ -446,7 +169,6 @@
   gap: 15px;
 }
 
-/* ───── Textarea Styling ───── */
 .vine-create-box textarea {
   width: 100%;
   min-height: 120px;
@@ -465,33 +187,15 @@
   font-weight: 500;
 }
 
-/* ───── Image Preview ───── */
-.image-preview {
-  position: relative;
-  width: 100%;
-  max-height: 300px;
-  border-radius: 16px;
-  overflow: hidden;
-  margin: 10px 0;
-  border: 2px solid #dcfce7;
-}
-
-.image-preview img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-/* ───── Footer Alignment ───── */
+/* Footer (greeting + actions) */
 .create-footer {
   display: flex;
-  justify-content: space-between; /* Pushes greeting left, actions right */
-  align-items: center; /* Vertical alignment center */
+  justify-content: space-between;
+  align-items: center;
   padding-top: 15px;
   border-top: 1px solid rgba(6, 78, 59, 0.05);
 }
 
-/* Greeting (Left Side) */
 .greeting {
   font-weight: 700;
   color: #64748b;
@@ -503,11 +207,10 @@
   font-weight: 900;
 }
 
-/* Actions (Right Side) */
 .right-actions {
   display: flex;
   align-items: center;
-  gap: 15px; /* Spacing between char count, upload, and button */
+  gap: 15px;
 }
 
 .char-count {
@@ -519,65 +222,7 @@
   border-radius: 20px;
 }
 
-/* File Input Hack (Making it look premium) */
-.right-actions input[type="file"] {
-  width: 100px; /* Hide the ugly "No file chosen" text */
-  font-size: 0.8rem;
-  color: #64748b;
-  cursor: pointer;
-}
-
-/* ───── Post Submit Button ───── */
-.post-submit-btn {
-  background: #064e3b;
-  color: #ffffff;
-  border: none;
-  padding: 10px 24px;
-  border-radius: 14px;
-  font-weight: 800;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  box-shadow: 0 4px 12px rgba(6, 78, 59, 0.2);
-}
-
-.post-submit-btn:hover {
-  background: #052e16;
-  transform: translateY(-2px);
-  box-shadow: 0 6px 15px rgba(6, 78, 59, 0.3);
-}
-
-.post-submit-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-  transform: none;
-}
-
-/* ───── Mobile Tweaks ───── */
-@media (max-width: 768px) {
-  .create-footer {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 15px;
-  }
-  
-  .right-actions {
-    width: 100%;
-    justify-content: space-between;
-  }
-}
-.remove-image {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  background: rgba(0, 0, 0, 0.6);
-  color: white;
-  border: none;
-  border-radius: 50%;
-  width: 28px;
-  height: 28px;
-  cursor: pointer;
-  font-size: 18px;
-}
+/* Image Upload Button */
 .image-picker {
   background: #d9fbee;
   color: #0f5132;
@@ -592,6 +237,8 @@
 .image-picker:hover {
   background: #c2f5e2;
 }
+
+/* Image Previews */
 .preview-strip {
   display: flex;
   gap: 10px;
@@ -619,11 +266,121 @@
   position: absolute;
   top: 6px;
   right: 6px;
-  background: rgba(0,0,0,.6);
+  background: rgba(0, 0, 0, 0.6);
   color: white;
   border: none;
   width: 22px;
   height: 22px;
   border-radius: 50%;
   cursor: pointer;
+  font-size: 16px;
+  line-height: 22px;
+  text-align: center;
+}
+
+/* Post Submit Button */
+.post-submit-btn {
+  background: #064e3b;
+  color: white;
+  border: none;
+  padding: 10px 24px;
+  border-radius: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 12px rgba(6, 78, 59, 0.2);
+}
+
+.post-submit-btn:hover {
+  background: #052e16;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 15px rgba(6, 78, 59, 0.3);
+}
+
+.post-submit-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ── Posts List ── */
+.vine-content-wrapper {
+  width: 100%;
+  max-width: 650px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.vine-posts-list {
+  width: 100%;
+}
+
+/* ── Mobile Adjustments ── */
+@media (max-width: 768px) {
+  .vine-feed-container {
+    padding: 0 10px 80px;
+  }
+
+  .vine-nav-top {
+    padding: 10px 15px;
+  }
+
+  .vine-nav-top h2 {
+    font-size: 1.2rem;
+  }
+
+  .notif-bell {
+    font-size: 1.1rem;
+    margin: 0 10px;
+  }
+
+  .nav-btn {
+    padding: 5px 10px;
+    font-size: 0.75rem;
+  }
+
+  .vine-dm-bar {
+    padding: 0 15px;
+    gap: 8px;
+    margin: 15px 0;
+    flex-wrap: wrap;
+  }
+
+  .vine-search {
+    flex: 1.5;
+    font-size: 0.85rem;
+    padding: 10px 14px;
+  }
+
+  .discover-btn,
+  .messages-btn {
+    flex: 1;
+    font-size: 0.8rem;
+    padding: 10px 5px;
+  }
+
+  .create-footer {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 15px;
+  }
+
+  .right-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  @media (max-width: 380px) {
+    .vine-dm-bar {
+      flex-direction: column;
+    }
+
+    .vine-search,
+    .discover-btn,
+    .messages-btn {
+      width: 100%;
+      flex: none;
+    }
+  }
 }

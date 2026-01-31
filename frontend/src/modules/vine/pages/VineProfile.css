@@ -1,155 +1,30 @@
+/* ==========================================================================
+   VINE PROFILE PAGE – Final Cleaned Version
+   Colors: Forest #064e3b, Mint #10b981, Dark #052e16, Light #dcfce7
+   ========================================================================== */
 
-/* profile new*/ 
-/* ───── Full Screen Root ───── */
+/* ── Root Wrapper ── */
 .vine-profile-wrapper {
   min-height: 100vh;
-  width: 100%; /* Stretch to full width */
-  background-color: #dcfce7; /* Mint Green */
+  width: 100%;
   margin: 0;
   padding: 0;
+  background-color: #dcfce7;
   display: flex;
   flex-direction: column;
 }
 
-/* ───── Edge-to-Edge Top Bar ───── */
-.vine-profile-topbar {
-  position: sticky;
-  top: 0;
-  z-index: 1000;
-  background: #064e3b !important; 
-  padding: 12px 5%; /* Padding based on screen width */
-  display: flex;
-  align-items: center;
-  gap: 20px;
-  width: 100%;
-  box-sizing: border-box;
-}
-
-.profile-title {
-  color: #ffffff !important;
-  font-weight: 900 !important;
-  font-size: 1.3rem;
-}
-
-/* ───── Cinematic Banner (Full Width) ───── */
-.vine-profile-banner {
-  width: 100%;
-  height: 350px; /* Taller for desktop premium feel */
-  background: #052e16;
-  position: relative;
-  overflow: hidden;
-}
-
-.vine-profile-banner img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-/* ───── Header Content ───── */
-.vine-profile-header {
-  width: 100%;
-  max-width: 1200px; /* Limits content width so text isn't a mile long */
-  margin: -80px auto 0 auto; /* Centers the content block within the full-screen wrapper */
-  padding: 0 5%;
-  position: relative;
-  z-index: 10;
-  box-sizing: border-box;
-}
-
-.header-top-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-}
-
-.avatar-circle {
-  width: 160px;
-  height: 160px;
-  background: #fff;
-  border-radius: 40px; /* Large Squircle */
-  border: 6px solid #dcfce7;
-  overflow: hidden;
-  box-shadow: 0 12px 30px rgba(0,0,0,0.15);
-}
-
-/* ───── Profile Info Section ───── */
-.profile-meta {
-  background: rgba(255, 255, 255, 0.4); /* Subtle glass for premium feel */
-  padding: 30px 0;
-}
-
-.profile-name { font-size: 2.2rem; font-weight: 900; color: #052e16; }
-
-/* ───── ALL BUTTONS ───── */
-.edit-profile-btn, .follow-btn, .message-btn {
-  padding: 12px 28px;
-  border-radius: 50px;
-  font-weight: 800;
-  cursor: pointer;
-  border: none;
-  transition: all 0.2s;
-}
-
-.follow-btn { background: #064e3b; color: white; }
-.message-btn { background: #10b981; color: white; margin-left: 10px; }
-.edit-profile-btn { background: white; color: #064e3b; border: 2px solid #064e3b; }
-
-/* ───── Tabs (Wide Layout) ───── */
-.vine-profile-tabs {
-  width: 100%;
-  max-width: 1200px;
-  margin: 0 auto;
-  display: flex;
-  border-bottom: 2px solid rgba(6, 78, 59, 0.1);
-}
-
-.tab {
-  padding: 20px 40px;
-  font-weight: 800;
-  color: #64748b;
-  border: none;
-  background: none;
-  cursor: pointer;
-}
-
-.tab.active {
-  color: #064e3b;
-  border-bottom: 4px solid #064e3b;
-}
-
-/* ───── Post List (Centered Feed within Full Screen) ───── */
-.vine-profile-posts {
-  width: 100%;
-  max-width: 800px; /* Keeps the actual feed readable */
-  margin: 0 auto;
-  padding: 20px 0;
-}
-
-/* ───── Mobile Fixes ───── */
-@media (max-width: 768px) {
-  .vine-profile-banner { height: 200px; }
-  .vine-profile-header { margin-top: -50px; padding: 0 15px; }
-  .avatar-circle { width: 110px; height: 110px; border-radius: 25px; }
-  .profile-name { font-size: 1.6rem; }
-  .tab { padding: 15px 10px; font-size: 0.9rem; }
-}
-
-/* ───── Full Edge-to-Edge Navigation ───── */
+/* ── Top Sticky Bar ── */
 .vine-profile-topbar {
   position: sticky;
   top: 0;
   left: 0;
   right: 0;
-  z-index: 2000;
-  background: #064e3b !important; /* Solid Forest Green */
-  
-  /* Forces the bar to ignore parent containers and hit the screen edges */
-  width: 100vw; 
-  margin-left: calc(-50vw + 50%);
-  margin-right: calc(-50vw + 50%);
-  
-  padding: 12px 5%; /* Horizontal padding keeps text from touching edges */
+  z-index: 1000;
+  width: 100%;
+  margin: 0;
+  padding: 12px 5%;
+  background: #064e3b !important;
   display: flex;
   align-items: center;
   gap: 20px;
@@ -157,16 +32,15 @@
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
 }
 
-/* ───── Text & Info Styling ───── */
 .topbar-info {
   display: flex;
   flex-direction: column;
-  flex: 1; /* Allows the info to take up available space */
+  flex: 1;
 }
 
 .profile-title {
-  color: #ffffff !important;
-  font-weight: 900 !important;
+  color: white;
+  font-weight: 900;
   font-size: 1.25rem;
   letter-spacing: -0.02em;
   margin: 0;
@@ -180,156 +54,154 @@
   letter-spacing: 0.05em;
 }
 
-/* ───── The "Spess" Background Reset ───── */
-.vine-profile-wrapper {
-  width: 100%;
-  min-height: 100vh;
-  background-color: #dcfce7;
-  overflow-x: hidden; /* Prevents horizontal scroll from the 100vw bar */
+/* ── Banner ── */
+.vine-profile-banner-wrapper {
+  position: relative;
 }
 
-/* ───── Mobile Consistency ───── */
-@media (max-width: 768px) {
-  .vine-profile-topbar {
-    padding: 10px 15px;
-    width: 100%; /* Reset to standard on mobile */
-    margin: 0;
-  }
-  
-  .profile-title {
-    font-size: 1.1rem;
-  }
-}
-/* ───── 1. Ensure the Root allows full width ───── */
-.vine-profile-wrapper {
+.vine-profile-banner {
   width: 100%;
-  max-width: none !important; /* Kill any centered constraints */
-  margin: 0 !important;
-  padding: 0;
-  background-color: #dcfce7;
-  min-height: 100vh;
+  height: 350px;
+  background: #052e16;
+  position: relative;
+  overflow: hidden;
 }
 
-/* ───── 2. The Full Screen Strip ───── */
-.vine-profile-topbar {
-  /* Use fixed or sticky, but ensure width is absolute */
-  position: sticky; 
-  top: 0;
-  left: 0;
-  width: 100%; /* Stretch to the browser edges */
-  
-  background: #064e3b !important; /* Solid Forest Green */
+.vine-profile-banner img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center var(--banner-y, 50%);
+}
+
+.banner-action-buttons {
+  position: absolute;
+  top: calc(env(safe-area-inset-top, 10px) + 10px);
+  left: 12px;
+  z-index: 10;
   display: flex;
-  align-items: center;
-  padding: 12px 20px;
-  box-sizing: border-box; /* Crucial so padding doesn't break width */
-  z-index: 9999; /* Stay above everything */
-  gap: 20px;
+  gap: 8px;
+}
+
+.banner-btn {
+  background: rgba(0, 0, 0, 0.55);
+  color: white;
   border: none;
-}
-
-/* ───── 3. Style the Text inside the strip ───── */
-.topbar-info {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-}
-
-.profile-title {
-  color: #ffffff !important;
-  font-weight: 900 !important;
-  font-size: 1.2rem;
-  margin: 0;
-  display: block; /* Ensure it behaves as a block */
-}
-
-.post-count-mini {
-  color: rgba(255, 255, 255, 0.8) !important;
-  font-size: 0.85rem;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 0.75rem;
   font-weight: 700;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
 }
 
-/* ───── 4. Keep the Feed Content Centered ───── */
-/* While the bar is full width, we keep the posts readable */
-.vine-profile-posts, .vine-profile-header {
+/* ── Header (Avatar + Buttons overlapping banner) ── */
+.vine-profile-header {
   width: 100%;
-  max-width: 800px; /* Adjust this to your preferred content width */
-  margin-left: auto;
-  margin-right: auto;
+  max-width: 1200px;
+  margin: -80px auto 0;
+  padding: 0 5%;
+  position: relative;
+  z-index: 10;
+  box-sizing: border-box;
 }
-/* ───── Header Container ───── */
+
 .header-top-row {
   display: flex;
   justify-content: space-between;
-  align-items: flex-end; /* Aligns buttons with the bottom of the avatar */
+  align-items: flex-end;
+  gap: 16px;
   padding: 0 20px;
   position: relative;
   z-index: 20;
 }
 
-/* ───── Premium Squircle Avatar ───── */
-.avatar-circle {
-  width: 150px;
-  height: 150px;
-  background: #ffffff;
-  /* Premium Squircle shape */
-  border-radius: 45px; 
-  border: 6px solid #dcfce7; /* Mint background bleed */
-  overflow: hidden;
-  position: relative;
-  box-shadow: 0 12px 35px rgba(5, 46, 22, 0.2);
-  cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-  margin-top: -75px; /* Half-overlap with banner */
-}
-
-.avatar-circle:hover {
-  transform: translateY(-5px) scale(1.02);
-  box-shadow: 0 20px 40px rgba(5, 46, 22, 0.25);
-}
-
-.avatar-circle img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-/* Upload Overlay for "Me" */
-.avatar-circle.uploadable::after {
-  content: "📷";
-  position: absolute;
-  inset: 0;
-  background: rgba(6, 78, 59, 0.4);
+.profile-action-buttons {
   display: flex;
+  gap: 10px;
   align-items: center;
-  justify-content: center;
-  font-size: 1.5rem;
-  opacity: 0;
-  transition: opacity 0.2s;
+  flex-shrink: 0;
 }
 
-.avatar-circle.uploadable:hover::after {
-  opacity: 1;
+/* ── Avatar ── */
+.avatar-wrapper {
+  position: relative;
 }
 
-/* Fallback Placeholder */
+.avatar-circle {
+  position: relative;
+  width: 96px;
+  height: 96px;
+  border-radius: 16px;
+  overflow: hidden;
+  background: #e5e7eb;
+  border: 3px solid #10b981;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.avatar-circle img,
 .avatar-placeholder {
   width: 100%;
   height: 100%;
-  background: linear-gradient(135deg, #064e3b, #10b981);
-  color: white;
+  object-fit: cover;
+  display: block;
+}
+
+.avatar-placeholder {
+  background: #d1fae5;
+  color: #064e3b;
+  font-size: 2rem;
+  font-weight: 800;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 3rem;
-  font-weight: 900;
 }
 
-/* ───── Action Buttons (Edit, Follow, DM) ───── */
-.edit-profile-btn, .follow-btn, .message-btn {
+/* Camera overlay */
+.avatar-camera-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  color: white;
+  font-size: 1.4rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  border-radius: 16px;
+  pointer-events: none;
+}
+
+/* Desktop hover */
+@media (hover: hover) {
+  .avatar-circle:hover .avatar-camera-overlay {
+    opacity: 1;
+    backdrop-filter: blur(4px);
+  }
+}
+
+/* Mobile (always visible, no blur) */
+@media (hover: none) {
+  .avatar-camera-overlay {
+    opacity: 1;
+    background: transparent;
+    align-items: flex-end;
+    justify-content: flex-end;
+    padding: 6px;
+    font-size: 1rem;
+    backdrop-filter: none;
+  }
+}
+
+/* ── Action Buttons ── */
+.edit-profile-btn,
+.follow-btn,
+.message-btn {
   height: 48px;
   padding: 0 28px;
-  border-radius: 16px; /* Matching the squircle vibe */
+  border-radius: 16px;
   font-weight: 800;
   font-size: 0.95rem;
   cursor: pointer;
@@ -341,73 +213,36 @@
   box-shadow: 0 8px 20px rgba(6, 78, 59, 0.15);
 }
 
-/* Edit Button: White & Clean */
 .edit-profile-btn {
-  background: #ffffff;
+  background: white;
   color: #064e3b;
   border: 2px solid #064e3b;
 }
 
-.edit-profile-btn:hover {
-  background: #064e3b;
-  color: #ffffff;
-}
-
-/* Follow Button: Solid Forest Green */
 .follow-btn {
   background: #064e3b;
-  color: #ffffff;
+  color: white;
 }
 
-.follow-btn:hover {
-  background: #052e16;
-  transform: translateY(-2px);
-  box-shadow: 0 12px 25px rgba(6, 78, 59, 0.3);
-}
-
-/* DM Button: Signature Mint */
 .message-btn {
   background: #10b981;
-  color: #ffffff;
+  color: white;
 }
 
-.message-btn:hover {
-  background: #059669;
-  transform: translateY(-2px);
-  box-shadow: 0 12px 25px rgba(16, 185, 129, 0.3);
-}
+.edit-profile-btn:hover   { background: #064e3b; color: white; }
+.follow-btn:hover        { background: #052e16; transform: translateY(-2px); }
+.message-btn:hover       { background: #059669;  transform: translateY(-2px); }
 
-/* ───── Mobile Adjustments ───── */
-@media (max-width: 768px) {
-  .header-top-row {
-    padding: 0 15px;
-  }
-  
-  .avatar-circle {
-    width: 110px;
-    height: 110px;
-    border-radius: 30px;
-    margin-top: -55px;
-    border-width: 4px;
-  }
-  
-  .edit-profile-btn, .follow-btn, .message-btn {
-    height: 40px;
-    padding: 0 18px;
-    font-size: 0.85rem;
-    border-radius: 12px;
-  }
-}
-/* ───── Profile Meta Container ───── */
+/* ── Profile Meta / Info ── */
 .profile-meta {
-  padding: 20px 5%;
+  background: rgba(255, 255, 255, 0.4);
+  padding: 30px 5%;
   width: 100%;
-  max-width: 1200px; /* Aligns with our header logic */
-  margin: 0 auto;
+  max-width: 1200px;
+  margin: 0 auto 20px;
   box-sizing: border-box;
 }
 
-/* ───── Public View Typography ───── */
 .profile-name {
   font-size: 2.2rem;
   font-weight: 900;
@@ -435,7 +270,7 @@
   font-size: 1.1rem;
   color: #064e3b;
   font-weight: 700;
-  margin: 4px 0 12px 0;
+  margin: 4px 0 12px;
   opacity: 0.8;
 }
 
@@ -447,7 +282,7 @@
   margin-bottom: 20px;
 }
 
-/* ───── Extra Fields (📍, 🔗, 📅) ───── */
+/* Extra fields */
 .profile-extra {
   display: flex;
   flex-wrap: wrap;
@@ -455,19 +290,20 @@
   margin-bottom: 20px;
 }
 
-.profile-field, .profile-link, .join-date {
+.profile-field,
+.profile-link,
+.join-date {
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 8px 16px;
-  background: #ffffff;
+  background: white;
   border: 1px solid #c6f6d5;
   border-radius: 12px;
   font-size: 0.9rem;
   font-weight: 700;
   color: #064e3b;
   text-decoration: none;
-  box-shadow: 0 2px 5px rgba(0,0,0,0.03);
 }
 
 .profile-link:hover {
@@ -475,7 +311,7 @@
   border-color: #10b981;
 }
 
-/* ───── Stats (Following/Followers) ───── */
+/* Stats */
 .profile-stats {
   display: flex;
   gap: 25px;
@@ -490,152 +326,105 @@
   transition: color 0.2s;
 }
 
-.profile-stats span:hover {
-  color: #064e3b;
-}
-
 .profile-stats strong {
   color: #052e16;
   font-weight: 900;
   font-size: 1.1rem;
 }
 
-/* ───── Edit Profile Form (The "Hot Fix" for Form UX) ───── */
+/* ── Edit Profile Form ── */
 .edit-profile-form {
   display: flex;
   flex-direction: column;
-  gap: 15px;
-  background: #ffffff;
-  padding: 25px;
-  border-radius: 24px;
-  border: 2px solid #064e3b;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.05);
+  gap: 14px;
+  margin-top: 14px;
 }
 
-.edit-input, .bio-edit-input {
+.edit-input {
   width: 100%;
-  padding: 14px;
-  border-radius: 12px;
-  border: 1px solid #c6f6d5;
-  background: #fdfdfd;
-  font-family: inherit;
-  font-size: 1rem;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid #e5e7eb;
+  font-size: 0.95rem;
+  font-weight: 500;
   outline: none;
-  transition: border-color 0.2s;
+  background: #ffffff;
+  transition: all 0.2s ease;
 }
 
-.edit-input:focus, .bio-edit-input:focus {
+.edit-input::placeholder {
+  color: #9ca3af;
+}
+
+.edit-input:focus {
   border-color: #10b981;
-  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15);
 }
 
 .edit-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 15px;
+  display: flex;
+  gap: 12px;
 }
 
 .edit-bio-block {
+  position: relative;
   display: flex;
   flex-direction: column;
+  gap: 6px;
 }
 
 .edit-label {
-  font-weight: 800;
-  color: #064e3b;
-  margin-bottom: 6px;
-  font-size: 0.85rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #6b7280;
   text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.bio-edit-input {
+  width: 100%;
+  min-height: 90px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid #e5e7eb;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  resize: none;
+  outline: none;
+  font-family: inherit;
+  transition: all 0.2s ease;
+}
+
+.bio-edit-input::placeholder {
+  color: #9ca3af;
+}
+
+.bio-edit-input:focus {
+  border-color: #10b981;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15);
 }
 
 .char-count {
   align-self: flex-end;
   font-size: 0.75rem;
-  color: #64748b;
-  margin-top: 4px;
+  color: #9ca3af;
 }
 
-/* ───── Mobile Overrides ───── */
-@media (max-width: 768px) {
-  .profile-name { font-size: 1.6rem; }
-  .edit-row { grid-template-columns: 1fr; }
-  .profile-meta { padding: 15px; }
-  .bio { font-size: 1rem; }
-  .profile-extra { gap: 8px; }
-  .profile-field, .profile-link, .join-date { font-size: 0.8rem; padding: 6px 10px; }
-}
-/* ───── Premium Tab Navigation ───── */
+/* ── Tabs ── */
 .vine-profile-tabs {
   width: 100%;
-  max-width: 1200px; /* Aligns with the Header and Meta */
-  margin: 20px auto;
-  padding: 6px;
-  background: rgba(6, 78, 59, 0.05); /* Very faint forest green track */
+  max-width: 1200px;
+  margin: 30px auto;
+  padding: 8px;
+  background: rgba(6, 78, 59, 0.08);
   display: flex;
   gap: 8px;
-  border-radius: 20px; /* Matching our Squircle theme */
+  border-radius: 24px;
   box-sizing: border-box;
 }
 
 .tab {
   flex: 1;
-  padding: 14px 0;
-  border: none;
-  background: transparent;
-  font-weight: 800;
-  font-size: 0.95rem;
-  color: #064e3b;
-  cursor: pointer;
-  text-transform: capitalize;
-  border-radius: 16px;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  letter-spacing: 0.02em;
-}
-
-/* ───── The Active State ───── */
-.tab.active {
-  background: #064e3b; /* Solid Forest Green */
-  color: #ffffff; /* Pure White */
-  box-shadow: 0 4px 15px rgba(6, 78, 59, 0.2);
-  transform: translateY(-1px);
-}
-
-.tab:hover:not(.active) {
-  background: rgba(6, 78, 59, 0.1);
-  color: #052e16;
-}
-
-/* ───── Mobile Adjustments ───── */
-@media (max-width: 768px) {
-  .vine-profile-tabs {
-    margin: 10px 15px; /* Adds breathing room from screen edges */
-    gap: 4px;
-    border-radius: 14px;
-    padding: 4px;
-  }
-  
-  .tab {
-    padding: 10px 0;
-    font-size: 0.85rem;
-    border-radius: 10px;
-  }
-}
-/* ───── The Tab Control Track ───── */
-.vine-profile-tabs {
-  width: 100%;
-  max-width: 1200px; /* Aligns with your Meta and Topbar logic */
-  margin: 30px auto; 
-  display: flex;
-  padding: 8px;
-  background: rgba(6, 78, 59, 0.08); /* Transparent Mint-Green Track */
-  border-radius: 24px; /* Matches our Squircle theme */
-  gap: 8px;
-  box-sizing: border-box;
-}
-
-/* ───── Individual Tab Buttons ───── */
-.tab {
-  flex: 1; /* Makes all buttons equal width */
   padding: 14px 0;
   border: none;
   background: transparent;
@@ -646,99 +435,375 @@
   text-transform: capitalize;
   border-radius: 18px;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  letter-spacing: 0.02em;
 }
 
-/* ───── The Premium Active State ───── */
-.tab.active {
-  background: #064e3b; /* Solid Forest Green */
-  color: #ffffff;      /* Pure White */
-  box-shadow: 0 10px 20px rgba(6, 78, 59, 0.25);
-  transform: translateY(-2px); /* Lift effect */
-}
-
-/* Subtle hover for inactive tabs */
 .tab:hover:not(.active) {
   background: rgba(255, 255, 255, 0.5);
   color: #052e16;
 }
 
-/* ───── Mobile Responsiveness ───── */
-@media (max-width: 768px) {
-  .vine-profile-tabs {
-    margin: 20px 10px; /* Slight margin from screen edges on mobile */
-    padding: 6px;
-    border-radius: 16px;
-    gap: 5px;
-  }
-
-  .tab {
-    padding: 12px 0;
-    font-size: 0.9rem;
-    border-radius: 12px;
-  }
-  
-  .tab.active {
-    box-shadow: 0 4px 12px rgba(6, 78, 59, 0.2);
-    transform: translateY(-1px);
-  }
+.tab.active {
+  background: #064e3b;
+  color: white;
+  box-shadow: 0 10px 20px rgba(6, 78, 59, 0.25);
+  transform: translateY(-2px);
 }
-/* ───── Post Feed Container ───── */
+
+/* ── Tab Content / Posts ── */
+.vine-profile-tab-content {
+  min-height: 200px;
+  padding: 20px 16px;
+}
+
 .vine-profile-posts {
   width: 100%;
-  max-width: 800px; /* Optimal reading width for posts */
+  max-width: 800px;
   margin: 0 auto;
-  padding: 10px 20px 100px 20px;
+  padding: 20px 20px 100px;
   display: flex;
   flex-direction: column;
-  gap: 20px; /* Adds space between post cards */
+  gap: 20px;
   box-sizing: border-box;
 }
 
-/* ───── Post Card Overrides ───── */
-/* We target the VinePostCard container specifically within the profile */
 .vine-profile-posts > div {
-  background: #ffffff !important;
-  border-radius: 24px !important; /* Matches our Squircle profile theme */
-  border: 1px solid rgba(6, 78, 59, 0.08) !important;
-  box-shadow: 0 4px 20px rgba(5, 46, 22, 0.04) !important;
-  transition: transform 0.2s ease, box-shadow 0.2s ease !important;
+  background: white;
+  border-radius: 24px;
+  border: 1px solid rgba(6, 78, 59, 0.08);
+  box-shadow: 0 4px 20px rgba(5, 46, 22, 0.04);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
   overflow: hidden;
 }
 
 .vine-profile-posts > div:hover {
   transform: translateY(-3px);
-  box-shadow: 0 12px 30px rgba(5, 46, 22, 0.08) !important;
-  border-color: #10b981 !important;
+  box-shadow: 0 12px 30px rgba(5, 46, 22, 0.08);
+  border-color: #10b981;
 }
 
-/* ───── Empty State Styling ───── */
-.empty-msg {
+/* ── Photos Grid ── */
+.photos-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  padding: 8px;
+}
+
+.photo-tile {
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+  border-radius: 8px;
+  cursor: pointer;
+  background: #eaf7f4;
+}
+
+.photo-tile img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* ── Empty & Coming Soon States ── */
+.empty-state,
+.coming-soon {
+  margin: 48px auto;
+  padding: 24px 16px;
   text-align: center;
-  padding: 80px 20px;
-  background: rgba(255, 255, 255, 0.4);
-  border: 2px dashed rgba(6, 78, 59, 0.15);
-  border-radius: 30px;
-  color: #064e3b;
-  font-size: 1.1rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  backdrop-filter: blur(5px);
+  color: #2f6f64;
+  font-size: 0.95rem;
+  font-weight: 500;
+  background: rgba(47, 111, 100, 0.08);
+  border: 1px dashed rgba(47, 111, 100, 0.25);
+  border-radius: 14px;
+  max-width: 420px;
 }
 
-/* ───── Mobile Adjustments ───── */
+.coming-soon {
+  min-height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.8;
+}
+
+/* ── Fullscreen Image Viewer (used for banner/avatar/photo) ── */
+.image-viewer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.92);
+  z-index: 99999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  touch-action: none;
+}
+
+.image-viewer-img {
+  max-width: 100vw;
+  max-height: 100vh;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
+
+/* ── Photo Viewer Interactions ── */
+.viewer-like-btn {
+  position: absolute;
+  bottom: 32px;
+  right: 24px;
+  background: rgba(0, 0, 0, 0.6);
+  color: white;
+  border: none;
+  border-radius: 999px;
+  padding: 10px 14px;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.viewer-like-btn.liked {
+  background: rgba(47, 111, 100, 0.9);
+}
+
+.viewer-like-btn .like-count {
+  font-size: 14px;
+}
+
+.viewer-comment-btn {
+  position: absolute;
+  bottom: 32px;
+  left: 24px;
+  background: rgba(0, 0, 0, 0.6);
+  color: white;
+  border: none;
+  border-radius: 999px;
+  padding: 10px 14px;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+/* ── Photo Comments Panel (bottom sheet) ── */
+.photo-comments-panel {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 60%;
+  background: #e6fbf3;
+  color: #0f3d2e;
+  border-top-left-radius: 16px;
+  border-top-right-radius: 16px;
+  display: flex;
+  flex-direction: column;
+}
+
+.photo-comments-panel .comments-header {
+  padding: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.photo-comments-panel .comments-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.photo-comments-panel .comment-item {
+  margin-bottom: 12px;
+  padding: 6px 0;
+}
+
+.photo-comments-panel .comment-main {
+  display: flex;
+  gap: 10px;
+}
+
+.photo-comments-panel .comment-avatar {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  min-height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: #cfeee3;
+}
+
+.photo-comments-panel .comment-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.photo-comments-panel .comment-username {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.photo-comments-panel .comment-text {
+  font-size: 0.9rem;
+  color: #2f6f64;
+  opacity: 0.95;
+  margin-top: 2px;
+}
+
+.photo-comments-panel .comment-meta {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-top: 4px;
+  font-size: 12px;
+  color: #2f6f64;
+}
+
+.photo-comments-panel .comment-like {
+  background: none;
+  border: none;
+  padding: 0;
+  color: #2f6f64;
+  cursor: pointer;
+  font-size: inherit;
+}
+
+.photo-comments-panel .comment-like.liked {
+  font-weight: 600;
+  color: #ef4444; /* or keep mint if preferred */
+}
+
+.photo-comments-panel .reply-btn {
+  background: none;
+  border: none;
+  color: #2f6f64;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.photo-comments-panel .comment-delete-btn {
+  background: none;
+  border: none;
+  font-size: 13px;
+  color: #ef4444;
+  cursor: pointer;
+  opacity: 0.5;
+  margin-left: 6px;
+}
+
+.photo-comments-panel .comment-delete-btn:hover {
+  opacity: 1;
+}
+
+.photo-comments-panel .comment-replies {
+  margin: 6px 0 0 46px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.photo-comments-panel .replying-to {
+  padding: 6px 12px;
+  font-size: 13px;
+  color: #2f6f64;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.photo-comments-panel .toggle-replies-btn {
+  background: none;
+  border: none;
+  color: #2f6f64;
+  font-size: 12px;
+  margin-left: 46px;
+  padding: 0;
+  cursor: pointer;
+}
+
+.photo-comments-panel .toggle-replies-btn:hover {
+  text-decoration: underline;
+}
+
+/* ── Comment Input ── */
+.photo-comments-panel .comment-input-bar {
+  display: flex;
+  padding: 10px;
+  gap: 8px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.photo-comments-panel .comment-input-bar input {
+  flex: 1;
+  border: 1px solid #d1fae5;
+  border-radius: 20px;
+  padding: 8px 14px;
+  font-size: 0.95rem;
+  outline: none;
+}
+
+.photo-comments-panel .comment-input-bar input:focus {
+  border-color: #10b981;
+}
+
+/* ── Media Queries ── */
 @media (max-width: 768px) {
-  .vine-profile-posts {
-    padding: 10px 15px 80px 15px;
-    gap: 15px;
+  .vine-profile-banner          { height: 200px; }
+  .vine-profile-header          { margin-top: -50px; padding: 0 15px; }
+  .vine-profile-topbar          { padding: 10px 15px; }
+  .profile-title                { font-size: 1.1rem; }
+  .avatar-circle                { width: 110px; height: 110px; border-radius: 30px; margin-top: -55px; }
+  .profile-name                 { font-size: 1.6rem; }
+  .bio                          { font-size: 1rem; }
+  .profile-meta                 { padding: 15px; }
+  .profile-extra                { gap: 8px; }
+  .profile-field, .profile-link, .join-date { font-size: 0.8rem; padding: 6px 10px; }
+  .edit-profile-btn, .follow-btn, .message-btn {
+    height: 40px;
+    padding: 0 18px;
+    font-size: 0.85rem;
+    border-radius: 12px;
   }
-  
-  .vine-profile-posts > div {
-    border-radius: 20px !important;
-  }
-  
-  .empty-msg {
-    padding: 60px 15px;
-    font-size: 1rem;
-  }
+  .vine-profile-tabs            { margin: 20px 10px; padding: 6px; border-radius: 16px; gap: 5px; }
+  .tab                          { padding: 12px 0; font-size: 0.9rem; border-radius: 12px; }
+  .vine-profile-posts           { padding: 10px 15px 80px; gap: 15px; }
+  .vine-profile-posts > div     { border-radius: 20px; }
+  .edit-row                     { flex-direction: column; gap: 12px; }
+  .photos-grid                  { grid-template-columns: repeat(3, 1fr); }
+}
+.profile-meta {
+  font-size: 13px;
+  color: #6b8f83;
+  margin-top: 4px;
+}
+
+.last-active {
+  margin-left: 6px;
+}
+.profile-extra {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  font-size: 13px;
+  color: #6b8f83;
+}
+
+.profile-extra span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.last-active {
+  color: #0f3d2e; /* mint emphasis */
+  font-weight: 700;
+  letter-spacing: 0.2px;
+
 }

@@ -191,7 +191,7 @@ const navigate = useNavigate();
   }}
 >
   {post.avatar_url ? (
-    <img src={`${API}${post.avatar_url}`} alt="avatar" />
+   <img src={post.avatar_url} alt="avatar" />
   ) : (
     <div className="avatar-fallback">
       {(post.username || "?")[0].toUpperCase()}
@@ -427,7 +427,7 @@ function Comment({ comment, onReply, onDelete, isPostOwner, currentUserId }) {
       <div className="comment-main">
         <div className="comment-meta">
           <img
-            src={`${API}${comment.avatar_url}`}
+            src= {comment.avatar_url}
             className="comment-avatar"
             alt=""
             onError={(e) => {

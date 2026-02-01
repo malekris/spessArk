@@ -22,7 +22,7 @@ export default function MiniProfileCard({ username, anchorRef, onClose }) {
 
   return (
     <div className="mini-profile-card">
-      <img src={`${API}${user.avatar_url}`} alt="" />
+      <img src={user.avatar_url} alt="" />
       <div className="mini-meta">
         <strong>{user.display_name}</strong>
         <span>@{user.username}</span>

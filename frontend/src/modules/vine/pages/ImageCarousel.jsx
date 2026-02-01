@@ -51,7 +51,7 @@ export default function ImageCarousel({ imageUrl }) {
         {images.map((src, i) => (
           <img
             key={i}
-            src={`${ORIGIN}${src}`}
+            src={src}
             alt=""
             className="carousel-img"
             onClick={() => setViewerOpen(true)}
@@ -93,7 +93,7 @@ export default function ImageCarousel({ imageUrl }) {
           </button>
 
           <img
-            src={`${ORIGIN}${images[currentIndex]}`}
+            src={images[currentIndex]}
             className="image-viewer-img"
             onClick={(e) => e.stopPropagation()}
             alt=""

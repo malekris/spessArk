@@ -1011,7 +1011,7 @@ router.delete("/posts/:id", requireVineAuth, async (req, res) => {
     res.status(500).json({ message: "Server error during deletion" });
   }
 });
-// avatars 
+// avatars (Cloudinary)
 router.post(
   "/users/avatar",
   authenticate,
@@ -1026,7 +1026,7 @@ router.post(
         return res.status(401).json({ message: "Unauthorized" });
       }
 
-      const avatarUrl = `/uploads/avatars/${req.file.filename}`;
+      const avatarUrl = req.file.path; // ✅ Cloudinary URL
 
       await db.query(
         "UPDATE vine_users SET avatar_url = ? WHERE id = ?",
@@ -1034,13 +1034,13 @@ router.post(
       );
 
       res.json({ avatar_url: avatarUrl });
-
     } catch (err) {
       console.error("Avatar upload error:", err);
       res.status(500).json({ message: "Upload failed" });
     }
   }
 );
+
 // banners (NEW)
 router.post(
   "/users/banner",
@@ -1056,7 +1056,8 @@ router.post(
         return res.status(401).json({ message: "Unauthorized" });
       }
 
-      const bannerUrl = `/uploads/banners/${req.file.filename}`;
+      const bannerUrl = req.file.path; // Cloudinary HTTPS URL
+
 
       await db.query(
         "UPDATE vine_users SET banner_url = ? WHERE id = ?",

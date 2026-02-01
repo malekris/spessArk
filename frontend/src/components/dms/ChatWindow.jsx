@@ -171,11 +171,8 @@ export default function ChatWindow() {
             onClick={() => navigate(`/vine/profile/${partner.username}`)}
           >
             <img
-              src={
-                partner.avatar_url
-                  ? `${API}${partner.avatar_url}`
-                  : "/default-avatar.png"
-              }
+              src={partner.avatar_url || "/default-avatar.png"}
+
               alt=""
               className="chat-avatar"
             />

@@ -425,8 +425,7 @@ export default function VineProfile() {
           )}
 
           {bannerUrl ? (
-            <img
-              src={`${API}${bannerUrl}`}
+            <img src={bannerUrl}
               alt="banner"
               style={{
                 objectPosition: `center calc(50% + ${bannerOffset}px)`,
@@ -455,7 +454,7 @@ export default function VineProfile() {
             ✕
           </button>
           <img
-            src={`${API}${bannerUrl}`}
+            src={bannerUrl}
             className="image-viewer-img"
             alt="banner fullscreen"
             onClick={(e) => e.stopPropagation()}
@@ -470,7 +469,7 @@ export default function VineProfile() {
             ✕
           </button>
           <img
-            src={`${API}${avatarUrl}`}
+            src={avatarUrl}
             className="image-viewer-img"
             alt="avatar fullscreen"
             onClick={(e) => e.stopPropagation()}
@@ -494,7 +493,8 @@ export default function VineProfile() {
             
           >
             {avatarUrl ? (
-              <img src={`${API}${avatarUrl}`} alt="avatar" />
+             <img src={avatarUrl} alt="avatar" />
+
             ) : (
               <div className="avatar-placeholder">{resolvedUsername[0].toUpperCase()}</div>
             )}
@@ -736,7 +736,7 @@ export default function VineProfile() {
                       setPhotoViewerOpen(true);
                     }}
                   >
-                    <img src={`${API}${coverImage}`} alt="" />
+                    <img src={coverImage} alt="" />
                   </div>
                 );
               })
@@ -752,8 +752,8 @@ export default function VineProfile() {
             ✕
           </button>
 
-          <img
-            src={`${API}${activeImageSet?.[activeImageIndex]}`}
+          <img src={activeImageSet?.[activeImageIndex]} 
+
             className="image-viewer-img"
             onClick={(e) => e.stopPropagation()}
             alt=""
@@ -802,7 +802,8 @@ export default function VineProfile() {
                   topLevelComments.map((c) => (
                     <div key={c.id} className="comment-item">
                       <div className="comment-main">
-                        <img src={`${API}${c.avatar_url}`} className="comment-avatar" alt="" />
+                      <img src={c.avatar_url} className="comment-avatar" alt="" />
+
 
                         <div className="comment-body">
                           <span className="comment-username">{c.display_name || c.username}</span>
@@ -881,8 +882,7 @@ export default function VineProfile() {
                         <div className="comment-replies">
                           {repliesByParent[c.id].map((r) => (
                             <div key={r.id} className="comment-reply">
-                              <img
-                                src={`${API}${r.avatar_url}`}
+                              <img src={r.avatar_url}
                                 className="comment-avatar small"
                                 alt=""
                               />

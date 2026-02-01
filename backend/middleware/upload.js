@@ -3,7 +3,15 @@ import { CloudinaryStorage } from "multer-storage-cloudinary";
 import cloudinary from "../config/cloudinary.js";
 
 // ------------------------
-// Avatar upload (Cloudinary)
+// Post images (memory → manual Cloudinary upload)
+// ------------------------
+export const uploadPostCloudinary = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 },
+});
+
+// ------------------------
+// Avatar upload (CloudinaryStorage)
 // ------------------------
 const avatarStorage = new CloudinaryStorage({
   cloudinary,
@@ -22,7 +30,7 @@ export const uploadAvatar = multer({
 });
 
 // ------------------------
-// Banner upload (Cloudinary)
+// Banner upload (CloudinaryStorage)
 // ------------------------
 const bannerStorage = new CloudinaryStorage({
   cloudinary,
@@ -37,21 +45,5 @@ const bannerStorage = new CloudinaryStorage({
 
 export const uploadBanner = multer({
   storage: bannerStorage,
-  limits: { fileSize: 20 * 1024 * 1024 },
-});
-
-// ------------------------
-// Post image upload (Cloudinary)
-// ------------------------
-const postStorage = new CloudinaryStorage({
-  cloudinary,
-  params: {
-    folder: "vine/posts",
-    allowed_formats: ["jpg", "jpeg", "png", "webp"],
-  },
-});
-
-export const uploadPost = multer({
-  storage: postStorage,
   limits: { fileSize: 20 * 1024 * 1024 },
 });

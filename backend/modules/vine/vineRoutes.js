@@ -8,7 +8,7 @@ import authOptional from "../authOptional.js";
 import { authenticate } from "../auth.js";
 import { uploadAvatar, uploadBanner } from "../../middleware/upload.js";
 import { io } from "../../server.js"; 
-import { uploadPost } from "../../middleware/upload.js";
+import { uploadPostCloudinary } from "../../middleware/upload.js";
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "vine_secret_key";

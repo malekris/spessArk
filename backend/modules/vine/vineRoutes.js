@@ -515,6 +515,7 @@ try {
         c.parent_comment_id,
         u.username,
         u.display_name,
+        u.is_verified,
         COALESCE(u.avatar_url, '/uploads/avatars/default.png') AS avatar_url,
         COUNT(cl.id) AS like_count,
         MAX(cl.user_id = ?) AS user_liked

@@ -531,3 +531,7 @@
 .vine-post-content {
   white-space: pre-wrap;   /* 🔑 THIS IS IT */
 }
+.comment-username .verified {
+  margin-left: 4px;
+  vertical-align: middle;
+}

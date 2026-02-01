@@ -435,12 +435,30 @@ function Comment({ comment, onReply, onDelete, isPostOwner, currentUserId }) {
             }}
           />
 
-          <div className="comment-meta-text">
-            <strong>{comment.display_name || comment.username}</strong>
-            <span className="time">
-              • {formatRelativeTime(comment.created_at || comment.sort_time)}
-            </span>
-          </div>
+<div className="comment-meta-text">
+  <strong className="comment-username">
+    {comment.display_name || comment.username}
+
+    {comment.is_verified === 1 && (
+      <span className="verified">
+        <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
+          <path
+            d="M20 6L9 17l-5-5"
+            stroke="white"
+            strokeWidth="3"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </span>
+    )}
+  </strong>
+
+  <span className="time">
+    • {formatRelativeTime(comment.created_at || comment.sort_time)}
+  </span>
+</div>
+
         </div>
 
         <p className="comment-text">{comment.content}</p>

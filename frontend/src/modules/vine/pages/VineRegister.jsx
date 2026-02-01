@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import "./vine.css";
+import "./VineRegister.css";  // ← this one line adds the styles
+
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 
 export default function VineRegister() {
@@ -16,19 +17,48 @@ export default function VineRegister() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
 
   const handleChange = (e) => {
-    setForm({ ...form, [e.target.name]: e.target.value });
+    const { name, value } = e.target;
+
+    // Live block spaces in username while typing
+    if (name === "username") {
+      // Remove any spaces instantly
+      const noSpaces = value.replace(/\s+/g, "");
+      setForm({ ...form, [name]: noSpaces });
+    } else {
+      setForm({ ...form, [name]: value });
+    }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
-    setSuccess("");
 
-    if (!form.username || !form.password) {
-      return setError("Username and password are required");
+    // Final validation before sending
+    if (!form.username) {
+      return setError("Username is required");
+    }
+
+    if (/\s/.test(form.username)) {
+      return setError("Username cannot contain spaces");
+    }
+
+    if (form.username.length < 3) {
+      return setError("Username must be at least 3 characters");
+    }
+
+    if (!form.email) {
+      return setError("Email is required");
+    }
+
+    // Simple email format check (can improve later)
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
+      return setError("Please enter a valid email");
+    }
+
+    if (!form.password) {
+      return setError("Password is required");
     }
 
     if (form.password !== form.confirm) {
@@ -37,8 +67,6 @@ export default function VineRegister() {
 
     try {
       setLoading(true);
-
-      console.log("📤 Sending register payload:", form);
 
       const res = await fetch(`${API}/api/vine/auth/register`, {
         method: "POST",
@@ -52,43 +80,45 @@ export default function VineRegister() {
       });
 
       const data = await res.json();
-      console.log("📥 Register response:", data);
 
       if (!res.ok) {
         return setError(data.message || "Registration failed");
       }
 
-      setSuccess("Account created successfully! Redirecting...");
+      // Success
+      alert("Account created! Redirecting to login...");
       setTimeout(() => navigate("/vine/login"), 1500);
 
     } catch (err) {
       console.error(err);
-      setError("Network error");
+      setError("Network error – please try again");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="vine-auth">
+    <div className="vine-auths">
       <form className="vine-card" onSubmit={handleSubmit}>
-      <div style={{ textAlign: "center", fontSize: "2rem" }}>🌱</div>
-      <p style={{ textAlign: "center", color: "#15803d", fontWeight: 600 }}>
-  SPESS VINE
-</p>
+        <div style={{ textAlign: "center", fontSize: "2rem" }}>🌱</div>
+        <p style={{ textAlign: "center", color: "#15803d", fontWeight: 600 }}>
+          SPESS VINE
+        </p>
 
         <h2>Create your Vine account 🌱</h2>
 
+        {/* Username – live space block + validation */}
         <input
-  name="username"
-  placeholder="Username"
-  value={form.username}
-  onChange={handleChange}
-  pattern="^\S+$"    /* 👈 Blocks spaces */
-  minLength="3"      /* 👈 Min 3 characters */
-  required           /* 👈 Cannot be empty */
-  title="Username must be at least 3 characters and contain no spaces"
-/>
+          name="username"
+          placeholder="Username (no spaces)"
+          value={form.username}
+          onChange={handleChange}
+          minLength={3}
+          required
+          title="Username must be at least 3 characters and contain no spaces"
+          pattern="^\S+$"               // blocks submit if spaces sneak in
+        />
+
         <input
           name="display_name"
           placeholder="Display name (optional)"
@@ -96,11 +126,15 @@ export default function VineRegister() {
           onChange={handleChange}
         />
 
+        {/* Email – now required */}
         <input
           name="email"
-          placeholder="Email (optional)"
+          type="email"
+          placeholder="Email (required)"
           value={form.email}
           onChange={handleChange}
+          required
+          title="A valid email is required"
         />
 
         <input
@@ -109,6 +143,7 @@ export default function VineRegister() {
           placeholder="Password"
           value={form.password}
           onChange={handleChange}
+          required
         />
 
         <input
@@ -117,10 +152,10 @@ export default function VineRegister() {
           placeholder="Confirm password"
           value={form.confirm}
           onChange={handleChange}
+          required
         />
 
         {error && <p className="error">{error}</p>}
-        {success && <p className="success">{success}</p>}
 
         <button disabled={loading}>
           {loading ? "Creating account..." : "Sign Up"}

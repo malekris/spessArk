@@ -19,11 +19,7 @@ export default function VineNotifications() {
       const data = await res.json();
       setNotifications(data);
   
-      // mark read AFTER rendering
-      await fetch(`${API}/api/vine/notifications/mark-read`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      
     };
   
     loadNotifications();
@@ -92,20 +88,26 @@ export default function VineNotifications() {
     className={`notif-row ${!n.is_read ? "unread" : ""}`}
     role="button"
     tabIndex={0}
-    onClick={() => {
+    onClick={async () => {
+      await fetch(`${API}/api/vine/notifications/${n.id}/read`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    
       if (n.type === "follow") {
         navigate(`/vine/profile/${n.username}`);
       } else if (n.comment_id) {
-        navigate(`/vine/feed?post=${n.post_id}&comment=${n.comment_id}`)
+        navigate(`/vine/feed?post=${n.post_id}&comment=${n.comment_id}`);
       } else {
         navigate(`/vine/feed#post-${n.post_id}`);
       }
     }}
     
+    
   >
     <div className="notif-avatar">
       {n.avatar_url ? (
-        <img src={`${API}${n.avatar_url}`} alt={n.username} />
+        <img src={n.avatar_url} alt={n.username} />
       ) : (
         <span>{(n.username || "U")[0].toUpperCase()}</span>
       )}

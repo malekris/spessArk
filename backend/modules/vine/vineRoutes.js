@@ -1280,6 +1280,16 @@ router.post("/notifications/mark-read", authenticate, async (req, res) => {
 
   res.json({ success: true });
 });
+// Mark single notification as read
+router.post("/notifications/:id/read", authenticate, async (req, res) => {
+  await db.query(
+    "UPDATE vine_notifications SET is_read = 1 WHERE id = ? AND user_id = ?",
+    [req.params.id, req.user.id]
+  );
+
+  res.json({ success: true });
+});
+
 // Update banner position
 router.post("/users/banner-position", requireVineAuth, async (req, res) => {
   const userId = req.user.id;

@@ -25,13 +25,14 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  position: sticky;
+  position: fixed;
   top: 0;
   left: 0;
   right: 0;
   z-index: 1000;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
   box-sizing: border-box;
+
 }
 
 .vine-nav-top h2 {

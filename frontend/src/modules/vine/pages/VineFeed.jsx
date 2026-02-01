@@ -186,9 +186,22 @@ export default function VineFeed() {
     <div className="vine-feed-container">
       {/* Top Navigation Bar */}
       <nav className="vine-nav-top">
-        <h2 onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
-          🌱 Vine
-        </h2>
+                    <h2
+                onClick={() => {
+                  document.documentElement.scrollTo({
+                    top: 0,
+                    behavior: "smooth",
+                  });
+                  document.body.scrollTo({
+                    top: 0,
+                    behavior: "smooth",
+                  });
+                }}
+                style={{ cursor: "pointer" }}
+              >
+                🌱 Vine
+              </h2>
+
 
         <div className="notif-bell" onClick={() => navigate("/vine/notifications")}>
           🔔

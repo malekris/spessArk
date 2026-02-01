@@ -1379,32 +1379,43 @@ router.delete("/comments/:id", requireVineAuth, async (req, res) => {
     res.status(500).json({ message: "Delete failed" });
   }
 });
-// 📌 Pin / Unpin post
+// Toggle pin / unpin
 router.post("/posts/:id/pin", requireVineAuth, async (req, res) => {
   const postId = req.params.id;
   const userId = req.user.id;
 
-  // Ensure post belongs to user
+  // Check current state
   const [[post]] = await db.query(
-    "SELECT id FROM vine_posts WHERE id = ? AND user_id = ?",
+    "SELECT is_pinned FROM vine_posts WHERE id = ? AND user_id = ?",
     [postId, userId]
   );
-  if (!post) return res.status(403).json({ message: "Not allowed" });
 
-  // Unpin any existing pinned post by this user
+  if (!post) {
+    return res.status(404).json({ message: "Post not found" });
+  }
+
+  if (post.is_pinned === 1) {
+    // 🔓 UNPIN (allow empty profile)
+    await db.query(
+      "UPDATE vine_posts SET is_pinned = 0 WHERE id = ? AND user_id = ?",
+      [postId, userId]
+    );
+
+    return res.json({ is_pinned: 0 });
+  }
+
+  // 📌 PIN (clear others first)
   await db.query(
     "UPDATE vine_posts SET is_pinned = 0 WHERE user_id = ?",
     [userId]
   );
 
-  // Pin this one
   await db.query(
-    "UPDATE vine_posts SET is_pinned = 1 WHERE id = ?",
-    [postId]
+    "UPDATE vine_posts SET is_pinned = 1 WHERE id = ? AND user_id = ?",
+    [postId, userId]
   );
 
-  res.json({ success: true });
+  res.json({ is_pinned: 1 });
 });
-
 
   export default router;

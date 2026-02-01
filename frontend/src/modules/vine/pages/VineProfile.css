@@ -807,3 +807,87 @@
   letter-spacing: 0.2px;
 
 }
+.vine-post.pinned {
+  border-color: #9fe0c8;
+  box-shadow: 0 6px 20px rgba(47,111,100,.12);
+}
+.profile-settings-btn {
+  margin-left: 8px;
+  padding: 8px 10px;
+  border-radius: 50%;
+  border: none;
+  background: #e6fbf3;
+  cursor: pointer;
+}
+
+.settings-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.4);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 999;
+}
+
+.settings-panel {
+  width: 340px;
+  background: #e6fbf3;
+  border-radius: 16px;
+  padding: 16px;
+  color: #0f3d2e; /* deep forest green */
+
+}
+
+.settings-item {
+  margin: 14px 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.settings-item.danger {
+  justify-content: center;
+}
+
+.danger-btn {
+  background: #e5484d;
+  color: white;
+  border: none;
+  padding: 8px 12px;
+  border-radius: 8px;
+}
+.settings-panel h3 {
+  color: #0b2e22;
+}
+/* Labels & text */
+.settings-panel label,
+.settings-panel span {
+  color: #145a3a;
+  font-weight: 500;
+}
+
+/* Select + inputs text */
+.settings-panel select,
+.settings-panel option,
+.settings-panel input {
+  color: #0f3d2e;
+  background: #f3fff9;
+}
+
+/* Header row */
+.settings-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #0b2e22;
+}
+
+/* Close button */
+.settings-header button {
+  color: #0f3d2e;
+  background: none;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+}

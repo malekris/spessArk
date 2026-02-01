@@ -82,7 +82,8 @@ export default function VineProfile() {
   const [newComment, setNewComment] = useState("");
   const [replyTo, setReplyTo] = useState(null);
   const [openReplies, setOpenReplies] = useState({});
-  
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
   // Derived values
   const userObj = profile?.user || profile || {};
   const resolvedUsername = userObj.username || "user";
@@ -484,8 +485,13 @@ export default function VineProfile() {
           <div
             className="avatar-circle"
             onClick={() => {
-              if (avatarUrl) setAvatarViewerOpen(true);
+              if (isMe) {
+                avatarInputRef.current?.click();   // 📷 you → change avatar
+              } else if (avatarUrl) {
+                setAvatarViewerOpen(true);         // 👀 others → fullscreen
+              }
             }}
+            
           >
             {avatarUrl ? (
               <img src={`${API}${avatarUrl}`} alt="avatar" />
@@ -516,40 +522,51 @@ export default function VineProfile() {
             />
           )}
         </div>
-
         <div className="profile-action-buttons">
-          {isMe ? (
-            <button
-              className="edit-profile-btn"
-              onClick={() => (isEditing ? handleUpdateBio() : setIsEditing(true))}
-            >
-              {isEditing ? "Save Profile" : "Edit Profile"}
-            </button>
-          ) : (
-            <>
-              <button
-                className="follow-btn"
-                onClick={async () => {
-                  await fetch(`${API}/api/vine/users/${userObj.id}/follow`, {
-                    method: isFollowing ? "DELETE" : "POST",
-                    headers: { Authorization: `Bearer ${token}` },
-                  });
-                  setIsFollowing(!isFollowing);
-                  loadProfile();
-                }}
-              >
-                {isFollowing ? "Unfollow" : "Follow"}
-              </button>
+                      {isMe ? (
+                        <>
+                          <button
+                            className="edit-profile-btn"
+                            onClick={() => (isEditing ? handleUpdateBio() : setIsEditing(true))}
+                          >
+                            {isEditing ? "Save Profile" : "Edit Profile"}
+                          </button>
 
-              {isFollowing && (
-                <button className="message-btn" onClick={handleMessage}>
-                  📧 DM
-                </button>
-              )}
-            </>
-          )}
-        </div>
-      </div>
+                          <button
+                            className="profile-settings-btn"
+                            onClick={() => setSettingsOpen(true)}
+                            title="Settings"
+                          >
+                            ⚙️
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            className="follow-btn"
+                            onClick={async () => {
+                              await fetch(`${API}/api/vine/users/${userObj.id}/follow`, {
+                                method: isFollowing ? "DELETE" : "POST",
+                                headers: { Authorization: `Bearer ${token}` },
+                              });
+                              setIsFollowing(!isFollowing);
+                              loadProfile();
+                            }}
+                          >
+                            {isFollowing ? "Unfollow" : "Follow"}
+                          </button>
+
+                          {isFollowing && (
+                            <button className="message-btn" onClick={handleMessage}>
+                              📧 DM
+                            </button>
+                          )}
+                        </>
+                      )}
+                              </div>
+
+        
+                        </div>
 
       {/* Profile info / edit form */}
       <div className="profile-meta">
@@ -653,17 +670,26 @@ export default function VineProfile() {
         {activeTab === "posts" && (
           <div className="vine-profile-posts">
             {profile?.posts?.length > 0 ? (
-            profile.posts.map((post) => (
-             <VinePostCard
-              key={post.feed_id || `post-${post.id}`}
-               post={post}
-               isMe={isMe}   // 👈 pass it here
-               />
-              ))
+  profile.posts.map((post) => (
+    <VinePostCard
+      key={post.feed_id || `post-${post.id}`}
+      post={post}
+      isMe={isMe}
+      onTogglePin={(postId, isPinned) => {
+        setProfile(prev => ({
+          ...prev,
+          posts: prev.posts.map(p =>
+            p.id === postId
+              ? { ...p, is_pinned: isPinned ? 0 : 1 }
+              : p
+          )
+        }));
+      }}
+    />
+  ))
 ) : (
   <div className="empty-state">No posts yet</div>
 )}
-
           </div>
         )}
 
@@ -953,6 +979,62 @@ export default function VineProfile() {
           )}
         </div>
       )}
+      
+      {settingsOpen && (
+  <div className="settings-overlay" onClick={() => setSettingsOpen(false)}>
+    <div
+      className="settings-panel"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="settings-header">
+        <h3>Settings</h3>
+        <button onClick={() => setSettingsOpen(false)}>✕</button>
+      </div>
+
+      {/* 1️⃣ DM Privacy */}
+      <div className="settings-item">
+        <label>Who can message me</label>
+        <select>
+          <option value="everyone">Everyone</option>
+          <option value="followers">Followers only</option>
+          <option value="no_one">No one</option>
+        </select>
+      </div>
+
+      {/* 2️⃣ Private Profile */}
+      <div className="settings-item">
+        <label>
+          <input type="checkbox" />
+          Private profile
+        </label>
+      </div>
+
+      {/* 3️⃣ Hide like counts */}
+      <div className="settings-item">
+        <label>
+          <input type="checkbox" />
+          Hide like counts
+        </label>
+      </div>
+
+      {/* 4️⃣ Show last active */}
+      <div className="settings-item">
+        <label>
+          <input type="checkbox" />
+          Show last active status
+        </label>
+      </div>
+
+      {/* 5️⃣ Clear pinned post */}
+      <div className="settings-item danger">
+        <button className="danger-btn">
+          Remove pinned post
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
     </div>
   );
 }

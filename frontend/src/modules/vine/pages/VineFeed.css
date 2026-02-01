@@ -384,3 +384,18 @@
     }
   }
 }
+.create-textarea {
+  width: 100%;
+  resize: none;
+  border: none;
+  outline: none;
+  font-size: 16px;
+  line-height: 1.5;
+  background: transparent;
+}
+
+.create-textarea.big-text {
+  font-size: 26px;
+  line-height: 1.35;
+  font-weight: 500;
+}

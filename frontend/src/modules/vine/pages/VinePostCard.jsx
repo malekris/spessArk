@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import "./VinePostCard.css";
 import { useNavigate } from "react-router-dom";
 import ImageCarousel from "./ImageCarousel";
+import MiniProfileCard from "../components/MiniProfileCard";
 
 // ────────────────────────────────────────────────
 //  CONFIG & HELPERS
@@ -68,6 +69,8 @@ const navigate = useNavigate();
   const [comments, setComments] = useState([]);
   const [text, setText] = useState("");
   const [commentCount, setCommentCount] = useState(post.comments || 0);
+  const [showMini, setShowMini] = useState(false);
+  const avatarRef = useRef(null);
 
   // ── Effects ─────────────────────────────────────
   useEffect(() => {
@@ -177,18 +180,32 @@ const navigate = useNavigate();
     <div className="vine-post light-green-theme" id={`post-${post.id}`}>
       {/* Header: Avatar + User meta */}
       <div className="vine-post-header">
-        <div
-          className="post-avatar"
-          onClick={() => navigate(`/vine/profile/${post.username}`)}
-        >
-          {post.avatar_url ? (
-            <img src={`${API}${post.avatar_url}`} alt="avatar" />
-          ) : (
-            <div className="avatar-fallback">
-              {(post.username || "?")[0].toUpperCase()}
-            </div>
-          )}
-        </div>
+      <div
+  ref={avatarRef}
+  className="post-avatar"
+  onMouseEnter={() => setShowMini(true)}   // desktop hover
+  onMouseLeave={() => setShowMini(false)}
+  onClick={(e) => {                         // mobile tap
+    e.stopPropagation();
+    setShowMini(v => !v);
+  }}
+>
+  {post.avatar_url ? (
+    <img src={`${API}${post.avatar_url}`} alt="avatar" />
+  ) : (
+    <div className="avatar-fallback">
+      {(post.username || "?")[0].toUpperCase()}
+    </div>
+  )}
+
+  {showMini && (
+    <MiniProfileCard
+      username={post.username}
+      onClose={() => setShowMini(false)}
+    />
+  )}
+</div>
+
 
         <div className="post-user-meta">
           {/* Revine indicator – top of meta */}
@@ -201,13 +218,17 @@ const navigate = useNavigate();
           {/* Username, verification, time */}
           <div className="meta-top">
             <div className="name-row">
-              <strong className="display-name">
-                {typeof post.display_name === "string"
-                  ? post.display_name
-                  : typeof post.username === "string"
-                  ? post.username
-                  : ""}
-              </strong>
+            <strong
+  className="display-name clickable"
+  onClick={() => navigate(`/vine/profile/${post.username}`)}
+>
+  {typeof post.display_name === "string"
+    ? post.display_name
+    : typeof post.username === "string"
+    ? post.username
+    : ""}
+</strong>
+
 
               {post.is_verified === 1 && (
                 <span className="verified">
@@ -230,15 +251,22 @@ const navigate = useNavigate();
               <span className="time">
                 • {formatRelativeTime(post.sort_time || post.created_at)}
               </span>
-              {isMe && isPostAuthor && (
-              <button
-               className="pin-btn"
-               onClick={pinPost}
-               title="Pin post"
-               >
-               📌
-               </button>
-                )}
+              {isMe && post.revined_by === 0 && (
+  <>
+    <button
+      className="pin-btn"
+      onClick={pinPost}
+      title={post.is_pinned ? "Unpin post" : "Pin post"}
+    >
+      📌
+    </button>
+
+    {post.is_pinned === 1 && (
+      <span className="pinned-badge">📌 Pinned</span>
+    )}
+  </>
+)}
+
 
               {isPostAuthor && (
                 <button className="delete-post-btn" onClick={deleteMainPost}>
@@ -251,7 +279,18 @@ const navigate = useNavigate();
       </div>
 
       {/* Post content */}
-      <p className="vine-post-content">{post.content}</p>
+      <p
+  className={`vine-post-content ${
+    post.content &&
+    post.content.length < 120 &&
+    !post.image_url
+      ? "big-text"
+      : ""
+  }`}
+  style={{ whiteSpace: "pre-wrap" }}   // ← this one line fixes paragraphs
+>
+  {post.content}
+</p>   
 
       {/* Images carousel */}
       {post.image_url && (

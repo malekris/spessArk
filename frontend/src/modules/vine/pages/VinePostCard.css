@@ -495,3 +495,39 @@
   50% { transform: scale(1.2); opacity: 1; }
   100% { transform: scale(1); opacity: 0; }
 }
+.vine-post.pinned {
+  border-color: #9fe0c8;
+  box-shadow: 0 6px 20px rgba(47,111,100,.12);
+}
+
+.vine-post-content.big-text {
+  font-size: 26px;
+  line-height: 1.35;
+  font-weight: 500;
+}
+.vine-post-content {
+  transition: font-size 0.2s ease, line-height 0.2s ease;
+}
+.vine-post-content.big-text {
+  line-height: 1.25;
+}
+.vine-post-content {
+  font-size: 1.15rem;
+  line-height: 1.6;               /* slightly taller for readability */
+  color: #1f2937;
+  margin: 12px 0;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;          /* preserves new lines & wraps text */
+}
+
+/* Your existing big-text style (unchanged) */
+.big-text {
+  font-size: 1.4rem !important;   /* or whatever size you like */
+  line-height: 1.4;
+  font-weight: 500;
+}
+
+.vine-post-content {
+  white-space: pre-wrap;   /* 🔑 THIS IS IT */
+}

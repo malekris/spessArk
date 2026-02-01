@@ -243,12 +243,21 @@ export default function VineFeed() {
 
         {/* Create Post Box */}
         <div className="vine-create-box">
-          <textarea
-            placeholder="What's happening?"
-            value={content}
-            maxLength={2000}
-            onChange={(e) => setContent(e.target.value)}
-          />
+        <textarea
+                      className={`create-textarea ${
+                        content.length > 0 && content.length < 120 ? "big-text" : ""
+                      }`}
+                      placeholder="What's happening?"
+                      value={content}
+                      maxLength={2000}
+                      onChange={(e) => setContent(e.target.value)}
+                      onKeyDown={(e) => {
+                        // Ctrl/Cmd + Enter to post
+                        if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+                          handleCreatePost();
+                        }
+                      }}
+                    />
 
           <div className="create-footer">
             <div className="greeting">

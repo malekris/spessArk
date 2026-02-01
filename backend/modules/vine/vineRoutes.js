@@ -231,26 +231,33 @@ async function requireVineAuth(req, res, next) {
   router.post(
     "/posts",
     requireVineAuth,
-    uploadPost.array("images", 5),
+    uploadPostCloudinary.array("images", 5),
     async (req, res) => {
       try {
         const userId = req.user.id;
         const { content } = req.body;
   
-        // ✅ Build array of image paths from req.files
-        const imagePathsArray = req.files?.length
-          ? req.files.map(file => `/uploads/posts/${file.filename}`)
-          : [];
+        let imageUrls = [];
   
-        // Store as JSON string in DB
-        const image_url = imagePathsArray.length
-          ? JSON.stringify(imagePathsArray)
-          : null;
+        if (req.files?.length) {
+          const uploads = await Promise.all(
+            req.files.map(file =>
+              cloudinary.uploader.upload(
+                `data:${file.mimetype};base64,${file.buffer.toString("base64")}`,
+                { folder: "vine/posts" }
+              )
+            )
+          );
   
-        // ✅ Correct validation
-        if ((!content || !content.trim()) && imagePathsArray.length === 0) {
+          imageUrls = uploads.map(u => u.secure_url);
+        }
+  
+        if ((!content || !content.trim()) && imageUrls.length === 0) {
           return res.status(400).json({ message: "Post cannot be empty" });
         }
+  
+        const image_url =
+          imageUrls.length > 0 ? JSON.stringify(imageUrls) : null;
   
         const [result] = await db.query(
           `INSERT INTO vine_posts (user_id, content, image_url)
@@ -288,7 +295,7 @@ async function requireVineAuth(req, res, next) {
       }
     }
   );
-  
+    
 /* =========================
    SEARCH USERS
 ========================= */

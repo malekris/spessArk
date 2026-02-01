@@ -38,7 +38,9 @@ export default function ImageCarousel({ imageUrl }) {
       behavior: "smooth",
     });
   };
-
+  const normalize = (src) =>
+    src.startsWith("http") ? src : `${API}${src}`;
+  
   // ── Render ───────────────────────────────────────
   return (
     <div className="carousel-wrapper">

@@ -535,3 +535,26 @@
   margin-left: 4px;
   vertical-align: middle;
 }
+.close-thread-btn.bottom {
+  background-color: #E63946; /* red-mint */
+  color: #fff;
+  border: 2px solid #B81F2D;
+  border-radius: 6px;
+}
+
+.close-thread-btn.bottom:hover {
+  background-color: #D62839;
+  border-color: #9E1A25;
+}
+.close-thread-btn {
+  background-color: #E63946; /* strong red */
+  color: #fff;
+  border: 2px solid #B81F2D;
+  border-radius: 6px;
+  padding: 6px 12px;
+}
+
+.close-thread-btn:hover {
+  background-color: #D62839;
+  border-color: #9E1A25;
+}

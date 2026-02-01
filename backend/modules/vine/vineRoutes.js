@@ -14,6 +14,13 @@ import cloudinary from "../../config/cloudinary.js";
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "vine_secret_key";
 
+const extractPublicId = (url) => {
+  const parts = url.split("/");
+  const filename = parts.pop().split(".")[0]; // abc123
+  const folder = parts.slice(parts.indexOf("upload") + 1).join("/");
+  return `${folder}/${filename}`;
+};
+
 router.post("/auth/register", async (req, res) => {
   try {
     const { username, display_name, email, password } = req.body;
@@ -988,29 +995,51 @@ router.delete("/comments/:id", requireVineAuth, async (req, res) => {
     res.status(500).json({ message: "Failed to delete comment" });
   }
 });
-// DELETE an original post
+// DELETE an original post (DB + Cloudinary)
 router.delete("/posts/:id", requireVineAuth, async (req, res) => {
   const postId = req.params.id;
-  const userId = req.user.id; // From your auth middleware
+  const userId = req.user.id;
 
   try {
-    // 1. Verify the post exists and belongs to the user
-    const [post] = await db.query(
-      "SELECT user_id FROM vine_posts WHERE id = ?",
+    // 1️⃣ Fetch post + ownership + images
+    const [[post]] = await db.query(
+      "SELECT user_id, image_url FROM vine_posts WHERE id = ?",
       [postId]
     );
 
-    if (post.length === 0) {
+    if (!post) {
       return res.status(404).json({ message: "Post not found" });
     }
 
-    if (post[0].user_id !== userId) {
-      return res.status(403).json({ message: "You can only delete your own posts" });
+    if (post.user_id !== userId) {
+      return res
+        .status(403)
+        .json({ message: "You can only delete your own posts" });
     }
 
-    // 2. Delete the post
-    // Note: If you have foreign keys for likes/comments, 
-    // ensure they are set to ON DELETE CASCADE or delete them manually first.
+    // 2️⃣ Delete images from Cloudinary (if any)
+    if (post.image_url) {
+      const images = Array.isArray(post.image_url)
+        ? post.image_url
+        : JSON.parse(post.image_url);
+
+      const extractPublicId = (url) => {
+        const parts = url.split("/");
+        const file = parts.pop().split(".")[0];
+        const folder = parts
+          .slice(parts.indexOf("upload") + 1)
+          .join("/");
+        return `${folder}/${file}`;
+      };
+
+      await Promise.all(
+        images.map((url) =>
+          cloudinary.uploader.destroy(extractPublicId(url))
+        )
+      );
+    }
+
+    // 3️⃣ Delete post from DB
     await db.query("DELETE FROM vine_posts WHERE id = ?", [postId]);
 
     res.json({ success: true, message: "Post deleted" });
@@ -1019,6 +1048,7 @@ router.delete("/posts/:id", requireVineAuth, async (req, res) => {
     res.status(500).json({ message: "Server error during deletion" });
   }
 });
+
 // avatars (Cloudinary)
 router.post(
   "/users/avatar",

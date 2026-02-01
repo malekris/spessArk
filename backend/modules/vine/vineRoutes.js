@@ -9,6 +9,7 @@ import { authenticate } from "../auth.js";
 import { uploadAvatar, uploadBanner } from "../../middleware/upload.js";
 import { io } from "../../server.js"; 
 import { uploadPostCloudinary } from "../../middleware/upload.js";
+import cloudinary from "../../config/cloudinary.js";
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "vine_secret_key";

@@ -61,8 +61,9 @@ export default function VineSuggestions() {
               <div className="user-left">
                 <div className="avatar">
                   {u.avatar_url ? (
-                    <img src={`${API}${u.avatar_url}`} alt={u.username} />
-                  ) : (
+                    <img src={u.avatar_url} alt={u.username} />
+
+) : (
                     <div className="avatar-initial">
                       {(u.username || "U")[0].toUpperCase()}
                     </div>

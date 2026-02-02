@@ -49,7 +49,8 @@ export default function VineFollowers() {
               <div className="user-row-left">
                 <div className="follow-avatar">
                   {u.avatar_url ? (
-                    <img src={`${API}${u.avatar_url}`} alt={u.username} />
+                    <img src={u.avatar_url} alt={u.username} />
+
                   ) : (
                     <div className="initial-circle">
                       {(u.username || "?")[0].toUpperCase()}

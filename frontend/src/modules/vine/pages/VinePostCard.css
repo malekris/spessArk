@@ -558,3 +558,45 @@
   background-color: #D62839;
   border-color: #9E1A25;
 }
+.comment-reply-box {
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.08); /* soft modern line */
+  border-radius: 14px;
+  padding: 14px 16px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
+  transition: box-shadow 0.25s ease, border-color 0.25s ease;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.comment-reply-box:focus-within {
+  border-color: #84cc16; /* soft premium green */
+  box-shadow: 0 10px 30px rgba(132, 204, 22, 0.25);
+}
+.comment-reply-box input,
+.comment-reply-box textarea {
+  border: none;
+  outline: none;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 0;
+}
+.comment-reply-box input::placeholder,
+.comment-reply-box textarea::placeholder {
+  color: #9ca3af;
+}
+.comment-reply-box button {
+  background: #111827;
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-weight: 500;
+  cursor: pointer;
+  margin-left: auto;
+}
+
+.comment-reply-box button:hover {
+  background: #000;
+}

@@ -190,15 +190,14 @@
 }
 
 .back-btn {
-  background: #10b981;
-  color: white;
+  background-color: #228B22 !important;
+  color: #ffffff !important;
   border: none;
   padding: 8px 14px;
   border-radius: 999px;
-  cursor: pointer;
   font-weight: 600;
 }
 
-.back-btn:hover {
-  background: #059669;
-}
+
+
+

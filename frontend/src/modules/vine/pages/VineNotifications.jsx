@@ -96,12 +96,22 @@ export default function VineNotifications() {
     
       if (n.type === "follow") {
         navigate(`/vine/profile/${n.username}`);
-      } else if (n.comment_id) {
+        return;
+      }
+    
+      // 🔥 replies & comments (most important)
+      if (n.comment_id) {
         navigate(`/vine/feed?post=${n.post_id}&comment=${n.comment_id}`);
-      } else {
+        return;
+      }
+    
+      // likes / everything else
+      if (n.post_id) {
         navigate(`/vine/feed#post-${n.post_id}`);
       }
     }}
+    
+    
     
     
   >

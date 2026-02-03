@@ -3,12 +3,14 @@ import { useParams, useNavigate } from "react-router-dom";
 import "./VineFollowing.css"; // Reuse the same CSS for consistency
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
+const DEFAULT_AVATAR = `${API}/uploads/avatars/default.png`;
 
 export default function VineFollowing() {
   const { username } = useParams();
   const navigate = useNavigate();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const token = localStorage.getItem("vine_token");
 
   useEffect(() => {
     setLoading(true);
@@ -23,6 +25,18 @@ export default function VineFollowing() {
         setLoading(false);
       });
   }, [username]);
+
+  const handleUnfollow = async (userId) => {
+    try {
+      await fetch(`${API}/api/vine/users/${userId}/follow`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setUsers((prev) => prev.filter((u) => u.id !== userId));
+    } catch (err) {
+      console.error("Unfollow failed", err);
+    }
+  };
 
   return (
     <div className="vine-follow-container">
@@ -56,12 +70,14 @@ export default function VineFollowing() {
                 onClick={() => navigate(`/vine/profile/${u.username}`)}
               >
                 <div className="user-row-left">
-                  <div className="follow-avatar">
-                    {u.avatar_url ? (
-                      <img src={u.avatar_url} alt={u.username} />
-                    ) : (
-                      <div className="initial-circle">{initial}</div>
-                    )}
+                <div className="follow-avatar">
+                    <img
+                      src={u.avatar_url || DEFAULT_AVATAR}
+                      alt={u.username}
+                      onError={(e) => {
+                        e.currentTarget.src = DEFAULT_AVATAR;
+                      }}
+                    />
                   </div>
 
                   <div className="user-details">
@@ -74,11 +90,14 @@ export default function VineFollowing() {
                 </div>
 
                 {/* Optional: Unfollow button logic could go here */}
-                <button 
-                  className="row-follow-btn following" 
-                  onClick={(e) => e.stopPropagation()}
+                <button
+                  className="row-follow-btn following"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleUnfollow(u.id);
+                  }}
                 >
-                  Following
+                  Unfollow
                 </button>
               </div>
             );

@@ -195,6 +195,154 @@
   }
 }
 
+/* ── Avatar Action Sheet ── */
+.avatar-action-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 100000;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.avatar-action-sheet {
+  width: min(420px, 92vw);
+  background: #ffffff;
+  border-radius: 16px 16px 0 0;
+  padding: 12px;
+  box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.avatar-action-btn {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: none;
+  background: #f1f5f9;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.avatar-action-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.avatar-action-btn.cancel {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+/* ── Avatar Cropper ── */
+.avatar-crop-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.72);
+  z-index: 100000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.avatar-crop-panel {
+  width: min(520px, 92vw);
+  background: #0f172a;
+  border-radius: 16px;
+  padding: 16px;
+  color: #e2e8f0;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+}
+
+.avatar-crop-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.avatar-crop-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.avatar-crop-header button {
+  background: transparent;
+  border: none;
+  color: #e2e8f0;
+  font-size: 1.2rem;
+  cursor: pointer;
+}
+
+.avatar-crop-area {
+  width: 280px;
+  height: 280px;
+  margin: 0 auto;
+  border-radius: 18px;
+  overflow: hidden;
+  background: #111827;
+  border: 2px solid rgba(148, 163, 184, 0.4);
+  position: relative;
+  touch-action: none;
+}
+
+.avatar-crop-img {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  user-select: none;
+  -webkit-user-drag: none;
+  width: auto;
+  height: auto;
+  max-width: none;
+}
+
+.avatar-crop-controls {
+  margin-top: 12px;
+}
+
+.avatar-crop-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.avatar-crop-controls input[type="range"] {
+  width: 100%;
+}
+
+.avatar-crop-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.avatar-crop-actions .ghost-btn {
+  background: transparent;
+  border: 1px solid #334155;
+  color: #e2e8f0;
+  padding: 8px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.avatar-crop-actions .primary-btn {
+  background: #10b981;
+  border: none;
+  color: white;
+  padding: 8px 16px;
+  border-radius: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
 /* ── Action Buttons ── */
 .edit-profile-btn,
 .follow-btn,
@@ -254,7 +402,7 @@
 }
 
 .verified {
-  background: #10b981;
+  background: #ef4444;
   color: white;
   font-size: 0.9rem;
   width: 22px;
@@ -264,6 +412,7 @@
   align-items: center;
   justify-content: center;
   font-weight: bold;
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.5);
 }
 
 .handle {
@@ -813,11 +962,19 @@
 }
 .profile-settings-btn {
   margin-left: 8px;
-  padding: 8px 10px;
-  border-radius: 50%;
+  height: 48px;
+  padding: 0 28px;
+  border-radius: 16px;
   border: none;
-  background: #e6fbf3;
+  background: #fbbf24;
+  color: #7c2d12;
   cursor: pointer;
+  font-weight: 800;
+  font-size: 0.95rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  box-shadow: 0 8px 20px rgba(124, 45, 18, 0.2);
 }
 
 .settings-overlay {

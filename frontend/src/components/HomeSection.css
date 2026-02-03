@@ -173,9 +173,10 @@
   display: inline-block;
   background: #16a34a;
   color: white;
-  padding: 0.7rem 1.6rem;
+  padding: 1rem 2.2rem;
   border-radius: 999px;
-  font-weight: 600;
+  font-weight: 700;
+  font-size: 1.05rem;
   text-decoration: none;
   transition: all 0.2s ease;
   box-shadow: 0 4px 15px rgba(22, 163, 74, 0.35);

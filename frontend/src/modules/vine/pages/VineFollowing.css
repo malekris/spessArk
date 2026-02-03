@@ -33,17 +33,7 @@
   box-shadow: 0 6px 15px rgba(0, 0, 0, 0.1);
 }
 
-/* Text swapping logic - Now crystal clear */
-.row-follow-btn.following:hover {
-  font-size: 0; 
-}
-
-.row-follow-btn.following:hover::after {
-  content: "Unfollow";
-  font-size: 0.85rem;
-  font-weight: 800;
-  color: #ffffff; /* Keeps it white on dark green */
-}
+/* No text swap on hover for following state */
 
 /* ───── PC Reading Optimization ───── */
 @media (min-width: 769px) {

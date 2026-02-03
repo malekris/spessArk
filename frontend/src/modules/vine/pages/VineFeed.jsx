@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import heic2any from "heic2any";
 import { useNavigate } from "react-router-dom";
 import VinePostCard from "./VinePostCard";
 import "./VineFeed.css";
@@ -46,6 +47,37 @@ export default function VineFeed() {
   const [handledDeepLink, setHandledDeepLink] = useState(false);
   const [params] = useSearchParams();
   const targetPostId = params.get("post");
+
+  const normalizeImageFiles = async (fileList) => {
+    const files = Array.from(fileList || []);
+    const converted = await Promise.all(
+      files.map(async (file) => {
+        const isHeic =
+          /heic|heif/i.test(file.type) ||
+          /\.heic$/i.test(file.name) ||
+          /\.heif$/i.test(file.name);
+        if (!isHeic) return file;
+        try {
+          const blob = await heic2any({
+            blob: file,
+            toType: "image/jpeg",
+            quality: 0.9,
+          });
+          const outBlob = Array.isArray(blob) ? blob[0] : blob;
+          return new File(
+            [outBlob],
+            file.name.replace(/\.(heic|heif)$/i, ".jpg"),
+            { type: "image/jpeg" }
+          );
+        } catch (err) {
+          console.warn("HEIC conversion failed, skipping file", err);
+          alert("HEIC image could not be converted. Please use JPG/PNG/WebP.");
+          return null;
+        }
+      })
+    );
+    return converted.filter(Boolean);
+  };
   // ── Deep Link Handling (post & comment highlight) ──
   useEffect(() => {
     if (handledDeepLink) return;
@@ -206,6 +238,7 @@ export default function VineFeed() {
     <div className="vine-feed-container">
       {/* Top Navigation Bar */}
       <nav className="vine-nav-top">
+        <div className="vine-nav-row">
                     <h2
                 onClick={() => {
                   document.documentElement.scrollTo({
@@ -248,22 +281,10 @@ export default function VineFeed() {
             Logout
           </button>
         </div>
-      </nav>
+        </div>
 
-      <div className="vine-content-wrapper">
-        {/* Quick Actions Bar */}
+        {/* Quick Actions Bar (inside nav) */}
         <div className="vine-dm-bar">
-          <input
-            className="vine-search"
-            placeholder="Search users..."
-            onFocus={() => navigate("/vine/search")}
-            readOnly
-          />
-
-          <button className="discover-btn" onClick={() => navigate("/vine/suggestions")}>
-            👥 Discover
-          </button>
-
           <button
             className="messages-btn"
             onClick={() => navigate("/vine/dms")}
@@ -272,7 +293,21 @@ export default function VineFeed() {
             💬 DM
             {unreadDMs > 0 && <span className="dm-unread-badge">{unreadDMs}</span>}
           </button>
+
+          <button className="discover-btn" onClick={() => navigate("/vine/suggestions")}>
+            👥 Discover
+          </button>
+
+          <input
+            className="vine-search"
+            placeholder="Search users..."
+            onFocus={() => navigate("/vine/search")}
+            readOnly
+          />
         </div>
+      </nav>
+
+      <div className="vine-content-wrapper">
 
         {/* Create Post Box */}
         <div className="vine-create-box">
@@ -307,8 +342,8 @@ export default function VineFeed() {
                   accept="image/*"
                   multiple
                   hidden
-                  onChange={(e) => {
-                    const files = Array.from(e.target.files);
+                  onChange={async (e) => {
+                    const files = await normalizeImageFiles(e.target.files);
                     if (!files.length) return;
                     setImages(files);
                     setPreviews(files.map((f) => URL.createObjectURL(f)));

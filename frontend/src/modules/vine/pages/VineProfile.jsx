@@ -1,10 +1,12 @@
 import { useEffect, useState, useRef } from "react";
+import heic2any from "heic2any";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import "./VineProfile.css";
 import VinePostCard from "./VinePostCard";
 import ImageCarousel from "./ImageCarousel";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
+const DEFAULT_AVATAR = `${API}/uploads/avatars/default.png`;
 const ORIGIN = API.replace(/\/api$/, "");
 
 // ────────────────────────────────────────────────
@@ -83,6 +85,22 @@ export default function VineProfile() {
   const [replyTo, setReplyTo] = useState(null);
   const [openReplies, setOpenReplies] = useState({});
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [dmPrivacy, setDmPrivacy] = useState("everyone");
+  const [privateProfile, setPrivateProfile] = useState(false);
+  const [hideLikeCounts, setHideLikeCounts] = useState(false);
+  const [showLastActive, setShowLastActive] = useState(true);
+  const [avatarActionOpen, setAvatarActionOpen] = useState(false);
+  const [avatarCropOpen, setAvatarCropOpen] = useState(false);
+  const [avatarCropSrc, setAvatarCropSrc] = useState(null);
+  const [avatarCropScale, setAvatarCropScale] = useState(1);
+  const [avatarCropX, setAvatarCropX] = useState(0);
+  const [avatarCropY, setAvatarCropY] = useState(0);
+  const [avatarCropDragging, setAvatarCropDragging] = useState(false);
+  const [avatarCropStart, setAvatarCropStart] = useState({ x: 0, y: 0 });
+  const [avatarCropFile, setAvatarCropFile] = useState(null);
+  const [avatarCropReady, setAvatarCropReady] = useState(false);
+  const avatarCropRef = useRef(null);
+  const avatarCropImgRef = useRef(null);
 
   // Derived values
   const userObj = profile?.user || profile || {};
@@ -90,6 +108,12 @@ export default function VineProfile() {
   const displayName = userObj.display_name || resolvedUsername;
   const avatarUrl = userObj.avatar_url;
   const isMe = profile && Number(currentUserId) === Number(userObj.id);
+  const isPrivateLocked = Boolean(profile?.privateLocked) && !isMe;
+  const canShowLastActive = userObj.show_last_active !== 0 || isMe;
+  const canMessage = !isMe && (
+    userObj.dm_privacy === "everyone" ||
+    (userObj.dm_privacy === "followers" && isFollowing)
+  );
 
   const viewerCommentCount = viewerComments.length;
   const topLevelComments = viewerComments.filter((c) => !c.parent_comment_id);
@@ -101,6 +125,10 @@ export default function VineProfile() {
     return acc;
   }, {});
   const currentPost = photoPosts.find(p => p.id === viewerPostId);
+  const canShowViewerLikes =
+    !currentPost?.hide_like_counts ||
+    isMe ||
+    Number(currentUserId) === Number(currentPost?.user_id);
 
   // ── Data Fetching ───────────────────────────────
 
@@ -112,9 +140,48 @@ export default function VineProfile() {
       if (!res.ok) throw new Error("User not found");
       const data = await res.json();
       setProfile(data);
-      setTempBio(data?.user?.bio || data?.bio || "");
+      const userData = data?.user || data || {};
+      setTempBio(userData?.bio || "");
+      setTempDisplayName(userData?.display_name || "");
+      setTempLocation(userData?.location || "");
+      setTempWebsite(userData?.website || "");
     } catch (err) {
       setError(err.message);
+    }
+  };
+
+  useEffect(() => {
+    if (!userObj?.id) return;
+    setDmPrivacy(userObj.dm_privacy || "everyone");
+    setPrivateProfile(Boolean(userObj.is_private));
+    setHideLikeCounts(Boolean(userObj.hide_like_counts));
+    setShowLastActive(userObj.show_last_active !== 0);
+  }, [userObj?.id]);
+
+  const saveSettings = async (next) => {
+    try {
+      const res = await fetch(`${API}/api/vine/users/me/settings`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(next),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        console.error("Settings update failed:", data?.message);
+        return;
+      }
+      if (data?.user) {
+        setProfile((prev) =>
+          prev
+            ? { ...prev, user: { ...prev.user, ...data.user } }
+            : prev
+        );
+      }
+    } catch (err) {
+      console.error("Settings update error:", err);
     }
   };
 
@@ -145,6 +212,20 @@ export default function VineProfile() {
       setPhotosLoaded(true);
     } catch (err) {
       console.error("Fetch photos error:", err);
+    }
+  };
+
+  const handleDeletePost = (postId) => {
+    setProfile((prev) => {
+      if (!prev) return prev;
+      const nextPosts = (prev.posts || []).filter((p) => p.id !== postId);
+      return { ...prev, posts: nextPosts };
+    });
+    setLikedPosts((prev) => prev.filter((p) => p.id !== postId));
+    setPhotoPosts((prev) => prev.filter((p) => p.id !== postId));
+    if (viewerPostId === postId) {
+      setPhotoViewerOpen(false);
+      setViewerPostId(null);
     }
   };
 
@@ -190,7 +271,7 @@ export default function VineProfile() {
   }, [commentsOpen, viewerPostId]);
 
   useEffect(() => {
-    if (bannerViewerOpen || avatarViewerOpen || photoViewerOpen) {
+    if (bannerViewerOpen || avatarViewerOpen || photoViewerOpen || avatarCropOpen) {
       document.body.style.overflow = "hidden";
     } else {
       document.body.style.overflow = "";
@@ -198,7 +279,7 @@ export default function VineProfile() {
     return () => {
       document.body.style.overflow = "";
     };
-  }, [bannerViewerOpen, avatarViewerOpen, photoViewerOpen]);
+  }, [bannerViewerOpen, avatarViewerOpen, photoViewerOpen, avatarCropOpen]);
 
   // ── Handlers ────────────────────────────────────
 
@@ -260,23 +341,179 @@ export default function VineProfile() {
   const handleAvatarUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    const formData = new FormData();
-    formData.append("avatar", file);
+    let normalized = file;
+    const isHeic =
+      /heic|heif/i.test(file.type) ||
+      /\.heic$/i.test(file.name) ||
+      /\.heif$/i.test(file.name);
+    if (isHeic) {
+      try {
+        const blob = await heic2any({
+          blob: file,
+          toType: "image/jpeg",
+          quality: 0.9,
+        });
+        const outBlob = Array.isArray(blob) ? blob[0] : blob;
+        normalized = new File(
+          [outBlob],
+          file.name.replace(/\.(heic|heif)$/i, ".jpg"),
+          { type: "image/jpeg" }
+        );
+      } catch (err) {
+        console.warn("HEIC conversion failed", err);
+        alert("HEIC image could not be converted. Please use JPG/PNG/WebP.");
+        return;
+      }
+    }
 
-    const res = await fetch(`${API}/api/vine/users/avatar`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
-      body: formData,
+    const reader = new FileReader();
+    reader.onload = () => {
+      setAvatarCropSrc(reader.result);
+      setAvatarCropFile(normalized);
+      setAvatarCropScale(1);
+      setAvatarCropX(0);
+      setAvatarCropY(0);
+      setAvatarCropReady(false);
+      setAvatarCropOpen(true);
+      setAvatarActionOpen(false);
+    };
+    reader.readAsDataURL(normalized);
+
+    // allow re-selecting the same file
+    e.target.value = "";
+  };
+
+  const clampAvatarCrop = (x, y, scale = avatarCropScale) => {
+    const cropEl = avatarCropRef.current;
+    const imgEl = avatarCropImgRef.current;
+    if (!cropEl || !imgEl) return { x, y };
+    const cropSize = cropEl.clientWidth;
+    const baseScale = Math.max(
+      cropSize / imgEl.naturalWidth,
+      cropSize / imgEl.naturalHeight
+    );
+    const totalScale = baseScale * scale;
+    const drawW = imgEl.naturalWidth * totalScale;
+    const drawH = imgEl.naturalHeight * totalScale;
+    const maxX = Math.max(0, (drawW - cropSize) / 2);
+    const maxY = Math.max(0, (drawH - cropSize) / 2);
+    return {
+      x: Math.min(maxX, Math.max(-maxX, x)),
+      y: Math.min(maxY, Math.max(-maxY, y)),
+    };
+  };
+
+  const handleAvatarCropScale = (value) => {
+    const nextScale = Number(value);
+    const clamped = clampAvatarCrop(avatarCropX, avatarCropY, nextScale);
+    setAvatarCropScale(nextScale);
+    setAvatarCropX(clamped.x);
+    setAvatarCropY(clamped.y);
+  };
+
+  const handleAvatarCropStart = (e) => {
+    e.preventDefault();
+    setAvatarCropDragging(true);
+    setAvatarCropStart({
+      x: e.clientX - avatarCropX,
+      y: e.clientY - avatarCropY,
     });
+  };
 
-    const data = await res.json();
-    if (res.ok) {
+  const handleAvatarCropMove = (e) => {
+    if (!avatarCropDragging) return;
+    const nextX = e.clientX - avatarCropStart.x;
+    const nextY = e.clientY - avatarCropStart.y;
+    const clamped = clampAvatarCrop(nextX, nextY);
+    setAvatarCropX(clamped.x);
+    setAvatarCropY(clamped.y);
+  };
+
+  const handleAvatarCropEnd = () => {
+    setAvatarCropDragging(false);
+  };
+
+  const saveAvatarCrop = async () => {
+    if (!avatarCropReady) return;
+    if (!avatarCropFile || !avatarCropImgRef.current || !avatarCropRef.current) return;
+
+    const imgEl = avatarCropImgRef.current;
+    const cropEl = avatarCropRef.current;
+    const cropSize = cropEl.clientWidth;
+
+    const baseScale = Math.max(
+      cropSize / imgEl.naturalWidth,
+      cropSize / imgEl.naturalHeight
+    );
+    const totalScale = baseScale * avatarCropScale;
+    const drawW = imgEl.naturalWidth * totalScale;
+    const drawH = imgEl.naturalHeight * totalScale;
+    const drawX = cropSize / 2 + avatarCropX - drawW / 2;
+    const drawY = cropSize / 2 + avatarCropY - drawH / 2;
+
+    const exportSize = 512;
+    const scaleToCanvas = exportSize / cropSize;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = exportSize;
+    canvas.height = exportSize;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, exportSize, exportSize);
+    ctx.drawImage(
+      imgEl,
+      drawX * scaleToCanvas,
+      drawY * scaleToCanvas,
+      drawW * scaleToCanvas,
+      drawH * scaleToCanvas
+    );
+
+    const blob = await new Promise((resolve) =>
+      canvas.toBlob(resolve, "image/jpeg", 0.9)
+    );
+    if (!blob) {
+      alert("Avatar export failed. Please try again.");
+      return;
+    }
+
+    const uploadAvatarFile = async (file) => {
+      const formData = new FormData();
+      formData.append("avatar", file);
+      const res = await fetch(`${API}/api/vine/users/avatar`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+      let data = null;
+      let raw = "";
+      try {
+        data = await res.json();
+      } catch {
+        raw = await res.text();
+      }
+      return { ok: res.ok, data, raw };
+    };
+
+    const avatarFile = new File([blob], "avatar.jpg", { type: "image/jpeg" });
+    let result = await uploadAvatarFile(avatarFile);
+
+    // Fallback: try original file if cropped upload fails
+    if (!result.ok && avatarCropFile) {
+      result = await uploadAvatarFile(avatarCropFile);
+    }
+
+    if (result.ok) {
       setProfile((prev) => ({
         ...prev,
-        user: prev.user ? { ...prev.user, avatar_url: data.avatar_url } : prev,
-        avatar_url: !prev.user ? data.avatar_url : prev.avatar_url,
+        user: prev.user ? { ...prev.user, avatar_url: result.data.avatar_url } : prev,
+        avatar_url: !prev.user ? result.data.avatar_url : prev.avatar_url,
       }));
+      setAvatarCropOpen(false);
+      setAvatarCropSrc(null);
+      setAvatarCropFile(null);
       loadProfile();
+    } else {
+      alert(result.data?.message || result.raw || "Avatar upload failed");
     }
   };
 
@@ -469,12 +706,97 @@ export default function VineProfile() {
             ✕
           </button>
           <img
-            src={avatarUrl}
+            src={avatarUrl || DEFAULT_AVATAR}
             className="image-viewer-img"
             alt="avatar fullscreen"
             onClick={(e) => e.stopPropagation()}
             style={{ borderRadius: "50%" }}
           />
+        </div>
+      )}
+
+      {/* Avatar action sheet */}
+      {avatarActionOpen && isMe && (
+        <div className="avatar-action-overlay" onClick={() => setAvatarActionOpen(false)}>
+          <div className="avatar-action-sheet" onClick={(e) => e.stopPropagation()}>
+            <button
+              className="avatar-action-btn"
+              onClick={() => {
+                setAvatarActionOpen(false);
+                if (avatarUrl) setAvatarViewerOpen(true);
+              }}
+              disabled={!avatarUrl}
+            >
+              View profile photo
+            </button>
+            <button
+              className="avatar-action-btn"
+              onClick={() => {
+                setAvatarActionOpen(false);
+                avatarInputRef.current?.click();
+              }}
+            >
+              Change photo
+            </button>
+            <button
+              className="avatar-action-btn cancel"
+              onClick={() => setAvatarActionOpen(false)}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Avatar cropper */}
+      {avatarCropOpen && avatarCropSrc && (
+        <div className="avatar-crop-overlay" onClick={() => setAvatarCropOpen(false)}>
+          <div className="avatar-crop-panel" onClick={(e) => e.stopPropagation()}>
+            <div className="avatar-crop-header">
+              <h3>Adjust profile photo</h3>
+              <button onClick={() => setAvatarCropOpen(false)}>✕</button>
+            </div>
+            <div
+              className="avatar-crop-area"
+              ref={avatarCropRef}
+              onPointerDown={handleAvatarCropStart}
+              onPointerMove={handleAvatarCropMove}
+              onPointerUp={handleAvatarCropEnd}
+              onPointerLeave={handleAvatarCropEnd}
+            >
+              <img
+                ref={avatarCropImgRef}
+                src={avatarCropSrc}
+                alt="Crop preview"
+                className="avatar-crop-img"
+                style={{
+                  transform: `translate(-50%, -50%) translate(${avatarCropX}px, ${avatarCropY}px) scale(${avatarCropScale})`,
+                }}
+                onLoad={() => setAvatarCropReady(true)}
+              />
+            </div>
+            <div className="avatar-crop-controls">
+              <label>
+                Zoom
+                <input
+                  type="range"
+                  min="1"
+                  max="3"
+                  step="0.01"
+                  value={avatarCropScale}
+                  onChange={(e) => handleAvatarCropScale(e.target.value)}
+                />
+              </label>
+            </div>
+            <div className="avatar-crop-actions">
+              <button className="ghost-btn" onClick={() => setAvatarCropOpen(false)}>
+                Cancel
+              </button>
+              <button className="primary-btn" onClick={saveAvatarCrop}>
+                Save
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -485,19 +807,24 @@ export default function VineProfile() {
             className="avatar-circle"
             onClick={() => {
               if (isMe) {
-                avatarInputRef.current?.click();   // 📷 you → change avatar
+                if (avatarUrl) {
+                  setAvatarActionOpen(true);
+                } else {
+                  avatarInputRef.current?.click();
+                }
               } else if (avatarUrl) {
                 setAvatarViewerOpen(true);         // 👀 others → fullscreen
               }
             }}
             
           >
-            {avatarUrl ? (
-             <img src={avatarUrl} alt="avatar" />
-
-            ) : (
-              <div className="avatar-placeholder">{resolvedUsername[0].toUpperCase()}</div>
-            )}
+            <img
+              src={avatarUrl || DEFAULT_AVATAR}
+              alt="avatar"
+              onError={(e) => {
+                e.currentTarget.src = DEFAULT_AVATAR;
+              }}
+            />
 
             {isMe && (
               <div
@@ -537,7 +864,7 @@ export default function VineProfile() {
                             onClick={() => setSettingsOpen(true)}
                             title="Settings"
                           >
-                            ⚙️
+                            ⚙️ Settings
                           </button>
                         </>
                       ) : (
@@ -556,7 +883,7 @@ export default function VineProfile() {
                             {isFollowing ? "Unfollow" : "Follow"}
                           </button>
 
-                          {isFollowing && (
+                          {canMessage && (
                             <button className="message-btn" onClick={handleMessage}>
                               📧 DM
                             </button>
@@ -632,7 +959,7 @@ export default function VineProfile() {
     </span>
   )}
 
-  {userObj?.last_active_at && (
+  {userObj?.last_active_at && canShowLastActive && (
     <span className="last-active">
       🟢 Last active {formatRelativeTime(userObj.last_active_at)}
     </span>
@@ -669,12 +996,15 @@ export default function VineProfile() {
       <div className="vine-profile-tab-content">
         {activeTab === "posts" && (
           <div className="vine-profile-posts">
-            {profile?.posts?.length > 0 ? (
+            {isPrivateLocked ? (
+              <div className="empty-state">This profile is private.</div>
+            ) : profile?.posts?.length > 0 ? (
   profile.posts.map((post) => (
     <VinePostCard
       key={post.feed_id || `post-${post.id}`}
       post={post}
       isMe={isMe}
+      onDeletePost={handleDeletePost}
       onTogglePin={(postId, isPinned) => {
         setProfile(prev => ({
           ...prev,
@@ -695,7 +1025,9 @@ export default function VineProfile() {
 
         {activeTab === "likes" && (
           <div className="profile-tab-content">
-            {likedPosts.length === 0 ? (
+            {isPrivateLocked ? (
+              <div className="empty-state">This profile is private.</div>
+            ) : likedPosts.length === 0 ? (
               <div className="empty-state">🌱 No liked posts yet</div>
             ) : (
               likedPosts.map((post) => (
@@ -703,6 +1035,7 @@ export default function VineProfile() {
                   key={post.feed_id || `like-${post.id}`}
                   post={post}
                   currentUserId={currentUserId}
+                  onDeletePost={handleDeletePost}
                 />
               ))
             )}
@@ -711,7 +1044,9 @@ export default function VineProfile() {
 
         {activeTab === "photos" && (
           <div className="photos-grid">
-            {photoPosts.length === 0 ? (
+            {isPrivateLocked ? (
+              <div className="empty-state">This profile is private.</div>
+            ) : photoPosts.length === 0 ? (
               <div className="empty-state">📸 No photos yet</div>
             ) : (
               photoPosts.map((post) => {
@@ -768,7 +1103,9 @@ export default function VineProfile() {
             }}
           >
             {viewerLiked ? "❤️" : "🤍"}
-            {viewerLikeCount > 0 && <span className="like-count">{viewerLikeCount}</span>}
+            {canShowViewerLikes && viewerLikeCount > 0 && (
+              <span className="like-count">{viewerLikeCount}</span>
+            )}
           </button>
 
          {/* Comment button in viewer */}
@@ -802,7 +1139,14 @@ export default function VineProfile() {
                   topLevelComments.map((c) => (
                     <div key={c.id} className="comment-item">
                       <div className="comment-main">
-                      <img src={c.avatar_url} className="comment-avatar" alt="" />
+                      <img
+                        src={c.avatar_url || DEFAULT_AVATAR}
+                        className="comment-avatar"
+                        alt=""
+                        onError={(e) => {
+                          e.currentTarget.src = DEFAULT_AVATAR;
+                        }}
+                      />
 
 
                         <div className="comment-body">
@@ -882,9 +1226,12 @@ export default function VineProfile() {
                         <div className="comment-replies">
                           {repliesByParent[c.id].map((r) => (
                             <div key={r.id} className="comment-reply">
-                              <img src={r.avatar_url}
+                              <img src={r.avatar_url || DEFAULT_AVATAR}
                                 className="comment-avatar small"
                                 alt=""
+                                onError={(e) => {
+                                  e.currentTarget.src = DEFAULT_AVATAR;
+                                }}
                               />
 
                               <div className="comment-body">
@@ -994,7 +1341,14 @@ export default function VineProfile() {
       {/* 1️⃣ DM Privacy */}
       <div className="settings-item">
         <label>Who can message me</label>
-        <select>
+        <select
+          value={dmPrivacy}
+          onChange={(e) => {
+            const value = e.target.value;
+            setDmPrivacy(value);
+            saveSettings({ dm_privacy: value });
+          }}
+        >
           <option value="everyone">Everyone</option>
           <option value="followers">Followers only</option>
           <option value="no_one">No one</option>
@@ -1004,7 +1358,15 @@ export default function VineProfile() {
       {/* 2️⃣ Private Profile */}
       <div className="settings-item">
         <label>
-          <input type="checkbox" />
+          <input
+            type="checkbox"
+            checked={privateProfile}
+            onChange={(e) => {
+              const value = e.target.checked;
+              setPrivateProfile(value);
+              saveSettings({ is_private: value });
+            }}
+          />
           Private profile
         </label>
       </div>
@@ -1012,7 +1374,15 @@ export default function VineProfile() {
       {/* 3️⃣ Hide like counts */}
       <div className="settings-item">
         <label>
-          <input type="checkbox" />
+          <input
+            type="checkbox"
+            checked={hideLikeCounts}
+            onChange={(e) => {
+              const value = e.target.checked;
+              setHideLikeCounts(value);
+              saveSettings({ hide_like_counts: value });
+            }}
+          />
           Hide like counts
         </label>
       </div>
@@ -1020,7 +1390,15 @@ export default function VineProfile() {
       {/* 4️⃣ Show last active */}
       <div className="settings-item">
         <label>
-          <input type="checkbox" />
+          <input
+            type="checkbox"
+            checked={showLastActive}
+            onChange={(e) => {
+              const value = e.target.checked;
+              setShowLastActive(value);
+              saveSettings({ show_last_active: value });
+            }}
+          />
           Show last active status
         </label>
       </div>

@@ -5,20 +5,17 @@ import { authenticate } from "../auth.js";
 const router = express.Router();
 
 /* =========================
-   HELPER: check mutual follow
+   HELPER: check following
 ========================= */
-async function areMutuals(userA, userB) {
+async function isFollowing(followerId, followingId) {
   const [rows] = await db.query(
     `
     SELECT 1
-    FROM vine_follows f1
-    JOIN vine_follows f2
-      ON f1.follower_id = f2.following_id
-     AND f1.following_id = f2.follower_id
-    WHERE f1.follower_id = ? AND f1.following_id = ?
+    FROM vine_follows
+    WHERE follower_id = ? AND following_id = ?
     LIMIT 1
     `,
-    [userA, userB]
+    [followerId, followingId]
   );
   return rows.length > 0;
 }
@@ -36,6 +33,8 @@ router.get("/conversations", authenticate, async (req, res) => {
         u.id AS user_id,
         u.username,
         u.avatar_url,
+        u.last_active_at,
+        u.show_last_active,
 
         (
           SELECT content
@@ -153,10 +152,24 @@ router.post("/start", authenticate, async (req, res) => {
   const { userId: receiverId } = req.body;
 
   try {
-    // Must be mutuals
-    const mutual = await areMutuals(senderId, receiverId);
-    if (!mutual) {
-      return res.status(403).json({ error: "Users must follow each other" });
+    const [[receiver]] = await db.query(
+      "SELECT dm_privacy FROM vine_users WHERE id = ?",
+      [receiverId]
+    );
+
+    if (!receiver) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    if (receiver.dm_privacy === "no_one") {
+      return res.status(403).json({ error: "User does not accept messages" });
+    }
+
+    if (receiver.dm_privacy === "followers") {
+      const follows = await isFollowing(senderId, receiverId);
+      if (!follows) {
+        return res.status(403).json({ error: "Followers only" });
+      }
     }
 
     // Check if exists
@@ -171,6 +184,14 @@ router.post("/start", authenticate, async (req, res) => {
     );
 
     if (existing.length) {
+      // Restore conversation in sender's inbox if previously deleted
+      await db.query(
+        `
+        DELETE FROM vine_conversation_deletes
+        WHERE conversation_id = ? AND user_id = ?
+        `,
+        [existing[0].id, senderId]
+      );
       return res.json({ conversationId: existing[0].id });
     }
 
@@ -420,10 +441,13 @@ router.get("/unread-total", authenticate, async (req, res) => {
       SELECT COUNT(*) AS total
       FROM vine_messages m
       JOIN vine_conversations c ON c.id = m.conversation_id
+      LEFT JOIN vine_conversation_deletes d
+        ON d.conversation_id = c.id AND d.user_id = ?
       WHERE m.is_read = 0
         AND m.sender_id != ?
         AND (c.user1_id = ? OR c.user2_id = ?)
-    `, [userId, userId, userId]);
+        AND d.conversation_id IS NULL
+    `, [userId, userId, userId, userId]);
 
     res.json({ total: row.total || 0 });
   } catch (err) {

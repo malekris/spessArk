@@ -86,7 +86,7 @@
 }
 
 .verified {
-  background: #10b981;
+  background: #ef4444;
   width: 16px;
   height: 16px;
   border-radius: 50%;
@@ -94,6 +94,7 @@
   align-items: center;
   justify-content: center;
   margin-left: 4px;
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.5);
 }
 
 .username,
@@ -138,6 +139,21 @@
   margin: 12px 0;
   word-break: break-word;
   overflow-wrap: break-word;
+}
+
+.see-more-btn {
+  background: transparent;
+  border: none;
+  color: #10b981;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+  margin: -4px 0 12px 0;
+}
+
+.see-more-btn:hover,
+.see-more-btn:focus {
+  text-decoration: underline;
 }
 
 
@@ -396,6 +412,90 @@
   border-radius: 16px;
 }
 
+.image-viewer-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.viewer-action-bar {
+  display: flex;
+  gap: 10px;
+  background: rgba(0, 0, 0, 0.4);
+  padding: 10px 14px;
+  border-radius: 999px;
+  backdrop-filter: blur(6px);
+}
+
+.viewer-action {
+  background: transparent;
+  border: none;
+  color: white;
+  font-weight: 700;
+  font-size: 0.95rem;
+  cursor: pointer;
+  padding: 6px 10px;
+  border-radius: 999px;
+}
+
+.viewer-action:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.viewer-fullscreen {
+  position: absolute;
+  top: calc(env(safe-area-inset-top, 20px) + 12px);
+  right: 64px;
+  z-index: 100000;
+  background: rgba(0,0,0,0.7);
+  color: white;
+  border: none;
+  font-size: 1.1rem;
+  padding: 8px 12px;
+  border-radius: 50%;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+}
+
+.viewer-meta {
+  max-width: min(900px, 90vw);
+  color: #e5e7eb;
+  text-align: left;
+}
+
+.viewer-meta-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-weight: 800;
+  color: #ffffff;
+}
+
+.viewer-name {
+  font-size: 1.05rem;
+}
+
+.viewer-username {
+  color: #cbd5f5;
+  font-weight: 600;
+}
+
+.viewer-time {
+  color: #9ca3af;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.viewer-caption {
+  margin-top: 6px;
+  font-size: 1rem;
+  line-height: 1.5;
+  color: #e5e7eb;
+  white-space: pre-wrap;
+}
+
 .viewer-close {
   position: absolute;
   top: calc(env(safe-area-inset-top, 20px) + 10px);
@@ -586,6 +686,8 @@
   background: transparent;
   box-shadow: none;
   border-radius: 0;
+  flex: 1;
+  width: 100%;
 }
 .comment-reply-box input::placeholder,
 .comment-reply-box textarea::placeholder {

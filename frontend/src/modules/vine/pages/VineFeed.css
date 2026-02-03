@@ -23,8 +23,8 @@
   background: #064e3b !important;
   padding: 10px 20px;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: stretch;
   position: fixed;
   top: 0;
   left: 0;
@@ -33,6 +33,13 @@
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
   box-sizing: border-box;
 
+}
+
+.vine-nav-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
 }
 
 .vine-nav-top h2 {
@@ -64,13 +71,13 @@
   position: absolute;
   top: 2px;
   right: 2px;
-  background: #10b981;
+  background: #ef4444;
   color: white;
   font-size: 0.7rem;
   font-weight: 900;
   padding: 2px 6px;
   border-radius: 50px;
-  border: 2px solid #064e3b;
+  border: 2px solid #7f1d1d;
 }
 
 /* Right-side buttons */
@@ -96,24 +103,26 @@
 }
 
 .profile-btn {
-  background: #d1fae5;
-  color: #064e3b;
+  background: #fbbf24;
+  color: #7c2d12;
 }
 
 .logout-btn {
-  background: rgba(255, 255, 255, 0.15);
+  background: #dc2626;
   color: white;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  border: 1px solid #b91c1c;
 }
 
 /* ── Quick Actions Bar (Search + Discover + DM) ── */
 .vine-dm-bar {
   width: 100%;
-  max-width: 650px;
+  max-width: 1000px;
   display: flex;
   gap: 10px;
-  margin: 20px 0;
+  margin: 0 auto;
+  padding: 8px 20px 12px;
   box-sizing: border-box;
+  background: #064e3b;
 }
 
 .vine-search {
@@ -311,7 +320,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding-top: 70px;
+  padding-top: 150px;
 }
 
 .vine-posts-list {
@@ -340,6 +349,11 @@
   .nav-btn {
     padding: 5px 10px;
     font-size: 0.75rem;
+  }
+
+  .vine-dm-bar {
+    max-width: none;
+    padding: 8px 12px 12px;
   }
 
   .vine-dm-bar {

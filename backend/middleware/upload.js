@@ -11,6 +11,19 @@ export const uploadPostCloudinary = multer({
 });
 
 // ------------------------
+// Avatar/Banner upload (memory, convert if needed)
+// ------------------------
+export const uploadAvatarMemory = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 },
+});
+
+export const uploadBannerMemory = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 },
+});
+
+// ------------------------
 // Avatar upload (CloudinaryStorage)
 // ------------------------
 const avatarStorage = new CloudinaryStorage({

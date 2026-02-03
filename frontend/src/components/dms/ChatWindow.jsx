@@ -1,11 +1,13 @@
 import { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { socket } from "../../socket";
+import { formatRelativeTime } from "../../utils/time";
 import MessageBubble from "./MessageBubble";
 import MessageInput from "./MessageInput";
 import "./ChatWindow.css";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
+const DEFAULT_AVATAR = `${API}/uploads/avatars/default.png`;
 
 export default function ChatWindow() {
   const { conversationId } = useParams();
@@ -288,10 +290,12 @@ fetch(`${API}/api/dms/conversations/${conversationId}/read`, {
             onClick={() => navigate(`/vine/profile/${partner.username}`)}
           >
             <img
-              src={partner.avatar_url || "/default-avatar.png"}
-
+              src={partner.avatar_url || DEFAULT_AVATAR}
               alt=""
               className="chat-avatar"
+              onError={(e) => {
+                e.currentTarget.src = DEFAULT_AVATAR;
+              }}
             />
 
             <div>
@@ -299,6 +303,12 @@ fetch(`${API}/api/dms/conversations/${conversationId}/read`, {
               <div style={{ fontSize: 12, opacity: 0.6 }}>
                 @{partner.username}
               </div>
+              {partner.show_last_active !== 0 && partner.last_active_at && (
+                <div style={{ fontSize: 12, opacity: 0.6 }}>
+                  Last seen {new Date(partner.last_active_at).toLocaleString()}{" "}
+                  ({formatRelativeTime(partner.last_active_at)} ago)
+                </div>
+              )}
             </div>
           </div>
         ) : (

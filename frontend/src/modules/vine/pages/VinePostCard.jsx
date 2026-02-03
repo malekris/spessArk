@@ -9,6 +9,7 @@ import MiniProfileCard from "../components/MiniProfileCard";
 // ────────────────────────────────────────────────
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
+const DEFAULT_AVATAR = `${API}/uploads/avatars/default.png`;
 const ORIGIN = API.replace(/\/api$/, "");
 
 /**
@@ -70,15 +71,32 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
   const [text, setText] = useState("");
   const [commentCount, setCommentCount] = useState(post.comments || 0);
   const [showMini, setShowMini] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
   const avatarRef = useRef(null);
   const [commentLikes, setCommentLikes] = useState({});
   const [commentUserLiked, setCommentUserLiked] = useState({});
+  const [isDeleted, setIsDeleted] = useState(false);
 
+  const CONTENT_LIMIT = 280;
+  const hasLongContent = (post.content || "").length > CONTENT_LIMIT;
+  const contentToShow =
+    hasLongContent && !isExpanded
+      ? `${post.content.slice(0, CONTENT_LIMIT).trimEnd()}...`
+      : post.content;
+
+
+  const canShowLikeCount = !post.hide_like_counts || isPostAuthor;
 
   // ── Effects ─────────────────────────────────────
   useEffect(() => {
     if (open) fetchComments();
   }, [open]);
+
+  useEffect(() => {
+    if (post.comments !== undefined) {
+      setCommentCount(post.comments || 0);
+    }
+  }, [post.comments]);
 
   useEffect(() => {
     if (focusComments) {
@@ -184,7 +202,10 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
       method: "DELETE",
       headers: { Authorization: `Bearer ${token}` },
     });
-    if (res.ok) onDeletePost(post.id);
+    if (res.ok) {
+      setIsDeleted(true);
+      onDeletePost?.(post.id);
+    }
   };
 
   const sendComment = async (content, parent_comment_id = null) => {
@@ -212,6 +233,8 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
     if (res.ok) fetchComments();
   };
 
+  if (isDeleted) return null;
+
   // ── Render ──────────────────────────────────────
   return (
     <div className="vine-post light-green-theme" id={`post-${post.id}`}>
@@ -227,13 +250,13 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
     setShowMini(v => !v);
   }}
 >
-  {post.avatar_url ? (
-   <img src={post.avatar_url} alt="avatar" />
-  ) : (
-    <div className="avatar-fallback">
-      {(post.username || "?")[0].toUpperCase()}
-    </div>
-  )}
+  <img
+    src={post.avatar_url || DEFAULT_AVATAR}
+    alt="avatar"
+    onError={(e) => {
+      e.currentTarget.src = DEFAULT_AVATAR;
+    }}
+  />
 
   {showMini && (
     <MiniProfileCard
@@ -317,17 +340,25 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
 
       {/* Post content */}
       <p
-  className={`vine-post-content ${
-    post.content &&
-    post.content.length < 120 &&
-    !post.image_url
-      ? "big-text"
-      : ""
-  }`}
-  style={{ whiteSpace: "pre-wrap" }}   // ← this one line fixes paragraphs
->
-  {post.content}
-</p>   
+        className={`vine-post-content ${
+          post.content &&
+          post.content.length < 120 &&
+          !post.image_url
+            ? "big-text"
+            : ""
+        }`}
+        style={{ whiteSpace: "pre-wrap" }}   // ← this one line fixes paragraphs
+      >
+        {contentToShow}
+      </p>
+      {hasLongContent && (
+        <button
+          className="see-more-btn"
+          onClick={() => setIsExpanded((prev) => !prev)}
+        >
+          {isExpanded ? "See less" : "See more"}
+        </button>
+      )}
 
       {/* Images carousel */}
       {post.image_url && (
@@ -342,7 +373,21 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
       lastTapRef.current = now;
     }}
   >
-    <ImageCarousel imageUrl={post.image_url} />
+    <ImageCarousel
+      imageUrl={post.image_url}
+      onLike={handleLike}
+      onRevine={handleRevine}
+      onComments={() => setOpen(true)}
+      likeCount={canShowLikeCount ? postLikes : null}
+      revineCount={revines}
+      commentCount={commentCount}
+      userLiked={postUserLiked}
+      userRevined={userRevined}
+      displayName={post.display_name}
+      username={post.username}
+      timeLabel={formatRelativeTime(post.created_at)}
+      caption={post.content}
+    />
   </div>
         )}
       {/* Action footer */}
@@ -351,7 +396,8 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
   className={`action-btn ${postUserLiked ? "active-like" : ""}`}
   onClick={handleLike}
 >
-  {postUserLiked ? "❤️" : "🤍"} {postLikes}
+  {postUserLiked ? "❤️" : "🤍"}
+  {canShowLikeCount && ` ${postLikes}`}
 </button>    
         <button className="action-btn" onClick={() => setOpen(!open)}>
           💬 {commentCount}
@@ -469,11 +515,11 @@ const token = localStorage.getItem("vine_token");
       <div className="comment-main">
         <div className="comment-meta">
           <img
-            src= {comment.avatar_url}
+            src={comment.avatar_url || DEFAULT_AVATAR}
             className="comment-avatar"
             alt=""
             onError={(e) => {
-              e.currentTarget.src = `${API}/uploads/avatars/default.png`;
+              e.currentTarget.src = DEFAULT_AVATAR;
             }}
           />
 
@@ -545,7 +591,7 @@ className={`mini-btn ${
   {canDelete && (
     <button
       className="mini-btn del-text"
-      onClick={() => onDelete(c.id)}
+      onClick={() => onDelete(comment.id)}
     >
       🗑️
     </button>

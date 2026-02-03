@@ -38,7 +38,7 @@ app.use(cors({
     "http://localhost:5173",
     "http://localhost:5001"
   ],
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization", "x-admin-key"],
 }));
 
@@ -1643,4 +1643,3 @@ io.on("connection", (socket) => {
 server.listen(PORT, () => {
   console.log(`✅ Spess Ark backend + WS running on http://localhost:${PORT}`);
 });
-

@@ -3,23 +3,43 @@ import { useParams, useNavigate } from "react-router-dom";
 import "./VineFollowers.css";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
+const DEFAULT_AVATAR = `${API}/uploads/avatars/default.png`;
 
 export default function VineFollowers() {
   const { username } = useParams();
   const navigate = useNavigate();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const token = localStorage.getItem("vine_token");
 
   useEffect(() => {
     setLoading(true);
-    fetch(`${API}/api/vine/users/${username}/followers`)
+    fetch(`${API}/api/vine/users/${username}/followers`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
       .then(res => res.json())
       .then(data => {
         setUsers(Array.isArray(data) ? data : []);
         setLoading(false);
       })
       .catch(() => setLoading(false));
-  }, [username]);
+  }, [username, token]);
+
+  const toggleFollow = async (userId, isFollowing) => {
+    try {
+      await fetch(`${API}/api/vine/users/${userId}/follow`, {
+        method: isFollowing ? "DELETE" : "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.id === userId ? { ...u, is_following: isFollowing ? 0 : 1 } : u
+        )
+      );
+    } catch (err) {
+      console.error("Follow toggle failed", err);
+    }
+  };
 
   return (
     <div className="vine-follow-container">
@@ -48,14 +68,13 @@ export default function VineFollowers() {
             >
               <div className="user-row-left">
                 <div className="follow-avatar">
-                  {u.avatar_url ? (
-                    <img src={u.avatar_url} alt={u.username} />
-
-                  ) : (
-                    <div className="initial-circle">
-                      {(u.username || "?")[0].toUpperCase()}
-                    </div>
-                  )}
+                  <img
+                    src={u.avatar_url || DEFAULT_AVATAR}
+                    alt={u.username}
+                    onError={(e) => {
+                      e.currentTarget.src = DEFAULT_AVATAR;
+                    }}
+                  />
                 </div>
 
                 <div className="user-details">
@@ -67,8 +86,14 @@ export default function VineFollowers() {
                 </div>
               </div>
 
-              <button className="row-follow-btn" onClick={(e) => e.stopPropagation()}>
-                Follow
+              <button
+                className={`row-follow-btn ${u.is_following ? "following" : ""}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleFollow(u.id, Boolean(u.is_following));
+                }}
+              >
+                {u.is_following ? "Unfollow" : "Follow"}
               </button>
             </div>
           ))

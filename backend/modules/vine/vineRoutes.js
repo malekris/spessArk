@@ -6,10 +6,11 @@ import { sendVineWelcomeEmail } from "../../utils/email.js";
 import authMiddleware from "../../middleware/authMiddleware.js";
 import authOptional from "../authOptional.js";
 import { authenticate } from "../auth.js";
-import { uploadAvatar, uploadBanner } from "../../middleware/upload.js";
+import { uploadAvatarMemory, uploadBannerMemory } from "../../middleware/upload.js";
 import { io } from "../../server.js"; 
 import { uploadPostCloudinary } from "../../middleware/upload.js";
 import cloudinary from "../../config/cloudinary.js";
+import sharp from "sharp";
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "vine_secret_key";
@@ -19,6 +20,34 @@ const extractPublicId = (url) => {
   const filename = parts.pop().split(".")[0]; // abc123
   const folder = parts.slice(parts.indexOf("upload") + 1).join("/");
   return `${folder}/${filename}`;
+};
+
+const isHeicFile = (file) => {
+  const name = file?.originalname || "";
+  const type = file?.mimetype || "";
+  return (
+    /heic|heif/i.test(type) ||
+    /\.heic$/i.test(name) ||
+    /\.heif$/i.test(name)
+  );
+};
+
+const normalizeImageBuffer = async (file) => {
+  if (!file?.buffer) {
+    return { buffer: Buffer.alloc(0), mimetype: "image/jpeg" };
+  }
+  if (isHeicFile(file)) {
+    try {
+      const buffer = await sharp(file.buffer)
+        .jpeg({ quality: 90 })
+        .toBuffer();
+      return { buffer, mimetype: "image/jpeg" };
+    } catch (err) {
+      console.warn("HEIC decode failed, sending original file to Cloudinary", err);
+      return { buffer: file.buffer, mimetype: file.mimetype || "image/heic" };
+    }
+  }
+  return { buffer: file.buffer, mimetype: file.mimetype || "image/jpeg" };
 };
 
 router.post("/auth/register", async (req, res) => {
@@ -165,6 +194,7 @@ async function requireVineAuth(req, res, next) {
             u.display_name,
             u.avatar_url,
             u.is_verified,
+            u.hide_like_counts,
             NULL AS revined_by,
             NULL AS reviner_username,
   
@@ -186,6 +216,14 @@ async function requireVineAuth(req, res, next) {
   
           FROM vine_posts p
           JOIN vine_users u ON p.user_id = u.id
+          WHERE ${
+            viewerId
+              ? `(u.is_private = 0 OR u.id = ${viewerId} OR EXISTS (
+                    SELECT 1 FROM vine_follows
+                    WHERE follower_id = ${viewerId} AND following_id = u.id
+                  ))`
+              : "u.is_private = 0"
+          }
   
           UNION ALL
   
@@ -201,6 +239,7 @@ async function requireVineAuth(req, res, next) {
             u.display_name,
             u.avatar_url,
             u.is_verified,
+            u.hide_like_counts,
             r.user_id AS revined_by,
             ru.username AS reviner_username,
   
@@ -224,6 +263,14 @@ async function requireVineAuth(req, res, next) {
           JOIN vine_posts p ON r.post_id = p.id
           JOIN vine_users u ON p.user_id = u.id
           JOIN vine_users ru ON r.user_id = ru.id
+          WHERE ${
+            viewerId
+              ? `(u.is_private = 0 OR u.id = ${viewerId} OR EXISTS (
+                    SELECT 1 FROM vine_follows
+                    WHERE follower_id = ${viewerId} AND following_id = u.id
+                  ))`
+              : "u.is_private = 0"
+          }
         ) feed
         ORDER BY sort_time DESC
         LIMIT 100
@@ -239,7 +286,7 @@ async function requireVineAuth(req, res, next) {
   router.post(
     "/posts",
     requireVineAuth,
-    uploadPostCloudinary.array("images", 5),
+    uploadPostCloudinary.array("images", 10),
     async (req, res) => {
       try {
         const userId = req.user.id;
@@ -249,12 +296,13 @@ async function requireVineAuth(req, res, next) {
   
         if (req.files?.length) {
           const uploads = await Promise.all(
-            req.files.map(file =>
-              cloudinary.uploader.upload(
-                `data:${file.mimetype};base64,${file.buffer.toString("base64")}`,
+            req.files.map(async (file) => {
+              const normalized = await normalizeImageBuffer(file);
+              return cloudinary.uploader.upload(
+                `data:${normalized.mimetype};base64,${normalized.buffer.toString("base64")}`,
                 { folder: "vine/posts" }
-              )
-            )
+              );
+            })
           );
   
           imageUrls = uploads.map(u => u.secure_url);
@@ -396,6 +444,10 @@ router.get("/users/:username", authOptional, async (req, res) => {
         u.created_at,
         u.last_active_at,
         u.is_verified,
+        u.dm_privacy,
+        u.is_private,
+        u.hide_like_counts,
+        u.show_last_active,
 
         (SELECT COUNT(*) FROM vine_follows WHERE following_id = u.id) AS follower_count,
         (SELECT COUNT(*) FROM vine_follows WHERE follower_id = u.id) AS following_count,
@@ -417,6 +469,14 @@ router.get("/users/:username", authOptional, async (req, res) => {
 
     if (!user) return res.status(404).json({ message: "Not found" });
 
+    const isSelf = viewerId && Number(viewerId) === Number(user.id);
+    const isFollowing =
+      viewerId && Number(user.is_following) === 1;
+
+    if (!isSelf && !user.show_last_active) {
+      user.last_active_at = null;
+    }
+
     // 2. Posts + Revines (stable keys + correct ordering)
     const [posts] = await db.query(
       `
@@ -436,6 +496,8 @@ router.get("/users/:username", authOptional, async (req, res) => {
           u.username,
           u.display_name,
           u.avatar_url,
+          u.is_verified,
+          u.hide_like_counts,
 
           NULL AS reviner_username,
           0 AS revined_by,
@@ -476,6 +538,8 @@ router.get("/users/:username", authOptional, async (req, res) => {
           u.username,
           u.display_name,
           u.avatar_url,
+          u.is_verified,
+          u.hide_like_counts,
 
           ru.username AS reviner_username,
           1 AS revined_by,
@@ -506,6 +570,10 @@ router.get("/users/:username", authOptional, async (req, res) => {
       `,
       [user.id, user.id]
     );
+
+    if (user.is_private && !isSelf && !isFollowing) {
+      return res.json({ user, posts: [], privateLocked: true });
+    }
 
     res.json({ user, posts });
 
@@ -1054,40 +1122,77 @@ router.delete("/posts/:id", requireVineAuth, async (req, res) => {
 });
 
 // avatars (Cloudinary)
-router.post(
-  "/users/avatar",
-  authenticate,
-  uploadAvatar.single("avatar"),
-  async (req, res) => {
-    try {
-      if (!req.file) {
-        return res.status(400).json({ message: "No file uploaded" });
-      }
-
-      if (!req.user || !req.user.id) {
-        return res.status(401).json({ message: "Unauthorized" });
-      }
-
-      const avatarUrl = req.file.path; // ✅ Cloudinary URL
-
-      await db.query(
-        "UPDATE vine_users SET avatar_url = ? WHERE id = ?",
-        [avatarUrl, req.user.id]
-      );
-
-      res.json({ avatar_url: avatarUrl });
-    } catch (err) {
+const uploadAvatarMiddleware = (req, res, next) => {
+  uploadAvatarMemory.single("avatar")(req, res, (err) => {
+    if (err) {
       console.error("Avatar upload error:", err);
-      res.status(500).json({ message: "Upload failed" });
+      const message =
+        err?.message ||
+        err?.error?.message ||
+        err?.code ||
+        "Upload failed";
+      const details = (() => {
+        try {
+          return JSON.stringify(err, Object.getOwnPropertyNames(err));
+        } catch {
+          return "";
+        }
+      })();
+      return res.status(400).json({
+        message,
+        code: err?.code,
+        name: err?.name,
+        http_code: err?.http_code || err?.error?.http_code,
+        details,
+      });
     }
+    return next();
+  });
+};
+
+router.post("/users/avatar", authenticate, uploadAvatarMiddleware, async (req, res) => {
+  try {
+    if (!req.file) {
+      console.warn("Avatar upload missing file", {
+        hasBody: Boolean(req.body),
+        contentType: req.headers["content-type"],
+      });
+      return res.status(400).json({ message: "No file uploaded" });
+    }
+
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const normalized = await normalizeImageBuffer(req.file);
+    const upload = await cloudinary.uploader.upload(
+      `data:${normalized.mimetype};base64,${normalized.buffer.toString("base64")}`,
+      {
+        folder: "vine/avatars",
+        transformation: [
+          { width: 400, height: 400, crop: "fill", gravity: "face" },
+        ],
+      }
+    );
+    const avatarUrl = upload.secure_url;
+
+    await db.query(
+      "UPDATE vine_users SET avatar_url = ? WHERE id = ?",
+      [avatarUrl, req.user.id]
+    );
+
+    res.json({ avatar_url: avatarUrl });
+  } catch (err) {
+    console.error("Avatar upload error:", err);
+    res.status(500).json({ message: "Upload failed" });
   }
-);
+});
 
 // banners (NEW)
 router.post(
   "/users/banner",
   authenticate,
-  uploadBanner.single("banner"),
+  uploadBannerMemory.single("banner"),
   async (req, res) => {
     try {
       if (!req.file) {
@@ -1098,7 +1203,17 @@ router.post(
         return res.status(401).json({ message: "Unauthorized" });
       }
 
-      const bannerUrl = req.file.path; // Cloudinary HTTPS URL
+      const normalized = await normalizeImageBuffer(req.file);
+      const upload = await cloudinary.uploader.upload(
+        `data:${normalized.mimetype};base64,${normalized.buffer.toString("base64")}`,
+        {
+          folder: "vine/banners",
+          transformation: [
+            { width: 1500, height: 500, crop: "fill" },
+          ],
+        }
+      );
+      const bannerUrl = upload.secure_url;
 
 
       await db.query(
@@ -1142,6 +1257,72 @@ router.post("/users/update-profile", authenticate, async (req, res) => {
   } catch (err) {
     console.error("Update profile error:", err);
     res.status(500).json({ message: "Failed to update profile" });
+  }
+});
+
+// update privacy/settings
+router.patch("/users/me/settings", authenticate, async (req, res) => {
+  try {
+    const {
+      dm_privacy,
+      is_private,
+      hide_like_counts,
+      show_last_active,
+    } = req.body || {};
+
+    const allowedDm = new Set(["everyone", "followers", "no_one"]);
+    const updates = [];
+    const params = [];
+
+    if (dm_privacy !== undefined) {
+      if (!allowedDm.has(dm_privacy)) {
+        return res.status(400).json({ message: "Invalid dm_privacy" });
+      }
+      updates.push("dm_privacy = ?");
+      params.push(dm_privacy);
+    }
+
+    if (is_private !== undefined) {
+      updates.push("is_private = ?");
+      params.push(is_private ? 1 : 0);
+    }
+
+    if (hide_like_counts !== undefined) {
+      updates.push("hide_like_counts = ?");
+      params.push(hide_like_counts ? 1 : 0);
+    }
+
+    if (show_last_active !== undefined) {
+      updates.push("show_last_active = ?");
+      params.push(show_last_active ? 1 : 0);
+    }
+
+    if (!updates.length) {
+      return res.json({ success: true });
+    }
+
+    await db.query(
+      `
+      UPDATE vine_users
+      SET ${updates.join(", ")}
+      WHERE id = ?
+      `,
+      [...params, req.user.id]
+    );
+
+    const [[user]] = await db.query(
+      `
+      SELECT dm_privacy, is_private, hide_like_counts, show_last_active
+      FROM vine_users
+      WHERE id = ?
+      `,
+      [req.user.id]
+    );
+
+    res.json({ success: true, user });
+  } catch (err) {
+    console.error("Update settings error:", err);
+    res.status(500).json({ message: "Failed to update settings" });
   }
 });
 
@@ -1190,9 +1371,10 @@ router.delete("/users/:id/follow", authenticate, async (req, res) => {
   res.json({ success: true });
 });
 // Get followers of a user
-router.get("/users/:username/followers", async (req, res) => {
+router.get("/users/:username/followers", authOptional, async (req, res) => {
   try {
     const { username } = req.params;
+    const viewerId = req.user?.id || null;
 
     const [[user]] = await db.query(
       "SELECT id FROM vine_users WHERE username = ?",
@@ -1205,7 +1387,14 @@ router.get("/users/:username/followers", async (req, res) => {
         u.id,
         u.username,
         u.display_name,
-        u.avatar_url
+        u.avatar_url,
+        u.bio,
+        ${
+          viewerId
+            ? `(SELECT COUNT(*) > 0 FROM vine_follows 
+                WHERE follower_id = ${viewerId} AND following_id = u.id)`
+            : "0"
+        } AS is_following
       FROM vine_follows f
       JOIN vine_users u ON f.follower_id = u.id
       WHERE f.following_id = ?
@@ -1217,9 +1406,10 @@ router.get("/users/:username/followers", async (req, res) => {
   }
 });
 // Get users someone is following
-router.get("/users/:username/following", async (req, res) => {
+router.get("/users/:username/following", authOptional, async (req, res) => {
   try {
     const { username } = req.params;
+    const viewerId = req.user?.id || null;
 
     const [[user]] = await db.query(
       "SELECT id FROM vine_users WHERE username = ?",
@@ -1232,7 +1422,14 @@ router.get("/users/:username/following", async (req, res) => {
         u.id,
         u.username,
         u.display_name,
-        u.avatar_url
+        u.avatar_url,
+        u.bio,
+        ${
+          viewerId
+            ? `(SELECT COUNT(*) > 0 FROM vine_follows 
+                WHERE follower_id = ${viewerId} AND following_id = u.id)`
+            : "0"
+        } AS is_following
       FROM vine_follows f
       JOIN vine_users u ON f.following_id = u.id
       WHERE f.follower_id = ?
@@ -1307,18 +1504,27 @@ router.post("/users/banner-position", requireVineAuth, async (req, res) => {
   res.json({ success: true });
 });
 // ❤️ GET liked posts by a user (Profile Likes tab)
-router.get("/users/:username/likes", async (req, res) => {
+router.get("/users/:username/likes", authOptional, async (req, res) => {
   const { username } = req.params;
+  const viewerId = req.user?.id || null;
 
   try {
     // 1️⃣ Resolve user ID from username
     const [[user]] = await db.query(
-      "SELECT id FROM vine_users WHERE username = ?",
+      "SELECT id, is_private FROM vine_users WHERE username = ?",
       [username]
     );
 
     if (!user) {
       return res.status(200).json([]);
+    }
+
+    if (user.is_private && Number(user.id) !== Number(viewerId || 0)) {
+      const [follow] = await db.query(
+        "SELECT 1 FROM vine_follows WHERE follower_id = ? AND following_id = ? LIMIT 1",
+        [viewerId, user.id]
+      );
+      if (!follow.length) return res.status(200).json([]);
     }
 
     // 2️⃣ Fetch liked posts (feed-compatible)
@@ -1336,6 +1542,7 @@ router.get("/users/:username/likes", async (req, res) => {
         u.display_name,
         u.avatar_url,
         u.is_verified,
+        u.hide_like_counts,
         1 AS user_liked
       FROM vine_likes l
       JOIN vine_posts p ON l.post_id = p.id
@@ -1354,18 +1561,27 @@ router.get("/users/:username/likes", async (req, res) => {
   }
 });
 // 📸 GET photo posts by a user (Profile Photos tab)
-router.get("/users/:username/photos", async (req, res) => {
+router.get("/users/:username/photos", authOptional, async (req, res) => {
   const { username } = req.params;
+  const viewerId = req.user?.id || null;
 
   try {
     // 1️⃣ Resolve user
     const [[user]] = await db.query(
-      "SELECT id FROM vine_users WHERE username = ?",
+      "SELECT id, is_private FROM vine_users WHERE username = ?",
       [username]
     );
 
     if (!user) {
       return res.status(200).json([]);
+    }
+
+    if (user.is_private && Number(user.id) !== Number(viewerId || 0)) {
+      const [follow] = await db.query(
+        "SELECT 1 FROM vine_follows WHERE follower_id = ? AND following_id = ? LIMIT 1",
+        [viewerId, user.id]
+      );
+      if (!follow.length) return res.status(200).json([]);
     }
 
     // 2️⃣ Fetch posts with images only
@@ -1381,7 +1597,8 @@ router.get("/users/:username/photos", async (req, res) => {
         u.username,
         u.display_name,
         u.avatar_url,
-        u.is_verified
+        u.is_verified,
+        u.hide_like_counts
       FROM vine_posts p
       JOIN vine_users u ON p.user_id = u.id
       WHERE p.user_id = ?

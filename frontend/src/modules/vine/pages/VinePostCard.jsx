@@ -11,6 +11,7 @@ import MiniProfileCard from "../components/MiniProfileCard";
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const DEFAULT_AVATAR = `${API}/uploads/avatars/default.png`;
 const ORIGIN = API.replace(/\/api$/, "");
+const viewedPosts = new Set();
 
 /**
  * Formats timestamp to relative time (just now, 5m, 2h, 3d, or date)
@@ -48,6 +49,7 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
   const navigate = useNavigate();
   const token = localStorage.getItem("vine_token");
   const lastTapRef = useRef(0);
+  const postRef = useRef(null);
   // Current user ID from JWT
   let current_user_id = null;
   if (token) {
@@ -66,6 +68,7 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
   const [postUserLiked, setPostUserLiked] = useState(post.user_liked || false);
   const [revines, setRevines] = useState(post.revines || 0);
   const [userRevined, setUserRevined] = useState(post.user_revined || false);
+  const [views, setViews] = useState(post.views ?? post.view_count ?? 0);
   const [open, setOpen] = useState(false);
   const [comments, setComments] = useState([]);
   const [text, setText] = useState("");
@@ -91,6 +94,35 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
   useEffect(() => {
     if (open) fetchComments();
   }, [open]);
+
+  useEffect(() => {
+    if (post.views !== undefined || post.view_count !== undefined) {
+      setViews(post.views ?? post.view_count ?? 0);
+    }
+  }, [post.views, post.view_count]);
+
+  useEffect(() => {
+    if (!token) return;
+    if (!post?.id) return;
+    if (viewedPosts.has(post.id)) return;
+    const el = postRef.current;
+    if (!el) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) return;
+          viewedPosts.add(post.id);
+          recordView();
+          observer.disconnect();
+        });
+      },
+      { threshold: 0.6 }
+    );
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [post.id, token]);
 
   useEffect(() => {
     if (post.comments !== undefined) {
@@ -195,6 +227,21 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
     setRevines(data.revines);
     setUserRevined(data.user_revined);
   };
+
+  const recordView = async () => {
+    try {
+      const res = await fetch(`${API}/api/vine/posts/${post.id}/view`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (res.ok && typeof data.views === "number") {
+        setViews(data.views);
+      }
+    } catch (err) {
+      console.error("View record error", err);
+    }
+  };
  
   const deleteMainPost = async () => {
     if (!window.confirm("Delete this post forever?")) return;
@@ -237,7 +284,7 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
 
   // ── Render ──────────────────────────────────────
   return (
-    <div className="vine-post light-green-theme" id={`post-${post.id}`}>
+    <div className="vine-post light-green-theme" id={`post-${post.id}`} ref={postRef}>
       {/* Header: Avatar + User meta */}
       <div className="vine-post-header">
       <div
@@ -409,6 +456,8 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
         >
           🔁 {revines}
         </button>
+
+        <span className="action-btn view-btn">👁️ {views}</span>
 
         <button
           className="action-btn"

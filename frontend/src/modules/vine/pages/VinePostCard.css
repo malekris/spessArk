@@ -186,6 +186,11 @@
   color: #10b981;
 }
 
+.view-btn {
+  cursor: default;
+  pointer-events: none;
+}
+
 .active-like { color: #ef4444; }
 .active-revine { color: #10b981; }
 

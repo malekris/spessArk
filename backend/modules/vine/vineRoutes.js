@@ -201,6 +201,7 @@ async function requireVineAuth(req, res, next) {
             (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id) AS likes,
             (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comments,
             (SELECT COUNT(*) FROM vine_revines WHERE post_id = p.id) AS revines,
+            (SELECT COUNT(*) FROM vine_post_views WHERE post_id = p.id) AS views,
   
             ${
               viewerId
@@ -246,6 +247,7 @@ async function requireVineAuth(req, res, next) {
             (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id) AS likes,
             (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comments,
             (SELECT COUNT(*) FROM vine_revines WHERE post_id = p.id) AS revines,
+            (SELECT COUNT(*) FROM vine_post_views WHERE post_id = p.id) AS views,
   
             ${
               viewerId
@@ -337,6 +339,7 @@ async function requireVineAuth(req, res, next) {
             0 AS likes,
             0 AS comments,
             0 AS revines,
+            0 AS views,
             0 AS user_liked,
             0 AS user_revined
           FROM vine_posts p
@@ -505,6 +508,7 @@ router.get("/users/:username", authOptional, async (req, res) => {
           (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id) AS likes,
           (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comments,
           (SELECT COUNT(*) FROM vine_revines WHERE post_id = p.id) AS revines,
+          (SELECT COUNT(*) FROM vine_post_views WHERE post_id = p.id) AS views,
 
           ${
             viewerId
@@ -547,6 +551,7 @@ router.get("/users/:username", authOptional, async (req, res) => {
           (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id) AS likes,
           (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comments,
           (SELECT COUNT(*) FROM vine_revines WHERE post_id = p.id) AS revines,
+          (SELECT COUNT(*) FROM vine_post_views WHERE post_id = p.id) AS views,
 
           ${
             viewerId
@@ -645,6 +650,7 @@ router.get("/posts", authOptional, async (req, res) => {
           (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id)    AS like_count,
           (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comment_count,
           (SELECT COUNT(*) FROM vine_revines WHERE post_id = p.id)  AS revine_count,
+          (SELECT COUNT(*) FROM vine_post_views WHERE post_id = p.id) AS view_count,
 
 
           0 AS user_liked,
@@ -684,6 +690,7 @@ router.get("/posts", authOptional, async (req, res) => {
         (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id)    AS like_count,
         (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comment_count,
         (SELECT COUNT(*) FROM vine_revines WHERE post_id = p.id)  AS revine_count,
+        (SELECT COUNT(*) FROM vine_post_views WHERE post_id = p.id) AS view_count,
 
         (SELECT COUNT(*) > 0 
           FROM vine_likes 
@@ -834,6 +841,29 @@ router.post("/posts/:id/like", requireVineAuth, async (req, res) => {
     likes: count.total,
     user_liked: !existing.length
   });
+});
+
+// 👀 Record view (unique per user)
+router.post("/posts/:id/view", requireVineAuth, async (req, res) => {
+  const postId = req.params.id;
+  const userId = req.user.id;
+
+  try {
+    await db.query(
+      "INSERT IGNORE INTO vine_post_views (post_id, user_id, created_at) VALUES (?, ?, NOW())",
+      [postId, userId]
+    );
+
+    const [[count]] = await db.query(
+      "SELECT COUNT(*) AS total FROM vine_post_views WHERE post_id = ?",
+      [postId]
+    );
+
+    res.json({ views: count.total || 0 });
+  } catch (err) {
+    console.error("View record error:", err);
+    res.status(500).json({ message: "Failed to record view" });
+  }
 });
 
 // Add comment or reply
@@ -1543,6 +1573,7 @@ router.get("/users/:username/likes", authOptional, async (req, res) => {
         u.avatar_url,
         u.is_verified,
         u.hide_like_counts,
+        (SELECT COUNT(*) FROM vine_post_views WHERE post_id = p.id) AS views,
         1 AS user_liked
       FROM vine_likes l
       JOIN vine_posts p ON l.post_id = p.id
@@ -1598,7 +1629,8 @@ router.get("/users/:username/photos", authOptional, async (req, res) => {
         u.display_name,
         u.avatar_url,
         u.is_verified,
-        u.hide_like_counts
+        u.hide_like_counts,
+        (SELECT COUNT(*) FROM vine_post_views WHERE post_id = p.id) AS views
       FROM vine_posts p
       JOIN vine_users u ON p.user_id = u.id
       WHERE p.user_id = ?

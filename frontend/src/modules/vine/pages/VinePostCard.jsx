@@ -124,7 +124,7 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
           cache: "no-store",
         }
       );
-      
+  
       const data = await res.json();
   
       if (!Array.isArray(data)) {

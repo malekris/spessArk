@@ -121,9 +121,10 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
           headers: {
             Authorization: `Bearer ${token}`,
           },
-          cache: "no store"
+          cache: "no-store",
         }
       );
+      
       const data = await res.json();
   
       if (!Array.isArray(data)) {

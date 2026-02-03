@@ -495,10 +495,15 @@
   50% { transform: scale(1.2); opacity: 1; }
   100% { transform: scale(1); opacity: 0; }
 }
-.vine-post.pinned {
-  border-color: #9fe0c8;
-  box-shadow: 0 6px 20px rgba(47,111,100,.12);
+.pinned-badge {
+  color: #228B22;
+  background: rgba(34, 139, 34, 0.1);
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 600;
 }
+
+
 
 .vine-post-content.big-text {
   font-size: 26px;

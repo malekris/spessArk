@@ -44,7 +44,7 @@ const formatRelativeTime = (dateString) => {
 
 export default function VinePostCard({ post, onDeletePost, focusComments, isMe }) {
 
-const navigate = useNavigate();
+  const navigate = useNavigate();
   const token = localStorage.getItem("vine_token");
   const lastTapRef = useRef(0);
   // Current user ID from JWT
@@ -61,9 +61,9 @@ const navigate = useNavigate();
   const isPostAuthor = Number(current_user_id) === Number(post.user_id);
 
   // ── State ───────────────────────────────────────
-  const [likes, setLikes] = useState(post.likes || 0);
+  const [postLikes, setPostLikes] = useState(post.likes || 0);
+  const [postUserLiked, setPostUserLiked] = useState(post.user_liked || false);
   const [revines, setRevines] = useState(post.revines || 0);
-  const [userLiked, setUserLiked] = useState(post.user_liked || false);
   const [userRevined, setUserRevined] = useState(post.user_revined || false);
   const [open, setOpen] = useState(false);
   const [comments, setComments] = useState([]);
@@ -71,6 +71,9 @@ const navigate = useNavigate();
   const [commentCount, setCommentCount] = useState(post.comments || 0);
   const [showMini, setShowMini] = useState(false);
   const avatarRef = useRef(null);
+  const [commentLikes, setCommentLikes] = useState({});
+  const [commentUserLiked, setCommentUserLiked] = useState({});
+
 
   // ── Effects ─────────────────────────────────────
   useEffect(() => {
@@ -86,19 +89,42 @@ const navigate = useNavigate();
       }, 0);
     }
   }, [focusComments, post.id]);
-
+  useEffect(() => {
+    const likes = { ...commentLikes };
+    const liked = { ...commentUserLiked };
+  
+    comments.forEach(c => {
+      if (likes[c.id] === undefined) {
+        likes[c.id] = c.like_count || 0;
+      }
+      if (liked[c.id] === undefined) {
+        liked[c.id] = c.user_liked || false;
+      }
+    });
+  
+    setCommentLikes(likes);
+    setCommentUserLiked(liked);
+  }, [comments]);
+  
   // ── API Handlers ────────────────────────────────
   const fetchComments = async () => {
     try {
-      const res = await fetch(`${API}/api/vine/posts/${post.id}/comments`);
+      const res = await fetch(
+        `${API}/api/vine/posts/${post.id}/comments`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
       const data = await res.json();
-
+  
       if (!Array.isArray(data)) {
         setComments([]);
         setCommentCount(0);
         return;
       }
-
+  
       setComments(buildThreads(data));
       setCommentCount(data.length);
     } catch (err) {
@@ -107,6 +133,7 @@ const navigate = useNavigate();
       setCommentCount(0);
     }
   };
+  
   const pinPost = async () => {
     try {
       await fetch(`${API}/api/vine/posts/${post.id}/pin`, {
@@ -126,10 +153,12 @@ const navigate = useNavigate();
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
     });
+  
     const data = await res.json();
-    setLikes(data.likes);
-    setUserLiked(data.user_liked);
+    setPostLikes(data.likes);
+    setPostUserLiked(data.user_liked);
   };
+  
 
   const handleRevine = async () => {
     const res = await fetch(`${API}/api/vine/posts/${post.id}/revine`, {
@@ -310,13 +339,12 @@ const navigate = useNavigate();
         )}
       {/* Action footer */}
       <div className="vine-post-footer">
-        <button
-          className={`action-btn ${userLiked ? "active-like" : ""}`}
-          onClick={handleLike}
-        >
-          {userLiked ? "❤️" : "🤍"} {likes}
-        </button>
-
+      <button
+  className={`action-btn ${postUserLiked ? "active-like" : ""}`}
+  onClick={handleLike}
+>
+  {postUserLiked ? "❤️" : "🤍"} {postLikes}
+</button>    
         <button className="action-btn" onClick={() => setOpen(!open)}>
           💬 {commentCount}
         </button>
@@ -371,16 +399,21 @@ const navigate = useNavigate();
 
           {/* Threaded comments */}
           <div className="vine-thread-list">
-            {comments.map((c) => (
-              <Comment
-                key={c.id}
-                comment={c}
-                onReply={sendComment}
-                onDelete={deleteComment}
-                isPostOwner={isPostAuthor}
-                currentUserId={current_user_id}
-              />
-            ))}
+          {comments.map((c) => (
+  <Comment
+    key={c.id}
+    comment={c}
+    commentLikes={commentLikes}
+    commentUserLiked={commentUserLiked}
+    setCommentLikes={setCommentLikes}
+    setCommentUserLiked={setCommentUserLiked}
+    onReply={sendComment}
+    onDelete={deleteComment}
+    isPostOwner={isPostAuthor}
+    currentUserId={current_user_id}
+  />
+))}
+
           </div>
 
           {/* Bottom close for long threads */}
@@ -402,8 +435,9 @@ const navigate = useNavigate();
 //  NESTED COMMENT COMPONENT
 // ────────────────────────────────────────────────
 
-function Comment({ comment, onReply, onDelete, isPostOwner, currentUserId }) {
-  const token = localStorage.getItem("vine_token");
+function Comment({ comment, commentLikes, commentUserLiked, setCommentLikes, setCommentUserLiked, onReply, onDelete, isPostOwner, currentUserId }) {
+
+const token = localStorage.getItem("vine_token");
 
   const [likes, setLikes] = useState(comment.likes || 0);
   const [userLiked, setUserLiked] = useState(comment.user_liked || false);
@@ -464,26 +498,52 @@ function Comment({ comment, onReply, onDelete, isPostOwner, currentUserId }) {
         <p className="comment-text">{comment.content}</p>
 
         <div className="comment-actions">
-          <button
-            className={`mini-btn ${userLiked ? "active-like" : ""}`}
-            onClick={handleLike}
-          >
-            {userLiked ? "❤️" : "🤍"} {likes}
-          </button>
+  <button
+className={`mini-btn ${
+  commentUserLiked?.[comment.id] ? "active-like" : ""
+}`}
 
-          <button className="mini-btn" onClick={() => setReplying(!replying)}>
-            Reply
-          </button>
+  onClick={async () => {
+      const res = await fetch(
+      `${API}/api/vine/comments/${comment.id}/like`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+      const data = await res.json();
 
-          {canDelete && (
-            <button
-              className="mini-btn del-text"
-              onClick={() => onDelete(comment.id)}
-            >
-              🗑️
-            </button>
-          )}
-        </div>
+      setCommentLikes(prev => ({
+        ...prev,
+        [comment.id]: data.like_count,
+      }));
+      setCommentUserLiked(prev => ({
+        ...prev,
+        [comment.id]: data.user_liked,
+
+      }));
+    }}
+  >
+    {commentUserLiked?.[comment.id] ? "❤️" : "🤍"}{" "}
+
+    {commentLikes?.[comment.id] ?? comment.like_count ?? 0}
+
+    </button>
+
+  <button className="mini-btn" onClick={() => setReplying(!replying)}>
+    Reply
+  </button>
+
+  {canDelete && (
+    <button
+      className="mini-btn del-text"
+      onClick={() => onDelete(c.id)}
+    >
+      🗑️
+    </button>
+  )}
+</div>
+
 
         {replying && (
           <div className="comment-reply-box">
@@ -506,18 +566,22 @@ function Comment({ comment, onReply, onDelete, isPostOwner, currentUserId }) {
       </div>
 
       {comment.replies?.length > 0 && (
-        <div className="nested-replies">
-          {comment.replies.map((r) => (
-            <Comment
-              key={r.id}
-              comment={r}
-              onReply={onReply}
-              onDelete={onDelete}
-              isPostOwner={isPostOwner}
-              currentUserId={currentUserId}
-            />
-          ))}
-        </div>
+            <div className="nested-replies">
+              {comment.replies.map((r) => (
+                <Comment
+                  key={r.id}
+                  comment={r}
+                  commentLikes={commentLikes}
+                  commentUserLiked={commentUserLiked}
+                  setCommentLikes={setCommentLikes}
+                  setCommentUserLiked={setCommentUserLiked}
+                  onReply={onReply}
+                  onDelete={onDelete}
+                  isPostOwner={isPostOwner}
+                  currentUserId={currentUserId}
+                />
+              ))}
+                  </div>
       )}
     </div>
   );

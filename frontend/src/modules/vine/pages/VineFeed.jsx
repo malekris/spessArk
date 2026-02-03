@@ -91,13 +91,18 @@ export default function VineFeed() {
   // ── Feed Loading + Polling ──────────────────────
   const loadFeed = async () => {
     try {
-      const res = await fetch(`${API}/api/vine/posts`);
+      const res = await fetch(`${API}/api/vine/posts`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
       const data = await res.json();
       setPosts(data);
     } catch (err) {
       console.error("Load feed error", err);
     }
   };
+  
 
   useEffect(() => {
     loadFeed(); // initial load

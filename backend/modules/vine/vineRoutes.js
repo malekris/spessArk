@@ -516,8 +516,7 @@ router.get("/users/:username", authOptional, async (req, res) => {
 });
 // Get comments for post (threaded, enriched)
 router.get("/posts/:id/comments", authOptional, async (req, res) => {
-
-try {
+  try {
     const postId = req.params.id;
     const userId = req.user?.id || 0;
 
@@ -532,8 +531,13 @@ try {
         u.display_name,
         u.is_verified,
         COALESCE(u.avatar_url, '/uploads/avatars/default.png') AS avatar_url,
-        COUNT(cl.id) AS like_count,
-        MAX(cl.user_id = ?) AS user_liked
+
+        /* ✅ FIXED LIKE COUNT */
+        COUNT(DISTINCT cl.id) AS like_count,
+
+        /* ✅ FIXED USER_LIKED FLAG */
+        SUM(cl.user_id = ?) > 0 AS user_liked
+
       FROM vine_comments c
       JOIN vine_users u ON u.id = c.user_id
       LEFT JOIN vine_comment_likes cl ON cl.comment_id = c.id
@@ -548,6 +552,7 @@ try {
     res.status(500).json([]);
   }
 });
+
 
 // Ranked Feed (open network)
 router.get("/posts", authOptional, async (req, res) => {
@@ -891,7 +896,7 @@ router.post("/comments/:id/like", requireVineAuth, async (req, res) => {
     );
 
     res.json({
-      likes: count.total,
+      like_count: count.total,
       user_liked: !existing.length
     });
 

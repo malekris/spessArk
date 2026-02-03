@@ -21,14 +21,15 @@ export default function VineRegister() {
   const handleChange = (e) => {
     const { name, value } = e.target;
 
-    // Live block spaces in username while typing
-    if (name === "username") {
-      // Remove any spaces instantly
-      const noSpaces = value.replace(/\s+/g, "");
-      setForm({ ...form, [name]: noSpaces });
-    } else {
-      setForm({ ...form, [name]: value });
-    }
+   // Live restrict username characters while typing
+if (name === "username") {
+  // allow only letters, numbers, dot, underscore
+  const clean = value.replace(/[^a-zA-Z0-9._]/g, "");
+  setForm({ ...form, [name]: clean });
+} else {
+  setForm({ ...form, [name]: value });
+}
+
   };
 
   const handleSubmit = async (e) => {
@@ -121,7 +122,7 @@ export default function VineRegister() {
 
         <input
           name="display_name"
-          placeholder="Display name (optional)"
+          placeholder="Display name "
           value={form.display_name}
           onChange={handleChange}
         />

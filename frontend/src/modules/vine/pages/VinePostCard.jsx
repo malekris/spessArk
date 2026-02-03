@@ -177,7 +177,7 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
     setRevines(data.revines);
     setUserRevined(data.user_revined);
   };
-
+ 
   const deleteMainPost = async () => {
     if (!window.confirm("Delete this post forever?")) return;
     const res = await fetch(`${API}/api/vine/posts/${post.id}`, {

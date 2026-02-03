@@ -4,40 +4,38 @@ import "./MessageInput.css";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 
-export default function MessageInput({ conversationId }) {
+export default function MessageInput({ onSend }) {
   const [text, setText] = useState("");
-  const token = localStorage.getItem("vine_token");
 
-  const send = async () => {
-    if (!text.trim() || !conversationId) return;
+  const send = () => {
+    if (!text.trim()) return;
 
-    try {
-      const res = await fetch(`${API}/api/dms/send`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          conversationId,
-          content: text,
-        }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        alert(data.error || "Failed to send");
-        return;
-      }
-
-      
-
-      setText(""); // clear input after send
-    } catch (err) {
-      console.error("Send message error:", err);
-    }
+    onSend(text);   // 🔥 send up to ChatWindow
+    setText("");    // clear instantly
   };
+  const handleSendMessage = async (content) => {
+    const tempMessage = {
+      id: `temp-${Date.now()}`,
+      sender_id: myUserId,
+      content,
+      created_at: new Date().toISOString(),
+    };
+  
+    setMessages(prev => [...prev, tempMessage]);
+  
+    await fetch(`${API}/api/dms/send`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        conversationId,
+        content,
+      }),
+    });
+  };
+  
 
   return (
     <div className="chat-input-bar">
@@ -50,12 +48,11 @@ export default function MessageInput({ conversationId }) {
           if (e.key === "Enter") send();
         }}
       />
-  
-      <button onClick={send} className="chat-send-btn">
-      📤
 
+      <button onClick={send} className="chat-send-btn">
+        📤
       </button>
     </div>
   );
-  
 }
+

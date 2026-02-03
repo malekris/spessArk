@@ -19,6 +19,32 @@ export default function ChatWindow() {
 
   const currentUser = JSON.parse(localStorage.getItem("vine_user"));
   const myId = currentUser?.id;
+// listen for incoming messages//
+const handleIncoming = (msg) => {
+  if (String(msg.conversation_id) !== String(conversationId)) return;
+
+  // ignore echo of my own message
+  if (Number(msg.sender_id) === Number(myId)) return;
+
+  setMessages(prev => {
+    if (prev.some(m => m.id === msg.id)) return prev;
+    return [...prev, msg];
+  });
+
+  // 🔥 MARK AS READ IMMEDIATELY
+  // mark as read immediately when message arrives
+fetch(`${API}/api/dms/conversations/${conversationId}/read`, {
+  method: "POST",
+  headers: {
+    Authorization: `Bearer ${token}`,
+  },
+});
+  // 🔥 OPTIONAL: tell sender in realtime
+  socket.emit("dm:seen", {
+    conversationId,
+    messageId: msg.id,
+  });
+};
 
   /* -----------------------------
      Auto scroll when messages change
@@ -51,8 +77,17 @@ export default function ChatWindow() {
         }
     
         const data = await res.json();
-        setMessages(Array.isArray(data) ? data : []);
-    
+        setMessages(prev => {
+          if (!Array.isArray(data)) return prev;
+        
+          // prevent duplicate echo after optimistic send
+          const lastPrevId = prev.at(-1)?.id;
+          const lastNewId = data.at(-1)?.id;
+        
+          if (lastPrevId === lastNewId) return prev;
+          return data;
+        });
+        
       } catch (err) {
         console.error("Failed to load messages", err);
       }
@@ -61,7 +96,54 @@ export default function ChatWindow() {
 
     loadMessages();
   }, [conversationId]);
+  //Handle send messages// 
+  const handleSendMessage = async (content) => {
+    if (!conversationId || !myId) return;
+  
+    const tempId = `temp-${Date.now()}`;
+  
+    const tempMessage = {
+      id: tempId,
+      sender_id: myId,
+      content,
+      created_at: new Date().toISOString(),
+    };
+  
+    // 🔥 optimistic UI
+    setMessages(prev => [...prev, tempMessage]);
+  
+    try {
+      const res = await fetch(`${API}/api/dms/send`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          conversationId,
+          content,
+        }),
+      });
+  
+      if (!res.ok) throw new Error("Send failed");
+  
+      const { message: saved } = await res.json();
 
+      // replace temp message with real one
+      setMessages(prev =>
+        prev.map(m =>
+          m.id === tempId
+            ? { ...m, ...saved, sender_id: myId }
+            : m
+        )
+      );      
+    } catch (err) {
+      console.error("Send message failed:", err);
+      setMessages(prev => prev.filter(m => m.id !== tempId));
+    }
+  };
+  
+  
   /* -----------------------------
      Mark as read when opened
   ------------------------------ */
@@ -75,6 +157,41 @@ export default function ChatWindow() {
       }
     }).catch(() => {});
   }, [conversationId]);
+  // newsish //
+  useEffect(() => {
+    if (!socket || !conversationId) return;
+  
+    const handleSeen = ({ conversationId: cid }) => {
+      if (String(cid) !== String(conversationId)) return;
+  
+      setMessages(prev =>
+        prev.map(m =>
+          m.sender_id === myId ? { ...m, is_read: 1 } : m
+        )
+      );
+    };
+  
+    socket.on("messages_seen", handleSeen);
+  
+    return () => {
+      socket.off("messages_seen", handleSeen);
+    };
+  }, [socket, conversationId, myId]);
+  useEffect(() => {
+    if (!conversationId || !messages.length) return;
+  
+    // if the last message is NOT mine, mark as read
+    const last = messages[messages.length - 1];
+    if (Number(last.sender_id) === Number(myId)) return;
+  
+    fetch(`${API}/api/dms/conversations/${conversationId}/read`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  }, [messages, conversationId, myId]);
+  
 
   /* -----------------------------
      Load chat partner
@@ -190,19 +307,24 @@ export default function ChatWindow() {
       </div>
 
       {/* MESSAGES */}
-      <div className="messages-container" ref={scrollRef}>
+            <div className="messages-container" ref={scrollRef}>
         {messages.length === 0 ? (
           <div className="chat-empty">Start of your Vine history 🌱</div>
         ) : (
-          messages.map(m => (
-            <MessageBubble key={m.id} message={m} />
+          messages.map((m, i) => (
+            <MessageBubble
+              key={`${m.id}-${m.sender_id}-${i}`}
+              message={m}
+            />
           ))
+          
         )}
-      </div>
+          </div>
+
 
       {/* INPUT */}
       <div className="chat-footer">
-        <MessageInput conversationId={conversationId} />
+      <MessageInput onSend={handleSendMessage} />
       </div>
     </div>
   );

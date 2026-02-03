@@ -553,7 +553,6 @@ router.get("/posts/:id/comments", authOptional, async (req, res) => {
   }
 });
 
-
 // Ranked Feed (open network)
 router.get("/posts", authOptional, async (req, res) => {
   try {

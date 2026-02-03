@@ -51,12 +51,12 @@ video {
    HARD STOP FOR WHITE EDGE BUG
    ================================ */
 
-   html,
-   body,
-   #root {
-     max-width: 100%;
-     overflow-x: hidden;
-   }
+html,
+body,
+#root {
+  max-width: 100%;
+  overflow-x: hidden;
+}
    
    /* kill 100vw overflow issues */
    * {
@@ -93,4 +93,66 @@ body {
   width: 100%;
   min-height: 100vh;
   overflow-x: hidden;
+}
+
+/* ================================
+   THEME: DARK MODE OVERRIDES
+   ================================ */
+
+.theme-dark body {
+  background: #000;
+  color: #fff;
+}
+
+.theme-dark .vine-feed-container {
+  background: #000 !important;
+}
+
+.theme-dark .vine-profile-wrapper,
+.theme-dark .vine-suggestions,
+.theme-dark .search-page,
+.theme-dark .vine-chat-wrapper {
+  background: #000 !important;
+  color: #fff;
+}
+
+.theme-dark .vine-post,
+.theme-dark .suggestion-row,
+.theme-dark .search-user {
+  background: #111 !important;
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.theme-dark .vine-profile-topbar,
+.theme-dark .vine-nav-top {
+  background: #0d0d0d !important;
+}
+
+.theme-dark .settings-panel,
+.theme-dark .comment-input-bar,
+.theme-dark .chat-footer,
+.theme-dark .chat-header {
+  background: #111 !important;
+  color: #fff;
+}
+
+.theme-dark input,
+.theme-dark textarea,
+.theme-dark select {
+  background: #0a0a0a;
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.theme-dark .post-count-mini,
+.theme-dark .profile-updated-badge,
+.theme-dark .chat-header .username,
+.theme-dark .suggestion-row span,
+.theme-dark .search-user span {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.theme-dark img {
+  filter: none;
 }

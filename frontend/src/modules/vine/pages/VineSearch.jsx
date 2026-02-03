@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import "./VineSearch.css";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
+const DEFAULT_AVATAR = "/default-avatar.png";
 
 export default function VineSearch() {
   const [query, setQuery] = useState("");
@@ -41,26 +42,31 @@ export default function VineSearch() {
       </div>
 
       <div className="search-results">
-        {results.map(user => (
+        {results.map(user => {
+          const avatarSrc = user.avatar_url
+            ? (user.avatar_url.startsWith("http") ? user.avatar_url : `${API}${user.avatar_url}`)
+            : DEFAULT_AVATAR;
+          return (
           <div
             key={user.id}
             className="search-user"
             onClick={() => navigate(`/vine/profile/${user.username}`)}
           >
-            {user.avatar_url ? (
-              <img src={`${API}${user.avatar_url}`} />
-            ) : (
-              <div className="avatar-fallback">
-                {user.username[0].toUpperCase()}
-              </div>
-            )}
+            <img
+              src={avatarSrc}
+              alt={`${user.username} avatar`}
+              onError={(e) => {
+                e.currentTarget.src = DEFAULT_AVATAR;
+              }}
+            />
 
             <div>
               <strong>{user.display_name || user.username}</strong>
               <span>@{user.username}</span>
             </div>
           </div>
-        ))}
+        );
+        })}
 
         {query && results.length === 0 && (
           <p className="empty">No users found</p>

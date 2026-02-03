@@ -383,6 +383,7 @@ export default function VineFeed() {
             <VinePostCard key={post.feed_id} post={post} />
           ))}
 
+          {posts.length > 0 && <p className="no-more-posts">No more posts</p>}
           {posts.length === 0 && <p className="no-posts-hint">No posts yet 🌱</p>}
         </div>
       </div>

@@ -54,6 +54,20 @@
   letter-spacing: 0.05em;
 }
 
+.profile-updated-badge {
+  align-self: flex-start;
+  margin-top: 6px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #dcfce7;
+  background: rgba(16, 185, 129, 0.25);
+  border: 1px solid rgba(16, 185, 129, 0.45);
+}
+
 /* ── Banner ── */
 .vine-profile-banner-wrapper {
   position: relative;
@@ -760,6 +774,36 @@
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
+.photo-comments-panel .comments-header button {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 1px solid rgba(6, 78, 59, 0.35);
+  background: linear-gradient(135deg, #e7fff6, #b9f5dc);
+  color: #064e3b;
+  font-size: 16px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 6px 14px rgba(6, 78, 59, 0.18);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.photo-comments-panel .comments-header button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 20px rgba(6, 78, 59, 0.22);
+}
+
+.photo-comments-panel .comments-header button:active {
+  transform: translateY(0);
+}
+
+.theme-dark .photo-comments-panel .comments-header button {
+  background: linear-gradient(135deg, #1f2937, #111827);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.2);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.35);
+}
+
 .photo-comments-panel .comments-list {
   flex: 1;
   overflow-y: auto;
@@ -850,10 +894,14 @@
 }
 
 .photo-comments-panel .comment-replies {
-  margin: 6px 0 0 46px;
+  margin: 6px 0 0 24px;
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.photo-comments-panel .comment-thread {
+  margin-top: 6px;
 }
 
 .photo-comments-panel .replying-to {
@@ -885,10 +933,12 @@
   padding: 10px;
   gap: 8px;
   border-top: 1px solid rgba(0, 0, 0, 0.06);
+  align-items: center;
 }
 
 .photo-comments-panel .comment-input-bar input {
   flex: 1;
+  min-width: 0;
   border: 1px solid #d1fae5;
   border-radius: 20px;
   padding: 8px 14px;
@@ -898,6 +948,32 @@
 
 .photo-comments-panel .comment-input-bar input:focus {
   border-color: #10b981;
+}
+
+.photo-comments-panel .comment-input-bar button {
+  border: none;
+  background: #064e3b;
+  color: #ffffff;
+  font-weight: 700;
+  padding: 8px 14px;
+  border-radius: 16px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.photo-comments-panel .comment-input-bar button:active {
+  transform: translateY(1px);
+}
+
+.theme-dark .photo-comments-panel .comment-input-bar input {
+  background: #0a0a0a;
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.theme-dark .photo-comments-panel .comment-input-bar button {
+  background: #1f2937;
+  color: #ffffff;
 }
 
 /* ── Media Queries ── */

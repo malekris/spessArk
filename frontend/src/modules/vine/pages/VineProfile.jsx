@@ -47,6 +47,7 @@ export default function VineProfile() {
   // ── State ───────────────────────────────────────
   const [profile, setProfile] = useState(null);
   const [error, setError] = useState(null);
+  const [isLoadingProfile, setIsLoadingProfile] = useState(true);
   const [activeTab, setActiveTab] = useState("posts");
   const [isEditing, setIsEditing] = useState(false);
   const [tempBio, setTempBio] = useState("");
@@ -54,6 +55,8 @@ export default function VineProfile() {
   const [tempLocation, setTempLocation] = useState("");
   const [tempWebsite, setTempWebsite] = useState("");
   const [isFollowing, setIsFollowing] = useState(false);
+  const [justUpdated, setJustUpdated] = useState(false);
+  const updatedTimerRef = useRef(null);
 
   // Media uploads & viewers
   const avatarInputRef = useRef(null);
@@ -99,6 +102,13 @@ export default function VineProfile() {
   const [avatarCropStart, setAvatarCropStart] = useState({ x: 0, y: 0 });
   const [avatarCropFile, setAvatarCropFile] = useState(null);
   const [avatarCropReady, setAvatarCropReady] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => {
+    try {
+      return localStorage.getItem("vine_theme") === "dark";
+    } catch {
+      return false;
+    }
+  });
   const avatarCropRef = useRef(null);
   const avatarCropImgRef = useRef(null);
 
@@ -118,12 +128,10 @@ export default function VineProfile() {
   );
 
   const viewerCommentCount = viewerComments.length;
-  const topLevelComments = viewerComments.filter((c) => !c.parent_comment_id);
-  const repliesByParent = viewerComments.reduce((acc, c) => {
-    if (c.parent_comment_id) {
-      acc[c.parent_comment_id] = acc[c.parent_comment_id] || [];
-      acc[c.parent_comment_id].push(c);
-    }
+  const commentsByParent = viewerComments.reduce((acc, c) => {
+    const key = c.parent_comment_id || 0;
+    acc[key] = acc[key] || [];
+    acc[key].push(c);
     return acc;
   }, {});
   const currentPost = photoPosts.find(p => p.id === viewerPostId);
@@ -136,12 +144,23 @@ export default function VineProfile() {
 
   const loadProfile = async () => {
     try {
+      setIsLoadingProfile(true);
       const res = await fetch(`${API}/api/vine/users/${encodeURIComponent(username)}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error("User not found");
       const data = await res.json();
       setProfile(data);
+      setJustUpdated(true);
+      if (updatedTimerRef.current) {
+        clearTimeout(updatedTimerRef.current);
+      }
+      updatedTimerRef.current = setTimeout(() => {
+        setJustUpdated(false);
+      }, 2500);
+      try {
+        localStorage.setItem(`vine_profile_cache_${username}`, JSON.stringify(data));
+      } catch {}
       const userData = data?.user || data || {};
       setTempBio(userData?.bio || "");
       setTempDisplayName(userData?.display_name || "");
@@ -149,6 +168,8 @@ export default function VineProfile() {
       setTempWebsite(userData?.website || "");
     } catch (err) {
       setError(err.message);
+    } finally {
+      setIsLoadingProfile(false);
     }
   };
 
@@ -231,6 +252,37 @@ export default function VineProfile() {
     }
   };
 
+  const clearPinnedPost = async () => {
+    try {
+      const pinned = (profile?.posts || []).find((p) => Number(p.is_pinned) === 1);
+      if (!pinned) {
+        alert("No pinned post found.");
+        return;
+      }
+      const res = await fetch(`${API}/api/vine/posts/${pinned.id}/pin`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        alert(data?.message || "Failed to remove pinned post");
+        return;
+      }
+      setProfile((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          posts: (prev.posts || []).map((p) =>
+            p.id === pinned.id ? { ...p, is_pinned: 0 } : p
+          ),
+        };
+      });
+    } catch (err) {
+      console.error("Remove pinned post failed", err);
+      alert("Failed to remove pinned post");
+    }
+  };
+
   const fetchComments = async () => {
     if (!viewerPostId) return;
     try {
@@ -247,8 +299,28 @@ export default function VineProfile() {
   // ── Effects ─────────────────────────────────────
 
   useEffect(() => {
-    if (username) loadProfile();
+    if (!username) return;
+    try {
+      const cached = localStorage.getItem(`vine_profile_cache_${username}`);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        setProfile(parsed);
+      }
+    } catch {}
+    loadProfile();
+    return () => {
+      if (updatedTimerRef.current) {
+        clearTimeout(updatedTimerRef.current);
+      }
+    };
   }, [username]);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("theme-dark", darkMode);
+    try {
+      localStorage.setItem("vine_theme", darkMode ? "dark" : "light");
+    } catch {}
+  }, [darkMode]);
 
   useEffect(() => {
     if (profile?.user?.is_following !== undefined) {
@@ -319,6 +391,29 @@ export default function VineProfile() {
             : p
         )
       );
+    }
+  };
+
+  const toggleCommentLike = async (commentId) => {
+    try {
+      const res = await fetch(`${API}/api/vine/comments/${commentId}/like`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      setViewerComments((prev) =>
+        prev.map((cm) =>
+          cm.id === commentId
+            ? {
+                ...cm,
+                like_count: Number(data.likes ?? cm.like_count ?? 0),
+                user_liked: Boolean(data.user_liked),
+              }
+            : cm
+        )
+      );
+    } catch (err) {
+      console.error("Comment like failed", err);
     }
   };
 
@@ -623,7 +718,7 @@ export default function VineProfile() {
 
   // ── Render ──────────────────────────────────────
 
-  if (error) {
+  if (error && !profile) {
     return (
       <div className="error-screen">
         ❌ {error} <button onClick={() => navigate(-1)}>Go Back</button>
@@ -643,6 +738,9 @@ export default function VineProfile() {
         <div className="topbar-info">
           <span className="profile-title">{displayName}</span>
           <span className="post-count-mini">{profile?.posts?.length || 0} Posts</span>
+          {justUpdated && (
+            <span className="profile-updated-badge">Updated</span>
+          )}
         </div>
       </div>
 
@@ -1179,101 +1277,20 @@ export default function VineProfile() {
               </div>
 
               <div className="comments-list">
-                {topLevelComments.length === 0 ? (
+                {(commentsByParent[0] || []).length === 0 ? (
                   <div className="empty-state">No comments yet</div>
                 ) : (
-                  topLevelComments.map((c) => (
-                    <div key={c.id} className="comment-item">
-                      <div className="comment-main">
-                      <img
-                        src={c.avatar_url || DEFAULT_AVATAR}
-                        className="comment-avatar"
-                        alt=""
-                        onError={(e) => {
-                          e.currentTarget.src = DEFAULT_AVATAR;
-                        }}
-                      />
-
-
-                        <div className="comment-body">
-                          <span className="comment-username">{c.display_name || c.username}</span>
-                          <p className="comment-text">{c.content}</p>
-
-                          <div className="comment-meta">
-                            <span className="comment-time">{formatRelativeTime(c.created_at)}</span>
-
-                            <button
-                              className={`comment-like ${c.user_liked ? "liked" : ""}`}
-                              onClick={async () => {
-                                const res = await fetch(`${API}/api/vine/comments/${c.id}/like`, {
-                                  method: "POST",
-                                  headers: { Authorization: `Bearer ${token}` },
-                                });
-                                const data = await res.json();
-                                setViewerComments((prev) =>
-                                  prev.map((cm) =>
-                                    cm.id === c.id
-                                      ? { ...cm, like_count: data.likes, user_liked: data.user_liked }
-                                      : cm
-                                  )
-                                );
-                              }}
-                            >
-                              ❤️ {c.like_count || 0}
-                            </button>
-
-                            <button className="reply-btn" onClick={() => setReplyTo(c.id)}>
-                              Reply
-                            </button>
-
-                            {c.user_id === currentUserId && (
-                              <button
-                                className="comment-delete-btn"
-                                onClick={async () => {
-                                  await fetch(`${API}/api/vine/comments/${c.id}`, {
-                                    method: "DELETE",
-                                    headers: { Authorization: `Bearer ${token}` },
-                                  });
-                                  await fetchComments();
-                                  setPhotoPosts((prev) =>
-                                    prev.map((p) =>
-                                      p.id === viewerPostId
-                                        ? {
-                                            ...p,
-                                            comment_count: Math.max((p.comment_count || 1) - 1, 0),
-                                          }
-                                        : p
-                                    )
-                                  );
-                                }}
-                              >
-                                🗑️
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      {repliesByParent[c.id]?.length > 0 && (
-                        <button
-                          className="toggle-replies-btn"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            toggleReplies(c.id);
-                          }}
-                        >
-                          {openReplies[c.id]
-                            ? "Hide replies"
-                            : `View replies (${repliesByParent[c.id].length})`}
-                        </button>
-                      )}
-
-                      {openReplies[c.id] && (
-                        <div className="comment-replies">
-                          {repliesByParent[c.id].map((r) => (
-                            <div key={r.id} className="comment-reply">
-                              <img src={r.avatar_url || DEFAULT_AVATAR}
-                                className="comment-avatar small"
+                  (commentsByParent[0] || []).map((c) => {
+                    const renderThread = (comment, depth = 0) => {
+                      const children = commentsByParent[comment.id] || [];
+                      const isOpen = openReplies[comment.id] !== false;
+                      return (
+                        <div key={comment.id} className="comment-thread" style={{ marginLeft: depth * 24 }}>
+                          <div className="comment-item">
+                            <div className="comment-main">
+                              <img
+                                src={comment.avatar_url || DEFAULT_AVATAR}
+                                className={`comment-avatar ${depth > 0 ? "small" : ""}`}
                                 alt=""
                                 onError={(e) => {
                                   e.currentTarget.src = DEFAULT_AVATAR;
@@ -1281,41 +1298,77 @@ export default function VineProfile() {
                               />
 
                               <div className="comment-body">
-                                <span className="comment-username">{r.display_name || r.username}</span>
-                                <p className="comment-text">{r.content}</p>
-                                <span className="comment-time">{formatRelativeTime(r.created_at)}</span>
+                                <span className="comment-username">{comment.display_name || comment.username}</span>
+                                <p className="comment-text">{comment.content}</p>
 
-                                {r.user_id === currentUserId && (
+                                <div className="comment-meta">
+                                  <span className="comment-time">{formatRelativeTime(comment.created_at)}</span>
+
                                   <button
-                                    className="comment-delete-btn"
+                                    className={`comment-like ${comment.user_liked ? "liked" : ""}`}
                                     onClick={async () => {
-                                      await fetch(`${API}/api/vine/comments/${r.id}`, {
-                                        method: "DELETE",
-                                        headers: { Authorization: `Bearer ${token}` },
-                                      });
-                                      await fetchComments();
-                                      setPhotoPosts((prev) =>
-                                        prev.map((p) =>
-                                          p.id === viewerPostId
-                                            ? {
-                                                ...p,
-                                                comment_count: Math.max((p.comment_count || 1) - 1, 0),
-                                              }
-                                            : p
-                                        )
-                                      );
+                                      await toggleCommentLike(comment.id);
                                     }}
                                   >
-                                    🗑️
+                                    ❤️ {comment.like_count || 0}
                                   </button>
-                                )}
+
+                                  <button className="reply-btn" onClick={() => setReplyTo(comment.id)}>
+                                    Reply
+                                  </button>
+
+                                  {comment.user_id === currentUserId && (
+                                    <button
+                                      className="comment-delete-btn"
+                                      onClick={async () => {
+                                        await fetch(`${API}/api/vine/comments/${comment.id}`, {
+                                          method: "DELETE",
+                                          headers: { Authorization: `Bearer ${token}` },
+                                        });
+                                        await fetchComments();
+                                        setPhotoPosts((prev) =>
+                                          prev.map((p) =>
+                                            p.id === viewerPostId
+                                              ? {
+                                                  ...p,
+                                                  comment_count: Math.max((p.comment_count || 1) - 1, 0),
+                                                }
+                                              : p
+                                          )
+                                        );
+                                      }}
+                                    >
+                                      🗑️
+                                    </button>
+                                  )}
+                                </div>
                               </div>
                             </div>
-                          ))}
+
+                            {children.length > 0 && (
+                              <button
+                                className="toggle-replies-btn"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleReplies(comment.id);
+                                }}
+                              >
+                                {isOpen ? "Hide replies" : `View replies (${children.length})`}
+                              </button>
+                            )}
+                          </div>
+
+                          {children.length > 0 && isOpen && (
+                            <div className="comment-replies">
+                              {children.map((child) => renderThread(child, depth + 1))}
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
-                  ))
+                      );
+                    };
+
+                    return renderThread(c, 0);
+                  })
                 )}
               </div>
 
@@ -1449,9 +1502,21 @@ export default function VineProfile() {
         </label>
       </div>
 
+      {/* 5️⃣ Dark mode */}
+      <div className="settings-item">
+        <label>
+          <input
+            type="checkbox"
+            checked={darkMode}
+            onChange={(e) => setDarkMode(e.target.checked)}
+          />
+          Dark mode
+        </label>
+      </div>
+
       {/* 5️⃣ Clear pinned post */}
       <div className="settings-item danger">
-        <button className="danger-btn">
+        <button className="danger-btn" onClick={clearPinnedPost}>
           Remove pinned post
         </button>
       </div>

@@ -327,6 +327,35 @@
   width: 100%;
 }
 
+.no-posts-hint {
+  margin-top: 40px;
+  color: #14532d;
+  font-weight: 700;
+  font-size: 1rem;
+  text-align: center;
+}
+
+.no-more-posts {
+  margin: 24px auto 0;
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: rgba(6, 78, 59, 0.08);
+  color: #14532d;
+  font-weight: 700;
+  font-size: 0.9rem;
+  text-align: center;
+  width: fit-content;
+}
+
+.theme-dark .no-more-posts,
+.theme-dark .no-posts-hint {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.theme-dark .no-more-posts {
+  background: rgba(255, 255, 255, 0.08);
+}
+
 /* ── Mobile Adjustments ── */
 @media (max-width: 768px) {
   .vine-feed-container {

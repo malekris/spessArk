@@ -1761,14 +1761,17 @@ router.get("/users/:username/photos", authOptional, async (req, res) => {
         u.avatar_url,
         u.is_verified,
         u.hide_like_counts,
-        (SELECT COUNT(*) FROM vine_post_views WHERE post_id = p.id) AS views
+        (SELECT COUNT(*) FROM vine_post_views WHERE post_id = p.id) AS views,
+        (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id) AS like_count,
+        (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comment_count,
+        (SELECT COUNT(*) > 0 FROM vine_likes WHERE post_id = p.id AND user_id = ?) AS user_liked
       FROM vine_posts p
       JOIN vine_users u ON p.user_id = u.id
       WHERE p.user_id = ?
         AND p.image_url IS NOT NULL
       ORDER BY sort_time DESC
       `,
-      [user.id]
+      [viewerId || 0, user.id]
     );
 
     res.status(200).json(rows);

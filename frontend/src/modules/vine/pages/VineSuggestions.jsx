@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import "./VineSuggestions.css";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
+const DEFAULT_AVATAR = "/default-avatar.png";
 
 export default function VineSuggestions() {
   const [users, setUsers] = useState([]);
@@ -60,14 +61,17 @@ export default function VineSuggestions() {
             >
               <div className="user-left">
                 <div className="avatar">
-                  {u.avatar_url ? (
-                    <img src={u.avatar_url} alt={u.username} />
-
-) : (
-                    <div className="avatar-initial">
-                      {(u.username || "U")[0].toUpperCase()}
-                    </div>
-                  )}
+                  <img
+                    src={
+                      u.avatar_url
+                        ? (u.avatar_url.startsWith("http") ? u.avatar_url : `${API}${u.avatar_url}`)
+                        : DEFAULT_AVATAR
+                    }
+                    alt={u.username}
+                    onError={(e) => {
+                      e.currentTarget.src = DEFAULT_AVATAR;
+                    }}
+                  />
                 </div>
 
                 <div className="user-info">

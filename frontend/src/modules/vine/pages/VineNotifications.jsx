@@ -99,21 +99,19 @@ export default function VineNotifications() {
         return;
       }
     
-      // 🔥 replies & comments (most important)
+      // comments & replies
       if (n.comment_id) {
         navigate(`/vine/feed?post=${n.post_id}&comment=${n.comment_id}`);
         return;
       }
     
-      // likes / everything else
+      // likes, revines, etc (🔥 THIS IS THE FIX)
       if (n.post_id) {
-        navigate(`/vine/feed#post-${n.post_id}`);
+        navigate(`/vine/feed?post=${n.post_id}`);
       }
     }}
     
-    
-    
-    
+  
   >
     <div className="notif-avatar">
       {n.avatar_url ? (

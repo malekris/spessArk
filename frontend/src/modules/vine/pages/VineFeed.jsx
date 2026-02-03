@@ -190,8 +190,10 @@ export default function VineFeed() {
     if (!el) return;
   
     el.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [posts, targetPostId]);
   
+    // 🔥 clear URL params after scroll
+    navigate("/vine/feed", { replace: true });
+  }, [posts, targetPostId]);
   
 
   // ── Render ──────────────────────────────────────

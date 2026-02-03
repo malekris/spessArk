@@ -93,14 +93,20 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
     const likes = { ...commentLikes };
     const liked = { ...commentUserLiked };
   
-    comments.forEach(c => {
-      if (likes[c.id] === undefined) {
-        likes[c.id] = c.like_count || 0;
+    const hydrate = (node) => {
+      if (likes[node.id] === undefined) {
+        likes[node.id] = node.like_count || 0;
       }
-      if (liked[c.id] === undefined) {
-        liked[c.id] = c.user_liked || false;
+      if (liked[node.id] === undefined) {
+        liked[node.id] = node.user_liked || false;
       }
-    });
+  
+      if (node.replies?.length) {
+        node.replies.forEach(hydrate);
+      }
+    };
+  
+    comments.forEach(hydrate);
   
     setCommentLikes(likes);
     setCommentUserLiked(liked);

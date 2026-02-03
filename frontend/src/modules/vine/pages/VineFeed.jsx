@@ -4,6 +4,7 @@ import VinePostCard from "./VinePostCard";
 import "./VineFeed.css";
 import VineSuggestions from "./VineSuggestions";
 import { socket } from "../../../socket";
+import { useSearchParams } from "react-router-dom";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 
@@ -43,7 +44,8 @@ export default function VineFeed() {
   const [unread, setUnread] = useState(0);           // notifications
   const [unreadDMs, setUnreadDMs] = useState(0);     // DMs
   const [handledDeepLink, setHandledDeepLink] = useState(false);
-
+  const [params] = useSearchParams();
+  const targetPostId = params.get("post");
   // ── Deep Link Handling (post & comment highlight) ──
   useEffect(() => {
     if (handledDeepLink) return;
@@ -180,6 +182,17 @@ export default function VineFeed() {
       console.error("Post creation error", err);
     }
   };
+  useEffect(() => {
+    if (!targetPostId) return;
+    if (!posts.length) return;
+  
+    const el = document.getElementById(`post-${targetPostId}`);
+    if (!el) return;
+  
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [posts, targetPostId]);
+  
+  
 
   // ── Render ──────────────────────────────────────
   return (

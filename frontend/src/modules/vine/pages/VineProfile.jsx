@@ -6,7 +6,7 @@ import VinePostCard from "./VinePostCard";
 import ImageCarousel from "./ImageCarousel";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
-const DEFAULT_AVATAR = `${API}/uploads/avatars/default.png`;
+const DEFAULT_AVATAR = "/default-avatar.png";
 const ORIGIN = API.replace(/\/api$/, "");
 
 // ────────────────────────────────────────────────
@@ -108,6 +108,8 @@ export default function VineProfile() {
   const displayName = userObj.display_name || resolvedUsername;
   const avatarUrl = userObj.avatar_url;
   const isMe = profile && Number(currentUserId) === Number(userObj.id);
+  const isBlocked = Boolean(profile?.blocked) && !isMe;
+  const isBlocking = Boolean(userObj?.is_blocking) && !isMe;
   const isPrivateLocked = Boolean(profile?.privateLocked) && !isMe;
   const canShowLastActive = userObj.show_last_active !== 0 || isMe;
   const canMessage = !isMe && (
@@ -586,6 +588,32 @@ export default function VineProfile() {
     }
   };
 
+  const toggleBlockUser = async () => {
+    try {
+      if (!isBlocking) {
+        const ok = window.confirm("Block this user? They won't be able to contact you.");
+        if (!ok) return;
+      }
+      const method = isBlocking ? "DELETE" : "POST";
+      const res = await fetch(`${API}/api/vine/users/${userObj.id}/block`, {
+        method,
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      setProfile((prev) => {
+        if (!prev) return prev;
+        const nextUser = prev.user ? prev.user : prev;
+        const updated = { ...nextUser, is_blocking: isBlocking ? 0 : 1 };
+        return prev.user ? { ...prev, user: updated } : { ...prev, ...updated };
+      });
+      if (!isBlocking) {
+        setIsFollowing(false);
+      }
+    } catch (err) {
+      console.error("Block toggle failed", err);
+    }
+  };
+
   const toggleReplies = (commentId) => {
     setOpenReplies((prev) => ({
       ...prev,
@@ -867,27 +895,40 @@ export default function VineProfile() {
                             ⚙️ Settings
                           </button>
                         </>
+                      ) : isBlocked ? (
+                        <div className="blocked-banner">You have been blocked.</div>
                       ) : (
                         <>
-                          <button
-                            className="follow-btn"
-                            onClick={async () => {
-                              await fetch(`${API}/api/vine/users/${userObj.id}/follow`, {
-                                method: isFollowing ? "DELETE" : "POST",
-                                headers: { Authorization: `Bearer ${token}` },
-                              });
-                              setIsFollowing(!isFollowing);
-                              loadProfile();
-                            }}
-                          >
-                            {isFollowing ? "Unfollow" : "Follow"}
-                          </button>
+                          {!isBlocking && (
+                            <>
+                              <button
+                                className="follow-btn"
+                                onClick={async () => {
+                                  await fetch(`${API}/api/vine/users/${userObj.id}/follow`, {
+                                    method: isFollowing ? "DELETE" : "POST",
+                                    headers: { Authorization: `Bearer ${token}` },
+                                  });
+                                  setIsFollowing(!isFollowing);
+                                  loadProfile();
+                                }}
+                              >
+                                {isFollowing ? "Unfollow" : "Follow"}
+                              </button>
 
-                          {canMessage && (
-                            <button className="message-btn" onClick={handleMessage}>
-                              📧 DM
-                            </button>
+                              {canMessage && (
+                                <button className="message-btn" onClick={handleMessage}>
+                                  📧 DM
+                                </button>
+                              )}
+                            </>
                           )}
+
+                          <button
+                            className={`block-btn ${isBlocking ? "unblock" : ""}`}
+                            onClick={toggleBlockUser}
+                          >
+                            {isBlocking ? "Unblock" : "Block"}
+                          </button>
                         </>
                       )}
                               </div>
@@ -980,20 +1021,25 @@ export default function VineProfile() {
       </div>
 
       {/* Tabs */}
-      <div className="vine-profile-tabs">
-        {["posts", "likes", "photos"].map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={activeTab === tab ? "tab active" : "tab"}
-          >
-            {tab}
-          </button>
-        ))}
-      </div>
+      {!isBlocked && (
+        <div className="vine-profile-tabs">
+          {["posts", "likes", "photos"].map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={activeTab === tab ? "tab active" : "tab"}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Tab content */}
       <div className="vine-profile-tab-content">
+        {isBlocked ? (
+          <div className="empty-state">You have been blocked.</div>
+        ) : null}
         {activeTab === "posts" && (
           <div className="vine-profile-posts">
             {isPrivateLocked ? (

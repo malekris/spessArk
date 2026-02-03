@@ -22,6 +22,15 @@ const extractPublicId = (url) => {
   return `${folder}/${filename}`;
 };
 
+const isUserBlocked = async (blockerId, blockedId) => {
+  if (!blockerId || !blockedId) return false;
+  const [rows] = await db.query(
+    "SELECT 1 FROM vine_blocks WHERE blocker_id = ? AND blocked_id = ? LIMIT 1",
+    [blockerId, blockedId]
+  );
+  return rows.length > 0;
+};
+
 const isHeicFile = (file) => {
   const name = file?.originalname || "";
   const type = file?.mimetype || "";
@@ -225,6 +234,15 @@ async function requireVineAuth(req, res, next) {
                   ))`
               : "u.is_private = 0"
           }
+          ${
+            viewerId
+              ? ` AND NOT EXISTS (
+                    SELECT 1 FROM vine_blocks b
+                    WHERE (b.blocker_id = u.id AND b.blocked_id = ${viewerId})
+                       OR (b.blocker_id = ${viewerId} AND b.blocked_id = u.id)
+                  )`
+              : ""
+          }
   
           UNION ALL
   
@@ -272,6 +290,15 @@ async function requireVineAuth(req, res, next) {
                     WHERE follower_id = ${viewerId} AND following_id = u.id
                   ))`
               : "u.is_private = 0"
+          }
+          ${
+            viewerId
+              ? ` AND NOT EXISTS (
+                    SELECT 1 FROM vine_blocks b
+                    WHERE (b.blocker_id = u.id AND b.blocked_id = ${viewerId})
+                       OR (b.blocker_id = ${viewerId} AND b.blocked_id = u.id)
+                  )`
+              : ""
           }
         ) feed
         ORDER BY sort_time DESC
@@ -368,6 +395,7 @@ router.get("/users/search", authenticate, async (req, res) => {
   }
 
   try {
+    const viewerId = req.user?.id || null;
     const [rows] = await db.query(
       `
       SELECT 
@@ -377,8 +405,16 @@ router.get("/users/search", authenticate, async (req, res) => {
         avatar_url,
         is_verified
       FROM vine_users
-      WHERE username LIKE ?
-         OR display_name LIKE ?
+      WHERE (username LIKE ? OR display_name LIKE ?)
+        ${
+          viewerId
+            ? `AND NOT EXISTS (
+                SELECT 1 FROM vine_blocks b
+                WHERE (b.blocker_id = id AND b.blocked_id = ${viewerId})
+                   OR (b.blocker_id = ${viewerId} AND b.blocked_id = id)
+              )`
+            : ""
+        }
       ORDER BY username ASC
       LIMIT 20
       `,
@@ -475,6 +511,15 @@ router.get("/users/:username", authOptional, async (req, res) => {
     const isSelf = viewerId && Number(viewerId) === Number(user.id);
     const isFollowing =
       viewerId && Number(user.is_following) === 1;
+
+    const blockedByUser = await isUserBlocked(user.id, viewerId);
+    const blockingUser = await isUserBlocked(viewerId, user.id);
+
+    if (!isSelf && blockedByUser) {
+      return res.json({ user, posts: [], blocked: true });
+    }
+
+    user.is_blocking = blockingUser ? 1 : 0;
 
     if (!isSelf && !user.show_last_active) {
       user.last_active_at = null;
@@ -603,7 +648,7 @@ router.get("/posts/:id/comments", authOptional, async (req, res) => {
         u.username,
         u.display_name,
         u.is_verified,
-        COALESCE(u.avatar_url, '/uploads/avatars/default.png') AS avatar_url,
+        COALESCE(u.avatar_url, '/default-avatar.png') AS avatar_url,
 
         /* ✅ FIXED LIKE COUNT */
         COUNT(DISTINCT cl.id) AS like_count,
@@ -715,9 +760,14 @@ router.get("/posts", authOptional, async (req, res) => {
 
       FROM vine_posts p
       JOIN vine_users u ON p.user_id = u.id
+      WHERE NOT EXISTS (
+        SELECT 1 FROM vine_blocks b
+        WHERE (b.blocker_id = u.id AND b.blocked_id = ?)
+           OR (b.blocker_id = ? AND b.blocked_id = u.id)
+      )
       ORDER BY score DESC
       LIMIT 100
-    `, [viewerId, viewerId, viewerId]);
+    `, [viewerId, viewerId, viewerId, viewerId, viewerId]);
 
     res.json(rows);
 
@@ -740,6 +790,9 @@ router.post("/posts/:id/revine", authMiddleware, async (req, res) => {
     );
 
     if (!post) return res.status(404).json({ message: "Post not found" });
+    if (await isUserBlocked(post.user_id, userId)) {
+      return res.status(403).json({ message: "You have been blocked" });
+    }
 
     const postOwnerId = post.user_id;
 
@@ -801,6 +854,9 @@ router.post("/posts/:id/like", requireVineAuth, async (req, res) => {
   );
 
   if (!post) return res.status(404).json({ message: "Post not found" });
+  if (await isUserBlocked(post.user_id, userId)) {
+    return res.status(403).json({ message: "You have been blocked" });
+  }
 
   const postOwnerId = post.user_id;
 
@@ -890,6 +946,9 @@ router.post("/posts/:id/comments", authMiddleware, async (req, res) => {
     );
 
     if (!post) return res.status(404).json({ message: "Post not found" });
+    if (await isUserBlocked(post.user_id, userId)) {
+      return res.status(403).json({ message: "You have been blocked" });
+    }
 
     const postOwnerId = post.user_id;
 
@@ -1365,6 +1424,9 @@ router.post("/users/:id/follow", authenticate, async (req, res) => {
     if (targetId === actorId) {
       return res.status(400).json({ message: "Cannot follow yourself" });
     }
+    if (await isUserBlocked(targetId, actorId)) {
+      return res.status(403).json({ message: "You have been blocked" });
+    }
 
     // Insert follow (ignore duplicates)
     const [result] = await db.query(
@@ -1400,6 +1462,49 @@ router.delete("/users/:id/follow", authenticate, async (req, res) => {
   );
   res.json({ success: true });
 });
+
+// block a user
+router.post("/users/:id/block", authenticate, async (req, res) => {
+  const blockerId = req.user.id;
+  const blockedId = Number(req.params.id);
+
+  if (blockerId === blockedId) {
+    return res.status(400).json({ message: "Cannot block yourself" });
+  }
+
+  try {
+    await db.query(
+      "INSERT IGNORE INTO vine_blocks (blocker_id, blocked_id, created_at) VALUES (?, ?, NOW())",
+      [blockerId, blockedId]
+    );
+    // remove follow relationships both ways
+    await db.query(
+      "DELETE FROM vine_follows WHERE (follower_id = ? AND following_id = ?) OR (follower_id = ? AND following_id = ?)",
+      [blockerId, blockedId, blockedId, blockerId]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Block error:", err);
+    res.status(500).json({ message: "Failed to block user" });
+  }
+});
+
+// unblock a user
+router.delete("/users/:id/block", authenticate, async (req, res) => {
+  const blockerId = req.user.id;
+  const blockedId = Number(req.params.id);
+
+  try {
+    await db.query(
+      "DELETE FROM vine_blocks WHERE blocker_id = ? AND blocked_id = ?",
+      [blockerId, blockedId]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Unblock error:", err);
+    res.status(500).json({ message: "Failed to unblock user" });
+  }
+});
 // Get followers of a user
 router.get("/users/:username/followers", authOptional, async (req, res) => {
   try {
@@ -1428,6 +1533,15 @@ router.get("/users/:username/followers", authOptional, async (req, res) => {
       FROM vine_follows f
       JOIN vine_users u ON f.follower_id = u.id
       WHERE f.following_id = ?
+        ${
+          viewerId
+            ? `AND NOT EXISTS (
+                SELECT 1 FROM vine_blocks b
+                WHERE (b.blocker_id = u.id AND b.blocked_id = ${viewerId})
+                   OR (b.blocker_id = ${viewerId} AND b.blocked_id = u.id)
+              )`
+            : ""
+        }
     `, [user.id]);
 
     res.json(rows);
@@ -1463,6 +1577,15 @@ router.get("/users/:username/following", authOptional, async (req, res) => {
       FROM vine_follows f
       JOIN vine_users u ON f.following_id = u.id
       WHERE f.follower_id = ?
+        ${
+          viewerId
+            ? `AND NOT EXISTS (
+                SELECT 1 FROM vine_blocks b
+                WHERE (b.blocker_id = u.id AND b.blocked_id = ${viewerId})
+                   OR (b.blocker_id = ${viewerId} AND b.blocked_id = u.id)
+              )`
+            : ""
+        }
     `, [user.id]);
 
     res.json(rows);
@@ -1549,6 +1672,10 @@ router.get("/users/:username/likes", authOptional, async (req, res) => {
       return res.status(200).json([]);
     }
 
+    if (await isUserBlocked(user.id, viewerId)) {
+      return res.status(200).json([]);
+    }
+
     if (user.is_private && Number(user.id) !== Number(viewerId || 0)) {
       const [follow] = await db.query(
         "SELECT 1 FROM vine_follows WHERE follower_id = ? AND following_id = ? LIMIT 1",
@@ -1604,6 +1731,10 @@ router.get("/users/:username/photos", authOptional, async (req, res) => {
     );
 
     if (!user) {
+      return res.status(200).json([]);
+    }
+
+    if (await isUserBlocked(user.id, viewerId)) {
       return res.status(200).json([]);
     }
 

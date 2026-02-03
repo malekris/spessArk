@@ -152,6 +152,21 @@ router.post("/start", authenticate, async (req, res) => {
   const { userId: receiverId } = req.body;
 
   try {
+    const [blocked] = await db.query(
+      `
+      SELECT 1
+      FROM vine_blocks
+      WHERE (blocker_id = ? AND blocked_id = ?)
+         OR (blocker_id = ? AND blocked_id = ?)
+      LIMIT 1
+      `,
+      [receiverId, senderId, senderId, receiverId]
+    );
+
+    if (blocked.length) {
+      return res.status(403).json({ error: "You have been blocked" });
+    }
+
     const [[receiver]] = await db.query(
       "SELECT dm_privacy FROM vine_users WHERE id = ?",
       [receiverId]

@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import "./VineFollowing.css"; // Reuse the same CSS for consistency
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
-const DEFAULT_AVATAR = `${API}/uploads/avatars/default.png`;
+const DEFAULT_AVATAR = "/default-avatar.png";
 
 export default function VineFollowing() {
   const { username } = useParams();

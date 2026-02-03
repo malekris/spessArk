@@ -7,7 +7,7 @@ import MessageInput from "./MessageInput";
 import "./ChatWindow.css";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
-const DEFAULT_AVATAR = `${API}/uploads/avatars/default.png`;
+const DEFAULT_AVATAR = "/default-avatar.png";
 
 export default function ChatWindow() {
   const { conversationId } = useParams();

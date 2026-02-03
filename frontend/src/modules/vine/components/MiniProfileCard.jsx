@@ -4,7 +4,7 @@ import { formatRelativeTime } from "../../../utils/time";
 import "./MiniProfileCard.css";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
-const DEFAULT_AVATAR = `${API}/uploads/avatars/default.png`;
+const DEFAULT_AVATAR = "/default-avatar.png";
 
 export default function MiniProfileCard({ username, anchorRef, onClose }) {
   const [user, setUser] = useState(null);

@@ -9,7 +9,7 @@ import MiniProfileCard from "../components/MiniProfileCard";
 // ────────────────────────────────────────────────
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
-const DEFAULT_AVATAR = `${API}/uploads/avatars/default.png`;
+const DEFAULT_AVATAR = "/default-avatar.png";
 const ORIGIN = API.replace(/\/api$/, "");
 const viewedPosts = new Set();
 

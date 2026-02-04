@@ -14,7 +14,7 @@
 }
 
 /* ───── Topbar (Glass Style) ───── */
-.vine-profile-topbar {
+.vine-notifications-page .vine-profile-topbar {
   width: 100%;
   max-width: 800px;
   background: rgba(255, 255, 255, 0.85);
@@ -33,7 +33,7 @@
   z-index: 100;
 }
 
-.vine-profile-topbar button {
+.vine-notifications-page .vine-profile-topbar button {
   background: #10b981;
   color: white;
   border: none;
@@ -47,7 +47,7 @@
   justify-content: center;
 }
 
-.vine-profile-topbar h3 {
+.vine-notifications-page .vine-profile-topbar h3 {
   margin: 0;
   color: #052e16; /* Near-black green for PC reading */
   font-size: 1.4rem;
@@ -177,7 +177,7 @@
     align-items: stretch;
   }
 
-  .vine-profile-topbar {
+  .vine-notifications-page .vine-profile-topbar {
     top: 0;
     border-radius: 0;
     margin-bottom: 0;

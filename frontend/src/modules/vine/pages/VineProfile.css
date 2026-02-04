@@ -32,6 +32,18 @@
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
 }
 
+@media (min-width: 900px) {
+  .vine-profile-topbar {
+    width: 100vw;
+    margin-left: calc(50% - 50vw);
+    margin-right: calc(50% - 50vw);
+    max-width: 100vw;
+    border-radius: 0;
+    align-self: stretch;
+    padding: 12px 24px;
+  }
+}
+
 .topbar-more-btn {
   margin-left: auto;
   background: transparent;

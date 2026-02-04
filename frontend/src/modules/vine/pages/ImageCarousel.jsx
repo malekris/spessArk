@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 const ORIGIN = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 
@@ -126,82 +127,84 @@ export default function ImageCarousel({
       )}
 
       {/* Fullscreen viewer */}
-      {viewerOpen && (
-        <div
-          className={`image-viewer-overlay ${isFullscreen ? "fullscreen" : ""}`}
-          onClick={() => setViewerOpen(false)}
-          ref={viewerRef}
-        >
-          <button
-            className="viewer-close"
-            onClick={(e) => {
-              e.stopPropagation();
-              setViewerOpen(false);
-            }}
-          >
-            ✕
-          </button>
-
-          <button
-            className="viewer-fullscreen"
-            onClick={(e) => {
-              e.stopPropagation();
-              toggleFullscreen();
-            }}
-          >
-            {isFullscreen ? "⤫" : "⛶"}
-          </button>
-
+      {viewerOpen &&
+        createPortal(
           <div
-            className="image-viewer-content"
-            onClick={(e) => e.stopPropagation()}
+            className={`image-viewer-overlay ${isFullscreen ? "fullscreen" : ""}`}
+            onClick={() => setViewerOpen(false)}
+            ref={viewerRef}
           >
-            <img
-              src={normalize(images[currentIndex])}
-              className="image-viewer-img"
-              alt=""
-            />
+            <button
+              className="viewer-close"
+              onClick={(e) => {
+                e.stopPropagation();
+                setViewerOpen(false);
+              }}
+            >
+              ✕
+            </button>
 
-            {(displayName || username || timeLabel || caption) && (
-              <div className="viewer-meta">
-                <div className="viewer-meta-top">
-                  <span className="viewer-name">
-                    {displayName || username}
-                  </span>
-                  {username && displayName && (
-                    <span className="viewer-username">@{username}</span>
-                  )}
-                  {timeLabel && (
-                    <span className="viewer-time">{timeLabel}</span>
+            <button
+              className="viewer-fullscreen"
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleFullscreen();
+              }}
+            >
+              {isFullscreen ? "⤫" : "⛶"}
+            </button>
+
+            <div
+              className="image-viewer-content"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <img
+                src={normalize(images[currentIndex])}
+                className="image-viewer-img"
+                alt=""
+              />
+
+              {(displayName || username || timeLabel || caption) && (
+                <div className="viewer-meta">
+                  <div className="viewer-meta-top">
+                    <span className="viewer-name">
+                      {displayName || username}
+                    </span>
+                    {username && displayName && (
+                      <span className="viewer-username">@{username}</span>
+                    )}
+                    {timeLabel && (
+                      <span className="viewer-time">{timeLabel}</span>
+                    )}
+                  </div>
+                  {caption && (
+                    <div className="viewer-caption">{caption}</div>
                   )}
                 </div>
-                {caption && (
-                  <div className="viewer-caption">{caption}</div>
-                )}
-              </div>
-            )}
+              )}
 
-            <div className="viewer-action-bar">
-              <button
-                className={`viewer-action ${userLiked ? "active-like" : ""}`}
-                onClick={() => onLike?.()}
-              >
-                {userLiked ? "❤️" : "🤍"}
-                {likeCount !== null && likeCount !== undefined && ` ${likeCount}`}
-              </button>
-              <button className="viewer-action" onClick={() => onComments?.()}>
-                💬 {commentCount ?? 0}
-              </button>
-              <button
-                className={`viewer-action ${userRevined ? "active-revine" : ""}`}
-                onClick={() => onRevine?.()}
-              >
-                🔁 {revineCount ?? 0}
-              </button>
+              <div className="viewer-action-bar">
+                <button
+                  className={`viewer-action ${userLiked ? "active-like" : ""}`}
+                  onClick={() => onLike?.()}
+                >
+                  {userLiked ? "❤️" : "🤍"}
+                  {likeCount !== null && likeCount !== undefined && ` ${likeCount}`}
+                </button>
+                <button className="viewer-action" onClick={() => onComments?.()}>
+                  💬 {commentCount ?? 0}
+                </button>
+                <button
+                  className={`viewer-action ${userRevined ? "active-revine" : ""}`}
+                  onClick={() => onRevine?.()}
+                >
+                  🔁 {revineCount ?? 0}
+                </button>
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

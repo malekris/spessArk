@@ -2,6 +2,7 @@ import { useNavigate } from "react-router-dom";
 import "./MessageBubbles.css"; // Import the new styles
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
+const DEFAULT_AVATAR = "/default-avatar.png";
 
 export default function MessageBubble({ message }) {
   const navigate = useNavigate();
@@ -11,20 +12,21 @@ export default function MessageBubble({ message }) {
 
   let avatar = message.avatar_url 
     ? (message.avatar_url.startsWith("http") ? message.avatar_url : `${API}${message.avatar_url}`) 
-    : null;
+    : DEFAULT_AVATAR;
 
   return (
     <div className={`msg-row ${isMine ? "mine" : "theirs"}`}>
       {/* LEFT SIDE AVATAR */}
       {!isMine && (
         <div className="msg-avatar-wrapper" onClick={() => navigate(`/vine/profile/${message.username}`)}>
-          {avatar ? (
-            <img src={avatar} alt="avatar" className="msg-avatar" />
-          ) : (
-            <div className="msg-fallback">
-              {message.username?.[0]?.toUpperCase() || "?"}
-            </div>
-          )}
+          <img
+            src={avatar}
+            alt="avatar"
+            className="msg-avatar"
+            onError={(e) => {
+              e.currentTarget.src = DEFAULT_AVATAR;
+            }}
+          />
         </div>
       )}
 

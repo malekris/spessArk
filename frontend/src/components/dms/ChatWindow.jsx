@@ -290,7 +290,13 @@ fetch(`${API}/api/dms/conversations/${conversationId}/read`, {
             onClick={() => navigate(`/vine/profile/${partner.username}`)}
           >
             <img
-              src={partner.avatar_url || DEFAULT_AVATAR}
+              src={
+                partner.avatar_url
+                  ? (partner.avatar_url.startsWith("http")
+                      ? partner.avatar_url
+                      : `${API}${partner.avatar_url}`)
+                  : DEFAULT_AVATAR
+              }
               alt=""
               className="chat-avatar"
               onError={(e) => {

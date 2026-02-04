@@ -4,6 +4,7 @@ import "./ConversationList.css";
 import { socket } from "../../socket";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
+const DEFAULT_AVATAR = "/default-avatar.png";
 
 export default function ConversationList() {
   /* ---------------------------
@@ -89,7 +90,9 @@ export default function ConversationList() {
 
       {/* CONVERSATIONS */}
       {conversations.map((c) => {
-        const avatar = c.avatar_url ? `${API}${c.avatar_url}` : null;
+        const avatar = c.avatar_url
+          ? (c.avatar_url.startsWith("http") ? c.avatar_url : `${API}${c.avatar_url}`)
+          : DEFAULT_AVATAR;
 
         return (
           <div
@@ -98,13 +101,14 @@ export default function ConversationList() {
             onClick={() => navigate(`/vine/dms/${c.conversation_id}`)}
           >
             {/* AVATAR */}
-            {avatar ? (
-              <img src={avatar} className="dm-avatar" alt="" />
-            ) : (
-              <div className="dm-avatar-fallback">
-                {c.username?.[0]?.toUpperCase() || "?"}
-              </div>
-            )}
+            <img
+              src={avatar}
+              className="dm-avatar"
+              alt=""
+              onError={(e) => {
+                e.currentTarget.src = DEFAULT_AVATAR;
+              }}
+            />
 
             {/* META */}
             <div className="dm-meta">

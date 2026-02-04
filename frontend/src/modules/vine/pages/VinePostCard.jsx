@@ -79,6 +79,7 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
   const [commentLikes, setCommentLikes] = useState({});
   const [commentUserLiked, setCommentUserLiked] = useState({});
   const [isDeleted, setIsDeleted] = useState(false);
+  const [bookmarked, setBookmarked] = useState(post.user_bookmarked || false);
 
   const CONTENT_LIMIT = 280;
   const hasLongContent = (post.content || "").length > CONTENT_LIMIT;
@@ -89,6 +90,18 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
 
 
   const canShowLikeCount = !post.hide_like_counts || isPostAuthor;
+
+  let linkPreview = null;
+  if (post.link_preview) {
+    try {
+      linkPreview =
+        typeof post.link_preview === "string"
+          ? JSON.parse(post.link_preview)
+          : post.link_preview;
+    } catch {
+      linkPreview = null;
+    }
+  }
 
   // ── Effects ─────────────────────────────────────
   useEffect(() => {
@@ -129,6 +142,12 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
       setCommentCount(post.comments || 0);
     }
   }, [post.comments]);
+
+  useEffect(() => {
+    if (post.user_bookmarked !== undefined) {
+      setBookmarked(Boolean(post.user_bookmarked));
+    }
+  }, [post.user_bookmarked]);
 
   useEffect(() => {
     if (focusComments) {
@@ -215,6 +234,19 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
     const data = await res.json();
     setPostLikes(data.likes);
     setPostUserLiked(data.user_liked);
+  };
+
+  const handleBookmark = async () => {
+    try {
+      const res = await fetch(`${API}/api/vine/posts/${post.id}/bookmark`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      setBookmarked(Boolean(data.user_bookmarked));
+    } catch (err) {
+      console.error("Bookmark failed", err);
+    }
   };
   
 
@@ -407,6 +439,37 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
         </button>
       )}
 
+      {linkPreview?.url && (
+        <div
+          className="link-preview"
+          onClick={() => window.open(linkPreview.url, "_blank")}
+        >
+          {linkPreview.image && (
+            <img
+              src={linkPreview.image}
+              alt={linkPreview.title || "Link preview"}
+              className="link-preview-img"
+              onError={(e) => {
+                e.currentTarget.style.display = "none";
+              }}
+            />
+          )}
+          <div className="link-preview-body">
+            <div className="link-preview-title">
+              {linkPreview.title || linkPreview.url}
+            </div>
+            {linkPreview.description && (
+              <div className="link-preview-desc">
+                {linkPreview.description}
+              </div>
+            )}
+            <div className="link-preview-domain">
+              {linkPreview.site_name || linkPreview.domain || new URL(linkPreview.url).hostname}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Images carousel */}
       {post.image_url && (
   <div
@@ -455,6 +518,14 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
           onClick={handleRevine}
         >
           🔁 {revines}
+        </button>
+
+        <button
+          className={`action-btn bookmark-btn ${bookmarked ? "active-bookmark" : ""}`}
+          onClick={handleBookmark}
+          title={bookmarked ? "Remove bookmark" : "Save post"}
+        >
+          🔖
         </button>
 
         <span className="action-btn view-btn">👁️ {views}</span>

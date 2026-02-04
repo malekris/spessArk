@@ -27,6 +27,7 @@ const getGreeting = () => {
 export default function VineFeed() {
   const navigate = useNavigate();
   const token = localStorage.getItem("vine_token");
+  const DEFAULT_AVATAR = "/default-avatar.png";
 
   // User info from localStorage
   let myUsername = "";
@@ -47,6 +48,9 @@ export default function VineFeed() {
   const [handledDeepLink, setHandledDeepLink] = useState(false);
   const [params] = useSearchParams();
   const targetPostId = params.get("post");
+  const [suggestedUsers, setSuggestedUsers] = useState([]);
+  const [suggestionSlots, setSuggestionSlots] = useState([]);
+  const [trendingPosts, setTrendingPosts] = useState([]);
 
   const normalizeImageFiles = async (fileList) => {
     const files = Array.from(fileList || []);
@@ -130,14 +134,53 @@ export default function VineFeed() {
       });
       const data = await res.json();
       setPosts(data);
+      // Build suggestion slots when feed changes
+      const nextSlots = [];
+      if (data.length > 0) {
+        const first = Math.min(6, data.length);
+        let idx = first + Math.floor(Math.random() * 3);
+        while (idx < data.length && nextSlots.length < 3) {
+          nextSlots.push(idx);
+          idx += 12 + Math.floor(Math.random() * 3);
+        }
+      }
+      setSuggestionSlots(nextSlots);
     } catch (err) {
       console.error("Load feed error", err);
+    }
+  };
+
+  const loadSuggestions = async () => {
+    try {
+      const res = await fetch(`${API}/api/vine/users/new`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (Array.isArray(data)) setSuggestedUsers(data);
+      else setSuggestedUsers([]);
+    } catch {
+      setSuggestedUsers([]);
+    }
+  };
+
+  const loadTrending = async () => {
+    try {
+      const res = await fetch(`${API}/api/vine/posts/trending?limit=3`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (Array.isArray(data)) setTrendingPosts(data);
+      else setTrendingPosts([]);
+    } catch {
+      setTrendingPosts([]);
     }
   };
   
 
   useEffect(() => {
     loadFeed(); // initial load
+    loadSuggestions();
+    loadTrending();
 
     const interval = setInterval(loadFeed, 5000); // refresh every 5s
 
@@ -262,6 +305,23 @@ export default function VineFeed() {
         </div>
 
         <div className="nav-right">
+          <input
+            className="vine-search nav-search desktop-only"
+            placeholder="Search users..."
+            onFocus={() => navigate("/vine/search")}
+            readOnly
+          />
+
+          <button
+            className="nav-btn logout-btn mobile-only"
+            onClick={() => {
+              localStorage.removeItem("vine_token");
+              navigate("/vine/login");
+            }}
+          >
+            Logout
+          </button>
+
           {myUsername && (
             <button
               className="nav-btn profile-btn"
@@ -270,16 +330,6 @@ export default function VineFeed() {
               Profile
             </button>
           )}
-
-          <button
-            className="nav-btn logout-btn"
-            onClick={() => {
-              localStorage.removeItem("vine_token");
-              navigate("/vine/login");
-            }}
-          >
-            Logout
-          </button>
         </div>
         </div>
 
@@ -299,11 +349,21 @@ export default function VineFeed() {
           </button>
 
           <input
-            className="vine-search"
+            className="vine-search dm-search mobile-only"
             placeholder="Search users..."
             onFocus={() => navigate("/vine/search")}
             readOnly
           />
+
+          <button
+            className="nav-btn logout-btn desktop-only"
+            onClick={() => {
+              localStorage.removeItem("vine_token");
+              navigate("/vine/login");
+            }}
+          >
+            Logout
+          </button>
         </div>
       </nav>
 
@@ -377,10 +437,102 @@ export default function VineFeed() {
           </div>
         </div>
 
+        {trendingPosts.length > 0 && (
+          <div className="vine-trending">
+            <div className="trending-header">🔥 Trending on Vine</div>
+            <div className="trending-track">
+              {trendingPosts.map((p) => {
+                const avatarSrc = p.avatar_url
+                  ? (p.avatar_url.startsWith("http") ? p.avatar_url : `${API}${p.avatar_url}`)
+                  : DEFAULT_AVATAR;
+                const snippet =
+                  (p.content || "").trim().length > 0
+                    ? (p.content.length > 90 ? `${p.content.slice(0, 90)}…` : p.content)
+                    : "Photo post";
+                return (
+                  <div
+                    key={`trend-${p.id}`}
+                    className="trending-card"
+                    onClick={() => navigate(`/vine/feed?post=${p.id}`)}
+                  >
+                    <div className="trending-top">
+                      <img
+                        src={avatarSrc}
+                        alt={p.username}
+                        onError={(e) => {
+                          e.currentTarget.src = DEFAULT_AVATAR;
+                        }}
+                      />
+                      <div>
+                        <div className="trending-name">{p.display_name || p.username}</div>
+                        <div className="trending-handle">@{p.username}</div>
+                      </div>
+                    </div>
+                    <div className="trending-snippet">{snippet}</div>
+                    <div className="trending-stats">
+                      ❤️ {p.like_count || 0} · 💬 {p.comment_count || 0}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Feed Posts */}
         <div className="vine-posts-list">
-          {posts.map((post) => (
-            <VinePostCard key={post.feed_id} post={post} />
+          {posts.map((post, index) => (
+            <div key={post.feed_id || `post-${post.id}`}>
+              {suggestionSlots.includes(index) && suggestedUsers.length > 0 && (
+                <div className="vine-suggest-carousel">
+                  <div className="suggest-carousel-header">
+                    Viners you may want to follow
+                  </div>
+                  <div className="suggest-carousel-track">
+                    {suggestedUsers.map((u) => {
+                      const avatarSrc = u.avatar_url
+                        ? (u.avatar_url.startsWith("http") ? u.avatar_url : `${API}${u.avatar_url}`)
+                        : DEFAULT_AVATAR;
+                      return (
+                        <div
+                          key={u.id}
+                          className="suggest-card"
+                          onClick={() => navigate(`/vine/profile/${u.username}`)}
+                        >
+                          <img
+                            src={avatarSrc}
+                            alt={u.username}
+                            onError={(e) => {
+                              e.currentTarget.src = DEFAULT_AVATAR;
+                            }}
+                          />
+                          <div className="suggest-name">
+                            {u.display_name || u.username}
+                          </div>
+                          <div className="suggest-handle">@{u.username}</div>
+                          <button
+                            className="suggest-follow"
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              const res = await fetch(`${API}/api/vine/users/${u.id}/follow`, {
+                                method: "POST",
+                                headers: { Authorization: `Bearer ${token}` },
+                              });
+                              if (res.ok) {
+                                setSuggestedUsers((prev) => prev.filter((p) => p.id !== u.id));
+                              }
+                            }}
+                          >
+                            Follow
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              <VinePostCard post={post} />
+            </div>
           ))}
 
           {posts.length > 0 && <p className="no-more-posts">No more posts</p>}

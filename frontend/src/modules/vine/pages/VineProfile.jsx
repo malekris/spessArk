@@ -74,6 +74,9 @@ export default function VineProfile() {
   const [likesLoaded, setLikesLoaded] = useState(false);
   const [photoPosts, setPhotoPosts] = useState([]);
   const [photosLoaded, setPhotosLoaded] = useState(false);
+  const [savedPosts, setSavedPosts] = useState([]);
+  const [savedLoaded, setSavedLoaded] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
 
   // Photo viewer + interactions
   const [photoViewerOpen, setPhotoViewerOpen] = useState(false);
@@ -238,6 +241,21 @@ export default function VineProfile() {
     }
   };
 
+  const fetchSaved = async () => {
+    if (!username || savedLoaded) return;
+    try {
+      const res = await fetch(`${API}/api/vine/users/${encodeURIComponent(username)}/bookmarks`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Failed to load bookmarks");
+      const data = await res.json();
+      setSavedPosts(data || []);
+      setSavedLoaded(true);
+    } catch (err) {
+      console.error("Fetch bookmarks error:", err);
+    }
+  };
+
   const handleDeletePost = (postId) => {
     setProfile((prev) => {
       if (!prev) return prev;
@@ -339,6 +357,10 @@ export default function VineProfile() {
   useEffect(() => {
     if (activeTab === "photos") fetchPhotos();
   }, [activeTab]);
+
+  useEffect(() => {
+    if (moreOpen) fetchSaved();
+  }, [moreOpen]);
 
   useEffect(() => {
     if (commentsOpen && viewerPostId) fetchComments();
@@ -742,6 +764,15 @@ export default function VineProfile() {
             <span className="profile-updated-badge">Updated</span>
           )}
         </div>
+        {isMe && (
+          <button
+            className="topbar-more-btn"
+            onClick={() => setMoreOpen(true)}
+            title="More"
+          >
+            ⋯ More
+          </button>
+        )}
       </div>
 
       {/* Banner */}
@@ -992,6 +1023,14 @@ export default function VineProfile() {
                           >
                             ⚙️ Settings
                           </button>
+
+                          <button
+                            className="profile-settings-btn more-btn"
+                            onClick={() => alert("More settings coming soon")}
+                            title="More"
+                          >
+                            ⋯ More
+                          </button>
                         </>
                       ) : isBlocked ? (
                         <div className="blocked-banner">You have been blocked.</div>
@@ -1220,6 +1259,32 @@ export default function VineProfile() {
                 );
               })
             )}
+          </div>
+        )}
+
+        {moreOpen && (
+          <div className="more-overlay" onClick={() => setMoreOpen(false)}>
+            <div className="more-panel" onClick={(e) => e.stopPropagation()}>
+              <div className="more-header">
+                <h3>More</h3>
+                <button onClick={() => setMoreOpen(false)}>✕</button>
+              </div>
+              <div className="more-section-title">🔖 Saved posts</div>
+              <div className="more-content">
+                {savedPosts.length === 0 ? (
+                  <div className="empty-state">No saved posts yet</div>
+                ) : (
+                  savedPosts.map((post) => (
+                    <VinePostCard
+                      key={post.feed_id || `saved-${post.id}`}
+                      post={post}
+                      currentUserId={currentUserId}
+                      onDeletePost={handleDeletePost}
+                    />
+                  ))
+                )}
+              </div>
+            </div>
           </div>
         )}
       </div>

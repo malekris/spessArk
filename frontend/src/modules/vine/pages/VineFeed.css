@@ -23,8 +23,9 @@
   background: #064e3b !important;
   padding: 10px 20px;
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
   position: fixed;
   top: 0;
   left: 0;
@@ -39,7 +40,22 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   width: 100%;
+}
+
+.vine-nav-row {
+  flex: 1;
+}
+
+.vine-dm-bar {
+  margin: 0;
+  padding: 0;
+  width: auto;
+  max-width: none;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: nowrap;
 }
 
 .vine-nav-top h2 {
@@ -86,6 +102,7 @@
   gap: 8px;
   align-items: center;
   flex-shrink: 0;
+  flex-direction: row;
 }
 
 .nav-btn {
@@ -96,6 +113,7 @@
   cursor: pointer;
   border: none;
   transition: transform 0.1s;
+  white-space: nowrap;
 }
 
 .nav-btn:active {
@@ -115,18 +133,18 @@
 
 /* ── Quick Actions Bar (Search + Discover + DM) ── */
 .vine-dm-bar {
-  width: 100%;
-  max-width: 1000px;
+  width: auto;
+  max-width: none;
   display: flex;
-  gap: 10px;
-  margin: 0 auto;
-  padding: 8px 20px 12px;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
   box-sizing: border-box;
-  background: #064e3b;
+  background: transparent;
 }
 
 .vine-search {
-  flex: 2;
+  flex: 0 1 200px;
   background: white;
   border: 1px solid #c6f6d5;
   padding: 12px 18px;
@@ -138,9 +156,17 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
+.desktop-only {
+  display: flex;
+}
+
+.mobile-only {
+  display: none;
+}
+
 .discover-btn,
 .messages-btn {
-  flex: 1;
+  flex: 0 0 auto;
   background: white;
   border: 1px solid #c6f6d5;
   padding: 10px;
@@ -327,6 +353,176 @@
   width: 100%;
 }
 
+/* ── Trending Section ── */
+.vine-trending {
+  width: 100%;
+  margin: 10px 0 18px;
+  padding: 14px 16px;
+  background: #ffffff;
+  border-radius: 18px;
+  box-shadow: 0 6px 18px rgba(6, 78, 59, 0.08);
+}
+
+.trending-header {
+  font-weight: 800;
+  color: #064e3b;
+  margin-bottom: 10px;
+}
+
+.trending-track {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.trending-card {
+  background: #f0fdf4;
+  border: 1px solid #dcfce7;
+  border-radius: 16px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.trending-top {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.trending-top img {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.trending-name {
+  font-weight: 800;
+  color: #064e3b;
+}
+
+.trending-handle {
+  font-size: 0.85rem;
+  color: #2f6f64;
+}
+
+.trending-snippet {
+  font-size: 0.92rem;
+  color: #1f2937;
+}
+
+.trending-stats {
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: #64748b;
+}
+
+.theme-dark .vine-trending {
+  background: #111;
+  box-shadow: none;
+}
+
+.theme-dark .trending-card {
+  background: #0a0a0a;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.theme-dark .trending-header,
+.theme-dark .trending-name,
+.theme-dark .trending-handle,
+.theme-dark .trending-snippet,
+.theme-dark .trending-stats {
+  color: #ffffff;
+}
+
+/* ── Suggestions Carousel ── */
+.vine-suggest-carousel {
+  width: 100%;
+  margin: 12px 0 18px;
+  padding: 14px 16px;
+  background: #ffffff;
+  border-radius: 18px;
+  box-shadow: 0 6px 18px rgba(6, 78, 59, 0.08);
+}
+
+.suggest-carousel-header {
+  font-weight: 800;
+  color: #064e3b;
+  margin-bottom: 10px;
+}
+
+.suggest-carousel-track {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  scrollbar-width: thin;
+}
+
+.suggest-card {
+  min-width: 160px;
+  background: #f0fdf4;
+  border: 1px solid #dcfce7;
+  border-radius: 16px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.suggest-card img {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.suggest-name {
+  font-weight: 800;
+  color: #064e3b;
+}
+
+.suggest-handle {
+  font-size: 0.85rem;
+  color: #2f6f64;
+}
+
+.suggest-follow {
+  margin-top: 6px;
+  background: #f59e0b;
+  color: #111827;
+  border: none;
+  border-radius: 12px;
+  padding: 8px 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.theme-dark .vine-suggest-carousel {
+  background: #111;
+  box-shadow: none;
+}
+
+.theme-dark .suggest-card {
+  background: #0a0a0a;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.theme-dark .suggest-carousel-header,
+.theme-dark .suggest-name,
+.theme-dark .suggest-handle {
+  color: #fff;
+}
+
+.theme-dark .suggest-follow {
+  background: #f59e0b;
+  color: #111827;
+}
+
 .no-posts-hint {
   margin-top: 40px;
   color: #14532d;
@@ -364,6 +560,8 @@
 
   .vine-nav-top {
     padding: 10px 15px;
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .vine-nav-top h2 {
@@ -380,15 +578,27 @@
     font-size: 0.75rem;
   }
 
+  .nav-right {
+    flex-direction: row;
+  }
+
+  .desktop-only {
+    display: none;
+  }
+
+  .mobile-only {
+    display: flex;
+  }
+
   .vine-dm-bar {
     max-width: none;
     padding: 8px 12px 12px;
   }
 
   .vine-dm-bar {
-    padding: 0 15px;
+    padding: 0 15px 4px;
     gap: 8px;
-    margin: 15px 0;
+    margin: 2px 0 0;
     flex-wrap: wrap;
   }
 

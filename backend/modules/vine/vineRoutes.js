@@ -59,6 +59,78 @@ const normalizeImageBuffer = async (file) => {
   return { buffer: file.buffer, mimetype: file.mimetype || "image/jpeg" };
 };
 
+const extractFirstUrl = (text) => {
+  if (!text) return null;
+  const match = text.match(/https?:\/\/[^\s]+/i);
+  if (!match) return null;
+  return match[0].replace(/[)\].,!?]+$/g, "");
+};
+
+const isPrivateHostname = (hostname) => {
+  if (!hostname) return true;
+  const h = hostname.toLowerCase();
+  if (h === "localhost" || h.endsWith(".local")) return true;
+  if (/^(\d{1,3}\.){3}\d{1,3}$/.test(h)) {
+    const parts = h.split(".").map((n) => Number(n));
+    if (parts.some((n) => Number.isNaN(n) || n < 0 || n > 255)) return true;
+    if (parts[0] === 10) return true;
+    if (parts[0] === 127) return true;
+    if (parts[0] === 0) return true;
+    if (parts[0] === 192 && parts[1] === 168) return true;
+    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+  }
+  if (h === "::1" || h.startsWith("fe80") || h.startsWith("fc") || h.startsWith("fd")) {
+    return true;
+  }
+  return false;
+};
+
+const fetchLinkPreview = async (url) => {
+  try {
+    const parsed = new URL(url);
+    if (isPrivateHostname(parsed.hostname)) return null;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3500);
+    const res = await fetch(parsed.href, {
+      signal: controller.signal,
+      redirect: "follow",
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; VineBot/1.0)",
+      },
+    });
+    clearTimeout(timeout);
+    if (!res.ok) return null;
+
+    const html = (await res.text()).slice(0, 1_000_000);
+    const getMeta = (key) => {
+      const re = new RegExp(
+        `<meta[^>]+(?:property|name)=[\"']${key}[\"'][^>]*content=[\"']([^\"']+)[\"'][^>]*>`,
+        "i"
+      );
+      const match = html.match(re);
+      return match ? match[1].trim() : null;
+    };
+    const titleTag = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+    const title = getMeta("og:title") || (titleTag ? titleTag[1].trim() : null) || parsed.hostname;
+    const description = getMeta("og:description") || getMeta("description");
+    const image = getMeta("og:image");
+    const imageUrl = image ? new URL(image, parsed.href).href : null;
+    const siteName = getMeta("og:site_name") || parsed.hostname;
+
+    return {
+      url: parsed.href,
+      title,
+      description,
+      image: imageUrl,
+      site_name: siteName,
+      domain: parsed.hostname,
+    };
+  } catch (err) {
+    return null;
+  }
+};
+
 router.post("/auth/register", async (req, res) => {
   try {
     const { username, display_name, email, password } = req.body;
@@ -198,6 +270,7 @@ async function requireVineAuth(req, res, next) {
             p.user_id,
             p.content,
             p.image_url,
+            p.link_preview,
             p.created_at AS sort_time,
             u.username,
             u.display_name,
@@ -222,7 +295,13 @@ async function requireVineAuth(req, res, next) {
               viewerId
                 ? `(SELECT COUNT(*) > 0 FROM vine_revines WHERE post_id = p.id AND user_id = ${viewerId})`
                 : "0"
-            } AS user_revined
+            } AS user_revined,
+
+            ${
+              viewerId
+                ? `(SELECT COUNT(*) > 0 FROM vine_bookmarks WHERE post_id = p.id AND user_id = ${viewerId})`
+                : "0"
+            } AS user_bookmarked
   
           FROM vine_posts p
           JOIN vine_users u ON p.user_id = u.id
@@ -253,6 +332,7 @@ async function requireVineAuth(req, res, next) {
             p.user_id,
             p.content,
             p.image_url,
+            p.link_preview,
             r.created_at AS sort_time,
             u.username,
             u.display_name,
@@ -277,7 +357,13 @@ async function requireVineAuth(req, res, next) {
               viewerId
                 ? `(SELECT COUNT(*) > 0 FROM vine_revines WHERE post_id = p.id AND user_id = ${viewerId})`
                 : "0"
-            } AS user_revined
+            } AS user_revined,
+
+            ${
+              viewerId
+                ? `(SELECT COUNT(*) > 0 FROM vine_bookmarks WHERE post_id = p.id AND user_id = ${viewerId})`
+                : "0"
+            } AS user_bookmarked
   
           FROM vine_revines r
           JOIN vine_posts p ON r.post_id = p.id
@@ -344,10 +430,16 @@ async function requireVineAuth(req, res, next) {
         const image_url =
           imageUrls.length > 0 ? JSON.stringify(imageUrls) : null;
   
+        let linkPreview = null;
+        const firstUrl = extractFirstUrl(content?.trim() || "");
+        if (firstUrl) {
+          linkPreview = await fetchLinkPreview(firstUrl);
+        }
+
         const [result] = await db.query(
-          `INSERT INTO vine_posts (user_id, content, image_url)
-           VALUES (?, ?, ?)`,
-          [userId, content?.trim() || null, image_url]
+          `INSERT INTO vine_posts (user_id, content, image_url, link_preview)
+           VALUES (?, ?, ?, ?)`,
+          [userId, content?.trim() || null, image_url, linkPreview ? JSON.stringify(linkPreview) : null]
         );
   
         const [[post]] = await db.query(`
@@ -357,6 +449,7 @@ async function requireVineAuth(req, res, next) {
             p.user_id,
             p.content,
             p.image_url,
+            p.link_preview,
             p.created_at AS sort_time,
             u.username,
             u.display_name,
@@ -368,7 +461,8 @@ async function requireVineAuth(req, res, next) {
             0 AS revines,
             0 AS views,
             0 AS user_liked,
-            0 AS user_revined
+            0 AS user_revined,
+            0 AS user_bookmarked
           FROM vine_posts p
           JOIN vine_users u ON p.user_id = u.id
           WHERE p.id = ?
@@ -406,6 +500,12 @@ router.get("/users/search", authenticate, async (req, res) => {
         is_verified
       FROM vine_users
       WHERE (username LIKE ? OR display_name LIKE ?)
+        AND id != ${viewerId || 0}
+        AND NOT EXISTS (
+          SELECT 1 FROM vine_follows f
+          WHERE f.follower_id = ${viewerId || 0}
+            AND f.following_id = id
+        )
         ${
           viewerId
             ? `AND NOT EXISTS (
@@ -537,6 +637,7 @@ router.get("/users/:username", authOptional, async (req, res) => {
           p.user_id,
           p.content,
           p.image_url,
+          p.link_preview,
           p.created_at,
           p.is_pinned,
           p.created_at AS sort_time,
@@ -580,6 +681,7 @@ router.get("/users/:username", authOptional, async (req, res) => {
           p.user_id,
           p.content,
           p.image_url,
+          p.link_preview,
           p.created_at,
           p.is_pinned,
           r.created_at AS sort_time,
@@ -671,6 +773,79 @@ router.get("/posts/:id/comments", authOptional, async (req, res) => {
   }
 });
 
+// 🔥 Trending posts (last 24h)
+router.get("/posts/trending", authOptional, async (req, res) => {
+  try {
+    const viewerId = req.user?.id || null;
+    const limit = Math.min(Number(req.query.limit || 8), 20);
+
+    const [rows] = await db.query(
+      `
+      SELECT 
+        p.id,
+        p.user_id,
+        p.content,
+        p.image_url,
+        p.link_preview,
+        p.created_at AS created_at,
+        p.created_at AS sort_time,
+
+        u.username,
+        u.display_name,
+        u.avatar_url,
+        u.is_verified,
+        u.hide_like_counts,
+
+        (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id)    AS like_count,
+        (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comment_count,
+        (SELECT COUNT(*) FROM vine_revines WHERE post_id = p.id)  AS revine_count,
+        (SELECT COUNT(*) FROM vine_post_views WHERE post_id = p.id) AS view_count,
+
+        ${viewerId ? "(SELECT COUNT(*) > 0 FROM vine_likes WHERE post_id = p.id AND user_id = " + viewerId + ") AS user_liked," : "0 AS user_liked,"}
+        ${viewerId ? "(SELECT COUNT(*) > 0 FROM vine_revines WHERE post_id = p.id AND user_id = " + viewerId + ") AS user_revined," : "0 AS user_revined,"}
+        ${viewerId ? "(SELECT COUNT(*) > 0 FROM vine_bookmarks WHERE post_id = p.id AND user_id = " + viewerId + ") AS user_bookmarked" : "0 AS user_bookmarked"}
+
+      FROM vine_posts p
+      JOIN vine_users u ON p.user_id = u.id
+      WHERE p.created_at >= NOW() - INTERVAL 1 DAY
+        ${
+          viewerId
+            ? `AND NOT EXISTS (
+                SELECT 1 FROM vine_blocks b
+                WHERE (b.blocker_id = u.id AND b.blocked_id = ${viewerId})
+                   OR (b.blocker_id = ${viewerId} AND b.blocked_id = u.id)
+              )
+              AND NOT EXISTS (
+                SELECT 1 FROM vine_blocks b2
+                WHERE (b2.blocker_id = ${viewerId} AND b2.blocked_id = u.id)
+              )`
+            : ""
+        }
+        ${
+          viewerId
+            ? `AND (
+                u.is_private = 0
+                OR u.id = ${viewerId}
+                OR EXISTS (
+                  SELECT 1 FROM vine_follows f
+                  WHERE f.follower_id = ${viewerId} AND f.following_id = u.id
+                )
+              )`
+            : "AND u.is_private = 0"
+        }
+      ORDER BY like_count DESC, comment_count DESC, p.created_at DESC
+      LIMIT ?
+      `,
+      [limit]
+    );
+
+    res.json(rows);
+  } catch (err) {
+    console.error("Trending posts error:", err);
+    res.status(500).json([]);
+  }
+});
+
 // Ranked Feed (open network)
 router.get("/posts", authOptional, async (req, res) => {
   try {
@@ -684,6 +859,7 @@ router.get("/posts", authOptional, async (req, res) => {
           p.user_id,
           p.content,
           p.image_url,
+          p.link_preview,
           p.created_at AS created_at,
           p.created_at AS sort_time,
 
@@ -700,6 +876,7 @@ router.get("/posts", authOptional, async (req, res) => {
 
           0 AS user_liked,
           0 AS user_revined,
+          0 AS user_bookmarked,
 
           (
             (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id) * 2 +
@@ -724,6 +901,7 @@ router.get("/posts", authOptional, async (req, res) => {
         p.user_id,
         p.content,
         p.image_url,
+        p.link_preview,
         p.created_at AS created_at,
         p.created_at AS sort_time,
 
@@ -744,6 +922,10 @@ router.get("/posts", authOptional, async (req, res) => {
         (SELECT COUNT(*) > 0 
           FROM vine_revines 
           WHERE post_id = p.id AND user_id = ?) AS user_revined,
+
+        (SELECT COUNT(*) > 0
+          FROM vine_bookmarks
+          WHERE post_id = p.id AND user_id = ?) AS user_bookmarked,
 
         (
           (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id) * 2 +
@@ -767,7 +949,7 @@ router.get("/posts", authOptional, async (req, res) => {
       )
       ORDER BY score DESC
       LIMIT 100
-    `, [viewerId, viewerId, viewerId, viewerId, viewerId]);
+    `, [viewerId, viewerId, viewerId, viewerId, viewerId, viewerId]);
 
     res.json(rows);
 
@@ -897,6 +1079,41 @@ router.post("/posts/:id/like", requireVineAuth, async (req, res) => {
     likes: count.total,
     user_liked: !existing.length
   });
+});
+
+// 🔖 Toggle bookmark
+router.post("/posts/:id/bookmark", requireVineAuth, async (req, res) => {
+  const postId = req.params.id;
+  const userId = req.user.id;
+
+  const [[post]] = await db.query(
+    "SELECT user_id FROM vine_posts WHERE id = ?",
+    [postId]
+  );
+
+  if (!post) return res.status(404).json({ message: "Post not found" });
+  if (await isUserBlocked(post.user_id, userId)) {
+    return res.status(403).json({ message: "You have been blocked" });
+  }
+
+  const [existing] = await db.query(
+    "SELECT 1 FROM vine_bookmarks WHERE user_id = ? AND post_id = ?",
+    [userId, postId]
+  );
+
+  if (existing.length) {
+    await db.query(
+      "DELETE FROM vine_bookmarks WHERE user_id = ? AND post_id = ?",
+      [userId, postId]
+    );
+  } else {
+    await db.query(
+      "INSERT INTO vine_bookmarks (user_id, post_id, created_at) VALUES (?, ?, NOW())",
+      [userId, postId]
+    );
+  }
+
+  res.json({ user_bookmarked: !existing.length });
 });
 
 // 👀 Record view (unique per user)
@@ -1693,6 +1910,7 @@ router.get("/users/:username/likes", authOptional, async (req, res) => {
         p.user_id,
         p.content,
         p.image_url,
+        p.link_preview,
         p.created_at,
         l.created_at AS sort_time,
         u.username,
@@ -1755,6 +1973,7 @@ router.get("/users/:username/photos", authOptional, async (req, res) => {
         p.user_id,
         p.content,
         p.image_url,
+        p.link_preview,
         p.created_at AS sort_time,
         u.username,
         u.display_name,
@@ -1777,6 +1996,59 @@ router.get("/users/:username/photos", authOptional, async (req, res) => {
     res.status(200).json(rows);
   } catch (err) {
     console.error("Fetch photo posts error:", err);
+    res.status(500).json([]);
+  }
+});
+
+// 🔖 Saved posts (bookmarks) — only for self
+router.get("/users/:username/bookmarks", authOptional, async (req, res) => {
+  try {
+    const { username } = req.params;
+    const viewerId = req.user?.id || null;
+
+    const [[user]] = await db.query(
+      "SELECT id FROM vine_users WHERE username = ?",
+      [username]
+    );
+
+    if (!user || !viewerId || Number(user.id) !== Number(viewerId)) {
+      return res.json([]);
+    }
+
+    const [rows] = await db.query(
+      `
+      SELECT 
+        p.id,
+        CONCAT('post-', p.id) AS feed_id,
+        p.user_id,
+        p.content,
+        p.image_url,
+        p.link_preview,
+        p.created_at AS sort_time,
+        u.username,
+        u.display_name,
+        u.avatar_url,
+        u.is_verified,
+        u.hide_like_counts,
+        (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id) AS likes,
+        (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comments,
+        (SELECT COUNT(*) FROM vine_revines WHERE post_id = p.id) AS revines,
+        (SELECT COUNT(*) FROM vine_post_views WHERE post_id = p.id) AS views,
+        (SELECT COUNT(*) > 0 FROM vine_likes WHERE post_id = p.id AND user_id = ?) AS user_liked,
+        (SELECT COUNT(*) > 0 FROM vine_revines WHERE post_id = p.id AND user_id = ?) AS user_revined,
+        1 AS user_bookmarked
+      FROM vine_bookmarks b
+      JOIN vine_posts p ON b.post_id = p.id
+      JOIN vine_users u ON p.user_id = u.id
+      WHERE b.user_id = ?
+      ORDER BY b.created_at DESC
+      `,
+      [viewerId, viewerId, viewerId]
+    );
+
+    res.json(rows);
+  } catch (err) {
+    console.error("Fetch bookmarks error:", err);
     res.status(500).json([]);
   }
 });

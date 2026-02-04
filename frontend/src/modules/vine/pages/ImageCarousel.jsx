@@ -84,8 +84,10 @@ export default function ImageCarousel({
   };
   
   // ── Render ───────────────────────────────────────
+  const isSingle = images.length === 1;
+
   return (
-    <div className="carousel-wrapper">
+    <div className={`carousel-wrapper ${isSingle ? "single" : ""}`}>
       {/* Horizontal scrollable track */}
       <div
         className="carousel"
@@ -126,7 +128,7 @@ export default function ImageCarousel({
       {/* Fullscreen viewer */}
       {viewerOpen && (
         <div
-          className="image-viewer-overlay"
+          className={`image-viewer-overlay ${isFullscreen ? "fullscreen" : ""}`}
           onClick={() => setViewerOpen(false)}
           ref={viewerRef}
         >

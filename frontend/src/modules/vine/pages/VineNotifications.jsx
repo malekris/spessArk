@@ -9,6 +9,9 @@ export default function VineNotifications() {
   const navigate = useNavigate();
   const token = localStorage.getItem("vine_token");
   useEffect(() => {
+    document.title = "Vine — Notifications";
+  }, []);
+  useEffect(() => {
     if (!token) return;
   
     const loadNotifications = async () => {

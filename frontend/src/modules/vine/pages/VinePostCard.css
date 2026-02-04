@@ -86,7 +86,7 @@
 }
 
 .verified {
-  background: #ef4444;
+  background: #1d9bf0;
   width: 16px;
   height: 16px;
   border-radius: 50%;
@@ -94,7 +94,7 @@
   align-items: center;
   justify-content: center;
   margin-left: 4px;
-  box-shadow: 0 0 6px rgba(239, 68, 68, 0.5);
+  box-shadow: 0 0 6px rgba(29, 155, 240, 0.6);
 }
 
 .username,

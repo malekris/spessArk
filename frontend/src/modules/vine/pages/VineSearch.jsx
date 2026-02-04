@@ -13,6 +13,10 @@ export default function VineSearch() {
   const token = localStorage.getItem("vine_token");
 
   useEffect(() => {
+    document.title = "Vine — Search";
+  }, []);
+
+  useEffect(() => {
     fetch(`${API}/api/vine/users/new`, {
       headers: { Authorization: `Bearer ${token}` }
     })

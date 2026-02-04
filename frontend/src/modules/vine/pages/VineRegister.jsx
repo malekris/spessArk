@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import "./VineRegister.css";  // ← this one line adds the styles
 
@@ -17,6 +17,10 @@ export default function VineRegister() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    document.title = "Vine — Register";
+  }, []);
 
   const handleChange = (e) => {
     const { name, value } = e.target;

@@ -1,7 +1,11 @@
 import { Link } from "react-router-dom";
+import { useEffect } from "react";
 
 
 export default function VineForgotPassword() {
+  useEffect(() => {
+    document.title = "Vine — Forgot Password";
+  }, []);
   return (
     <div className="vine-auth-bg">
       <div className="vine-auth-card">

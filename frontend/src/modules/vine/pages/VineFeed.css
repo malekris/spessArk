@@ -472,6 +472,8 @@
   flex-direction: column;
   gap: 6px;
   cursor: pointer;
+  align-items: center;
+  text-align: center;
 }
 
 .suggest-card img {
@@ -493,13 +495,16 @@
 
 .suggest-follow {
   margin-top: 6px;
-  background: #f59e0b;
-  color: #111827;
+  background: #064e3b;
+  color: #ecfdf5;
   border: none;
   border-radius: 12px;
   padding: 8px 10px;
   font-weight: 800;
   cursor: pointer;
+  align-self: stretch;
+  text-align: center;
+  margin-top: auto;
 }
 
 .theme-dark .vine-suggest-carousel {

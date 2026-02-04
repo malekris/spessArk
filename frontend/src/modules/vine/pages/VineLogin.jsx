@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import "./VineLogin.css"; // 🔥 Pointing to the new file
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
@@ -7,6 +7,10 @@ export default function VineLogin() {
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    document.title = "Vine — Login";
+  }, []);
 
   const handleLogin = async (e) => {
     e.preventDefault();

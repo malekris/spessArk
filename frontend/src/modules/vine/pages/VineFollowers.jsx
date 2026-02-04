@@ -13,6 +13,10 @@ export default function VineFollowers() {
   const token = localStorage.getItem("vine_token");
 
   useEffect(() => {
+    document.title = `Vine — ${username} Followers`;
+  }, [username]);
+
+  useEffect(() => {
     setLoading(true);
     fetch(`${API}/api/vine/users/${username}/followers`, {
       headers: { Authorization: `Bearer ${token}` },

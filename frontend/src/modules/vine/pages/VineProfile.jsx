@@ -334,6 +334,11 @@ export default function VineProfile() {
   }, [username]);
 
   useEffect(() => {
+    const name = displayName || username || "Profile";
+    document.title = `Vine — ${name}`;
+  }, [displayName, username]);
+
+  useEffect(() => {
     document.documentElement.classList.toggle("theme-dark", darkMode);
     try {
       localStorage.setItem("vine_theme", darkMode ? "dark" : "light");

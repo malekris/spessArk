@@ -501,7 +501,7 @@
 }
 
 .verified {
-  background: #ef4444;
+  background: #1d9bf0;
   color: white;
   font-size: 0.9rem;
   width: 22px;
@@ -511,7 +511,7 @@
   align-items: center;
   justify-content: center;
   font-weight: bold;
-  box-shadow: 0 0 8px rgba(239, 68, 68, 0.5);
+  box-shadow: 0 0 8px rgba(29, 155, 240, 0.6);
 }
 
 .handle {

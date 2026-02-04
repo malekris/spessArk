@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import heic2any from "heic2any";
 import { useNavigate } from "react-router-dom";
 import VinePostCard from "./VinePostCard";
@@ -51,6 +51,7 @@ export default function VineFeed() {
   const [suggestedUsers, setSuggestedUsers] = useState([]);
   const [suggestionSlots, setSuggestionSlots] = useState([]);
   const [trendingPosts, setTrendingPosts] = useState([]);
+  const suggestionSlotsRef = useRef([]);
 
   const normalizeImageFiles = async (fileList) => {
     const files = Array.from(fileList || []);
@@ -134,17 +135,18 @@ export default function VineFeed() {
       });
       const data = await res.json();
       setPosts(data);
-      // Build suggestion slots when feed changes
-      const nextSlots = [];
-      if (data.length > 0) {
+      // Build suggestion slots only once per session to avoid jumping
+      if (suggestionSlotsRef.current.length === 0 && data.length > 0) {
+        const nextSlots = [];
         const first = Math.min(6, data.length);
-        let idx = first + Math.floor(Math.random() * 3);
+        let idx = first;
         while (idx < data.length && nextSlots.length < 3) {
           nextSlots.push(idx);
-          idx += 12 + Math.floor(Math.random() * 3);
+          idx += 12;
         }
+        suggestionSlotsRef.current = nextSlots;
+        setSuggestionSlots(nextSlots);
       }
-      setSuggestionSlots(nextSlots);
     } catch (err) {
       console.error("Load feed error", err);
     }
@@ -237,6 +239,10 @@ export default function VineFeed() {
       socket.disconnect();
     };
   }, [token]);
+
+  useEffect(() => {
+    document.title = "Vine — Feed";
+  }, []);
 
   // ── Post Creation ───────────────────────────────
   const submitPost = async () => {

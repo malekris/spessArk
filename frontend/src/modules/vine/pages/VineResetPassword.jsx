@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import "./VineResetPassword.css"; // 🔥 Link the new fire styles
 
@@ -12,6 +12,10 @@ export default function VineResetPassword() {
   const [password, setPassword] = useState("");
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    document.title = "Vine — Reset Password";
+  }, []);
 
   const handleReset = async (e) => {
     e.preventDefault();

@@ -695,7 +695,7 @@ router.post("/users/me/verify-email", authenticate, async (req, res) => {
       process.env.CLIENT_URL ||
       process.env.FRONTEND_URL ||
       process.env.PUBLIC_URL ||
-      "http://localhost:5173";
+      "https://www.stphillipsequatorial.com";
     const link = `${baseUrl}/vine/verify-email?token=${encodeURIComponent(token)}`;
 
     await sendVineVerificationEmail(email, link);
@@ -737,7 +737,7 @@ router.get("/auth/verify-email", async (req, res) => {
       process.env.CLIENT_URL ||
       process.env.FRONTEND_URL ||
       process.env.PUBLIC_URL ||
-      "http://localhost:5173";
+      "https://www.stphillipsequatorial.com";
     res.redirect(`${baseUrl}/vine/feed?verified=1`);
   } catch (err) {
     console.error("Verify email error:", err);

@@ -38,6 +38,8 @@ export default function VineNotifications() {
       case "follow": return "followed you";
       case "like_comment": return "liked your comment";
       case "revine": return "revined your post";
+      case "mention_post": return "mentioned you in a post";
+      case "mention_comment": return "mentioned you in a comment";
       default: return "interacted with you";
     }
   };

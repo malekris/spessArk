@@ -102,6 +102,85 @@
   color: #64748b;
   font-size: 0.9rem;
 }
+
+.mention {
+  color: #1d9bf0;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.mention:hover {
+  text-decoration: underline;
+}
+
+.mention-preview {
+  margin: 6px 0 2px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgba(29, 155, 240, 0.08);
+  font-size: 0.9rem;
+  color: #1f2937;
+}
+
+.theme-dark .mention-preview {
+  background: rgba(29, 155, 240, 0.18);
+  color: #ffffff;
+}
+
+.mention-suggest-list {
+  margin: 6px 0 0;
+  border-radius: 12px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  overflow: hidden;
+}
+
+.mention-suggest-item {
+  width: 100%;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.mention-suggest-item:hover {
+  background: #f0fdf4;
+}
+
+.mention-suggest-item img {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.mention-name {
+  font-weight: 700;
+  color: #052e16;
+}
+
+.mention-handle {
+  font-size: 0.85rem;
+  color: #64748b;
+}
+
+.theme-dark .mention-suggest-list {
+  background: #111;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.theme-dark .mention-suggest-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.theme-dark .mention-name,
+.theme-dark .mention-handle {
+  color: #ffffff;
+}
 /* Keep your existing delete button styles, just tweak positioning */
 .delete-post-btn {
   background: transparent;
@@ -637,6 +716,7 @@
     border-bottom: 1px solid #e2e8f0;
     box-shadow: 0 2px 12px rgba(0, 0, 0, 0.03); /* light shadow stays */
     background: #ffffff;
+    overflow: hidden;
   }
   .vine-post:last-child {
     margin-bottom: 0;
@@ -658,8 +738,8 @@
   }
 
   .carousel-wrapper {
-    margin: 8px -16px;
-    width: calc(100% + 32px);
+    margin: 8px 0;
+    width: 100%;
   }
 }
 /* Username + time + delete on same line */

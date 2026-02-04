@@ -607,6 +607,16 @@
     flex-wrap: wrap;
   }
 
+  .vine-posts-list {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .vine-posts-list .vine-post {
+    margin: 0;
+  }
+
   .vine-search {
     flex: 1.5;
     font-size: 0.85rem;

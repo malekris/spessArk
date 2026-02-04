@@ -40,6 +40,45 @@ const formatRelativeTime = (dateString) => {
   return parsed.toLocaleDateString();
 };
 
+const renderMentions = (text, navigate) => {
+  if (!text) return text;
+  const parts = text.split(/(@[a-zA-Z0-9._]{1,30})/g);
+  return parts.map((part, idx) => {
+    if (part.startsWith("@")) {
+      const username = part.slice(1);
+      return (
+        <span
+          key={`mention-${idx}-${username}`}
+          className="mention"
+          onClick={(e) => {
+            e.stopPropagation();
+            navigate(`/vine/profile/${username}`);
+          }}
+        >
+          {part}
+        </span>
+      );
+    }
+    return <span key={`text-${idx}`}>{part}</span>;
+  });
+};
+
+const getMentionAnchor = (value, caret) => {
+  const left = value.slice(0, caret);
+  const at = left.lastIndexOf("@");
+  if (at === -1) return null;
+  const after = left.slice(at + 1);
+  if (!after || /\s/.test(after)) return null;
+  return { start: at, end: caret, query: after };
+};
+
+const applyMention = (value, anchor, username) => {
+  if (!anchor) return value;
+  const before = value.slice(0, anchor.start);
+  const after = value.slice(anchor.end);
+  return `${before}@${username} ${after}`;
+};
+
 // ────────────────────────────────────────────────
 //  MAIN COMPONENT: VinePostCard
 // ────────────────────────────────────────────────
@@ -80,6 +119,8 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
   const [commentUserLiked, setCommentUserLiked] = useState({});
   const [isDeleted, setIsDeleted] = useState(false);
   const [bookmarked, setBookmarked] = useState(post.user_bookmarked || false);
+  const [mentionResults, setMentionResults] = useState([]);
+  const [mentionAnchor, setMentionAnchor] = useState(null);
 
   const CONTENT_LIMIT = 280;
   const hasLongContent = (post.content || "").length > CONTENT_LIMIT;
@@ -142,6 +183,26 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
       setCommentCount(post.comments || 0);
     }
   }, [post.comments]);
+
+  useEffect(() => {
+    const q = mentionAnchor?.query;
+    if (!q) {
+      setMentionResults([]);
+      return;
+    }
+    const timeout = setTimeout(async () => {
+      try {
+        const res = await fetch(`${API}/api/vine/users/mention?q=${encodeURIComponent(q)}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json();
+        setMentionResults(Array.isArray(data) ? data : []);
+      } catch {
+        setMentionResults([]);
+      }
+    }, 120);
+    return () => clearTimeout(timeout);
+  }, [mentionAnchor?.query, token]);
 
   useEffect(() => {
     if (post.user_bookmarked !== undefined) {
@@ -428,7 +489,7 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
         }`}
         style={{ whiteSpace: "pre-wrap" }}   // ← this one line fixes paragraphs
       >
-        {contentToShow}
+        {renderMentions(contentToShow, navigate)}
       </p>
       {hasLongContent && (
         <button
@@ -564,12 +625,46 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
                 setText(e.target.value);
                 e.target.style.height = "inherit";
                 e.target.style.height = `${e.target.scrollHeight}px`;
+                const anchor = getMentionAnchor(e.target.value, e.target.selectionStart);
+                setMentionAnchor(anchor);
               }}
               placeholder="Post your reply"
               rows={1}
             />
             <button onClick={() => sendComment(text)}>Reply</button>
           </div>
+          {mentionResults.length > 0 && mentionAnchor && (
+            <div className="mention-suggest-list">
+              {mentionResults.map((u) => (
+                <button
+                  key={`mention-${u.id}`}
+                  className="mention-suggest-item"
+                  onClick={() => {
+                    setText((prev) => applyMention(prev, mentionAnchor, u.username));
+                    setMentionAnchor(null);
+                    setMentionResults([]);
+                  }}
+                >
+                  <img
+                    src={u.avatar_url || DEFAULT_AVATAR}
+                    alt={u.username}
+                    onError={(e) => {
+                      e.currentTarget.src = DEFAULT_AVATAR;
+                    }}
+                  />
+                  <div>
+                    <div className="mention-name">{u.display_name || u.username}</div>
+                    <div className="mention-handle">@{u.username}</div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+          {mentionAnchor && (
+            <div className="mention-preview">
+              {renderMentions(text, navigate)}
+            </div>
+          )}
 
           {/* Threaded comments */}
           <div className="vine-thread-list">
@@ -612,6 +707,9 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
 function Comment({ comment, commentLikes, commentUserLiked, setCommentLikes, setCommentUserLiked, onReply, onDelete, isPostOwner, currentUserId }) {
 
 const token = localStorage.getItem("vine_token");
+  const navigate = useNavigate();
+  const [mentionResults, setMentionResults] = useState([]);
+  const [mentionAnchor, setMentionAnchor] = useState(null);
 
   const [likes, setLikes] = useState(comment.likes || 0);
   const [userLiked, setUserLiked] = useState(comment.user_liked || false);
@@ -619,6 +717,26 @@ const token = localStorage.getItem("vine_token");
   const [replyText, setReplyText] = useState("");
 
   const canDelete = isPostOwner || Number(currentUserId) === Number(comment.user_id);
+
+  useEffect(() => {
+    const q = mentionAnchor?.query;
+    if (!q) {
+      setMentionResults([]);
+      return;
+    }
+    const timeout = setTimeout(async () => {
+      try {
+        const res = await fetch(`${API}/api/vine/users/mention?q=${encodeURIComponent(q)}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json();
+        setMentionResults(Array.isArray(data) ? data : []);
+      } catch {
+        setMentionResults([]);
+      }
+    }, 120);
+    return () => clearTimeout(timeout);
+  }, [mentionAnchor?.query, token]);
 
   const handleLike = async () => {
     const res = await fetch(`${API}/api/vine/comments/${comment.id}/like`, {
@@ -669,7 +787,7 @@ const token = localStorage.getItem("vine_token");
 
         </div>
 
-        <p className="comment-text">{comment.content}</p>
+        <p className="comment-text">{renderMentions(comment.content, navigate)}</p>
 
         <div className="comment-actions">
   <button
@@ -723,7 +841,11 @@ className={`mini-btn ${
           <div className="comment-reply-box">
             <input
               value={replyText}
-              onChange={(e) => setReplyText(e.target.value)}
+              onChange={(e) => {
+                setReplyText(e.target.value);
+                const anchor = getMentionAnchor(e.target.value, e.target.selectionStart);
+                setMentionAnchor(anchor);
+              }}
               placeholder="Write a reply..."
             />
             <button
@@ -735,6 +857,38 @@ className={`mini-btn ${
             >
               Send
             </button>
+            {mentionResults.length > 0 && mentionAnchor && (
+              <div className="mention-suggest-list">
+                {mentionResults.map((u) => (
+                  <button
+                    key={`mention-r-${u.id}`}
+                    className="mention-suggest-item"
+                    onClick={() => {
+                      setReplyText((prev) => applyMention(prev, mentionAnchor, u.username));
+                      setMentionAnchor(null);
+                      setMentionResults([]);
+                    }}
+                  >
+                    <img
+                      src={u.avatar_url || DEFAULT_AVATAR}
+                      alt={u.username}
+                      onError={(e) => {
+                        e.currentTarget.src = DEFAULT_AVATAR;
+                      }}
+                    />
+                    <div>
+                      <div className="mention-name">{u.display_name || u.username}</div>
+                      <div className="mention-handle">@{u.username}</div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+            {mentionAnchor && (
+              <div className="mention-preview">
+                {renderMentions(replyText, navigate)}
+              </div>
+            )}
           </div>
         )}
       </div>

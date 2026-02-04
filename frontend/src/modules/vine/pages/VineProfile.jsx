@@ -22,6 +22,45 @@ const formatRelativeTime = (date) => {
   return `${Math.floor(diff / 86400)}d ago`;
 };
 
+const renderMentions = (text, navigate) => {
+  if (!text) return text;
+  const parts = text.split(/(@[a-zA-Z0-9._]{1,30})/g);
+  return parts.map((part, idx) => {
+    if (part.startsWith("@")) {
+      const username = part.slice(1);
+      return (
+        <span
+          key={`mention-${idx}-${username}`}
+          className="mention"
+          onClick={(e) => {
+            e.stopPropagation();
+            navigate(`/vine/profile/${username}`);
+          }}
+        >
+          {part}
+        </span>
+      );
+    }
+    return <span key={`text-${idx}`}>{part}</span>;
+  });
+};
+
+const getMentionAnchor = (value, caret) => {
+  const left = value.slice(0, caret);
+  const at = left.lastIndexOf("@");
+  if (at === -1) return null;
+  const after = left.slice(at + 1);
+  if (!after || /\s/.test(after)) return null;
+  return { start: at, end: caret, query: after };
+};
+
+const applyMention = (value, anchor, username) => {
+  if (!anchor) return value;
+  const before = value.slice(0, anchor.start);
+  const after = value.slice(anchor.end);
+  return `${before}@${username} ${after}`;
+};
+
 
 // ────────────────────────────────────────────────
 //  MAIN PROFILE COMPONENT
@@ -77,6 +116,10 @@ export default function VineProfile() {
   const [savedPosts, setSavedPosts] = useState([]);
   const [savedLoaded, setSavedLoaded] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [moreMode, setMoreMode] = useState("me");
+  const [isMuting, setIsMuting] = useState(false);
+  const [mutedUsers, setMutedUsers] = useState([]);
+  const [mutedLoaded, setMutedLoaded] = useState(false);
 
   // Photo viewer + interactions
   const [photoViewerOpen, setPhotoViewerOpen] = useState(false);
@@ -95,6 +138,14 @@ export default function VineProfile() {
   const [privateProfile, setPrivateProfile] = useState(false);
   const [hideLikeCounts, setHideLikeCounts] = useState(false);
   const [showLastActive, setShowLastActive] = useState(true);
+  const [mentionResults, setMentionResults] = useState([]);
+  const [mentionAnchor, setMentionAnchor] = useState(null);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordMsg, setPasswordMsg] = useState("");
+  const [verifyEmail, setVerifyEmail] = useState("");
+  const [verifyMsg, setVerifyMsg] = useState("");
   const [avatarActionOpen, setAvatarActionOpen] = useState(false);
   const [avatarCropOpen, setAvatarCropOpen] = useState(false);
   const [avatarCropSrc, setAvatarCropSrc] = useState(null);
@@ -123,6 +174,7 @@ export default function VineProfile() {
   const isMe = profile && Number(currentUserId) === Number(userObj.id);
   const isBlocked = Boolean(profile?.blocked) && !isMe;
   const isBlocking = Boolean(userObj?.is_blocking) && !isMe;
+  const isMutingUser = Boolean(userObj?.is_muting) && !isMe;
   const isPrivateLocked = Boolean(profile?.privateLocked) && !isMe;
   const canShowLastActive = userObj.show_last_active !== 0 || isMe;
   const canMessage = !isMe && (
@@ -211,6 +263,69 @@ export default function VineProfile() {
     }
   };
 
+  const changePassword = async () => {
+    setPasswordMsg("");
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      setPasswordMsg("Please fill in all password fields.");
+      return;
+    }
+    if (newPassword.length < 6) {
+      setPasswordMsg("New password must be at least 6 characters.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordMsg("New passwords do not match.");
+      return;
+    }
+    try {
+      const res = await fetch(`${API}/api/vine/users/me/change-password`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setPasswordMsg(data?.message || "Password update failed.");
+        return;
+      }
+      setPasswordMsg("Password updated.");
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch (err) {
+      setPasswordMsg("Password update failed.");
+    }
+  };
+
+  const requestVerification = async () => {
+    setVerifyMsg("");
+    if (!verifyEmail) {
+      setVerifyMsg("Please enter your email.");
+      return;
+    }
+    try {
+      const res = await fetch(`${API}/api/vine/users/me/verify-email`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ email: verifyEmail }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setVerifyMsg(data?.message || "Failed to send verification link.");
+        return;
+      }
+      setVerifyMsg("Verification link sent. Check your email.");
+    } catch (err) {
+      setVerifyMsg("Failed to send verification link.");
+    }
+  };
+
   const fetchLikes = async () => {
     if (!username || likesLoaded) return;
     try {
@@ -253,6 +368,20 @@ export default function VineProfile() {
       setSavedLoaded(true);
     } catch (err) {
       console.error("Fetch bookmarks error:", err);
+    }
+  };
+
+  const fetchMutedUsers = async () => {
+    if (mutedLoaded) return;
+    try {
+      const res = await fetch(`${API}/api/vine/users/me/mutes`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      setMutedUsers(Array.isArray(data) ? data : []);
+      setMutedLoaded(true);
+    } catch (err) {
+      console.error("Fetch mutes error:", err);
     }
   };
 
@@ -334,6 +463,26 @@ export default function VineProfile() {
   }, [username]);
 
   useEffect(() => {
+    const q = mentionAnchor?.query;
+    if (!q) {
+      setMentionResults([]);
+      return;
+    }
+    const timeout = setTimeout(async () => {
+      try {
+        const res = await fetch(`${API}/api/vine/users/mention?q=${encodeURIComponent(q)}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json();
+        setMentionResults(Array.isArray(data) ? data : []);
+      } catch {
+        setMentionResults([]);
+      }
+    }, 120);
+    return () => clearTimeout(timeout);
+  }, [mentionAnchor?.query, token]);
+
+  useEffect(() => {
     const name = displayName || username || "Profile";
     document.title = `Vine — ${name}`;
   }, [displayName, username]);
@@ -352,6 +501,10 @@ export default function VineProfile() {
   }, [profile]);
 
   useEffect(() => {
+    setIsMuting(isMutingUser);
+  }, [isMutingUser]);
+
+  useEffect(() => {
     if (userObj?.banner_url) setBannerUrl(userObj.banner_url);
   }, [userObj]);
 
@@ -364,7 +517,10 @@ export default function VineProfile() {
   }, [activeTab]);
 
   useEffect(() => {
-    if (moreOpen) fetchSaved();
+    if (moreOpen) {
+      fetchSaved();
+      fetchMutedUsers();
+    }
   }, [moreOpen]);
 
   useEffect(() => {
@@ -769,10 +925,13 @@ export default function VineProfile() {
             <span className="profile-updated-badge">Updated</span>
           )}
         </div>
-        {isMe && (
+        {(isMe || !isBlocked) && (
           <button
             className="topbar-more-btn"
-            onClick={() => setMoreOpen(true)}
+            onClick={() => {
+              setMoreMode(isMe ? "me" : "other");
+              setMoreOpen(true);
+            }}
             title="More"
           >
             ⋯ More
@@ -1031,8 +1190,12 @@ export default function VineProfile() {
 
                           <button
                             className="profile-settings-btn more-btn"
-                            onClick={() => alert("More settings coming soon")}
+                            onClick={() => {
+                              setMoreMode("me");
+                              setMoreOpen(true);
+                            }}
                             title="More"
+                            style={{ display: "none" }}
                           >
                             ⋯ More
                           </button>
@@ -1066,10 +1229,15 @@ export default function VineProfile() {
                           )}
 
                           <button
-                            className={`block-btn ${isBlocking ? "unblock" : ""}`}
-                            onClick={toggleBlockUser}
+                            className="profile-settings-btn more-btn"
+                            onClick={() => {
+                              setMoreMode("other");
+                              setMoreOpen(true);
+                            }}
+                            title="More"
+                            style={{ display: "none" }}
                           >
-                            {isBlocking ? "Unblock" : "Block"}
+                            ⋯ More
                           </button>
                         </>
                       )}
@@ -1274,21 +1442,89 @@ export default function VineProfile() {
                 <h3>More</h3>
                 <button onClick={() => setMoreOpen(false)}>✕</button>
               </div>
-              <div className="more-section-title">🔖 Saved posts</div>
-              <div className="more-content">
-                {savedPosts.length === 0 ? (
-                  <div className="empty-state">No saved posts yet</div>
-                ) : (
-                  savedPosts.map((post) => (
-                    <VinePostCard
-                      key={post.feed_id || `saved-${post.id}`}
-                      post={post}
-                      currentUserId={currentUserId}
-                      onDeletePost={handleDeletePost}
-                    />
-                  ))
-                )}
-              </div>
+              {moreMode === "me" ? (
+                <>
+                  <div className="more-section-title">🔖 Saved posts</div>
+                  <div className="more-content">
+                    {savedPosts.length === 0 ? (
+                      <div className="empty-state">No saved posts yet</div>
+                    ) : (
+                      savedPosts.map((post) => (
+                        <VinePostCard
+                          key={post.feed_id || `saved-${post.id}`}
+                          post={post}
+                          currentUserId={currentUserId}
+                          onDeletePost={handleDeletePost}
+                        />
+                      ))
+                    )}
+                    <div className="more-section-title">🔇 Muted users</div>
+                    {mutedUsers.length === 0 ? (
+                      <div className="empty-state">No muted users</div>
+                    ) : (
+                      <div className="muted-list">
+                        {mutedUsers.map((u) => (
+                          <div key={u.id} className="muted-row">
+                            <img
+                              src={u.avatar_url || DEFAULT_AVATAR}
+                              alt={u.username}
+                              onError={(e) => {
+                                e.currentTarget.src = DEFAULT_AVATAR;
+                              }}
+                            />
+                            <div className="muted-info">
+                              <div className="muted-name">{u.display_name || u.username}</div>
+                              <div className="muted-handle">@{u.username}</div>
+                            </div>
+                            <button
+                              className="block-btn unblock"
+                              onClick={async () => {
+                                const res = await fetch(`${API}/api/vine/users/${u.id}/mute`, {
+                                  method: "DELETE",
+                                  headers: { Authorization: `Bearer ${token}` },
+                                });
+                                if (res.ok) {
+                                  setMutedUsers((prev) => prev.filter((m) => m.id !== u.id));
+                                }
+                              }}
+                            >
+                              Unmute
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="more-content">
+                  <div className="more-section-title">Safety</div>
+                  <button
+                    className={`block-btn ${isBlocking ? "unblock" : ""}`}
+                    onClick={toggleBlockUser}
+                  >
+                    {isBlocking ? "Unblock" : "Block"}
+                  </button>
+                  <button
+                    className={`block-btn ${isMuting ? "unblock" : ""}`}
+                    onClick={async () => {
+                      try {
+                        const res = await fetch(`${API}/api/vine/users/${userObj.id}/mute`, {
+                          method: isMuting ? "DELETE" : "POST",
+                          headers: { Authorization: `Bearer ${token}` },
+                        });
+                        if (res.ok) {
+                          setIsMuting(!isMuting);
+                        }
+                      } catch (err) {
+                        console.error("Mute toggle failed", err);
+                      }
+                    }}
+                  >
+                    {isMuting ? "Unmute" : "Mute"}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -1486,11 +1722,47 @@ export default function VineProfile() {
               >
                 <input
                   value={newComment}
-                  onChange={(e) => setNewComment(e.target.value)}
+                  onChange={(e) => {
+                    setNewComment(e.target.value);
+                    const anchor = getMentionAnchor(e.target.value, e.target.selectionStart);
+                    setMentionAnchor(anchor);
+                  }}
                   placeholder="Add a comment…"
                 />
                 <button type="submit">Post</button>
               </form>
+              {mentionResults.length > 0 && mentionAnchor && (
+                <div className="mention-suggest-list">
+                  {mentionResults.map((u) => (
+                    <button
+                      key={`mention-v-${u.id}`}
+                      className="mention-suggest-item"
+                      onClick={() => {
+                        setNewComment((prev) => applyMention(prev, mentionAnchor, u.username));
+                        setMentionAnchor(null);
+                        setMentionResults([]);
+                      }}
+                    >
+                      <img
+                        src={u.avatar_url || DEFAULT_AVATAR}
+                        alt={u.username}
+                        onError={(e) => {
+                          e.currentTarget.src = DEFAULT_AVATAR;
+                        }}
+                      />
+                      <div>
+                        <div className="mention-name">{u.display_name || u.username}</div>
+                        <div className="mention-handle">@{u.username}</div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {mentionAnchor && (
+                <div className="mention-preview">
+                  {renderMentions(newComment, navigate)}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -1582,6 +1854,55 @@ export default function VineProfile() {
           />
           Dark mode
         </label>
+      </div>
+
+      {/* 6️⃣ Change password */}
+      <div className="settings-item stack">
+        <label>Change password</label>
+        <input
+          className="settings-input"
+          type="password"
+          placeholder="Current password"
+          value={currentPassword}
+          onChange={(e) => setCurrentPassword(e.target.value)}
+        />
+        <input
+          className="settings-input"
+          type="password"
+          placeholder="New password"
+          value={newPassword}
+          onChange={(e) => setNewPassword(e.target.value)}
+        />
+        <input
+          className="settings-input"
+          type="password"
+          placeholder="Confirm new password"
+          value={confirmPassword}
+          onChange={(e) => setConfirmPassword(e.target.value)}
+        />
+        <button className="settings-primary-btn" onClick={changePassword}>
+          Update password
+        </button>
+        {passwordMsg && <div className="settings-hint">{passwordMsg}</div>}
+      </div>
+
+      {/* 7️⃣ Verify email */}
+      <div className="settings-item stack">
+        <label>Verify email</label>
+        <input
+          className="settings-input"
+          type="email"
+          placeholder="Enter your email"
+          value={verifyEmail}
+          onChange={(e) => setVerifyEmail(e.target.value)}
+        />
+        <button className="settings-primary-btn" onClick={requestVerification}>
+          Send verification link
+        </button>
+        {userObj?.is_verified === 1 && (
+          <div className="settings-hint">✅ Verified</div>
+        )}
+        {verifyMsg && <div className="settings-hint">{verifyMsg}</div>}
       </div>
 
       {/* 5️⃣ Clear pinned post */}

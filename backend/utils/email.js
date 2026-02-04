@@ -193,3 +193,60 @@ export async function sendVineWelcomeEmail(email, username) {
   await sendWithRetry(payload, 2);
   console.log("📧 Vine welcome email sent");
 }
+
+export async function sendVineResetCodeEmail(email, code) {
+  console.log("📧 Sending VINE reset code to:", email);
+
+  const payload = {
+    from: "SPESS VINE 🌱 <no-reply@stphillipsequatorial.com>",
+    to: email,
+    subject: "Your SPESS VINE reset code",
+    html: `
+      <div style="font-family: Arial; background:#f0fdf4; padding:30px;">
+        <div style="max-width:600px; margin:auto; background:white; padding:32px; border-radius:18px;">
+          <h2 style="color:#14532d;">Reset your SPESS VINE password</h2>
+          <p>Use this 4‑digit code to reset your password:</p>
+          <div style="font-size:28px;font-weight:bold;letter-spacing:6px;color:#111827;margin:18px 0;">
+            ${code}
+          </div>
+          <p style="font-size:13px;color:#777;">
+            This code expires in 15 minutes. If you didn’t request this, you can ignore this email.
+          </p>
+        </div>
+      </div>
+    `,
+  };
+
+  await sendWithRetry(payload, 2);
+  console.log("📧 Vine reset code sent");
+}
+
+export async function sendVineVerificationEmail(email, link) {
+  console.log("📧 Sending VINE verification link to:", email);
+
+  const payload = {
+    from: "SPESS VINE 🌱 <no-reply@stphillipsequatorial.com>",
+    to: email,
+    subject: "Verify your SPESS VINE email",
+    html: `
+      <div style="font-family: Arial; background:#f0fdf4; padding:30px;">
+        <div style="max-width:600px; margin:auto; background:white; padding:32px; border-radius:18px;">
+          <h2 style="color:#14532d;">Verify your email</h2>
+          <p>Click the button below to verify your email and get your checkmark:</p>
+          <div style="text-align:center;margin:26px 0;">
+            <a href="${link}"
+              style="background:#22c55e;color:white;padding:12px 22px;border-radius:10px;text-decoration:none;font-weight:bold;">
+              Verify Email
+            </a>
+          </div>
+          <p style="font-size:13px;color:#777;">
+            This link expires in 24 hours. If you didn’t request this, you can ignore it.
+          </p>
+        </div>
+      </div>
+    `,
+  };
+
+  await sendWithRetry(payload, 2);
+  console.log("📧 Vine verification email sent");
+}

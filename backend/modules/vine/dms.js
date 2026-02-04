@@ -71,9 +71,15 @@ router.get("/conversations", authenticate, async (req, res) => {
           WHERE d.conversation_id = c.id
             AND d.user_id = ?
         )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM vine_mutes m
+          WHERE m.muter_id = ?
+            AND m.muted_id = IF(c.user1_id = ?, c.user2_id, c.user1_id)
+        )
 
       ORDER BY last_message_time DESC
-    `, [userId, userId, userId, userId, userId]);
+    `, [userId, userId, userId, userId, userId, userId, userId]);
 
     res.json(rows);
   } catch (err) {
@@ -152,6 +158,20 @@ router.post("/start", authenticate, async (req, res) => {
   const { userId: receiverId } = req.body;
 
   try {
+    const [muted] = await db.query(
+      `
+      SELECT 1
+      FROM vine_mutes
+      WHERE (muter_id = ? AND muted_id = ?)
+      LIMIT 1
+      `,
+      [receiverId, senderId]
+    );
+
+    if (muted.length) {
+      return res.status(403).json({ error: "User has muted you" });
+    }
+
     const [blocked] = await db.query(
       `
       SELECT 1
@@ -252,6 +272,20 @@ router.post("/send", authenticate, async (req, res) => {
     }
 
     const { user1_id, user2_id } = check[0];
+    const otherId = user1_id === senderId ? user2_id : user1_id;
+
+    const [muted] = await db.query(
+      `
+      SELECT 1
+      FROM vine_mutes
+      WHERE muter_id = ? AND muted_id = ?
+      LIMIT 1
+      `,
+      [otherId, senderId]
+    );
+    if (muted.length) {
+      return res.status(403).json({ error: "User has muted you" });
+    }
 
     // Insert message
     const [result] = await db.query(
@@ -462,7 +496,13 @@ router.get("/unread-total", authenticate, async (req, res) => {
         AND m.sender_id != ?
         AND (c.user1_id = ? OR c.user2_id = ?)
         AND d.conversation_id IS NULL
-    `, [userId, userId, userId, userId]);
+        AND NOT EXISTS (
+          SELECT 1
+          FROM vine_mutes m2
+          WHERE m2.muter_id = ?
+            AND m2.muted_id = m.sender_id
+        )
+    `, [userId, userId, userId, userId, userId]);
 
     res.json({ total: row.total || 0 });
   } catch (err) {

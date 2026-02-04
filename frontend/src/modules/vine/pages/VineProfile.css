@@ -82,8 +82,9 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 14px 18px;
+  padding: 16px 20px;
   border-bottom: 1px solid #e2e8f0;
+  background: linear-gradient(135deg, #f0fdf4, #dcfce7);
 }
 
 .more-header button {
@@ -97,14 +98,71 @@
 }
 
 .more-section-title {
-  padding: 12px 18px 0;
+  padding: 14px 20px 0;
   font-weight: 800;
   color: #064e3b;
 }
 
 .more-content {
-  padding: 12px 18px 18px;
+  padding: 12px 20px 20px;
   overflow-y: auto;
+}
+
+.more-content .block-btn {
+  width: 100%;
+  margin-top: 12px;
+}
+
+.more-content .block-btn + .block-btn {
+  margin-top: 8px;
+}
+
+.muted-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.muted-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 10px 12px;
+}
+
+.muted-row img {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.muted-info {
+  flex: 1;
+}
+
+.muted-name {
+  font-weight: 800;
+  color: #052e16;
+}
+
+.muted-handle {
+  font-size: 0.85rem;
+  color: #64748b;
+}
+
+.theme-dark .muted-row {
+  background: #0a0a0a;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.theme-dark .muted-name,
+.theme-dark .muted-handle {
+  color: #ffffff;
 }
 
 .theme-dark .more-panel {
@@ -115,6 +173,10 @@
 .theme-dark .more-section-title {
   color: #ffffff;
   border-color: rgba(255, 255, 255, 0.12);
+}
+
+.theme-dark .more-header {
+  background: linear-gradient(135deg, #0f172a, #111827);
 }
 
 .topbar-info {
@@ -1046,6 +1108,85 @@
   white-space: nowrap;
 }
 
+.mention {
+  color: #1d9bf0;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.mention:hover {
+  text-decoration: underline;
+}
+
+.mention-preview {
+  margin: 6px 10px 2px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgba(29, 155, 240, 0.08);
+  font-size: 0.9rem;
+  color: #1f2937;
+}
+
+.theme-dark .mention-preview {
+  background: rgba(29, 155, 240, 0.18);
+  color: #ffffff;
+}
+
+.mention-suggest-list {
+  margin: 6px 10px 2px;
+  border-radius: 12px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  overflow: hidden;
+}
+
+.mention-suggest-item {
+  width: 100%;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.mention-suggest-item:hover {
+  background: #f0fdf4;
+}
+
+.mention-suggest-item img {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.mention-name {
+  font-weight: 700;
+  color: #052e16;
+}
+
+.mention-handle {
+  font-size: 0.85rem;
+  color: #64748b;
+}
+
+.theme-dark .mention-suggest-list {
+  background: #111;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.theme-dark .mention-suggest-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.theme-dark .mention-name,
+.theme-dark .mention-handle {
+  color: #ffffff;
+}
+
 .photo-comments-panel .comment-input-bar button:active {
   transform: translateY(1px);
 }
@@ -1154,7 +1295,7 @@
   font-weight: 800;
   font-size: 0.95rem;
   cursor: pointer;
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: center;
   box-shadow: 0 8px 20px rgba(220, 38, 38, 0.25);
@@ -1199,6 +1340,51 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.settings-item.stack {
+  align-items: stretch;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settings-input {
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  font-size: 0.95rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.settings-primary-btn {
+  align-self: flex-start;
+  background: #064e3b;
+  color: #ffffff;
+  border: none;
+  border-radius: 12px;
+  padding: 8px 14px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.settings-hint {
+  font-size: 0.85rem;
+  color: #64748b;
+}
+
+.theme-dark .settings-input {
+  background: #0a0a0a;
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+
+@media (max-width: 768px) {
+  .settings-primary-btn {
+    width: 100%;
+    text-align: center;
+  }
 }
 
 .settings-item.danger {

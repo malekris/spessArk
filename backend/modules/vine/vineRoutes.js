@@ -2,7 +2,7 @@ import express from "express";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { db } from "../../server.js";
-import { sendVineWelcomeEmail } from "../../utils/email.js";
+import { sendVineWelcomeEmail, sendVineResetCodeEmail, sendVineVerificationEmail } from "../../utils/email.js";
 import authMiddleware from "../../middleware/authMiddleware.js";
 import authOptional from "../authOptional.js";
 import { authenticate } from "../auth.js";
@@ -29,6 +29,19 @@ const isUserBlocked = async (blockerId, blockedId) => {
     [blockerId, blockedId]
   );
   return rows.length > 0;
+};
+
+const isUserMuted = async (muterId, mutedId) => {
+  if (!muterId || !mutedId) return false;
+  const [rows] = await db.query(
+    "SELECT 1 FROM vine_mutes WHERE muter_id = ? AND muted_id = ? LIMIT 1",
+    [muterId, mutedId]
+  );
+  return rows.length > 0;
+};
+
+const isMutedBy = async (muterId, mutedId) => {
+  return isUserMuted(muterId, mutedId);
 };
 
 const isHeicFile = (file) => {
@@ -64,6 +77,37 @@ const extractFirstUrl = (text) => {
   const match = text.match(/https?:\/\/[^\s]+/i);
   if (!match) return null;
   return match[0].replace(/[)\].,!?]+$/g, "");
+};
+
+const extractMentions = (text) => {
+  if (!text) return [];
+  const matches = text.match(/@([a-zA-Z0-9._]{1,30})/g) || [];
+  const names = matches.map((m) => m.slice(1));
+  return Array.from(new Set(names.map((n) => n.toLowerCase())));
+};
+
+const notifyMentions = async ({ mentions, actorId, postId, commentId, type }) => {
+  if (!mentions?.length) return;
+  const placeholders = mentions.map(() => "?").join(", ");
+  const [users] = await db.query(
+    `SELECT id, username FROM vine_users WHERE LOWER(username) IN (${placeholders})`,
+    mentions
+  );
+
+  for (const user of users) {
+    if (Number(user.id) === Number(actorId)) continue;
+    if (await isUserBlocked(user.id, actorId)) continue;
+    if (await isUserBlocked(actorId, user.id)) continue;
+    if (await isMutedBy(user.id, actorId)) continue;
+
+    await db.query(
+      `INSERT INTO vine_notifications (user_id, actor_id, type, post_id, comment_id)
+       VALUES (?, ?, ?, ?, ?)`,
+      [user.id, actorId, type, postId, commentId || null]
+    );
+
+    io.to(`user-${user.id}`).emit("notification");
+  }
 };
 
 const isPrivateHostname = (hostname) => {
@@ -322,6 +366,14 @@ async function requireVineAuth(req, res, next) {
                   )`
               : ""
           }
+          ${
+            viewerId
+              ? ` AND NOT EXISTS (
+                    SELECT 1 FROM vine_mutes m
+                    WHERE m.muter_id = ${viewerId} AND m.muted_id = u.id
+                  )`
+              : ""
+          }
   
           UNION ALL
   
@@ -386,6 +438,14 @@ async function requireVineAuth(req, res, next) {
                   )`
               : ""
           }
+          ${
+            viewerId
+              ? ` AND NOT EXISTS (
+                    SELECT 1 FROM vine_mutes m
+                    WHERE m.muter_id = ${viewerId} AND m.muted_id = u.id
+                  )`
+              : ""
+          }
         ) feed
         ORDER BY sort_time DESC
         LIMIT 100
@@ -441,6 +501,15 @@ async function requireVineAuth(req, res, next) {
            VALUES (?, ?, ?, ?)`,
           [userId, content?.trim() || null, image_url, linkPreview ? JSON.stringify(linkPreview) : null]
         );
+
+        const mentions = extractMentions(content?.trim() || "");
+        await notifyMentions({
+          mentions,
+          actorId: userId,
+          postId: result.insertId,
+          commentId: null,
+          type: "mention_post",
+        });
   
         const [[post]] = await db.query(`
           SELECT 
@@ -506,6 +575,11 @@ router.get("/users/search", authenticate, async (req, res) => {
           WHERE f.follower_id = ${viewerId || 0}
             AND f.following_id = id
         )
+        AND NOT EXISTS (
+          SELECT 1 FROM vine_mutes m
+          WHERE m.muter_id = ${viewerId || 0}
+            AND m.muted_id = id
+        )
         ${
           viewerId
             ? `AND NOT EXISTS (
@@ -527,6 +601,174 @@ router.get("/users/search", authenticate, async (req, res) => {
     res.status(500).json([]);
   }
 
+});
+
+// 🔐 Forgot password (send 4-digit code)
+router.post("/auth/forgot-password", async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ message: "Email required" });
+
+    const [[user]] = await db.query(
+      "SELECT id FROM vine_users WHERE email = ?",
+      [email]
+    );
+
+    // Always respond success to avoid account enumeration
+    if (!user) {
+      return res.json({ success: true });
+    }
+
+    const code = String(Math.floor(1000 + Math.random() * 9000));
+    const expires = new Date(Date.now() + 15 * 60 * 1000);
+
+    await db.query(
+      "UPDATE vine_users SET reset_token = ?, reset_expires = ? WHERE id = ?",
+      [code, expires, user.id]
+    );
+
+    await sendVineResetCodeEmail(email, code);
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Forgot password error:", err);
+    res.status(500).json({ message: "Failed to send reset code" });
+  }
+});
+
+// 🔐 Reset password with code
+router.post("/auth/reset-password-code", async (req, res) => {
+  try {
+    const { email, code, newPassword } = req.body;
+    if (!email || !code || !newPassword) {
+      return res.status(400).json({ message: "Missing fields" });
+    }
+    if (newPassword.length < 6) {
+      return res.status(400).json({ message: "Password too short" });
+    }
+
+    const [[user]] = await db.query(
+      "SELECT id, reset_token, reset_expires FROM vine_users WHERE email = ?",
+      [email]
+    );
+
+    if (!user || !user.reset_token || !user.reset_expires) {
+      return res.status(400).json({ message: "Invalid code" });
+    }
+
+    const expired = new Date(user.reset_expires).getTime() < Date.now();
+    if (expired || String(user.reset_token) !== String(code)) {
+      return res.status(400).json({ message: "Invalid or expired code" });
+    }
+
+    const hash = await bcrypt.hash(newPassword, 10);
+    await db.query(
+      "UPDATE vine_users SET password_hash = ?, reset_token = NULL, reset_expires = NULL WHERE id = ?",
+      [hash, user.id]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Reset password code error:", err);
+    res.status(500).json({ message: "Failed to reset password" });
+  }
+});
+
+// 🔐 Request email verification link
+router.post("/users/me/verify-email", authenticate, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ message: "Email required" });
+
+    const token = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    const expires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    await db.query(
+      `UPDATE vine_users
+       SET email = ?, is_verified = 0, email_verify_token = ?, email_verify_expires = ?
+       WHERE id = ?`,
+      [email, token, expires, userId]
+    );
+
+    const baseUrl = process.env.CLIENT_URL || "http://localhost:5173";
+    const link = `${baseUrl}/vine/verify-email?token=${encodeURIComponent(token)}`;
+
+    await sendVineVerificationEmail(email, link);
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Verify email request error:", err);
+    res.status(500).json({ message: "Failed to send verification link" });
+  }
+});
+
+// 🔐 Verify email (link)
+router.get("/auth/verify-email", async (req, res) => {
+  try {
+    const token = req.query.token;
+    if (!token) return res.status(400).send("Invalid token");
+
+    const [[user]] = await db.query(
+      "SELECT id, email_verify_token, email_verify_expires FROM vine_users WHERE email_verify_token = ?",
+      [token]
+    );
+
+    if (!user || !user.email_verify_expires) {
+      return res.status(400).send("Invalid token");
+    }
+
+    const expired = new Date(user.email_verify_expires).getTime() < Date.now();
+    if (expired) {
+      return res.status(400).send("Verification link expired");
+    }
+
+    await db.query(
+      `UPDATE vine_users
+       SET is_verified = 1, email_verify_token = NULL, email_verify_expires = NULL
+       WHERE id = ?`,
+      [user.id]
+    );
+
+    const baseUrl = process.env.CLIENT_URL || "http://localhost:5173";
+    res.redirect(`${baseUrl}/vine/feed?verified=1`);
+  } catch (err) {
+    console.error("Verify email error:", err);
+    res.status(500).send("Verification failed");
+  }
+});
+
+// Mention autocomplete
+router.get("/users/mention", authenticate, async (req, res) => {
+  const q = req.query.q?.trim();
+  if (!q || q.length < 1) return res.json([]);
+
+  try {
+    const viewerId = req.user?.id || null;
+    const [rows] = await db.query(
+      `
+      SELECT id, username, display_name, avatar_url, is_verified
+      FROM vine_users
+      WHERE (username LIKE ? OR display_name LIKE ?)
+        AND id != ${viewerId || 0}
+        ${
+          viewerId
+            ? `AND NOT EXISTS (
+                SELECT 1 FROM vine_blocks b
+                WHERE (b.blocker_id = id AND b.blocked_id = ${viewerId})
+                   OR (b.blocker_id = ${viewerId} AND b.blocked_id = id)
+              )`
+            : ""
+        }
+      ORDER BY username ASC
+      LIMIT 8
+      `,
+      [`${q}%`, `%${q}%`]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error("Mention search error:", err);
+    res.status(500).json([]);
+  }
 });
 
 // New Viners / Suggestions
@@ -551,9 +793,14 @@ router.get("/users/new", authOptional, async (req, res) => {
           FROM vine_follows
           WHERE follower_id = ?
         )
+        AND u.id NOT IN (
+          SELECT muted_id
+          FROM vine_mutes
+          WHERE muter_id = ?
+        )
       ORDER BY u.created_at DESC
       LIMIT 10
-    `, [viewerId, viewerId]);
+    `, [viewerId, viewerId, viewerId]);
 
     res.json(rows);
   } catch (err) {
@@ -620,6 +867,7 @@ router.get("/users/:username", authOptional, async (req, res) => {
     }
 
     user.is_blocking = blockingUser ? 1 : 0;
+    user.is_muting = (await isUserMuted(viewerId, user.id)) ? 1 : 0;
 
     if (!isSelf && !user.show_last_active) {
       user.last_active_at = null;
@@ -823,6 +1071,14 @@ router.get("/posts/trending", authOptional, async (req, res) => {
         }
         ${
           viewerId
+            ? `AND NOT EXISTS (
+                SELECT 1 FROM vine_mutes m
+                WHERE m.muter_id = ${viewerId} AND m.muted_id = u.id
+              )`
+            : ""
+        }
+        ${
+          viewerId
             ? `AND (
                 u.is_private = 0
                 OR u.id = ${viewerId}
@@ -947,9 +1203,13 @@ router.get("/posts", authOptional, async (req, res) => {
         WHERE (b.blocker_id = u.id AND b.blocked_id = ?)
            OR (b.blocker_id = ? AND b.blocked_id = u.id)
       )
+      AND NOT EXISTS (
+        SELECT 1 FROM vine_mutes m
+        WHERE m.muter_id = ? AND m.muted_id = u.id
+      )
       ORDER BY score DESC
       LIMIT 100
-    `, [viewerId, viewerId, viewerId, viewerId, viewerId, viewerId]);
+    `, [viewerId, viewerId, viewerId, viewerId, viewerId, viewerId, viewerId]);
 
     res.json(rows);
 
@@ -996,6 +1256,8 @@ router.post("/posts/:id/revine", authMiddleware, async (req, res) => {
 
       // ✅ Create notification only if not revining own post
       if (postOwnerId !== userId) {
+        const muted = await isMutedBy(postOwnerId, userId);
+        if (!muted) {
         await db.query(
           `INSERT INTO vine_notifications 
            (user_id, actor_id, type, post_id)
@@ -1005,6 +1267,7 @@ router.post("/posts/:id/revine", authMiddleware, async (req, res) => {
 
         // 🔥 REAL-TIME PUSH
         io.to(`user-${postOwnerId}`).emit("notification");
+        }
       }
     }
 
@@ -1060,6 +1323,8 @@ router.post("/posts/:id/like", requireVineAuth, async (req, res) => {
 
     // ✅ Create notification (only if not liking own post)
     if (postOwnerId !== userId) {
+      const muted = await isMutedBy(postOwnerId, userId);
+      if (!muted) {
       await db.query(`
         INSERT INTO vine_notifications (user_id, actor_id, type, post_id)
         VALUES (?, ?, 'like', ?)
@@ -1067,6 +1332,7 @@ router.post("/posts/:id/like", requireVineAuth, async (req, res) => {
 
       // 🔥 REAL-TIME PUSH
       io.to(`user-${postOwnerId}`).emit("notification");
+      }
     }
   }
 
@@ -1079,6 +1345,43 @@ router.post("/posts/:id/like", requireVineAuth, async (req, res) => {
     likes: count.total,
     user_liked: !existing.length
   });
+});
+
+// 🔒 Change password
+router.patch("/users/me/change-password", authenticate, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ message: "Missing password fields" });
+    }
+    if (newPassword.length < 6) {
+      return res.status(400).json({ message: "Password too short" });
+    }
+
+    const [[user]] = await db.query(
+      "SELECT password_hash FROM vine_users WHERE id = ?",
+      [userId]
+    );
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    const ok = await bcrypt.compare(currentPassword, user.password_hash);
+    if (!ok) {
+      return res.status(401).json({ message: "Current password is incorrect" });
+    }
+
+    const hash = await bcrypt.hash(newPassword, 10);
+    await db.query("UPDATE vine_users SET password_hash = ? WHERE id = ?", [
+      hash,
+      userId,
+    ]);
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Change password error:", err);
+    res.status(500).json({ message: "Failed to update password" });
+  }
 });
 
 // 🔖 Toggle bookmark
@@ -1180,6 +1483,8 @@ router.post("/posts/:id/comments", authMiddleware, async (req, res) => {
 
     // -------- COMMENT NOTIFICATION ----------
     if (!parent_comment_id && postOwnerId !== userId) {
+      const muted = await isMutedBy(postOwnerId, userId);
+      if (!muted) {
       await db.query(
         `INSERT INTO vine_notifications 
          (user_id, actor_id, type, post_id, comment_id)
@@ -1189,6 +1494,7 @@ router.post("/posts/:id/comments", authMiddleware, async (req, res) => {
 
       // 🔥 REAL-TIME PUSH
       io.to(`user-${postOwnerId}`).emit("notification");
+      }
     }
 
     // -------- REPLY NOTIFICATION ----------
@@ -1199,6 +1505,8 @@ router.post("/posts/:id/comments", authMiddleware, async (req, res) => {
       );
 
       if (parent && parent.user_id !== userId) {
+        const muted = await isMutedBy(parent.user_id, userId);
+        if (!muted) {
         await db.query(
           `INSERT INTO vine_notifications 
            (user_id, actor_id, type, post_id, comment_id)
@@ -1208,8 +1516,18 @@ router.post("/posts/:id/comments", authMiddleware, async (req, res) => {
 
         // 🔥 REAL-TIME PUSH
         io.to(`user-${parent.user_id}`).emit("notification");
+        }
       }
     }
+
+    const mentions = extractMentions(content || "");
+    await notifyMentions({
+      mentions,
+      actorId: userId,
+      postId,
+      commentId,
+      type: "mention_comment",
+    });
 
     res.json({ success: true });
 
@@ -1254,12 +1572,15 @@ router.post("/comments/:id/like", requireVineAuth, async (req, res) => {
 
       // 🔔 Create notification (only if not your own comment)
       if (comment.user_id !== userId) {
+        const muted = await isMutedBy(comment.user_id, userId);
+        if (!muted) {
         await db.query(
           `INSERT INTO vine_notifications
            (user_id, actor_id, type, post_id, comment_id)
            VALUES (?, ?, 'like_comment', ?, ?)`,
           [comment.user_id, userId, comment.post_id, commentId]
         );
+        }
       }
     }
 
@@ -1653,14 +1974,17 @@ router.post("/users/:id/follow", authenticate, async (req, res) => {
 
     // Only create notification if follow actually happened
     if (result.affectedRows > 0) {
-      await db.query(
-        `INSERT INTO vine_notifications (user_id, actor_id, type)
-         VALUES (?, ?, 'follow')`,
-        [targetId, actorId]
-      );
+      const muted = await isMutedBy(targetId, actorId);
+      if (!muted) {
+        await db.query(
+          `INSERT INTO vine_notifications (user_id, actor_id, type)
+           VALUES (?, ?, 'follow')`,
+          [targetId, actorId]
+        );
 
-      // 🔥 Real-time push
-      io.to(`user-${targetId}`).emit("notification");
+        // 🔥 Real-time push
+        io.to(`user-${targetId}`).emit("notification");
+      }
     }
 
     res.json({ success: true });
@@ -1703,6 +2027,46 @@ router.post("/users/:id/block", authenticate, async (req, res) => {
   } catch (err) {
     console.error("Block error:", err);
     res.status(500).json({ message: "Failed to block user" });
+  }
+});
+
+// mute a user
+router.post("/users/:id/mute", authenticate, async (req, res) => {
+  const muterId = req.user.id;
+  const mutedId = Number(req.params.id);
+
+  if (muterId === mutedId) {
+    return res.status(400).json({ message: "Cannot mute yourself" });
+  }
+
+  try {
+    await db.query(
+      "INSERT IGNORE INTO vine_mutes (muter_id, muted_id, created_at) VALUES (?, ?, NOW())",
+      [muterId, mutedId]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Mute error:", err);
+    res.status(500).json({ message: "Failed to mute user" });
+  }
+});
+
+// list muted users for someone else? blocked by design
+
+// unmute a user
+router.delete("/users/:id/mute", authenticate, async (req, res) => {
+  const muterId = req.user.id;
+  const mutedId = Number(req.params.id);
+
+  try {
+    await db.query(
+      "DELETE FROM vine_mutes WHERE muter_id = ? AND muted_id = ?",
+      [muterId, mutedId]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Unmute error:", err);
+    res.status(500).json({ message: "Failed to unmute user" });
   }
 });
 
@@ -1827,6 +2191,10 @@ router.get("/notifications", authenticate, async (req, res) => {
     FROM vine_notifications n
     JOIN vine_users u ON n.actor_id = u.id
     WHERE n.user_id = ?
+      AND NOT EXISTS (
+        SELECT 1 FROM vine_mutes m
+        WHERE m.muter_id = n.user_id AND m.muted_id = n.actor_id
+      )
     ORDER BY n.created_at DESC
     LIMIT 50
   `, [req.user.id]);
@@ -2049,6 +2417,27 @@ router.get("/users/:username/bookmarks", authOptional, async (req, res) => {
     res.json(rows);
   } catch (err) {
     console.error("Fetch bookmarks error:", err);
+    res.status(500).json([]);
+  }
+});
+
+// 🔇 List muted users for current user
+router.get("/users/me/mutes", authenticate, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const [rows] = await db.query(
+      `
+      SELECT u.id, u.username, u.display_name, u.avatar_url, u.is_verified
+      FROM vine_mutes m
+      JOIN vine_users u ON u.id = m.muted_id
+      WHERE m.muter_id = ?
+      ORDER BY m.created_at DESC
+      `,
+      [userId]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error("Muted list error:", err);
     res.status(500).json([]);
   }
 });

@@ -34,6 +34,13 @@
     font-weight: 900;
     margin-bottom: 30px;
   }
+
+  .vine-subtitle {
+    color: #064e3b;
+    font-size: 0.95rem;
+    font-weight: 600;
+    margin-bottom: 18px;
+  }
   
   /* ───── Form Styling ───── */
   .vine-form {
@@ -48,7 +55,7 @@
     border-radius: 50px; 
     padding: 14px 20px;
     font-size: 1rem;
-    color: #052e16;
+    color: #064e3b;
     outline: none;
   }
   

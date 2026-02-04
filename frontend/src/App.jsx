@@ -30,6 +30,7 @@ import ChatWindow from "./components/dms/ChatWindow";
 import DmsPage from "./components/dms/DmsPage";
 import VineSuggestions from "./modules/vine/pages/VineSuggestions";
 import VineSearch from "./modules/vine/pages/VineSearch";
+import VineVerifyEmail from "./modules/vine/pages/VineVerifyEmail";
 
 
 
@@ -132,6 +133,7 @@ function App() {
 <Route path="/vine/dms/:conversationId" element={<ChatWindow />} />
 <Route path="/vine/suggestions" element={<VineSuggestions />} />
 <Route path="/vine/search" element={<VineSearch />} />
+<Route path="/vine/verify-email" element={<VineVerifyEmail />} />
 
 
   </Routes>

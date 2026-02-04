@@ -691,7 +691,11 @@ router.post("/users/me/verify-email", authenticate, async (req, res) => {
       [email, token, expires, userId]
     );
 
-    const baseUrl = process.env.CLIENT_URL || "http://localhost:5173";
+    const baseUrl =
+      process.env.CLIENT_URL ||
+      process.env.FRONTEND_URL ||
+      process.env.PUBLIC_URL ||
+      "http://localhost:5173";
     const link = `${baseUrl}/vine/verify-email?token=${encodeURIComponent(token)}`;
 
     await sendVineVerificationEmail(email, link);
@@ -729,7 +733,11 @@ router.get("/auth/verify-email", async (req, res) => {
       [user.id]
     );
 
-    const baseUrl = process.env.CLIENT_URL || "http://localhost:5173";
+    const baseUrl =
+      process.env.CLIENT_URL ||
+      process.env.FRONTEND_URL ||
+      process.env.PUBLIC_URL ||
+      "http://localhost:5173";
     res.redirect(`${baseUrl}/vine/feed?verified=1`);
   } catch (err) {
     console.error("Verify email error:", err);

@@ -31,7 +31,24 @@ export default function MessageBubble({ message }) {
       {/* MESSAGE + SEEN */}
       <div className="msg-content-wrapper">
         <div className="msg-bubble">
-          {!isMine && <div className="msg-sender-handle">@{message.username}</div>}
+          {!isMine && (
+            <div className="msg-sender-handle">
+              <span>@{message.username}</span>
+              {Number(message.is_verified) === 1 && (
+                <span className="verified">
+                  <svg viewBox="0 0 24 24" width="10" height="10" fill="none">
+                    <path
+                      d="M20 6L9 17l-5-5"
+                      stroke="white"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </span>
+              )}
+            </div>
+          )}
           {message.content}
         </div>
 

@@ -299,7 +299,22 @@ fetch(`${API}/api/dms/conversations/${conversationId}/read`, {
             />
 
             <div>
-              <strong>{partner.display_name || partner.username}</strong>
+              <strong className="chat-name">
+                <span>{partner.display_name || partner.username}</span>
+                {Number(partner.is_verified) === 1 && (
+                  <span className="verified">
+                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
+                      <path
+                        d="M20 6L9 17l-5-5"
+                        stroke="white"
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </span>
+                )}
+              </strong>
               <div style={{ fontSize: 12, opacity: 0.6 }}>
                 @{partner.username}
               </div>

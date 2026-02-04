@@ -402,6 +402,9 @@
 .trending-name {
   font-weight: 800;
   color: #064e3b;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .trending-handle {
@@ -486,6 +489,9 @@
 .suggest-name {
   font-weight: 800;
   color: #064e3b;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .suggest-handle {

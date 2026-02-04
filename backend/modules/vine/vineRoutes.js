@@ -2,7 +2,7 @@ import express from "express";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { db } from "../../server.js";
-import { sendVineWelcomeEmail, sendVineResetCodeEmail, sendVineVerificationEmail } from "../../utils/email.js";
+import { sendVineWelcomeEmail, sendVineResetCodeEmail, sendVineVerificationCodeEmail } from "../../utils/email.js";
 import authMiddleware from "../../middleware/authMiddleware.js";
 import authOptional from "../authOptional.js";
 import { authenticate } from "../auth.js";
@@ -674,74 +674,63 @@ router.post("/auth/reset-password-code", async (req, res) => {
   }
 });
 
-// 🔐 Request email verification link
+// 🔐 Request email verification code
 router.post("/users/me/verify-email", authenticate, async (req, res) => {
   try {
     const userId = req.user.id;
     const { email } = req.body;
     if (!email) return res.status(400).json({ message: "Email required" });
 
-    const token = Math.random().toString(36).slice(2) + Date.now().toString(36);
-    const expires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const code = String(Math.floor(1000 + Math.random() * 9000));
+    const expires = new Date(Date.now() + 15 * 60 * 1000);
 
     await db.query(
       `UPDATE vine_users
        SET email = ?, is_verified = 0, email_verify_token = ?, email_verify_expires = ?
        WHERE id = ?`,
-      [email, token, expires, userId]
+      [email, code, expires, userId]
     );
 
-    const baseUrl =
-      process.env.CLIENT_URL ||
-      process.env.FRONTEND_URL ||
-      process.env.PUBLIC_URL ||
-      "https://www.stphillipsequatorial.com";
-    const link = `${baseUrl}/vine/verify-email?token=${encodeURIComponent(token)}`;
-
-    await sendVineVerificationEmail(email, link);
+    await sendVineVerificationCodeEmail(email, code);
     res.json({ success: true });
   } catch (err) {
     console.error("Verify email request error:", err);
-    res.status(500).json({ message: "Failed to send verification link" });
+    res.status(500).json({ message: "Failed to send verification code" });
   }
 });
 
-// 🔐 Verify email (link)
-router.get("/auth/verify-email", async (req, res) => {
+// 🔐 Confirm verification code
+router.post("/users/me/verify-email-code", authenticate, async (req, res) => {
   try {
-    const token = req.query.token;
-    if (!token) return res.status(400).send("Invalid token");
+    const userId = req.user.id;
+    const { code } = req.body;
+    if (!code) return res.status(400).json({ message: "Code required" });
 
     const [[user]] = await db.query(
-      "SELECT id, email_verify_token, email_verify_expires FROM vine_users WHERE email_verify_token = ?",
-      [token]
+      "SELECT id, email_verify_token, email_verify_expires FROM vine_users WHERE id = ?",
+      [userId]
     );
 
     if (!user || !user.email_verify_expires) {
-      return res.status(400).send("Invalid token");
+      return res.status(400).json({ message: "Invalid code" });
     }
 
     const expired = new Date(user.email_verify_expires).getTime() < Date.now();
-    if (expired) {
-      return res.status(400).send("Verification link expired");
+    if (expired || String(user.email_verify_token) !== String(code)) {
+      return res.status(400).json({ message: "Invalid or expired code" });
     }
 
     await db.query(
       `UPDATE vine_users
        SET is_verified = 1, email_verify_token = NULL, email_verify_expires = NULL
        WHERE id = ?`,
-      [user.id]
+      [userId]
     );
 
-    const baseUrl =
-      process.env.CLIENT_URL ||
-      process.env.FRONTEND_URL ||
-      process.env.PUBLIC_URL ||
-      "https://www.stphillipsequatorial.com";
-    res.redirect(`${baseUrl}/vine/feed?verified=1`);
+    res.json({ success: true });
   } catch (err) {
-    console.error("Verify email error:", err);
-    res.status(500).send("Verification failed");
+    console.error("Verify email code error:", err);
+    res.status(500).json({ message: "Verification failed" });
   }
 });
 
@@ -793,7 +782,8 @@ router.get("/users/new", authOptional, async (req, res) => {
         u.id,
         u.username,
         u.display_name,
-        u.avatar_url
+        u.avatar_url,
+        u.is_verified
       FROM vine_users u
       WHERE u.id != ?
         AND u.id NOT IN (
@@ -2112,6 +2102,7 @@ router.get("/users/:username/followers", authOptional, async (req, res) => {
         u.username,
         u.display_name,
         u.avatar_url,
+        u.is_verified,
         u.bio,
         ${
           viewerId
@@ -2156,6 +2147,7 @@ router.get("/users/:username/following", authOptional, async (req, res) => {
         u.username,
         u.display_name,
         u.avatar_url,
+        u.is_verified,
         u.bio,
         ${
           viewerId
@@ -2195,7 +2187,8 @@ router.get("/notifications", authenticate, async (req, res) => {
       n.created_at,
       u.username,
       u.display_name,
-      u.avatar_url
+      u.avatar_url,
+      u.is_verified
     FROM vine_notifications n
     JOIN vine_users u ON n.actor_id = u.id
     WHERE n.user_id = ?

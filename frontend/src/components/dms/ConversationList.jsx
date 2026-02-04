@@ -109,7 +109,22 @@ export default function ConversationList() {
             {/* META */}
             <div className="dm-meta">
               <div className="dm-top">
-                <strong>@{c.username}</strong>
+                <strong className="dm-username">
+                  <span>@{c.username}</span>
+                  {Number(c.is_verified) === 1 && (
+                    <span className="verified">
+                      <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
+                        <path
+                          d="M20 6L9 17l-5-5"
+                          stroke="white"
+                          strokeWidth="3"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    </span>
+                  )}
+                </strong>
 
                 {c.unread_count > 0 && (
                   <span className="dm-badge">{c.unread_count}</span>

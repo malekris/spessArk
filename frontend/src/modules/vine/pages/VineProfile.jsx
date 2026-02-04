@@ -145,6 +145,7 @@ export default function VineProfile() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordMsg, setPasswordMsg] = useState("");
   const [verifyEmail, setVerifyEmail] = useState("");
+  const [verifyCode, setVerifyCode] = useState("");
   const [verifyMsg, setVerifyMsg] = useState("");
   const [avatarActionOpen, setAvatarActionOpen] = useState(false);
   const [avatarCropOpen, setAvatarCropOpen] = useState(false);
@@ -317,12 +318,42 @@ export default function VineProfile() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setVerifyMsg(data?.message || "Failed to send verification link.");
+        setVerifyMsg(data?.message || "Failed to send verification code.");
         return;
       }
-      setVerifyMsg("Verification link sent. Check your email.");
+      setVerifyMsg("Verification code sent. Check your email.");
     } catch (err) {
-      setVerifyMsg("Failed to send verification link.");
+      setVerifyMsg("Failed to send verification code.");
+    }
+  };
+
+  const confirmVerification = async () => {
+    setVerifyMsg("");
+    if (!verifyCode) {
+      setVerifyMsg("Please enter the code.");
+      return;
+    }
+    try {
+      const res = await fetch(`${API}/api/vine/users/me/verify-email-code`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ code: verifyCode }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setVerifyMsg(data?.message || "Verification failed.");
+        return;
+      }
+      setVerifyMsg("Email verified. Checkmark unlocked.");
+      setVerifyCode("");
+      setProfile((prev) =>
+        prev ? { ...prev, user: { ...prev.user, is_verified: 1 } } : prev
+      );
+    } catch (err) {
+      setVerifyMsg("Verification failed.");
     }
   };
 
@@ -1604,7 +1635,22 @@ export default function VineProfile() {
                               />
 
                               <div className="comment-body">
-                                <span className="comment-username">{comment.display_name || comment.username}</span>
+                                <span className="comment-username">
+                                  <span>{comment.display_name || comment.username}</span>
+                                  {Number(comment.is_verified) === 1 && (
+                                    <span className="verified">
+                                      <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
+                                        <path
+                                          d="M20 6L9 17l-5-5"
+                                          stroke="white"
+                                          strokeWidth="3"
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                        />
+                                      </svg>
+                                    </span>
+                                  )}
+                                </span>
                                 <p className="comment-text">{comment.content}</p>
 
                                 <div className="comment-meta">
@@ -1897,7 +1943,17 @@ export default function VineProfile() {
           onChange={(e) => setVerifyEmail(e.target.value)}
         />
         <button className="settings-primary-btn" onClick={requestVerification}>
-          Send verification link
+          Send verification code
+        </button>
+        <input
+          className="settings-input"
+          type="text"
+          placeholder="Enter 4-digit code"
+          value={verifyCode}
+          onChange={(e) => setVerifyCode(e.target.value)}
+        />
+        <button className="settings-primary-btn" onClick={confirmVerification}>
+          Verify code
         </button>
         {userObj?.is_verified === 1 && (
           <div className="settings-hint">✅ Verified</div>

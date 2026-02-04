@@ -470,7 +470,22 @@ export default function VineFeed() {
                         }}
                       />
                       <div>
-                        <div className="trending-name">{p.display_name || p.username}</div>
+                        <div className="trending-name">
+                          <span>{p.display_name || p.username}</span>
+                          {Number(p.is_verified) === 1 && (
+                            <span className="verified">
+                              <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
+                                <path
+                                  d="M20 6L9 17l-5-5"
+                                  stroke="white"
+                                  strokeWidth="3"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                />
+                              </svg>
+                            </span>
+                          )}
+                        </div>
                         <div className="trending-handle">@{p.username}</div>
                       </div>
                     </div>
@@ -513,7 +528,20 @@ export default function VineFeed() {
                             }}
                           />
                           <div className="suggest-name">
-                            {u.display_name || u.username}
+                            <span>{u.display_name || u.username}</span>
+                            {Number(u.is_verified) === 1 && (
+                              <span className="verified">
+                                <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
+                                  <path
+                                    d="M20 6L9 17l-5-5"
+                                    stroke="white"
+                                    strokeWidth="3"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  />
+                                </svg>
+                              </span>
+                            )}
                           </div>
                           <div className="suggest-handle">@{u.username}</div>
                           <button

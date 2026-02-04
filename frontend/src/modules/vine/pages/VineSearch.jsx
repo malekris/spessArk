@@ -76,8 +76,23 @@ export default function VineSearch() {
                       e.currentTarget.src = DEFAULT_AVATAR;
                     }}
                   />
-                  <div>
-                    <strong>{user.display_name || user.username}</strong>
+                  <div className="search-user-info">
+                    <strong className="search-user-name">
+                      <span>{user.display_name || user.username}</span>
+                      {Number(user.is_verified) === 1 && (
+                        <span className="verified">
+                          <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
+                            <path
+                              d="M20 6L9 17l-5-5"
+                              stroke="white"
+                              strokeWidth="3"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        </span>
+                      )}
+                    </strong>
                     <span>@{user.username}</span>
                   </div>
                 </div>
@@ -104,8 +119,23 @@ export default function VineSearch() {
               }}
             />
 
-            <div>
-              <strong>{user.display_name || user.username}</strong>
+            <div className="search-user-info">
+              <strong className="search-user-name">
+                <span>{user.display_name || user.username}</span>
+                {Number(user.is_verified) === 1 && (
+                  <span className="verified">
+                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
+                      <path
+                        d="M20 6L9 17l-5-5"
+                        stroke="white"
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </span>
+                )}
+              </strong>
               <span>@{user.username}</span>
             </div>
           </div>

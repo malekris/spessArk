@@ -35,6 +35,23 @@
 
 /* No text swap on hover for following state */
 
+.follow-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.verified {
+  background: #1d9bf0;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 6px rgba(29, 155, 240, 0.6);
+}
+
 /* ───── PC Reading Optimization ───── */
 @media (min-width: 769px) {
   /* Ensuring the text inside the row cards is black-green */

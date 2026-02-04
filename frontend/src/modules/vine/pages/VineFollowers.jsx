@@ -83,7 +83,22 @@ export default function VineFollowers() {
 
                 <div className="user-details">
                   <div className="name-container">
-                    <strong>{u.display_name || u.username}</strong>
+                    <strong className="follow-name">
+                      <span>{u.display_name || u.username}</span>
+                      {Number(u.is_verified) === 1 && (
+                        <span className="verified">
+                          <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
+                            <path
+                              d="M20 6L9 17l-5-5"
+                              stroke="white"
+                              strokeWidth="3"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        </span>
+                      )}
+                    </strong>
                     <span className="handle">@{u.username}</span>
                   </div>
                   {u.bio && <p className="row-bio">{u.bio}</p>}

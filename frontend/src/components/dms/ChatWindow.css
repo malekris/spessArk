@@ -28,6 +28,23 @@
   cursor: pointer;
 }
 
+.chat-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.verified {
+  background: #1d9bf0;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 6px rgba(29, 155, 240, 0.6);
+}
+
 .chat-avatar {
   width: 38px;
   height: 38px;

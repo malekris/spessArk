@@ -127,6 +127,28 @@
   font-size: 1.1rem;
 }
 
+.search-user-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.search-user-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.verified {
+  background: #1d9bf0;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 6px rgba(29, 155, 240, 0.6);
+}
+
 .search-user span {
   color: #6b7280;
   font-size: 0.9rem;

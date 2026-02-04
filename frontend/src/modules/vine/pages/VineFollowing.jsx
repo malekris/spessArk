@@ -86,7 +86,22 @@ export default function VineFollowing() {
 
                   <div className="user-details">
                     <div className="name-container">
-                      <strong>{resolvedName}</strong>
+                      <strong className="follow-name">
+                        <span>{resolvedName}</span>
+                        {Number(u.is_verified) === 1 && (
+                          <span className="verified">
+                            <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
+                              <path
+                                d="M20 6L9 17l-5-5"
+                                stroke="white"
+                                strokeWidth="3"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              />
+                            </svg>
+                          </span>
+                        )}
+                      </strong>
                       <span className="handle">@{u.username}</span>
                     </div>
                     {u.bio && <p className="row-bio">{u.bio}</p>}

@@ -122,6 +122,23 @@
   text-overflow: ellipsis;
 }
 
+.user-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.verified {
+  background: #1d9bf0;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 6px rgba(29, 155, 240, 0.6);
+}
+
 .user-info span {
   color: #4b5563; /* Darker grey for username legibility */
   font-size: 0.85rem;
@@ -197,7 +214,6 @@
   border-radius: 999px;
   font-weight: 600;
 }
-
 
 
 

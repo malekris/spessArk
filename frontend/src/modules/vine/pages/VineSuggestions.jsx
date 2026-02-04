@@ -79,7 +79,22 @@ export default function VineSuggestions() {
                 </div>
 
                 <div className="user-info">
-                  <strong>{u.display_name || u.username}</strong>
+                  <strong className="user-name">
+                    <span>{u.display_name || u.username}</span>
+                    {Number(u.is_verified) === 1 && (
+                      <span className="verified">
+                        <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
+                          <path
+                            d="M20 6L9 17l-5-5"
+                            stroke="white"
+                            strokeWidth="3"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      </span>
+                    )}
+                  </strong>
                   <span>@{u.username}</span>
                 </div>
               </div>

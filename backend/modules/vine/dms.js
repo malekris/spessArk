@@ -35,6 +35,7 @@ router.get("/conversations", authenticate, async (req, res) => {
         u.avatar_url,
         u.last_active_at,
         u.show_last_active,
+        u.is_verified,
 
         (
           SELECT content
@@ -134,7 +135,8 @@ router.get("/conversations/:id/messages", authenticate, async (req, res) => {
         m.created_at,
         m.is_read,
         u.username,
-        u.avatar_url
+        u.avatar_url,
+        u.is_verified
       FROM vine_messages m
       JOIN vine_users u ON m.sender_id = u.id
       WHERE m.conversation_id = ?
@@ -306,7 +308,8 @@ router.post("/send", authenticate, async (req, res) => {
         m.content,
         m.created_at,
         u.username,
-        u.avatar_url
+        u.avatar_url,
+        u.is_verified
       FROM vine_messages m
       JOIN vine_users u ON m.sender_id = u.id
       WHERE m.id = ?

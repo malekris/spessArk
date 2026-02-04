@@ -105,6 +105,10 @@ export default function ConversationList() {
               src={avatar}
               className="dm-avatar"
               alt=""
+              onClick={(e) => {
+                e.stopPropagation();
+                navigate(`/vine/profile/${c.username}`);
+              }}
               onError={(e) => {
                 e.currentTarget.src = DEFAULT_AVATAR;
               }}
@@ -114,7 +118,14 @@ export default function ConversationList() {
             <div className="dm-meta">
               <div className="dm-top">
                 <strong className="dm-username">
-                  <span>@{c.username}</span>
+                  <span
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigate(`/vine/profile/${c.username}`);
+                    }}
+                  >
+                    @{c.username}
+                  </span>
                   {Number(c.is_verified) === 1 && (
                     <span className="verified">
                       <svg viewBox="0 0 24 24" width="12" height="12" fill="none">

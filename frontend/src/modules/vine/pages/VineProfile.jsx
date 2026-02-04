@@ -1629,13 +1629,17 @@ export default function VineProfile() {
                                 src={comment.avatar_url || DEFAULT_AVATAR}
                                 className={`comment-avatar ${depth > 0 ? "small" : ""}`}
                                 alt=""
+                                onClick={() => navigate(`/vine/profile/${comment.username}`)}
                                 onError={(e) => {
                                   e.currentTarget.src = DEFAULT_AVATAR;
                                 }}
                               />
 
                               <div className="comment-body">
-                                <span className="comment-username">
+                                <span
+                                  className="comment-username"
+                                  onClick={() => navigate(`/vine/profile/${comment.username}`)}
+                                >
                                   <span>{comment.display_name || comment.username}</span>
                                   {Number(comment.is_verified) === 1 && (
                                     <span className="verified">

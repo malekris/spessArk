@@ -72,6 +72,10 @@ export default function VineSuggestions() {
                         : DEFAULT_AVATAR
                     }
                     alt={u.username}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigate(`/vine/profile/${u.username}`);
+                    }}
                     onError={(e) => {
                       e.currentTarget.src = DEFAULT_AVATAR;
                     }}
@@ -80,7 +84,14 @@ export default function VineSuggestions() {
 
                 <div className="user-info">
                   <strong className="user-name">
-                    <span>{u.display_name || u.username}</span>
+                    <span
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate(`/vine/profile/${u.username}`);
+                      }}
+                    >
+                      {u.display_name || u.username}
+                    </span>
                     {Number(u.is_verified) === 1 && (
                       <span className="verified">
                         <svg viewBox="0 0 24 24" width="12" height="12" fill="none">

@@ -72,13 +72,24 @@ export default function VineSearch() {
                   <img
                     src={avatarSrc}
                     alt={`${user.username} avatar`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigate(`/vine/profile/${user.username}`);
+                    }}
                     onError={(e) => {
                       e.currentTarget.src = DEFAULT_AVATAR;
                     }}
                   />
                   <div className="search-user-info">
                     <strong className="search-user-name">
-                      <span>{user.display_name || user.username}</span>
+                      <span
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate(`/vine/profile/${user.username}`);
+                        }}
+                      >
+                        {user.display_name || user.username}
+                      </span>
                       {Number(user.is_verified) === 1 && (
                         <span className="verified">
                           <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
@@ -114,6 +125,10 @@ export default function VineSearch() {
             <img
               src={avatarSrc}
               alt={`${user.username} avatar`}
+              onClick={(e) => {
+                e.stopPropagation();
+                navigate(`/vine/profile/${user.username}`);
+              }}
               onError={(e) => {
                 e.currentTarget.src = DEFAULT_AVATAR;
               }}
@@ -121,7 +136,14 @@ export default function VineSearch() {
 
             <div className="search-user-info">
               <strong className="search-user-name">
-                <span>{user.display_name || user.username}</span>
+                <span
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigate(`/vine/profile/${user.username}`);
+                  }}
+                >
+                  {user.display_name || user.username}
+                </span>
                 {Number(user.is_verified) === 1 && (
                   <span className="verified">
                     <svg viewBox="0 0 24 24" width="12" height="12" fill="none">

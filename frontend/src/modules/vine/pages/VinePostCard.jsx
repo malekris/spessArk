@@ -756,13 +756,17 @@ const token = localStorage.getItem("vine_token");
             src={comment.avatar_url || DEFAULT_AVATAR}
             className="comment-avatar"
             alt=""
+            onClick={() => navigate(`/vine/profile/${comment.username}`)}
             onError={(e) => {
               e.currentTarget.src = DEFAULT_AVATAR;
             }}
           />
 
 <div className="comment-meta-text">
-  <strong className="comment-username">
+  <strong
+    className="comment-username"
+    onClick={() => navigate(`/vine/profile/${comment.username}`)}
+  >
     {comment.display_name || comment.username}
 
     {comment.is_verified === 1 && (

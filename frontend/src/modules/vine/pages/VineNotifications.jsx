@@ -120,9 +120,23 @@ export default function VineNotifications() {
   >
     <div className="notif-avatar">
       {n.avatar_url ? (
-        <img src={n.avatar_url} alt={n.username} />
+        <img
+          src={n.avatar_url}
+          alt={n.username}
+          onClick={(e) => {
+            e.stopPropagation();
+            navigate(`/vine/profile/${n.username}`);
+          }}
+        />
       ) : (
-        <span>{(n.username || "U")[0].toUpperCase()}</span>
+        <span
+          onClick={(e) => {
+            e.stopPropagation();
+            navigate(`/vine/profile/${n.username}`);
+          }}
+        >
+          {(n.username || "U")[0].toUpperCase()}
+        </span>
       )}
     </div>
 
@@ -136,7 +150,14 @@ export default function VineNotifications() {
             navigate(`/vine/profile/${n.username}`);
           }}
         >
-          <span>{n.display_name || n.username}</span>
+          <span
+            onClick={(e) => {
+              e.stopPropagation();
+              navigate(`/vine/profile/${n.username}`);
+            }}
+          >
+            {n.display_name || n.username}
+          </span>
           {Number(n.is_verified) === 1 && (
             <span className="verified">
               <svg viewBox="0 0 24 24" width="12" height="12" fill="none">

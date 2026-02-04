@@ -395,6 +395,7 @@
   height: 28px;
   border-radius: 50%;
   object-fit: cover;
+  cursor: pointer;
 }
 
 .comment-meta-text {
@@ -406,6 +407,10 @@
 .comment-meta strong {
   color: #052e16;
   font-size: 0.95rem;
+}
+
+.comment-username {
+  cursor: pointer;
 }
 
 .comment-text {

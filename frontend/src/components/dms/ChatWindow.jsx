@@ -305,7 +305,13 @@ fetch(`${API}/api/dms/conversations/${conversationId}/read`, {
             />
 
             <div>
-              <strong className="chat-name">
+              <strong
+                className="chat-name"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigate(`/vine/profile/${partner.username}`);
+                }}
+              >
                 <span>{partner.display_name || partner.username}</span>
                 {Number(partner.is_verified) === 1 && (
                   <span className="verified">

@@ -462,16 +462,27 @@ export default function VineFeed() {
                     onClick={() => navigate(`/vine/feed?post=${p.id}`)}
                   >
                     <div className="trending-top">
-                      <img
-                        src={avatarSrc}
-                        alt={p.username}
-                        onError={(e) => {
-                          e.currentTarget.src = DEFAULT_AVATAR;
-                        }}
-                      />
+                          <img
+                            src={avatarSrc}
+                            alt={p.username}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigate(`/vine/profile/${p.username}`);
+                            }}
+                            onError={(e) => {
+                              e.currentTarget.src = DEFAULT_AVATAR;
+                            }}
+                          />
                       <div>
                         <div className="trending-name">
-                          <span>{p.display_name || p.username}</span>
+                          <span
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigate(`/vine/profile/${p.username}`);
+                            }}
+                          >
+                            {p.display_name || p.username}
+                          </span>
                           {Number(p.is_verified) === 1 && (
                             <span className="verified">
                               <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
@@ -523,12 +534,23 @@ export default function VineFeed() {
                           <img
                             src={avatarSrc}
                             alt={u.username}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigate(`/vine/profile/${u.username}`);
+                            }}
                             onError={(e) => {
                               e.currentTarget.src = DEFAULT_AVATAR;
                             }}
                           />
                           <div className="suggest-name">
-                            <span>{u.display_name || u.username}</span>
+                            <span
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigate(`/vine/profile/${u.username}`);
+                              }}
+                            >
+                              {u.display_name || u.username}
+                            </span>
                             {Number(u.is_verified) === 1 && (
                               <span className="verified">
                                 <svg viewBox="0 0 24 24" width="12" height="12" fill="none">

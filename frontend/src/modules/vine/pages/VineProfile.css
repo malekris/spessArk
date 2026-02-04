@@ -975,6 +975,7 @@
   border-radius: 50%;
   object-fit: cover;
   background: #cfeee3;
+  cursor: pointer;
 }
 
 .photo-comments-panel .comment-body {
@@ -989,6 +990,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  cursor: pointer;
 }
 
 .photo-comments-panel .verified {

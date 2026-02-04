@@ -75,6 +75,10 @@ export default function VineFollowers() {
                   <img
                     src={u.avatar_url || DEFAULT_AVATAR}
                     alt={u.username}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigate(`/vine/profile/${u.username}`);
+                    }}
                     onError={(e) => {
                       e.currentTarget.src = DEFAULT_AVATAR;
                     }}
@@ -84,7 +88,14 @@ export default function VineFollowers() {
                 <div className="user-details">
                   <div className="name-container">
                     <strong className="follow-name">
-                      <span>{u.display_name || u.username}</span>
+                      <span
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate(`/vine/profile/${u.username}`);
+                        }}
+                      >
+                        {u.display_name || u.username}
+                      </span>
                       {Number(u.is_verified) === 1 && (
                         <span className="verified">
                           <svg viewBox="0 0 24 24" width="12" height="12" fill="none">

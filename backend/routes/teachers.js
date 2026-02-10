@@ -3,7 +3,7 @@ import express from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
-import { sendWelcomeEmail } from "../utils/email.js";
+import { sendWelcomeEmail, sendTeacherResetCodeEmail } from "../utils/email.js";
 import { pool } from "../server.js";
 import authTeacher from "../middleware/authTeacher.js";
 
@@ -151,6 +151,164 @@ router.post("/login", async (req, res) => {
   } catch (err) {
     console.error("❌ Teacher login error:", err);
     res.status(500).json({ message: "Server error" });
+  }
+});
+
+/* =======================
+   FORGOT PASSWORD (CODE)
+======================= */
+router.post("/forgot-password", async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ message: "Email is required" });
+    }
+
+    const [rows] = await pool.query(
+      "SELECT id FROM teachers WHERE email = ?",
+      [email]
+    );
+
+    // Always respond success to prevent email enumeration
+    if (!rows.length) {
+      return res.json({ message: "If that email exists, a code was sent." });
+    }
+
+    const code = String(Math.floor(1000 + Math.random() * 9000));
+    const expires = new Date(Date.now() + 15 * 60 * 1000);
+
+    await pool.query(
+      "UPDATE teachers SET reset_token = ?, reset_expires = ? WHERE id = ?",
+      [code, expires, rows[0].id]
+    );
+
+    await sendTeacherResetCodeEmail(email, code);
+    return res.json({ message: "If that email exists, a code was sent." });
+  } catch (err) {
+    console.error("❌ Teacher forgot password error:", err);
+    return res.status(500).json({ message: "Failed to send reset code" });
+  }
+});
+
+/* =======================
+   VERIFY RESET CODE
+======================= */
+router.post("/verify-reset-code", async (req, res) => {
+  try {
+    const { email, code } = req.body;
+    if (!email || !code) {
+      return res.status(400).json({ message: "Email and code are required" });
+    }
+
+    const [rows] = await pool.query(
+      "SELECT id, name, email, reset_token, reset_expires FROM teachers WHERE email = ?",
+      [email]
+    );
+
+    const teacher = rows[0];
+    if (!teacher || !teacher.reset_token || !teacher.reset_expires) {
+      return res.status(400).json({ message: "Invalid or expired code" });
+    }
+
+    const expired = new Date(teacher.reset_expires).getTime() < Date.now();
+    if (expired || String(teacher.reset_token) !== String(code)) {
+      return res.status(400).json({ message: "Invalid or expired code" });
+    }
+
+    const token = jwt.sign(
+      {
+        id: teacher.id,
+        email: teacher.email,
+        role: "teacher",
+        resetOnly: true,
+      },
+      process.env.JWT_SECRET || "dev_secret",
+      { expiresIn: "20m" }
+    );
+
+    return res.json({
+      token,
+      teacher: {
+        id: teacher.id,
+        name: teacher.name,
+        email: teacher.email,
+      },
+      resetOnly: true,
+    });
+  } catch (err) {
+    console.error("❌ Verify reset code error:", err);
+    return res.status(500).json({ message: "Failed to verify code" });
+  }
+});
+
+/* =======================
+   RESET PASSWORD (RESET TOKEN)
+======================= */
+router.post("/reset-password", authTeacher, async (req, res) => {
+  try {
+    if (!req.teacher?.resetOnly) {
+      return res.status(403).json({ message: "Reset token required" });
+    }
+
+    const { newPassword } = req.body;
+    if (!newPassword) {
+      return res.status(400).json({ message: "New password is required" });
+    }
+
+    const hashed = await bcrypt.hash(newPassword, 10);
+    await pool.query(
+      "UPDATE teachers SET password_hash = ?, reset_token = NULL, reset_expires = NULL WHERE id = ?",
+      [hashed, req.teacher.id]
+    );
+
+    return res.json({ message: "Password updated successfully" });
+  } catch (err) {
+    console.error("❌ Reset password error:", err);
+    return res.status(500).json({ message: "Failed to reset password" });
+  }
+});
+
+/* =======================
+   CHANGE PASSWORD (TEACHER)
+======================= */
+router.post("/change-password", authTeacher, async (req, res) => {
+  try {
+    const teacherId = req.teacher.id;
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ message: "Missing fields" });
+    }
+
+    const [rows] = await pool.query(
+      "SELECT password_hash FROM teachers WHERE id = ?",
+      [teacherId]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ message: "Teacher not found" });
+    }
+
+    const valid = await bcrypt.compare(
+      currentPassword,
+      rows[0].password_hash
+    );
+
+    if (!valid) {
+      return res.status(401).json({ message: "Incorrect current password" });
+    }
+
+    const hashed = await bcrypt.hash(newPassword, 10);
+
+    await pool.query(
+      "UPDATE teachers SET password_hash = ? WHERE id = ?",
+      [hashed, teacherId]
+    );
+
+    return res.json({ message: "Password updated successfully" });
+  } catch (err) {
+    console.error("❌ Change password error:", err);
+    return res.status(500).json({ message: "Server error" });
   }
 });
 // GET teacher assigned subjects (classes + streams)

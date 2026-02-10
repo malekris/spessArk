@@ -264,6 +264,21 @@
   cursor: pointer;
   font-size: 0.85rem;
 }
+
+.link-btn {
+  margin-top: 12px;
+  background: transparent;
+  border: none;
+  color: #a7f3d0;
+  cursor: pointer;
+  font-size: 0.85rem;
+  text-decoration: underline;
+}
+
+.link-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
 .login-success {
   background: rgba(76, 175, 80, 0.2);
   border: 1px solid rgba(76, 175, 80, 0.4);

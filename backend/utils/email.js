@@ -210,7 +210,7 @@ export async function sendVineResetCodeEmail(email, code) {
             ${code}
           </div>
           <p style="font-size:13px;color:#777;">
-            This code expires in 15 minutes. If you didn’t request this, you can ignore this email.
+            This code expires in 15 minutes. If you didn't request this, you can ignore this email.
           </p>
         </div>
       </div>
@@ -246,4 +246,31 @@ export async function sendVineVerificationCodeEmail(email, code) {
 
   await sendWithRetry(payload, 2);
   console.log("📧 Vine verification code sent");
+}
+
+export async function sendTeacherResetCodeEmail(email, code) {
+  console.log("📧 Sending TEACHER reset code to:", email);
+
+  const payload = {
+    from: "SPESS ARK <no-reply@stphillipsequatorial.com>",
+    to: email,
+    subject: "Your SPESS ARK reset code",
+    html: `
+      <div style="font-family: Arial; background:#0f172a; padding:30px;">
+        <div style="max-width:600px; margin:auto; background:white; padding:32px; border-radius:18px;">
+          <h2 style="color:#0f172a;">Reset your Teacher password</h2>
+          <p>Use this 4-digit code to reset your password:</p>
+          <div style="font-size:28px;font-weight:bold;letter-spacing:6px;color:#111827;margin:18px 0;">
+            ${code}
+          </div>
+          <p style="font-size:13px;color:#777;">
+            This code expires in 15 minutes. If you didn’t request this, you can ignore this email.
+          </p>
+        </div>
+      </div>
+    `,
+  };
+
+  await sendWithRetry(payload, 2);
+  console.log("📧 Teacher reset code sent");
 }

@@ -131,6 +131,14 @@ function TeacherLogin() {
             />
           </div>
 
+          <button
+            type="button"
+            className="link-btn"
+            onClick={() => navigate("/ark/teacher-forgot")}
+          >
+            Forgot password?
+          </button>
+
           <button type="submit" className="teacher-btn" disabled={loading}>
             {loading ? "Authenticating..." : "Sign in as Teacher"}
           </button>

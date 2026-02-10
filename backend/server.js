@@ -1343,7 +1343,7 @@ app.post("/api/teacher/change-password", authTeacher, async (req, res) => {
     }
 
     const [rows] = await pool.query(
-      "SELECT password FROM teachers WHERE id = ?",
+      "SELECT password_hash FROM teachers WHERE id = ?",
       [teacherId]
     );
 
@@ -1353,7 +1353,7 @@ app.post("/api/teacher/change-password", authTeacher, async (req, res) => {
 
     const valid = await bcrypt.compare(
       currentPassword,
-      rows[0].password
+      rows[0].password_hash
     );
 
     if (!valid) {
@@ -1363,7 +1363,7 @@ app.post("/api/teacher/change-password", authTeacher, async (req, res) => {
     const hashed = await bcrypt.hash(newPassword, 10);
 
     await pool.query(
-      "UPDATE teachers SET password = ? WHERE id = ?",
+      "UPDATE teachers SET password_hash = ? WHERE id = ?",
       [hashed, teacherId]
     );
 

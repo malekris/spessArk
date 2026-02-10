@@ -4,6 +4,7 @@ import { socket } from "./socket";
 import { Routes, Route } from "react-router-dom";
 import LoginPage from "./pages/LoginPage";
 import TeacherLogin from "./pages/TeacherLogin";
+import TeacherForgotPassword from "./pages/TeacherForgotPassword";
 import TeacherDashboard from "./pages/TeacherDashboard";
 import AdminDashboard from "./pages/AdminDashboard";
 import TeacherSignup from "./pages/TeacherSignup";
@@ -91,6 +92,15 @@ function App() {
       element={
         <ArkLayout>
           <TeacherSignup />
+        </ArkLayout>
+      }
+    />
+
+    <Route
+      path="/ark/teacher-forgot"
+      element={
+        <ArkLayout>
+          <TeacherForgotPassword />
         </ArkLayout>
       }
     />

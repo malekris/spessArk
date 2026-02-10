@@ -77,6 +77,7 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
   // Password modal
   // ----------------------------
   const [showChangePassword, setShowChangePassword] = useState(false);
+  const [passwordResetMode, setPasswordResetMode] = useState(false);
   const [passwordForm, setPasswordForm] = useState({ current: "", next: "", confirm: "" });
   const [passwordError, setPasswordError] = useState("");
   const [passwordSaving, setPasswordSaving] = useState(false);
@@ -147,6 +148,15 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
 
   useEffect(() => {
     document.title = "Teacher Dashboard | SPESS ARK";
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const shouldReset = params.get("reset") === "1" || sessionStorage.getItem("teacherResetMode") === "1";
+    if (shouldReset) {
+      setPasswordResetMode(true);
+      setShowChangePassword(true);
+    }
   }, []);
 
   useEffect(() => {
@@ -320,7 +330,12 @@ useEffect(() => {
   const handleChangePassword = async () => {
     setPasswordError("");
 
-    if (!passwordForm.current || !passwordForm.next || !passwordForm.confirm) {
+    if (!passwordResetMode && !passwordForm.current) {
+      setPasswordError("All fields are required.");
+      return;
+    }
+
+    if (!passwordForm.next || !passwordForm.confirm) {
       setPasswordError("All fields are required.");
       return;
     }
@@ -339,13 +354,21 @@ useEffect(() => {
       setPasswordSaving(true);
       const token = localStorage.getItem("teacherToken");
 
-      const res = await fetch(`${API_BASE}/api/teachers/change-password`, {
+      const endpoint = passwordResetMode
+        ? "/api/teachers/reset-password"
+        : "/api/teachers/change-password";
+
+      const payload = passwordResetMode
+        ? { newPassword: passwordForm.next }
+        : { currentPassword: passwordForm.current, newPassword: passwordForm.next };
+
+      const res = await fetch(`${API_BASE}${endpoint}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ currentPassword: passwordForm.current, newPassword: passwordForm.next }),
+        body: JSON.stringify(payload),
       });
 
       const data = await res.json();
@@ -353,6 +376,11 @@ useEffect(() => {
 
       alert("Password updated successfully.");
       setShowChangePassword(false);
+      if (passwordResetMode) {
+        sessionStorage.removeItem("teacherResetMode");
+        setPasswordResetMode(false);
+        navigate("/ark/teacher", { replace: true });
+      }
       setPasswordForm({ current: "", next: "", confirm: "" });
     } catch (err) {
       setPasswordError(err.message);
@@ -899,10 +927,18 @@ useEffect(() => {
 
               {passwordError && <div className="panel-alert panel-alert-error">{passwordError}</div>}
 
-              <div className="form-row">
-                <label>Current password</label>
-                <input type="password" value={passwordForm.current} onChange={(e) => setPasswordForm((p) => ({ ...p, current: e.target.value }))} />
-              </div>
+              {passwordResetMode && (
+                <div className="panel-alert">
+                  Enter a new password to complete the reset.
+                </div>
+              )}
+
+              {!passwordResetMode && (
+                <div className="form-row">
+                  <label>Current password</label>
+                  <input type="password" value={passwordForm.current} onChange={(e) => setPasswordForm((p) => ({ ...p, current: e.target.value }))} />
+                </div>
+              )}
 
               <div className="form-row">
                 <label>New password</label>
@@ -915,7 +951,16 @@ useEffect(() => {
               </div>
 
               <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.6rem" }}>
-                <button className="ghost-btn" onClick={() => { setShowChangePassword(false); setPasswordError(""); setPasswordForm({ current: "", next: "", confirm: "" }); }}>
+                <button className="ghost-btn" onClick={() => {
+                  setShowChangePassword(false);
+                  setPasswordError("");
+                  setPasswordForm({ current: "", next: "", confirm: "" });
+                  if (passwordResetMode) {
+                    sessionStorage.removeItem("teacherResetMode");
+                    setPasswordResetMode(false);
+                    navigate("/ark/teacher", { replace: true });
+                  }
+                }}>
                   Cancel
                 </button>
 

@@ -125,6 +125,15 @@ function TeacherForgotPassword() {
             <button type="submit" className="teacher-btn" disabled={loading}>
               {loading ? "Sending..." : "Send Code"}
             </button>
+
+            <button
+              type="button"
+              className="auth-black-btn"
+              onClick={() => navigate("/ark/teacher-login")}
+              disabled={loading}
+            >
+              ← Back to Login
+            </button>
           </form>
         )}
 
@@ -165,6 +174,15 @@ function TeacherForgotPassword() {
               disabled={loading}
             >
               Resend code
+            </button>
+
+            <button
+              type="button"
+              className="auth-black-btn"
+              onClick={() => navigate("/ark/teacher-login")}
+              disabled={loading}
+            >
+              ← Back to Login
             </button>
           </form>
         )}

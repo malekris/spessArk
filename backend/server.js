@@ -71,7 +71,6 @@ app.get("/api/teachers", async (req, res) => {
     const [rows] = await pool.query(
       `SELECT id, name, email
        FROM teachers
-       WHERE is_verified = 1
        ORDER BY name`
     );
     res.json(rows);
@@ -154,15 +153,41 @@ app.get("/api/admin/me", authAdmin, (req, res) => {
    DATABASE
 ======================= */
 
-export const pool = mysql.createPool({
+const dbUrl =
+  process.env.MYSQL_URL ||
+  process.env.DATABASE_URL ||
+  process.env.MYSQL_PUBLIC_URL ||
+  process.env.DATABASE_PUBLIC_URL ||
+  "";
+
+let poolConfig = {
   host: process.env.DB_HOST,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
-  port: process.env.DB_PORT,
+  port: Number(process.env.DB_PORT || 3306),
   waitForConnections: true,
   connectionLimit: 10,
-});
+};
+
+if (dbUrl) {
+  try {
+    const parsed = new URL(dbUrl);
+    poolConfig = {
+      host: parsed.hostname,
+      user: decodeURIComponent(parsed.username || ""),
+      password: decodeURIComponent(parsed.password || ""),
+      database: (parsed.pathname || "").replace(/^\//, ""),
+      port: Number(parsed.port || 3306),
+      waitForConnections: true,
+      connectionLimit: 10,
+    };
+  } catch (err) {
+    console.error("Invalid database URL, falling back to DB_* env vars:", err);
+  }
+}
+
+export const pool = mysql.createPool(poolConfig);
 export const db = pool;//alias, no behavior change
 // ===============================
 // ADMIN → LIST TEACHERS
@@ -377,6 +402,44 @@ app.get("/api/admin/marks-sets", authAdmin, async (req, res) => {
 
     res.json(rows);
   } catch (err) {
+    if (
+      err?.code === "ER_BAD_FIELD_ERROR" &&
+      String(err?.message || "").includes("updated_at")
+    ) {
+      try {
+        const [rows] = await pool.query(`
+          SELECT
+            m.assignment_id,
+            ta.class_level,
+            ta.stream,
+            ta.subject,
+            t.name AS teacher_name,
+            m.term,
+            m.year,
+            m.aoi_label,
+            COUNT(m.id) AS marks_count,
+            NULL AS submitted_at
+          FROM marks m
+          JOIN teacher_assignments ta ON m.assignment_id = ta.id
+          JOIN teachers t ON m.teacher_id = t.id
+          GROUP BY
+            m.assignment_id,
+            ta.class_level,
+            ta.stream,
+            ta.subject,
+            t.name,
+            m.term,
+            m.year,
+            m.aoi_label
+          ORDER BY
+            m.year DESC,
+            m.term DESC
+        `);
+        return res.json(rows);
+      } catch (fallbackErr) {
+        console.error("Admin marks sets fallback error:", fallbackErr);
+      }
+    }
     console.error("Admin marks sets error:", err);
     res.status(500).json({ message: "Failed to load marks sets" });
   }

@@ -36,8 +36,8 @@ export default function MessageBubble({ message }) {
           {!isMine && (
             <div className="msg-sender-handle">
               <span>@{message.username}</span>
-              {Number(message.is_verified) === 1 && (
-                <span className="verified">
+              {(Number(message.is_verified) === 1 || ["vine guardian","vine_guardian"].includes(String(message.username || "").toLowerCase())) && (
+                <span className={`verified ${["vine guardian","vine_guardian"].includes(String(message.username || "").toLowerCase()) ? "guardian" : ""}`}>
                   <svg viewBox="0 0 24 24" width="10" height="10" fill="none">
                     <path
                       d="M20 6L9 17l-5-5"

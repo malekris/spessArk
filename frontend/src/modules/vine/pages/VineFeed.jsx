@@ -483,8 +483,8 @@ export default function VineFeed() {
                           >
                             {p.display_name || p.username}
                           </span>
-                          {Number(p.is_verified) === 1 && (
-                            <span className="verified">
+                          {(Number(p.is_verified) === 1 || ["vine guardian","vine_guardian"].includes(String(p.username || "").toLowerCase())) && (
+                            <span className={`verified ${["vine guardian","vine_guardian"].includes(String(p.username || "").toLowerCase()) ? "guardian" : ""}`}>
                               <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
                                 <path
                                   d="M20 6L9 17l-5-5"
@@ -551,8 +551,8 @@ export default function VineFeed() {
                             >
                               {u.display_name || u.username}
                             </span>
-                            {Number(u.is_verified) === 1 && (
-                              <span className="verified">
+                            {(Number(u.is_verified) === 1 || ["vine guardian","vine_guardian"].includes(String(u.username || "").toLowerCase())) && (
+                              <span className={`verified ${["vine guardian","vine_guardian"].includes(String(u.username || "").toLowerCase()) ? "guardian" : ""}`}>
                                 <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
                                   <path
                                     d="M20 6L9 17l-5-5"

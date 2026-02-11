@@ -126,8 +126,8 @@ export default function ConversationList() {
                   >
                     @{c.username}
                   </span>
-                  {Number(c.is_verified) === 1 && (
-                    <span className="verified">
+                  {(Number(c.is_verified) === 1 || ["vine guardian","vine_guardian"].includes(String(c.username || "").toLowerCase())) && (
+                    <span className={`verified ${["vine guardian","vine_guardian"].includes(String(c.username || "").toLowerCase()) ? "guardian" : ""}`}>
                       <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
                         <path
                           d="M20 6L9 17l-5-5"

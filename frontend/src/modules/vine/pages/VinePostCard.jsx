@@ -87,6 +87,13 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
 
   const navigate = useNavigate();
   const token = localStorage.getItem("vine_token");
+  const currentUser = (() => {
+    try {
+      return JSON.parse(localStorage.getItem("vine_user") || "{}");
+    } catch {
+      return {};
+    }
+  })();
   const lastTapRef = useRef(0);
   const postRef = useRef(null);
   // Current user ID from JWT
@@ -101,6 +108,11 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
   }
 
   const isPostAuthor = Number(current_user_id) === Number(post.user_id);
+  const isModerator =
+    Number(currentUser?.is_admin) === 1 ||
+    String(currentUser?.role || "").toLowerCase() === "moderator" ||
+    ["vine guardian","vine_guardian"].includes(String(currentUser?.username || "").toLowerCase());
+  const isGuardianPost = ["vine guardian","vine_guardian"].includes(String(post.username || "").toLowerCase());
 
   // ── State ───────────────────────────────────────
   const [postLikes, setPostLikes] = useState(post.likes || 0);
@@ -430,8 +442,8 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
 </strong>
 
 
-              {post.is_verified === 1 && (
-                <span className="verified">
+              {(post.is_verified === 1 || isGuardianPost) && (
+                <span className={`verified ${isGuardianPost ? "guardian" : ""}`}>
                   <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
                     <path
                       d="M20 6L9 17l-5-5"
@@ -468,7 +480,7 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
 )}
 
 
-              {isPostAuthor && (
+              {(isPostAuthor || isModerator) && (
                 <button className="delete-post-btn" onClick={deleteMainPost}>
                   🗑️
                 </button>
@@ -680,6 +692,7 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
     onDelete={deleteComment}
     isPostOwner={isPostAuthor}
     currentUserId={current_user_id}
+    isModerator={isModerator}
   />
 ))}
 
@@ -704,7 +717,7 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
 //  NESTED COMMENT COMPONENT
 // ────────────────────────────────────────────────
 
-function Comment({ comment, commentLikes, commentUserLiked, setCommentLikes, setCommentUserLiked, onReply, onDelete, isPostOwner, currentUserId }) {
+function Comment({ comment, commentLikes, commentUserLiked, setCommentLikes, setCommentUserLiked, onReply, onDelete, isPostOwner, currentUserId, isModerator }) {
 
 const token = localStorage.getItem("vine_token");
   const navigate = useNavigate();
@@ -716,7 +729,11 @@ const token = localStorage.getItem("vine_token");
   const [replying, setReplying] = useState(false);
   const [replyText, setReplyText] = useState("");
 
-  const canDelete = isPostOwner || Number(currentUserId) === Number(comment.user_id);
+  const canDelete =
+    isPostOwner ||
+    Number(currentUserId) === Number(comment.user_id) ||
+    isModerator;
+  const isGuardianComment = ["vine guardian","vine_guardian"].includes(String(comment.username || "").toLowerCase());
 
   useEffect(() => {
     const q = mentionAnchor?.query;
@@ -769,8 +786,8 @@ const token = localStorage.getItem("vine_token");
   >
     {comment.display_name || comment.username}
 
-    {comment.is_verified === 1 && (
-      <span className="verified">
+    {(comment.is_verified === 1 || isGuardianComment) && (
+      <span className={`verified ${isGuardianComment ? "guardian" : ""}`}>
         <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
           <path
             d="M20 6L9 17l-5-5"
@@ -911,6 +928,7 @@ className={`mini-btn ${
                   onDelete={onDelete}
                   isPostOwner={isPostOwner}
                   currentUserId={currentUserId}
+                  isModerator={isModerator}
                 />
               ))}
                   </div>

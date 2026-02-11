@@ -156,3 +156,8 @@ body {
 .theme-dark img {
   filter: none;
 }
+
+.verified.guardian {
+  background: #dc2626 !important;
+  box-shadow: 0 0 8px rgba(220, 38, 38, 0.65) !important;
+}

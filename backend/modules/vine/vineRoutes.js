@@ -44,6 +44,13 @@ const isMutedBy = async (muterId, mutedId) => {
   return isUserMuted(muterId, mutedId);
 };
 
+const isModeratorAccount = (user) => {
+  if (!user) return false;
+  if (Number(user.is_admin) === 1) return true;
+  if (String(user.role || "").toLowerCase() === "moderator") return true;
+  return ["vine guardian","vine_guardian"].includes(String(user.username || "").toLowerCase());
+};
+
 const isHeicFile = (file) => {
   const name = file?.originalname || "";
   const type = file?.mimetype || "";
@@ -243,7 +250,13 @@ router.post("/auth/login", async (req, res) => {
       }
   
       const token = jwt.sign(
-        { id: user.id, username: user.username, is_admin: user.is_admin },
+        {
+          id: user.id,
+          username: user.username,
+          is_admin: user.is_admin,
+          role: user.role || "user",
+          badge_type: user.badge_type || null,
+        },
         process.env.JWT_SECRET,
         { expiresIn: "7d" }
       );
@@ -254,7 +267,9 @@ router.post("/auth/login", async (req, res) => {
           id: user.id,
           username: user.username,
           display_name: user.display_name,
-          is_admin: user.is_admin
+          is_admin: user.is_admin,
+          role: user.role || "user",
+          badge_type: user.badge_type || null,
         }
       });
   
@@ -1658,15 +1673,15 @@ router.post("/posts/:id/revine", authMiddleware, async (req, res) => {
   }
 });
 
-// DELETE a comment or reply (Only the owner of the main POST can do this)
+// DELETE a comment or reply (post owner, comment author, or moderator)
 router.delete("/comments/:id", requireVineAuth, async (req, res) => {
   const commentId = req.params.id;
   const requesterId = req.user.id; // From your requireVineAuth middleware
 
   try {
-    // 1. Find the comment and get the user_id of the person who owns the POST it belongs to
+    // 1. Find comment author and post owner
     const [rows] = await db.query(`
-      SELECT p.user_id AS post_owner_id 
+      SELECT c.user_id AS comment_owner_id, p.user_id AS post_owner_id
       FROM vine_comments c
       JOIN vine_posts p ON c.post_id = p.id 
       WHERE c.id = ?
@@ -1676,14 +1691,18 @@ router.delete("/comments/:id", requireVineAuth, async (req, res) => {
       return res.status(404).json({ message: "Comment not found" });
     }
 
-    // 2. Check if the requester is the one who created the post
-    if (rows[0].post_owner_id !== requesterId) {
-      return res.status(403).json({ message: "Only the post owner can delete comments" });
+    const isModerator = isModeratorAccount(req.user);
+    const canDelete =
+      Number(rows[0].post_owner_id) === Number(requesterId) ||
+      Number(rows[0].comment_owner_id) === Number(requesterId) ||
+      isModerator;
+
+    if (!canDelete) {
+      return res.status(403).json({ message: "Not allowed" });
     }
 
-    // 3. Delete the comment
-    // Note: If you have nested replies, you should have 'ON DELETE CASCADE' 
-    // in your DB schema for parent_comment_id so they get removed too.
+    // 3. Delete replies + comment
+    await db.query("DELETE FROM vine_comments WHERE parent_comment_id = ?", [commentId]);
     await db.query("DELETE FROM vine_comments WHERE id = ?", [commentId]);
 
     res.json({ success: true, message: "Comment deleted successfully" });
@@ -1708,10 +1727,11 @@ router.delete("/posts/:id", requireVineAuth, async (req, res) => {
       return res.status(404).json({ message: "Post not found" });
     }
 
-    if (post.user_id !== userId) {
+    const isModerator = isModeratorAccount(req.user);
+    if (Number(post.user_id) !== Number(userId) && !isModerator) {
       return res
         .status(403)
-        .json({ message: "You can only delete your own posts" });
+        .json({ message: "Not allowed" });
     }
 
     // 2️⃣ Delete images from Cloudinary (if any)
@@ -2442,14 +2462,19 @@ router.get("/users/me/mutes", authenticate, async (req, res) => {
     res.status(500).json([]);
   }
 });
-// 🗑️ Delete comment or reply (author only)
+// 🗑️ Delete comment or reply (author, post owner, or moderator)
 router.delete("/comments/:id", requireVineAuth, async (req, res) => {
   try {
     const commentId = req.params.id;
     const userId = req.user.id;
 
     const [[comment]] = await db.query(
-      "SELECT user_id FROM vine_comments WHERE id = ?",
+      `
+      SELECT c.user_id, p.user_id AS post_owner_id
+      FROM vine_comments c
+      JOIN vine_posts p ON p.id = c.post_id
+      WHERE c.id = ?
+      `,
       [commentId]
     );
 
@@ -2457,7 +2482,13 @@ router.delete("/comments/:id", requireVineAuth, async (req, res) => {
       return res.status(404).json({ message: "Comment not found" });
     }
 
-    if (comment.user_id !== userId) {
+    const isModerator = isModeratorAccount(req.user);
+    const canDelete =
+      Number(comment.user_id) === Number(userId) ||
+      Number(comment.post_owner_id) === Number(userId) ||
+      isModerator;
+
+    if (!canDelete) {
       return res.status(403).json({ message: "Not allowed" });
     }
 

@@ -675,9 +675,11 @@ currentY += RHYTHM * 2;
   // ✅ ADD FOOTER AFTER ALL CONTENT IS DONE
 addFooter(doc);
 
-// Open PDF in new tab
-const blobUrl = doc.output("bloburl");
-window.open(blobUrl, "_blank");
+const filename = `ReportCard_Term${meta.term}_${meta.year}_${String(meta.class_level || "Class")}_${String(meta.stream || "Stream")}.pdf`
+  .replace(/\s+/g, "_")
+  .replace(/[^a-zA-Z0-9_.-]/g, "");
+const title = `Report Card - Term ${meta.term} ${meta.year} - ${meta.class_level || "Class"} ${meta.stream || ""}`.trim();
+openNamedPdfPreview(doc, filename, title);
 
   
   
@@ -685,6 +687,49 @@ window.open(blobUrl, "_blank");
 // Browser PDF viewer already has a download button
 
 }
+
+function openNamedPdfPreview(doc, filename, title) {
+  const blob = doc.output("blob");
+  const blobUrl = URL.createObjectURL(blob);
+  const preview = window.open("", "_blank");
+
+  if (!preview) {
+    window.open(blobUrl, "_blank");
+    return;
+  }
+
+  preview.document.write(`
+    <!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>${title}</title>
+        <style>
+          body { margin: 0; font-family: Arial, sans-serif; background: #0f172a; color: #e2e8f0; }
+          .bar {
+            height: 48px; display: flex; align-items: center; justify-content: space-between;
+            padding: 0 12px; border-bottom: 1px solid #334155; background: #111827;
+          }
+          .title { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 70vw; }
+          .btn {
+            text-decoration: none; background: #2563eb; color: #fff; padding: 8px 12px;
+            border-radius: 8px; font-size: 12px; font-weight: 700;
+          }
+          iframe { width: 100vw; height: calc(100vh - 48px); border: 0; display: block; background: #fff; }
+        </style>
+      </head>
+      <body>
+        <div class="bar">
+          <div class="title">${title}</div>
+          <a class="btn" href="${blobUrl}" download="${filename}">Download PDF</a>
+        </div>
+        <iframe src="${blobUrl}" title="${title}"></iframe>
+      </body>
+    </html>
+  `);
+  preview.document.close();
+}
+
 function addFooter(doc) {
   const pageCount = doc.getNumberOfPages();
   const pageWidth = doc.internal.pageSize.getWidth();

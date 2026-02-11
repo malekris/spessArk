@@ -277,10 +277,10 @@ autoTable(doc, {
 
   head: [[
     "Subject",
-    "AOI 1",
-    "AOI 2",
-    "AOI 3",
-    "Average",
+    "A1",
+    "A2",
+    "A3",
+    "AV",
     "Remark",
     "Teacher",
   ]],
@@ -297,8 +297,8 @@ autoTable(doc, {
   },
 
   headStyles: {
-    fillColor: [39, 55, 78],
-    textColor: 255,
+    fillColor: [227, 235, 243],
+    textColor: [31, 41, 55],
     fontStyle: "bold",
     fontSize: 9,
     cellPadding: 2,
@@ -436,8 +436,8 @@ autoTable(doc, {
   },
 
   headStyles: {
-    fillColor: [30, 41, 59],
-    textColor: 255,
+    fillColor: [227, 235, 243],
+    textColor: [31, 41, 55],
     fontStyle: "bold",
   },
 
@@ -474,8 +474,8 @@ autoTable(doc, {
   },
 
   headStyles: {
-    fillColor: [30, 41, 59],
-    textColor: 255,
+    fillColor: [227, 235, 243],
+    textColor: [31, 41, 55],
     fontStyle: "bold",
   },
 
@@ -518,8 +518,8 @@ autoTable(doc, {
   },
 
   headStyles: {
-    fillColor: [39, 55, 78],
-    textColor: 255,
+    fillColor: [227, 235, 243],
+    textColor: [31, 41, 55],
     fontStyle: "bold",
   },
 

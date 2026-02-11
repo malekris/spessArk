@@ -357,26 +357,6 @@ currentY = CONTENT_START_Y;
 // ✅ ALWAYS define afterTableY immediately after subject table
 const afterTableY = doc.lastAutoTable.finalY + RHYTHM;
 
-  /* ===========================
-   STUDENT AVERAGES (FOR RANKING)
-=========================== */
-const studentAverages = Object.values(students).map((s) => {
-  const valid = s.subjects
-    .map(x => x.average)
-    .filter(a => a !== null);
-
-  const avg =
-    valid.length > 0
-      ? valid.reduce((a, b) => a + b, 0) / valid.length
-      : 0;
-
-  return {
-    id: s.info.student_id,
-    stream: (s.info.stream || "").trim().toLowerCase(),
-    average: Number(avg.toFixed(2)),
-  };
-});
-    
     /* ===========================
        OVERALL AVERAGE
     ============================ */
@@ -410,33 +390,19 @@ const classTeacherComment = pickComment(
       /* ===========================
    SUMMARY LINE (ONE ROW)
     =========================== */
-   // ---------- POSITION CALCULATION (SAFE) ----------
-
-   const classRanked = [...studentAverages].sort(
-    (a, b) => b.average - a.average
-  );
-  
-  const classPosition =
-    classRanked.findIndex(
-      (s) => s.id === student.info.student_id
-    ) + 1;
-  
-  const classTotal = classRanked.length;
-  
-  const currentStream = (student.info.stream || "")
-  .trim()
-  .toLowerCase();
-
-  const streamRanked = studentAverages
-  .filter((s) => s.stream === currentStream)
-  .sort((a, b) => b.average - a.average);
-
-const streamPosition =
-  streamRanked.findIndex(
-    (s) => s.id === student.info.student_id
-  ) + 1;
-
-const streamTotal = streamRanked.length;
+// Position values come from backend class-wide calculations.
+const classPosition = Number(student.info.class_position) || 0;
+const classTotal = Number(student.info.class_total) || 0;
+const streamPosition = Number(student.info.stream_position) || 0;
+const streamTotal = Number(student.info.stream_total) || 0;
+const classPositionText =
+  classPosition > 0 && classTotal > 0
+    ? `${classPosition} / ${classTotal} ${getMedal(classPosition)}`
+    : "—";
+const streamPositionText =
+  streamPosition > 0 && streamTotal > 0
+    ? `${streamPosition} / ${streamTotal} ${getMedal(streamPosition)}`
+    : "—";
 
 // Draw line
 /* ===========================
@@ -457,8 +423,8 @@ autoTable(doc, {
 
   body: [[
     `${overallAverage}`,
-    `${classPosition} / ${classTotal} ${getMedal(classPosition)}`,
-    `${streamPosition} / ${streamTotal} ${getMedal(streamPosition)}`
+    classPositionText,
+    streamPositionText
   ]],
 
   styles: {
@@ -643,4 +609,3 @@ function addFooter(doc) {
     );
   }
 }
-

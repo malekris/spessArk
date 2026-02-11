@@ -1,9 +1,9 @@
 import { useEffect, useRef } from "react";
 
-// ⏱ 30 minutes idle timeout
-const IDLE_TIME = 30 * 60 * 1000;
+// ⏱ 30 minutes idle timeout (default)
+const DEFAULT_IDLE_TIME = 30 * 60 * 1000;
 
-export default function useIdleLogout(onLogout) {
+export default function useIdleLogout(onLogout, idleMs = DEFAULT_IDLE_TIME) {
   const timerRef = useRef(null);
 
   const resetTimer = () => {
@@ -13,7 +13,7 @@ export default function useIdleLogout(onLogout) {
 
     timerRef.current = setTimeout(() => {
       onLogout();
-    }, IDLE_TIME);
+    }, idleMs);
   };
 
   useEffect(() => {

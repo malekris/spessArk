@@ -1,6 +1,7 @@
 import { useState } from "react";
 import "./AlevelReport.css";
 import { useNavigate } from "react-router-dom";
+import useIdleLogout from "../../../hooks/useIdleLogout";
 
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -17,6 +18,15 @@ export default function AlevelReport() {
   const [previewData, setPreviewData] = useState(null);
   const [error, setError] = useState("");
   const navigate = useNavigate(); // 👈 THIS WAS MISSING
+  const IDLE_20_MIN = 20 * 60 * 1000;
+
+  useIdleLogout(() => {
+    localStorage.removeItem("SPESS_ADMIN_KEY");
+    localStorage.removeItem("isAdmin");
+    localStorage.removeItem("adminToken");
+    sessionStorage.removeItem("isAdmin");
+    navigate("/ark", { replace: true });
+  }, IDLE_20_MIN);
 
   const handlePreview = async () => {
     setError("");

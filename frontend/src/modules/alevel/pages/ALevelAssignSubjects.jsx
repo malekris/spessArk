@@ -3,9 +3,11 @@ import { plainFetch } from "../../../lib/api";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { useNavigate } from "react-router-dom";
+import useIdleLogout from "../../../hooks/useIdleLogout";
 
 export default function ALevelAssignSubjects() {
   const navigate = useNavigate();
+  const IDLE_20_MIN = 20 * 60 * 1000;
 
   /* ======================================================
      1. STATE
@@ -45,6 +47,14 @@ export default function ALevelAssignSubjects() {
   useEffect(() => {
     loadAll();
   }, []);
+
+  useIdleLogout(() => {
+    localStorage.removeItem("SPESS_ADMIN_KEY");
+    localStorage.removeItem("isAdmin");
+    localStorage.removeItem("adminToken");
+    sessionStorage.removeItem("isAdmin");
+    navigate("/ark", { replace: true });
+  }, IDLE_20_MIN);
 
   async function loadAll() {
     setLoading(true);

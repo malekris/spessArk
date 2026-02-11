@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import jsPDF from "jspdf";
+import useIdleLogout from "../../../hooks/useIdleLogout";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
 
 export default function ALevelDownload() {
   const navigate = useNavigate();
+  const IDLE_20_MIN = 20 * 60 * 1000;
 
   const [sets, setSets] = useState([]);
   const [selected, setSelected] = useState(null);
@@ -24,6 +26,14 @@ export default function ALevelDownload() {
   useEffect(() => {
     fetchSets();
   }, []);
+
+  useIdleLogout(() => {
+    localStorage.removeItem("SPESS_ADMIN_KEY");
+    localStorage.removeItem("isAdmin");
+    localStorage.removeItem("adminToken");
+    sessionStorage.removeItem("isAdmin");
+    navigate("/ark", { replace: true });
+  }, IDLE_20_MIN);
 
   async function fetchSets() {
     setError("");

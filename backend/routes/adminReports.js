@@ -33,6 +33,10 @@ router.get("/term", authAdmin, async (req, res) => {
     if (term === "1") normalizedTerm = "Term 1";
     if (term === "2") normalizedTerm = "Term 2";
 
+    const normalizeStream = (v) => String(v || "").trim().toLowerCase();
+    const wantedStream = normalizeStream(stream);
+
+    // Pull class-wide marks first so class position is truly class-wide.
     const [rows] = await pool.query(
       `
       SELECT
@@ -58,8 +62,6 @@ router.get("/term", authAdmin, async (req, res) => {
         m.year = ?
         AND m.term = ?
         AND s.class_level = ?
-        AND LOWER(TRIM(s.stream)) = LOWER(TRIM(?))
-        AND (? IS NULL OR s.id = ?)
 
       GROUP BY
         s.id,
@@ -74,14 +76,11 @@ router.get("/term", authAdmin, async (req, res) => {
         yearParam,
         normalizedTerm,
         class_level,
-        stream,
-        student_id ?? null,
-        student_id ?? null,
       ]
     );
 
     // ✅ SINGLE processed block (average + remark)
-    const processed = rows.map((r) => {
+    const processedAll = rows.map((r) => {
       const scores = [r.AOI1, r.AOI2, r.AOI3]
         .filter((v) => v !== null)
         .map(Number);
@@ -107,7 +106,86 @@ router.get("/term", authAdmin, async (req, res) => {
       };
     });
 
-    res.json(processed);
+    // Compute per-student overall average for ranking.
+    const byStudent = new Map();
+    processedAll.forEach((row) => {
+      if (!byStudent.has(row.student_id)) {
+        byStudent.set(row.student_id, {
+          student_id: row.student_id,
+          stream: normalizeStream(row.stream),
+          averages: [],
+        });
+      }
+      if (row.average !== null) {
+        byStudent.get(row.student_id).averages.push(Number(row.average));
+      }
+    });
+
+    const studentSummary = Array.from(byStudent.values()).map((s) => {
+      const overall =
+        s.averages.length > 0
+          ? Number(
+              (
+                s.averages.reduce((acc, v) => acc + v, 0) / s.averages.length
+              ).toFixed(3)
+            )
+          : -1; // keep missing marks at the bottom
+      return {
+        student_id: s.student_id,
+        stream: s.stream,
+        overall,
+      };
+    });
+
+    const classRanked = [...studentSummary]
+      .sort((a, b) => b.overall - a.overall)
+      .map((s, idx) => ({ ...s, class_position: idx + 1 }));
+
+    const classTotal = classRanked.length;
+    const classPositionById = new Map(
+      classRanked.map((s) => [s.student_id, s.class_position])
+    );
+
+    const streamRankMeta = new Map();
+    const streamBuckets = new Map();
+    classRanked.forEach((s) => {
+      if (!streamBuckets.has(s.stream)) streamBuckets.set(s.stream, []);
+      streamBuckets.get(s.stream).push(s);
+    });
+
+    streamBuckets.forEach((bucket, streamKey) => {
+      const ranked = [...bucket]
+        .sort((a, b) => b.overall - a.overall)
+        .map((s, idx) => ({ student_id: s.student_id, stream_position: idx + 1 }));
+      const posMap = new Map(ranked.map((r) => [r.student_id, r.stream_position]));
+      streamRankMeta.set(streamKey, {
+        total: ranked.length,
+        posById: posMap,
+      });
+    });
+
+    const withPositions = processedAll.map((row) => {
+      const sKey = normalizeStream(row.stream);
+      const streamMeta = streamRankMeta.get(sKey);
+      return {
+        ...row,
+        class_position: classPositionById.get(row.student_id) || null,
+        class_total: classTotal,
+        stream_position: streamMeta?.posById.get(row.student_id) || null,
+        stream_total: streamMeta?.total || null,
+      };
+    });
+
+    // Preserve existing API behavior: return selected stream,
+    // or selected student if student_id is provided.
+    const filtered = withPositions.filter((row) => {
+      if (student_id) {
+        return String(row.student_id) === String(student_id);
+      }
+      return normalizeStream(row.stream) === wantedStream;
+    });
+
+    res.json(filtered);
   } catch (err) {
     console.error("❌ End of term report error:", err);
     res.status(500).json({ message: "Failed to load report data" });

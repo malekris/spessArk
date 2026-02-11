@@ -1,10 +1,12 @@
 import { useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
+import useIdleLogout from "../../../hooks/useIdleLogout";
 
 export default function ALevelDashboard() {
   const navigate = useNavigate();
   const API_BASE = import.meta.env.VITE_API_BASE;
   const [stats, setStats] = useState(null);
+  const IDLE_20_MIN = 20 * 60 * 1000;
 
   const [hoveredNav, setHoveredNav] = useState(null);
   const [hoveredStat, setHoveredStat] = useState(null);
@@ -16,6 +18,14 @@ export default function ALevelDashboard() {
       .then(setStats)
       .catch(console.error);
   }, [API_BASE]);
+
+  useIdleLogout(() => {
+    localStorage.removeItem("SPESS_ADMIN_KEY");
+    localStorage.removeItem("isAdmin");
+    localStorage.removeItem("adminToken");
+    sessionStorage.removeItem("isAdmin");
+    navigate("/ark", { replace: true });
+  }, IDLE_20_MIN);
 
   // Slate & Amethyst Palette
   const slateBg = "#1e293b"; 

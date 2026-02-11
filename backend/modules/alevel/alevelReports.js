@@ -62,27 +62,114 @@ function subsidiaryGrade(avg) {
   return { grade: "F", points: 0 };
 }
 
-function pickComment(total) {
-  if (total <= 6) return random([
-    "Performance is below expectation. Must improve effort and focus.",
-    "Needs serious academic improvement.",
-    "Potential exists but consistency is lacking."
-  ]);
-  if (total <= 12) return random([
-    "Fair performance. More effort is needed.",
-    "Shows ability but must work harder.",
-    "Encouraging progress, improvement possible."
-  ]);
-  if (total <= 16) return random([
-    "Good performance. Maintain the momentum.",
-    "Consistent effort is yielding good results.",
-    "Strong understanding in most subjects."
-  ]);
-  return random([
-    "Excellent performance. A model of discipline.",
-    "Outstanding academic achievement.",
-    "Exceptional consistency and commitment."
-  ]);
+const COMMENT_BANK = {
+  low: {
+    head: [
+      "Performance is below expectation. More structured revision is required.",
+      "Academic progress is limited and needs immediate improvement.",
+      "Results indicate the need for stronger effort and consistency.",
+      "The learner should improve focus and complete all assigned work.",
+      "Current performance is weak and requires closer academic support.",
+      "More discipline in class and private study is needed.",
+      "The learner must improve examination readiness and time management.",
+      "There is potential, but effort remains below expected standards.",
+      "The learner should attend extra support sessions regularly.",
+      "Progress is not yet satisfactory and requires urgent attention.",
+      "The learner needs to strengthen understanding of key concepts.",
+      "Continuous monitoring and remedial support are recommended.",
+    ],
+    class: [
+      "Needs daily revision and timely completion of class assignments.",
+      "Should seek help early when topics are not understood.",
+      "Must improve classroom participation and concentration.",
+      "More practice questions are required in weak subjects.",
+      "Should follow a weekly study timetable to improve consistency.",
+      "Requires better lesson attendance and homework follow-up.",
+      "Must reduce missed tasks and improve submission discipline.",
+      "Should work on foundational concepts before advanced topics.",
+      "Needs stronger commitment to classwork and assessments.",
+      "Should revise with peers and consult subject teachers regularly.",
+      "Needs improved reading culture and note organization.",
+      "Must show more seriousness toward test preparation.",
+    ],
+  },
+  mid: {
+    head: [
+      "Fair performance with clear room for improvement.",
+      "Steady progress is visible; stronger consistency is needed.",
+      "The learner is improving but should aim higher.",
+      "Performance is moderate and can rise with extra effort.",
+      "A reasonable attempt has been shown across most subjects.",
+      "Progress is acceptable, though more discipline is required.",
+      "The learner should convert potential into stronger results.",
+      "This is an encouraging trend that must be sustained.",
+      "A balanced effort is noted, but consistency should improve.",
+      "Results show promise and should be strengthened next term.",
+      "Good foundation established; more revision will improve outcomes.",
+      "The learner is on track but should target higher grades.",
+    ],
+    class: [
+      "Should revise consistently and focus on weak topics.",
+      "Needs more practice in exam-style questions.",
+      "Class engagement is fair; participation should increase.",
+      "Should improve accuracy and reduce avoidable mistakes.",
+      "Can perform better with stronger homework discipline.",
+      "Needs better pacing when handling timed assessments.",
+      "Should maintain effort across all subjects, not selected ones.",
+      "Can improve significantly with weekly revision targets.",
+      "Must keep class notes updated and revise them regularly.",
+      "Should seek clarification promptly in difficult areas.",
+      "Needs improved confidence during tests and presentations.",
+      "Can move to higher bands with consistent preparation.",
+    ],
+  },
+  very_good: {
+    head: [
+      "Very good performance. Keep up the strong academic discipline.",
+      "Commendable results across subjects. Continue aiming higher.",
+      "The learner has demonstrated strong understanding and effort.",
+      "A very solid performance has been maintained this term.",
+      "Excellent progress observed. Sustain this momentum.",
+      "The learner is performing very well and should remain focused.",
+      "Strong results reflect commitment and consistency.",
+      "This is a highly encouraging academic record.",
+      "Very good achievement with clear mastery in key areas.",
+      "The learner has shown maturity and excellent work habits.",
+      "Performance is impressive and should be sustained.",
+      "A high standard has been set and should be maintained.",
+    ],
+    class: [
+      "Shows strong class participation and reliable preparation.",
+      "Should continue mentoring peers while maintaining personal standards.",
+      "Needs to sustain revision habits for even better distinctions.",
+      "Demonstrates excellent organization and task completion.",
+      "Should maintain consistency in all assessments next term.",
+      "Shows confidence and strong grasp of subject content.",
+      "Class attitude is positive and supports strong results.",
+      "Should keep challenging self with advanced practice questions.",
+      "Maintains a strong work ethic and disciplined study routine.",
+      "Should preserve this focus and avoid complacency.",
+      "Demonstrates very good exam technique and preparation.",
+      "A dependable performer who should aim for top distinction.",
+    ],
+  },
+};
+
+function commentCategory(total) {
+  if (total <= 6) return "low";
+  if (total <= 12) return "mid";
+  return "very_good";
+}
+
+function pickComments(total) {
+  const category = commentCategory(total);
+  const bank = COMMENT_BANK[category] || COMMENT_BANK.mid;
+
+  const headTeacher = random(bank.head);
+  const classPool = bank.class.filter((c) => c !== headTeacher);
+  const classTeacher = random(classPool.length > 0 ? classPool : bank.class);
+
+  return { headTeacher, classTeacher };
 }
 
 function random(arr) {
@@ -157,6 +244,12 @@ router.post("/download", async (req, res) => {
           GROUP BY s.id, s.name, t.name
           ORDER BY s.name ASC
         `, [learner.id, term, year]);
+
+        // Only generate reports for learners with at least one recorded mark.
+        const hasAnyMark = rows.some(
+          (r) => r.mid !== null || r.eot !== null
+        );
+        if (!hasAnyMark) continue;
   
         let principals = [];
         let subsidiaries = [];
@@ -195,10 +288,7 @@ router.post("/download", async (req, res) => {
             subsidiary: totalS,
             overall: totalP + totalS
           },
-          comments: {
-            classTeacher: pickComment(totalP + totalS),
-            headTeacher: pickComment(totalP + totalS)
-          }
+          comments: pickComments(totalP + totalS)
         });
       }
   

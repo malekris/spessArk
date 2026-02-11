@@ -23,6 +23,7 @@ const SCIENCE_SUBJECTS = [
   "Physics",
   "Mathematics",
   "Economics",
+  "Geography",
   "Biology",
   "Chemistry",
   "Agriculture",

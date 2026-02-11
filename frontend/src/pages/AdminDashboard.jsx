@@ -98,6 +98,7 @@ export default function AdminDashboard() {
 
   /* -------------------- UI state -------------------- */
   const [activeSection, setActiveSection] = useState("");
+  const [showEnrollmentChartsModal, setShowEnrollmentChartsModal] = useState(false);
   useEffect(() => {
     document.title = activeSection ? `${activeSection} | SPESS ARK` : "Admin Dashboard | SPESS ARK";
   }, [activeSection]);
@@ -1828,9 +1829,43 @@ export default function AdminDashboard() {
       )
     )}
   </div>
-  <EnrollmentCharts
-    enrollmentData={enrollmentByStreamClassGender}
-  />
+  <div
+    style={{
+      marginTop: "1.2rem",
+      padding: "1.2rem",
+      borderRadius: "1rem",
+      background: "rgba(15,23,42,0.88)",
+      border: "1px solid rgba(148,163,184,0.35)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: "1rem",
+    }}
+  >
+    <div>
+      <div
+        style={{
+          fontSize: "0.85rem",
+          textTransform: "uppercase",
+          letterSpacing: "0.14em",
+          color: "#93c5fd",
+          marginBottom: "0.25rem",
+        }}
+      >
+        Enrollment Breakdown by Stream • Class • Gender
+      </div>
+      <div style={{ fontSize: "0.88rem", color: "#cbd5e1" }}>
+        Charts are now available in a focused modal view.
+      </div>
+    </div>
+    <button
+      type="button"
+      className="primary-btn"
+      onClick={() => setShowEnrollmentChartsModal(true)}
+    >
+      View Charts
+    </button>
+  </div>
 </section>
 
 
@@ -1862,6 +1897,59 @@ export default function AdminDashboard() {
             setEditingStudent(null);
           }}
         />
+      )}
+
+      {showEnrollmentChartsModal && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(2,6,23,0.72)",
+            backdropFilter: "blur(3px)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "1.2rem",
+          }}
+          onClick={() => setShowEnrollmentChartsModal(false)}
+        >
+          <div
+            style={{
+              width: "min(1200px, 100%)",
+              maxHeight: "90vh",
+              overflowY: "auto",
+              borderRadius: "1rem",
+              background: "linear-gradient(135deg, rgba(15,23,42,0.98), rgba(30,41,59,0.98))",
+              border: "1px solid rgba(148,163,184,0.35)",
+              boxShadow: "0 28px 70px rgba(2,6,23,0.75)",
+              padding: "1.2rem",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: "0.8rem",
+              }}
+            >
+              <h3 style={{ margin: 0, color: "#e5e7eb" }}>
+                Enrollment Breakdown by Stream • Class • Gender
+              </h3>
+              <button
+                type="button"
+                className="ghost-btn"
+                onClick={() => setShowEnrollmentChartsModal(false)}
+              >
+                Close
+              </button>
+            </div>
+
+            <EnrollmentCharts enrollmentData={enrollmentByStreamClassGender} />
+          </div>
+        </div>
       )}
     </div>
   );

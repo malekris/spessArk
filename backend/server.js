@@ -569,10 +569,39 @@ app.post("/api/teachers", authAdmin, async (req, res) => {
 });
 // ADMIN → DELETE TEACHER
 app.delete("/api/admin/teachers/:id", authAdmin, async (req, res) => {
+  const conn = await pool.getConnection();
   try {
     const { id } = req.params;
+    await conn.beginTransaction();
 
-    const [result] = await pool.query(
+    const [existing] = await conn.query(
+      "SELECT id FROM teachers WHERE id = ?",
+      [id]
+    );
+
+    if (!existing.length) {
+      await conn.rollback();
+      return res.status(404).json({ message: "Teacher not found" });
+    }
+
+    const [oLevelCleanup] = await conn.query(
+      "DELETE FROM teacher_assignments WHERE teacher_id = ?",
+      [id]
+    );
+
+    let aLevelCleanupCount = 0;
+    try {
+      const [aLevelCleanup] = await conn.query(
+        "DELETE FROM alevel_teacher_subjects WHERE teacher_id = ?",
+        [id]
+      );
+      aLevelCleanupCount = aLevelCleanup.affectedRows || 0;
+    } catch (cleanupErr) {
+      // Keep delete behavior compatible where A-Level tables are not provisioned.
+      if (cleanupErr?.code !== "ER_NO_SUCH_TABLE") throw cleanupErr;
+    }
+
+    const [result] = await conn.query(
       "DELETE FROM teachers WHERE id = ?",
       [id]
     );
@@ -581,14 +610,23 @@ app.delete("/api/admin/teachers/:id", authAdmin, async (req, res) => {
       return res.status(404).json({ message: "Teacher not found" });
     }
 
-    res.json({
+    await conn.commit();
+
+    return res.json({
       message: "Teacher deleted successfully",
       deletedId: id,
       affectedRows: result.affectedRows,
+      deletedAssignments: {
+        oLevel: oLevelCleanup.affectedRows || 0,
+        aLevel: aLevelCleanupCount,
+      },
     });
   } catch (err) {
+    await conn.rollback();
     console.error("Error deleting teacher:", err);
     res.status(500).json({ message: "Failed to delete teacher" });
+  } finally {
+    conn.release();
   }
 });
 

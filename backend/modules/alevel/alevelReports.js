@@ -8,10 +8,11 @@ const router = express.Router();
 --------------------------------*/
 
 function calcAverage(mid, eot) {
-  if (mid == null && eot == null) return null;
-  if (mid == null) return eot;
-  if (eot == null) return mid;
-  return Math.round((mid + eot) / 2);
+  // Strict rule: average is always (MID + EOT) / 2.
+  // Missing papers are treated as 0.
+  const midScore = mid == null ? 0 : Number(mid);
+  const eotScore = eot == null ? 0 : Number(eot);
+  return Math.round(((midScore + eotScore) / 2) * 10) / 10;
 }
 function getAge(dob) {
     if (!dob) return "";

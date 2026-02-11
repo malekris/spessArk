@@ -46,8 +46,8 @@ router.get("/admin/assignments", async (req, res) => {
         s.name AS subject,
         t.name AS teacher_name
       FROM alevel_teacher_subjects ats
-      LEFT JOIN alevel_subjects s ON s.id = ats.subject_id
-      LEFT JOIN teachers t ON t.id = ats.teacher_id
+      JOIN alevel_subjects s ON s.id = ats.subject_id
+      JOIN teachers t ON t.id = ats.teacher_id
       ORDER BY ats.id DESC
     `);
 

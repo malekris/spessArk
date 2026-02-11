@@ -3,6 +3,7 @@ import "./VinePostCard.css";
 import { useNavigate } from "react-router-dom";
 import ImageCarousel from "./ImageCarousel";
 import MiniProfileCard from "../components/MiniProfileCard";
+import { createPortal } from "react-dom";
 
 // ────────────────────────────────────────────────
 //  CONFIG & HELPERS
@@ -133,6 +134,11 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
   const [bookmarked, setBookmarked] = useState(post.user_bookmarked || false);
   const [mentionResults, setMentionResults] = useState([]);
   const [mentionAnchor, setMentionAnchor] = useState(null);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportTarget, setReportTarget] = useState({ postId: null, commentId: null });
+  const [reportCategory, setReportCategory] = useState("abuse");
+  const [reportDetails, setReportDetails] = useState("");
+  const reportOpenedAtRef = useRef(0);
 
   const CONTENT_LIMIT = 280;
   const hasLongContent = (post.content || "").length > CONTENT_LIMIT;
@@ -303,8 +309,11 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
     });
-  
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert(data.message || "Action not allowed");
+      return;
+    }
     setPostLikes(data.likes);
     setPostUserLiked(data.user_liked);
   };
@@ -360,6 +369,62 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
     }
   };
 
+  const openPostReport = (e) => {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
+    reportOpenedAtRef.current = Date.now();
+    setReportTarget({ postId: post.id, commentId: null });
+    setReportCategory("abuse");
+    setReportDetails("");
+    setShowReportModal(true);
+  };
+
+  const openCommentReport = (commentId, commentPostId, e) => {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
+    reportOpenedAtRef.current = Date.now();
+    setReportTarget({ postId: commentPostId || post.id, commentId });
+    setReportCategory("abuse");
+    setReportDetails("");
+    setShowReportModal(true);
+  };
+
+  const closeReportModal = (e) => {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
+    if (Date.now() - reportOpenedAtRef.current < 260) return;
+    setShowReportModal(false);
+  };
+
+  const submitReport = async () => {
+    const reason = reportDetails.trim()
+      ? `${reportCategory}: ${reportDetails.trim()}`
+      : reportCategory;
+    try {
+      const res = await fetch(`${API}/api/vine/reports`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          post_id: reportTarget.postId,
+          comment_id: reportTarget.commentId,
+          reason,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || "Failed to submit report");
+        return;
+      }
+      alert("Reported to Guardian");
+      setShowReportModal(false);
+    } catch {
+      alert("Failed to submit report");
+    }
+  };
+
   const sendComment = async (content, parent_comment_id = null) => {
     if (!content.trim()) return;
     const res = await fetch(`${API}/api/vine/posts/${post.id}/comments`, {
@@ -370,6 +435,11 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
       },
       body: JSON.stringify({ content, parent_comment_id }),
     });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert(data.message || "Failed to post comment");
+      return;
+    }
     if (res.ok) {
       if (!parent_comment_id) setText("");
       fetchComments();
@@ -430,63 +500,63 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
           {/* Username, verification, time */}
           <div className="meta-top">
             <div className="name-row">
-            <strong
-  className="display-name clickable"
-  onClick={() => navigate(`/vine/profile/${post.username}`)}
->
-  {typeof post.display_name === "string"
-    ? post.display_name
-    : typeof post.username === "string"
-    ? post.username
-    : ""}
-</strong>
-
-
-              {(post.is_verified === 1 || isGuardianPost) && (
-                <span className={`verified ${isGuardianPost ? "guardian" : ""}`}>
-                  <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
-                    <path
-                      d="M20 6L9 17l-5-5"
-                      stroke="white"
-                      strokeWidth="3"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </span>
-              )}
-            </div>
-
-            {/* Username + time + delete button – same line */}
-            <div className="meta-line">
-              <span className="username">@{post.username}</span>
-              <span className="time">
+              <span className="name-main">
+                <strong
+                  className="display-name clickable"
+                  onClick={() => navigate(`/vine/profile/${post.username}`)}
+                >
+                  {typeof post.display_name === "string"
+                    ? post.display_name
+                    : typeof post.username === "string"
+                    ? post.username
+                    : ""}
+                </strong>
+                {(post.is_verified === 1 || isGuardianPost) && (
+                  <span className={`verified ${isGuardianPost ? "guardian" : ""}`}>
+                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
+                      <path
+                        d="M20 6L9 17l-5-5"
+                        stroke="white"
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </span>
+                )}
+              </span>
+              <span className="time top-time">
                 • {formatRelativeTime(post.sort_time || post.created_at)}
               </span>
-              {isMe && post.revined_by === 0 && (
-  <>
-    <button
-      className="pin-btn"
-      onClick={pinPost}
-      title={post.is_pinned ? "Unpin post" : "Pin post"}
-    >
-      📌
-    </button>
-
-    {post.is_pinned === 1 && (
-      <span className="pinned-badge">📌 Pinned</span>
-    )}
-  </>
-)}
-
-
-              {(isPostAuthor || isModerator) && (
-                <button className="delete-post-btn" onClick={deleteMainPost}>
-                  🗑️
-                </button>
-              )}
+            </div>
+            <div className="post-kebab-wrap">
+              <button
+                className="post-kebab-btn"
+                title="More"
+                onPointerDown={(e) => openPostReport(e)}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+              >
+                ⋯
+              </button>
             </div>
           </div>
+          {isMe && post.revined_by === 0 && (
+            <div className="meta-line">
+              <button
+                className="pin-btn"
+                onClick={pinPost}
+                title={post.is_pinned ? "Unpin post" : "Pin post"}
+              >
+                📌
+              </button>
+              {post.is_pinned === 1 && (
+                <span className="pinned-badge">📌 Pinned</span>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -693,6 +763,8 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
     isPostOwner={isPostAuthor}
     currentUserId={current_user_id}
     isModerator={isModerator}
+    token={token}
+    onReport={openCommentReport}
   />
 ))}
 
@@ -709,6 +781,57 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
           )}
         </div>
       )}
+      {showReportModal && typeof document !== "undefined" &&
+        createPortal(
+          <div
+            className="report-modal-backdrop"
+            onPointerDown={closeReportModal}
+          >
+            <div
+              className="report-modal"
+              onPointerDown={(e) => {
+                e.stopPropagation();
+              }}
+            >
+              <div className="report-modal-title">Report to Guardian</div>
+              <div className="report-modal-subtitle">
+                Choose a complaint category
+              </div>
+              <div className="report-category-grid">
+                {["abuse", "bad content", "disinformation", "privacy violation"].map((cat) => (
+                  <button
+                    key={cat}
+                    className={`report-chip ${reportCategory === cat ? "active" : ""}`}
+                    onClick={() => setReportCategory(cat)}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+              <textarea
+                className="report-details"
+                placeholder="Extra details (optional)"
+                value={reportDetails}
+                onChange={(e) => setReportDetails(e.target.value)}
+                maxLength={500}
+              />
+              <div className="report-modal-actions">
+                {(isPostAuthor || isModerator) && !reportTarget.commentId && (
+                  <button className="danger" onClick={deleteMainPost}>
+                    Delete Post
+                  </button>
+                )}
+                <button className="secondary" onClick={() => setShowReportModal(false)}>
+                  Cancel
+                </button>
+                <button className="primary" onClick={submitReport}>
+                  Send Report
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
     </div>
   );
 }
@@ -717,9 +840,8 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
 //  NESTED COMMENT COMPONENT
 // ────────────────────────────────────────────────
 
-function Comment({ comment, commentLikes, commentUserLiked, setCommentLikes, setCommentUserLiked, onReply, onDelete, isPostOwner, currentUserId, isModerator }) {
+function Comment({ comment, commentLikes, commentUserLiked, setCommentLikes, setCommentUserLiked, onReply, onDelete, isPostOwner, currentUserId, isModerator, token, onReport }) {
 
-const token = localStorage.getItem("vine_token");
   const navigate = useNavigate();
   const [mentionResults, setMentionResults] = useState([]);
   const [mentionAnchor, setMentionAnchor] = useState(null);
@@ -824,7 +946,11 @@ className={`mini-btn ${
           headers: { Authorization: `Bearer ${token}` },
         }
       );
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || "Action not allowed");
+        return;
+      }
 
       setCommentLikes(prev => ({
         ...prev,
@@ -845,6 +971,17 @@ className={`mini-btn ${
 
   <button className="mini-btn" onClick={() => setReplying(!replying)}>
     Reply
+  </button>
+
+  <button
+    className="mini-btn"
+    onPointerDown={(e) => onReport?.(comment.id, comment.post_id, e)}
+    onClick={(e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    }}
+  >
+    Report
   </button>
 
   {canDelete && (
@@ -929,6 +1066,8 @@ className={`mini-btn ${
                   isPostOwner={isPostOwner}
                   currentUserId={currentUserId}
                   isModerator={isModerator}
+                  token={token}
+                  onReport={onReport}
                 />
               ))}
                   </div>

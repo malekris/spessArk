@@ -2,7 +2,7 @@ import express from "express";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { db } from "../../server.js";
-import { sendVineWelcomeEmail, sendVineResetCodeEmail, sendVineVerificationCodeEmail } from "../../utils/email.js";
+import { sendVineWelcomeEmail, sendVineResetCodeEmail, sendVineVerificationCodeEmail, sendVineSuspensionEmail, sendVineUnsuspensionEmail } from "../../utils/email.js";
 import authMiddleware from "../../middleware/authMiddleware.js";
 import authOptional from "../authOptional.js";
 import { authenticate } from "../auth.js";
@@ -49,6 +49,200 @@ const isModeratorAccount = (user) => {
   if (Number(user.is_admin) === 1) return true;
   if (String(user.role || "").toLowerCase() === "moderator") return true;
   return ["vine guardian","vine_guardian"].includes(String(user.username || "").toLowerCase());
+};
+
+const hasTable = async (dbName, tableName) => {
+  const [rows] = await db.query(
+    `
+    SELECT 1
+    FROM information_schema.TABLES
+    WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
+    LIMIT 1
+    `,
+    [dbName, tableName]
+  );
+  return rows.length > 0;
+};
+
+const hasColumn = async (dbName, tableName, columnName) => {
+  const [rows] = await db.query(
+    `
+    SELECT 1
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ?
+    LIMIT 1
+    `,
+    [dbName, tableName, columnName]
+  );
+  return rows.length > 0;
+};
+
+let cachedDbName = null;
+const getDbName = async () => {
+  if (cachedDbName) return cachedDbName;
+  const [[row]] = await db.query("SELECT DATABASE() AS dbName");
+  cachedDbName = row?.dbName || null;
+  return cachedDbName;
+};
+
+const getGuardianRecipientIds = async () => {
+  const [rows] = await db.query(
+    `
+    SELECT id
+    FROM vine_users
+    WHERE is_admin = 1
+       OR LOWER(COALESCE(role, '')) = 'moderator'
+       OR LOWER(username) IN ('vine guardian', 'vine_guardian')
+    `
+  );
+  return rows.map((r) => Number(r.id)).filter(Boolean);
+};
+
+const notifyGuardians = async ({ actorId, type, postId = null, commentId = null, meta = null }) => {
+  const guardianIds = await getGuardianRecipientIds();
+  if (!guardianIds.length) return;
+  const dbName = await getDbName();
+  const canStoreMeta = dbName
+    ? await hasColumn(dbName, "vine_notifications", "meta_json")
+    : false;
+  for (const guardianId of guardianIds) {
+    if (Number(guardianId) === Number(actorId)) continue;
+    if (canStoreMeta) {
+      await db.query(
+        `
+        INSERT INTO vine_notifications (user_id, actor_id, type, post_id, comment_id, meta_json)
+        VALUES (?, ?, ?, ?, ?, ?)
+        `,
+        [guardianId, actorId, type, postId, commentId, meta ? JSON.stringify(meta) : null]
+      );
+    } else {
+      await db.query(
+        `
+        INSERT INTO vine_notifications (user_id, actor_id, type, post_id, comment_id)
+        VALUES (?, ?, ?, ?, ?)
+        `,
+        [guardianId, actorId, type, postId, commentId]
+      );
+    }
+    io.to(`user-${guardianId}`).emit("notification");
+  }
+};
+
+const getActiveInteractionSuspension = async (userId) => {
+  if (!userId) return null;
+  const dbName = await getDbName();
+  if (!dbName) return null;
+  const tableExists = await hasTable(dbName, "vine_user_suspensions");
+  if (!tableExists) return null;
+
+  const [rows] = await db.query(
+    `
+    SELECT id, reason, scope, starts_at, ends_at
+    FROM vine_user_suspensions
+    WHERE user_id = ?
+      AND is_active = 1
+      AND scope IN ('likes_comments', 'all')
+      AND starts_at <= NOW()
+      AND (ends_at IS NULL OR ends_at > NOW())
+    ORDER BY created_at DESC
+    LIMIT 1
+    `,
+    [userId]
+  );
+  return rows[0] || null;
+};
+
+let moderationSchemaReady = false;
+const ensureColumnExists = async (dbName, tableName, columnName, definitionSql) => {
+  const exists = await hasColumn(dbName, tableName, columnName);
+  if (exists) return;
+  await db.query(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definitionSql}`);
+};
+
+const ensureModerationSchema = async () => {
+  if (moderationSchemaReady) return;
+
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_reports (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      reporter_id INT NOT NULL,
+      reported_user_id INT NULL,
+      post_id INT NULL,
+      comment_id INT NULL,
+      reason TEXT NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'open',
+      reviewed_by INT NULL,
+      reviewed_at DATETIME NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_reports_status_created (status, created_at),
+      INDEX idx_reports_post (post_id),
+      INDEX idx_reports_comment (comment_id),
+      INDEX idx_reports_reported_user (reported_user_id)
+    )
+  `);
+
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_user_suspensions (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      user_id INT NOT NULL,
+      scope VARCHAR(30) NOT NULL DEFAULT 'likes_comments',
+      reason TEXT NULL,
+      starts_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      ends_at DATETIME NULL,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      created_by INT NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_susp_user_active (user_id, is_active, starts_at, ends_at)
+    )
+  `);
+
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_appeals (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      user_id INT NOT NULL,
+      message TEXT NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'open',
+      reviewed_by INT NULL,
+      reviewed_at DATETIME NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_appeals_status_created (status, created_at),
+      INDEX idx_appeals_user (user_id)
+    )
+  `);
+
+  const dbName = await getDbName();
+  if (dbName) {
+    // Backfill missing columns for pre-existing moderation tables.
+    await ensureColumnExists(dbName, "vine_reports", "reporter_id", "INT NOT NULL");
+    await ensureColumnExists(dbName, "vine_reports", "reported_user_id", "INT NULL");
+    await ensureColumnExists(dbName, "vine_reports", "post_id", "INT NULL");
+    await ensureColumnExists(dbName, "vine_reports", "comment_id", "INT NULL");
+    await ensureColumnExists(dbName, "vine_reports", "reason", "TEXT NOT NULL");
+    await ensureColumnExists(dbName, "vine_reports", "status", "VARCHAR(20) NOT NULL DEFAULT 'open'");
+    await ensureColumnExists(dbName, "vine_reports", "reviewed_by", "INT NULL");
+    await ensureColumnExists(dbName, "vine_reports", "reviewed_at", "DATETIME NULL");
+    await ensureColumnExists(dbName, "vine_reports", "created_at", "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP");
+
+    await ensureColumnExists(dbName, "vine_user_suspensions", "user_id", "INT NOT NULL");
+    await ensureColumnExists(dbName, "vine_user_suspensions", "scope", "VARCHAR(30) NOT NULL DEFAULT 'likes_comments'");
+    await ensureColumnExists(dbName, "vine_user_suspensions", "reason", "TEXT NULL");
+    await ensureColumnExists(dbName, "vine_user_suspensions", "starts_at", "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP");
+    await ensureColumnExists(dbName, "vine_user_suspensions", "ends_at", "DATETIME NULL");
+    await ensureColumnExists(dbName, "vine_user_suspensions", "is_active", "TINYINT(1) NOT NULL DEFAULT 1");
+    await ensureColumnExists(dbName, "vine_user_suspensions", "created_by", "INT NOT NULL");
+    await ensureColumnExists(dbName, "vine_user_suspensions", "created_at", "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP");
+
+    await ensureColumnExists(dbName, "vine_appeals", "user_id", "INT NOT NULL");
+    await ensureColumnExists(dbName, "vine_appeals", "message", "TEXT NOT NULL");
+    await ensureColumnExists(dbName, "vine_appeals", "status", "VARCHAR(20) NOT NULL DEFAULT 'open'");
+    await ensureColumnExists(dbName, "vine_appeals", "reviewed_by", "INT NULL");
+    await ensureColumnExists(dbName, "vine_appeals", "reviewed_at", "DATETIME NULL");
+    await ensureColumnExists(dbName, "vine_appeals", "created_at", "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP");
+
+    await ensureColumnExists(dbName, "vine_notifications", "meta_json", "LONGTEXT NULL");
+  }
+
+  moderationSchemaReady = true;
 };
 
 const isHeicFile = (file) => {
@@ -260,6 +454,14 @@ router.post("/auth/login", async (req, res) => {
         process.env.JWT_SECRET,
         { expiresIn: "7d" }
       );
+
+      // Optional analytics event: no-op if table does not exist
+      try {
+        await db.query(
+          "INSERT INTO vine_login_events (user_id, created_at) VALUES (?, NOW())",
+          [user.id]
+        );
+      } catch (_) {}
   
       res.json({
         token,
@@ -1304,6 +1506,13 @@ router.post("/posts/:id/revine", authMiddleware, async (req, res) => {
 router.post("/posts/:id/like", requireVineAuth, async (req, res) => {
   const postId = req.params.id;
   const userId = req.user.id;
+  const activeSuspension = await getActiveInteractionSuspension(userId);
+  if (activeSuspension) {
+    return res.status(403).json({
+      message: "Your account is temporarily suspended from likes/comments.",
+      suspension: activeSuspension,
+    });
+  }
 
   // Find post owner
   const [[post]] = await db.query(
@@ -1465,6 +1674,13 @@ router.post("/posts/:id/comments", authMiddleware, async (req, res) => {
     if (!userId) {
       return res.status(401).json({ message: "No user in token" });
     }
+    const activeSuspension = await getActiveInteractionSuspension(userId);
+    if (activeSuspension) {
+      return res.status(403).json({
+        message: "Your account is temporarily suspended from likes/comments.",
+        suspension: activeSuspension,
+      });
+    }
 
     if (!content || !content.trim()) {
       return res.status(400).json({ message: "Comment required" });
@@ -1554,6 +1770,13 @@ router.post("/comments/:id/like", requireVineAuth, async (req, res) => {
   try {
     const commentId = req.params.id;
     const userId = req.user.id;
+    const activeSuspension = await getActiveInteractionSuspension(userId);
+    if (activeSuspension) {
+      return res.status(403).json({
+        message: "Your account is temporarily suspended from likes/comments.",
+        suspension: activeSuspension,
+      });
+    }
 
     // Get comment owner + post
     const [[comment]] = await db.query(
@@ -2195,9 +2418,1025 @@ router.get("/users/:username/following", authOptional, async (req, res) => {
   }
 });
 
+// Guardian-only analytics overview
+router.get("/analytics/overview", authenticate, async (req, res) => {
+  try {
+    if (!isModeratorAccount(req.user)) {
+      return res.status(403).json({ message: "Moderator access required" });
+    }
+
+    const [[dbMeta]] = await db.query("SELECT DATABASE() AS dbName");
+    const dbName = dbMeta?.dbName;
+    if (!dbName) {
+      return res.status(500).json({ message: "Database not selected" });
+    }
+
+    const parseDateInput = (value, isEnd = false) => {
+      if (!value) return null;
+      const raw = String(value).trim();
+      if (!raw) return null;
+      const normalized = raw.length <= 10
+        ? `${raw}${isEnd ? "T23:59:59.999Z" : "T00:00:00.000Z"}`
+        : raw;
+      const d = new Date(normalized);
+      if (Number.isNaN(d.getTime())) return null;
+      return d;
+    };
+
+    const now = new Date();
+    const rangeEnd = parseDateInput(req.query.to, true) || now;
+    const rangeStart = parseDateInput(req.query.from, false) || new Date(rangeEnd.getTime() - 6 * 86400000);
+    if (rangeStart > rangeEnd) {
+      return res.status(400).json({ message: "Invalid date range" });
+    }
+    const rangeMs = Math.max(1, rangeEnd.getTime() - rangeStart.getTime());
+    const prevEnd = new Date(rangeStart.getTime() - 1);
+    const prevStart = new Date(prevEnd.getTime() - rangeMs);
+
+    const countByWindow = async (table, col, windowSql) => {
+      const exists = await hasTable(dbName, table);
+      if (!exists) return 0;
+      const hasCol = await hasColumn(dbName, table, col);
+      if (!hasCol) return 0;
+      const [[row]] = await db.query(
+        `SELECT COUNT(*) AS total FROM ${table} WHERE ${col} >= ${windowSql}`
+      );
+      return Number(row?.total || 0);
+    };
+
+    const countRange = async (table, col = "created_at", start = rangeStart, end = rangeEnd) => {
+      const exists = await hasTable(dbName, table);
+      if (!exists) return 0;
+      const hasCol = await hasColumn(dbName, table, col);
+      if (!hasCol) return 0;
+      const [[row]] = await db.query(
+        `SELECT COUNT(*) AS total FROM ${table} WHERE ${col} >= ? AND ${col} <= ?`,
+        [start, end]
+      );
+      return Number(row?.total || 0);
+    };
+
+    const countToday = async (table, col = "created_at") => {
+      const exists = await hasTable(dbName, table);
+      if (!exists) return 0;
+      const hasCol = await hasColumn(dbName, table, col);
+      if (!hasCol) return 0;
+      const [[row]] = await db.query(
+        `SELECT COUNT(*) AS total FROM ${table} WHERE DATE(${col}) = CURDATE()`
+      );
+      return Number(row?.total || 0);
+    };
+
+    const series7d = async (table, col = "created_at", start = rangeStart, end = rangeEnd) => {
+      const exists = await hasTable(dbName, table);
+      if (!exists) return {};
+      const hasCol = await hasColumn(dbName, table, col);
+      if (!hasCol) return {};
+      const [rows] = await db.query(
+        `
+        SELECT DATE(${col}) AS day, COUNT(*) AS total
+        FROM ${table}
+        WHERE ${col} >= ? AND ${col} <= ?
+        GROUP BY DATE(${col})
+        `,
+        [start, end]
+      );
+      const out = {};
+      for (const row of rows) {
+        const d = new Date(row.day).toISOString().slice(0, 10);
+        out[d] = Number(row.total || 0);
+      }
+      return out;
+    };
+
+    const [[activeToday]] = await db.query(
+      "SELECT COUNT(*) AS total FROM vine_users WHERE DATE(last_active_at) = CURDATE()"
+    );
+    const [[activeWeek]] = await db.query(
+      "SELECT COUNT(*) AS total FROM vine_users WHERE last_active_at >= ? AND last_active_at <= ?",
+      [rangeStart, rangeEnd]
+    );
+    const [[activeHoursToday]] = await db.query(
+      "SELECT COUNT(DISTINCT HOUR(last_active_at)) AS total FROM vine_users WHERE DATE(last_active_at) = CURDATE()"
+    );
+    const [[newToday]] = await db.query(
+      "SELECT COUNT(*) AS total FROM vine_users WHERE DATE(created_at) = CURDATE()"
+    );
+    const [[newWeek]] = await db.query(
+      "SELECT COUNT(*) AS total FROM vine_users WHERE created_at >= ? AND created_at <= ?",
+      [rangeStart, rangeEnd]
+    );
+
+    const loginTableExists = await hasTable(dbName, "vine_login_events");
+    const loginToday = loginTableExists
+      ? await countToday("vine_login_events", "created_at")
+      : Number(activeToday?.total || 0);
+    const loginWeek = loginTableExists
+      ? await countRange("vine_login_events", "created_at", rangeStart, rangeEnd)
+      : Number(activeWeek?.total || 0);
+
+    const [
+      postsToday,
+      postsWeek,
+      commentsToday,
+      commentsWeek,
+      likesToday,
+      likesWeek,
+      revinesToday,
+      revinesWeek,
+      followsToday,
+      followsWeek,
+      dmsToday,
+      dmsWeek,
+    ] = await Promise.all([
+      countToday("vine_posts"),
+      countRange("vine_posts", "created_at", rangeStart, rangeEnd),
+      countToday("vine_comments"),
+      countRange("vine_comments", "created_at", rangeStart, rangeEnd),
+      countToday("vine_likes"),
+      countRange("vine_likes", "created_at", rangeStart, rangeEnd),
+      countToday("vine_revines"),
+      countRange("vine_revines", "created_at", rangeStart, rangeEnd),
+      countToday("vine_follows"),
+      countRange("vine_follows", "created_at", rangeStart, rangeEnd),
+      countToday("vine_messages"),
+      countRange("vine_messages", "created_at", rangeStart, rangeEnd),
+    ]);
+
+    const [postsSeries, commentsSeries, likesSeries, revinesSeries, followsSeries, dmsSeries] =
+      await Promise.all([
+        series7d("vine_posts"),
+        series7d("vine_comments"),
+        series7d("vine_likes"),
+        series7d("vine_revines"),
+        series7d("vine_follows"),
+        series7d("vine_messages"),
+      ]);
+
+    const activeSeries = await series7d("vine_users", "last_active_at", rangeStart, rangeEnd);
+
+    const usageByDay = [];
+    const daysInRange = Math.max(1, Math.min(31, Math.floor((rangeEnd.getTime() - rangeStart.getTime()) / 86400000) + 1));
+    for (let i = daysInRange - 1; i >= 0; i -= 1) {
+      const day = new Date(rangeEnd.getTime() - i * 86400000).toISOString().slice(0, 10);
+      usageByDay.push({
+        day,
+        posts: postsSeries[day] || 0,
+        comments: commentsSeries[day] || 0,
+        likes: likesSeries[day] || 0,
+        revines: revinesSeries[day] || 0,
+        follows: followsSeries[day] || 0,
+        dms: dmsSeries[day] || 0,
+        activeUsers: activeSeries[day] || 0,
+      });
+    }
+
+    const totalInteractionsWeek =
+      Number(likesWeek) +
+      Number(commentsWeek) +
+      Number(revinesWeek) +
+      Number(followsWeek) +
+      Number(dmsWeek);
+
+    // Top posts leaderboard
+    let topPostsWeek = [];
+    let topPostsToday = [];
+    if (await hasTable(dbName, "vine_posts")) {
+      const [weekRows] = await db.query(
+        `
+        SELECT
+          p.id,
+          p.user_id,
+          p.content,
+          p.image_url,
+          p.created_at,
+          u.username,
+          u.display_name,
+          u.avatar_url,
+          u.is_verified,
+          (SELECT COUNT(*) FROM vine_likes l WHERE l.post_id = p.id) AS likes,
+          (SELECT COUNT(*) FROM vine_comments c WHERE c.post_id = p.id) AS comments,
+          (SELECT COUNT(*) FROM vine_revines r WHERE r.post_id = p.id) AS revines,
+          (SELECT COUNT(*) FROM vine_post_views v WHERE v.post_id = p.id) AS views
+        FROM vine_posts p
+        JOIN vine_users u ON u.id = p.user_id
+        WHERE p.created_at >= ? AND p.created_at <= ?
+        `,
+        [rangeStart, rangeEnd]
+      );
+
+      const [todayRows] = await db.query(
+        `
+        SELECT
+          p.id,
+          p.user_id,
+          p.content,
+          p.image_url,
+          p.created_at,
+          u.username,
+          u.display_name,
+          u.avatar_url,
+          u.is_verified,
+          (SELECT COUNT(*) FROM vine_likes l WHERE l.post_id = p.id) AS likes,
+          (SELECT COUNT(*) FROM vine_comments c WHERE c.post_id = p.id) AS comments,
+          (SELECT COUNT(*) FROM vine_revines r WHERE r.post_id = p.id) AS revines,
+          (SELECT COUNT(*) FROM vine_post_views v WHERE v.post_id = p.id) AS views
+        FROM vine_posts p
+        JOIN vine_users u ON u.id = p.user_id
+        WHERE DATE(p.created_at) = DATE(?)
+        `,
+        [rangeEnd]
+      );
+
+      const withScore = (rows) =>
+        rows
+          .map((row) => {
+            const score =
+              Number(row.likes || 0) * 1 +
+              Number(row.comments || 0) * 2 +
+              Number(row.revines || 0) * 3 +
+              Number(row.views || 0) * 0.25;
+            return { ...row, score: Number(score.toFixed(2)) };
+          })
+          .sort((a, b) => b.score - a.score)
+          .slice(0, 10);
+
+      topPostsWeek = withScore(weekRows);
+      topPostsToday = withScore(todayRows);
+    }
+
+    // Growth funnel
+    const [[newUsers7d]] = await db.query(
+      "SELECT COUNT(*) AS total FROM vine_users WHERE created_at >= ? AND created_at <= ?",
+      [rangeStart, rangeEnd]
+    );
+    const [[postedByNew7d]] = await db.query(
+      `
+      SELECT COUNT(DISTINCT p.user_id) AS total
+      FROM vine_posts p
+      JOIN vine_users u ON u.id = p.user_id
+      WHERE u.created_at >= ? AND u.created_at <= ?
+        AND p.created_at >= u.created_at
+      `,
+      [rangeStart, rangeEnd]
+    );
+    const [[engagedByNew7d]] = await db.query(
+      `
+      SELECT COUNT(DISTINCT p.user_id) AS total
+      FROM vine_posts p
+      JOIN vine_users u ON u.id = p.user_id
+      WHERE u.created_at >= ? AND u.created_at <= ?
+        AND (
+          EXISTS (SELECT 1 FROM vine_likes l WHERE l.post_id = p.id)
+          OR EXISTS (SELECT 1 FROM vine_comments c WHERE c.post_id = p.id)
+          OR EXISTS (SELECT 1 FROM vine_revines r WHERE r.post_id = p.id)
+        )
+      `,
+      [rangeStart, rangeEnd]
+    );
+    const [[eligibleRetention]] = await db.query(
+      `
+      SELECT COUNT(*) AS total
+      FROM vine_users
+      WHERE created_at BETWEEN ? AND ?
+      `,
+      [prevStart, rangeEnd]
+    );
+    const [[retainedAfter1d]] = await db.query(
+      `
+      SELECT COUNT(*) AS total
+      FROM vine_users
+      WHERE created_at BETWEEN ? AND ?
+        AND last_active_at >= created_at + INTERVAL 1 DAY
+      `,
+      [prevStart, rangeEnd]
+    );
+
+    // Content health
+    const [[contentHealthRow]] = await db.query(
+      `
+      SELECT
+        AVG(CHAR_LENGTH(COALESCE(content, ''))) AS avg_post_length_week,
+        SUM(CASE WHEN image_url IS NOT NULL AND image_url != '' THEN 1 ELSE 0 END) AS image_posts_week,
+        SUM(CASE WHEN link_preview IS NOT NULL AND link_preview != '' THEN 1 ELSE 0 END) AS link_posts_week,
+        COUNT(*) AS total_posts_week
+      FROM vine_posts
+      WHERE created_at >= ? AND created_at <= ?
+      `,
+      [rangeStart, rangeEnd]
+    );
+
+    // Engagement quality
+    const [[replyShareRow]] = await db.query(
+      `
+      SELECT
+        SUM(CASE WHEN parent_comment_id IS NOT NULL THEN 1 ELSE 0 END) AS replies,
+        COUNT(*) AS total_comments
+      FROM vine_comments
+      WHERE created_at >= ? AND created_at <= ?
+      `,
+      [rangeStart, rangeEnd]
+    );
+
+    // Network effects
+    const [[mutualPairsRow]] = await db.query(
+      `
+      SELECT COUNT(*) AS total
+      FROM vine_follows a
+      JOIN vine_follows b
+        ON a.follower_id = b.following_id
+       AND a.following_id = b.follower_id
+      WHERE a.follower_id < a.following_id
+      `
+    );
+    const dmStartsWeek = await countRange("vine_conversations", "created_at", rangeStart, rangeEnd);
+
+    // Guardian alerts (24h vs previous 24h)
+    const metricDelta = async (table, col = "created_at") => {
+      const exists = await hasTable(dbName, table);
+      if (!exists) return { current: 0, previous: 0 };
+      const ok = await hasColumn(dbName, table, col);
+      if (!ok) return { current: 0, previous: 0 };
+      const [[curr]] = await db.query(
+        `SELECT COUNT(*) AS total FROM ${table} WHERE ${col} >= ? AND ${col} <= ?`,
+        [rangeStart, rangeEnd]
+      );
+      const [[prev]] = await db.query(
+        `SELECT COUNT(*) AS total FROM ${table} WHERE ${col} >= ? AND ${col} <= ?`,
+        [prevStart, prevEnd]
+      );
+      return { current: Number(curr?.total || 0), previous: Number(prev?.total || 0) };
+    };
+
+    const [postDelta, commentDelta, likeDelta, signupDelta] = await Promise.all([
+      metricDelta("vine_posts"),
+      metricDelta("vine_comments"),
+      metricDelta("vine_likes"),
+      metricDelta("vine_users"),
+    ]);
+
+    const buildAlert = (key, label, metric) => {
+      const prev = Number(metric.previous || 0);
+      const curr = Number(metric.current || 0);
+      const pct = prev > 0 ? ((curr - prev) / prev) * 100 : (curr > 0 ? 100 : 0);
+      let severity = "normal";
+      if (pct >= 100) severity = "high";
+      else if (pct >= 35) severity = "medium";
+      return {
+        key,
+        label,
+        current: curr,
+        previous: prev,
+        changePct: Number(pct.toFixed(1)),
+        severity,
+      };
+    };
+
+    const guardianAlerts = [
+      buildAlert("posts", "Post spike", postDelta),
+      buildAlert("comments", "Comment spike", commentDelta),
+      buildAlert("likes", "Like spike", likeDelta),
+      buildAlert("signups", "Signup spike", signupDelta),
+    ]
+      .filter((a) => a.changePct > 20 || (a.previous === 0 && a.current >= 15))
+      .sort((a, b) => b.changePct - a.changePct);
+
+    // Creator insights
+    let topCreatorsWeek = [];
+    let risingCreators = [];
+    if (await hasTable(dbName, "vine_posts")) {
+      const [creatorRows] = await db.query(
+        `
+        SELECT
+          x.user_id,
+          u.username,
+          u.display_name,
+          u.avatar_url,
+          u.is_verified,
+          SUM(CASE WHEN x.created_at >= ? AND x.created_at <= ? THEN x.score ELSE 0 END) AS score_week,
+          SUM(CASE WHEN x.created_at >= ? AND x.created_at <= ? THEN x.score ELSE 0 END) AS score_prev
+        FROM (
+          SELECT
+            p.id,
+            p.user_id,
+            p.created_at,
+            (
+              (SELECT COUNT(*) FROM vine_likes l WHERE l.post_id = p.id) +
+              (SELECT COUNT(*) * 2 FROM vine_comments c WHERE c.post_id = p.id) +
+              (SELECT COUNT(*) * 3 FROM vine_revines r WHERE r.post_id = p.id)
+            ) AS score
+          FROM vine_posts p
+          WHERE p.created_at >= ? AND p.created_at <= ?
+        ) x
+        JOIN vine_users u ON u.id = x.user_id
+        GROUP BY x.user_id, u.username, u.display_name, u.avatar_url, u.is_verified
+        HAVING score_week > 0 OR score_prev > 0
+        `,
+        [rangeStart, rangeEnd, prevStart, prevEnd, prevStart, rangeEnd]
+      );
+
+      topCreatorsWeek = [...creatorRows]
+        .sort((a, b) => Number(b.score_week || 0) - Number(a.score_week || 0))
+        .slice(0, 10)
+        .map((r) => ({
+          ...r,
+          score_week: Number(r.score_week || 0),
+          score_prev: Number(r.score_prev || 0),
+        }));
+
+      risingCreators = [...creatorRows]
+        .map((r) => {
+          const week = Number(r.score_week || 0);
+          const prev = Number(r.score_prev || 0);
+          const growthPct = prev > 0 ? ((week - prev) / prev) * 100 : (week > 0 ? 100 : 0);
+          return {
+            ...r,
+            score_week: week,
+            score_prev: prev,
+            growthPct: Number(growthPct.toFixed(1)),
+          };
+        })
+        .filter((r) => r.score_week > 0)
+        .sort((a, b) => b.growthPct - a.growthPct)
+        .slice(0, 10);
+    }
+
+    return res.json({
+      range: {
+        from: rangeStart.toISOString(),
+        to: rangeEnd.toISOString(),
+      },
+      kpis: {
+        activeUsersToday: Number(activeToday?.total || 0),
+        activeUsersWeek: Number(activeWeek?.total || 0),
+        estimatedActiveHoursToday: Number(activeHoursToday?.total || 0),
+        loginsToday: Number(loginToday || 0),
+        loginsWeek: Number(loginWeek || 0),
+        newUsersToday: Number(newToday?.total || 0),
+        newUsersWeek: Number(newWeek?.total || 0),
+        postsToday: Number(postsToday || 0),
+        postsWeek: Number(postsWeek || 0),
+        commentsToday: Number(commentsToday || 0),
+        commentsWeek: Number(commentsWeek || 0),
+        likesToday: Number(likesToday || 0),
+        likesWeek: Number(likesWeek || 0),
+        revinesToday: Number(revinesToday || 0),
+        revinesWeek: Number(revinesWeek || 0),
+        followsToday: Number(followsToday || 0),
+        followsWeek: Number(followsWeek || 0),
+        dmsToday: Number(dmsToday || 0),
+        dmsWeek: Number(dmsWeek || 0),
+        totalInteractionsWeek,
+      },
+      usageByDay,
+      topPostsLeaderboard: {
+        today: topPostsToday,
+        week: topPostsWeek,
+      },
+      growthFunnel: {
+        newUsers7d: Number(newUsers7d?.total || 0),
+        postedByNewUsers7d: Number(postedByNew7d?.total || 0),
+        engagedByNewUsers7d: Number(engagedByNew7d?.total || 0),
+        eligibleRetentionUsers: Number(eligibleRetention?.total || 0),
+        retainedAfter1d: Number(retainedAfter1d?.total || 0),
+        retentionRatePct:
+          Number(eligibleRetention?.total || 0) > 0
+            ? Number(((Number(retainedAfter1d?.total || 0) / Number(eligibleRetention?.total || 1)) * 100).toFixed(1))
+            : 0,
+      },
+      contentHealth: {
+        avgPostLengthWeek: Number(contentHealthRow?.avg_post_length_week || 0).toFixed(1),
+        imagePostRatioWeek:
+          Number(contentHealthRow?.total_posts_week || 0) > 0
+            ? Number(((Number(contentHealthRow?.image_posts_week || 0) / Number(contentHealthRow?.total_posts_week || 1)) * 100).toFixed(1))
+            : 0,
+        linkPostRatioWeek:
+          Number(contentHealthRow?.total_posts_week || 0) > 0
+            ? Number(((Number(contentHealthRow?.link_posts_week || 0) / Number(contentHealthRow?.total_posts_week || 1)) * 100).toFixed(1))
+            : 0,
+        commentsPerPostWeek:
+          Number(postsWeek || 0) > 0 ? Number((Number(commentsWeek || 0) / Number(postsWeek || 1)).toFixed(2)) : 0,
+      },
+      engagementQuality: {
+        interactionsPerActiveUserWeek:
+          Number(activeWeek?.total || 0) > 0
+            ? Number((Number(totalInteractionsWeek || 0) / Number(activeWeek?.total || 1)).toFixed(2))
+            : 0,
+        engagementPerPostWeek:
+          Number(postsWeek || 0) > 0
+            ? Number(((Number(likesWeek || 0) + Number(commentsWeek || 0) + Number(revinesWeek || 0)) / Number(postsWeek || 1)).toFixed(2))
+            : 0,
+        replyShareWeek:
+          Number(replyShareRow?.total_comments || 0) > 0
+            ? Number(((Number(replyShareRow?.replies || 0) / Number(replyShareRow?.total_comments || 1)) * 100).toFixed(1))
+            : 0,
+      },
+      networkEffects: {
+        followsWeek: Number(followsWeek || 0),
+        followsPerActiveUserWeek:
+          Number(activeWeek?.total || 0) > 0
+            ? Number((Number(followsWeek || 0) / Number(activeWeek?.total || 1)).toFixed(2))
+            : 0,
+        mutualFollowPairs: Number(mutualPairsRow?.total || 0),
+        dmStartsWeek: Number(dmStartsWeek || 0),
+      },
+      guardianAlerts,
+      creatorInsights: {
+        topCreatorsWeek,
+        risingCreators,
+      },
+    });
+  } catch (err) {
+    console.error("Guardian analytics error:", err);
+    return res.status(500).json({ message: "Failed to load analytics" });
+  }
+});
+
+// Guardian-only drilldown for moderation view
+router.get("/analytics/drilldown", authenticate, async (req, res) => {
+  try {
+    if (!isModeratorAccount(req.user)) {
+      return res.status(403).json({ message: "Moderator access required" });
+    }
+
+    const parseDateInput = (value, isEnd = false) => {
+      if (!value) return null;
+      const raw = String(value).trim();
+      if (!raw) return null;
+      const normalized = raw.length <= 10
+        ? `${raw}${isEnd ? "T23:59:59.999Z" : "T00:00:00.000Z"}`
+        : raw;
+      const d = new Date(normalized);
+      if (Number.isNaN(d.getTime())) return null;
+      return d;
+    };
+
+    const to = parseDateInput(req.query.to, true) || new Date();
+    const from = parseDateInput(req.query.from, false) || new Date(to.getTime() - 6 * 86400000);
+    if (from > to) return res.status(400).json({ message: "Invalid date range" });
+
+    const type = String(req.query.type || "posts").toLowerCase();
+    const limit = Math.min(Math.max(Number(req.query.limit || 100), 1), 300);
+
+    if (type === "posts") {
+      const [rows] = await db.query(
+        `
+        SELECT
+          p.id,
+          p.user_id,
+          p.content,
+          p.created_at,
+          u.username,
+          u.display_name,
+          (SELECT COUNT(*) FROM vine_likes l WHERE l.post_id = p.id) AS likes,
+          (SELECT COUNT(*) FROM vine_comments c WHERE c.post_id = p.id) AS comments,
+          (SELECT COUNT(*) FROM vine_revines r WHERE r.post_id = p.id) AS revines,
+          (SELECT COUNT(*) FROM vine_post_views v WHERE v.post_id = p.id) AS views
+        FROM vine_posts p
+        JOIN vine_users u ON u.id = p.user_id
+        WHERE p.created_at >= ? AND p.created_at <= ?
+        ORDER BY p.created_at DESC
+        LIMIT ?
+        `,
+        [from, to, limit]
+      );
+      return res.json({ type, items: rows });
+    }
+
+    if (type === "comments") {
+      const [rows] = await db.query(
+        `
+        SELECT
+          c.id,
+          c.post_id,
+          c.user_id,
+          c.content,
+          c.parent_comment_id,
+          c.created_at,
+          u.username,
+          u.display_name
+        FROM vine_comments c
+        JOIN vine_users u ON u.id = c.user_id
+        WHERE c.created_at >= ? AND c.created_at <= ?
+        ORDER BY c.created_at DESC
+        LIMIT ?
+        `,
+        [from, to, limit]
+      );
+      return res.json({ type, items: rows });
+    }
+
+    if (type === "users") {
+      const [rows] = await db.query(
+        `
+        SELECT id, username, display_name, created_at, last_active_at, role
+        FROM vine_users
+        WHERE created_at >= ? AND created_at <= ?
+        ORDER BY created_at DESC
+        LIMIT ?
+        `,
+        [from, to, limit]
+      );
+      return res.json({ type, items: rows });
+    }
+
+    if (type === "creators") {
+      const [rows] = await db.query(
+        `
+        SELECT
+          p.user_id,
+          u.username,
+          u.display_name,
+          COUNT(*) AS posts,
+          SUM((SELECT COUNT(*) FROM vine_likes l WHERE l.post_id = p.id)) AS likes,
+          SUM((SELECT COUNT(*) FROM vine_comments c WHERE c.post_id = p.id)) AS comments,
+          SUM((SELECT COUNT(*) FROM vine_revines r WHERE r.post_id = p.id)) AS revines
+        FROM vine_posts p
+        JOIN vine_users u ON u.id = p.user_id
+        WHERE p.created_at >= ? AND p.created_at <= ?
+        GROUP BY p.user_id, u.username, u.display_name
+        ORDER BY (likes + comments * 2 + revines * 3) DESC
+        LIMIT ?
+        `,
+        [from, to, Math.min(limit, 100)]
+      );
+      return res.json({ type, items: rows });
+    }
+
+    return res.status(400).json({ message: "Unsupported drilldown type" });
+  } catch (err) {
+    console.error("Guardian drilldown error:", err);
+    return res.status(500).json({ message: "Failed to load drilldown" });
+  }
+});
+
+// Report content (post/comment) to Guardian
+router.post("/reports", authenticate, async (req, res) => {
+  try {
+    await ensureModerationSchema();
+    const reporterId = Number(req.user.id);
+    const { post_id, comment_id, reason } = req.body || {};
+    let postId = post_id ? Number(post_id) : null;
+    const commentId = comment_id ? Number(comment_id) : null;
+    const cleanReason = String(reason || "").trim().slice(0, 500);
+
+    if (!postId && !commentId) {
+      return res.status(400).json({ message: "post_id or comment_id is required" });
+    }
+    if (!cleanReason) {
+      return res.status(400).json({ message: "Reason is required" });
+    }
+
+    let reportedUserId = null;
+    if (commentId) {
+      const [[comment]] = await db.query(
+        "SELECT id, user_id, post_id FROM vine_comments WHERE id = ?",
+        [commentId]
+      );
+      if (!comment) return res.status(404).json({ message: "Comment not found" });
+      if (!postId && comment.post_id) {
+        postId = Number(comment.post_id);
+      }
+      reportedUserId = Number(comment.user_id);
+    } else if (postId) {
+      const [[post]] = await db.query(
+        "SELECT id, user_id FROM vine_posts WHERE id = ?",
+        [postId]
+      );
+      if (!post) return res.status(404).json({ message: "Post not found" });
+      reportedUserId = Number(post.user_id);
+    }
+
+    const [insertResult] = await db.query(
+      `
+      INSERT INTO vine_reports
+      (reporter_id, reported_user_id, post_id, comment_id, reason, status, created_at)
+      VALUES (?, ?, ?, ?, ?, 'open', NOW())
+      `,
+      [reporterId, reportedUserId, postId, commentId, cleanReason]
+    );
+
+    await notifyGuardians({
+      actorId: reporterId,
+      type: commentId ? "report_comment" : "report_post",
+      postId,
+      commentId,
+      meta: { report_id: insertResult.insertId, reason: cleanReason, reported_user_id: reportedUserId },
+    });
+
+    res.json({ success: true, report_id: insertResult.insertId });
+  } catch (err) {
+    console.error("Create report error:", err);
+    res.status(500).json({ message: "Failed to submit report", details: String(err?.message || "") });
+  }
+});
+
+// Guardian moderation queue
+router.get("/moderation/reports", authenticate, async (req, res) => {
+  try {
+    await ensureModerationSchema();
+    if (!isModeratorAccount(req.user)) {
+      return res.status(403).json({ message: "Moderator access required" });
+    }
+
+    const [rows] = await db.query(
+      `
+      SELECT
+        r.id,
+        r.reporter_id,
+        r.reported_user_id,
+        r.post_id,
+        r.comment_id,
+        r.reason,
+        r.status,
+        r.created_at,
+        ru.username AS reporter_username,
+        ru.display_name AS reporter_display_name,
+        tu.username AS reported_username,
+        tu.display_name AS reported_display_name
+      FROM vine_reports r
+      JOIN vine_users ru ON ru.id = r.reporter_id
+      LEFT JOIN vine_users tu ON tu.id = r.reported_user_id
+      WHERE r.status = 'open'
+      ORDER BY r.created_at DESC
+      LIMIT 300
+      `
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error("Load reports error:", err);
+    res.status(500).json({ message: "Failed to load reports" });
+  }
+});
+
+router.get("/moderation/appeals", authenticate, async (req, res) => {
+  try {
+    await ensureModerationSchema();
+    if (!isModeratorAccount(req.user)) {
+      return res.status(403).json({ message: "Moderator access required" });
+    }
+
+    const [rows] = await db.query(
+      `
+      SELECT
+        a.id,
+        a.user_id,
+        a.message,
+        a.status,
+        a.created_at,
+        u.username,
+        u.display_name
+      FROM vine_appeals a
+      JOIN vine_users u ON u.id = a.user_id
+      WHERE a.status = 'open'
+      ORDER BY a.created_at DESC
+      LIMIT 300
+      `
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error("Load appeals error:", err);
+    res.status(500).json({ message: "Failed to load appeals" });
+  }
+});
+
+router.post("/moderation/reports/:id/resolve", authenticate, async (req, res) => {
+  try {
+    if (!isModeratorAccount(req.user)) {
+      return res.status(403).json({ message: "Moderator access required" });
+    }
+    const reportId = Number(req.params.id);
+    const { status = "resolved" } = req.body || {};
+    const nextStatus = ["resolved", "dismissed"].includes(String(status))
+      ? String(status)
+      : "resolved";
+    await db.query(
+      "UPDATE vine_reports SET status = ?, reviewed_by = ?, reviewed_at = NOW() WHERE id = ?",
+      [nextStatus, req.user.id, reportId]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Resolve report error:", err);
+    res.status(500).json({ message: "Failed to resolve report" });
+  }
+});
+
+router.post("/moderation/appeals/:id/resolve", authenticate, async (req, res) => {
+  try {
+    if (!isModeratorAccount(req.user)) {
+      return res.status(403).json({ message: "Moderator access required" });
+    }
+    const appealId = Number(req.params.id);
+    const { status = "resolved" } = req.body || {};
+    const nextStatus = ["resolved", "dismissed"].includes(String(status))
+      ? String(status)
+      : "resolved";
+    await db.query(
+      "UPDATE vine_appeals SET status = ?, reviewed_by = ?, reviewed_at = NOW() WHERE id = ?",
+      [nextStatus, req.user.id, appealId]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Resolve appeal error:", err);
+    res.status(500).json({ message: "Failed to resolve appeal" });
+  }
+});
+
+router.post("/moderation/suspend", authenticate, async (req, res) => {
+  try {
+    await ensureModerationSchema();
+    if (!isModeratorAccount(req.user)) {
+      return res.status(403).json({ message: "Moderator access required" });
+    }
+    const { user_id, duration = "day", reason = "", report_id = null } = req.body || {};
+    const targetUserId = Number(user_id);
+    if (!targetUserId) return res.status(400).json({ message: "user_id is required" });
+
+    const durationSql = {
+      day: "DATE_ADD(NOW(), INTERVAL 1 DAY)",
+      week: "DATE_ADD(NOW(), INTERVAL 1 WEEK)",
+      month: "DATE_ADD(NOW(), INTERVAL 1 MONTH)",
+      "three_months": "DATE_ADD(NOW(), INTERVAL 3 MONTH)",
+      indefinite: "NULL",
+    };
+    const durationLabels = {
+      day: "1 day",
+      week: "1 week",
+      month: "1 month",
+      "three_months": "3 months",
+      indefinite: "indefinite",
+    };
+    const normalizedDuration = Object.prototype.hasOwnProperty.call(durationSql, duration)
+      ? duration
+      : "day";
+
+    const endsExpr = durationSql[normalizedDuration];
+    await db.query(
+      "UPDATE vine_user_suspensions SET is_active = 0 WHERE user_id = ? AND is_active = 1",
+      [targetUserId]
+    );
+
+    if (endsExpr === "NULL") {
+      await db.query(
+        `
+        INSERT INTO vine_user_suspensions
+        (user_id, scope, reason, starts_at, ends_at, is_active, created_by, created_at)
+        VALUES (?, 'likes_comments', ?, NOW(), NULL, 1, ?, NOW())
+        `,
+        [targetUserId, String(reason || "").slice(0, 500), req.user.id]
+      );
+    } else {
+      await db.query(
+        `
+        INSERT INTO vine_user_suspensions
+        (user_id, scope, reason, starts_at, ends_at, is_active, created_by, created_at)
+        VALUES (?, 'likes_comments', ?, NOW(), ${endsExpr}, 1, ?, NOW())
+        `,
+        [targetUserId, String(reason || "").slice(0, 500), req.user.id]
+      );
+    }
+
+    if (report_id) {
+      await db.query(
+        "UPDATE vine_reports SET status = 'resolved', reviewed_by = ?, reviewed_at = NOW() WHERE id = ?",
+        [req.user.id, Number(report_id)]
+      );
+    }
+
+    await db.query(
+      `
+      INSERT INTO vine_notifications (user_id, actor_id, type, post_id, comment_id)
+      VALUES (?, ?, 'account_suspended', NULL, NULL)
+      `,
+      [targetUserId, req.user.id]
+    );
+    io.to(`user-${targetUserId}`).emit("notification");
+
+    const [[targetUser]] = await db.query(
+      "SELECT email, username FROM vine_users WHERE id = ? LIMIT 1",
+      [targetUserId]
+    );
+    if (targetUser?.email) {
+      sendVineSuspensionEmail(
+        targetUser.email,
+        targetUser.username,
+        durationLabels[normalizedDuration] || normalizedDuration,
+        String(reason || "")
+      ).catch((err) => {
+        console.warn("Suspension email failed:", err.message);
+      });
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Suspend user error:", err);
+    res.status(500).json({ message: "Failed to suspend user" });
+  }
+});
+
+router.post("/moderation/unsuspend", authenticate, async (req, res) => {
+  try {
+    await ensureModerationSchema();
+    if (!isModeratorAccount(req.user)) {
+      return res.status(403).json({ message: "Moderator access required" });
+    }
+
+    const { user_id, appeal_id = null, reason = "Appeal approved by Guardian" } = req.body || {};
+    const targetUserId = Number(user_id);
+    if (!targetUserId) return res.status(400).json({ message: "user_id is required" });
+
+    await db.query(
+      `
+      UPDATE vine_user_suspensions
+      SET is_active = 0, ends_at = NOW()
+      WHERE user_id = ? AND is_active = 1
+      `,
+      [targetUserId]
+    );
+
+    if (appeal_id) {
+      await db.query(
+        "UPDATE vine_appeals SET status = 'resolved', reviewed_by = ?, reviewed_at = NOW() WHERE id = ?",
+        [req.user.id, Number(appeal_id)]
+      );
+    }
+
+    await db.query(
+      `
+      INSERT INTO vine_notifications (user_id, actor_id, type, post_id, comment_id)
+      VALUES (?, ?, 'account_unsuspended', NULL, NULL)
+      `,
+      [targetUserId, req.user.id]
+    );
+    io.to(`user-${targetUserId}`).emit("notification");
+
+    const [[targetUser]] = await db.query(
+      "SELECT email, username FROM vine_users WHERE id = ? LIMIT 1",
+      [targetUserId]
+    );
+    if (targetUser?.email) {
+      sendVineUnsuspensionEmail(targetUser.email, targetUser.username).catch((err) => {
+        console.warn("Unsuspension email failed:", err.message);
+      });
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Unsuspend user error:", err);
+    res.status(500).json({ message: "Failed to unsuspend user", details: String(err?.message || "") });
+  }
+});
+
+router.get("/users/me/restrictions", authenticate, async (req, res) => {
+  try {
+    await ensureModerationSchema();
+    const suspension = await getActiveInteractionSuspension(req.user.id);
+    res.json({ suspended: Boolean(suspension), suspension: suspension || null });
+  } catch (err) {
+    console.error("Restrictions lookup error:", err);
+    res.status(500).json({ suspended: false });
+  }
+});
+
+router.post("/moderation/appeals", authenticate, async (req, res) => {
+  try {
+    await ensureModerationSchema();
+    const appellantId = Number(req.user.id);
+    const { message } = req.body || {};
+    const cleanMessage = String(message || "").trim().slice(0, 1000);
+    if (!cleanMessage) {
+      return res.status(400).json({ message: "Appeal message is required" });
+    }
+
+    const [insertResult] = await db.query(
+      `
+      INSERT INTO vine_appeals (user_id, message, status, created_at)
+      VALUES (?, ?, 'open', NOW())
+      `,
+      [appellantId, cleanMessage]
+    );
+
+    await notifyGuardians({
+      actorId: appellantId,
+      type: "appeal",
+      meta: { appeal_id: insertResult.insertId },
+    });
+
+    res.json({ success: true, appeal_id: insertResult.insertId });
+  } catch (err) {
+    console.error("Submit appeal error:", err);
+    res.status(500).json({ message: "Failed to submit appeal", details: String(err?.message || "") });
+  }
+});
+
 // Get notifications
 router.get("/notifications", authenticate, async (req, res) => {
-  const [rows] = await db.query(`
+  const dbName = await getDbName();
+  const includeMeta = dbName
+    ? await hasColumn(dbName, "vine_notifications", "meta_json")
+    : false;
+  const [rows] = await db.query(
+    `
     SELECT 
       n.id,
       n.type,
@@ -2205,6 +3444,7 @@ router.get("/notifications", authenticate, async (req, res) => {
       n.comment_id,
       n.is_read,
       n.created_at,
+      ${includeMeta ? "n.meta_json," : "NULL AS meta_json,"}
       u.username,
       u.display_name,
       u.avatar_url,
@@ -2217,8 +3457,10 @@ router.get("/notifications", authenticate, async (req, res) => {
         WHERE m.muter_id = n.user_id AND m.muted_id = n.actor_id
       )
     ORDER BY n.created_at DESC
-    LIMIT 50
-  `, [req.user.id]);
+    LIMIT 80
+  `,
+    [req.user.id]
+  );
 
   res.json(rows);
 });

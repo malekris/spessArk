@@ -32,6 +32,7 @@
   margin-bottom: 12px;
   position: relative;
   width: 100%;
+  padding-right: 0;
 }
 
 .post-avatar,
@@ -57,6 +58,7 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
+  position: relative;
 }
 .revine-top {
   font-size: 0.9rem;
@@ -74,18 +76,204 @@
 
 .meta-top {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 6px;
+  padding-right: 30px;
+}
+
+.post-kebab-wrap {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  margin-left: 0;
+  z-index: 40;
+}
+
+.post-kebab-btn {
+  border: none;
+  background: transparent;
+  color: #475569;
+  font-size: 1.35rem;
+  line-height: 1;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.post-kebab-btn:hover {
+  background: rgba(15, 23, 42, 0.08);
+}
+
+.name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  width: 100%;
+  padding-right: 28px;
+}
+
+.name-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: calc(100% - 110px); /* keep room for timestamp */
+  flex: 1 1 auto;
+}
+
+.top-time {
+  font-size: 0.95rem;
+  color: #64748b;
+  white-space: nowrap;
+}
+
+.report-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.5);
+  display: grid;
+  place-items: center;
+  z-index: 2147483647;
+  padding: 14px;
+}
+
+.report-modal {
+  width: min(460px, 96vw);
+  background: #ffffff;
+  border-radius: 14px;
+  border: 1px solid #dbeafe;
+  box-shadow: 0 24px 50px rgba(2, 6, 23, 0.25);
+  padding: 14px;
+}
+
+.report-modal-title {
+  font-size: 1rem;
+  font-weight: 900;
+  color: #052e16;
+}
+
+.report-modal-subtitle {
+  margin-top: 4px;
+  margin-bottom: 10px;
+  font-size: 0.9rem;
+  color: #334155;
+}
+
+.report-category-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.report-chip {
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  padding: 9px 12px;
+  background: #fff;
+  color: #0f172a;
+  font-weight: 700;
+  text-transform: capitalize;
+  cursor: pointer;
+}
+
+.report-chip.active {
+  border-color: #0ea5e9;
+  background: #ecfeff;
+  color: #075985;
+}
+
+.report-details {
+  width: 100%;
+  margin-top: 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  padding: 10px 12px;
+  min-height: 84px;
+  resize: vertical;
+  font: inherit;
+  color: #0f172a;
+}
+
+.report-modal-actions {
+  margin-top: 10px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.report-modal-actions button {
+  border: none;
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-weight: 800;
+  font-size: 0.92rem;
+  line-height: 1;
+  min-height: 36px;
+  min-width: 92px;
+  cursor: pointer;
+}
+
+.report-modal-actions .primary {
+  background: #065f46;
+  color: #fff;
+}
+
+.report-modal-actions .danger {
+  background: #dc2626;
+  color: #fff;
+}
+
+.report-modal-actions .secondary {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+.theme-dark .report-modal {
+  background: #0b0b0b;
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.theme-dark .report-modal-title,
+.theme-dark .report-modal-subtitle {
+  color: #ffffff;
+}
+
+.theme-dark .report-chip {
+  background: #111827;
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+
+.theme-dark .report-chip.active {
+  background: rgba(14, 165, 233, 0.25);
+  border-color: #38bdf8;
+}
+
+.theme-dark .report-details {
+  background: #111827;
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+
+.theme-dark .report-modal-actions .secondary {
+  background: #1f2937;
+  color: #ffffff;
 }
 
 .display-name {
   color: #052e16;
   font-weight: 900;
   font-size: 1.1rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
-.verified {
+.vine-post .verified {
   background: #1d9bf0;
   width: 16px;
   height: 16px;
@@ -93,7 +281,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  margin-left: 4px;
+  margin-left: 0;
+  flex: 0 0 auto;
   box-shadow: 0 0 6px rgba(29, 155, 240, 0.6);
 }
 
@@ -732,6 +921,16 @@
     font-size: 1rem;
   }
 
+  .vine-post-header {
+    padding-right: 0;
+  }
+
+  .post-kebab-btn {
+    width: 28px;
+    height: 28px;
+    font-size: 1.2rem;
+  }
+
   .action-btn {
     font-size: 0.85rem;
     padding: 6px 10px;
@@ -754,6 +953,8 @@
   flex-wrap: wrap;              /* allows wrapping on very small screens */
   gap: 8px;                     /* space between username, time, and trash */
   margin-top: 4px;              /* small breathing room from name row */
+  min-height: 22px;
+  padding-right: 30px;
 }
 
 /* Delete button – now compact and inline */

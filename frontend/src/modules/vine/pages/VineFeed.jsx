@@ -30,13 +30,21 @@ export default function VineFeed() {
   const DEFAULT_AVATAR = "/default-avatar.png";
 
   // User info from localStorage
+  let me = {};
   let myUsername = "";
   try {
     const storedUser = JSON.parse(localStorage.getItem("vine_user"));
+    me = storedUser || {};
     myUsername = storedUser?.username || "";
   } catch (e) {
     console.error("User parse error", e);
   }
+  const isModerator =
+    Number(me?.is_admin) === 1 ||
+    String(me?.role || "").toLowerCase() === "moderator" ||
+    ["vine guardian", "vine_guardian"].includes(
+      String(me?.username || "").toLowerCase()
+    );
 
   // ── State ───────────────────────────────────────
   const [posts, setPosts] = useState([]);
@@ -51,6 +59,7 @@ export default function VineFeed() {
   const [suggestedUsers, setSuggestedUsers] = useState([]);
   const [suggestionSlots, setSuggestionSlots] = useState([]);
   const [trendingPosts, setTrendingPosts] = useState([]);
+  const [restriction, setRestriction] = useState(null);
   const suggestionSlotsRef = useRef([]);
 
   const normalizeImageFiles = async (fileList) => {
@@ -177,17 +186,53 @@ export default function VineFeed() {
       setTrendingPosts([]);
     }
   };
+
+  const loadRestrictions = async () => {
+    try {
+      const res = await fetch(`${API}/api/vine/users/me/restrictions`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.suspended) {
+        setRestriction(data.suspension || { reason: "Moderation restriction active" });
+      } else {
+        setRestriction(null);
+      }
+    } catch {
+      setRestriction(null);
+    }
+  };
   
 
   useEffect(() => {
     loadFeed(); // initial load
     loadSuggestions();
     loadTrending();
+    loadRestrictions();
 
     const interval = setInterval(loadFeed, 5000); // refresh every 5s
 
     return () => clearInterval(interval);
   }, []);
+
+  const submitAppeal = async () => {
+    const message = window.prompt("Appeal to Guardian: explain your case");
+    if (!message || !message.trim()) return;
+    const res = await fetch(`${API}/api/vine/moderation/appeals`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ message: message.trim() }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert(data.message || "Appeal failed");
+      return;
+    }
+    alert("Appeal sent to Guardian");
+  };
 
   // ── Real-time Notifications & DMs ───────────────
   useEffect(() => {
@@ -311,6 +356,14 @@ export default function VineFeed() {
         </div>
 
         <div className="nav-right">
+          {isModerator && (
+            <button
+              className="nav-btn profile-btn desktop-only"
+              onClick={() => navigate("/vine/guardian/analytics")}
+            >
+              Guardian
+            </button>
+          )}
           <input
             className="vine-search nav-search desktop-only"
             placeholder="Search users..."
@@ -354,6 +407,15 @@ export default function VineFeed() {
             👥 Discover
           </button>
 
+          {isModerator && (
+            <button
+              className="discover-btn"
+              onClick={() => navigate("/vine/guardian/analytics")}
+            >
+              Guardian
+            </button>
+          )}
+
           <input
             className="vine-search dm-search mobile-only"
             placeholder="Search users..."
@@ -374,6 +436,15 @@ export default function VineFeed() {
       </nav>
 
       <div className="vine-content-wrapper">
+        {restriction && (
+          <div className="suspension-banner">
+            <div>
+              Account restricted from likes/comments.
+              {restriction.reason ? ` Reason: ${restriction.reason}` : ""}
+            </div>
+            <button onClick={submitAppeal}>Appeal to Guardian</button>
+          </div>
+        )}
 
         {/* Create Post Box */}
         <div className="vine-create-box">

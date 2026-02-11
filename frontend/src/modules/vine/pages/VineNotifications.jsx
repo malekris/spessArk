@@ -40,6 +40,11 @@ export default function VineNotifications() {
       case "revine": return "revined your post";
       case "mention_post": return "mentioned you in a post";
       case "mention_comment": return "mentioned you in a comment";
+      case "report_post": return "reported a post to Guardian";
+      case "report_comment": return "reported a comment to Guardian";
+      case "appeal": return "submitted an appeal";
+      case "account_suspended": return "suspended your likes/comments access";
+      case "account_unsuspended": return "lifted your suspension";
       default: return "interacted with you";
     }
   };
@@ -101,6 +106,15 @@ export default function VineNotifications() {
     
       if (n.type === "follow") {
         navigate(`/vine/profile/${n.username}`);
+        return;
+      }
+
+      if (n.type === "report_post" || n.type === "report_comment") {
+        navigate("/vine/guardian/moderation?type=reports");
+        return;
+      }
+      if (n.type === "appeal") {
+        navigate("/vine/guardian/moderation?type=appeals");
         return;
       }
     

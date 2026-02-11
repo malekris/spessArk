@@ -32,6 +32,8 @@ import DmsPage from "./components/dms/DmsPage";
 import VineSuggestions from "./modules/vine/pages/VineSuggestions";
 import VineSearch from "./modules/vine/pages/VineSearch";
 import VineVerifyEmail from "./modules/vine/pages/VineVerifyEmail";
+import VineGuardianAnalytics from "./modules/vine/pages/VineGuardianAnalytics";
+import VineGuardianModeration from "./modules/vine/pages/VineGuardianModeration";
 
 
 
@@ -144,6 +146,8 @@ function App() {
 <Route path="/vine/suggestions" element={<VineSuggestions />} />
 <Route path="/vine/search" element={<VineSearch />} />
 <Route path="/vine/verify-email" element={<VineVerifyEmail />} />
+<Route path="/vine/guardian/analytics" element={<VineGuardianAnalytics />} />
+<Route path="/vine/guardian/moderation" element={<VineGuardianModeration />} />
 
 
   </Routes>

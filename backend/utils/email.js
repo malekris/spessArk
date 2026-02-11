@@ -274,3 +274,48 @@ export async function sendTeacherResetCodeEmail(email, code) {
   await sendWithRetry(payload, 2);
   console.log("📧 Teacher reset code sent");
 }
+
+export async function sendVineSuspensionEmail(email, username, durationLabel, reason = "") {
+  if (!email) return;
+  const safeReason = String(reason || "").trim();
+  const payload = {
+    from: "SPESS VINE 🌱 <no-reply@stphillipsequatorial.com>",
+    to: email,
+    subject: "SPESS VINE account suspension notice",
+    html: `
+      <div style="font-family: Arial; background:#fef2f2; padding:30px;">
+        <div style="max-width:600px; margin:auto; background:white; padding:32px; border-radius:18px;">
+          <h2 style="color:#991b1b;">Account Suspended</h2>
+          <p>Hello ${username || "Viner"},</p>
+          <p>Your account has been suspended from liking and commenting by Vine Guardian.</p>
+          <p><strong>Duration:</strong> ${durationLabel}</p>
+          ${safeReason ? `<p><strong>Reason:</strong> ${safeReason}</p>` : ""}
+          <p>You can submit an appeal from your Vine feed if you believe this was a mistake.</p>
+          <p style="font-size:13px;color:#777;">SPESS VINE moderation system</p>
+        </div>
+      </div>
+    `,
+  };
+  await sendWithRetry(payload, 2);
+}
+
+export async function sendVineUnsuspensionEmail(email, username) {
+  if (!email) return;
+  const payload = {
+    from: "SPESS VINE 🌱 <no-reply@stphillipsequatorial.com>",
+    to: email,
+    subject: "SPESS VINE suspension lifted",
+    html: `
+      <div style="font-family: Arial; background:#f0fdf4; padding:30px;">
+        <div style="max-width:600px; margin:auto; background:white; padding:32px; border-radius:18px;">
+          <h2 style="color:#14532d;">Account Restored</h2>
+          <p>Hello ${username || "Viner"},</p>
+          <p>Your suspension has been lifted by Vine Guardian.</p>
+          <p>You can now like and comment again. Please follow community guidelines moving forward.</p>
+          <p style="font-size:13px;color:#777;">SPESS VINE moderation system</p>
+        </div>
+      </div>
+    `,
+  };
+  await sendWithRetry(payload, 2);
+}

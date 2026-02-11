@@ -349,6 +349,31 @@
   padding-top: 150px;
 }
 
+.suspension-banner {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border-radius: 12px;
+  background: #fff7ed;
+  color: #7c2d12;
+  border: 1px solid #fdba74;
+  font-weight: 700;
+}
+
+.suspension-banner button {
+  border: none;
+  border-radius: 999px;
+  padding: 8px 12px;
+  background: #dc2626;
+  color: #fff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
 .vine-posts-list {
   width: 100%;
 }

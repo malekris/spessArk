@@ -1,0 +1,248 @@
+.guardian-analytics-page {
+  min-height: 100vh;
+  width: 100%;
+  padding: 24px;
+  box-sizing: border-box;
+  background: radial-gradient(circle at top, #f0fdf4 0%, #dcfce7 100%);
+  color: #052e16;
+}
+
+.guardian-topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: #064e3b;
+  color: #ecfdf5;
+  border-radius: 16px;
+  padding: 14px 18px;
+  margin-bottom: 18px;
+}
+
+.guardian-range {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+
+.guardian-range input {
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.15);
+  color: #ecfdf5;
+  border-radius: 8px;
+  padding: 6px 8px;
+}
+
+.guardian-back-btn {
+  border: none;
+  background: #10b981;
+  color: #ffffff;
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.guardian-title-wrap h2 {
+  margin: 0;
+  font-size: 1.3rem;
+}
+
+.guardian-title-wrap p {
+  margin: 2px 0 0;
+  opacity: 0.85;
+}
+
+.guardian-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.guardian-kpi-card {
+  background: #ffffff;
+  border: 1px solid #d1fae5;
+  border-radius: 14px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.guardian-kpi-card span {
+  font-size: 0.88rem;
+  color: #065f46;
+  font-weight: 700;
+}
+
+.guardian-kpi-card strong {
+  font-size: 1.5rem;
+}
+
+.guardian-section {
+  background: #ffffff;
+  border: 1px solid #d1fae5;
+  border-radius: 14px;
+  padding: 14px;
+  margin-bottom: 14px;
+}
+
+.guardian-section h3 {
+  margin: 0 0 12px;
+}
+
+.guardian-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.guardian-csv-btn {
+  border: 1px solid #86efac;
+  background: #ecfdf5;
+  color: #065f46;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-weight: 700;
+  cursor: pointer;
+  margin-bottom: 10px;
+}
+
+.guardian-compare-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.guardian-compare-card {
+  background: #f8fffb;
+  border: 1px solid #dcfce7;
+  border-radius: 10px;
+  padding: 10px;
+  font-weight: 700;
+}
+
+.guardian-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  min-height: 200px;
+  overflow-x: auto;
+}
+
+.guardian-table {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.guardian-row {
+  width: 100%;
+  border: 1px solid #dcfce7;
+  background: #f8fffb;
+  border-radius: 10px;
+  padding: 10px;
+  display: grid;
+  grid-template-columns: 58px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  text-align: left;
+  color: #052e16;
+}
+
+button.guardian-row {
+  cursor: pointer;
+}
+
+.guardian-rank {
+  font-weight: 800;
+  color: #065f46;
+}
+
+.guardian-row-main {
+  font-weight: 700;
+}
+
+.guardian-row-meta {
+  font-weight: 800;
+  color: #0f766e;
+}
+
+.guardian-empty {
+  color: #475569;
+  font-size: 0.92rem;
+}
+
+.guardian-funnel-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.guardian-funnel-step {
+  background: linear-gradient(180deg, #ecfdf5 0%, #dcfce7 100%);
+  border: 1px solid #a7f3d0;
+  border-radius: 10px;
+  padding: 12px;
+  font-weight: 800;
+}
+
+.guardian-subsection h4 {
+  margin: 0 0 8px;
+}
+
+.guardian-subsection + .guardian-subsection {
+  margin-top: 14px;
+}
+
+.guardian-row.alert-high {
+  border-color: #fca5a5;
+  background: #fff1f2;
+}
+
+.guardian-row.alert-medium {
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+
+.guardian-bar-col {
+  min-width: 76px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.guardian-bar-wrap {
+  width: 44px;
+  height: 150px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: #ecfdf5;
+  border: 1px solid #d1fae5;
+  border-radius: 10px;
+}
+
+.guardian-bar {
+  width: 30px;
+  border-radius: 8px 8px 6px 6px;
+  background: linear-gradient(180deg, #10b981 0%, #047857 100%);
+}
+
+.guardian-bar-value {
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.guardian-bar-day {
+  font-size: 0.8rem;
+  color: #475569;
+}
+
+@media (max-width: 768px) {
+  .guardian-analytics-page {
+    padding: 14px;
+  }
+}

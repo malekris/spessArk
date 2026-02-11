@@ -1,0 +1,121 @@
+.guardian-mod-page {
+  min-height: 100vh;
+  padding: 20px;
+  background: radial-gradient(circle at top, #f0fdf4 0%, #dcfce7 100%);
+  color: #052e16;
+}
+
+.guardian-mod-topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #064e3b;
+  color: #ecfdf5;
+  border-radius: 14px;
+  padding: 12px;
+  margin-bottom: 14px;
+}
+
+.guardian-mod-topbar button {
+  border: none;
+  background: #10b981;
+  color: #fff;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.guardian-mod-filters {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.guardian-mod-filters select,
+.guardian-mod-filters input {
+  border: 1px solid #a7f3d0;
+  background: #fff;
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.guardian-mod-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.guardian-mod-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  background: #fff;
+  border: 1px solid #d1fae5;
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.guardian-mod-main p {
+  margin: 4px 0;
+}
+
+.guardian-mod-main small {
+  color: #475569;
+}
+
+.guardian-mod-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.guardian-mod-actions button {
+  border: 1px solid #a7f3d0;
+  background: #ecfdf5;
+  color: #065f46;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.suspend-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.suspend-inline select {
+  border: 1px solid #a7f3d0;
+  background: #ffffff;
+  color: #065f46;
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-weight: 700;
+}
+
+.guardian-mod-actions .danger {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.guardian-mod-actions .success {
+  border-color: #86efac;
+  background: #dcfce7;
+  color: #166534;
+}
+
+.guardian-mod-actions .success:hover {
+  background: #bbf7d0;
+  border-color: #4ade80;
+}
+
+.guardian-mod-empty {
+  padding: 18px;
+  background: #fff;
+  border: 1px solid #d1fae5;
+  border-radius: 10px;
+}

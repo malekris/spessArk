@@ -31,6 +31,21 @@ const COMMENT_BANK = {
       "More effort and discipline required.",
       "Academic progress is limited.",
       "Requires closer academic supervision.",
+      "Needs stronger commitment to studies.",
+      "Must improve daily revision habits.",
+      "Results show weak concept mastery.",
+      "Requires immediate academic improvement.",
+      "Should strengthen test preparation.",
+      "Needs better class concentration.",
+      "Must improve assignment completion.",
+      "Shows low academic consistency.",
+      "Should attend remedial support sessions.",
+      "Needs improved academic discipline.",
+      "Must reduce missed learning tasks.",
+      "Requires improved exam readiness.",
+      "Needs better time management.",
+      "Should improve overall classroom effort.",
+      "Must work harder for better outcomes.",
     ],
     class: [
       "Needs extra support in class.",
@@ -38,6 +53,21 @@ const COMMENT_BANK = {
       "Must complete assignments consistently.",
       "Shows difficulty keeping up.",
       "Requires remedial attention.",
+      "Needs regular guided revision.",
+      "Should ask questions more often.",
+      "Must improve note-taking habits.",
+      "Needs better task submission routine.",
+      "Should practice more past questions.",
+      "Needs support in key topics.",
+      "Must improve class participation.",
+      "Should avoid incomplete classwork.",
+      "Needs stronger homework discipline.",
+      "Should revise after every lesson.",
+      "Must improve learning consistency.",
+      "Needs closer classroom monitoring.",
+      "Should improve response accuracy.",
+      "Needs support in foundational skills.",
+      "Must build stronger study habits.",
     ],
   },
 
@@ -48,6 +78,21 @@ const COMMENT_BANK = {
       "Can achieve better with consistency.",
       "Meets minimum academic expectations.",
       "Encouraging effort shown.",
+      "Progress is moderate and improving.",
+      "A reasonable term performance recorded.",
+      "Can reach higher standards with focus.",
+      "Shows potential for stronger grades.",
+      "Needs more consistent revision.",
+      "Demonstrates fair academic understanding.",
+      "Should increase effort for better outcomes.",
+      "A balanced but improvable performance.",
+      "Results are acceptable, not yet strong.",
+      "Should aim for greater consistency.",
+      "Performance is improving gradually.",
+      "Can perform better with planning.",
+      "Shows stable but average progress.",
+      "Needs extra effort in weak areas.",
+      "Should target higher achievement next term.",
     ],
     class: [
       "Participates fairly in class.",
@@ -55,6 +100,21 @@ const COMMENT_BANK = {
       "Needs more revision.",
       "Shows potential to improve.",
       "Good effort overall.",
+      "Should improve answer precision.",
+      "Can benefit from weekly practice.",
+      "Needs stronger exam technique.",
+      "Should increase classroom engagement.",
+      "Can improve with regular assignments.",
+      "Needs better consistency in tests.",
+      "Should revise difficult topics more.",
+      "Can move to higher grade bands.",
+      "Needs improved speed and accuracy.",
+      "Should strengthen independent study.",
+      "Can improve through structured revision.",
+      "Needs more confidence in assessments.",
+      "Should maintain effort throughout term.",
+      "Can improve with clear study targets.",
+      "Needs stronger focus during lessons.",
     ],
   },
 
@@ -65,6 +125,21 @@ const COMMENT_BANK = {
       "Highly commendable results.",
       "Shows strong academic discipline.",
       "A model learner.",
+      "Consistently high academic standards.",
+      "Very strong and commendable performance.",
+      "Exhibits excellent learning consistency.",
+      "Results reflect sustained hard work.",
+      "Outstanding mastery of key concepts.",
+      "Shows exceptional commitment to studies.",
+      "Excellent progress across assessed areas.",
+      "Performs at a very high level.",
+      "A strong example of academic focus.",
+      "Delivers high-quality academic outcomes.",
+      "Demonstrates mature study discipline.",
+      "Excellent consistency in assessments.",
+      "Shows very strong exam preparedness.",
+      "Maintains impressive academic momentum.",
+      "A high achiever with strong potential.",
     ],
     class: [
       "Very attentive in class.",
@@ -72,6 +147,21 @@ const COMMENT_BANK = {
       "Shows deep understanding.",
       "Sets a good example.",
       "Excellent classroom engagement.",
+      "Maintains high-quality class contributions.",
+      "Demonstrates excellent problem-solving skills.",
+      "Shows strong accuracy in assessments.",
+      "Consistently submits quality classwork.",
+      "Exhibits strong leadership in learning.",
+      "Shows excellent preparation for lessons.",
+      "Demonstrates advanced concept understanding.",
+      "Maintains very high participation levels.",
+      "Excellent consistency in class tasks.",
+      "Shows strong independent study habits.",
+      "Performs very well under assessment conditions.",
+      "Demonstrates exceptional focus in class.",
+      "Maintains strong academic confidence.",
+      "Shows excellent revision discipline.",
+      "Consistently performs above expectations.",
     ],
   },
 };
@@ -224,30 +314,30 @@ doc.text(
 =========================== */
 
 const infoStartY = 52; // ⬅ pushed down to avoid collision
-const leftX = 15;
-const rightX = pageWidth / 2 + 10;
+const infoLeftX = 15;
+const infoRightX = pageWidth / 2 + 10;
 
 doc.setFontSize(11);
 
 // Labels
 doc.setFont("helvetica", "bold");
-doc.text("Name:", leftX, infoStartY);
-doc.text("Age:", leftX, infoStartY + 6);
+doc.text("Name:", infoLeftX, infoStartY);
+doc.text("Age:", infoLeftX, infoStartY + 6);
 
-doc.text("Class:", rightX, infoStartY);
-doc.text("Stream:", rightX, infoStartY + 6);
+doc.text("Class:", infoRightX, infoStartY);
+doc.text("Stream:", infoRightX, infoStartY + 6);
 
 // Values
 doc.setFont("helvetica", "normal");
-doc.text(student.info.student_name || "—", leftX + 22, infoStartY);
+doc.text(student.info.student_name || "—", infoLeftX + 22, infoStartY);
 doc.text(
   String(calculateAge(student.info.dob)),
-  leftX + 22,
+  infoLeftX + 22,
   infoStartY + 6
 );
 
-doc.text(student.info.class_level || "—", rightX + 30, infoStartY);
-doc.text(student.info.stream || "—", rightX + 30, infoStartY + 6);
+doc.text(student.info.class_level || "—", infoRightX + 30, infoStartY);
+doc.text(student.info.stream || "—", infoRightX + 30, infoStartY + 6);
 /* ===========================
    SUBJECT TABLE DATA (REQUIRED)
 =========================== */
@@ -536,19 +626,19 @@ currentY = doc.lastAutoTable.finalY + RHYTHM;
 /* ===========================
    REQUIREMENTS
 =========================== */
-ensureSpace(10);
+ensureSpace(22);
 
 doc.setFont("helvetica", "bold");
+doc.setFontSize(10);
 doc.text("Requirements for Next Term:", getColumnX(), currentY);
 
-doc.setFont("times", "normal");
-doc.text(
-  "Toilet paper • Reams of paper • Brooms",
-  getColumnX() + 55,
-  currentY
-);
+doc.setFont("helvetica", "normal");
+const requirementItems = ["Toilet paper", "Reams of paper", "Brooms"];
+requirementItems.forEach((item, idx) => {
+  doc.text(`• ${item}`, getColumnX() + 2, currentY + RHYTHM * (idx + 1));
+});
 
-currentY += RHYTHM * 2;
+currentY += RHYTHM * 4;
 
 /* ===========================
    TERM DATES (AFTER REQUIREMENTS)
@@ -557,14 +647,19 @@ currentY += RHYTHM * 2;
 ensureSpace(12);
 
 doc.setFont("helvetica", "bold");
-doc.text("This Term Has Ended On:", getColumnX(), currentY);
-doc.text("Next Term Begins On:", getColumnX(), currentY + RHYTHM);
+doc.setFontSize(10);
+const datesY = currentY;
+const termDatesLeftX = getColumnX();
+const termDatesRightX = termDatesLeftX + COLUMN_WIDTH * 0.52;
+
+doc.text("Term Ended:", termDatesLeftX, datesY);
+doc.text("Next Term Begins:", termDatesRightX, datesY);
 
 doc.setFont("helvetica", "normal");
-doc.text("_________________", getColumnX() + 45, currentY);
-doc.text("_________________", getColumnX() + 45, currentY + RHYTHM);
+doc.text("__________", termDatesLeftX + 24, datesY);
+doc.text("__________", termDatesRightX + 35, datesY);
 
-currentY += RHYTHM * 3;
+currentY += RHYTHM * 2;
 
     /* ===========================
        FOOTER

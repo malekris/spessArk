@@ -198,20 +198,45 @@
 
 /* ── Create Post Box ── */
 .vine-create-box {
+  position: relative;
   width: 100%;
   max-width: 650px;
-  background: white;
-  border-radius: 24px;
+  background: linear-gradient(165deg, #ffffff 0%, #f6fffb 100%);
+  border-radius: 26px;
   padding: 20px;
-  border: 1px solid rgba(6, 78, 59, 0.1);
-  box-shadow: 0 10px 30px rgba(5, 46, 22, 0.05);
+  border: 1px solid rgba(16, 185, 129, 0.22);
+  box-shadow:
+    0 14px 34px rgba(5, 46, 22, 0.09),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
   margin-bottom: 25px;
   display: flex;
   flex-direction: column;
   gap: 15px;
+  overflow: hidden;
+  transition: border-color 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease;
+}
+
+.vine-create-box::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 12% 8%, rgba(16, 185, 129, 0.12), transparent 38%),
+    radial-gradient(circle at 90% 95%, rgba(250, 204, 21, 0.12), transparent 34%);
+}
+
+.vine-create-box:focus-within {
+  border-color: rgba(16, 185, 129, 0.5);
+  box-shadow:
+    0 18px 44px rgba(5, 46, 22, 0.12),
+    0 0 0 4px rgba(16, 185, 129, 0.12);
+  transform: translateY(-1px);
 }
 
 .vine-create-box textarea {
+  position: relative;
+  z-index: 1;
   width: 100%;
   min-height: 120px;
   border: none;
@@ -229,13 +254,83 @@
   font-weight: 500;
 }
 
+.feed-mention-suggest-list {
+  margin-top: -6px;
+  border-radius: 12px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  overflow: hidden;
+}
+
+.feed-mention-suggest-item {
+  width: 100%;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 9px 12px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid #eef2f7;
+  cursor: pointer;
+  text-align: left;
+}
+
+.feed-mention-suggest-item:last-child {
+  border-bottom: none;
+}
+
+.feed-mention-suggest-item:hover {
+  background: #f0fdf4;
+}
+
+.feed-mention-suggest-item img {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid #cbd5e1;
+}
+
+.feed-mention-name {
+  font-weight: 700;
+  color: #052e16;
+}
+
+.feed-mention-handle {
+  font-size: 0.85rem;
+  color: #64748b;
+}
+
+.theme-dark .feed-mention-suggest-list {
+  background: #0f172a;
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.theme-dark .feed-mention-suggest-item {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+.theme-dark .feed-mention-suggest-item:hover {
+  background: rgba(16, 185, 129, 0.16);
+}
+
+.theme-dark .feed-mention-name {
+  color: #ffffff;
+}
+
+.theme-dark .feed-mention-handle {
+  color: rgba(255, 255, 255, 0.72);
+}
+
 /* Footer (greeting + actions) */
 .create-footer {
+  position: relative;
+  z-index: 1;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding-top: 15px;
-  border-top: 1px solid rgba(6, 78, 59, 0.05);
+  padding-top: 14px;
+  border-top: 1px solid rgba(16, 185, 129, 0.14);
 }
 
 .greeting {
@@ -258,10 +353,11 @@
 .char-count {
   font-size: 0.8rem;
   font-weight: 800;
-  color: #10b981;
-  background: #f0fdf4;
-  padding: 4px 10px;
-  border-radius: 20px;
+  color: #047857;
+  background: linear-gradient(145deg, #ecfdf5, #dcfce7);
+  padding: 4px 11px;
+  border-radius: 999px;
+  border: 1px solid #bbf7d0;
 }
 
 /* Image Upload Button */
@@ -285,6 +381,9 @@
   align-items: center;
   gap: 8px;
   padding: 7px 12px;
+  border-radius: 999px;
+  border: 1px solid #bbf7d0;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 
 .media-icon {
@@ -341,27 +440,50 @@
 
 /* Post Submit Button */
 .post-submit-btn {
-  background: #064e3b;
+  background: linear-gradient(145deg, #065f46, #047857);
   color: white;
-  border: none;
+  border: 1px solid rgba(4, 120, 87, 0.6);
   padding: 10px 24px;
-  border-radius: 14px;
+  border-radius: 999px;
   font-weight: 800;
+  letter-spacing: 0.01em;
   cursor: pointer;
   transition: all 0.2s ease;
-  box-shadow: 0 4px 12px rgba(6, 78, 59, 0.2);
+  box-shadow:
+    0 8px 16px rgba(6, 95, 70, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.25);
 }
 
 .post-submit-btn:hover {
-  background: #052e16;
+  background: linear-gradient(145deg, #047857, #059669);
   transform: translateY(-2px);
-  box-shadow: 0 6px 15px rgba(6, 78, 59, 0.3);
+  box-shadow:
+    0 10px 20px rgba(6, 95, 70, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
 
 .post-submit-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
   transform: none;
+}
+
+.theme-dark .vine-create-box {
+  background: linear-gradient(165deg, #0f172a 0%, #111827 100%);
+  border-color: rgba(52, 211, 153, 0.32);
+  box-shadow:
+    0 16px 36px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.theme-dark .vine-create-box textarea {
+  color: #f8fafc;
+}
+
+.theme-dark .char-count {
+  background: rgba(16, 185, 129, 0.18);
+  color: #6ee7b7;
+  border-color: rgba(52, 211, 153, 0.4);
 }
 
 /* ── Posts List ── */

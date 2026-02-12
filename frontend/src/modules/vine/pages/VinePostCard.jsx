@@ -416,6 +416,13 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
     }
   };
 
+  const targetComment = reportTarget.commentId
+    ? comments.find((c) => Number(c.id) === Number(reportTarget.commentId))
+    : null;
+  const isReportingOwnTarget = reportTarget.commentId
+    ? Number(targetComment?.user_id) === Number(current_user_id)
+    : isPostAuthor;
+
   const sendComment = async (content, parent_comment_id = null) => {
     if (!content.trim()) return;
     const res = await fetch(`${API}/api/vine/posts/${post.id}/comments`, {
@@ -785,27 +792,31 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
               }}
             >
               <div className="report-modal-title">Report to Guardian</div>
-              <div className="report-modal-subtitle">
-                Choose a complaint category
-              </div>
-              <div className="report-category-grid">
-                {["abuse", "bad content", "disinformation", "privacy violation"].map((cat) => (
-                  <button
-                    key={cat}
-                    className={`report-chip ${reportCategory === cat ? "active" : ""}`}
-                    onClick={() => setReportCategory(cat)}
-                  >
-                    {cat}
-                  </button>
-                ))}
-              </div>
-              <textarea
-                className="report-details"
-                placeholder="Extra details (optional)"
-                value={reportDetails}
-                onChange={(e) => setReportDetails(e.target.value)}
-                maxLength={500}
-              />
+              {!isReportingOwnTarget && (
+                <>
+                  <div className="report-modal-subtitle">
+                    Choose a complaint category
+                  </div>
+                  <div className="report-category-grid">
+                    {["abuse", "bad content", "disinformation", "privacy violation"].map((cat) => (
+                      <button
+                        key={cat}
+                        className={`report-chip ${reportCategory === cat ? "active" : ""}`}
+                        onClick={() => setReportCategory(cat)}
+                      >
+                        {cat}
+                      </button>
+                    ))}
+                  </div>
+                  <textarea
+                    className="report-details"
+                    placeholder="Extra details (optional)"
+                    value={reportDetails}
+                    onChange={(e) => setReportDetails(e.target.value)}
+                    maxLength={500}
+                  />
+                </>
+              )}
               <div className="report-modal-actions">
                 {(isPostAuthor || isModerator) && !reportTarget.commentId && (
                   <button className="danger" onClick={deleteMainPost}>
@@ -815,9 +826,11 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
                 <button className="secondary" onClick={() => setShowReportModal(false)}>
                   Cancel
                 </button>
-                <button className="primary" onClick={submitReport}>
-                  Send Report
-                </button>
+                {!isReportingOwnTarget && (
+                  <button className="primary" onClick={submitReport}>
+                    Send Report
+                  </button>
+                )}
               </div>
             </div>
           </div>,

@@ -20,6 +20,22 @@ const getGreeting = () => {
   return "Good evening";
 };
 
+const getMentionAnchor = (value, caret) => {
+  const left = value.slice(0, caret);
+  const at = left.lastIndexOf("@");
+  if (at === -1) return null;
+  const after = left.slice(at + 1);
+  if (!after || /\s/.test(after)) return null;
+  return { start: at, end: caret, query: after };
+};
+
+const applyMention = (value, anchor, username) => {
+  if (!anchor) return value;
+  const before = value.slice(0, anchor.start);
+  const after = value.slice(anchor.end);
+  return `${before}@${username} ${after}`;
+};
+
 // ────────────────────────────────────────────────
 //  MAIN FEED COMPONENT
 // ────────────────────────────────────────────────
@@ -60,7 +76,10 @@ export default function VineFeed() {
   const [suggestionSlots, setSuggestionSlots] = useState([]);
   const [trendingPosts, setTrendingPosts] = useState([]);
   const [restriction, setRestriction] = useState(null);
+  const [mentionResults, setMentionResults] = useState([]);
+  const [mentionAnchor, setMentionAnchor] = useState(null);
   const suggestionSlotsRef = useRef([]);
+  const createInputRef = useRef(null);
 
   const normalizeImageFiles = async (fileList) => {
     const files = Array.from(fileList || []);
@@ -214,6 +233,26 @@ export default function VineFeed() {
 
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    const q = mentionAnchor?.query;
+    if (!q) {
+      setMentionResults([]);
+      return;
+    }
+    const timeout = setTimeout(async () => {
+      try {
+        const res = await fetch(`${API}/api/vine/users/mention?q=${encodeURIComponent(q)}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json();
+        setMentionResults(Array.isArray(data) ? data : []);
+      } catch {
+        setMentionResults([]);
+      }
+    }, 120);
+    return () => clearTimeout(timeout);
+  }, [mentionAnchor?.query, token]);
 
   const submitAppeal = async () => {
     const message = window.prompt("Appeal to Guardian: explain your case");
@@ -446,17 +485,66 @@ export default function VineFeed() {
                       className={`create-textarea ${
                         content.length > 0 && content.length < 120 ? "big-text" : ""
                       }`}
+                      ref={createInputRef}
                       placeholder="What's happening?"
                       value={content}
                       maxLength={2000}
-                      onChange={(e) => setContent(e.target.value)}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setContent(value);
+                        setMentionAnchor(getMentionAnchor(value, e.target.selectionStart));
+                      }}
                       onKeyDown={(e) => {
+                        if (mentionAnchor && mentionResults.length > 0 && e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          const picked = mentionResults[0];
+                          if (picked?.username) {
+                            const next = applyMention(content, mentionAnchor, picked.username);
+                            setContent(next);
+                            setMentionAnchor(null);
+                            setMentionResults([]);
+                            requestAnimationFrame(() => {
+                              createInputRef.current?.focus();
+                            });
+                          }
+                          return;
+                        }
                         // Ctrl/Cmd + Enter to post
                         if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
-                          handleCreatePost();
+                          submitPost();
                         }
                       }}
                     />
+          {mentionResults.length > 0 && mentionAnchor && (
+            <div className="feed-mention-suggest-list">
+              {mentionResults.map((u) => (
+                <button
+                  key={`feed-mention-${u.id}`}
+                  className="feed-mention-suggest-item"
+                  onClick={() => {
+                    setContent((prev) => applyMention(prev, mentionAnchor, u.username));
+                    setMentionAnchor(null);
+                    setMentionResults([]);
+                    requestAnimationFrame(() => {
+                      createInputRef.current?.focus();
+                    });
+                  }}
+                >
+                  <img
+                    src={u.avatar_url ? (u.avatar_url.startsWith("http") ? u.avatar_url : `${API}${u.avatar_url}`) : DEFAULT_AVATAR}
+                    alt={u.username}
+                    onError={(e) => {
+                      e.currentTarget.src = DEFAULT_AVATAR;
+                    }}
+                  />
+                  <div>
+                    <div className="feed-mention-name">{u.display_name || u.username}</div>
+                    <div className="feed-mention-handle">@{u.username}</div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
 
           <div className="create-footer">
             <div className="greeting">

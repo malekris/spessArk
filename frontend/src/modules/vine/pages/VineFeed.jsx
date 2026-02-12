@@ -356,6 +356,12 @@ export default function VineFeed() {
         </div>
 
         <div className="nav-right">
+          <button
+            className="nav-btn help-btn desktop-only"
+            onClick={() => navigate("/vine/help")}
+          >
+            Help
+          </button>
           {isModerator && (
             <button
               className="nav-btn profile-btn desktop-only"
@@ -405,6 +411,10 @@ export default function VineFeed() {
 
           <button className="discover-btn" onClick={() => navigate("/vine/suggestions")}>
             👥 Discover
+          </button>
+
+          <button className="discover-btn mobile-only" onClick={() => navigate("/vine/help")}>
+            ❓ Help
           </button>
 
           {isModerator && (
@@ -472,11 +482,12 @@ export default function VineFeed() {
             <div className="right-actions">
               <span className="char-count">{content.length}/2000</span>
 
-              <label className="image-picker">
-                📷 Add photos
+              <label className="image-picker media-icon-picker" title="Add photo or video">
+                <span className="media-icon" aria-hidden="true">📷</span>
+                <span className="media-icon" aria-hidden="true">🎥</span>
                 <input
                   type="file"
-                  accept="image/*"
+                  accept="image/*,video/*,.heic,.heif"
                   multiple
                   hidden
                   onChange={async (e) => {
@@ -492,7 +503,11 @@ export default function VineFeed() {
                 <div className="preview-strip">
                   {previews.map((src, i) => (
                     <div key={i} className="preview-tile">
-                      <img src={src} alt="" />
+                      {images[i]?.type?.startsWith("video/") ? (
+                        <video src={src} muted playsInline preload="metadata" />
+                      ) : (
+                        <img src={src} alt="" />
+                      )}
                       <button
                         className="remove-preview"
                         onClick={() => {

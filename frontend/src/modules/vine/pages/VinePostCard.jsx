@@ -17,28 +17,19 @@ const viewedPosts = new Set();
 /**
  * Formats timestamp to relative time (just now, 5m, 2h, 3d, or date)
  */
-const formatRelativeTime = (dateString) => {
-  if (!dateString) return "now";
+const formatPostDate = (dateString) => {
+  if (!dateString) return "";
+  const parsed = new Date(String(dateString).replace(" ", "T"));
+  if (Number.isNaN(parsed.getTime())) return "";
 
-  const parsed = new Date(dateString.replace(" ", "T"));
   const now = new Date();
+  const sameYear = parsed.getFullYear() === now.getFullYear();
 
-  const diffInSeconds = Math.floor((now.getTime() - parsed.getTime()) / 1000);
-
-  if (isNaN(diffInSeconds) || diffInSeconds < 0) return "now";
-
-  if (diffInSeconds < 60) return "just now";
-
-  const minutes = Math.floor(diffInSeconds / 60);
-  if (minutes < 60) return `${minutes}m`;
-
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h`;
-
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d`;
-
-  return parsed.toLocaleDateString();
+  return parsed.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    ...(sameYear ? {} : { year: "numeric" }),
+  });
 };
 
 const renderMentions = (text, navigate) => {
@@ -526,7 +517,7 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
                 )}
               </span>
               <span className="time top-time">
-                • {formatRelativeTime(post.sort_time || post.created_at)}
+                • {formatPostDate(post.sort_time || post.created_at)}
               </span>
             </div>
             <div className="post-kebab-wrap">
@@ -638,7 +629,7 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
       userRevined={userRevined}
       displayName={post.display_name}
       username={post.username}
-      timeLabel={formatRelativeTime(post.created_at)}
+      timeLabel={formatPostDate(post.created_at)}
       caption={post.content}
     />
   </div>
@@ -924,7 +915,7 @@ function Comment({ comment, commentLikes, commentUserLiked, setCommentLikes, set
   </strong>
 
   <span className="time">
-    • {formatRelativeTime(comment.created_at || comment.sort_time)}
+    • {formatPostDate(comment.created_at || comment.sort_time)}
   </span>
 </div>
 

@@ -34,6 +34,7 @@ import VineSearch from "./modules/vine/pages/VineSearch";
 import VineVerifyEmail from "./modules/vine/pages/VineVerifyEmail";
 import VineGuardianAnalytics from "./modules/vine/pages/VineGuardianAnalytics";
 import VineGuardianModeration from "./modules/vine/pages/VineGuardianModeration";
+import VineHelpCenter from "./modules/vine/pages/VineHelpCenter";
 
 
 
@@ -148,6 +149,7 @@ function App() {
 <Route path="/vine/verify-email" element={<VineVerifyEmail />} />
 <Route path="/vine/guardian/analytics" element={<VineGuardianAnalytics />} />
 <Route path="/vine/guardian/moderation" element={<VineGuardianModeration />} />
+<Route path="/vine/help" element={<VineHelpCenter />} />
 
 
   </Routes>

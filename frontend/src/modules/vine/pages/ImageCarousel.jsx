@@ -22,13 +22,18 @@ export default function ImageCarousel({
   timeLabel,
   caption,
 }) {
+  const isVideoUrl = (src) => {
+    const s = String(src || "");
+    return /\/video\/upload\//i.test(s) || /\.(mp4|mov|webm|m4v|avi|mkv|ogv)(\?|$)/i.test(s);
+  };
   // ── Parse images (support both array and single string) ──
-  let images = [];
+  let media = [];
   try {
-    images = JSON.parse(imageUrl);
+    media = JSON.parse(imageUrl);
   } catch {
-    images = [imageUrl]; // backward compatibility for old single-image posts
+    media = [imageUrl]; // backward compatibility for old single-image posts
   }
+  if (!Array.isArray(media)) media = [media];
 
   // ── State & Refs ─────────────────────────────────
   const containerRef = useRef(null);
@@ -36,6 +41,7 @@ export default function ImageCarousel({
   const [currentIndex, setCurrentIndex] = useState(0);
   const [viewerOpen, setViewerOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [pseudoFullscreen, setPseudoFullscreen] = useState(false);
 
   // ── Handlers ─────────────────────────────────────
   const handleScroll = () => {
@@ -77,15 +83,35 @@ export default function ImageCarousel({
 
   const toggleFullscreen = async () => {
     if (!viewerRef.current) return;
-    if (document.fullscreenElement) {
-      await document.exitFullscreen();
-      return;
+    const el = viewerRef.current;
+    try {
+      if (document.fullscreenElement) {
+        if (document.exitFullscreen) await document.exitFullscreen();
+        else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+        setPseudoFullscreen(false);
+        return;
+      }
+
+      if (el.requestFullscreen) {
+        await el.requestFullscreen();
+        return;
+      }
+      if (el.webkitRequestFullscreen) {
+        el.webkitRequestFullscreen();
+        return;
+      }
+      if (el.msRequestFullscreen) {
+        el.msRequestFullscreen();
+        return;
+      }
+    } catch {
+      // ignore and fallback
     }
-    await viewerRef.current.requestFullscreen();
+    setPseudoFullscreen((v) => !v);
   };
   
   // ── Render ───────────────────────────────────────
-  const isSingle = images.length === 1;
+  const isSingle = media.length === 1;
 
   return (
     <div className={`carousel-wrapper ${isSingle ? "single" : ""}`}>
@@ -95,28 +121,42 @@ export default function ImageCarousel({
         ref={containerRef}
         onScroll={handleScroll}
       >
-        {images.map((src, i) => (
-          <img
-            key={i}
-            src={normalize(src)}
-            alt=""
-            className="carousel-img"
-            onClick={() => setViewerOpen(true)}
-          />
+        {media.map((src, i) => (
+          isVideoUrl(src) ? (
+            <video
+              key={i}
+              src={normalize(src)}
+              className="carousel-img"
+              controls
+              controlsList="nofullscreen noremoteplayback nodownload"
+              disablePictureInPicture
+              playsInline
+              preload="metadata"
+              onClick={() => setViewerOpen(true)}
+            />
+          ) : (
+            <img
+              key={i}
+              src={normalize(src)}
+              alt=""
+              className="carousel-img"
+              onClick={() => setViewerOpen(true)}
+            />
+          )
         ))}
       </div>
 
       {/* Counter – only shown when multiple images */}
-      {images.length > 1 && (
+      {media.length > 1 && (
         <div className="carousel-counter">
-          {currentIndex + 1} / {images.length}
+          {currentIndex + 1} / {media.length}
         </div>
       )}
 
       {/* Navigation dots – only shown when multiple images */}
-      {images.length > 1 && (
+      {media.length > 1 && (
         <div className="carousel-dots">
-          {images.map((_, i) => (
+          {media.map((_, i) => (
             <span
               key={i}
               className={`dot ${i === currentIndex ? "active" : ""}`}
@@ -130,7 +170,7 @@ export default function ImageCarousel({
       {viewerOpen &&
         createPortal(
           <div
-            className={`image-viewer-overlay ${isFullscreen ? "fullscreen" : ""}`}
+            className={`image-viewer-overlay ${(isFullscreen || pseudoFullscreen) ? "fullscreen" : ""}`}
             onClick={() => setViewerOpen(false)}
             ref={viewerRef}
           >
@@ -144,25 +184,37 @@ export default function ImageCarousel({
               ✕
             </button>
 
-            <button
-              className="viewer-fullscreen"
-              onClick={(e) => {
-                e.stopPropagation();
-                toggleFullscreen();
-              }}
-            >
-              {isFullscreen ? "⤫" : "⛶"}
-            </button>
+              <button
+                className="viewer-fullscreen"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleFullscreen();
+                }}
+              >
+              {(isFullscreen || pseudoFullscreen) ? "⤫" : "⛶"}
+              </button>
 
             <div
               className="image-viewer-content"
               onClick={(e) => e.stopPropagation()}
             >
-              <img
-                src={normalize(images[currentIndex])}
-                className="image-viewer-img"
-                alt=""
-              />
+              {isVideoUrl(media[currentIndex]) ? (
+                <video
+                  src={normalize(media[currentIndex])}
+                  className="image-viewer-img"
+                  controls
+                  controlsList="nofullscreen noremoteplayback nodownload"
+                  disablePictureInPicture
+                  autoPlay
+                  playsInline
+                />
+              ) : (
+                <img
+                  src={normalize(media[currentIndex])}
+                  className="image-viewer-img"
+                  alt=""
+                />
+              )}
 
               {(displayName || username || timeLabel || caption) && (
                 <div className="viewer-meta">

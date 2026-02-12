@@ -152,6 +152,56 @@ const getActiveInteractionSuspension = async (userId) => {
   return rows[0] || null;
 };
 
+let eulaSchemaReady = false;
+const ensureEulaSchema = async () => {
+  if (eulaSchemaReady) return;
+  const dbName = await getDbName();
+  if (!dbName) return;
+
+  const hasAcceptedAt = await hasColumn(dbName, "vine_users", "eula_accepted_at");
+  if (!hasAcceptedAt) {
+    await db.query("ALTER TABLE vine_users ADD COLUMN eula_accepted_at DATETIME NULL");
+  }
+
+  const hasVersion = await hasColumn(dbName, "vine_users", "eula_version");
+  if (!hasVersion) {
+    await db.query("ALTER TABLE vine_users ADD COLUMN eula_version VARCHAR(20) NULL");
+  }
+
+  eulaSchemaReady = true;
+};
+
+let profileAboutSchemaReady = false;
+const ensureProfileAboutSchema = async () => {
+  if (profileAboutSchemaReady) return;
+  const dbName = await getDbName();
+  if (!dbName) return;
+
+  const addIfMissing = async (column, definition) => {
+    const exists = await hasColumn(dbName, "vine_users", column);
+    if (!exists) {
+      await db.query(`ALTER TABLE vine_users ADD COLUMN ${column} ${definition}`);
+    }
+  };
+
+  await addIfMissing("hobbies", "TEXT NULL");
+  await addIfMissing("date_of_birth", "DATE NULL");
+  await addIfMissing("favorite_movies", "TEXT NULL");
+  await addIfMissing("favorite_songs", "TEXT NULL");
+  await addIfMissing("favorite_musicians", "TEXT NULL");
+  await addIfMissing("favorite_books", "TEXT NULL");
+  await addIfMissing("movie_genres", "TEXT NULL");
+  await addIfMissing("gender", "VARCHAR(50) NULL");
+  await addIfMissing("contact_email", "VARCHAR(120) NULL");
+  await addIfMissing("phone_number", "VARCHAR(40) NULL");
+  await addIfMissing("tiktok_username", "VARCHAR(100) NULL");
+  await addIfMissing("instagram_username", "VARCHAR(100) NULL");
+  await addIfMissing("twitter_username", "VARCHAR(100) NULL");
+  await addIfMissing("about_privacy", "VARCHAR(20) NOT NULL DEFAULT 'everyone'");
+
+  profileAboutSchemaReady = true;
+};
+
 let moderationSchemaReady = false;
 const ensureColumnExists = async (dbName, tableName, columnName, definitionSql) => {
   const exists = await hasColumn(dbName, tableName, columnName);
@@ -254,6 +304,22 @@ const isHeicFile = (file) => {
     /\.heif$/i.test(name)
   );
 };
+
+const isVideoFile = (file) => {
+  const type = String(file?.mimetype || "").toLowerCase();
+  const name = String(file?.originalname || "").toLowerCase();
+  if (type.startsWith("video/")) return true;
+  return /\.(mp4|mov|webm|m4v|avi|mkv|ogv)$/i.test(name);
+};
+
+const uploadBufferToCloudinary = async (buffer, options = {}) =>
+  new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(options, (err, result) => {
+      if (err) return reject(err);
+      resolve(result);
+    });
+    stream.end(buffer);
+  });
 
 const normalizeImageBuffer = async (file) => {
   if (!file?.buffer) {
@@ -378,11 +444,16 @@ const fetchLinkPreview = async (url) => {
 
 router.post("/auth/register", async (req, res) => {
   try {
-    const { username, display_name, email, password } = req.body;
+    const { username, display_name, email, password, accepted_eula, eula_version } = req.body;
 
     if (!username || !password) {
       return res.status(400).json({ message: "Username and password required" });
     }
+    if (accepted_eula !== true) {
+      return res.status(400).json({ message: "You must agree to Vine Terms before creating an account." });
+    }
+    await ensureEulaSchema();
+    const agreedVersion = String(eula_version || "v1").slice(0, 20);
 
     // Check duplicate
     const [existing] = await db.query(
@@ -396,10 +467,15 @@ router.post("/auth/register", async (req, res) => {
 
     const hash = await bcrypt.hash(password, 10);
 
-    await db.query(
+    const [insertResult] = await db.query(
       `INSERT INTO vine_users (username, display_name, email, password_hash)
        VALUES (?, ?, ?, ?)`,
       [username, display_name || null, email || null, hash]
+    );
+
+    await db.query(
+      "UPDATE vine_users SET eula_accepted_at = NOW(), eula_version = ? WHERE id = ?",
+      [agreedVersion, insertResult.insertId]
     );
 
     // ✅ Send welcome email (non-blocking safe version)
@@ -689,11 +765,17 @@ async function requireVineAuth(req, res, next) {
         if (req.files?.length) {
           const uploads = await Promise.all(
             req.files.map(async (file) => {
+              if (isVideoFile(file)) {
+                return uploadBufferToCloudinary(file.buffer, {
+                  folder: "vine/posts",
+                  resource_type: "video",
+                });
+              }
               const normalized = await normalizeImageBuffer(file);
-              return cloudinary.uploader.upload(
-                `data:${normalized.mimetype};base64,${normalized.buffer.toString("base64")}`,
-                { folder: "vine/posts" }
-              );
+              return uploadBufferToCloudinary(normalized.buffer, {
+                folder: "vine/posts",
+                resource_type: "image",
+              });
             })
           );
   
@@ -1027,6 +1109,7 @@ router.get("/users/new", authOptional, async (req, res) => {
 // user profile
 router.get("/users/:username", authOptional, async (req, res) => {
   try {
+    await ensureProfileAboutSchema();
     const { username } = req.params;
     const viewerId = req.user?.id || null;
 
@@ -1042,6 +1125,20 @@ router.get("/users/:username", authOptional, async (req, res) => {
         u.banner_url,
         u.location,
         u.website,
+        u.hobbies,
+        u.date_of_birth,
+        u.favorite_movies,
+        u.favorite_songs,
+        u.favorite_musicians,
+        u.favorite_books,
+        u.movie_genres,
+        u.gender,
+        u.contact_email,
+        u.phone_number,
+        u.tiktok_username,
+        u.instagram_username,
+        u.twitter_username,
+        u.about_privacy,
         u.created_at,
         u.last_active_at,
         u.is_verified,
@@ -1074,6 +1171,11 @@ router.get("/users/:username", authOptional, async (req, res) => {
     const isFollowing =
       viewerId && Number(user.is_following) === 1;
 
+    const canViewAbout =
+      isSelf ||
+      user.about_privacy === "everyone" ||
+      (user.about_privacy === "followers" && isFollowing);
+
     const blockedByUser = await isUserBlocked(user.id, viewerId);
     const blockingUser = await isUserBlocked(viewerId, user.id);
 
@@ -1086,6 +1188,22 @@ router.get("/users/:username", authOptional, async (req, res) => {
 
     if (!isSelf && !user.show_last_active) {
       user.last_active_at = null;
+    }
+
+    if (!canViewAbout) {
+      user.hobbies = null;
+      user.date_of_birth = null;
+      user.favorite_movies = null;
+      user.favorite_songs = null;
+      user.favorite_musicians = null;
+      user.favorite_books = null;
+      user.movie_genres = null;
+      user.gender = null;
+      user.contact_email = null;
+      user.phone_number = null;
+      user.tiktok_username = null;
+      user.instagram_username = null;
+      user.twitter_username = null;
     }
 
     // 2. Posts + Revines (stable keys + correct ordering)
@@ -1973,9 +2091,13 @@ router.delete("/posts/:id", requireVineAuth, async (req, res) => {
       };
 
       await Promise.all(
-        images.map((url) =>
-          cloudinary.uploader.destroy(extractPublicId(url))
-        )
+        images.map((url) => {
+          const asString = String(url || "");
+          const isVideo = /\/video\/upload\//i.test(asString) || /\.(mp4|mov|webm|m4v|avi|mkv|ogv)(\?|$)/i.test(asString);
+          return cloudinary.uploader.destroy(extractPublicId(asString), {
+            resource_type: isVideo ? "video" : "image",
+          });
+        })
       );
     }
 
@@ -2100,7 +2222,26 @@ router.post(
 //update profile
 router.post("/users/update-profile", authenticate, async (req, res) => {
   try {
-    const { display_name, bio, location, website } = req.body;
+    await ensureProfileAboutSchema();
+    const {
+      display_name,
+      bio,
+      location,
+      website,
+      hobbies,
+      date_of_birth,
+      favorite_movies,
+      favorite_songs,
+      favorite_musicians,
+      favorite_books,
+      movie_genres,
+      gender,
+      contact_email,
+      phone_number,
+      tiktok_username,
+      instagram_username,
+      twitter_username,
+    } = req.body;
 
     await db.query(
       `
@@ -2109,7 +2250,20 @@ router.post("/users/update-profile", authenticate, async (req, res) => {
         display_name = ?,
         bio = ?,
         location = ?,
-        website = ?
+        website = ?,
+        hobbies = ?,
+        date_of_birth = ?,
+        favorite_movies = ?,
+        favorite_songs = ?,
+        favorite_musicians = ?,
+        favorite_books = ?,
+        movie_genres = ?,
+        gender = ?,
+        contact_email = ?,
+        phone_number = ?,
+        tiktok_username = ?,
+        instagram_username = ?,
+        twitter_username = ?
       WHERE id = ?
       `,
       [
@@ -2117,6 +2271,19 @@ router.post("/users/update-profile", authenticate, async (req, res) => {
         bio || null,
         location || null,
         website || null,
+        hobbies || null,
+        date_of_birth || null,
+        favorite_movies || null,
+        favorite_songs || null,
+        favorite_musicians || null,
+        favorite_books || null,
+        movie_genres || null,
+        gender || null,
+        contact_email || null,
+        phone_number || null,
+        tiktok_username || null,
+        instagram_username || null,
+        twitter_username || null,
         req.user.id
       ]
     );
@@ -2131,14 +2298,17 @@ router.post("/users/update-profile", authenticate, async (req, res) => {
 // update privacy/settings
 router.patch("/users/me/settings", authenticate, async (req, res) => {
   try {
+    await ensureProfileAboutSchema();
     const {
       dm_privacy,
       is_private,
       hide_like_counts,
       show_last_active,
+      about_privacy,
     } = req.body || {};
 
     const allowedDm = new Set(["everyone", "followers", "no_one"]);
+    const allowedAbout = new Set(["everyone", "followers", "no_one"]);
     const updates = [];
     const params = [];
 
@@ -2165,6 +2335,14 @@ router.patch("/users/me/settings", authenticate, async (req, res) => {
       params.push(show_last_active ? 1 : 0);
     }
 
+    if (about_privacy !== undefined) {
+      if (!allowedAbout.has(about_privacy)) {
+        return res.status(400).json({ message: "Invalid about_privacy" });
+      }
+      updates.push("about_privacy = ?");
+      params.push(about_privacy);
+    }
+
     if (!updates.length) {
       return res.json({ success: true });
     }
@@ -2180,7 +2358,7 @@ router.patch("/users/me/settings", authenticate, async (req, res) => {
 
     const [[user]] = await db.query(
       `
-      SELECT dm_privacy, is_private, hide_like_counts, show_last_active
+      SELECT dm_privacy, is_private, hide_like_counts, show_last_active, about_privacy
       FROM vine_users
       WHERE id = ?
       `,

@@ -794,10 +794,15 @@
 .viewer-action-bar {
   display: flex;
   gap: 10px;
-  background: rgba(0, 0, 0, 0.4);
+  background: rgba(0, 0, 0, 0.45);
   padding: 10px 14px;
   border-radius: 999px;
   backdrop-filter: blur(6px);
+  position: fixed;
+  left: 50%;
+  bottom: max(12px, env(safe-area-inset-bottom, 12px));
+  transform: translateX(-50%);
+  z-index: 100001;
 }
 
 .viewer-action {

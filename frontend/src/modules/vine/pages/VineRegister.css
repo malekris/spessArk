@@ -132,6 +132,68 @@
   .switch-auth a:hover {
     text-decoration: underline;
   }
+
+  .vine-eula-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(2, 6, 23, 0.55);
+    display: grid;
+    place-items: center;
+    z-index: 3000;
+    padding: 14px;
+  }
+
+  .vine-eula-modal {
+    width: min(560px, 96vw);
+    background: #ffffff;
+    border: 1px solid #bbf7d0;
+    border-radius: 16px;
+    padding: 16px;
+    box-shadow: 0 24px 48px rgba(0, 0, 0, 0.22);
+  }
+
+  .vine-eula-modal h3 {
+    margin: 0 0 8px;
+    color: #064e3b;
+  }
+
+  .vine-eula-modal ul {
+    margin: 0;
+    padding-left: 18px;
+    color: #1f2937;
+  }
+
+  .vine-eula-modal li {
+    margin: 7px 0;
+  }
+
+  .vine-eula-actions {
+    margin-top: 14px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+  }
+
+  .vine-eula-actions .disagree,
+  .vine-eula-actions .agree {
+    width: auto;
+    margin: 0;
+    padding: 10px 14px;
+    border-radius: 10px;
+    font-size: 0.95rem;
+  }
+
+  .vine-eula-actions .disagree {
+    background: #fef2f2;
+    color: #b91c1c;
+    border: 1px solid #fecaca;
+  }
+
+  .vine-eula-actions .agree {
+    background: #065f46;
+    color: #ffffff;
+    border: 1px solid #047857;
+  }
   
   /* Responsive – smaller padding on mobile */
   @media (max-width: 480px) {

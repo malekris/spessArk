@@ -17,6 +17,7 @@ export default function VineRegister() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [showEulaModal, setShowEulaModal] = useState(false);
 
   useEffect(() => {
     document.title = "Vine — Register";
@@ -36,40 +37,49 @@ if (name === "username") {
 
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const validateForm = () => {
     setError("");
 
     // Final validation before sending
     if (!form.username) {
-      return setError("Username is required");
+      setError("Username is required");
+      return false;
     }
 
     if (/\s/.test(form.username)) {
-      return setError("Username cannot contain spaces");
+      setError("Username cannot contain spaces");
+      return false;
     }
 
     if (form.username.length < 3) {
-      return setError("Username must be at least 3 characters");
+      setError("Username must be at least 3 characters");
+      return false;
     }
 
     if (!form.email) {
-      return setError("Email is required");
+      setError("Email is required");
+      return false;
     }
 
     // Simple email format check (can improve later)
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
-      return setError("Please enter a valid email");
+      setError("Please enter a valid email");
+      return false;
     }
 
     if (!form.password) {
-      return setError("Password is required");
+      setError("Password is required");
+      return false;
     }
 
     if (form.password !== form.confirm) {
-      return setError("Passwords do not match");
+      setError("Passwords do not match");
+      return false;
     }
+    return true;
+  };
 
+  const createAccount = async () => {
     try {
       setLoading(true);
 
@@ -81,6 +91,8 @@ if (name === "username") {
           display_name: form.display_name,
           email: form.email,
           password: form.password,
+          accepted_eula: true,
+          eula_version: "v1",
         }),
       });
 
@@ -100,6 +112,12 @@ if (name === "username") {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!validateForm()) return;
+    setShowEulaModal(true);
   };
 
   return (
@@ -170,6 +188,43 @@ if (name === "username") {
           Already have an account? <Link to="/vine/login">Login</Link>
         </p>
       </form>
+      {showEulaModal && (
+        <div className="vine-eula-backdrop" onClick={() => setShowEulaModal(false)}>
+          <div className="vine-eula-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Vine User Agreement</h3>
+            <ul>
+              <li>You are responsible for content posted on your account.</li>
+              <li>No abuse, harassment, hate speech, or privacy violations.</li>
+              <li>No harmful misinformation, scams, or impersonation.</li>
+              <li>Guardian may remove content or suspend accounts for violations.</li>
+              <li>Never share verification/reset codes with anyone.</li>
+              <li>You can appeal moderation decisions through Vine.</li>
+            </ul>
+            <div className="vine-eula-actions">
+              <button
+                className="disagree"
+                type="button"
+                onClick={() => {
+                  setShowEulaModal(false);
+                  setError("Account creation stopped. You must agree to continue.");
+                }}
+              >
+                Disagree
+              </button>
+              <button
+                className="agree"
+                type="button"
+                onClick={async () => {
+                  setShowEulaModal(false);
+                  await createAccount();
+                }}
+              >
+                Agree & Create Account
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

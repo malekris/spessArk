@@ -22,6 +22,19 @@ const formatRelativeTime = (date) => {
   return `${Math.floor(diff / 86400)}d ago`;
 };
 
+const formatPostDate = (date) => {
+  if (!date) return "";
+  const parsed = new Date(String(date).replace(" ", "T"));
+  if (Number.isNaN(parsed.getTime())) return "";
+  const now = new Date();
+  const sameYear = parsed.getFullYear() === now.getFullYear();
+  return parsed.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    ...(sameYear ? {} : { year: "numeric" }),
+  });
+};
+
 const renderMentions = (text, navigate) => {
   if (!text) return text;
   const parts = text.split(/(@[a-zA-Z0-9._]{1,30})/g);
@@ -100,6 +113,19 @@ export default function VineProfile() {
   const [tempDisplayName, setTempDisplayName] = useState("");
   const [tempLocation, setTempLocation] = useState("");
   const [tempWebsite, setTempWebsite] = useState("");
+  const [tempHobbies, setTempHobbies] = useState("");
+  const [tempDateOfBirth, setTempDateOfBirth] = useState("");
+  const [tempFavoriteMovies, setTempFavoriteMovies] = useState("");
+  const [tempFavoriteSongs, setTempFavoriteSongs] = useState("");
+  const [tempFavoriteMusicians, setTempFavoriteMusicians] = useState("");
+  const [tempFavoriteBooks, setTempFavoriteBooks] = useState("");
+  const [tempMovieGenres, setTempMovieGenres] = useState("");
+  const [tempGender, setTempGender] = useState("");
+  const [tempContactEmail, setTempContactEmail] = useState("");
+  const [tempPhoneNumber, setTempPhoneNumber] = useState("");
+  const [tempTikTokUsername, setTempTikTokUsername] = useState("");
+  const [tempInstagramUsername, setTempInstagramUsername] = useState("");
+  const [tempTwitterUsername, setTempTwitterUsername] = useState("");
   const [isFollowing, setIsFollowing] = useState(false);
   const [justUpdated, setJustUpdated] = useState(false);
   const updatedTimerRef = useRef(null);
@@ -145,6 +171,7 @@ export default function VineProfile() {
   const [privateProfile, setPrivateProfile] = useState(false);
   const [hideLikeCounts, setHideLikeCounts] = useState(false);
   const [showLastActive, setShowLastActive] = useState(true);
+  const [aboutPrivacy, setAboutPrivacy] = useState("everyone");
   const [mentionResults, setMentionResults] = useState([]);
   const [mentionAnchor, setMentionAnchor] = useState(null);
   const [currentPassword, setCurrentPassword] = useState("");
@@ -194,6 +221,21 @@ export default function VineProfile() {
     userObj.dm_privacy === "everyone" ||
     (userObj.dm_privacy === "followers" && isFollowing)
   );
+  const aboutFields = [
+    { label: "Hobbies", value: userObj?.hobbies },
+    { label: "Date of Birth", value: userObj?.date_of_birth ? new Date(userObj.date_of_birth).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "" },
+    { label: "Movies", value: userObj?.favorite_movies },
+    { label: "Songs", value: userObj?.favorite_songs },
+    { label: "Musicians", value: userObj?.favorite_musicians },
+    { label: "Fav. books", value: userObj?.favorite_books },
+    { label: "Movie Genres", value: userObj?.movie_genres },
+    { label: "Gender", value: userObj?.gender },
+    { label: "Email", value: userObj?.contact_email },
+    { label: "Phone Number", value: userObj?.phone_number },
+    { label: "TikTok", value: userObj?.tiktok_username },
+    { label: "Instagram", value: userObj?.instagram_username },
+    { label: "Twitter", value: userObj?.twitter_username },
+  ].filter((x) => String(x.value || "").trim() !== "");
 
   const viewerCommentCount = viewerComments.length;
   const commentsByParent = viewerComments.reduce((acc, c) => {
@@ -234,6 +276,19 @@ export default function VineProfile() {
       setTempDisplayName(userData?.display_name || "");
       setTempLocation(userData?.location || "");
       setTempWebsite(userData?.website || "");
+      setTempHobbies(userData?.hobbies || "");
+      setTempDateOfBirth(userData?.date_of_birth ? String(userData.date_of_birth).slice(0, 10) : "");
+      setTempFavoriteMovies(userData?.favorite_movies || "");
+      setTempFavoriteSongs(userData?.favorite_songs || "");
+      setTempFavoriteMusicians(userData?.favorite_musicians || "");
+      setTempFavoriteBooks(userData?.favorite_books || "");
+      setTempMovieGenres(userData?.movie_genres || "");
+      setTempGender(userData?.gender || "");
+      setTempContactEmail(userData?.contact_email || "");
+      setTempPhoneNumber(userData?.phone_number || "");
+      setTempTikTokUsername(userData?.tiktok_username || "");
+      setTempInstagramUsername(userData?.instagram_username || "");
+      setTempTwitterUsername(userData?.twitter_username || "");
     } catch (err) {
       setError(err.message);
     } finally {
@@ -247,6 +302,7 @@ export default function VineProfile() {
     setPrivateProfile(Boolean(userObj.is_private));
     setHideLikeCounts(Boolean(userObj.hide_like_counts));
     setShowLastActive(userObj.show_last_active !== 0);
+    setAboutPrivacy(userObj.about_privacy || "everyone");
   }, [userObj?.id]);
 
   const saveSettings = async (next) => {
@@ -655,6 +711,19 @@ export default function VineProfile() {
         bio: tempBio,
         location: tempLocation,
         website: tempWebsite,
+        hobbies: tempHobbies,
+        date_of_birth: tempDateOfBirth || null,
+        favorite_movies: tempFavoriteMovies,
+        favorite_songs: tempFavoriteSongs,
+        favorite_musicians: tempFavoriteMusicians,
+        favorite_books: tempFavoriteBooks,
+        movie_genres: tempMovieGenres,
+        gender: tempGender,
+        contact_email: tempContactEmail,
+        phone_number: tempPhoneNumber,
+        tiktok_username: tempTikTokUsername,
+        instagram_username: tempInstagramUsername,
+        twitter_username: tempTwitterUsername,
       }),
     });
     setIsEditing(false);
@@ -1326,6 +1395,104 @@ export default function VineProfile() {
               />
               <span className="char-count">{tempBio.length}/160</span>
             </div>
+
+            <div className="edit-row">
+              <input
+                className="edit-input"
+                placeholder="Hobbies"
+                value={tempHobbies}
+                onChange={(e) => setTempHobbies(e.target.value)}
+              />
+              <input
+                className="edit-input"
+                type="date"
+                placeholder="Date of Birth"
+                value={tempDateOfBirth}
+                onChange={(e) => setTempDateOfBirth(e.target.value)}
+              />
+            </div>
+
+            <div className="edit-row">
+              <input
+                className="edit-input"
+                placeholder="Favorite movies"
+                value={tempFavoriteMovies}
+                onChange={(e) => setTempFavoriteMovies(e.target.value)}
+              />
+              <input
+                className="edit-input"
+                placeholder="Favorite songs"
+                value={tempFavoriteSongs}
+                onChange={(e) => setTempFavoriteSongs(e.target.value)}
+              />
+            </div>
+
+            <div className="edit-row">
+              <input
+                className="edit-input"
+                placeholder="Favorite musicians"
+                value={tempFavoriteMusicians}
+                onChange={(e) => setTempFavoriteMusicians(e.target.value)}
+              />
+              <input
+                className="edit-input"
+                placeholder="Favorite books"
+                value={tempFavoriteBooks}
+                onChange={(e) => setTempFavoriteBooks(e.target.value)}
+              />
+            </div>
+
+            <div className="edit-row">
+              <input
+                className="edit-input"
+                placeholder="Movie genres"
+                value={tempMovieGenres}
+                onChange={(e) => setTempMovieGenres(e.target.value)}
+              />
+              <input
+                className="edit-input"
+                placeholder="Gender"
+                value={tempGender}
+                onChange={(e) => setTempGender(e.target.value)}
+              />
+            </div>
+
+            <div className="edit-row">
+              <input
+                className="edit-input"
+                placeholder="Contact email"
+                value={tempContactEmail}
+                onChange={(e) => setTempContactEmail(e.target.value)}
+              />
+              <input
+                className="edit-input"
+                placeholder="Phone number"
+                value={tempPhoneNumber}
+                onChange={(e) => setTempPhoneNumber(e.target.value)}
+              />
+            </div>
+
+            <div className="edit-row">
+              <input
+                className="edit-input"
+                placeholder="TikTok username"
+                value={tempTikTokUsername}
+                onChange={(e) => setTempTikTokUsername(e.target.value)}
+              />
+              <input
+                className="edit-input"
+                placeholder="Instagram username"
+                value={tempInstagramUsername}
+                onChange={(e) => setTempInstagramUsername(e.target.value)}
+              />
+            </div>
+
+            <input
+              className="edit-input"
+              placeholder="Twitter username"
+              value={tempTwitterUsername}
+              onChange={(e) => setTempTwitterUsername(e.target.value)}
+            />
           </div>
         ) : (
           <>
@@ -1568,6 +1735,19 @@ export default function VineProfile() {
                   >
                     {isMuting ? "Unmute" : "Mute"}
                   </button>
+                  <div className="more-section-title about-title">About</div>
+                  {aboutFields.length === 0 ? (
+                    <div className="empty-state">No about info yet</div>
+                  ) : (
+                    <div className="about-list">
+                      {aboutFields.map((item) => (
+                        <div className="about-row" key={`about-${item.label}`}>
+                          <span className="about-label">{item.label}</span>
+                          <span className="about-value">{item.value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1672,7 +1852,7 @@ export default function VineProfile() {
                                 <p className="comment-text">{comment.content}</p>
 
                                 <div className="comment-meta">
-                                  <span className="comment-time">{formatRelativeTime(comment.created_at)}</span>
+                                  <span className="comment-time">{formatPostDate(comment.created_at)}</span>
 
                                   <button
                                     className={`comment-like ${comment.user_liked ? "liked" : ""}`}
@@ -1906,6 +2086,22 @@ export default function VineProfile() {
           />
           Show last active status
         </label>
+      </div>
+
+      <div className="settings-item">
+        <label>Who can see my about</label>
+        <select
+          value={aboutPrivacy}
+          onChange={(e) => {
+            const value = e.target.value;
+            setAboutPrivacy(value);
+            saveSettings({ about_privacy: value });
+          }}
+        >
+          <option value="everyone">Everyone</option>
+          <option value="followers">Followers only</option>
+          <option value="no_one">No one</option>
+        </select>
       </div>
 
       {/* 5️⃣ Dark mode */}

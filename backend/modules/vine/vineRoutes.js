@@ -2,7 +2,7 @@ import express from "express";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { db } from "../../server.js";
-import { sendVineWelcomeEmail, sendVineResetCodeEmail, sendVineVerificationCodeEmail, sendVineSuspensionEmail, sendVineUnsuspensionEmail } from "../../utils/email.js";
+import { sendVineWelcomeEmail, sendVineResetCodeEmail, sendVineVerificationCodeEmail, sendVineSuspensionEmail, sendVineUnsuspensionEmail, sendVineWarningEmail } from "../../utils/email.js";
 import authMiddleware from "../../middleware/authMiddleware.js";
 import authOptional from "../authOptional.js";
 import { authenticate } from "../auth.js";
@@ -3039,6 +3039,49 @@ router.get("/analytics/overview", authenticate, async (req, res) => {
         .slice(0, 10);
     }
 
+    let vinePrison = [];
+    if (await hasTable(dbName, "vine_user_suspensions")) {
+      const [rows] = await db.query(
+        `
+        SELECT
+          s.id,
+          s.user_id,
+          s.scope,
+          s.reason,
+          s.starts_at,
+          s.ends_at,
+          s.created_at,
+          u.username,
+          u.display_name
+        FROM vine_user_suspensions s
+        JOIN vine_users u ON u.id = s.user_id
+        WHERE s.is_active = 1
+          AND s.starts_at <= NOW()
+          AND (s.ends_at IS NULL OR s.ends_at > NOW())
+        ORDER BY s.starts_at DESC
+        LIMIT 200
+        `
+      );
+      vinePrison = rows.map((r) => {
+        const startsAt = r.starts_at ? new Date(r.starts_at) : null;
+        const endsAt = r.ends_at ? new Date(r.ends_at) : null;
+        let sentenceLabel = "indefinite";
+        if (startsAt && endsAt) {
+          const diffMs = Math.max(0, endsAt.getTime() - startsAt.getTime());
+          const days = Math.round(diffMs / 86400000);
+          if (days === 1) sentenceLabel = "1 day";
+          else if (days === 7) sentenceLabel = "1 week";
+          else if (days >= 28 && days <= 31) sentenceLabel = "1 month";
+          else if (days >= 89 && days <= 93) sentenceLabel = "3 months";
+          else sentenceLabel = `${days} days`;
+        }
+        return {
+          ...r,
+          sentence_label: sentenceLabel,
+        };
+      });
+    }
+
     return res.json({
       range: {
         from: rangeStart.toISOString(),
@@ -3123,6 +3166,7 @@ router.get("/analytics/overview", authenticate, async (req, res) => {
         topCreatorsWeek,
         risingCreators,
       },
+      vinePrison,
     });
   } catch (err) {
     console.error("Guardian analytics error:", err);
@@ -3509,6 +3553,56 @@ router.post("/moderation/suspend", authenticate, async (req, res) => {
   } catch (err) {
     console.error("Suspend user error:", err);
     res.status(500).json({ message: "Failed to suspend user" });
+  }
+});
+
+router.post("/moderation/warn", authenticate, async (req, res) => {
+  try {
+    await ensureModerationSchema();
+    if (!isModeratorAccount(req.user)) {
+      return res.status(403).json({ message: "Moderator access required" });
+    }
+
+    const {
+      user_id,
+      report_id = null,
+      reason = "",
+      post_id = null,
+      comment_id = null,
+    } = req.body || {};
+    const targetUserId = Number(user_id);
+    if (!targetUserId) return res.status(400).json({ message: "user_id is required" });
+
+    await db.query(
+      `
+      INSERT INTO vine_notifications (user_id, actor_id, type, post_id, comment_id)
+      VALUES (?, ?, 'guardian_warning', ?, ?)
+      `,
+      [targetUserId, req.user.id, post_id ? Number(post_id) : null, comment_id ? Number(comment_id) : null]
+    );
+    io.to(`user-${targetUserId}`).emit("notification");
+
+    if (report_id) {
+      await db.query(
+        "UPDATE vine_reports SET status = 'resolved', reviewed_by = ?, reviewed_at = NOW() WHERE id = ?",
+        [req.user.id, Number(report_id)]
+      );
+    }
+
+    const [[targetUser]] = await db.query(
+      "SELECT email, username FROM vine_users WHERE id = ? LIMIT 1",
+      [targetUserId]
+    );
+    if (targetUser?.email) {
+      sendVineWarningEmail(targetUser.email, targetUser.username, String(reason || "")).catch((err) => {
+        console.warn("Warning email failed:", err.message);
+      });
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Warn user error:", err);
+    res.status(500).json({ message: "Failed to warn user", details: String(err?.message || "") });
   }
 });
 

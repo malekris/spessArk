@@ -109,6 +109,30 @@ export default function VineGuardianModeration() {
     }
   };
 
+  const warnUser = async ({ userId, reportId, reason, postId, commentId }) => {
+    const res = await fetch(`${API}/api/vine/moderation/warn`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        user_id: userId,
+        report_id: reportId,
+        reason: reason || "",
+        post_id: postId || null,
+        comment_id: commentId || null,
+      }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert(body.message || "Warning failed");
+      return;
+    }
+    setItems((prev) => prev.filter((x) => x.id !== reportId));
+    alert("Warning sent");
+  };
+
   const suspendUser = async ({ userId, reportId = null, duration = "week", reason = "" }) => {
     if (!userId) return;
     if (!suspensionOptions.some((x) => x.value === duration)) {
@@ -322,6 +346,20 @@ export default function VineGuardianModeration() {
                       reportId: row.id,
                       reason: row.reason || "Reported content policy violation",
                     })}
+                    <button
+                      className="warn-btn"
+                      onClick={() =>
+                        warnUser({
+                          userId: row.reported_user_id,
+                          reportId: row.id,
+                          reason: row.reason,
+                          postId: row.post_id,
+                          commentId: row.comment_id,
+                        })
+                      }
+                    >
+                      Warn
+                    </button>
                     <button onClick={() => resolveReport(row.id, "dismissed")}>Dismiss</button>
                   </>
                 )}

@@ -319,3 +319,27 @@ export async function sendVineUnsuspensionEmail(email, username) {
   };
   await sendWithRetry(payload, 2);
 }
+
+export async function sendVineWarningEmail(email, username, reason = "") {
+  if (!email) return;
+  const safeReason = String(reason || "").trim();
+  const payload = {
+    from: "SPESS VINE 🌱 <no-reply@stphillipsequatorial.com>",
+    to: email,
+    subject: "SPESS VINE warning notice",
+    html: `
+      <div style="font-family: Arial; background:#fff7ed; padding:30px;">
+        <div style="max-width:600px; margin:auto; background:white; padding:32px; border-radius:18px;">
+          <h2 style="color:#9a3412;">Official Warning from Vine Guardian</h2>
+          <p>Hello ${username || "Viner"},</p>
+          <p>Your recent post/comment was reported and reviewed by Vine Guardian.</p>
+          ${safeReason ? `<p><strong>Reason:</strong> ${safeReason}</p>` : ""}
+          <p>This is a warning. Repeating this behavior can lead to suspension or permanent account loss.</p>
+          <p>Please follow community guidelines moving forward.</p>
+          <p style="font-size:13px;color:#777;">SPESS VINE moderation system</p>
+        </div>
+      </div>
+    `,
+  };
+  await sendWithRetry(payload, 2);
+}

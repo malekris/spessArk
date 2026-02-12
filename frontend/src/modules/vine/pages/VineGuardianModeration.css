@@ -102,6 +102,12 @@
   color: #b91c1c;
 }
 
+.guardian-mod-actions .warn-btn {
+  border-color: #fde68a;
+  background: #fef9c3;
+  color: #a16207;
+}
+
 .guardian-mod-actions .success {
   border-color: #86efac;
   background: #dcfce7;

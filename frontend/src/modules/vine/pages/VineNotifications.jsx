@@ -45,6 +45,7 @@ export default function VineNotifications() {
       case "appeal": return "submitted an appeal";
       case "account_suspended": return "suspended your likes/comments access";
       case "account_unsuspended": return "lifted your suspension";
+      case "guardian_warning": return "sent you a warning about reported content";
       default: return "interacted with you";
     }
   };
@@ -116,6 +117,16 @@ export default function VineNotifications() {
       if (n.type === "appeal") {
         navigate("/vine/guardian/moderation?type=appeals");
         return;
+      }
+      if (n.type === "guardian_warning") {
+        if (n.comment_id) {
+          navigate(`/vine/feed?post=${n.post_id}&comment=${n.comment_id}`);
+          return;
+        }
+        if (n.post_id) {
+          navigate(`/vine/feed?post=${n.post_id}`);
+          return;
+        }
       }
     
       // comments & replies

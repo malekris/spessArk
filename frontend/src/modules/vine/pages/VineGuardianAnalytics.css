@@ -169,6 +169,22 @@ button.guardian-row {
   color: #0f766e;
 }
 
+.guardian-row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.guardian-release-btn {
+  border: 1px solid #fecaca;
+  background: #ef4444;
+  color: #ffffff;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
 .guardian-empty {
   color: #475569;
   font-size: 0.92rem;

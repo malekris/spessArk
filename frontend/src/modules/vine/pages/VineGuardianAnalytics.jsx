@@ -87,6 +87,34 @@ export default function VineGuardianAnalytics() {
     URL.revokeObjectURL(url);
   };
 
+  const releaseNow = async (userId) => {
+    if (!userId) return;
+    try {
+      const res = await fetch(`${API}/api/vine/moderation/unsuspend`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ user_id: userId }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(body?.message || "Failed to release user");
+        return;
+      }
+      setData((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          vinePrison: (prev.vinePrison || []).filter((p) => Number(p.user_id) !== Number(userId)),
+        };
+      });
+    } catch {
+      alert("Failed to release user");
+    }
+  };
+
   if (loading) {
     return <div className="guardian-analytics-page">Loading analytics...</div>;
   }
@@ -104,6 +132,7 @@ export default function VineGuardianAnalytics() {
   const networkEffects = data?.networkEffects || {};
   const alerts = data?.guardianAlerts || [];
   const creators = data?.creatorInsights || { topCreatorsWeek: [], risingCreators: [] };
+  const vinePrison = data?.vinePrison || [];
   const maxVolume = Math.max(
     1,
     ...usage.map((d) => d.posts + d.comments + d.likes + d.revines + d.follows + d.dms)
@@ -339,6 +368,43 @@ export default function VineGuardianAnalytics() {
           <div className="guardian-compare-card">Follows per Active User: {networkEffects.followsPerActiveUserWeek ?? 0}</div>
           <div className="guardian-compare-card">Mutual Follow Pairs: {networkEffects.mutualFollowPairs ?? 0}</div>
           <div className="guardian-compare-card">New DM Threads (7d): {networkEffects.dmStartsWeek ?? 0}</div>
+        </div>
+      </div>
+
+      <div className="guardian-section">
+        <h3>Vine Prison (Active Suspensions)</h3>
+        <button className="guardian-csv-btn" onClick={() => exportCsv("vine_prison.csv", vinePrison)}>
+          Export CSV
+        </button>
+        <div className="guardian-table">
+          {vinePrison.length === 0 && <div className="guardian-empty">No active suspensions.</div>}
+          {vinePrison.map((p) => (
+            <div
+              key={`prison-${p.id}`}
+              className="guardian-row"
+            >
+              <span className="guardian-row-main">
+                {p.display_name || p.username} • {p.sentence_label}
+              </span>
+              <span className="guardian-row-meta">
+                Start {new Date(p.starts_at).toLocaleString()} • Release {p.ends_at ? new Date(p.ends_at).toLocaleString() : "Indefinite"}
+              </span>
+              <div className="guardian-row-actions">
+                <button
+                  className="guardian-csv-btn"
+                  onClick={() => navigate(`/vine/profile/${p.username}`)}
+                >
+                  Open
+                </button>
+                <button
+                  className="guardian-release-btn"
+                  onClick={() => releaseNow(p.user_id)}
+                >
+                  Release Now
+                </button>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 

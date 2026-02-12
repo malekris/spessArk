@@ -59,19 +59,43 @@
   display: flex;
   flex-direction: column;
   position: relative;
+  padding-right: 36px; /* reserve stable space for kebab */
 }
 .revine-top {
-  font-size: 0.9rem;
-  font-weight: 700;
-  color: #10b981;                /* your signature mint — stands out nicely */
-  background: rgba(16, 185, 129, 0.08); /* subtle mint bg for visibility */
-  padding: 4px 10px;
-  border-radius: 8px;
-  margin-bottom: 8px;
-  display: block !important;     /* force it — no hiding */
-  line-height: 1.4;
-  width: fit-content;            /* doesn't stretch full width */
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
   max-width: 100%;
+  padding: 6px 11px;
+  margin: 0 0 8px 0;
+  border-radius: 999px;
+  border: 1px solid rgba(16, 185, 129, 0.28);
+  background:
+    linear-gradient(135deg, rgba(16, 185, 129, 0.16), rgba(255, 215, 0, 0.12)),
+    #f8fffb;
+  color: #047857;
+  font-size: 0.92rem;
+  font-weight: 900;
+  letter-spacing: 0.01em;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    0 3px 10px rgba(16, 185, 129, 0.16);
+}
+
+.theme-dark .revine-top {
+  border-color: rgba(52, 211, 153, 0.42);
+  background:
+    linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(250, 204, 21, 0.14)),
+    rgba(2, 6, 23, 0.85);
+  color: #6ee7b7;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 4px 12px rgba(16, 185, 129, 0.2);
 }
 
 .meta-top {
@@ -79,7 +103,8 @@
   flex-wrap: nowrap;
   align-items: center;
   gap: 6px;
-  padding-right: 30px;
+  padding-right: 0;
+  min-height: 30px;
 }
 
 .post-kebab-wrap {
@@ -112,7 +137,8 @@
   gap: 6px;
   min-width: 0;
   width: 100%;
-  padding-right: 28px;
+  padding-right: 0;
+  line-height: 1.1;
 }
 
 .name-main {
@@ -267,6 +293,8 @@
   color: #052e16;
   font-weight: 900;
   font-size: 1.1rem;
+  line-height: 1.12;
+  margin: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -290,6 +318,11 @@
 .time {
   color: #64748b;
   font-size: 0.9rem;
+}
+
+.top-time {
+  margin-left: 2px;
+  line-height: 1;
 }
 
 .mention {
@@ -927,7 +960,56 @@
   }
 
   .vine-post-header {
-    padding-right: 0;
+    gap: 10px;
+    align-items: flex-start;
+    margin-bottom: 10px;
+  }
+
+  .post-avatar,
+  .avatar-fallback {
+    width: 46px;
+    height: 46px;
+  }
+
+  .post-user-meta {
+    padding-right: 34px;
+  }
+
+  .revine-top {
+    margin-bottom: 7px;
+    font-size: 0.88rem;
+    border-radius: 9px;
+  }
+
+  .meta-top {
+    min-height: 28px;
+    align-items: center;
+  }
+
+  .name-row {
+    gap: 6px;
+    min-height: 28px;
+    align-items: center;
+  }
+
+  .name-main {
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .display-name {
+    font-size: 1.08rem;
+  }
+
+  .top-time {
+    font-size: 0.92rem;
+    margin-left: 4px;
+    flex: 0 0 auto;
+  }
+
+  .post-kebab-wrap {
+    top: -2px;
+    right: -2px;
   }
 
   .post-kebab-btn {

@@ -266,22 +266,14 @@ export default function VineFeed() {
     fetchUnreadDMs();
 
     // Socket listeners
-    socket.connect();
     socket.on("notification", fetchUnreadNotifications);
     socket.on("dm_received", fetchUnreadDMs);
     socket.on("messages_seen", fetchUnreadDMs);
-
-    // Register user for socket
-    const user = JSON.parse(localStorage.getItem("vine_user"));
-    if (user?.id) {
-      socket.emit("register", user.id);
-    }
 
     return () => {
       socket.off("notification", fetchUnreadNotifications);
       socket.off("dm_received", fetchUnreadDMs);
       socket.off("messages_seen", fetchUnreadDMs);
-      socket.disconnect();
     };
   }, [token]);
 
@@ -362,14 +354,6 @@ export default function VineFeed() {
           >
             Help
           </button>
-          {isModerator && (
-            <button
-              className="nav-btn profile-btn desktop-only"
-              onClick={() => navigate("/vine/guardian/analytics")}
-            >
-              Guardian
-            </button>
-          )}
           <input
             className="vine-search nav-search desktop-only"
             placeholder="Search users..."
@@ -419,7 +403,7 @@ export default function VineFeed() {
 
           {isModerator && (
             <button
-              className="discover-btn"
+              className="discover-btn mobile-only"
               onClick={() => navigate("/vine/guardian/analytics")}
             >
               Guardian

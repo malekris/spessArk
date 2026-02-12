@@ -1,26 +1,87 @@
 import { useEffect, useState, useRef } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { socket } from "../../socket";
-import { formatRelativeTime } from "../../utils/time";
 import MessageBubble from "./MessageBubble";
 import MessageInput from "./MessageInput";
 import "./ChatWindow.css";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const DEFAULT_AVATAR = "/default-avatar.png";
+const formatChatDateTime = (dateString) => {
+  if (!dateString) return "";
+  const d = new Date(dateString);
+  if (Number.isNaN(d.getTime())) return "";
+  const now = new Date();
+  const dateOpts =
+    d.getFullYear() === now.getFullYear()
+      ? { month: "short", day: "numeric" }
+      : { month: "short", day: "numeric", year: "numeric" };
+  const datePart = d.toLocaleDateString("en-US", dateOpts);
+  const timePart = d
+    .toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    })
+    .toLowerCase();
+  return `${datePart} at ${timePart}`;
+};
+
+const isSameDay = (a, b) => {
+  if (!a || !b) return false;
+  const da = new Date(a);
+  const db = new Date(b);
+  return (
+    da.getFullYear() === db.getFullYear() &&
+    da.getMonth() === db.getMonth() &&
+    da.getDate() === db.getDate()
+  );
+};
+
+const formatDayDivider = (dateString) => {
+  const d = new Date(dateString);
+  if (Number.isNaN(d.getTime())) return "";
+  const now = new Date();
+  const opts =
+    d.getFullYear() === now.getFullYear()
+      ? { weekday: "short", month: "short", day: "numeric" }
+      : { weekday: "short", month: "short", day: "numeric", year: "numeric" };
+  return d.toLocaleDateString("en-US", opts);
+};
 
 export default function ChatWindow() {
-  const { conversationId } = useParams();
+  const { conversationId: routeConversationId, userId: routeReceiverId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const token = localStorage.getItem("vine_token");
+  const receiverId = routeReceiverId ? Number(routeReceiverId) : null;
+  const [conversationId, setConversationId] = useState(routeConversationId || null);
 
   const [messages, setMessages] = useState([]);
   const [partner, setPartner] = useState(null);
 
   const scrollRef = useRef(null);
+  const stickToBottomRef = useRef(true);
 
   const currentUser = JSON.parse(localStorage.getItem("vine_user"));
   const myId = currentUser?.id;
+
+  useEffect(() => {
+    const registerUser = () => {
+      if (myId) socket.emit("register", myId);
+    };
+    if (!socket.connected) socket.connect();
+    registerUser();
+    socket.on("connect", registerUser);
+    return () => {
+      socket.off("connect", registerUser);
+    };
+  }, [myId]);
+
+  useEffect(() => {
+    setConversationId(routeConversationId || null);
+    stickToBottomRef.current = true;
+  }, [routeConversationId]);
 // listen for incoming messages//
 const handleIncoming = (msg) => {
   if (String(msg.conversation_id) !== String(conversationId)) return;
@@ -48,12 +109,20 @@ fetch(`${API}/api/dms/conversations/${conversationId}/read`, {
   });
 };
 
+  const isNearBottom = () => {
+    const el = scrollRef.current;
+    if (!el) return true;
+    return el.scrollHeight - el.scrollTop - el.clientHeight < 90;
+  };
+
   /* -----------------------------
-     Auto scroll when messages change
+     Auto scroll when user is near bottom
   ------------------------------ */
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    const el = scrollRef.current;
+    if (!el) return;
+    if (stickToBottomRef.current) {
+      el.scrollTop = el.scrollHeight;
     }
   }, [messages]);
 
@@ -100,7 +169,9 @@ fetch(`${API}/api/dms/conversations/${conversationId}/read`, {
   }, [conversationId]);
   //Handle send messages// 
   const handleSendMessage = async (content) => {
-    if (!conversationId || !myId) return;
+    if (!myId) return;
+    if (!conversationId && !receiverId) return;
+    stickToBottomRef.current = true;
   
     const tempId = `temp-${Date.now()}`;
   
@@ -121,15 +192,20 @@ fetch(`${API}/api/dms/conversations/${conversationId}/read`, {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          conversationId,
-          content,
-        }),
+        body: JSON.stringify(
+          conversationId
+            ? { conversationId, content }
+            : { receiverId, content }
+        ),
       });
   
       if (!res.ok) throw new Error("Send failed");
   
-      const { message: saved } = await res.json();
+      const { message: saved, conversationId: savedConversationId } = await res.json();
+      if (!conversationId && savedConversationId) {
+        setConversationId(savedConversationId);
+        navigate(`/vine/dms/${savedConversationId}`, { replace: true });
+      }
 
       // replace temp message with real one
       setMessages(prev =>
@@ -199,7 +275,23 @@ fetch(`${API}/api/dms/conversations/${conversationId}/read`, {
      Load chat partner
   ------------------------------ */
   useEffect(() => {
-    if (!conversationId) return;
+    if (!conversationId) {
+      if (receiverId) {
+        const params = new URLSearchParams(location.search);
+        const username = params.get("username") || `user-${receiverId}`;
+        const displayName = params.get("displayName") || username;
+        setPartner({
+          username,
+          display_name: displayName,
+          avatar_url: null,
+          is_verified: 0,
+          show_last_active: 0,
+        });
+      } else {
+        setPartner(null);
+      }
+      return;
+    }
 
     const loadPartner = async () => {
       try {
@@ -218,7 +310,7 @@ fetch(`${API}/api/dms/conversations/${conversationId}/read`, {
     };
 
     loadPartner();
-  }, [conversationId]);
+  }, [conversationId, receiverId, location.search]);
 
   /* -----------------------------
      Socket realtime
@@ -304,7 +396,7 @@ fetch(`${API}/api/dms/conversations/${conversationId}/read`, {
               }}
             />
 
-            <div>
+            <div className="chat-header-meta">
               <strong
                 className="chat-name"
                 onClick={(e) => {
@@ -327,13 +419,9 @@ fetch(`${API}/api/dms/conversations/${conversationId}/read`, {
                   </span>
                 )}
               </strong>
-              <div style={{ fontSize: 12, opacity: 0.6 }}>
-                @{partner.username}
-              </div>
               {partner.show_last_active !== 0 && partner.last_active_at && (
-                <div style={{ fontSize: 12, opacity: 0.6 }}>
-                  Last seen {new Date(partner.last_active_at).toLocaleString()}{" "}
-                  ({formatRelativeTime(partner.last_active_at)} ago)
+                <div className="chat-lastseen">
+                  Last seen on {formatChatDateTime(partner.last_active_at)}
                 </div>
               )}
             </div>
@@ -344,16 +432,31 @@ fetch(`${API}/api/dms/conversations/${conversationId}/read`, {
       </div>
 
       {/* MESSAGES */}
-            <div className="messages-container" ref={scrollRef}>
+            <div
+              className="messages-container"
+              ref={scrollRef}
+              onScroll={() => {
+                stickToBottomRef.current = isNearBottom();
+              }}
+            >
         {messages.length === 0 ? (
           <div className="chat-empty">Start of your Vine history 🌱</div>
         ) : (
-          messages.map((m, i) => (
-            <MessageBubble
-              key={`${m.id}-${m.sender_id}-${i}`}
-              message={m}
-            />
-          ))
+          messages.map((m, i) => {
+            const prev = i > 0 ? messages[i - 1] : null;
+            const showDayDivider = !prev || !isSameDay(prev.created_at, m.created_at);
+
+            return (
+              <div key={`${m.id}-${m.sender_id}-${i}`}>
+                {showDayDivider && (
+                  <div className="chat-day-divider">
+                    <span>{formatDayDivider(m.created_at)}</span>
+                  </div>
+                )}
+                <MessageBubble message={m} />
+              </div>
+            );
+          })
           
         )}
           </div>

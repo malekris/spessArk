@@ -66,6 +66,11 @@ router.get("/conversations", authenticate, async (req, res) => {
         ON u.id = IF(c.user1_id = ?, c.user2_id, c.user1_id)
 
       WHERE (c.user1_id = ? OR c.user2_id = ?)
+        AND EXISTS (
+          SELECT 1
+          FROM vine_messages vm
+          WHERE vm.conversation_id = c.id
+        )
         AND NOT EXISTS (
           SELECT 1
           FROM vine_conversation_deletes d
@@ -160,6 +165,10 @@ router.post("/start", authenticate, async (req, res) => {
   const { userId: receiverId } = req.body;
 
   try {
+    if (!receiverId || Number(receiverId) === Number(senderId)) {
+      return res.status(400).json({ error: "Invalid recipient" });
+    }
+
     const [muted] = await db.query(
       `
       SELECT 1
@@ -209,6 +218,14 @@ router.post("/start", authenticate, async (req, res) => {
       }
     }
 
+    const [iFollowThem, theyFollowMe] = await Promise.all([
+      isFollowing(senderId, receiverId),
+      isFollowing(receiverId, senderId),
+    ]);
+    if (!iFollowThem || !theyFollowMe) {
+      return res.status(403).json({ error: "You can only DM mutual followers" });
+    }
+
     // Check if exists
     const [existing] = await db.query(
       `
@@ -232,16 +249,9 @@ router.post("/start", authenticate, async (req, res) => {
       return res.json({ conversationId: existing[0].id });
     }
 
-    // Create new
-    const [created] = await db.query(
-      `
-      INSERT INTO vine_conversations (user1_id, user2_id)
-      VALUES (?, ?)
-      `,
-      [senderId, receiverId]
-    );
-
-    res.json({ conversationId: created.insertId });
+    // Do not create empty conversations.
+    // Conversation will be created on first actual message send.
+    return res.json({ conversationId: null });
   } catch (err) {
     console.error("Start conversation error:", err);
     res.status(500).json({ error: "Failed to start conversation" });
@@ -252,29 +262,82 @@ router.post("/start", authenticate, async (req, res) => {
 ========================= */
 router.post("/send", authenticate, async (req, res) => {
   const senderId = req.user.id;
-  const { conversationId, content } = req.body;
+  const { conversationId, receiverId, content } = req.body;
 
   if (!content?.trim()) {
     return res.status(400).json({ error: "Message empty" });
   }
 
   try {
-    // Ensure user belongs to this conversation
-    const [check] = await db.query(
-      `
-      SELECT user1_id, user2_id
-      FROM vine_conversations
-      WHERE id = ? AND (user1_id = ? OR user2_id = ?)
-      `,
-      [conversationId, senderId, senderId]
-    );
+    let activeConversationId = conversationId;
+    let user1_id;
+    let user2_id;
+    let otherId;
 
-    if (!check.length) {
-      return res.status(403).json({ error: "Not your conversation" });
+    let createConversationWithUserId = null;
+
+    if (activeConversationId) {
+      // Ensure user belongs to this conversation
+      const [check] = await db.query(
+        `
+        SELECT user1_id, user2_id
+        FROM vine_conversations
+        WHERE id = ? AND (user1_id = ? OR user2_id = ?)
+        `,
+        [activeConversationId, senderId, senderId]
+      );
+
+      if (!check.length) {
+        return res.status(403).json({ error: "Not your conversation" });
+      }
+
+      ({ user1_id, user2_id } = check[0]);
+      otherId = user1_id === senderId ? user2_id : user1_id;
+    } else {
+      if (!receiverId || Number(receiverId) === Number(senderId)) {
+        return res.status(400).json({ error: "Recipient required" });
+      }
+
+      const [[receiver]] = await db.query(
+        "SELECT id, dm_privacy FROM vine_users WHERE id = ?",
+        [receiverId]
+      );
+      if (!receiver) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      if (receiver.dm_privacy === "no_one") {
+        return res.status(403).json({ error: "User does not accept messages" });
+      }
+
+      const [existing] = await db.query(
+        `
+        SELECT id, user1_id, user2_id
+        FROM vine_conversations
+        WHERE (user1_id = ? AND user2_id = ?)
+           OR (user1_id = ? AND user2_id = ?)
+        LIMIT 1
+        `,
+        [senderId, receiverId, receiverId, senderId]
+      );
+
+      if (existing.length) {
+        activeConversationId = existing[0].id;
+        user1_id = existing[0].user1_id;
+        user2_id = existing[0].user2_id;
+        otherId = user1_id === senderId ? user2_id : user1_id;
+      } else {
+        otherId = receiverId;
+        createConversationWithUserId = receiverId;
+      }
     }
 
-    const { user1_id, user2_id } = check[0];
-    const otherId = user1_id === senderId ? user2_id : user1_id;
+    const [iFollowThem, theyFollowMe] = await Promise.all([
+      isFollowing(senderId, otherId),
+      isFollowing(otherId, senderId),
+    ]);
+    if (!iFollowThem || !theyFollowMe) {
+      return res.status(403).json({ error: "You can only DM mutual followers" });
+    }
 
     const [muted] = await db.query(
       `
@@ -289,13 +352,40 @@ router.post("/send", authenticate, async (req, res) => {
       return res.status(403).json({ error: "User has muted you" });
     }
 
+    const [blocked] = await db.query(
+      `
+      SELECT 1
+      FROM vine_blocks
+      WHERE (blocker_id = ? AND blocked_id = ?)
+         OR (blocker_id = ? AND blocked_id = ?)
+      LIMIT 1
+      `,
+      [otherId, senderId, senderId, otherId]
+    );
+    if (blocked.length) {
+      return res.status(403).json({ error: "You have been blocked" });
+    }
+
+    if (!activeConversationId && createConversationWithUserId) {
+      const [created] = await db.query(
+        `
+        INSERT INTO vine_conversations (user1_id, user2_id)
+        VALUES (?, ?)
+        `,
+        [senderId, createConversationWithUserId]
+      );
+      activeConversationId = created.insertId;
+      user1_id = senderId;
+      user2_id = createConversationWithUserId;
+    }
+
     // Insert message
     const [result] = await db.query(
       `
       INSERT INTO vine_messages (conversation_id, sender_id, content)
       VALUES (?, ?, ?)
       `,
-      [conversationId, senderId, content]
+      [activeConversationId, senderId, content]
     );
 
     // Fetch full message (with username + avatar)
@@ -318,14 +408,14 @@ router.post("/send", authenticate, async (req, res) => {
     );
 
     // ✅ Send to open chat window
-    io.to(`conversation-${conversationId}`).emit("dm_received", fullMessage);
+    io.to(`conversation-${activeConversationId}`).emit("dm_received", fullMessage);
 
     // ✅ Send to both users inbox (conversation list realtime)
     io.to(`user-${user1_id}`).emit("dm_received", fullMessage);
     io.to(`user-${user2_id}`).emit("dm_received", fullMessage);
 
     // Respond normally
-    res.json({ message: fullMessage });
+    res.json({ message: fullMessage, conversationId: activeConversationId });
 
   } catch (err) {
     console.error("Send DM error:", err);

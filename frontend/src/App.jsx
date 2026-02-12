@@ -143,6 +143,7 @@ function App() {
 <Route path="/vine/notifications" element={<VineNotifications />} />
 <Route path="/vine/dms" element={<ConversationList />} />
 <Route path="/vine/dms" element={<DmsPage />} />
+<Route path="/vine/dms/new/:userId" element={<ChatWindow />} />
 <Route path="/vine/dms/:conversationId" element={<ChatWindow />} />
 <Route path="/vine/suggestions" element={<VineSuggestions />} />
 <Route path="/vine/search" element={<VineSearch />} />

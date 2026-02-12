@@ -1157,7 +1157,16 @@ router.get("/users/:username", authOptional, async (req, res) => {
                  WHERE follower_id = ${viewerId} 
                  AND following_id = u.id)`
             : "0"
-        } AS is_following
+        } AS is_following,
+
+        ${
+          viewerId
+            ? `(SELECT COUNT(*) > 0 
+                 FROM vine_follows 
+                 WHERE follower_id = u.id 
+                 AND following_id = ${viewerId})`
+            : "0"
+        } AS is_followed_by
 
       FROM vine_users u
       WHERE u.username = ?

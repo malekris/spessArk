@@ -217,10 +217,11 @@ export default function VineProfile() {
   const isMutingUser = Boolean(userObj?.is_muting) && !isMe;
   const isPrivateLocked = Boolean(profile?.privateLocked) && !isMe;
   const canShowLastActive = userObj.show_last_active !== 0 || isMe;
-  const canMessage = !isMe && (
-    userObj.dm_privacy === "everyone" ||
-    (userObj.dm_privacy === "followers" && isFollowing)
-  );
+  const canMessage =
+    !isMe &&
+    Number(userObj.is_following) === 1 &&
+    Number(userObj.is_followed_by) === 1 &&
+    userObj.dm_privacy !== "no_one";
   const aboutFields = [
     { label: "Hobbies", value: userObj?.hobbies },
     { label: "Date of Birth", value: userObj?.date_of_birth ? new Date(userObj.date_of_birth).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "" },
@@ -972,7 +973,15 @@ export default function VineProfile() {
         alert(data.error || "Cannot start conversation");
         return;
       }
-      navigate(`/vine/dms/${data.conversationId}`);
+      if (data.conversationId) {
+        navigate(`/vine/dms/${data.conversationId}`);
+        return;
+      }
+      const params = new URLSearchParams({
+        username: userObj.username || "",
+        displayName: userObj.display_name || userObj.username || "",
+      });
+      navigate(`/vine/dms/new/${userObj.id}?${params.toString()}`);
     } catch (err) {
       console.error("Start DM error:", err);
     }

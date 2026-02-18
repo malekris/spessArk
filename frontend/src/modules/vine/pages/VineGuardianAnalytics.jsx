@@ -132,6 +132,7 @@ export default function VineGuardianAnalytics() {
   const networkEffects = data?.networkEffects || {};
   const alerts = data?.guardianAlerts || [];
   const creators = data?.creatorInsights || { topCreatorsWeek: [], risingCreators: [] };
+  const mostActiveUsers = data?.mostActiveUsers || [];
   const vinePrison = data?.vinePrison || [];
   const maxVolume = Math.max(
     1,
@@ -156,6 +157,10 @@ export default function VineGuardianAnalytics() {
 
       <div className="guardian-kpi-grid">
         <div className="guardian-kpi-card">
+          <span>Total Users</span>
+          <strong>{k.totalUsers ?? 0}</strong>
+        </div>
+        <div className="guardian-kpi-card">
           <span>Active Users Today</span>
           <strong>{k.activeUsersToday ?? 0}</strong>
         </div>
@@ -168,8 +173,8 @@ export default function VineGuardianAnalytics() {
           <strong>{k.estimatedActiveHoursToday ?? 0}</strong>
         </div>
         <div className="guardian-kpi-card">
-          <span>New Users This Week</span>
-          <strong>{k.newUsersWeek ?? 0}</strong>
+          <span>Joined This Week</span>
+          <strong>{k.joinedThisWeek ?? k.newUsersWeek ?? 0}</strong>
         </div>
         <div className="guardian-kpi-card">
           <span>Posts This Week</span>
@@ -183,6 +188,37 @@ export default function VineGuardianAnalytics() {
       <button className="guardian-csv-btn" onClick={() => exportCsv("kpis.csv", [k])}>
         Export KPI CSV
       </button>
+
+      <div className="guardian-section">
+        <h3>Most Active Users (Range)</h3>
+        <div className="guardian-actions">
+          <button className="guardian-csv-btn" onClick={() => exportCsv("most_active_users.csv", mostActiveUsers)}>
+            Export CSV
+          </button>
+          <button
+            className="guardian-csv-btn"
+            onClick={() => navigate(`/vine/guardian/moderation?type=users&from=${from}&to=${to}`)}
+          >
+            Drilldown
+          </button>
+        </div>
+        <div className="guardian-table">
+          {mostActiveUsers.length === 0 && <div className="guardian-empty">No user activity in this range.</div>}
+          {mostActiveUsers.map((u, idx) => (
+            <button
+              key={`active-user-${u.user_id}`}
+              className="guardian-row"
+              onClick={() => navigate(`/vine/profile/${u.username}`)}
+            >
+              <span className="guardian-rank">#{idx + 1}</span>
+              <span className="guardian-row-main">{u.display_name || u.username}</span>
+              <span className="guardian-row-meta">
+                Score {u.score} • Posts {u.posts_count} • Comments {u.comments_count}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
 
       <div className="guardian-section">
         <h3>Today vs Week</h3>

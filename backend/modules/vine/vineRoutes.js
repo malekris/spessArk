@@ -2519,7 +2519,7 @@ router.get("/users/new", authOptional, async (req, res) => {
           WHERE (b.blocker_id = u.id AND b.blocked_id = ?)
              OR (b.blocker_id = ? AND b.blocked_id = u.id)
         )
-      ORDER BY u.username ASC
+      ORDER BY u.created_at DESC
     `, [viewerId, viewerId, viewerId, viewerId, viewerId]);
 
     res.json(rows);
@@ -4195,6 +4195,95 @@ router.get("/analytics/overview", authenticate, async (req, res) => {
       "SELECT COUNT(*) AS total FROM vine_users WHERE created_at >= ? AND created_at <= ?",
       [rangeStart, rangeEnd]
     );
+    const [[totalUsersRow]] = await db.query(
+      "SELECT COUNT(*) AS total FROM vine_users"
+    );
+
+    const activityMap = new Map();
+    const ensureActivity = (userId) => {
+      if (!activityMap.has(Number(userId))) {
+        activityMap.set(Number(userId), {
+          user_id: Number(userId),
+          posts_count: 0,
+          comments_count: 0,
+          likes_count: 0,
+          revines_count: 0,
+          dms_count: 0,
+          score: 0,
+        });
+      }
+      return activityMap.get(Number(userId));
+    };
+    const collectActivity = async (table, dateCol, countField, weight) => {
+      const exists = await hasTable(dbName, table);
+      if (!exists) return;
+      const hasUserId = await hasColumn(dbName, table, "user_id");
+      const hasDate = await hasColumn(dbName, table, dateCol);
+      if (!hasUserId || !hasDate) return;
+
+      const [rows] = await db.query(
+        `
+        SELECT user_id, COUNT(*) AS total
+        FROM ${table}
+        WHERE ${dateCol} >= ? AND ${dateCol} <= ?
+        GROUP BY user_id
+        `,
+        [rangeStart, rangeEnd]
+      );
+      for (const row of rows) {
+        const entry = ensureActivity(row.user_id);
+        entry[countField] = Number(row.total || 0);
+        entry.score += Number(row.total || 0) * weight;
+      }
+    };
+
+    await Promise.all([
+      collectActivity("vine_posts", "created_at", "posts_count", 3),
+      collectActivity("vine_comments", "created_at", "comments_count", 2),
+      collectActivity("vine_likes", "created_at", "likes_count", 1),
+      collectActivity("vine_revines", "created_at", "revines_count", 2),
+      collectActivity("vine_messages", "created_at", "dms_count", 1),
+    ]);
+
+    const topActivityIds = [...activityMap.values()]
+      .filter((x) => Number(x.score) > 0)
+      .sort((a, b) => Number(b.score) - Number(a.score))
+      .slice(0, 15)
+      .map((x) => Number(x.user_id));
+
+    let mostActiveUsers = [];
+    if (topActivityIds.length > 0) {
+      const placeholders = topActivityIds.map(() => "?").join(", ");
+      const [users] = await db.query(
+        `
+        SELECT id, username, display_name, avatar_url, is_verified
+        FROM vine_users
+        WHERE id IN (${placeholders})
+        `,
+        topActivityIds
+      );
+      const userById = new Map(users.map((u) => [Number(u.id), u]));
+      mostActiveUsers = topActivityIds
+        .map((id) => {
+          const user = userById.get(Number(id));
+          const activity = activityMap.get(Number(id));
+          if (!user || !activity) return null;
+          return {
+            user_id: Number(id),
+            username: user.username,
+            display_name: user.display_name,
+            avatar_url: user.avatar_url,
+            is_verified: user.is_verified,
+            posts_count: activity.posts_count,
+            comments_count: activity.comments_count,
+            likes_count: activity.likes_count,
+            revines_count: activity.revines_count,
+            dms_count: activity.dms_count,
+            score: Number(activity.score || 0),
+          };
+        })
+        .filter(Boolean);
+    }
 
     const loginTableExists = await hasTable(dbName, "vine_login_events");
     const loginToday = loginTableExists
@@ -4579,6 +4668,8 @@ router.get("/analytics/overview", authenticate, async (req, res) => {
         to: rangeEnd.toISOString(),
       },
       kpis: {
+        totalUsers: Number(totalUsersRow?.total || 0),
+        joinedThisWeek: Number(newWeek?.total || 0),
         activeUsersToday: Number(activeToday?.total || 0),
         activeUsersWeek: Number(activeWeek?.total || 0),
         estimatedActiveHoursToday: Number(activeHoursToday?.total || 0),
@@ -4657,6 +4748,11 @@ router.get("/analytics/overview", authenticate, async (req, res) => {
         topCreatorsWeek,
         risingCreators,
       },
+      networkUsers: {
+        totalUsers: Number(totalUsersRow?.total || 0),
+        joinedThisWeek: Number(newWeek?.total || 0),
+      },
+      mostActiveUsers,
       vinePrison,
     });
   } catch (err) {

@@ -2514,9 +2514,13 @@ router.get("/users/new", authOptional, async (req, res) => {
           FROM vine_mutes
           WHERE muter_id = ?
         )
-      ORDER BY u.created_at DESC
-      LIMIT 10
-    `, [viewerId, viewerId, viewerId]);
+        AND NOT EXISTS (
+          SELECT 1 FROM vine_blocks b
+          WHERE (b.blocker_id = u.id AND b.blocked_id = ?)
+             OR (b.blocker_id = ? AND b.blocked_id = u.id)
+        )
+      ORDER BY u.username ASC
+    `, [viewerId, viewerId, viewerId, viewerId, viewerId]);
 
     res.json(rows);
   } catch (err) {

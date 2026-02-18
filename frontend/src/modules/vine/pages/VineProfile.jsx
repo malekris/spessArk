@@ -27,6 +27,17 @@ const formatPostDate = (date) => {
   const parsed = new Date(String(date).replace(" ", "T"));
   if (Number.isNaN(parsed.getTime())) return "";
   const now = new Date();
+  const diffMs = now.getTime() - parsed.getTime();
+  const hourMs = 60 * 60 * 1000;
+  const minuteMs = 60 * 1000;
+  if (diffMs >= 0 && diffMs < 24 * hourMs) {
+    if (diffMs < hourMs) {
+      const mins = Math.max(1, Math.floor(diffMs / minuteMs));
+      return `${mins} ${mins === 1 ? "minute" : "minutes"} ago`;
+    }
+    const hours = Math.floor(diffMs / hourMs);
+    return `${hours} ${hours === 1 ? "hour" : "hours"} ago`;
+  }
   const sameYear = parsed.getFullYear() === now.getFullYear();
   return parsed.toLocaleDateString("en-US", {
     month: "short",

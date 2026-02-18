@@ -222,6 +222,8 @@ const ensureCommunitySchema = async () => {
       name VARCHAR(80) NOT NULL,
       slug VARCHAR(80) NOT NULL UNIQUE,
       description VARCHAR(280) NULL,
+      avatar_url VARCHAR(500) NULL,
+      banner_url VARCHAR(500) NULL,
       join_policy VARCHAR(20) NOT NULL DEFAULT 'open',
       post_permission VARCHAR(20) NOT NULL DEFAULT 'all',
       auto_welcome_enabled TINYINT(1) NOT NULL DEFAULT 1,
@@ -328,6 +330,14 @@ const ensureCommunitySchema = async () => {
   const hasJoinPolicy = await hasColumn(dbName, "vine_communities", "join_policy");
   if (!hasJoinPolicy) {
     await db.query("ALTER TABLE vine_communities ADD COLUMN join_policy VARCHAR(20) NOT NULL DEFAULT 'open'");
+  }
+  const hasCommunityAvatar = await hasColumn(dbName, "vine_communities", "avatar_url");
+  if (!hasCommunityAvatar) {
+    await db.query("ALTER TABLE vine_communities ADD COLUMN avatar_url VARCHAR(500) NULL");
+  }
+  const hasCommunityBanner = await hasColumn(dbName, "vine_communities", "banner_url");
+  if (!hasCommunityBanner) {
+    await db.query("ALTER TABLE vine_communities ADD COLUMN banner_url VARCHAR(500) NULL");
   }
   const hasPostPermission = await hasColumn(dbName, "vine_communities", "post_permission");
   if (!hasPostPermission) {
@@ -771,6 +781,25 @@ const getCommunityRole = async (communityId, userId) => {
 const isCommunityModOrOwner = (role) =>
   ["owner", "moderator"].includes(String(role || "").toLowerCase());
 
+const isMemberOfPostCommunity = async (postId, userId) => {
+  const [[post]] = await db.query(
+    "SELECT id, community_id FROM vine_posts WHERE id = ? LIMIT 1",
+    [postId]
+  );
+  if (!post) return { exists: false, allowed: false, community_id: null };
+  if (!post.community_id) return { exists: true, allowed: true, community_id: null };
+
+  const [membership] = await db.query(
+    "SELECT 1 FROM vine_community_members WHERE community_id = ? AND user_id = ? LIMIT 1",
+    [post.community_id, userId]
+  );
+  return {
+    exists: true,
+    allowed: membership.length > 0,
+    community_id: Number(post.community_id),
+  };
+};
+
 const extractTopicTag = (content = "") => {
   const m = String(content).match(/#([a-zA-Z0-9_]{2,40})/);
   return m ? m[1].toLowerCase() : null;
@@ -827,6 +856,8 @@ router.get("/communities", authenticate, async (req, res) => {
         c.name,
         c.slug,
         c.description,
+        c.avatar_url,
+        c.banner_url,
         c.join_policy,
         c.post_permission,
         c.auto_welcome_enabled,
@@ -1020,6 +1051,8 @@ router.get("/communities/:slug", authOptional, async (req, res) => {
         c.name,
         c.slug,
         c.description,
+        c.avatar_url,
+        c.banner_url,
         c.join_policy,
         c.post_permission,
         c.auto_welcome_enabled,
@@ -1195,6 +1228,76 @@ router.patch("/communities/:id/settings", authenticate, async (req, res) => {
     res.status(500).json({ message: "Failed to update settings" });
   }
 });
+
+router.post(
+  "/communities/:id/avatar",
+  authenticate,
+  uploadAvatarMemory.single("avatar"),
+  async (req, res) => {
+    try {
+      await ensureCommunitySchema();
+      const userId = req.user.id;
+      const communityId = Number(req.params.id);
+      if (!communityId) return res.status(400).json({ message: "Invalid community" });
+      if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+
+      const role = await getCommunityRole(communityId, userId);
+      if (!isCommunityModOrOwner(role)) {
+        return res.status(403).json({ message: "Only owner/moderators can change community avatar" });
+      }
+
+      const normalized = await normalizeImageBuffer(req.file);
+      const upload = await cloudinary.uploader.upload(
+        `data:${normalized.mimetype};base64,${normalized.buffer.toString("base64")}`,
+        {
+          folder: "vine/community_avatars",
+          transformation: [{ width: 400, height: 400, crop: "fill", gravity: "face" }],
+        }
+      );
+
+      await db.query("UPDATE vine_communities SET avatar_url = ? WHERE id = ?", [upload.secure_url, communityId]);
+      res.json({ avatar_url: upload.secure_url });
+    } catch (err) {
+      console.error("Community avatar upload error:", err);
+      res.status(500).json({ message: "Upload failed" });
+    }
+  }
+);
+
+router.post(
+  "/communities/:id/banner",
+  authenticate,
+  uploadBannerMemory.single("banner"),
+  async (req, res) => {
+    try {
+      await ensureCommunitySchema();
+      const userId = req.user.id;
+      const communityId = Number(req.params.id);
+      if (!communityId) return res.status(400).json({ message: "Invalid community" });
+      if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+
+      const role = await getCommunityRole(communityId, userId);
+      if (!isCommunityModOrOwner(role)) {
+        return res.status(403).json({ message: "Only owner/moderators can change community banner" });
+      }
+
+      const normalized = await normalizeImageBuffer(req.file);
+      const upload = await cloudinary.uploader.upload(
+        `data:${normalized.mimetype};base64,${normalized.buffer.toString("base64")}`,
+        {
+          folder: "vine/community_banners",
+          transformation: [{ width: 1500, height: 500, crop: "fill" }],
+        }
+      );
+
+      await db.query("UPDATE vine_communities SET banner_url = ? WHERE id = ?", [upload.secure_url, communityId]);
+      res.json({ banner_url: upload.secure_url });
+    } catch (err) {
+      console.error("Community banner upload error:", err);
+      res.status(500).json({ message: "Upload failed" });
+    }
+  }
+);
 
 router.get("/communities/:id/rules", authOptional, async (req, res) => {
   try {
@@ -2613,6 +2716,50 @@ router.get("/users/:username", authOptional, async (req, res) => {
   }
 });
 // Get comments for post (threaded, enriched)
+router.get("/posts/:id/likes", authOptional, async (req, res) => {
+  try {
+    const postId = Number(req.params.id);
+    const limit = Math.min(200, Math.max(1, Number(req.query.limit || 50)));
+    if (!postId) return res.status(400).json({ total: 0, latest: null, users: [] });
+
+    const [[post]] = await db.query("SELECT id FROM vine_posts WHERE id = ? LIMIT 1", [postId]);
+    if (!post) return res.status(404).json({ total: 0, latest: null, users: [] });
+
+    const [[count]] = await db.query(
+      "SELECT COUNT(*) AS total FROM vine_likes WHERE post_id = ?",
+      [postId]
+    );
+
+    const [users] = await db.query(
+      `
+      SELECT
+        u.id,
+        u.username,
+        u.display_name,
+        COALESCE(u.avatar_url, '/default-avatar.png') AS avatar_url,
+        u.is_verified,
+        l.created_at AS liked_at
+      FROM vine_likes l
+      JOIN vine_users u ON u.id = l.user_id
+      WHERE l.post_id = ?
+      ORDER BY l.created_at DESC
+      LIMIT ?
+      `,
+      [postId, limit]
+    );
+
+    res.json({
+      total: Number(count?.total || 0),
+      latest: users[0] || null,
+      users,
+    });
+  } catch (err) {
+    console.error("Fetch post likes failed:", err);
+    res.status(500).json({ total: 0, latest: null, users: [] });
+  }
+});
+
+// Get comments for post (threaded, enriched)
 router.get("/posts/:id/comments", authOptional, async (req, res) => {
   try {
     const postId = req.params.id;
@@ -2641,7 +2788,7 @@ router.get("/posts/:id/comments", authOptional, async (req, res) => {
       LEFT JOIN vine_comment_likes cl ON cl.comment_id = c.id
       WHERE c.post_id = ?
       GROUP BY c.id
-      ORDER BY c.created_at ASC
+      ORDER BY c.created_at DESC
     `, [userId, postId]);
 
     res.json(rows);
@@ -2864,6 +3011,11 @@ router.post("/posts/:id/revine", authMiddleware, async (req, res) => {
     if (!post) return res.status(404).json({ message: "Post not found" });
     if (await isUserBlocked(post.user_id, userId)) {
       return res.status(403).json({ message: "You have been blocked" });
+    }
+    const communityAccess = await isMemberOfPostCommunity(postId, userId);
+    if (!communityAccess.exists) return res.status(404).json({ message: "Post not found" });
+    if (!communityAccess.allowed) {
+      return res.status(403).json({ message: "Join this community to comment or revine." });
     }
 
     const postOwnerId = post.user_id;
@@ -3113,6 +3265,11 @@ router.post("/posts/:id/comments", authMiddleware, async (req, res) => {
     if (await isUserBlocked(post.user_id, userId)) {
       return res.status(403).json({ message: "You have been blocked" });
     }
+    const communityAccess = await isMemberOfPostCommunity(postId, userId);
+    if (!communityAccess.exists) return res.status(404).json({ message: "Post not found" });
+    if (!communityAccess.allowed) {
+      return res.status(403).json({ message: "Join this community to comment or revine." });
+    }
 
     const postOwnerId = post.user_id;
 
@@ -3264,6 +3421,11 @@ router.post("/posts/:id/revine", authMiddleware, async (req, res) => {
     );
 
     if (!post) return res.status(404).json({ message: "Post not found" });
+    const communityAccess = await isMemberOfPostCommunity(postId, userId);
+    if (!communityAccess.exists) return res.status(404).json({ message: "Post not found" });
+    if (!communityAccess.allowed) {
+      return res.status(403).json({ message: "Join this community to comment or revine." });
+    }
 
     const postOwnerId = post.user_id;
 

@@ -575,6 +575,20 @@
 .active-like { color: #ef4444; }
 .active-revine { color: #10b981; }
 
+.liked-by-line {
+  margin-top: 8px;
+  border: none;
+  background: transparent;
+  color: #475569;
+  font-size: 0.86rem;
+  padding: 0 2px;
+  cursor: pointer;
+}
+
+.liked-by-line strong {
+  color: #065f46;
+}
+
 /* ── Comments Area ── */
 .vine-comments-area {
   margin-top: 20px;
@@ -610,6 +624,16 @@
   font-weight: 800;
   cursor: pointer;
   white-space: nowrap;
+}
+
+.community-join-note {
+  border: 1px solid #bbf7d0;
+  background: #ecfdf5;
+  color: #065f46;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-weight: 700;
+  margin-bottom: 10px;
 }
 
 /* ── Threaded Comments ── */
@@ -665,6 +689,84 @@
   color: #64748b;
   cursor: pointer;
   margin-right: 12px;
+}
+
+.mini-btn:disabled,
+.action-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.likes-modal {
+  width: min(430px, 92vw);
+  max-height: 72vh;
+  overflow: hidden;
+  border-radius: 16px;
+  background: #ffffff;
+  border: 1px solid #d1fae5;
+  box-shadow: 0 20px 40px rgba(2, 6, 23, 0.28);
+  padding: 12px;
+}
+
+.likes-modal-title {
+  font-weight: 900;
+  color: #065f46;
+  margin-bottom: 10px;
+}
+
+.likes-modal-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 52vh;
+  overflow: auto;
+}
+
+.likes-user-row {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+  padding: 8px;
+  display: grid;
+  grid-template-columns: 40px 1fr;
+  gap: 8px;
+  align-items: center;
+  cursor: pointer;
+  text-align: left;
+}
+
+.likes-user-row img {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  object-fit: cover;
+}
+
+.likes-user-name {
+  font-weight: 800;
+  color: #052e16;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.likes-user-username {
+  font-size: 0.82rem;
+  color: #64748b;
+}
+
+.likes-verified {
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 900;
+  color: #fff;
+  background: #1d9bf0;
+  line-height: 1;
 }
 
 .del-text:hover {

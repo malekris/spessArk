@@ -23,6 +23,17 @@ const formatPostDate = (dateString) => {
   if (Number.isNaN(parsed.getTime())) return "";
 
   const now = new Date();
+  const diffMs = now.getTime() - parsed.getTime();
+  const hourMs = 60 * 60 * 1000;
+  const minuteMs = 60 * 1000;
+  if (diffMs >= 0 && diffMs < 24 * hourMs) {
+    if (diffMs < hourMs) {
+      const mins = Math.max(1, Math.floor(diffMs / minuteMs));
+      return `${mins} ${mins === 1 ? "minute" : "minutes"} ago`;
+    }
+    const hours = Math.floor(diffMs / hourMs);
+    return `${hours} ${hours === 1 ? "hour" : "hours"} ago`;
+  }
   const sameYear = parsed.getFullYear() === now.getFullYear();
 
   return parsed.toLocaleDateString("en-US", {
@@ -75,7 +86,7 @@ const applyMention = (value, anchor, username) => {
 //  MAIN COMPONENT: VinePostCard
 // ────────────────────────────────────────────────
 
-export default function VinePostCard({ post, onDeletePost, focusComments, isMe }) {
+export default function VinePostCard({ post, onDeletePost, focusComments, isMe, communityInteractionLocked = false }) {
 
   const navigate = useNavigate();
   const token = localStorage.getItem("vine_token");
@@ -105,6 +116,7 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
     String(currentUser?.role || "").toLowerCase() === "moderator" ||
     ["vine guardian","vine_guardian"].includes(String(currentUser?.username || "").toLowerCase());
   const isGuardianPost = ["vine guardian","vine_guardian"].includes(String(post.username || "").toLowerCase());
+  const isCommunityInteractionLocked = Boolean(communityInteractionLocked) && Number(post.community_id) > 0;
 
   // ── State ───────────────────────────────────────
   const [postLikes, setPostLikes] = useState(post.likes || 0);
@@ -130,6 +142,9 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
   const [reportCategory, setReportCategory] = useState("abuse");
   const [reportDetails, setReportDetails] = useState("");
   const reportOpenedAtRef = useRef(0);
+  const [showLikesModal, setShowLikesModal] = useState(false);
+  const [likedUsers, setLikedUsers] = useState([]);
+  const [latestLiker, setLatestLiker] = useState(null);
 
   const CONTENT_LIMIT = 280;
   const hasLongContent = (post.content || "").length > CONTENT_LIMIT;
@@ -192,6 +207,26 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
       setCommentCount(post.comments || 0);
     }
   }, [post.comments]);
+
+  useEffect(() => {
+    if (!canShowLikeCount || Number(postLikes || 0) <= 0) {
+      setLatestLiker(null);
+      return;
+    }
+    const loadLikesPreview = async () => {
+      try {
+        const res = await fetch(`${API}/api/vine/posts/${post.id}/likes?limit=1`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) return;
+        setLatestLiker(data.latest || null);
+      } catch {
+        // no-op
+      }
+    };
+    loadLikesPreview();
+  }, [post.id, postLikes, canShowLikeCount, token]);
 
   useEffect(() => {
     const q = mentionAnchor?.query;
@@ -321,14 +356,38 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
       console.error("Bookmark failed", err);
     }
   };
+
+  const openLikesModal = async () => {
+    if (!canShowLikeCount || Number(postLikes || 0) <= 0) return;
+    try {
+      const res = await fetch(`${API}/api/vine/posts/${post.id}/likes?limit=100`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return;
+      setLikedUsers(Array.isArray(data.users) ? data.users : []);
+      setLatestLiker(data.latest || null);
+      setShowLikesModal(true);
+    } catch {
+      // no-op
+    }
+  };
   
 
   const handleRevine = async () => {
+    if (isCommunityInteractionLocked) {
+      alert("Join this community to comment or revine.");
+      return;
+    }
     const res = await fetch(`${API}/api/vine/posts/${post.id}/revine`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
     });
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert(data.message || "Action not allowed");
+      return;
+    }
     setRevines(data.revines);
     setUserRevined(data.user_revined);
   };
@@ -424,6 +483,10 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
     : isPostAuthor;
 
   const sendComment = async (content, parent_comment_id = null) => {
+    if (isCommunityInteractionLocked) {
+      alert("Join this community to comment or revine.");
+      return;
+    }
     if (!content.trim()) return;
     const res = await fetch(`${API}/api/vine/posts/${post.id}/comments`, {
       method: "POST",
@@ -665,6 +728,7 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
 
         <button
           className={`action-btn ${userRevined ? "active-revine" : ""}`}
+          disabled={isCommunityInteractionLocked}
           onClick={handleRevine}
         >
           🔁 {revines}
@@ -692,6 +756,12 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
           📤
         </button>
       </div>
+      {canShowLikeCount && Number(postLikes || 0) > 0 && latestLiker && (
+        <button className="liked-by-line" onClick={openLikesModal}>
+          Liked by <strong>{latestLiker.display_name || latestLiker.username}</strong>
+          {Number(postLikes) > 1 ? ` and ${Number(postLikes) - 1} others` : ""}
+        </button>
+      )}
 
       {/* Comments section (collapsible) */}
       {open && (
@@ -707,52 +777,58 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
           </div>
 
           {/* Reply input */}
-          <div className="comment-input-row">
-            <textarea
-              value={text}
-              onChange={(e) => {
-                setText(e.target.value);
-                e.target.style.height = "inherit";
-                e.target.style.height = `${e.target.scrollHeight}px`;
-                const anchor = getMentionAnchor(e.target.value, e.target.selectionStart);
-                setMentionAnchor(anchor);
-              }}
-              placeholder="Post your reply"
-              rows={1}
-            />
-            <button onClick={() => sendComment(text)}>Reply</button>
-          </div>
-          {mentionResults.length > 0 && mentionAnchor && (
-            <div className="mention-suggest-list">
-              {mentionResults.map((u) => (
-                <button
-                  key={`mention-${u.id}`}
-                  className="mention-suggest-item"
-                  onClick={() => {
-                    setText((prev) => applyMention(prev, mentionAnchor, u.username));
-                    setMentionAnchor(null);
-                    setMentionResults([]);
+          {isCommunityInteractionLocked ? (
+            <div className="community-join-note">Join this community to comment or reply.</div>
+          ) : (
+            <>
+              <div className="comment-input-row">
+                <textarea
+                  value={text}
+                  onChange={(e) => {
+                    setText(e.target.value);
+                    e.target.style.height = "inherit";
+                    e.target.style.height = `${e.target.scrollHeight}px`;
+                    const anchor = getMentionAnchor(e.target.value, e.target.selectionStart);
+                    setMentionAnchor(anchor);
                   }}
-                >
-                  <img
-                    src={u.avatar_url || DEFAULT_AVATAR}
-                    alt={u.username}
-                    onError={(e) => {
-                      e.currentTarget.src = DEFAULT_AVATAR;
-                    }}
-                  />
-                  <div>
-                    <div className="mention-name">{u.display_name || u.username}</div>
-                    <div className="mention-handle">@{u.username}</div>
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-          {mentionAnchor && (
-            <div className="mention-preview">
-              {renderMentions(text, navigate)}
-            </div>
+                  placeholder="Post your reply"
+                  rows={1}
+                />
+                <button onClick={() => sendComment(text)}>Reply</button>
+              </div>
+              {mentionResults.length > 0 && mentionAnchor && (
+                <div className="mention-suggest-list">
+                  {mentionResults.map((u) => (
+                    <button
+                      key={`mention-${u.id}`}
+                      className="mention-suggest-item"
+                      onClick={() => {
+                        setText((prev) => applyMention(prev, mentionAnchor, u.username));
+                        setMentionAnchor(null);
+                        setMentionResults([]);
+                      }}
+                    >
+                      <img
+                        src={u.avatar_url || DEFAULT_AVATAR}
+                        alt={u.username}
+                        onError={(e) => {
+                          e.currentTarget.src = DEFAULT_AVATAR;
+                        }}
+                      />
+                      <div>
+                        <div className="mention-name">{u.display_name || u.username}</div>
+                        <div className="mention-handle">@{u.username}</div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {mentionAnchor && (
+                <div className="mention-preview">
+                  {renderMentions(text, navigate)}
+                </div>
+              )}
+            </>
           )}
 
           {/* Threaded comments */}
@@ -767,6 +843,7 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
     setCommentUserLiked={setCommentUserLiked}
     onReply={sendComment}
     onDelete={deleteComment}
+    canReply={!isCommunityInteractionLocked}
     isPostOwner={isPostAuthor}
     currentUserId={current_user_id}
     isModerator={isModerator}
@@ -845,6 +922,49 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
           </div>,
           document.body
         )}
+      {showLikesModal && typeof document !== "undefined" &&
+        createPortal(
+          <div className="report-modal-backdrop" onClick={() => setShowLikesModal(false)}>
+            <div className="likes-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="likes-modal-title">Liked by</div>
+              <div className="likes-modal-list">
+                {likedUsers.map((u) => (
+                  <button
+                    key={`like-user-${u.id}`}
+                    className="likes-user-row"
+                    onClick={() => {
+                      setShowLikesModal(false);
+                      navigate(`/vine/profile/${u.username}`);
+                    }}
+                  >
+                    <img
+                      src={u.avatar_url || DEFAULT_AVATAR}
+                      alt={u.username}
+                      onError={(e) => {
+                        e.currentTarget.src = DEFAULT_AVATAR;
+                      }}
+                    />
+                    <div className="likes-user-meta">
+                      <div className="likes-user-name">
+                        {u.display_name || u.username}
+                        {Number(u.is_verified) === 1 && (
+                          <span className="likes-verified" title="Verified">
+                            ✓
+                          </span>
+                        )}
+                      </div>
+                      <div className="likes-user-username">@{u.username}</div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+              <button className="close-thread-btn bottom" onClick={() => setShowLikesModal(false)}>
+                Close
+              </button>
+            </div>
+          </div>,
+          document.body
+        )}
     </div>
   );
 }
@@ -853,7 +973,7 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
 //  NESTED COMMENT COMPONENT
 // ────────────────────────────────────────────────
 
-function Comment({ comment, commentLikes, commentUserLiked, setCommentLikes, setCommentUserLiked, onReply, onDelete, isPostOwner, currentUserId, isModerator, token, onReport }) {
+function Comment({ comment, commentLikes, commentUserLiked, setCommentLikes, setCommentUserLiked, onReply, onDelete, canReply = true, isPostOwner, currentUserId, isModerator, token, onReport }) {
 
   const navigate = useNavigate();
   const [mentionResults, setMentionResults] = useState([]);
@@ -982,7 +1102,7 @@ className={`mini-btn ${
 
     </button>
 
-  <button className="mini-btn" onClick={() => setReplying(!replying)}>
+  <button className="mini-btn" onClick={() => setReplying(!replying)} disabled={!canReply}>
     Reply
   </button>
 
@@ -1008,7 +1128,7 @@ className={`mini-btn ${
 </div>
 
 
-        {replying && (
+        {replying && canReply && (
           <div className="comment-reply-box">
             <input
               value={replyText}
@@ -1076,6 +1196,7 @@ className={`mini-btn ${
                   setCommentUserLiked={setCommentUserLiked}
                   onReply={onReply}
                   onDelete={onDelete}
+                  canReply={canReply}
                   isPostOwner={isPostOwner}
                   currentUserId={currentUserId}
                   isModerator={isModerator}

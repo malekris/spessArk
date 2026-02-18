@@ -46,6 +46,9 @@ export default function VineCommunities() {
   const [topicFilter, setTopicFilter] = useState("");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [communityAvatarFile, setCommunityAvatarFile] = useState(null);
+  const [communityBannerFile, setCommunityBannerFile] = useState(null);
+  const [showCreateCommunity, setShowCreateCommunity] = useState(false);
 
   const loadCommunities = async () => {
     try {
@@ -323,6 +326,44 @@ export default function VineCommunities() {
     }
   };
 
+  const uploadCommunityAvatar = async () => {
+    if (!activeCommunity?.id || !communityAvatarFile) return;
+    const formData = new FormData();
+    formData.append("avatar", communityAvatarFile);
+    const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/avatar`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert(data.message || "Failed to upload avatar");
+      return;
+    }
+    setCommunityAvatarFile(null);
+    await loadCommunityDetail(activeCommunity.slug, topicFilter);
+    await loadCommunities();
+  };
+
+  const uploadCommunityBanner = async () => {
+    if (!activeCommunity?.id || !communityBannerFile) return;
+    const formData = new FormData();
+    formData.append("banner", communityBannerFile);
+    const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/banner`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert(data.message || "Failed to upload banner");
+      return;
+    }
+    setCommunityBannerFile(null);
+    await loadCommunityDetail(activeCommunity.slug, topicFilter);
+    await loadCommunities();
+  };
+
   const moderateRequest = async (requestId, action) => {
     if (!activeCommunity?.id) return;
     try {
@@ -533,20 +574,30 @@ export default function VineCommunities() {
       <div className="communities-layout">
         <aside className="communities-sidebar">
           <div className="communities-create">
-            <h3>Create Community</h3>
-            <input
-              placeholder="Community name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              maxLength={80}
-            />
-            <textarea
-              placeholder="Description"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              maxLength={280}
-            />
-            <button onClick={createCommunity}>Create</button>
+            <button
+              className="communities-create-toggle"
+              onClick={() => setShowCreateCommunity((prev) => !prev)}
+            >
+              {showCreateCommunity ? "Close Create Community" : "Create Community"}
+            </button>
+            {showCreateCommunity && (
+              <div className="communities-create-panel">
+                <h3>Create Community</h3>
+                <input
+                  placeholder="Community name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  maxLength={80}
+                />
+                <textarea
+                  placeholder="Description"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  maxLength={280}
+                />
+                <button onClick={createCommunity}>Create</button>
+              </div>
+            )}
           </div>
 
           <div className="community-list">
@@ -577,10 +628,21 @@ export default function VineCommunities() {
           ) : (
             <>
               <div className="community-hero">
-                <div className="community-banner" />
+                <div
+                  className="community-banner"
+                  style={
+                    activeCommunity.banner_url
+                      ? { backgroundImage: `url(${activeCommunity.banner_url})` }
+                      : undefined
+                  }
+                />
                 <div className="community-identity">
                   <div className="community-avatar">
-                    {(activeCommunity.name || "?").trim().charAt(0).toUpperCase()}
+                    {activeCommunity.avatar_url ? (
+                      <img src={activeCommunity.avatar_url} alt={activeCommunity.name} />
+                    ) : (
+                      (activeCommunity.name || "?").trim().charAt(0).toUpperCase()
+                    )}
                   </div>
                   <div className="community-title-wrap">
                     <h3>{activeCommunity.name}</h3>
@@ -701,6 +763,7 @@ export default function VineCommunities() {
                               </div>
                               <VinePostCard
                                 post={post}
+                                communityInteractionLocked={Number(activeCommunity.is_member) !== 1}
                                 onDeletePost={(deletedId) =>
                                   setPosts((prev) => prev.filter((p) => p.id !== deletedId))
                                 }
@@ -902,6 +965,30 @@ export default function VineCommunities() {
                       />
                     </label>
                     <button className="save-settings-btn" onClick={saveSettings}>Save Settings</button>
+                    <div className="community-upload-grid">
+                      <label className="settings-row">
+                        <span>Community avatar</span>
+                        <input
+                          type="file"
+                          accept="image/*,.heic,.heif"
+                          onChange={(e) => setCommunityAvatarFile(e.target.files?.[0] || null)}
+                        />
+                        <button type="button" onClick={uploadCommunityAvatar} disabled={!communityAvatarFile}>
+                          Upload Avatar
+                        </button>
+                      </label>
+                      <label className="settings-row">
+                        <span>Community banner</span>
+                        <input
+                          type="file"
+                          accept="image/*,.heic,.heif"
+                          onChange={(e) => setCommunityBannerFile(e.target.files?.[0] || null)}
+                        />
+                        <button type="button" onClick={uploadCommunityBanner} disabled={!communityBannerFile}>
+                          Upload Banner
+                        </button>
+                      </label>
+                    </div>
 
                     {joinPolicy === "approval" && (
                       <div className="request-panel">

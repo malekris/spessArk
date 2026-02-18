@@ -494,6 +494,15 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe }
               🔁 {post.reviner_username} revined
             </div>
           )}
+          {post.community_name && (
+            <button
+              className="community-chip"
+              onClick={() => navigate(`/vine/communities/${post.community_slug}`)}
+              title={`View ${post.community_name}`}
+            >
+              👥 {post.community_name}
+            </button>
+          )}
 
           {/* Username, verification, time */}
           <div className="meta-top">

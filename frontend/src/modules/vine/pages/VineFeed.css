@@ -344,6 +344,24 @@
   font-weight: 900;
 }
 
+.create-target-row {
+  margin-top: 7px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: #475569;
+}
+
+.community-select {
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.82rem;
+  background: #fff;
+  color: #064e3b;
+}
+
 .right-actions {
   display: flex;
   align-items: center;
@@ -484,6 +502,12 @@
   background: rgba(16, 185, 129, 0.18);
   color: #6ee7b7;
   border-color: rgba(52, 211, 153, 0.4);
+}
+
+.theme-dark .community-select {
+  background: #111827;
+  color: #e5e7eb;
+  border-color: rgba(255, 255, 255, 0.2);
 }
 
 /* ── Posts List ── */

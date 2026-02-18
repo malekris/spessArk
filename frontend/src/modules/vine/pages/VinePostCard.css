@@ -98,6 +98,22 @@
     0 4px 12px rgba(16, 185, 129, 0.2);
 }
 
+.community-chip {
+  border: 1px solid #bbf7d0;
+  background: #ecfdf5;
+  color: #065f46;
+  font-weight: 800;
+  border-radius: 999px;
+  padding: 4px 10px;
+  margin: 0 0 8px 0;
+  width: fit-content;
+  cursor: pointer;
+}
+
+.community-chip:hover {
+  background: #d1fae5;
+}
+
 .meta-top {
   display: flex;
   flex-wrap: nowrap;

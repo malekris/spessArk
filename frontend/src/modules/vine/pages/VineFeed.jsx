@@ -76,6 +76,8 @@ export default function VineFeed() {
   const [suggestionSlots, setSuggestionSlots] = useState([]);
   const [trendingPosts, setTrendingPosts] = useState([]);
   const [restriction, setRestriction] = useState(null);
+  const [myCommunities, setMyCommunities] = useState([]);
+  const [communityId, setCommunityId] = useState("");
   const [mentionResults, setMentionResults] = useState([]);
   const [mentionAnchor, setMentionAnchor] = useState(null);
   const suggestionSlotsRef = useRef([]);
@@ -221,6 +223,18 @@ export default function VineFeed() {
       setRestriction(null);
     }
   };
+
+  const loadMyCommunities = async () => {
+    try {
+      const res = await fetch(`${API}/api/vine/communities/mine`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      setMyCommunities(Array.isArray(data) ? data : []);
+    } catch {
+      setMyCommunities([]);
+    }
+  };
   
 
   useEffect(() => {
@@ -228,6 +242,7 @@ export default function VineFeed() {
     loadSuggestions();
     loadTrending();
     loadRestrictions();
+    loadMyCommunities();
 
     const interval = setInterval(loadFeed, 5000); // refresh every 5s
 
@@ -327,6 +342,7 @@ export default function VineFeed() {
     try {
       const formData = new FormData();
       if (content.trim()) formData.append("content", content);
+      if (communityId) formData.append("community_id", String(communityId));
       images.forEach((img) => formData.append("images", img));
 
       const res = await fetch(`${API}/api/vine/posts`, {
@@ -340,6 +356,7 @@ export default function VineFeed() {
       setContent("");
       setImages([]);
       setPreviews([]);
+      setCommunityId("");
     } catch (err) {
       console.error("Post creation error", err);
     }
@@ -434,6 +451,10 @@ export default function VineFeed() {
 
           <button className="discover-btn" onClick={() => navigate("/vine/suggestions")}>
             👥 Discover
+          </button>
+
+          <button className="discover-btn" onClick={() => navigate("/vine/communities")}>
+            👥 Communities
           </button>
 
           <button className="discover-btn mobile-only" onClick={() => navigate("/vine/help")}>
@@ -549,6 +570,21 @@ export default function VineFeed() {
           <div className="create-footer">
             <div className="greeting">
               {getGreeting()}, <span className="name">{myUsername}</span>
+              <div className="create-target-row">
+                <span>Post to:</span>
+                <select
+                  value={communityId}
+                  onChange={(e) => setCommunityId(e.target.value)}
+                  className="community-select"
+                >
+                  <option value="">Public feed</option>
+                  {myCommunities.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             <div className="right-actions">

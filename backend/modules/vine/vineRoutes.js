@@ -1940,6 +1940,20 @@ router.get("/communities/:slug/posts", authOptional, async (req, res) => {
             p.is_community_pinned,
             c.name AS community_name,
             c.slug AS community_slug,
+            ${
+              viewerId
+                ? `CASE
+                    WHEN p.community_id IS NULL THEN 1
+                    WHEN EXISTS (
+                      SELECT 1
+                      FROM vine_community_members cm
+                      WHERE cm.community_id = p.community_id
+                        AND cm.user_id = ${viewerId}
+                    ) THEN 1
+                    ELSE 0
+                  END`
+                : "CASE WHEN p.community_id IS NULL THEN 1 ELSE 0 END"
+            } AS viewer_community_member,
             p.content,
             p.image_url,
             p.link_preview,
@@ -2016,6 +2030,20 @@ router.get("/communities/:slug/posts", authOptional, async (req, res) => {
             p.is_community_pinned,
             c.name AS community_name,
             c.slug AS community_slug,
+            ${
+              viewerId
+                ? `CASE
+                    WHEN p.community_id IS NULL THEN 1
+                    WHEN EXISTS (
+                      SELECT 1
+                      FROM vine_community_members cm
+                      WHERE cm.community_id = p.community_id
+                        AND cm.user_id = ${viewerId}
+                    ) THEN 1
+                    ELSE 0
+                  END`
+                : "CASE WHEN p.community_id IS NULL THEN 1 ELSE 0 END"
+            } AS viewer_community_member,
             p.content,
             p.image_url,
             p.link_preview,
@@ -5203,6 +5231,22 @@ router.get("/notifications/unread-count", authenticate, async (req, res) => {
   );
 
   res.json({ count: row.total });
+});
+
+// Count notifications received since a given timestamp (ignores is_read)
+router.get("/notifications/unseen-count", authenticate, async (req, res) => {
+  const sinceRaw = String(req.query.since || "").trim();
+  const since = new Date(sinceRaw);
+  if (!sinceRaw || Number.isNaN(since.getTime())) {
+    return res.json({ count: 0 });
+  }
+
+  const [[row]] = await db.query(
+    "SELECT COUNT(*) AS total FROM vine_notifications WHERE user_id = ? AND created_at > ?",
+    [req.user.id, since]
+  );
+
+  res.json({ count: Number(row?.total || 0) });
 });
 // Mark all as read
 router.post("/notifications/mark-read", authenticate, async (req, res) => {

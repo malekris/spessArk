@@ -61,6 +61,7 @@ export default function VineFeed() {
     ["vine guardian", "vine_guardian"].includes(
       String(me?.username || "").toLowerCase()
     );
+  const bellSeenKey = `vine_notif_seen_at_${me?.id || "anon"}`;
 
   // ── State ───────────────────────────────────────
   const [posts, setPosts] = useState([]);
@@ -288,18 +289,35 @@ export default function VineFeed() {
     alert("Appeal sent to Guardian");
   };
 
+  const handleOpenNotifications = () => {
+    localStorage.setItem(bellSeenKey, new Date().toISOString());
+    setUnread(0);
+    navigate("/vine/notifications");
+  };
+
   // ── Real-time Notifications & DMs ───────────────
   useEffect(() => {
     if (!token) return;
 
-    // Fetch unread notifications
+    // Fetch bell badge count
     const fetchUnreadNotifications = async () => {
       try {
+        const since = localStorage.getItem(bellSeenKey);
+        if (since) {
+          const res = await fetch(
+            `${API}/api/vine/notifications/unseen-count?since=${encodeURIComponent(since)}`,
+            { headers: { Authorization: `Bearer ${token}` } }
+          );
+          const data = await res.json().catch(() => ({}));
+          setUnread(Number(data.count || 0));
+          return;
+        }
+
         const res = await fetch(`${API}/api/vine/notifications/unread-count`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-        const data = await res.json();
-        setUnread(data.count || 0);
+        const data = await res.json().catch(() => ({}));
+        setUnread(Number(data.count || 0));
       } catch (err) {
         console.error("Failed to fetch unread notifications");
       }
@@ -329,7 +347,7 @@ export default function VineFeed() {
       socket.off("dm_received", fetchUnreadDMs);
       socket.off("messages_seen", fetchUnreadDMs);
     };
-  }, [token]);
+  }, [token, bellSeenKey]);
 
   useEffect(() => {
     document.title = "Vine — Feed";
@@ -398,7 +416,7 @@ export default function VineFeed() {
               </h2>
 
 
-        <div className="notif-bell" onClick={() => navigate("/vine/notifications")}>
+        <div className="notif-bell" onClick={handleOpenNotifications}>
           🔔
           {unread > 0 && <span className="notif-badge">{unread}</span>}
         </div>
@@ -781,7 +799,13 @@ export default function VineFeed() {
                   </div>
                 </div>
               )}
-              <VinePostCard post={post} />
+              <VinePostCard
+                post={post}
+                communityInteractionLocked={
+                  Number(post.community_id) > 0 &&
+                  Number(post.viewer_community_member) !== 1
+                }
+              />
             </div>
           ))}
 

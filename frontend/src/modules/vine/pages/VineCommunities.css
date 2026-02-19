@@ -212,6 +212,30 @@
   margin-bottom: 10px;
 }
 
+.community-format-toolbar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.community-format-toolbar button {
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #0f172a;
+  border-radius: 8px;
+  min-width: 34px;
+  height: 32px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.theme-dark .community-format-toolbar button {
+  background: #111827;
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
 .community-create-box textarea {
   width: 100%;
   min-height: 90px;

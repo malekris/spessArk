@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import VinePostCard from "./VinePostCard";
 import "./VineCommunities.css";
@@ -49,6 +49,7 @@ export default function VineCommunities() {
   const [communityAvatarFile, setCommunityAvatarFile] = useState(null);
   const [communityBannerFile, setCommunityBannerFile] = useState(null);
   const [showCreateCommunity, setShowCreateCommunity] = useState(false);
+  const communityPostRef = useRef(null);
 
   const loadCommunities = async () => {
     try {
@@ -362,6 +363,27 @@ export default function VineCommunities() {
     setCommunityBannerFile(null);
     await loadCommunityDetail(activeCommunity.slug, topicFilter);
     await loadCommunities();
+  };
+
+  const applyCommunityFormat = (leftToken, rightToken = leftToken) => {
+    const el = communityPostRef.current;
+    if (!el) return;
+    const start = el.selectionStart ?? 0;
+    const end = el.selectionEnd ?? 0;
+    const before = postText.slice(0, start);
+    const selected = postText.slice(start, end);
+    const after = postText.slice(end);
+    const next = `${before}${leftToken}${selected}${rightToken}${after}`;
+    setPostText(next);
+    requestAnimationFrame(() => {
+      el.focus();
+      if (selected.length > 0) {
+        el.setSelectionRange(start + leftToken.length, end + leftToken.length);
+      } else {
+        const cursor = start + leftToken.length;
+        el.setSelectionRange(cursor, cursor);
+      }
+    });
   };
 
   const moderateRequest = async (requestId, action) => {
@@ -720,7 +742,14 @@ export default function VineCommunities() {
                       (String(activeCommunity.post_permission || "all") !== "mods_only" ||
                         ["owner", "moderator"].includes(String(activeCommunity.viewer_role || "").toLowerCase())) ? (
                         <div className="community-create-box">
+                          <div className="community-format-toolbar">
+                            <button type="button" onClick={() => applyCommunityFormat("**")} title="Bold">B</button>
+                            <button type="button" onClick={() => applyCommunityFormat("*")} title="Italic"><em>I</em></button>
+                            <button type="button" onClick={() => applyCommunityFormat("__")} title="Underline"><u>U</u></button>
+                            <button type="button" onClick={() => applyCommunityFormat("~~")} title="Strikethrough"><s>S</s></button>
+                          </div>
                           <textarea
+                            ref={communityPostRef}
                             value={postText}
                             onChange={(e) => setPostText(e.target.value)}
                             placeholder={`Share something in ${activeCommunity.name}`}

@@ -1191,6 +1191,17 @@
   text-decoration: underline;
 }
 
+.hashtag {
+  color: #1d9bf0;
+  font-weight: 600;
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  font: inherit;
+}
+
 .mention-preview {
   margin: 6px 10px 2px;
   padding: 6px 10px;

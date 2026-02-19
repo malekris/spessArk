@@ -73,6 +73,7 @@ export default function VineFeed() {
   const [handledDeepLink, setHandledDeepLink] = useState(false);
   const [params] = useSearchParams();
   const targetPostId = params.get("post");
+  const targetTag = (params.get("tag") || "").trim();
   const [suggestedUsers, setSuggestedUsers] = useState([]);
   const [suggestionSlots, setSuggestionSlots] = useState([]);
   const [trendingPosts, setTrendingPosts] = useState([]);
@@ -159,7 +160,9 @@ export default function VineFeed() {
   // ── Feed Loading + Polling ──────────────────────
   const loadFeed = async () => {
     try {
-      const res = await fetch(`${API}/api/vine/posts`, {
+      const res = await fetch(
+        `${API}/api/vine/posts${targetTag ? `?tag=${encodeURIComponent(targetTag)}` : ""}`,
+        {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -248,7 +251,7 @@ export default function VineFeed() {
     const interval = setInterval(loadFeed, 5000); // refresh every 5s
 
     return () => clearInterval(interval);
-  }, []);
+  }, [targetTag]);
 
   useEffect(() => {
     const q = mentionAnchor?.query;
@@ -287,6 +290,27 @@ export default function VineFeed() {
       return;
     }
     alert("Appeal sent to Guardian");
+  };
+
+  const applyComposeFormat = (leftToken, rightToken = leftToken) => {
+    const el = createInputRef.current;
+    if (!el) return;
+    const start = el.selectionStart ?? 0;
+    const end = el.selectionEnd ?? 0;
+    const before = content.slice(0, start);
+    const selected = content.slice(start, end);
+    const after = content.slice(end);
+    const next = `${before}${leftToken}${selected}${rightToken}${after}`;
+    setContent(next);
+    requestAnimationFrame(() => {
+      el.focus();
+      if (selected.length > 0) {
+        el.setSelectionRange(start + leftToken.length, end + leftToken.length);
+      } else {
+        const cursor = start + leftToken.length;
+        el.setSelectionRange(cursor, cursor);
+      }
+    });
   };
 
   const handleOpenNotifications = () => {
@@ -508,6 +532,12 @@ export default function VineFeed() {
       </nav>
 
       <div className="vine-content-wrapper">
+        {targetTag && (
+          <div className="hashtag-filter-banner">
+            Showing posts for <strong>#{targetTag}</strong>
+            <button onClick={() => navigate("/vine/feed")}>Clear</button>
+          </div>
+        )}
         {restriction && (
           <div className="suspension-banner">
             <div>
@@ -520,6 +550,12 @@ export default function VineFeed() {
 
         {/* Create Post Box */}
         <div className="vine-create-box">
+        <div className="create-format-toolbar">
+          <button type="button" onClick={() => applyComposeFormat("**")} title="Bold">B</button>
+          <button type="button" onClick={() => applyComposeFormat("*")} title="Italic"><em>I</em></button>
+          <button type="button" onClick={() => applyComposeFormat("__")} title="Underline"><u>U</u></button>
+          <button type="button" onClick={() => applyComposeFormat("~~")} title="Strikethrough"><s>S</s></button>
+        </div>
         <textarea
                       className={`create-textarea ${
                         content.length > 0 && content.length < 120 ? "big-text" : ""

@@ -45,7 +45,9 @@ const formatPostDate = (dateString) => {
 
 const renderMentions = (text, navigate) => {
   if (!text) return text;
-  const parts = text.split(/(@[a-zA-Z0-9._]{1,30})/g);
+  const parts = text.split(
+    /(@[a-zA-Z0-9._]{1,30}|#[a-zA-Z0-9_]{1,60}|\*\*[^*\n]+\*\*|~~[^~\n]+~~|__[^_\n]+__|\*[^*\n]+\*)/g
+  );
   return parts.map((part, idx) => {
     if (part.startsWith("@")) {
       const username = part.slice(1);
@@ -61,6 +63,36 @@ const renderMentions = (text, navigate) => {
           {part}
         </span>
       );
+    }
+    if (part.startsWith("#")) {
+      return (
+        <button
+          key={`tag-${idx}`}
+          className="hashtag"
+          onClick={(e) => {
+            e.stopPropagation();
+            navigate(`/vine/feed?tag=${encodeURIComponent(part.slice(1).toLowerCase())}`);
+          }}
+        >
+          {part}
+        </button>
+      );
+    }
+    if (/^\*\*[^*\n]+\*\*$/.test(part)) {
+      return <strong key={`bold-${idx}`}>{part.slice(2, -2)}</strong>;
+    }
+    if (/^~~[^~\n]+~~$/.test(part)) {
+      return <s key={`strike-${idx}`}>{part.slice(2, -2)}</s>;
+    }
+    if (/^__[^_\n]+__$/.test(part)) {
+      return (
+        <span key={`under-${idx}`} style={{ textDecoration: "underline" }}>
+          {part.slice(2, -2)}
+        </span>
+      );
+    }
+    if (/^\*[^*\n]+\*$/.test(part)) {
+      return <em key={`ital-${idx}`}>{part.slice(1, -1)}</em>;
     }
     return <span key={`text-${idx}`}>{part}</span>;
   });

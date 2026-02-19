@@ -1926,6 +1926,10 @@ router.get("/communities/:slug/posts", authOptional, async (req, res) => {
       await ensureCommunitySchema();
       await publishDueScheduledPosts();
       const viewerId = req.user?.id || null;
+      const feedTag = String(req.query.tag || "").trim().replace(/^#/, "").toLowerCase();
+      const tagFilterSql = feedTag
+        ? ` AND (LOWER(COALESCE(p.content, '')) LIKE ${db.escape(`%#${feedTag}%`)} OR LOWER(COALESCE(p.topic_tag, '')) = ${db.escape(feedTag)})`
+        : "";
   
       const [rows] = await db.query(`
         SELECT *
@@ -2017,6 +2021,7 @@ router.get("/communities/:slug/posts", authOptional, async (req, res) => {
                   )`
               : ""
           }
+          ${tagFilterSql}
   
           UNION ALL
   
@@ -2109,6 +2114,7 @@ router.get("/communities/:slug/posts", authOptional, async (req, res) => {
                   )`
               : ""
           }
+          ${tagFilterSql}
         ) feed
         ORDER BY sort_time DESC
         LIMIT 100

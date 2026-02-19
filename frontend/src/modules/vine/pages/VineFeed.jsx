@@ -848,6 +848,15 @@ export default function VineFeed() {
           {posts.length > 0 && <p className="no-more-posts">No more posts</p>}
           {posts.length === 0 && <p className="no-posts-hint">No posts yet 🌱</p>}
         </div>
+        <footer className="vine-feed-footer">
+          <div>© {new Date().getFullYear()} Vine. All rights reserved.</div>
+          <div className="vine-footer-links">
+            <button onClick={() => navigate("/vine/legal/terms")}>Terms of Service</button>
+            <button onClick={() => navigate("/vine/legal/privacy")}>Privacy Policy</button>
+            <button onClick={() => navigate("/vine/legal/cookies")}>Cookie Policy</button>
+            <button onClick={() => navigate("/vine/legal/accessibility")}>Accessibility</button>
+          </div>
+        </footer>
       </div>
 
       {/* Right Sidebar (currently empty – good place for VineSuggestions later) */}

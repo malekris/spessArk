@@ -2064,7 +2064,7 @@ export default function VineProfile() {
         </div>
       )}
       
-      {settingsOpen && (
+{settingsOpen && (
   <div className="settings-overlay" onClick={() => setSettingsOpen(false)}>
     <div
       className="settings-panel"
@@ -2236,6 +2236,16 @@ export default function VineProfile() {
     </div>
   </div>
 )}
+
+      <footer className="vine-profile-footer">
+        <div>© {new Date().getFullYear()} Vine. All rights reserved.</div>
+        <div className="vine-footer-links">
+          <button onClick={() => navigate("/vine/legal/terms")}>Terms of Service</button>
+          <button onClick={() => navigate("/vine/legal/privacy")}>Privacy Policy</button>
+          <button onClick={() => navigate("/vine/legal/cookies")}>Cookie Policy</button>
+          <button onClick={() => navigate("/vine/legal/accessibility")}>Accessibility</button>
+        </div>
+      </footer>
 
     </div>
   );

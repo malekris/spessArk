@@ -863,6 +863,65 @@ export default function AdminDashboard() {
     window.open(blobUrl, "_blank");
     setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
   };
+
+  const handleDownloadMarksheetCsv = () => {
+    setMarksheetError("");
+
+    if (!marksheetClass) {
+      setMarksheetError("Select a class for the marksheet.");
+      return;
+    }
+
+    const list = students
+      .filter((s) => {
+        if (s.class_level !== marksheetClass) return false;
+        if (!marksheetStream) return true;
+        return s.stream === marksheetStream;
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    if (list.length === 0) {
+      setMarksheetError("No learners found for that class/stream selection.");
+      return;
+    }
+
+    const csvEscape = (value) => {
+      if (value === null || value === undefined) return '""';
+      const str = String(value).replace(/"/g, '""');
+      return `"${str}"`;
+    };
+
+    const rows = list.map((s, idx) => {
+      const subs = Array.isArray(s.subjects) ? s.subjects : [];
+      const optionalSubs = subs.filter((sub) => OPTIONAL_SUBJECTS.includes(sub));
+      return [
+        idx + 1,
+        s.name || "",
+        s.gender || "",
+        s.class_level || "",
+        s.stream || "",
+        optionalSubs.join(", "),
+      ];
+    });
+
+    const header = ["#", "Name", "Gender", "Class", "Stream", "Optional Subjects"];
+    const csv = [
+      header.map(csvEscape).join(","),
+      ...rows.map((r) => r.map(csvEscape).join(",")),
+    ].join("\n");
+
+    const classLabel = marksheetClass;
+    const streamLabel = marksheetStream || "all_streams";
+    const filename = `class_marksheet_${String(classLabel).toLowerCase()}_${String(streamLabel).toLowerCase().replace(/\s+/g, "_")}.csv`;
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  };
   
   
   
@@ -916,6 +975,27 @@ export default function AdminDashboard() {
 
   return result;
   }, [students]);
+  const enrollmentByClassWithOrderedStreams = React.useMemo(() => {
+    const byClass = {};
+    Object.entries(enrollmentByStreamClassGender).forEach(([stream, classes]) => {
+      Object.entries(classes || {}).forEach(([cls, stats]) => {
+        if (!byClass[cls]) byClass[cls] = {};
+        byClass[cls][stream] = stats;
+      });
+    });
+
+    const classOrder = Object.keys(byClass).sort((a, b) => {
+      const na = Number(String(a).replace(/[^\d]/g, ""));
+      const nb = Number(String(b).replace(/[^\d]/g, ""));
+      if (Number.isNaN(na) || Number.isNaN(nb)) return String(a).localeCompare(String(b));
+      return na - nb;
+    });
+
+    return classOrder.map((cls) => ({
+      cls,
+      streams: byClass[cls] || {},
+    }));
+  }, [enrollmentByStreamClassGender]);
   // derived grouping
   const groupedMarkSets = useMemo(() => {
     const map = {};
@@ -1177,7 +1257,40 @@ export default function AdminDashboard() {
                     <option value="South">South</option>
                   </select>
 
-                  <button type="button" className="primary-btn" onClick={handleDownloadMarksheetPdf} style={{ whiteSpace: "nowrap" }}>Download Marksheet</button>
+                  <button
+                    type="button"
+                    onClick={handleDownloadMarksheetCsv}
+                    style={{
+                      whiteSpace: "nowrap",
+                      border: "none",
+                      borderRadius: "999px",
+                      padding: "0.5rem 0.95rem",
+                      background: "linear-gradient(135deg, #ef4444, #b91c1c)",
+                      color: "#fff",
+                      fontWeight: 700,
+                      boxShadow: "0 8px 18px rgba(185,28,28,0.35)",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Download CSV
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDownloadMarksheetPdf}
+                    style={{
+                      whiteSpace: "nowrap",
+                      border: "none",
+                      borderRadius: "999px",
+                      padding: "0.5rem 0.95rem",
+                      background: "linear-gradient(135deg, #d4a017, #8b5e0a)",
+                      color: "#fff",
+                      fontWeight: 700,
+                      boxShadow: "0 8px 18px rgba(139,94,10,0.35)",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Download PDF
+                  </button>
                 </div>
 
                 {marksheetError && <div style={{ width: "100%", marginTop: "0.25rem", fontSize: "0.75rem", color: "#fecaca" }}>{marksheetError}</div>}
@@ -1698,7 +1811,7 @@ export default function AdminDashboard() {
           marginBottom: "0.4rem",
         }}
       >
-        Total School Population
+        Total O level Population
       </div>
       <div style={{ fontSize: "2.3rem", fontWeight: 700 }}>
         {totalStudents}
@@ -1741,7 +1854,7 @@ export default function AdminDashboard() {
   <div
     style={{
       marginTop: "1.6rem",
-      padding: "1.6rem",
+      padding: "1.1rem",
       borderRadius: "1.2rem",
       background:
         "linear-gradient(135deg, rgba(15,23,42,0.95), rgba(30,41,59,0.95))",
@@ -1764,69 +1877,87 @@ export default function AdminDashboard() {
     {Object.keys(enrollmentByStreamClassGender).length === 0 ? (
       <p className="muted-text">No enrollment data available.</p>
     ) : (
-      Object.entries(enrollmentByStreamClassGender).map(
-        ([stream, classes]) => (
-          <div key={stream} style={{ marginBottom: "1.4rem" }}>
+      enrollmentByClassWithOrderedStreams.map(({ cls, streams }) => {
+        const north = streams.North || streams.NORTH || { Male: 0, Female: 0, total: 0 };
+        const south = streams.South || streams.SOUTH || { Male: 0, Female: 0, total: 0 };
+        const classCombinedTotal = (north.total || 0) + (south.total || 0);
+        const ordered = [
+          { label: "North", stats: north, isSouth: false },
+          { label: "South", stats: south, isSouth: true },
+        ];
+
+        return (
+          <div key={cls} style={{ marginBottom: "0.85rem" }}>
             <h3
               style={{
-                marginBottom: "0.6rem",
+                marginBottom: "0.4rem",
                 color: "#e5e7eb",
-                fontSize: "1.1rem",
+                fontSize: "0.98rem",
               }}
             >
-              Stream: {stream}
+              Class {cls}
             </h3>
 
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns:
-                  "repeat(auto-fit, minmax(220px, 1fr))",
-                gap: "0.8rem",
+                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                gap: "0.5rem",
               }}
             >
-              {Object.entries(classes).map(([cls, stats]) => (
+              {ordered.map(({ label, stats, isSouth }) => (
                 <div
-                  key={cls}
+                  key={`${cls}-${label}`}
                   style={{
-                    padding: "1rem",
-                    borderRadius: "0.9rem",
+                    padding: "0.7rem 0.8rem",
+                    borderRadius: "0.75rem",
                     background: "rgba(15,23,42,0.9)",
                     border: "1px solid rgba(148,163,184,0.25)",
                   }}
                 >
                   <div
                     style={{
-                      fontSize: "0.75rem",
+                      fontSize: "0.7rem",
                       textTransform: "uppercase",
                       letterSpacing: "0.14em",
                       color: "#9ca3af",
-                      marginBottom: "0.25rem",
+                      marginBottom: "0.18rem",
                     }}
                   >
-                    Class {cls}
+                    Stream {label}
                   </div>
 
-                  <div style={{ fontSize: "0.9rem" }}>
-                      👦 Boys: <strong>{stats.Male}</strong>
-                        <br />
-                      👧 Girls: <strong>{stats.Female}</strong>
-                      </div>
+                  <div style={{ fontSize: "0.82rem", lineHeight: 1.35 }}>
+                    👦 Boys: <strong>{stats.Male || 0}</strong>
+                    <br />
+                    👧 Girls: <strong>{stats.Female || 0}</strong>
+                  </div>
                   <div
                     style={{
-                      marginTop: "0.4rem",
-                      fontSize: "0.85rem",
+                      marginTop: "0.25rem",
+                      fontSize: "0.8rem",
                       color: "#93c5fd",
                     }}
                   >
-                    Total: <strong>{stats.total}</strong>
+                    Total: <strong>{stats.total || 0}</strong>
                   </div>
+                  {isSouth && (
+                    <div
+                      style={{
+                        marginTop: "0.2rem",
+                        fontSize: "0.8rem",
+                        color: "#fcd34d",
+                      }}
+                    >
+                      Total = <strong>{classCombinedTotal}</strong>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
           </div>
-        )
-      )
+        );
+      })
     )}
   </div>
   <div

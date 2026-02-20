@@ -190,7 +190,7 @@ console.warn = (...args) => {
  * @param {Array} data - API response rows (processed, with average & remark)
  * @param {Object} meta - { term, year, class_level, stream }
  */
-export default function generateReportCardPDF(data, meta) {
+export default async function generateReportCardPDF(data, meta) {
   if (!data || data.length === 0) {
     alert("No report data available");
     return;
@@ -251,8 +251,12 @@ let currentY = 95; // below header + student info
   });
 
   let firstPage = true;
+  const studentList = Object.values(students);
+  const progress = createReportProgressIndicator(studentList.length);
+  progress.update(0);
 
-  Object.values(students).forEach((student) => {
+  try {
+    for (const [index, student] of studentList.entries()) {
     if (!firstPage) doc.addPage();
     firstPage = false;
 
@@ -283,18 +287,25 @@ doc.text(
   { align: "center" }
 );
 
-// Contacts
-doc.setFontSize(9);
+// Contacts (same size + equal spacing)
+doc.setFontSize(10);
 doc.text(
-  "Email: stphillipsequatorial@gmail.com | Tel: 0700651402, 0772571671, 0762001883, 0787301685",
+  "Email: stphillipsequatorial@gmail.com | www.stphillipsequatorial.com",
   pageWidth / 2,
   29,
   { align: "center" }
 );
 
+doc.text(
+  "Tel: 0700651402, 0772571671, 0762001883, 0787301685",
+  pageWidth / 2,
+  34,
+  { align: "center" }
+);
+
         // Divider
 doc.setLineWidth(0.6);
-doc.line(15, 34, pageWidth - 15, 34);
+doc.line(15, 40, pageWidth - 15, 40);
 
 // Report title (ONLY ONCE)
 doc.setFont("helvetica", "bold");
@@ -302,7 +313,7 @@ doc.setFontSize(12);
 doc.text(
   `END OF TERM REPORT — TERM ${meta.term} ${meta.year}`,
   pageWidth / 2,
-  42,
+  48,
   { align: "center" }
 );
 
@@ -671,7 +682,9 @@ currentY += RHYTHM * 2;
       290,
       { align: "center" }
     );
-  });
+    progress.update(index + 1);
+    await nextPaint();
+  }
   // ✅ ADD FOOTER AFTER ALL CONTENT IS DONE
 addFooter(doc);
 
@@ -680,12 +693,81 @@ const filename = `ReportCard_Term${meta.term}_${meta.year}_${String(meta.class_l
   .replace(/[^a-zA-Z0-9_.-]/g, "");
 const title = `Report Card - Term ${meta.term} ${meta.year} - ${meta.class_level || "Class"} ${meta.stream || ""}`.trim();
 openNamedPdfPreview(doc, filename, title);
+progress.complete();
+setTimeout(() => progress.destroy(), 1200);
+  } catch (err) {
+    progress.destroy();
+    throw err;
+  }
 
   
   
 // Optional: still allow download from preview tab
 // Browser PDF viewer already has a download button
 
+}
+
+function nextPaint() {
+  return new Promise((resolve) => {
+    if (typeof window !== "undefined" && window.requestAnimationFrame) {
+      window.requestAnimationFrame(() => resolve());
+    } else {
+      setTimeout(resolve, 0);
+    }
+  });
+}
+
+function createReportProgressIndicator(total) {
+  if (typeof document === "undefined") {
+    return {
+      update: () => {},
+      complete: () => {},
+      destroy: () => {},
+    };
+  }
+
+  const overlay = document.createElement("div");
+  overlay.style.position = "fixed";
+  overlay.style.inset = "0";
+  overlay.style.background = "rgba(2, 6, 23, 0.45)";
+  overlay.style.display = "flex";
+  overlay.style.alignItems = "center";
+  overlay.style.justifyContent = "center";
+  overlay.style.zIndex = "99999";
+
+  const card = document.createElement("div");
+  card.style.background = "#0f172a";
+  card.style.border = "1px solid rgba(148,163,184,0.35)";
+  card.style.borderRadius = "10px";
+  card.style.padding = "12px 16px";
+  card.style.color = "#e2e8f0";
+  card.style.fontFamily = "Arial, sans-serif";
+  card.style.fontSize = "14px";
+  card.style.boxShadow = "0 16px 40px rgba(2,6,23,0.45)";
+
+  const text = document.createElement("div");
+  text.textContent = `Processing 0 / ${total} learners...`;
+  card.appendChild(text);
+  overlay.appendChild(card);
+  document.body.appendChild(overlay);
+  const startedAt = Date.now();
+  const MIN_VISIBLE_MS = 1800;
+
+  return {
+    update(current) {
+      text.textContent = `Processing ${current} / ${total} learners...`;
+    },
+    complete() {
+      text.textContent = `Completed ${total} / ${total} learners.`;
+    },
+    destroy() {
+      const elapsed = Date.now() - startedAt;
+      const wait = Math.max(0, MIN_VISIBLE_MS - elapsed);
+      setTimeout(() => {
+        overlay.remove();
+      }, wait);
+    },
+  };
 }
 
 function openNamedPdfPreview(doc, filename, title) {

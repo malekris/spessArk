@@ -1,8 +1,28 @@
 import { useMemo, useState, useEffect } from "react";
 import jsPDF from "jspdf";
 
-const TOTAL_SUBJECTS = 16;
+const OFFICIAL_SUBJECTS = [
+  "ICT",
+  "Physical Education",
+  "Luganda",
+  "Christian Religious Education",
+  "IRE",
+  "Agriculture",
+  "Art",
+  "Literature",
+  "Entrepreneurship",
+  "Kiswahili",
+  "English",
+  "Mathematics",
+  "Physics",
+  "Biology",
+  "Chemistry",
+  "History",
+  "Geography",
+];
+const TOTAL_SUBJECTS = OFFICIAL_SUBJECTS.length;
 const TERMS = [1, 2, 3];
+const keyOf = (cls, stream) => `${cls}||${stream}`;
 
 export default function AssessmentSubmissionTracker({ marksSets = [], refreshMarks }) {
   useEffect(() => {
@@ -15,6 +35,37 @@ export default function AssessmentSubmissionTracker({ marksSets = [], refreshMar
   }, [refreshMarks]);
   
   const [selectedTerm, setSelectedTerm] = useState(1);
+  const [expectedByGroup, setExpectedByGroup] = useState({});
+
+  useEffect(() => {
+    const loadExpectedSubjects = async () => {
+      try {
+        const res = await fetch(
+          `${import.meta.env.VITE_API_BASE || "http://localhost:5001"}/api/admin/assignments`,
+          {
+            headers: {
+              "x-admin-key": localStorage.getItem("SPESS_ADMIN_KEY") || "",
+              Authorization: `Bearer ${localStorage.getItem("adminToken") || ""}`,
+            },
+          }
+        );
+        if (!res.ok) throw new Error("Failed to load assignments");
+        const rows = await res.json();
+        const map = {};
+        (Array.isArray(rows) ? rows : []).forEach((r) => {
+          const k = keyOf(r.class_level, r.stream);
+          if (!map[k]) map[k] = new Set();
+          if (r.subject) map[k].add(r.subject);
+        });
+        setExpectedByGroup(map);
+      } catch (err) {
+        console.error("TRACKER expected subjects load failed:", err);
+        setExpectedByGroup({});
+      }
+    };
+
+    loadExpectedSubjects();
+  }, []);
   // Filter marks by selected term
   const filtered = useMemo(() => {
     return marksSets.filter((m) => {
@@ -37,22 +88,44 @@ export default function AssessmentSubmissionTracker({ marksSets = [], refreshMar
   const grouped = useMemo(() => {
     const map = {};
 
+    // Seed groups from assignments so missing subjects can be listed accurately.
+    Object.entries(expectedByGroup).forEach(([k, subjectSet]) => {
+      const [class_level, stream] = k.split("||");
+      map[k] = {
+        class_level,
+        stream,
+        subjects: new Map(),
+        expectedSubjects: new Set(subjectSet),
+      };
+    });
+
     filtered.forEach(m => {
-      const key = `${m.class_level}-${m.stream}`;
+      const key = keyOf(m.class_level, m.stream);
 
       if (!map[key]) {
         map[key] = {
           class_level: m.class_level,
           stream: m.stream,
-          subjects: new Map()
+          subjects: new Map(),
+          expectedSubjects: new Set(expectedByGroup[key] || []),
         };
       }
 
       map[key].subjects.set(m.subject, m.teacher_name || "—");
     });
 
-    return Object.values(map);
-  }, [filtered]);
+    return Object.values(map).map((group) => {
+      const submittedSubjects = new Set(group.subjects.keys());
+      const missingSubjects = OFFICIAL_SUBJECTS.filter(
+        (s) => !submittedSubjects.has(s)
+      );
+      return {
+        ...group,
+        missingSubjects,
+        expectedTotal: TOTAL_SUBJECTS,
+      };
+    });
+  }, [filtered, expectedByGroup]);
   // PDF 
   const handleDownloadTrackerPdf = () => {
     const doc = new jsPDF("p", "mm", "a4");
@@ -85,8 +158,9 @@ export default function AssessmentSubmissionTracker({ marksSets = [], refreshMar
     // ===== BODY =====
     grouped.forEach((group, index) => {
       const submittedCount = group.subjects.size;
-      const percent = Math.round((submittedCount / TOTAL_SUBJECTS) * 100);
-      const missing = TOTAL_SUBJECTS - submittedCount;
+      const expectedTotal = TOTAL_SUBJECTS;
+      const percent = Math.round((submittedCount / expectedTotal) * 100);
+      const missing = group.missingSubjects.length;
   
       // Page break
       if (y > pageH - 30) {
@@ -102,7 +176,7 @@ export default function AssessmentSubmissionTracker({ marksSets = [], refreshMar
       doc.setFont("helvetica", "normal");
       doc.setFontSize(10);
       doc.text(
-        `${submittedCount}/${TOTAL_SUBJECTS} subjects submitted (${percent}%) — Missing: ${missing}`,
+        `${submittedCount}/${expectedTotal} subjects submitted (${percent}%) — Missing: ${missing}`,
         14,
         y
       );
@@ -118,6 +192,22 @@ export default function AssessmentSubmissionTracker({ marksSets = [], refreshMar
         doc.text(`• ${subject} — ${teacher}`, 18, y);
         y += 5;
       });
+
+      if (group.missingSubjects.length > 0) {
+        y += 2;
+        doc.setFont("helvetica", "bold");
+        doc.text("Missing subjects:", 14, y);
+        y += 5;
+        doc.setFont("helvetica", "normal");
+        group.missingSubjects.forEach((subject) => {
+          if (y > pageH - 20) {
+            doc.addPage();
+            y = 20;
+          }
+          doc.text(`• ${subject}`, 18, y);
+          y += 5;
+        });
+      }
   
       y += 6;
     });
@@ -185,9 +275,10 @@ export default function AssessmentSubmissionTracker({ marksSets = [], refreshMar
         <div style={{ display: "grid", gap: "1rem" }}>
           {grouped.map(group => {
             const submittedCount = group.subjects.size;
-            const percent = Math.round((submittedCount / TOTAL_SUBJECTS) * 100);
+            const expectedTotal = TOTAL_SUBJECTS;
+            const percent = Math.round((submittedCount / expectedTotal) * 100);
 
-            const missingCount = TOTAL_SUBJECTS - submittedCount;
+            const missingCount = group.missingSubjects.length;
 
             return (
               <div key={`${group.class_level}-${group.stream}`} className="panel-card">
@@ -198,21 +289,39 @@ export default function AssessmentSubmissionTracker({ marksSets = [], refreshMar
                 {/* Progress */}
                 <div style={{ margin: "0.6rem 0" }}>
                   <div style={{ fontSize: "0.85rem", marginBottom: "0.3rem" }}>
-                    {submittedCount}/{TOTAL_SUBJECTS} subjects submitted ({percent}%)
+                    {submittedCount}/{expectedTotal} subjects submitted ({percent}%)
                   </div>
 
                   <div style={{
-                    height: "10px",
+                    height: "14px",
                     borderRadius: "999px",
-                    background: "rgba(255,255,255,0.08)",
-                    overflow: "hidden"
+                    background: "linear-gradient(180deg, rgba(255,255,255,0.12), rgba(148,163,184,0.08))",
+                    border: "1px solid rgba(148,163,184,0.35)",
+                    overflow: "hidden",
+                    boxShadow: "inset 0 2px 6px rgba(2,6,23,0.6)",
+                    position: "relative",
                   }}>
                     <div style={{
                       height: "100%",
                       width: `${percent}%`,
-                      background: percent > 70 ? "#22c55e" : percent > 40 ? "#facc15" : "#ef4444",
-                      transition: "width 0.4s ease"
+                      background:
+                        percent > 70
+                          ? "linear-gradient(90deg, #16a34a 0%, #22c55e 55%, #4ade80 100%)"
+                          : percent > 40
+                          ? "linear-gradient(90deg, #d97706 0%, #f59e0b 55%, #fbbf24 100%)"
+                          : "linear-gradient(90deg, #b91c1c 0%, #ef4444 55%, #f87171 100%)",
+                      transition: "width 0.45s cubic-bezier(0.4, 0, 0.2, 1)",
+                      borderRadius: "999px",
+                      boxShadow: "0 0 12px rgba(34,197,94,0.25)",
                     }} />
+                    <div
+                      style={{
+                        position: "absolute",
+                        inset: 0,
+                        background: "linear-gradient(180deg, rgba(255,255,255,0.18), rgba(255,255,255,0.02))",
+                        pointerEvents: "none",
+                      }}
+                    />
                   </div>
                 </div>
 
@@ -231,9 +340,15 @@ export default function AssessmentSubmissionTracker({ marksSets = [], refreshMar
                 {/* Missing */}
                 <details>
                   <summary>❌ Missing subjects ({missingCount})</summary>
-                  <p className="muted-text">
-                    Remaining subjects not yet submitted.
-                  </p>
+                  {group.missingSubjects.length === 0 ? (
+                    <p className="muted-text">No missing subjects.</p>
+                  ) : (
+                    <ul>
+                      {group.missingSubjects.map((subject) => (
+                        <li key={subject}>{subject}</li>
+                      ))}
+                    </ul>
+                  )}
                 </details>
               </div>
             );

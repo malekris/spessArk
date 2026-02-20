@@ -337,12 +337,16 @@ export default function AdminDashboard() {
 
     const drawHeader = () => {
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(14);
-      doc.text("SPESS - Registered Teachers", pageWidth / 2, 14, { align: "center" });
+      doc.setFontSize(13);
+      doc.text("St Phllips Equatorial Secondary School", pageWidth / 2, 12, { align: "center" });
+      doc.setFontSize(16);
+      doc.text("SPESS ARK", pageWidth / 2, 19, { align: "center" });
+      doc.setFontSize(11);
+      doc.text("Registered Teachers", pageWidth / 2, 24, { align: "center" });
       doc.setFont("helvetica", "normal");
       doc.setFontSize(9);
-      doc.text(`Generated: ${generatedAt}`, 10, 20);
-      doc.text(`Total teachers: ${teachers.length}`, 10, 25);
+      doc.text(`Generated: ${generatedAt}`, 10, 29);
+      doc.text(`Total teachers: ${teachers.length}`, 10, 34);
     };
 
     const drawTableHeader = (y) => {
@@ -357,13 +361,13 @@ export default function AdminDashboard() {
     };
 
     drawHeader();
-    let y = drawTableHeader(33);
+    let y = drawTableHeader(42);
 
     teachers.forEach((t) => {
       if (y > pageHeight - 14) {
         doc.addPage();
         drawHeader();
-        y = drawTableHeader(33);
+        y = drawTableHeader(42);
       }
 
       const nameLines = doc.splitTextToSize(String(t.name || "—"), 58);
@@ -1175,8 +1179,8 @@ export default function AdminDashboard() {
             <div className="panel-card">
               <div className="panel-card-header">
                 <h3>Teachers</h3>
-                <div style={{ display: "flex", gap: "0.5rem" }}>
-                  <button type="button" className="ghost-btn" onClick={handleDownloadTeachersPdf} disabled={loadingTeachers || teachers.length === 0}>
+                <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                  <button type="button" className="primary-btn" style={{ marginTop: 0 }} onClick={handleDownloadTeachersPdf} disabled={loadingTeachers || teachers.length === 0}>
                     Download PDF
                   </button>
                   <button type="button" className="ghost-btn" onClick={fetchTeachers} disabled={loadingTeachers}>{loadingTeachers ? "Refreshing…" : "Refresh"}</button>

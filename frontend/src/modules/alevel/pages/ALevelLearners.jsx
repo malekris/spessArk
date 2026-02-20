@@ -122,6 +122,19 @@ export default function ALevelLearners() {
   const [search, setSearch] = useState("");
   const [filterStream, setFilterStream] = useState("");
   const [filterClass, setFilterClass] = useState("");
+  const premiumHeaderCellStyle = {
+    position: "sticky",
+    top: 0,
+    zIndex: 3,
+    background: "linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%)",
+    color: "#0f172a",
+    fontWeight: 800,
+    letterSpacing: "0.03em",
+    textTransform: "uppercase",
+    fontSize: "0.76rem",
+    boxShadow: "inset 0 -1px 0 #cbd5e1, 0 2px 6px rgba(15,23,42,0.08)",
+    borderBottom: "1px solid #cbd5e1",
+  };
 
   useIdleLogout(() => {
     localStorage.removeItem("SPESS_ADMIN_KEY");
@@ -405,6 +418,42 @@ export default function ALevelLearners() {
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   };
 
+  const handleDownloadAlevelClasslistCsv = () => {
+    if (!pdfClass || !pdfStream) {
+      setError("Please select both class and stream for CSV export.");
+      return;
+    }
+
+    if (pdfLearners.length === 0) {
+      setError("No learners found for selected class and stream.");
+      return;
+    }
+
+    const rows = pdfLearners.map((l, i) => [
+      i + 1,
+      l.name || "",
+      l.gender || "",
+      l.house || "",
+      l.stream || "",
+      l.combination || "",
+      l.subjects || "",
+    ]);
+
+    const csv = [["#", "Name", "Gender", "House", "Stream", "Combination", "Subjects"], ...rows]
+      .map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","))
+      .join("\n");
+
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `Alevel_${pdfClass}_${pdfStream}_Classlist.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   // -----------------------
   // Main render
   // -----------------------
@@ -576,6 +625,20 @@ export default function ALevelLearners() {
       <button className="primary-btn" onClick={handleDownloadAlevelClasslistPdf}>
         Download PDF
       </button>
+      <button
+        className="primary-btn"
+        onClick={handleDownloadAlevelClasslistCsv}
+        style={{
+          background: "linear-gradient(135deg, #ef4444 0%, #b91c1c 100%)",
+          color: "#fff",
+          border: "none",
+          borderRadius: "999px",
+          padding: "0.45rem 0.95rem",
+          fontWeight: 700,
+        }}
+      >
+        Download CSV
+      </button>
     </div>
   </div>
 
@@ -583,15 +646,25 @@ export default function ALevelLearners() {
   {loading ? (
     <p>Loading...</p>
   ) : (
-    <div className="teachers-table-wrapper" style={{ marginTop: "0.6rem" }}>
-      <table className="teachers-table">
+    <div
+      className="teachers-table-wrapper"
+      style={{
+        marginTop: "0.6rem",
+        maxWidth: "100%",
+        overflowX: "auto",
+        overflowY: "auto",
+        maxHeight: "60vh",
+        WebkitOverflowScrolling: "touch",
+      }}
+    >
+      <table className="teachers-table" style={{ minWidth: "760px" }}>
         <thead>
           <tr>
-            <th>#</th>
-            <th>Name</th>
-            <th>Stream</th>
-            <th>Subjects</th>
-            <th />
+            <th style={premiumHeaderCellStyle}>#</th>
+            <th style={premiumHeaderCellStyle}>Name</th>
+            <th style={premiumHeaderCellStyle}>Stream</th>
+            <th style={premiumHeaderCellStyle}>Subjects</th>
+            <th style={premiumHeaderCellStyle} />
           </tr>
         </thead>
         <tbody>

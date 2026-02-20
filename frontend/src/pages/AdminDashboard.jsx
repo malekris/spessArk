@@ -334,6 +334,12 @@ export default function AdminDashboard() {
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
     const generatedAt = new Date().toLocaleString();
+    const formatDateOnly = (value) => {
+      if (!value) return "—";
+      const d = new Date(value);
+      if (Number.isNaN(d.getTime())) return String(value).slice(0, 10);
+      return d.toLocaleDateString("en-GB");
+    };
 
     const drawHeader = () => {
       doc.setFont("helvetica", "bold");
@@ -350,12 +356,16 @@ export default function AdminDashboard() {
     };
 
     const drawTableHeader = (y) => {
+      const tableLeft = 10;
+      const tableRight = pageWidth - 10;
       doc.setFont("helvetica", "bold");
       doc.setFontSize(10);
-      doc.text("Name", 10, y);
-      doc.text("Email", 72, y);
-      doc.text("Added", 165, y);
-      doc.line(10, y + 1.8, pageWidth - 10, y + 1.8);
+      doc.text("#", 10, y);
+      doc.text("Name", 18, y);
+      doc.text("Email", 78, y);
+      doc.text("Added", 167, y);
+      doc.setDrawColor(170);
+      doc.line(tableLeft, y + 1.8, tableRight, y + 1.8);
       doc.setFont("helvetica", "normal");
       return y + 6;
     };
@@ -363,23 +373,24 @@ export default function AdminDashboard() {
     drawHeader();
     let y = drawTableHeader(42);
 
-    teachers.forEach((t) => {
-      if (y > pageHeight - 14) {
+    teachers.forEach((t, index) => {
+      const nameLines = doc.splitTextToSize(String(t.name || "—"), 56);
+      const emailLines = doc.splitTextToSize(String(t.email || "—"), 86);
+      const addedText = formatDateOnly(t.created_at);
+      const addedLines = doc.splitTextToSize(addedText, 30);
+      const rowHeight = Math.max(6, Math.max(nameLines.length, emailLines.length, addedLines.length) * 4.8);
+
+      if (y + rowHeight > pageHeight - 14) {
         doc.addPage();
         drawHeader();
         y = drawTableHeader(42);
       }
 
-      const nameLines = doc.splitTextToSize(String(t.name || "—"), 58);
-      const emailLines = doc.splitTextToSize(String(t.email || "—"), 88);
-      const addedText = t.created_at ? formatDateTime(t.created_at) : "—";
-      const addedLines = doc.splitTextToSize(addedText, 34);
-      const rowHeight = Math.max(nameLines.length, emailLines.length, addedLines.length) * 5;
-
       doc.setFontSize(9);
-      doc.text(nameLines, 10, y);
-      doc.text(emailLines, 72, y);
-      doc.text(addedLines, 165, y);
+      doc.text(String(index + 1), 10, y);
+      doc.text(nameLines, 18, y);
+      doc.text(emailLines, 78, y);
+      doc.text(addedLines, 167, y);
       y += rowHeight;
     });
 

@@ -296,24 +296,14 @@
   height: 100%;
   background-size: cover;
   background-position: center;
-  
-  /* --- Cinematic Effects --- */
+
   opacity: 0;
-  transform: scale(1.2); /* Start slightly zoomed in */
-  filter: grayscale(100%) brightness(0.3) blur(5px); /* Start dark, gray, and blurry */
-  
-  /* Smooth transition for all properties */
-  transition: 
-    opacity 4s ease-in-out, 
-    transform 12s linear, 
-    filter 5s ease-in-out;
+  transition: opacity 0.45s ease-out;
+  will-change: opacity;
 }
 
 .ark-active {
   opacity: 1 !important;
-  /* The slow zoom-out happens over 12 seconds */
-  transform: scale(1.05) !important; 
-  filter: grayscale(0%) brightness(0.6) blur(0px) !important;
 }
 
 /* Add a dark vignette overlay to draw eyes to the glass card */
@@ -359,11 +349,7 @@
 }
 /* Container for the smoke */
 .ark-smoke-wrap {
-  position: absolute;
-  inset: 0;
-  z-index: 5; /* Ensure this is HIGHER than .ark-slide (which is 1) but LOWER than .glass-container (which is 10) */
-  overflow: hidden;
-  pointer-events: none;
+  display: none;
 }
 
 .smoke-particle {
@@ -413,5 +399,15 @@
   100% {
     transform: translateY(-120vh) translateX(150px) scale(4) rotate(180deg);
     opacity: 0;
+  }
+}
+
+@media (max-width: 900px), (prefers-reduced-motion: reduce) {
+  .ark-slide {
+    transition: none !important;
+  }
+
+  .glass-container {
+    animation: none !important;
   }
 }

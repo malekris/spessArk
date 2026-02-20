@@ -30,6 +30,7 @@ function TeacherSignup() {
 
   // --- Background Slideshow Logic ---
   const [activeIndex, setActiveIndex] = useState(0);
+  const [previousIndex, setPreviousIndex] = useState(null);
   const backgroundImages = [
     "/slide1.jpg", "/slide2.jpg", "/slide3.jpg", "/slide4.jpg",
     "/slide5.jpg", "/slide6.jpg", "/slide7.jpg", "/slide8.jpg",
@@ -38,8 +39,11 @@ function TeacherSignup() {
 
   useEffect(() => {
     const interval = setInterval(() => {
-      setActiveIndex((prev) => (prev + 1) % backgroundImages.length);
-    }, 6000);
+      setActiveIndex((prev) => {
+        setPreviousIndex(prev);
+        return (prev + 1) % backgroundImages.length;
+      });
+    }, 9000);
     return () => clearInterval(interval);
   }, [backgroundImages.length]);
 
@@ -112,7 +116,11 @@ function TeacherSignup() {
           <div
             key={index}
             className={`ark-slide ${index === activeIndex ? "ark-active" : ""}`}
-            style={{ backgroundImage: `url(${img})` }}
+            style={
+              index === activeIndex || index === previousIndex
+                ? { backgroundImage: `url(${img})` }
+                : undefined
+            }
           />
         ))}
       </div>

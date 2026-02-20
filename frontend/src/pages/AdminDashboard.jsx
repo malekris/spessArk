@@ -250,9 +250,20 @@ export default function AdminDashboard() {
     setLoadingTeachers(true);
     setTeacherError("");
     try {
-      const data = await plainFetch("/api/teachers");
+      const data = await adminFetch("/api/admin/teachers");
       if (!Array.isArray(data)) throw new Error("Invalid response from server");
-      setTeachers(data);
+      const normalized = data.map((t) => ({
+        ...t,
+        created_at:
+          t.created_at ??
+          t.createdAt ??
+          t.added_at ??
+          t.addedAt ??
+          t.registered_at ??
+          t.registeredAt ??
+          null,
+      }));
+      setTeachers(normalized);
     } catch (err) {
       console.error("Error loading teachers:", err);
       setTeacherError(err.message || "Could not load teachers.");
@@ -279,7 +290,14 @@ export default function AdminDashboard() {
         email: created.email ?? email,
         subject1: created.subject1 ?? subject1,
         subject2: created.subject2 ?? subject2,
-        created_at: created.created_at ?? null,
+        created_at:
+          created.created_at ??
+          created.createdAt ??
+          created.added_at ??
+          created.addedAt ??
+          created.registered_at ??
+          created.registeredAt ??
+          null,
       };
       setTeachers((p) => [teacherToAdd, ...p]);
       setTeacherForm({ name: "", email: "", subject1: "", subject2: "" });
@@ -304,6 +322,80 @@ export default function AdminDashboard() {
     } finally {
       setDeletingTeacherId(null);
     }
+  };
+
+  const handleDownloadTeachersPdf = () => {
+    if (!teachers.length) {
+      setTeacherError("No teachers available to export.");
+      return;
+    }
+
+    const doc = new jsPDF("p", "mm", "a4");
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const generatedAt = new Date().toLocaleString();
+
+    const drawHeader = () => {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(14);
+      doc.text("SPESS - Registered Teachers", pageWidth / 2, 14, { align: "center" });
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.text(`Generated: ${generatedAt}`, 10, 20);
+      doc.text(`Total teachers: ${teachers.length}`, 10, 25);
+    };
+
+    const drawTableHeader = (y) => {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      doc.text("Name", 10, y);
+      doc.text("Email", 72, y);
+      doc.text("Added", 165, y);
+      doc.line(10, y + 1.8, pageWidth - 10, y + 1.8);
+      doc.setFont("helvetica", "normal");
+      return y + 6;
+    };
+
+    drawHeader();
+    let y = drawTableHeader(33);
+
+    teachers.forEach((t) => {
+      if (y > pageHeight - 14) {
+        doc.addPage();
+        drawHeader();
+        y = drawTableHeader(33);
+      }
+
+      const nameLines = doc.splitTextToSize(String(t.name || "—"), 58);
+      const emailLines = doc.splitTextToSize(String(t.email || "—"), 88);
+      const addedText = t.created_at ? formatDateTime(t.created_at) : "—";
+      const addedLines = doc.splitTextToSize(addedText, 34);
+      const rowHeight = Math.max(nameLines.length, emailLines.length, addedLines.length) * 5;
+
+      doc.setFontSize(9);
+      doc.text(nameLines, 10, y);
+      doc.text(emailLines, 72, y);
+      doc.text(addedLines, 165, y);
+      y += rowHeight;
+    });
+
+    const totalPages = doc.internal.getNumberOfPages();
+    for (let i = 1; i <= totalPages; i++) {
+      doc.setPage(i);
+      doc.setFont("helvetica", "italic");
+      doc.setFontSize(8);
+      doc.text(`Generated from SPESS ARK · ${generatedAt}`, pageWidth / 2, pageHeight - 7, { align: "center" });
+    }
+
+    const blob = doc.output("blob");
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "registered_teachers.pdf";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   /* ---------- Students ---------- */
@@ -1083,7 +1175,12 @@ export default function AdminDashboard() {
             <div className="panel-card">
               <div className="panel-card-header">
                 <h3>Teachers</h3>
-                <button type="button" className="ghost-btn" onClick={fetchTeachers} disabled={loadingTeachers}>{loadingTeachers ? "Refreshing…" : "Refresh"}</button>
+                <div style={{ display: "flex", gap: "0.5rem" }}>
+                  <button type="button" className="ghost-btn" onClick={handleDownloadTeachersPdf} disabled={loadingTeachers || teachers.length === 0}>
+                    Download PDF
+                  </button>
+                  <button type="button" className="ghost-btn" onClick={fetchTeachers} disabled={loadingTeachers}>{loadingTeachers ? "Refreshing…" : "Refresh"}</button>
+                </div>
               </div>
 
               {loadingTeachers && teachers.length === 0 ? (
@@ -1097,8 +1194,6 @@ export default function AdminDashboard() {
                       <tr>
                         <th>Name</th>
                         <th>Email</th>
-                        <th>Subject 1</th>
-                        <th>Subject 2</th>
                         <th>Added</th>
                         <th/>
                       </tr>
@@ -1108,8 +1203,6 @@ export default function AdminDashboard() {
                         <tr key={t.id}>
                           <td>{t.name}</td>
                           <td>{t.email}</td>
-                          <td>{t.subject1}</td>
-                          <td>{t.subject2}</td>
                           <td>{t.created_at ? formatDateTime(t.created_at) : "—"}</td>
                           <td className="teachers-actions">
                             <button type="button" className="danger-link" onClick={() => handleDeleteTeacher(t.id)} disabled={deletingTeacherId === t.id}>{deletingTeacherId === t.id ? "Deleting…" : "Delete"}</button>

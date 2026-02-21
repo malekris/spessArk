@@ -4,6 +4,8 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { useNavigate } from "react-router-dom";
 import useIdleLogout from "../../../hooks/useIdleLogout";
+import "../../../pages/AdminDashboard.css";
+import "./ALevelAdminTheme.css";
 
 export default function ALevelAssignSubjects() {
   const navigate = useNavigate();
@@ -207,7 +209,8 @@ export default function ALevelAssignSubjects() {
      8. RENDER
   ====================================================== */
   return (
-    <div style={{ padding: "2rem", color: "#e5e7eb" }}>
+    <div className="admin-root alevel-admin-root">
+      <main className="admin-main alevel-admin-main">
       <button className="ghost-btn" onClick={() => navigate("/ark/admin/alevel")}>
         ← Back to A-Level Dashboard
       </button>
@@ -325,6 +328,7 @@ export default function ALevelAssignSubjects() {
           </div>
         )}
       </div>
+      </main>
     </div>
   );
 }

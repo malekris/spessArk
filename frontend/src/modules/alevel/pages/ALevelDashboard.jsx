@@ -1,6 +1,8 @@
 import { useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import useIdleLogout from "../../../hooks/useIdleLogout";
+import "../../../pages/AdminDashboard.css";
+import "./ALevelAdminTheme.css";
 
 export default function ALevelDashboard() {
   const navigate = useNavigate();
@@ -30,7 +32,7 @@ export default function ALevelDashboard() {
   // Slate & Amethyst Palette
   const slateBg = "#1e293b"; 
   const slateDark = "#0f172a";
-  const amethyst = "#a78bfa"; 
+  const amethyst = "#38bdf8"; 
   const platinum = "#f1f5f9";
   const cinematicBlack = "#0a0c10"; // Deep cinematic base
 
@@ -61,7 +63,10 @@ export default function ALevelDashboard() {
   });
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh", background: cinematicBlack, color: platinum, fontFamily: "'Inter', sans-serif" }}>
+    <div
+      className="admin-root alevel-admin-root"
+      style={{ display: "flex", flexDirection: "row", minHeight: "100vh", background: cinematicBlack, color: platinum, fontFamily: "'Inter', sans-serif" }}
+    >
       
       {/* ===== SIDEBAR ===== */}
       <aside style={{

@@ -10,6 +10,8 @@ import { plainFetch } from "../../../lib/api";
 import { useNavigate } from "react-router-dom";
 import jsPDF from "jspdf";
 import useIdleLogout from "../../../hooks/useIdleLogout";
+import "../../../pages/AdminDashboard.css";
+import "./ALevelAdminTheme.css";
 
 // -------------------------
 // Constants
@@ -458,7 +460,8 @@ export default function ALevelLearners() {
   // Main render
   // -----------------------
   return (
-    <div style={{ padding: "2rem", color: "#e5e7eb" }}>
+    <div className="admin-root alevel-admin-root">
+      <main className="admin-main alevel-admin-main">
       <button className="ghost-btn" onClick={() => navigate("/ark/admin/alevel")}>← Back to A-Level Dashboard</button>
 
       <h1>A-Level Learners</h1>
@@ -500,9 +503,12 @@ export default function ALevelLearners() {
       </div>
 
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: "1.5rem" }}>
+      <div
+        className="alevel-learners-layout"
+        style={{ display: "grid", gridTemplateColumns: "minmax(460px, 1.08fr) minmax(0, 1.32fr)", gap: "1.5rem" }}
+      >
         {/* FORM */}
-        <div className="panel-card">
+        <div className="panel-card alevel-register-card">
           <h3>{editing ? "Edit Learner" : "Register Learner"}</h3>
 
           <form onSubmit={saveLearner} className="teacher-form">
@@ -695,6 +701,7 @@ export default function ALevelLearners() {
 </div>
      
       </div>
+      </main>
     </div>
   );
 }

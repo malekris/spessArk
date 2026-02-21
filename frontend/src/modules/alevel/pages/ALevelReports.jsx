@@ -2,6 +2,8 @@ import { useState } from "react";
 import "./AlevelReport.css";
 import { useNavigate } from "react-router-dom";
 import useIdleLogout from "../../../hooks/useIdleLogout";
+import "../../../pages/AdminDashboard.css";
+import "./ALevelAdminTheme.css";
 
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
@@ -77,7 +79,7 @@ export default function AlevelReport() {
     }
   };
    // --- Theme Constants (Matching your Amethyst/Cinematic Black theme) ---
-  const amethyst = "#a78bfa";
+  const amethyst = "#38bdf8";
   const cinematicBlack = "#0a0c10";
   const glassBg = "rgba(30, 41, 59, 0.45)";
   const platinum = "#f1f5f9";
@@ -102,7 +104,7 @@ export default function AlevelReport() {
     letterSpacing: "0.1em"
   };
   return (
-    <div style={{ minHeight: "100vh", background: cinematicBlack, color: platinum, paddingBottom: "4rem", fontFamily: "'Inter', sans-serif" }}>
+    <div className="admin-root alevel-admin-root" style={{ minHeight: "100vh", background: cinematicBlack, color: platinum, paddingBottom: "4rem", fontFamily: "'Inter', sans-serif" }}>
       
       {/* CINEMATIC BANNER */}
       <div style={{

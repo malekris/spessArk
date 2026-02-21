@@ -2,6 +2,8 @@ import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import jsPDF from "jspdf";
 import useIdleLogout from "../../../hooks/useIdleLogout";
+import "../../../pages/AdminDashboard.css";
+import "./ALevelAdminTheme.css";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
 
@@ -17,7 +19,7 @@ export default function ALevelDownload() {
   const [error, setError] = useState("");
 
   // --- Theme Constants ---
-  const amethyst = "#a78bfa";
+  const amethyst = "#38bdf8";
   const cinematicBlack = "#0a0c10";
   const glassBg = "rgba(30, 41, 59, 0.45)";
   const platinum = "#f1f5f9";
@@ -272,7 +274,7 @@ export default function ALevelDownload() {
 
   /* ---------------- UI ---------------- */
   return (
-    <div style={containerStyle}>
+    <div className="admin-root alevel-admin-root" style={containerStyle}>
       {/* GLOBAL CSS ANIMATION */}
       <style>
         {`

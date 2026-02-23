@@ -1,6 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import useIdleLogout from "../../../hooks/useIdleLogout";
+import AssessmentSubmissionTracker from "../../../components/AssessmentSubmissionTracker";
 import "../../../pages/AdminDashboard.css";
 import "./ALevelAdminTheme.css";
 
@@ -13,6 +14,11 @@ export default function ALevelDashboard() {
   const [hoveredNav, setHoveredNav] = useState(null);
   const [hoveredStat, setHoveredStat] = useState(null);
   const [hoveredAction, setHoveredAction] = useState(null);
+  const [showTracker, setShowTracker] = useState(false);
+  const [trackerMarksSets, setTrackerMarksSets] = useState([]);
+  const [trackerSubjects, setTrackerSubjects] = useState([]);
+  const [trackerLoading, setTrackerLoading] = useState(false);
+  const [trackerError, setTrackerError] = useState("");
 
   useEffect(() => {
     fetch(`${API_BASE}/api/alevel/stats`)
@@ -20,6 +26,43 @@ export default function ALevelDashboard() {
       .then(setStats)
       .catch(console.error);
   }, [API_BASE]);
+
+  const fetchAlevelTrackerData = async () => {
+    setTrackerLoading(true);
+    setTrackerError("");
+    try {
+      const [setsRes, subjectsRes] = await Promise.all([
+        fetch(`${API_BASE}/api/alevel/admin/marks-sets`),
+        fetch(`${API_BASE}/api/alevel/subjects`),
+      ]);
+
+      const [setsData, subjectsData] = await Promise.all([
+        setsRes.json(),
+        subjectsRes.json(),
+      ]);
+
+      if (!setsRes.ok) throw new Error("Failed to load A-Level marks sets");
+      if (!subjectsRes.ok) throw new Error("Failed to load A-Level subjects");
+
+      setTrackerMarksSets(Array.isArray(setsData) ? setsData : []);
+      setTrackerSubjects(
+        Array.isArray(subjectsData)
+          ? subjectsData.map((s) => s.name).filter(Boolean)
+          : []
+      );
+    } catch (err) {
+      setTrackerError(err.message || "Failed to load tracker data");
+    } finally {
+      setTrackerLoading(false);
+    }
+  };
+
+  const openTracker = async () => {
+    setShowTracker(true);
+    if (trackerMarksSets.length === 0 || trackerSubjects.length === 0) {
+      await fetchAlevelTrackerData();
+    }
+  };
 
   useIdleLogout(() => {
     localStorage.removeItem("SPESS_ADMIN_KEY");
@@ -95,12 +138,19 @@ export default function ALevelDashboard() {
             { label: "Assignments", path: "/ark/admin/alevel/assign", id: "assign" },
             { label: "Data Center", path: "/ark/admin/alevel/downloads", id: "down" },
             { label: "Report Hub", path: "/ark/admin/alevel/reports", id: "rep" },
+            { label: "Assessment Tracker", id: "track", action: openTracker },
           ].map((item) => (
             <button
               key={item.id}
               onMouseEnter={() => setHoveredNav(item.id)}
               onMouseLeave={() => setHoveredNav(null)}
-              onClick={() => navigate(item.path)}
+              onClick={() => {
+                if (typeof item.action === "function") {
+                  item.action();
+                  return;
+                }
+                navigate(item.path);
+              }}
               style={navItemStyle(item.id)}
             >
               {item.label}
@@ -252,12 +302,19 @@ export default function ALevelDashboard() {
               { title: "Assign Subjects", desc: "Pair educators with curriculum modules and class streams.", path: "/ark/admin/alevel/assign", id: "act2" },
               { title: "Download Marks", desc: "Export academic spreadsheets and administrative datasets.", path: "/ark/admin/alevel/downloads", id: "act3" },
               { title: "Term Reports", desc: "Generate high-fidelity terminal student reports.", path: "/ark/admin/alevel/reports", id: "act4" },
+              { title: "Assessment Submission Tracker", desc: "Track A-Level subject submission by stream and term.", id: "act5", action: openTracker },
             ].map((card) => (
               <div
                 key={card.id}
                 onMouseEnter={() => setHoveredAction(card.id)}
                 onMouseLeave={() => setHoveredAction(null)}
-                onClick={() => navigate(card.path)}
+                onClick={() => {
+                  if (typeof card.action === "function") {
+                    card.action();
+                    return;
+                  }
+                  navigate(card.path);
+                }}
                 style={{
                   ...cardStyle,
                   padding: "2.5rem 2rem",
@@ -283,6 +340,48 @@ export default function ALevelDashboard() {
               </div>
             ))}
           </div>
+
+          {showTracker && (
+            <section className="panel" style={{ marginTop: "2rem" }}>
+              <div className="panel-header">
+                <div>
+                  <h2>Assessment Submission Tracker</h2>
+                  <p>A-Level subject submission tracker by term and stream.</p>
+                </div>
+                <div style={{ display: "flex", gap: "0.6rem" }}>
+                  <button className="ghost-btn" type="button" onClick={fetchAlevelTrackerData} disabled={trackerLoading}>
+                    {trackerLoading ? "Refreshing…" : "Refresh"}
+                  </button>
+                  <button className="panel-close" type="button" onClick={() => setShowTracker(false)}>
+                    ✕ Close
+                  </button>
+                </div>
+              </div>
+
+              {trackerError && <div className="panel-alert panel-alert-error">{trackerError}</div>}
+
+              {trackerLoading ? (
+                <div className="panel-card">
+                  <p className="muted-text">Loading tracker…</p>
+                </div>
+              ) : (
+                <AssessmentSubmissionTracker
+                  marksSets={trackerMarksSets}
+                  refreshMarks={fetchAlevelTrackerData}
+                  officialSubjects={trackerSubjects}
+                  assignmentsEndpoint="/api/alevel/admin/assignments"
+                  seedGroups={[
+                    { class_level: "A-Level", stream: "S5 Arts" },
+                    { class_level: "A-Level", stream: "S5 Sciences" },
+                    { class_level: "A-Level", stream: "S6 Arts" },
+                    { class_level: "A-Level", stream: "S6 Sciences" },
+                  ]}
+                  title="Assessment Submission Tracker"
+                  subtitle="Track A-Level subject submissions per stream."
+                />
+              )}
+            </section>
+          )}
 
         </div>
       </main>

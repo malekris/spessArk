@@ -20,11 +20,18 @@ const OFFICIAL_SUBJECTS = [
   "History",
   "Geography",
 ];
-const TOTAL_SUBJECTS = OFFICIAL_SUBJECTS.length;
 const TERMS = [1, 2, 3];
 const keyOf = (cls, stream) => `${cls}||${stream}`;
 
-export default function AssessmentSubmissionTracker({ marksSets = [], refreshMarks }) {
+export default function AssessmentSubmissionTracker({
+  marksSets = [],
+  refreshMarks,
+  officialSubjects = OFFICIAL_SUBJECTS,
+  assignmentsEndpoint = "/api/admin/assignments",
+  seedGroups = [],
+  title = "Assessment Submission Tracker",
+  subtitle = "Track subject submissions per class and stream.",
+}) {
   useEffect(() => {
     console.log("TRACKER marksSets:", marksSets);
   }, [marksSets]);
@@ -32,7 +39,9 @@ export default function AssessmentSubmissionTracker({ marksSets = [], refreshMar
     if (typeof refreshMarks === "function") {
       refreshMarks();
     }
-  }, [refreshMarks]);
+    // Run once on mount to avoid refresh loops when parent re-renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   
   const [selectedTerm, setSelectedTerm] = useState(1);
   const [expectedByGroup, setExpectedByGroup] = useState({});
@@ -41,7 +50,7 @@ export default function AssessmentSubmissionTracker({ marksSets = [], refreshMar
     const loadExpectedSubjects = async () => {
       try {
         const res = await fetch(
-          `${import.meta.env.VITE_API_BASE || "http://localhost:5001"}/api/admin/assignments`,
+          `${import.meta.env.VITE_API_BASE || "http://localhost:5001"}${assignmentsEndpoint}`,
           {
             headers: {
               "x-admin-key": localStorage.getItem("SPESS_ADMIN_KEY") || "",
@@ -53,9 +62,12 @@ export default function AssessmentSubmissionTracker({ marksSets = [], refreshMar
         const rows = await res.json();
         const map = {};
         (Array.isArray(rows) ? rows : []).forEach((r) => {
-          const k = keyOf(r.class_level, r.stream);
+          const stream = r.stream || "";
+          const classLevel = r.class_level || "A-Level";
+          if (!stream || !r.subject) return;
+          const k = keyOf(classLevel, stream);
           if (!map[k]) map[k] = new Set();
-          if (r.subject) map[k].add(r.subject);
+          map[k].add(r.subject);
         });
         setExpectedByGroup(map);
       } catch (err) {
@@ -88,6 +100,22 @@ export default function AssessmentSubmissionTracker({ marksSets = [], refreshMar
   const grouped = useMemo(() => {
     const map = {};
 
+    // Seed fixed groups (useful for A-Level streams even before marks are submitted)
+    (Array.isArray(seedGroups) ? seedGroups : []).forEach((g) => {
+      const classLevel = g?.class_level || "A-Level";
+      const stream = g?.stream || "";
+      if (!stream) return;
+      const k = keyOf(classLevel, stream);
+      if (!map[k]) {
+        map[k] = {
+          class_level: classLevel,
+          stream,
+          subjects: new Map(),
+          expectedSubjects: new Set(officialSubjects),
+        };
+      }
+    });
+
     // Seed groups from assignments so missing subjects can be listed accurately.
     Object.entries(expectedByGroup).forEach(([k, subjectSet]) => {
       const [class_level, stream] = k.split("||");
@@ -116,16 +144,16 @@ export default function AssessmentSubmissionTracker({ marksSets = [], refreshMar
 
     return Object.values(map).map((group) => {
       const submittedSubjects = new Set(group.subjects.keys());
-      const missingSubjects = OFFICIAL_SUBJECTS.filter(
+      const missingSubjects = officialSubjects.filter(
         (s) => !submittedSubjects.has(s)
       );
       return {
         ...group,
         missingSubjects,
-        expectedTotal: TOTAL_SUBJECTS,
+        expectedTotal: officialSubjects.length,
       };
     });
-  }, [filtered, expectedByGroup]);
+  }, [filtered, expectedByGroup, officialSubjects, seedGroups]);
   // PDF 
   const handleDownloadTrackerPdf = () => {
     const doc = new jsPDF("p", "mm", "a4");
@@ -158,7 +186,7 @@ export default function AssessmentSubmissionTracker({ marksSets = [], refreshMar
     // ===== BODY =====
     grouped.forEach((group, index) => {
       const submittedCount = group.subjects.size;
-      const expectedTotal = TOTAL_SUBJECTS;
+      const expectedTotal = Math.max(1, officialSubjects.length);
       const percent = Math.round((submittedCount / expectedTotal) * 100);
       const missing = group.missingSubjects.length;
   
@@ -235,8 +263,8 @@ export default function AssessmentSubmissionTracker({ marksSets = [], refreshMar
     <section className="panel">
       <div className="panel-header">
   <div>
-    <h2>Assessment Submission Tracker</h2>
-    <p>Track subject submissions per class and stream.</p>
+    <h2>{title}</h2>
+    <p>{subtitle}</p>
   </div>
 
   {/* TERM TOGGLE + PDF EXPORT — ALWAYS VISIBLE */}
@@ -275,7 +303,7 @@ export default function AssessmentSubmissionTracker({ marksSets = [], refreshMar
         <div style={{ display: "grid", gap: "1rem" }}>
           {grouped.map(group => {
             const submittedCount = group.subjects.size;
-            const expectedTotal = TOTAL_SUBJECTS;
+            const expectedTotal = Math.max(1, officialSubjects.length);
             const percent = Math.round((submittedCount / expectedTotal) * 100);
 
             const missingCount = group.missingSubjects.length;

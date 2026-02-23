@@ -793,6 +793,19 @@
   gap: 6px;
 }
 
+.toggle-replies-btn {
+  margin-top: 6px;
+  margin-left: 36px;
+  border: none;
+  background: transparent;
+  color: #0f766e;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+}
+
 /* ── Image Carousel ── */
 .carousel-wrapper {
   width: 100%;

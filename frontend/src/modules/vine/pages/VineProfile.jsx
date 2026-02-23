@@ -1866,7 +1866,7 @@ export default function VineProfile() {
                   (commentsByParent[0] || []).map((c) => {
                     const renderThread = (comment, depth = 0) => {
                       const children = commentsByParent[comment.id] || [];
-                      const isOpen = openReplies[comment.id] !== false;
+                      const isOpen = openReplies[comment.id] === true;
                       return (
                         <div key={comment.id} className="comment-thread" style={{ marginLeft: depth * 24 }}>
                           <div className="comment-item">

@@ -1015,6 +1015,7 @@ function Comment({ comment, commentLikes, commentUserLiked, setCommentLikes, set
   const [userLiked, setUserLiked] = useState(comment.user_liked || false);
   const [replying, setReplying] = useState(false);
   const [replyText, setReplyText] = useState("");
+  const [showReplies, setShowReplies] = useState(false);
 
   const canDelete =
     isPostOwner ||
@@ -1217,6 +1218,17 @@ className={`mini-btn ${
       </div>
 
       {comment.replies?.length > 0 && (
+        <>
+          <button
+            className="toggle-replies-btn"
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowReplies((prev) => !prev);
+            }}
+          >
+            {showReplies ? "Hide replies" : `View replies (${comment.replies.length})`}
+          </button>
+          {showReplies && (
             <div className="nested-replies">
               {comment.replies.map((r) => (
                 <Comment
@@ -1236,7 +1248,9 @@ className={`mini-btn ${
                   onReport={onReport}
                 />
               ))}
-                  </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

@@ -35,14 +35,6 @@ export default function AssessmentSubmissionTracker({
   useEffect(() => {
     console.log("TRACKER marksSets:", marksSets);
   }, [marksSets]);
-  useEffect(() => {
-    if (typeof refreshMarks === "function") {
-      refreshMarks();
-    }
-    // Run once on mount to avoid refresh loops when parent re-renders.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  
   const [selectedTerm, setSelectedTerm] = useState(1);
   const [expectedByGroup, setExpectedByGroup] = useState({});
 

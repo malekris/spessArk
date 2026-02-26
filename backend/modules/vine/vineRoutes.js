@@ -715,6 +715,35 @@ router.post("/statuses/:id/view", requireVineAuth, async (req, res) => {
   }
 });
 
+// Delete own status
+router.delete("/statuses/:id", requireVineAuth, async (req, res) => {
+  try {
+    await ensureStatusSchema();
+    const statusId = Number(req.params.id);
+    const userId = Number(req.user.id);
+    if (!statusId) return res.status(400).json({ success: false, message: "Invalid status id" });
+
+    const [result] = await db.query(
+      `
+      UPDATE vine_statuses
+      SET is_deleted = 1, expires_at = NOW()
+      WHERE id = ? AND user_id = ?
+      LIMIT 1
+      `,
+      [statusId, userId]
+    );
+
+    if (!result?.affectedRows) {
+      return res.status(404).json({ success: false, message: "Status not found" });
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Status delete error:", err);
+    res.status(500).json({ success: false, message: "Failed to delete status" });
+  }
+});
+
 // Status viewers (owner only)
 router.get("/statuses/:id/views", requireVineAuth, async (req, res) => {
   try {

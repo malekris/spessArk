@@ -474,6 +474,37 @@ export default function VineFeed() {
     } catch {}
   };
 
+  const deleteCurrentStatus = async () => {
+    const current = statusItems[statusIndex];
+    if (!current) return;
+    if (Number(current.user_id) !== Number(me?.id || 0)) return;
+    const ok = window.confirm("Delete this status?");
+    if (!ok) return;
+    try {
+      const res = await fetch(`${API}/api/vine/statuses/${current.id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || "Failed to delete status");
+        return;
+      }
+
+      const next = statusItems.filter((_, idx) => idx !== statusIndex);
+      if (!next.length) {
+        setStatusViewerOpen(false);
+      } else {
+        setStatusItems(next);
+        setStatusIndex((prev) => Math.max(0, Math.min(prev, next.length - 1)));
+      }
+      setStatusViewsOpen(false);
+      loadStatusRail();
+    } catch {
+      alert("Failed to delete status");
+    }
+  };
+
   const applyComposeFormat = (leftToken, rightToken = leftToken) => {
     const el = createInputRef.current;
     if (!el) return;
@@ -1229,11 +1260,46 @@ export default function VineFeed() {
                   }}
                 />
                 <div>
-                  <div>{statusViewerUser?.display_name || statusViewerUser?.username || "Status"}</div>
+                  <div className="status-viewer-title-name">
+                    {statusViewerUser?.display_name || statusViewerUser?.username || "Status"}
+                    {(Number(statusViewerUser?.is_verified) === 1 ||
+                      ["vine guardian", "vine_guardian"].includes(
+                        String(statusViewerUser?.username || "").toLowerCase()
+                      )) && (
+                      <span
+                        className={`verified ${
+                          ["vine guardian", "vine_guardian"].includes(
+                            String(statusViewerUser?.username || "").toLowerCase()
+                          )
+                            ? "guardian"
+                            : ""
+                        }`}
+                      >
+                        <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
+                          <path
+                            d="M20 6L9 17l-5-5"
+                            stroke="white"
+                            strokeWidth="3"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      </span>
+                    )}
+                  </div>
                   <small>{formatStatusTime(statusItems[statusIndex].created_at)}</small>
                 </div>
               </div>
-              <button onClick={() => setStatusViewerOpen(false)}>×</button>
+              <div className="status-viewer-top-actions">
+                {Number(statusItems[statusIndex]?.user_id) === Number(me?.id || 0) && (
+                  <button className="status-delete-btn" onClick={deleteCurrentStatus}>
+                    Delete
+                  </button>
+                )}
+                <button className="status-close-btn" onClick={() => setStatusViewerOpen(false)}>
+                  ×
+                </button>
+              </div>
             </div>
             <div
               className="status-viewer-body"

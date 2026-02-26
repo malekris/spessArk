@@ -396,6 +396,23 @@
   align-items: center;
 }
 
+.status-viewer-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.status-delete-btn {
+  border: 1px solid #fecaca;
+  background: #fff1f2;
+  color: #b91c1c;
+  border-radius: 10px;
+  padding: 7px 12px;
+  font-weight: 700;
+  cursor: pointer;
+  line-height: 1;
+}
+
 .status-progress-row {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(30px, 1fr));
@@ -450,7 +467,27 @@
   font-weight: 600;
 }
 
-.status-viewer-top button {
+.status-viewer-title-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.status-viewer-title-name .verified {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #1d9bf0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.status-viewer-title-name .verified.guardian {
+  background: #ef4444;
+}
+
+.status-close-btn {
   border: none;
   background: #f1f5f9;
   width: 34px;
@@ -459,6 +496,9 @@
   font-size: 1.4rem;
   line-height: 1;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .status-viewer-body {

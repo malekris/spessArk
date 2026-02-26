@@ -2621,6 +2621,98 @@ router.get("/users/search", authenticate, async (req, res) => {
 
 });
 
+/* =========================
+   SEARCH (USERS + POSTS)
+========================= */
+router.get("/search", authenticate, async (req, res) => {
+  const q = String(req.query.q || "").trim();
+  const viewerId = Number(req.user?.id || 0);
+
+  if (!q) {
+    return res.json({ users: [], posts: [] });
+  }
+
+  try {
+    const like = `%${q}%`;
+
+    const [users] = await db.query(
+      `
+      SELECT 
+        id,
+        username,
+        display_name,
+        avatar_url,
+        is_verified
+      FROM vine_users
+      WHERE (username LIKE ? OR display_name LIKE ?)
+        AND id != ?
+        AND NOT EXISTS (
+          SELECT 1 FROM vine_mutes m
+          WHERE m.muter_id = ?
+            AND m.muted_id = id
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM vine_blocks b
+          WHERE (b.blocker_id = id AND b.blocked_id = ?)
+             OR (b.blocker_id = ? AND b.blocked_id = id)
+        )
+      ORDER BY username ASC
+      LIMIT 20
+      `,
+      [like, like, viewerId, viewerId, viewerId, viewerId]
+    );
+
+    const [posts] = await db.query(
+      `
+      SELECT
+        p.id,
+        p.content,
+        p.image_url,
+        p.created_at,
+        u.username,
+        u.display_name,
+        u.avatar_url,
+        u.is_verified,
+        (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id) AS likes,
+        (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comments,
+        (SELECT COUNT(*) FROM vine_revines WHERE post_id = p.id) AS revines,
+        (SELECT COUNT(*) FROM vine_post_views WHERE post_id = p.id) AS views
+      FROM vine_posts p
+      JOIN vine_users u ON u.id = p.user_id
+      WHERE p.content LIKE ?
+        AND NOT EXISTS (
+          SELECT 1 FROM vine_blocks b
+          WHERE (b.blocker_id = u.id AND b.blocked_id = ?)
+             OR (b.blocker_id = ? AND b.blocked_id = u.id)
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM vine_mutes m
+          WHERE m.muter_id = ?
+            AND m.muted_id = u.id
+        )
+        AND (
+          p.community_id IS NULL
+          OR p.community_id = 0
+          OR EXISTS (
+            SELECT 1
+            FROM vine_community_members cm
+            WHERE cm.community_id = p.community_id
+              AND cm.user_id = ?
+          )
+        )
+      ORDER BY p.created_at DESC
+      LIMIT 25
+      `,
+      [like, viewerId, viewerId, viewerId, viewerId]
+    );
+
+    res.json({ users, posts });
+  } catch (err) {
+    console.error("Unified search error:", err);
+    res.status(500).json({ users: [], posts: [] });
+  }
+});
+
 // 🔐 Forgot password (send 4-digit code)
 router.post("/auth/forgot-password", async (req, res) => {
   try {

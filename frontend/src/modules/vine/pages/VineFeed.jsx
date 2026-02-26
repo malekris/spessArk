@@ -667,7 +667,7 @@ export default function VineFeed() {
           </button>
           <input
             className="vine-search nav-search desktop-only"
-            placeholder="Search users..."
+            placeholder="Search"
             onFocus={() => navigate("/vine/search")}
             readOnly
           />
@@ -727,7 +727,7 @@ export default function VineFeed() {
 
           <input
             className="vine-search dm-search mobile-only"
-            placeholder="Search users..."
+            placeholder="Search"
             onFocus={() => navigate("/vine/search")}
             readOnly
           />

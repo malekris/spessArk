@@ -196,6 +196,428 @@
   background: #f0fdf4;
 }
 
+/* ── Status Rail ── */
+.vine-statuses-rail {
+  width: 100%;
+  max-width: 650px;
+  margin: 0 0 16px;
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding: 4px 2px 8px;
+  background: rgba(240, 253, 244, 0.94);
+  backdrop-filter: blur(6px);
+  border-radius: 14px;
+}
+
+.status-add-card,
+.status-user-chip {
+  border: 1px solid #c6f6d5;
+  background: #ffffff;
+  border-radius: 16px;
+  min-width: 86px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  color: #064e3b;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.status-add-plus {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  background: #0f766e;
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+.status-user-chip img {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 2px solid #a7f3d0;
+  object-fit: cover;
+}
+
+.status-user-chip.unseen img {
+  border-color: #f59e0b;
+  box-shadow:
+    0 0 0 2px #fff,
+    0 0 0 4px #f59e0b;
+}
+
+.status-user-chip span {
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.75rem;
+}
+
+/* ── Status Modal / Viewer ── */
+.status-modal-backdrop,
+.status-viewer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.55);
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.status-modal {
+  width: min(520px, 100%);
+  background: #fff;
+  border-radius: 18px;
+  border: 1px solid #d1fae5;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.status-modal h3 {
+  margin: 0;
+  color: #064e3b;
+}
+
+.status-modal textarea {
+  width: 100%;
+  min-height: 120px;
+  resize: vertical;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  padding: 10px;
+  font-size: 1rem;
+}
+
+.status-media-picker {
+  border: 1px dashed #94a3b8;
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 0.9rem;
+  color: #064e3b;
+  font-weight: 700;
+  width: fit-content;
+  cursor: pointer;
+}
+
+.status-media-picker input {
+  display: none;
+}
+
+.status-media-preview-wrap {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.status-media-preview-wrap img,
+.status-media-preview-wrap video {
+  width: 100%;
+  max-height: 220px;
+  border-radius: 12px;
+  object-fit: cover;
+  background: #e2e8f0;
+}
+
+.status-media-remove {
+  border: 1px solid #fecaca;
+  background: #fff1f2;
+  color: #b91c1c;
+  border-radius: 10px;
+  padding: 6px 10px;
+  font-weight: 700;
+  cursor: pointer;
+  width: fit-content;
+}
+
+.status-color-row {
+  display: flex;
+  gap: 8px;
+}
+
+.status-color-dot {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  border: 2px solid transparent;
+  cursor: pointer;
+}
+
+.status-color-dot.active {
+  border-color: #111827;
+}
+
+.status-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.status-modal-actions button {
+  border: 1px solid #d1d5db;
+  background: #fff;
+  border-radius: 10px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.status-modal-actions button.primary {
+  background: #0f766e;
+  color: #fff;
+  border-color: #0f766e;
+}
+
+.status-viewer {
+  width: min(640px, 100%);
+  background: #fff;
+  border-radius: 18px;
+  border: 1px solid #d1fae5;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.status-viewer-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.status-progress-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(30px, 1fr));
+  gap: 6px;
+}
+
+.status-progress-seg {
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.35);
+  overflow: hidden;
+}
+
+.status-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: #ffffff;
+}
+
+.status-progress-fill.done {
+  width: 100%;
+}
+
+.status-progress-fill.active {
+  animation-name: statusProgressFill;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+
+.status-viewer.paused .status-progress-fill.active {
+  animation-play-state: paused;
+}
+
+.status-viewer-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #064e3b;
+  font-weight: 800;
+}
+
+.status-viewer-user img {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 2px solid #a7f3d0;
+  object-fit: cover;
+}
+
+.status-viewer-user small {
+  color: #64748b;
+  font-weight: 600;
+}
+
+.status-viewer-top button {
+  border: none;
+  background: #f1f5f9;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.status-viewer-body {
+  min-height: 280px;
+  border-radius: 14px;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 1.4rem;
+  font-weight: 800;
+  padding: 22px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.status-viewer-media-wrap {
+  width: 100%;
+  height: 100%;
+  min-height: 280px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+}
+
+.status-viewer-media-wrap img,
+.status-viewer-media-wrap video {
+  width: 100%;
+  max-height: 420px;
+  border-radius: 12px;
+  object-fit: contain;
+  background: rgba(2, 6, 23, 0.28);
+}
+
+.status-viewer-caption {
+  color: #fff;
+  font-size: 1.05rem;
+  font-weight: 700;
+  text-align: left;
+}
+
+.status-viewer-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.status-viewer-mid {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.status-views-btn {
+  border: 1px solid #d1d5db;
+  background: #fff;
+  color: #064e3b;
+  border-radius: 10px;
+  padding: 6px 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.status-viewer-actions button {
+  border: 1px solid #d1d5db;
+  background: #fff;
+  color: #064e3b;
+  border-radius: 10px;
+  padding: 8px 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.status-viewer-actions button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.status-views-modal {
+  max-width: 460px;
+}
+
+.status-viewers-list {
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+}
+
+.status-viewer-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.status-viewer-row:last-child {
+  border-bottom: none;
+}
+
+.status-viewer-row img {
+  width: 38px;
+  height: 38px;
+  border-radius: 999px;
+  object-fit: cover;
+  border: 2px solid #a7f3d0;
+  cursor: pointer;
+}
+
+.status-viewer-row small {
+  color: #64748b;
+}
+
+.status-viewer-meta-click {
+  cursor: pointer;
+}
+
+.status-viewer-row time {
+  margin-left: auto;
+  color: #64748b;
+  font-size: 0.8rem;
+}
+
+.status-viewer-name {
+  color: #064e3b;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.status-viewer-name .verified {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #1d9bf0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.status-viewer-name .verified.guardian {
+  background: #ef4444;
+}
+
+.status-viewer-empty {
+  padding: 14px;
+  color: #64748b;
+  text-align: center;
+}
+
+@keyframes statusProgressFill {
+  from { width: 0%; }
+  to { width: 100%; }
+}
+
 /* ── Create Post Box ── */
 .vine-create-box {
   position: relative;
@@ -588,6 +1010,13 @@
   font-weight: 700;
 }
 
+.suspension-banner-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: normal;
+  line-height: 1.35;
+}
+
 .suspension-banner button {
   border: none;
   border-radius: 999px;
@@ -596,6 +1025,7 @@
   color: #fff;
   font-weight: 700;
   cursor: pointer;
+  flex-shrink: 0;
 }
 
 .vine-posts-list {
@@ -840,6 +1270,10 @@
 
 /* ── Mobile Adjustments ── */
 @media (max-width: 768px) {
+  .vine-content-wrapper {
+    padding-top: calc(210px + env(safe-area-inset-top));
+  }
+
   .vine-feed-container {
     padding: 0 10px 80px;
   }
@@ -886,6 +1320,17 @@
     gap: 8px;
     margin: 2px 0 0;
     flex-wrap: wrap;
+  }
+
+  .suspension-banner {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .suspension-banner button {
+    width: 100%;
+    text-align: center;
   }
 
   .vine-posts-list {

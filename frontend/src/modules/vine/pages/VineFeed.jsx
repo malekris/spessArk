@@ -8,6 +8,14 @@ import { socket } from "../../../socket";
 import { useSearchParams } from "react-router-dom";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
+const STATUS_COLORS = [
+  "#0f766e",
+  "#0f172a",
+  "#14532d",
+  "#7c2d12",
+  "#7f1d1d",
+  "#1e3a8a",
+];
 
 // ────────────────────────────────────────────────
 //  HELPERS
@@ -34,6 +42,19 @@ const applyMention = (value, anchor, username) => {
   const before = value.slice(0, anchor.start);
   const after = value.slice(anchor.end);
   return `${before}@${username} ${after}`;
+};
+
+const formatStatusTime = (dateValue) => {
+  const dt = new Date(dateValue);
+  if (Number.isNaN(dt.getTime())) return "";
+  const now = new Date();
+  const diffMs = now - dt;
+  const diffM = Math.floor(diffMs / (1000 * 60));
+  const diffH = Math.floor(diffMs / (1000 * 60 * 60));
+  if (diffM < 1) return "Just now";
+  if (diffM < 60) return `${diffM}m ago`;
+  if (diffH < 24) return `${diffH}h ago`;
+  return dt.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 };
 
 // ────────────────────────────────────────────────
@@ -80,6 +101,21 @@ export default function VineFeed() {
   const [restriction, setRestriction] = useState(null);
   const [myCommunities, setMyCommunities] = useState([]);
   const [communityId, setCommunityId] = useState("");
+  const [statusRail, setStatusRail] = useState([]);
+  const [statusComposerOpen, setStatusComposerOpen] = useState(false);
+  const [statusText, setStatusText] = useState("");
+  const [statusBgColor, setStatusBgColor] = useState(STATUS_COLORS[0]);
+  const [statusMediaFile, setStatusMediaFile] = useState(null);
+  const [statusMediaPreview, setStatusMediaPreview] = useState("");
+  const [statusMediaType, setStatusMediaType] = useState("");
+  const [statusViewerOpen, setStatusViewerOpen] = useState(false);
+  const [statusViewerUser, setStatusViewerUser] = useState(null);
+  const [statusItems, setStatusItems] = useState([]);
+  const [statusIndex, setStatusIndex] = useState(0);
+  const [statusProgressTick, setStatusProgressTick] = useState(0);
+  const [statusViewers, setStatusViewers] = useState([]);
+  const [statusViewsOpen, setStatusViewsOpen] = useState(false);
+  const [statusViewsLoading, setStatusViewsLoading] = useState(false);
   const [mentionResults, setMentionResults] = useState([]);
   const [mentionAnchor, setMentionAnchor] = useState(null);
   const suggestionSlotsRef = useRef([]);
@@ -239,6 +275,18 @@ export default function VineFeed() {
       setMyCommunities([]);
     }
   };
+
+  const loadStatusRail = async () => {
+    try {
+      const res = await fetch(`${API}/api/vine/statuses/rail`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      setStatusRail(Array.isArray(data) ? data : []);
+    } catch {
+      setStatusRail([]);
+    }
+  };
   
 
   useEffect(() => {
@@ -247,11 +295,98 @@ export default function VineFeed() {
     loadTrending();
     loadRestrictions();
     loadMyCommunities();
+    loadStatusRail();
 
     const interval = setInterval(loadFeed, 5000); // refresh every 5s
+    const statusInterval = setInterval(loadStatusRail, 20000);
 
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      clearInterval(statusInterval);
+    };
   }, [targetTag]);
+
+  useEffect(() => {
+    if (!statusViewerOpen) return;
+    const current = statusItems[statusIndex];
+    if (!current || Number(current.seen_by_viewer) === 1) return;
+
+    const markSeen = async () => {
+      try {
+        await fetch(`${API}/api/vine/statuses/${current.id}/view`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        setStatusItems((prev) =>
+          prev.map((s, idx) => (idx === statusIndex ? { ...s, seen_by_viewer: 1 } : s))
+        );
+        setStatusRail((prev) =>
+          prev.map((row) =>
+            Number(row.user_id) === Number(current.user_id)
+              ? { ...row, unseen_count: Math.max(0, Number(row.unseen_count || 0) - 1) }
+              : row
+          )
+        );
+      } catch {}
+    };
+
+    markSeen();
+  }, [statusViewerOpen, statusItems, statusIndex, token]);
+
+  useEffect(() => {
+    if (!statusViewerOpen || !statusItems.length) return;
+    if (statusViewsOpen) return;
+    const current = statusItems[statusIndex];
+    if (!current) return;
+    const duration =
+      current.media_type === "video" ? 8000 : current.media_type === "image" ? 6000 : 4500;
+    const timer = setTimeout(() => {
+      setStatusIndex((prev) => {
+        if (prev >= statusItems.length - 1) {
+          setStatusViewerOpen(false);
+          return prev;
+        }
+        return prev + 1;
+      });
+    }, duration);
+    setStatusProgressTick((k) => k + 1);
+    return () => clearTimeout(timer);
+  }, [statusViewerOpen, statusIndex, statusItems, statusViewsOpen]);
+
+  useEffect(() => {
+    if (!statusViewerOpen || !statusItems[statusIndex]) return;
+    const current = statusItems[statusIndex];
+    const isMine = Number(current.user_id) === Number(me?.id || 0);
+    if (!isMine) {
+      setStatusViewers([]);
+      setStatusViewsOpen(false);
+      setStatusViewsLoading(false);
+      return;
+    }
+
+    const loadViews = async () => {
+      setStatusViewsLoading(true);
+      try {
+        const res = await fetch(`${API}/api/vine/statuses/${current.id}/views`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json();
+        setStatusViewers(Array.isArray(data) ? data : []);
+      } catch {
+        setStatusViewers([]);
+      } finally {
+        setStatusViewsLoading(false);
+      }
+    };
+
+    loadViews();
+  }, [statusViewerOpen, statusIndex, statusItems, me?.id, token]);
+
+  useEffect(() => {
+    return () => {
+      if (statusMediaPreview) URL.revokeObjectURL(statusMediaPreview);
+    };
+  }, [statusMediaPreview]);
 
   useEffect(() => {
     const q = mentionAnchor?.query;
@@ -290,6 +425,53 @@ export default function VineFeed() {
       return;
     }
     alert("Appeal sent to Guardian");
+  };
+
+  const submitStatus = async () => {
+    const text = statusText.trim();
+    if (!text && !statusMediaFile) return;
+    try {
+      const body = new FormData();
+      if (text) body.append("text", text);
+      body.append("bg_color", statusBgColor);
+      if (statusMediaFile) body.append("media", statusMediaFile);
+      const res = await fetch(`${API}/api/vine/statuses`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || "Failed to post status");
+        return;
+      }
+      setStatusText("");
+      setStatusMediaFile(null);
+      if (statusMediaPreview) URL.revokeObjectURL(statusMediaPreview);
+      setStatusMediaPreview("");
+      setStatusMediaType("");
+      setStatusComposerOpen(false);
+      loadStatusRail();
+    } catch {
+      alert("Failed to post status");
+    }
+  };
+
+  const openStatusViewer = async (row) => {
+    try {
+      const res = await fetch(`${API}/api/vine/statuses/user/${row.user_id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      const list = Array.isArray(data) ? data : [];
+      if (!list.length) return;
+      const firstUnseen = list.findIndex((s) => Number(s.seen_by_viewer) !== 1);
+      setStatusItems(list);
+      setStatusViewerUser(row);
+      setStatusIndex(firstUnseen >= 0 ? firstUnseen : 0);
+      setStatusProgressTick((k) => k + 1);
+      setStatusViewerOpen(true);
+    } catch {}
   };
 
   const applyComposeFormat = (leftToken, rightToken = leftToken) => {
@@ -540,13 +722,53 @@ export default function VineFeed() {
         )}
         {restriction && (
           <div className="suspension-banner">
-            <div>
+            <div className="suspension-banner-text">
               Account restricted from likes/comments.
               {restriction.reason ? ` Reason: ${restriction.reason}` : ""}
             </div>
             <button onClick={submitAppeal}>Appeal to Guardian</button>
           </div>
         )}
+        <div className="vine-statuses-rail">
+          <button
+            className="status-add-card"
+            onClick={() => {
+              setStatusText("");
+              setStatusBgColor(STATUS_COLORS[0]);
+              setStatusMediaFile(null);
+              if (statusMediaPreview) URL.revokeObjectURL(statusMediaPreview);
+              setStatusMediaPreview("");
+              setStatusMediaType("");
+              setStatusComposerOpen(true);
+            }}
+          >
+            <span className="status-add-plus">+</span>
+            <span>My Status</span>
+          </button>
+          {statusRail.map((row) => {
+            const avatarSrc = row.avatar_url
+              ? row.avatar_url.startsWith("http")
+                ? row.avatar_url
+                : `${API}${row.avatar_url}`
+              : DEFAULT_AVATAR;
+            return (
+              <button
+                key={`status-user-${row.user_id}`}
+                className={`status-user-chip ${Number(row.unseen_count || 0) > 0 ? "unseen" : ""}`}
+                onClick={() => openStatusViewer(row)}
+              >
+                <img
+                  src={avatarSrc}
+                  alt={row.username}
+                  onError={(e) => {
+                    e.currentTarget.src = DEFAULT_AVATAR;
+                  }}
+                />
+                <span>{row.display_name || row.username}</span>
+              </button>
+            );
+          })}
+        </div>
 
         {/* Create Post Box */}
         <div className="vine-create-box">
@@ -863,6 +1085,290 @@ export default function VineFeed() {
       <div className="vine-right-sidebar">
         {/* You can add <VineSuggestions /> here if desired */}
       </div>
+
+      {statusComposerOpen && (
+        <div className="status-modal-backdrop" onClick={() => setStatusComposerOpen(false)}>
+          <div className="status-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Create status</h3>
+            <textarea
+              value={statusText}
+              maxLength={500}
+              placeholder="Share a quick text status..."
+              onChange={(e) => setStatusText(e.target.value)}
+            />
+            <label className="status-media-picker">
+              Add photo/video
+              <input
+                type="file"
+                accept="image/*,video/*,.heic,.heif"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  const isHeic =
+                    /heic|heif/i.test(file.type) ||
+                    /\.heic$/i.test(file.name) ||
+                    /\.heif$/i.test(file.name);
+                  let picked = file;
+                  if (isHeic) {
+                    try {
+                      const blob = await heic2any({
+                        blob: file,
+                        toType: "image/jpeg",
+                        quality: 0.9,
+                      });
+                      const outBlob = Array.isArray(blob) ? blob[0] : blob;
+                      picked = new File(
+                        [outBlob],
+                        file.name.replace(/\.(heic|heif)$/i, ".jpg"),
+                        { type: "image/jpeg" }
+                      );
+                    } catch {
+                      alert("HEIC image could not be converted. Please use JPG/PNG/WebP.");
+                      return;
+                    }
+                  }
+                  if (statusMediaPreview) URL.revokeObjectURL(statusMediaPreview);
+                  setStatusMediaFile(picked);
+                  setStatusMediaType(picked.type.startsWith("video/") ? "video" : "image");
+                  setStatusMediaPreview(URL.createObjectURL(picked));
+                }}
+              />
+            </label>
+            {statusMediaPreview && (
+              <div className="status-media-preview-wrap">
+                {statusMediaType === "video" ? (
+                  <video src={statusMediaPreview} controls />
+                ) : (
+                  <img src={statusMediaPreview} alt="Status preview" />
+                )}
+                <button
+                  className="status-media-remove"
+                  onClick={() => {
+                    setStatusMediaFile(null);
+                    if (statusMediaPreview) URL.revokeObjectURL(statusMediaPreview);
+                    setStatusMediaPreview("");
+                    setStatusMediaType("");
+                  }}
+                >
+                  Remove media
+                </button>
+              </div>
+            )}
+            <div className="status-color-row">
+              {STATUS_COLORS.map((c) => (
+                <button
+                  key={c}
+                  className={`status-color-dot ${statusBgColor === c ? "active" : ""}`}
+                  style={{ background: c }}
+                  onClick={() => setStatusBgColor(c)}
+                />
+              ))}
+            </div>
+            <div className="status-modal-actions">
+              <button
+                onClick={() => {
+                  setStatusComposerOpen(false);
+                  setStatusMediaFile(null);
+                  if (statusMediaPreview) URL.revokeObjectURL(statusMediaPreview);
+                  setStatusMediaPreview("");
+                  setStatusMediaType("");
+                }}
+              >
+                Cancel
+              </button>
+              <button className="primary" onClick={submitStatus}>
+                Post status
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {statusViewerOpen && statusItems[statusIndex] && (
+        <div className="status-viewer-backdrop" onClick={() => setStatusViewerOpen(false)}>
+          <div className={`status-viewer ${statusViewsOpen ? "paused" : ""}`} onClick={(e) => e.stopPropagation()}>
+            <div className="status-progress-row">
+              {statusItems.map((_, idx) => {
+                const current = statusItems[statusIndex];
+                const dur =
+                  current?.media_type === "video"
+                    ? 8000
+                    : current?.media_type === "image"
+                    ? 6000
+                    : 4500;
+                return (
+                  <div className="status-progress-seg" key={`sp-${idx}`}>
+                    <div
+                      key={`spf-${idx}-${statusProgressTick}`}
+                      className={`status-progress-fill ${
+                        idx < statusIndex
+                          ? "done"
+                          : idx === statusIndex
+                          ? "active"
+                          : ""
+                      }`}
+                      style={idx === statusIndex ? { animationDuration: `${dur}ms` } : undefined}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+            <div className="status-viewer-top">
+              <div className="status-viewer-user">
+                <img
+                  src={
+                    statusViewerUser?.avatar_url
+                      ? statusViewerUser.avatar_url.startsWith("http")
+                        ? statusViewerUser.avatar_url
+                        : `${API}${statusViewerUser.avatar_url}`
+                      : DEFAULT_AVATAR
+                  }
+                  alt={statusViewerUser?.username || "status"}
+                  onError={(e) => {
+                    e.currentTarget.src = DEFAULT_AVATAR;
+                  }}
+                />
+                <div>
+                  <div>{statusViewerUser?.display_name || statusViewerUser?.username || "Status"}</div>
+                  <small>{formatStatusTime(statusItems[statusIndex].created_at)}</small>
+                </div>
+              </div>
+              <button onClick={() => setStatusViewerOpen(false)}>×</button>
+            </div>
+            <div
+              className="status-viewer-body"
+              style={{ background: statusItems[statusIndex].bg_color || STATUS_COLORS[0] }}
+            >
+              {statusItems[statusIndex].media_url ? (
+                <div className="status-viewer-media-wrap">
+                  {statusItems[statusIndex].media_type === "video" ? (
+                    <video
+                      src={statusItems[statusIndex].media_url}
+                      controls
+                      autoPlay
+                      playsInline
+                    />
+                  ) : (
+                    <img src={statusItems[statusIndex].media_url} alt="Status media" />
+                  )}
+                  {statusItems[statusIndex].text_content ? (
+                    <div className="status-viewer-caption">
+                      {statusItems[statusIndex].text_content}
+                    </div>
+                  ) : null}
+                </div>
+              ) : (
+                statusItems[statusIndex].text_content
+              )}
+            </div>
+            <div className="status-viewer-actions">
+              <button
+                disabled={statusIndex <= 0}
+                onClick={() => setStatusIndex((i) => Math.max(0, i - 1))}
+              >
+                Prev
+              </button>
+              <div className="status-viewer-mid">
+                <span>
+                  {statusIndex + 1}/{statusItems.length}
+                </span>
+                {Number(statusItems[statusIndex]?.user_id) === Number(me?.id || 0) && (
+                  <button
+                    className="status-views-btn"
+                    onClick={() => setStatusViewsOpen(true)}
+                    title="Viewers"
+                  >
+                    👁 {statusViewsLoading ? "..." : statusViewers.length}
+                  </button>
+                )}
+              </div>
+              <button
+                disabled={statusIndex >= statusItems.length - 1}
+                onClick={() => setStatusIndex((i) => Math.min(statusItems.length - 1, i + 1))}
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {statusViewsOpen && (
+        <div className="status-modal-backdrop" onClick={() => setStatusViewsOpen(false)}>
+          <div className="status-modal status-views-modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Viewed by ({statusViewers.length})</h3>
+            <div className="status-viewers-list">
+              {statusViewsLoading && <div className="status-viewer-empty">Loading...</div>}
+              {!statusViewsLoading && statusViewers.length === 0 && (
+                <div className="status-viewer-empty">No views yet</div>
+              )}
+              {!statusViewsLoading &&
+                statusViewers.map((v) => (
+                  <div key={`status-viewer-${v.id}-${v.viewed_at}`} className="status-viewer-row">
+                    <img
+                      src={
+                        v.avatar_url
+                          ? v.avatar_url.startsWith("http")
+                            ? v.avatar_url
+                            : `${API}${v.avatar_url}`
+                          : DEFAULT_AVATAR
+                      }
+                      alt={v.username}
+                      onError={(e) => {
+                        e.currentTarget.src = DEFAULT_AVATAR;
+                      }}
+                      onClick={() => {
+                        setStatusViewsOpen(false);
+                        setStatusViewerOpen(false);
+                        navigate(`/vine/profile/${v.username}`);
+                      }}
+                    />
+                    <div
+                      className="status-viewer-meta-click"
+                      onClick={() => {
+                        setStatusViewsOpen(false);
+                        setStatusViewerOpen(false);
+                        navigate(`/vine/profile/${v.username}`);
+                      }}
+                    >
+                      <div className="status-viewer-name">
+                        {v.display_name || v.username}
+                        {(Number(v.is_verified) === 1 ||
+                          ["vine guardian", "vine_guardian"].includes(
+                            String(v.username || "").toLowerCase()
+                          )) && (
+                          <span
+                            className={`verified ${
+                              ["vine guardian", "vine_guardian"].includes(
+                                String(v.username || "").toLowerCase()
+                              )
+                                ? "guardian"
+                                : ""
+                            }`}
+                          >
+                            <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
+                              <path
+                                d="M20 6L9 17l-5-5"
+                                stroke="white"
+                                strokeWidth="3"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              />
+                            </svg>
+                          </span>
+                        )}
+                      </div>
+                      <small>@{v.username}</small>
+                    </div>
+                    <time>{new Date(v.viewed_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time>
+                  </div>
+                ))}
+            </div>
+            <div className="status-modal-actions">
+              <button onClick={() => setStatusViewsOpen(false)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

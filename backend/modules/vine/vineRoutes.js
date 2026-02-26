@@ -468,6 +468,45 @@ const ensureModerationSchema = async () => {
   moderationSchemaReady = true;
 };
 
+let statusSchemaReady = false;
+const ensureStatusSchema = async () => {
+  if (statusSchemaReady) return;
+  const dbName = await getDbName();
+  if (!dbName) return;
+
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_statuses (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      user_id INT NOT NULL,
+      text_content VARCHAR(500) NOT NULL,
+      media_url TEXT NULL,
+      media_type VARCHAR(20) NULL,
+      bg_color VARCHAR(30) NOT NULL DEFAULT '#0f766e',
+      is_deleted TINYINT(1) NOT NULL DEFAULT 0,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      expires_at DATETIME NOT NULL,
+      INDEX idx_status_user_created (user_id, created_at),
+      INDEX idx_status_expires (expires_at)
+    )
+  `);
+
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_status_views (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      status_id INT NOT NULL,
+      viewer_id INT NOT NULL,
+      viewed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_status_view (status_id, viewer_id),
+      INDEX idx_status_viewer (viewer_id, viewed_at)
+    )
+  `);
+
+  await ensureColumnExists(dbName, "vine_statuses", "media_url", "TEXT NULL");
+  await ensureColumnExists(dbName, "vine_statuses", "media_type", "VARCHAR(20) NULL");
+
+  statusSchemaReady = true;
+};
+
 const isHeicFile = (file) => {
   const name = file?.originalname || "";
   const type = file?.mimetype || "";
@@ -493,6 +532,232 @@ const uploadBufferToCloudinary = async (buffer, options = {}) =>
     });
     stream.end(buffer);
   });
+
+// Text status (24h) - create
+router.post("/statuses", requireVineAuth, uploadPostCloudinary.single("media"), async (req, res) => {
+  try {
+    await ensureStatusSchema();
+    const userId = req.user.id;
+    const text = String(req.body?.text || "").trim();
+    const bg = String(req.body?.bg_color || "#0f766e").trim().slice(0, 30);
+    const file = req.file || null;
+    if (!text && !file) return res.status(400).json({ message: "Status text or media required" });
+    if (text.length > 500) return res.status(400).json({ message: "Status too long" });
+
+    let mediaUrl = null;
+    let mediaType = null;
+
+    if (file) {
+      if (isVideoFile(file)) {
+        const uploaded = await uploadBufferToCloudinary(file.buffer, {
+          folder: "vine/statuses",
+          resource_type: "video",
+        });
+        mediaUrl = uploaded.secure_url;
+        mediaType = "video";
+      } else {
+        const normalized = await normalizeImageBuffer(file);
+        const uploaded = await uploadBufferToCloudinary(normalized.buffer, {
+          folder: "vine/statuses",
+          resource_type: "image",
+        });
+        mediaUrl = uploaded.secure_url;
+        mediaType = "image";
+      }
+    }
+
+    const [result] = await db.query(
+      `
+      INSERT INTO vine_statuses (user_id, text_content, media_url, media_type, bg_color, expires_at)
+      VALUES (?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL 24 HOUR))
+      `,
+      [userId, text || "", mediaUrl, mediaType, bg || "#0f766e"]
+    );
+
+    const [[row]] = await db.query(
+      `
+      SELECT id, user_id, text_content, media_url, media_type, bg_color, created_at, expires_at
+      FROM vine_statuses
+      WHERE id = ?
+      LIMIT 1
+      `,
+      [result.insertId]
+    );
+    res.json(row);
+  } catch (err) {
+    console.error("Create status error:", err);
+    res.status(500).json({ message: "Failed to create status" });
+  }
+});
+
+// Status rail for feed
+router.get("/statuses/rail", requireVineAuth, async (req, res) => {
+  try {
+    await ensureStatusSchema();
+    const viewerId = req.user.id;
+
+    const [rows] = await db.query(
+      `
+      SELECT
+        s.user_id,
+        u.username,
+        u.display_name,
+        u.avatar_url,
+        u.is_verified,
+        MAX(s.created_at) AS latest_created_at,
+        COUNT(*) AS status_count,
+        SUM(
+          CASE
+            WHEN EXISTS (
+              SELECT 1
+              FROM vine_status_views sv
+              WHERE sv.status_id = s.id
+                AND sv.viewer_id = ?
+            ) THEN 0 ELSE 1
+          END
+        ) AS unseen_count
+      FROM vine_statuses s
+      JOIN vine_users u ON u.id = s.user_id
+      WHERE s.is_deleted = 0
+        AND s.expires_at > NOW()
+        AND NOT EXISTS (
+          SELECT 1
+          FROM vine_blocks b
+          WHERE (b.blocker_id = s.user_id AND b.blocked_id = ?)
+             OR (b.blocker_id = ? AND b.blocked_id = s.user_id)
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM vine_mutes m
+          WHERE m.muter_id = ?
+            AND m.muted_id = s.user_id
+        )
+      GROUP BY s.user_id, u.username, u.display_name, u.avatar_url, u.is_verified
+      ORDER BY (s.user_id = ?) DESC, latest_created_at DESC
+      LIMIT 100
+      `,
+      [viewerId, viewerId, viewerId, viewerId, viewerId]
+    );
+
+    res.json(rows);
+  } catch (err) {
+    console.error("Status rail error:", err);
+    res.status(500).json([]);
+  }
+});
+
+// Active statuses for one user
+router.get("/statuses/user/:userId", requireVineAuth, async (req, res) => {
+  try {
+    await ensureStatusSchema();
+    const viewerId = req.user.id;
+    const userId = Number(req.params.userId);
+    if (!userId) return res.status(400).json([]);
+
+    const [[targetUser]] = await db.query(
+      "SELECT id, is_private FROM vine_users WHERE id = ? LIMIT 1",
+      [userId]
+    );
+    if (!targetUser) return res.status(404).json([]);
+
+    const [rows] = await db.query(
+      `
+      SELECT
+        s.id,
+        s.user_id,
+        s.text_content,
+        s.media_url,
+        s.media_type,
+        s.bg_color,
+        s.created_at,
+        s.expires_at,
+        EXISTS (
+          SELECT 1 FROM vine_status_views sv
+          WHERE sv.status_id = s.id AND sv.viewer_id = ?
+        ) AS seen_by_viewer
+      FROM vine_statuses s
+      WHERE s.user_id = ?
+        AND s.is_deleted = 0
+        AND s.expires_at > NOW()
+      ORDER BY s.created_at ASC
+      `,
+      [viewerId, userId]
+    );
+
+    res.json(rows);
+  } catch (err) {
+    console.error("Status user feed error:", err);
+    res.status(500).json([]);
+  }
+});
+
+// Mark status seen
+router.post("/statuses/:id/view", requireVineAuth, async (req, res) => {
+  try {
+    await ensureStatusSchema();
+    const statusId = Number(req.params.id);
+    const viewerId = req.user.id;
+    if (!statusId) return res.status(400).json({ success: false });
+
+    await db.query(
+      `
+      INSERT INTO vine_status_views (status_id, viewer_id, viewed_at)
+      VALUES (?, ?, NOW())
+      ON DUPLICATE KEY UPDATE viewed_at = VALUES(viewed_at)
+      `,
+      [statusId, viewerId]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Status view error:", err);
+    res.status(500).json({ success: false });
+  }
+});
+
+// Status viewers (owner only)
+router.get("/statuses/:id/views", requireVineAuth, async (req, res) => {
+  try {
+    await ensureStatusSchema();
+    const statusId = Number(req.params.id);
+    const userId = Number(req.user.id);
+    if (!statusId) return res.status(400).json([]);
+
+    const [[statusRow]] = await db.query(
+      `
+      SELECT id, user_id
+      FROM vine_statuses
+      WHERE id = ? AND is_deleted = 0
+      LIMIT 1
+      `,
+      [statusId]
+    );
+    if (!statusRow) return res.status(404).json([]);
+    if (Number(statusRow.user_id) !== userId) return res.status(403).json([]);
+
+    const [rows] = await db.query(
+      `
+      SELECT
+        sv.viewer_id AS id,
+        u.username,
+        u.display_name,
+        u.avatar_url,
+        u.is_verified,
+        sv.viewed_at
+      FROM vine_status_views sv
+      JOIN vine_users u ON u.id = sv.viewer_id
+      WHERE sv.status_id = ?
+      ORDER BY sv.viewed_at DESC
+      `,
+      [statusId]
+    );
+
+    res.json(rows);
+  } catch (err) {
+    console.error("Status views fetch error:", err);
+    res.status(500).json([]);
+  }
+});
 
 const normalizeImageBuffer = async (file) => {
   if (!file?.buffer) {
@@ -5430,8 +5695,20 @@ router.get("/users/:username/likes", authOptional, async (req, res) => {
         u.avatar_url,
         u.is_verified,
         u.hide_like_counts,
+        (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id) AS likes,
+        (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comments,
+        (SELECT COUNT(*) FROM vine_revines WHERE post_id = p.id) AS revines,
         (SELECT COUNT(*) FROM vine_post_views WHERE post_id = p.id) AS views,
-        1 AS user_liked
+        ${
+          viewerId
+            ? `(SELECT COUNT(*) > 0 FROM vine_likes WHERE post_id = p.id AND user_id = ${viewerId})`
+            : "0"
+        } AS user_liked,
+        ${
+          viewerId
+            ? `(SELECT COUNT(*) > 0 FROM vine_revines WHERE post_id = p.id AND user_id = ${viewerId})`
+            : "0"
+        } AS user_revined
       FROM vine_likes l
       JOIN vine_posts p ON l.post_id = p.id
       JOIN vine_users u ON p.user_id = u.id

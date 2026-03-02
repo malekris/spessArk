@@ -65,6 +65,12 @@ export default function VineCommunities() {
   const [showCreateCommunity, setShowCreateCommunity] = useState(false);
   const communityPostRef = useRef(null);
   const assignmentFileInputRef = useRef(null);
+  const [nowMs, setNowMs] = useState(Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => setNowMs(Date.now()), 60 * 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   const loadCommunities = async () => {
     try {
@@ -845,7 +851,34 @@ export default function VineCommunities() {
     if (!assignment?.due_at) return false;
     const due = new Date(assignment.due_at);
     if (Number.isNaN(due.getTime())) return false;
-    return due.getTime() < Date.now();
+    return due.getTime() < nowMs;
+  };
+
+  const formatAssignmentCreatedAt = (value) => {
+    if (!value) return "Unknown";
+    const dt = new Date(value);
+    if (Number.isNaN(dt.getTime())) return "Unknown";
+    return dt.toLocaleString([], {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  };
+
+  const formatAssignmentCountdown = (dueAt) => {
+    if (!dueAt) return "No deadline";
+    const due = new Date(dueAt);
+    if (Number.isNaN(due.getTime())) return "No deadline";
+    const diff = due.getTime() - nowMs;
+    if (diff <= 0) return "Deadline passed";
+    const totalMinutes = Math.floor(diff / (60 * 1000));
+    const days = Math.floor(totalMinutes / (60 * 24));
+    const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
+    const minutes = totalMinutes % 60;
+    if (days > 0) return `${days}d ${hours}h remaining`;
+    if (hours > 0) return `${hours}h ${minutes}m remaining`;
+    return `${minutes}m remaining`;
   };
 
   return (
@@ -1256,6 +1289,9 @@ export default function VineCommunities() {
                               <div className="member-name">{a.title}</div>
                               <div className="member-meta">
                                 Due: {a.due_at ? new Date(a.due_at).toLocaleString() : "No due date"} • Points: {a.points}
+                              </div>
+                              <div className="member-meta">
+                                {formatAssignmentCountdown(a.due_at)} • Created: {formatAssignmentCreatedAt(a.created_at)}
                               </div>
                               {pastDue && (
                                 <div className="assignment-due-warning">Submission window closed (past due date)</div>

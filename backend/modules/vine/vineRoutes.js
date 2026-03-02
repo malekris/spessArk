@@ -359,6 +359,8 @@ const ensureCommunitySchema = async () => {
       creator_id INT NOT NULL,
       title VARCHAR(160) NOT NULL,
       instructions TEXT NULL,
+      attachment_url TEXT NULL,
+      attachment_name VARCHAR(255) NULL,
       due_at DATETIME NULL,
       points DECIMAL(6,2) NOT NULL DEFAULT 3.00,
       rubric TEXT NULL,
@@ -441,6 +443,8 @@ const ensureCommunitySchema = async () => {
   }
 
   await ensureColumnExists(dbName, "vine_community_assignments", "rubric", "TEXT NULL");
+  await ensureColumnExists(dbName, "vine_community_assignments", "attachment_url", "TEXT NULL");
+  await ensureColumnExists(dbName, "vine_community_assignments", "attachment_name", "VARCHAR(255) NULL");
   try {
     const [[pointsCol]] = await db.query(
       `
@@ -1979,7 +1983,7 @@ router.get("/communities/:slug/media", authOptional, async (req, res) => {
   }
 });
 
-router.post("/communities/:id/assignments", authenticate, async (req, res) => {
+router.post("/communities/:id/assignments", authenticate, uploadPostCloudinary.single("assignment_file"), async (req, res) => {
   try {
     await ensureCommunitySchema();
     const userId = Number(req.user.id);
@@ -2001,13 +2005,28 @@ router.post("/communities/:id/assignments", authenticate, async (req, res) => {
     if (dueAtRaw && Number.isNaN(dueAt?.getTime?.())) {
       return res.status(400).json({ message: "Invalid due date" });
     }
+    let attachmentUrl = null;
+    let attachmentName = null;
+    if (req.file) {
+      if (!isPdfFile(req.file)) {
+        return res.status(400).json({ message: "Only PDF is allowed for assignment attachment." });
+      }
+      const uploaded = await uploadBufferToCloudinary(req.file.buffer, {
+        folder: "vine/assignment-docs",
+        resource_type: "raw",
+        public_id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+        format: "pdf",
+      });
+      attachmentUrl = uploaded.secure_url || uploaded.url || null;
+      attachmentName = String(req.file.originalname || "").slice(0, 255) || "assignment.pdf";
+    }
     const [result] = await db.query(
       `
       INSERT INTO vine_community_assignments
-      (community_id, creator_id, title, instructions, due_at, points, rubric, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
+      (community_id, creator_id, title, instructions, attachment_url, attachment_name, due_at, points, rubric, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
       `,
-      [communityId, userId, title.slice(0, 160), instructions || null, dueAt || null, points, rubric || null]
+      [communityId, userId, title.slice(0, 160), instructions || null, attachmentUrl, attachmentName, dueAt || null, points, rubric || null]
     );
 
     const [members] = await db.query(
@@ -2094,6 +2113,8 @@ router.get("/communities/:slug/assignments", authenticate, async (req, res) => {
         a.creator_id,
         a.title,
         a.instructions,
+        a.attachment_url,
+        a.attachment_name,
         a.rubric,
         a.due_at,
         a.points,

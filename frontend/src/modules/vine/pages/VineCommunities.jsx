@@ -49,6 +49,7 @@ export default function VineCommunities() {
   const [assignmentDueAt, setAssignmentDueAt] = useState("");
   const [assignmentPoints, setAssignmentPoints] = useState(3);
   const [assignmentRubric, setAssignmentRubric] = useState("");
+  const [assignmentFile, setAssignmentFile] = useState(null);
   const [submissionDrafts, setSubmissionDrafts] = useState({});
   const [selectedAssignmentId, setSelectedAssignmentId] = useState(null);
   const [assignmentSubmissions, setAssignmentSubmissions] = useState([]);
@@ -63,6 +64,7 @@ export default function VineCommunities() {
   const [communityBannerFile, setCommunityBannerFile] = useState(null);
   const [showCreateCommunity, setShowCreateCommunity] = useState(false);
   const communityPostRef = useRef(null);
+  const assignmentFileInputRef = useRef(null);
 
   const loadCommunities = async () => {
     try {
@@ -517,19 +519,25 @@ export default function VineCommunities() {
   const createAssignment = async () => {
     if (!activeCommunity?.id || !assignmentTitle.trim()) return;
     try {
+      const formData = new FormData();
+      formData.append("title", assignmentTitle.trim());
+      formData.append("instructions", assignmentInstructions.trim());
+      formData.append("due_at", assignmentDueAt || "");
+      formData.append("points", String(Number(assignmentPoints || 3)));
+      formData.append("rubric", assignmentRubric.trim());
+      if (assignmentFile) formData.append("assignment_file", assignmentFile);
+
+      setAssignmentFile(null);
+      if (assignmentFileInputRef.current) {
+        assignmentFileInputRef.current.value = "";
+      }
+
       const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/assignments`, {
         method: "POST",
         headers: {
-          "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          title: assignmentTitle.trim(),
-          instructions: assignmentInstructions.trim(),
-          due_at: assignmentDueAt || null,
-          points: Number(assignmentPoints || 100),
-          rubric: assignmentRubric.trim(),
-        }),
+        body: formData,
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -541,6 +549,7 @@ export default function VineCommunities() {
       setAssignmentDueAt("");
       setAssignmentPoints(3);
       setAssignmentRubric("");
+      setAssignmentFile(null);
       await loadCommunityDetail(activeCommunity.slug, topicFilter);
       alert("Assignment created");
     } catch {
@@ -1198,6 +1207,31 @@ export default function VineCommunities() {
                           value={assignmentRubric}
                           onChange={(e) => setAssignmentRubric(e.target.value)}
                         />
+                        <label className="assignment-file-picker">
+                          <span>Attach PDF</span>
+                          <input
+                            ref={assignmentFileInputRef}
+                            type="file"
+                            accept=".pdf,application/pdf"
+                            onChange={(e) => setAssignmentFile(e.target.files?.[0] || null)}
+                          />
+                        </label>
+                        {assignmentFile && (
+                          <div className="assignment-file-chip">
+                            <span>{assignmentFile.name}</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setAssignmentFile(null);
+                                if (assignmentFileInputRef.current) {
+                                  assignmentFileInputRef.current.value = "";
+                                }
+                              }}
+                            >
+                              ×
+                            </button>
+                          </div>
+                        )}
                         <button onClick={createAssignment}>Create Assignment</button>
                       </div>
                     )}
@@ -1227,6 +1261,17 @@ export default function VineCommunities() {
                                 <div className="assignment-due-warning">Submission window closed (past due date)</div>
                               )}
                               {a.instructions && <div className="assignment-body">{a.instructions}</div>}
+                              {a.attachment_url && (
+                                <div className="assignment-attachment">
+                                  <a
+                                    href={a.attachment_url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                  >
+                                    📄 {a.attachment_name || "Assignment attachment"}
+                                  </a>
+                                </div>
+                              )}
                               {a.rubric && <div className="assignment-rubric">Rubric: {a.rubric}</div>}
                               <div className="member-meta">
                                 Submissions: {a.submission_count || 0}

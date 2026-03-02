@@ -550,6 +550,20 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
 
   if (isDeleted) return null;
 
+  let postMedia = [];
+  try {
+    const parsed = JSON.parse(post.image_url || "[]");
+    postMedia = Array.isArray(parsed) ? parsed : [post.image_url];
+  } catch {
+    postMedia = post.image_url ? [post.image_url] : [];
+  }
+  postMedia = postMedia.filter(Boolean);
+  const pdfUrls = postMedia.filter((u) => /\.pdf(\?|$)/i.test(String(u)));
+  const visualMediaUrls = postMedia.filter((u) => !/\.pdf(\?|$)/i.test(String(u)));
+  const carouselMediaPayload = visualMediaUrls.length
+    ? JSON.stringify(visualMediaUrls)
+    : null;
+
   // ── Render ──────────────────────────────────────
   return (
     <div className="vine-post light-green-theme" id={`post-${post.id}`} ref={postRef}>
@@ -722,8 +736,28 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
         </div>
       )}
 
+      {pdfUrls.length > 0 && (
+        <div className="post-pdf-list">
+          {pdfUrls.map((url, idx) => {
+            const safeUrl = String(url || "");
+            const fileName = safeUrl.split("/").pop()?.split("?")[0] || `document-${idx + 1}.pdf`;
+            return (
+              <div key={`${post.id}-pdf-${idx}`} className="post-pdf-item">
+                <span className="pdf-icon">📄</span>
+                <a href={safeUrl} target="_blank" rel="noreferrer">
+                  {decodeURIComponent(fileName)}
+                </a>
+                <a href={safeUrl} download className="pdf-download-btn">
+                  Download
+                </a>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {/* Images carousel */}
-      {post.image_url && (
+      {carouselMediaPayload && (
   <div
     onClick={() => {
       const now = Date.now();
@@ -736,7 +770,7 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
     }}
   >
     <ImageCarousel
-      imageUrl={post.image_url}
+      imageUrl={carouselMediaPayload}
       onLike={handleLike}
       onRevine={handleRevine}
       onComments={() => setOpen(true)}

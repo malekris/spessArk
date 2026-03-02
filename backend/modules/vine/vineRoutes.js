@@ -618,6 +618,12 @@ const isVideoFile = (file) => {
   return /\.(mp4|mov|webm|m4v|avi|mkv|ogv)$/i.test(name);
 };
 
+const isPdfFile = (file) => {
+  const type = String(file?.mimetype || "").toLowerCase();
+  const name = String(file?.originalname || "").toLowerCase();
+  return type === "application/pdf" || /\.pdf$/i.test(name);
+};
+
 const uploadBufferToCloudinary = async (buffer, options = {}) =>
   new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(options, (err, result) => {
@@ -3111,8 +3117,19 @@ router.get("/communities/:slug/posts", authOptional, async (req, res) => {
         let imageUrls = [];
   
         if (req.files?.length) {
+          if (!communityId && req.files.some((f) => isPdfFile(f))) {
+            return res.status(400).json({ message: "PDF uploads are only allowed in communities." });
+          }
           const uploads = await Promise.all(
             req.files.map(async (file) => {
+              if (isPdfFile(file)) {
+                return uploadBufferToCloudinary(file.buffer, {
+                  folder: "vine/community-docs",
+                  resource_type: "raw",
+                  public_id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+                  format: "pdf",
+                });
+              }
               if (isVideoFile(file)) {
                 return uploadBufferToCloudinary(file.buffer, {
                   folder: "vine/posts",

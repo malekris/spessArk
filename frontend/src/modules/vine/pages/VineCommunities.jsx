@@ -30,6 +30,7 @@ export default function VineCommunities() {
   const [welcomeMessage, setWelcomeMessage] = useState("");
   const [pendingRequests, setPendingRequests] = useState([]);
   const [postText, setPostText] = useState("");
+  const [communityFiles, setCommunityFiles] = useState([]);
   const [scheduledAt, setScheduledAt] = useState("");
   const [scheduledPosts, setScheduledPosts] = useState([]);
   const [rules, setRules] = useState([]);
@@ -488,11 +489,12 @@ export default function VineCommunities() {
   };
 
   const submitCommunityPost = async () => {
-    if (!postText.trim() || !activeCommunity?.id) return;
+    if ((!postText.trim() && communityFiles.length === 0) || !activeCommunity?.id) return;
     try {
       const formData = new FormData();
-      formData.append("content", postText.trim());
+      if (postText.trim()) formData.append("content", postText.trim());
       formData.append("community_id", String(activeCommunity.id));
+      communityFiles.forEach((file) => formData.append("images", file));
 
       const res = await fetch(`${API}/api/vine/posts`, {
         method: "POST",
@@ -505,6 +507,7 @@ export default function VineCommunities() {
         return;
       }
       setPostText("");
+      setCommunityFiles([]);
       setPosts((prev) => [data, ...prev]);
     } catch {
       alert("Failed to post");
@@ -1005,6 +1008,15 @@ export default function VineCommunities() {
                           <div className="community-create-actions">
                             <span>{postText.length}/2000</span>
                             <div className="schedule-controls">
+                              <label className="community-file-picker">
+                                Attach files
+                                <input
+                                  type="file"
+                                  multiple
+                                  accept="image/*,video/*,application/pdf,.pdf"
+                                  onChange={(e) => setCommunityFiles(Array.from(e.target.files || []).slice(0, 10))}
+                                />
+                              </label>
                               <input
                                 type="datetime-local"
                                 value={scheduledAt}
@@ -1014,6 +1026,23 @@ export default function VineCommunities() {
                               <button onClick={submitCommunityPost}>Post</button>
                             </div>
                           </div>
+                          {communityFiles.length > 0 && (
+                            <div className="community-files-list">
+                              {communityFiles.map((file, idx) => (
+                                <div key={`${file.name}-${idx}`} className="community-file-chip">
+                                  <span>{file.name}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setCommunityFiles((prev) => prev.filter((_, i) => i !== idx))
+                                    }
+                                  >
+                                    ×
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       ) : (
                         <div className="community-join-note">

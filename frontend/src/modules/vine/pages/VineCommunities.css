@@ -616,10 +616,59 @@
   justify-content: flex-end;
 }
 
+.community-file-picker {
+  border: 1px dashed #94a3b8;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 0.82rem;
+  color: #065f46;
+  font-weight: 700;
+  cursor: pointer;
+  background: #fff;
+}
+
+.community-file-picker input {
+  display: none;
+}
+
 .schedule-controls input {
   border: 1px solid #cbd5e1;
   border-radius: 8px;
   padding: 6px 8px;
+}
+
+.community-files-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.community-file-chip {
+  border: 1px solid #d1fae5;
+  background: #ecfdf5;
+  color: #065f46;
+  border-radius: 999px;
+  padding: 4px 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+}
+
+.community-file-chip span {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.community-file-chip button {
+  border: none;
+  background: transparent;
+  color: #065f46;
+  font-weight: 900;
+  cursor: pointer;
 }
 
 .settings-row input {

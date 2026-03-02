@@ -627,6 +627,13 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
                   </span>
                 )}
               </span>
+              <span
+                className="username handle clickable"
+                onClick={() => navigate(`/vine/profile/${post.username}`)}
+                title={`@${post.username}`}
+              >
+                @{post.username}
+              </span>
               <span className="time top-time">
                 • {formatPostDate(post.sort_time || post.created_at)}
               </span>
@@ -790,7 +797,34 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
       </div>
       {canShowLikeCount && Number(postLikes || 0) > 0 && latestLiker && (
         <button className="liked-by-line" onClick={openLikesModal}>
-          Liked by <strong>{latestLiker.display_name || latestLiker.username}</strong>
+          Liked by{" "}
+          <strong className="liked-by-latest">
+            {latestLiker.display_name || latestLiker.username}
+            {(Number(latestLiker.is_verified) === 1 ||
+              ["vine guardian", "vine_guardian"].includes(
+                String(latestLiker.username || "").toLowerCase()
+              )) && (
+              <span
+                className={`verified ${
+                  ["vine guardian", "vine_guardian"].includes(
+                    String(latestLiker.username || "").toLowerCase()
+                  )
+                    ? "guardian"
+                    : ""
+                }`}
+              >
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
+                  <path
+                    d="M20 6L9 17l-5-5"
+                    stroke="white"
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </span>
+            )}
+          </strong>
           {Number(postLikes) > 1 ? ` and ${Number(postLikes) - 1} others` : ""}
         </button>
       )}

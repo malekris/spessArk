@@ -150,11 +150,12 @@
 .name-row {
   display: flex;
   align-items: center;
+  flex-wrap: nowrap;
   gap: 6px;
   min-width: 0;
   width: 100%;
   padding-right: 0;
-  line-height: 1.1;
+  line-height: 1;
 }
 
 .name-main {
@@ -162,8 +163,8 @@
   align-items: center;
   gap: 4px;
   min-width: 0;
-  max-width: calc(100% - 110px); /* keep room for timestamp */
-  flex: 1 1 auto;
+  max-width: 50%;
+  flex: 1 1 50%;
 }
 
 .top-time {
@@ -309,12 +310,28 @@
   color: #052e16;
   font-weight: 900;
   font-size: 1.1rem;
-  line-height: 1.12;
+  line-height: 1;
   margin: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
+  display: block;
+  max-width: 100%;
+}
+
+.username.handle {
+  color: #64748b;
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1;
+  min-width: 0;
+  max-width: 34%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 0 1 34%;
+  display: block;
 }
 
 .vine-post .verified {
@@ -339,6 +356,7 @@
 .top-time {
   margin-left: 2px;
   line-height: 1;
+  flex: 0 0 auto;
 }
 
 .mention {
@@ -598,6 +616,17 @@
 
 .liked-by-line strong {
   color: #065f46;
+}
+
+.liked-by-latest {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.liked-by-latest .verified.guardian {
+  background: #ef4444;
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.6);
 }
 
 /* ── Comments Area ── */
@@ -1135,12 +1164,19 @@
   }
 
   .name-main {
-    max-width: 100%;
+    max-width: 48%;
     min-width: 0;
+    flex: 1 1 48%;
   }
 
   .display-name {
     font-size: 1.08rem;
+  }
+
+  .username.handle {
+    max-width: 28%;
+    font-size: 0.9rem;
+    flex: 0 1 28%;
   }
 
   .top-time {

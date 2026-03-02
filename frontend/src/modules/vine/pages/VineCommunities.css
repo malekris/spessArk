@@ -875,6 +875,14 @@
   cursor: not-allowed;
 }
 
+.assignment-grade-grid button:disabled,
+.assignment-grade-grid input:disabled,
+.assignment-grade-grid textarea:disabled,
+.assignment-grade-grid select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .assignment-mod-row {
   margin-top: 8px;
 }
@@ -981,6 +989,22 @@
   border-color: #e2e8f0;
   background: #f8fafc;
   color: #64748b;
+}
+
+.assignment-badges-legend {
+  margin-top: 12px;
+  border-top: 1px solid #e2e8f0;
+  padding-top: 10px;
+  color: #334155;
+  font-size: 0.84rem;
+  display: grid;
+  gap: 4px;
+}
+
+.assignment-badges-legend h6 {
+  margin: 0 0 4px;
+  color: #065f46;
+  font-size: 0.86rem;
 }
 
 @media (min-width: 901px) {

@@ -2290,6 +2290,9 @@ router.patch("/communities/:id/submissions/:submissionId/grade", authenticate, a
         s.id,
         s.user_id,
         s.assignment_id,
+        s.graded_at,
+        s.score,
+        s.status,
         a.title AS assignment_title,
         a.points AS assignment_points,
         c.slug AS community_slug
@@ -2302,6 +2305,13 @@ router.patch("/communities/:id/submissions/:submissionId/grade", authenticate, a
       [submissionId, communityId]
     );
     if (!submission) return res.status(404).json({ message: "Submission not found" });
+    const alreadyFinalized =
+      submission.graded_at !== null ||
+      submission.score !== null ||
+      ["graded", "needs_revision", "missing"].includes(String(submission.status || "").toLowerCase());
+    if (alreadyFinalized) {
+      return res.status(403).json({ message: "Grade already finalized. This submission is locked." });
+    }
 
     await db.query(
       `

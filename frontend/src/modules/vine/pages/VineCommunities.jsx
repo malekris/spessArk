@@ -1260,11 +1260,22 @@ export default function VineCommunities() {
                                   ) : (
                                     assignmentSubmissions.map((s) => {
                                       const draft = gradingDrafts[s.id] || { score: "", feedback: "", status: "graded" };
+                                      const gradeLocked =
+                                        Boolean(s.graded_at) ||
+                                        s.score !== null && s.score !== undefined ||
+                                        ["graded", "needs_revision", "missing"].includes(
+                                          String(s.status || "").toLowerCase()
+                                        );
                                       return (
                                         <div key={s.id} className="assignment-submission-item">
                                           <div className="member-name">{s.display_name || s.username}</div>
                                           <div className="member-meta">@{s.username} • {new Date(s.submitted_at).toLocaleString()}</div>
                                           <div className="assignment-body">{s.content || "No content"}</div>
+                                          {gradeLocked && (
+                                            <div className="assignment-lock-note">
+                                              Grade finalized. This submission is locked.
+                                            </div>
+                                          )}
                                           <div className="assignment-grade-grid">
                                             <input
                                               type="number"
@@ -1279,6 +1290,7 @@ export default function VineCommunities() {
                                                 }))
                                               }
                                               placeholder="Score"
+                                              disabled={gradeLocked}
                                             />
                                             <select
                                               value={draft.status || "graded"}
@@ -1288,6 +1300,7 @@ export default function VineCommunities() {
                                                   [s.id]: { ...draft, status: e.target.value },
                                                 }))
                                               }
+                                              disabled={gradeLocked}
                                             >
                                               <option value="graded">graded</option>
                                               <option value="needs_revision">needs revision</option>
@@ -1302,8 +1315,11 @@ export default function VineCommunities() {
                                                   [s.id]: { ...draft, feedback: e.target.value },
                                                 }))
                                               }
+                                              disabled={gradeLocked}
                                             />
-                                            <button onClick={() => gradeSubmission(s.id)}>Save Grade</button>
+                                            <button onClick={() => gradeSubmission(s.id)} disabled={gradeLocked}>
+                                              Save Grade
+                                            </button>
                                           </div>
                                         </div>
                                       );
@@ -1356,6 +1372,16 @@ export default function VineCommunities() {
                           ))}
                         </div>
                       )}
+                      <div className="assignment-badges-legend">
+                        <h6>Legend</h6>
+                        <div><strong>Streak:</strong> consecutive on-time submissions from the most recent assignments.</div>
+                        <div><strong>On-time:</strong> total submissions made before or on due date.</div>
+                        <div><strong>Avg:</strong> average of graded scores in this community.</div>
+                        <div><span>🔥</span> On-Time Streak = streak of 3+</div>
+                        <div><span>🎯</span> Perfect Score = at least one full score</div>
+                        <div><span>📚</span> Consistent Learner = 5+ submissions</div>
+                        <div><span>🏅</span> High Achiever = avg score 2.7+ (min 3 graded)</div>
+                      </div>
                     </div>
                   </section>
                 )}

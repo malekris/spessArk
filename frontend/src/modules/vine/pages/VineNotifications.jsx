@@ -28,9 +28,18 @@ export default function VineNotifications() {
     loadNotifications();
   }, [token]);
   
-  
+  const getMeta = (n) => {
+    if (!n?.meta_json) return {};
+    if (typeof n.meta_json === "object") return n.meta_json || {};
+    try {
+      return JSON.parse(n.meta_json);
+    } catch {
+      return {};
+    }
+  };
   
   const renderText = (n) => {
+    const meta = getMeta(n);
     switch (n.type) {
       case "like": return "liked your post";
       case "comment": return "commented on your post";
@@ -46,6 +55,22 @@ export default function VineNotifications() {
       case "account_suspended": return "suspended your likes/comments access";
       case "account_unsuspended": return "lifted your suspension";
       case "guardian_warning": return "sent you a warning about reported content";
+      case "community_assignment_created":
+        return `posted a new assignment: "${meta.title || "Untitled assignment"}"`;
+      case "community_assignment_submission":
+        return `${meta.is_resubmission ? "resubmitted" : "submitted"} assignment work${meta.assignment_title ? `: "${meta.assignment_title}"` : ""}`;
+      case "community_assignment_graded": {
+        const score = meta.score;
+        const points = meta.assignment_points;
+        const base =
+          score === null || score === undefined || score === ""
+            ? "graded your submission."
+            : points !== null && points !== undefined && points !== ""
+            ? `graded your submission: ${score}/${points}.`
+            : `graded your submission: ${score}.`;
+        const title = meta.assignment_title ? ` (${meta.assignment_title})` : "";
+        return `${base}${title}`;
+      }
       default: return "interacted with you";
     }
   };
@@ -125,6 +150,22 @@ export default function VineNotifications() {
         }
         if (n.post_id) {
           navigate(`/vine/feed?post=${n.post_id}`);
+          return;
+        }
+      }
+
+      if (n.type === "community_assignment_created" || n.type === "community_assignment_graded") {
+        const meta = getMeta(n);
+        if (meta.community_slug) {
+          navigate(`/vine/communities/${meta.community_slug}?tab=assignments`);
+          return;
+        }
+      }
+
+      if (n.type === "community_assignment_submission") {
+        const meta = getMeta(n);
+        if (meta.community_slug) {
+          navigate(`/vine/communities/${meta.community_slug}?tab=assignments`);
           return;
         }
       }

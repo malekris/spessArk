@@ -128,6 +128,36 @@ const notifyGuardians = async ({ actorId, type, postId = null, commentId = null,
   }
 };
 
+const notifyUser = async ({ userId, actorId, type, postId = null, commentId = null, meta = null }) => {
+  const targetId = Number(userId);
+  const sourceId = Number(actorId || 0);
+  if (!targetId || !type) return;
+  const dbName = await getDbName();
+  const canStoreMeta = dbName
+    ? await hasColumn(dbName, "vine_notifications", "meta_json")
+    : false;
+
+  if (canStoreMeta) {
+    await db.query(
+      `
+      INSERT INTO vine_notifications (user_id, actor_id, type, post_id, comment_id, meta_json)
+      VALUES (?, ?, ?, ?, ?, ?)
+      `,
+      [targetId, sourceId || null, type, postId, commentId, meta ? JSON.stringify(meta) : null]
+    );
+  } else {
+    await db.query(
+      `
+      INSERT INTO vine_notifications (user_id, actor_id, type, post_id, comment_id)
+      VALUES (?, ?, ?, ?, ?)
+      `,
+      [targetId, sourceId || null, type, postId, commentId]
+    );
+  }
+
+  io.to(`user-${targetId}`).emit("notification");
+};
+
 const getActiveInteractionSuspension = async (userId) => {
   if (!userId) return null;
   const dbName = await getDbName();
@@ -322,6 +352,44 @@ const ensureCommunitySchema = async () => {
     )
   `);
 
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_community_assignments (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      community_id INT NOT NULL,
+      creator_id INT NOT NULL,
+      title VARCHAR(160) NOT NULL,
+      instructions TEXT NULL,
+      due_at DATETIME NULL,
+      points DECIMAL(6,2) NOT NULL DEFAULT 3.00,
+      rubric TEXT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NULL,
+      INDEX idx_assignment_community_due (community_id, due_at),
+      INDEX idx_assignment_creator (creator_id)
+    )
+  `);
+
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_community_submissions (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      assignment_id INT NOT NULL,
+      community_id INT NOT NULL,
+      user_id INT NOT NULL,
+      content TEXT NULL,
+      attempt_count INT NOT NULL DEFAULT 1,
+      status VARCHAR(20) NOT NULL DEFAULT 'submitted',
+      score DECIMAL(6,2) NULL,
+      feedback TEXT NULL,
+      submitted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      graded_at DATETIME NULL,
+      graded_by INT NULL,
+      updated_at DATETIME NULL,
+      UNIQUE KEY uniq_assignment_submission (assignment_id, user_id),
+      INDEX idx_submission_assignment (assignment_id, submitted_at),
+      INDEX idx_submission_community_user (community_id, user_id)
+    )
+  `);
+
   const hasCommunityId = await hasColumn(dbName, "vine_posts", "community_id");
   if (!hasCommunityId) {
     await db.query("ALTER TABLE vine_posts ADD COLUMN community_id INT NULL");
@@ -371,6 +439,32 @@ const ensureCommunitySchema = async () => {
   if (!hasTopicTag) {
     await db.query("ALTER TABLE vine_posts ADD COLUMN topic_tag VARCHAR(50) NULL");
   }
+
+  await ensureColumnExists(dbName, "vine_community_assignments", "rubric", "TEXT NULL");
+  try {
+    const [[pointsCol]] = await db.query(
+      `
+      SELECT DATA_TYPE AS data_type
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'vine_community_assignments' AND COLUMN_NAME = 'points'
+      LIMIT 1
+      `,
+      [dbName]
+    );
+    if (String(pointsCol?.data_type || "").toLowerCase() !== "decimal") {
+      await db.query(
+        "ALTER TABLE vine_community_assignments MODIFY COLUMN points DECIMAL(6,2) NOT NULL DEFAULT 3.00"
+      );
+    }
+  } catch (err) {
+    console.warn("Community assignments points type migration skipped:", err?.message || err);
+  }
+  await ensureColumnExists(dbName, "vine_community_submissions", "status", "VARCHAR(20) NOT NULL DEFAULT 'submitted'");
+  await ensureColumnExists(dbName, "vine_community_submissions", "attempt_count", "INT NOT NULL DEFAULT 1");
+  await ensureColumnExists(dbName, "vine_community_submissions", "score", "DECIMAL(6,2) NULL");
+  await ensureColumnExists(dbName, "vine_community_submissions", "feedback", "TEXT NULL");
+  await ensureColumnExists(dbName, "vine_community_submissions", "graded_at", "DATETIME NULL");
+  await ensureColumnExists(dbName, "vine_community_submissions", "graded_by", "INT NULL");
 
   communitySchemaReady = true;
 };
@@ -1875,6 +1969,573 @@ router.get("/communities/:slug/media", authOptional, async (req, res) => {
     res.json(rows);
   } catch (err) {
     console.error("Get community media error:", err);
+    res.status(500).json([]);
+  }
+});
+
+router.post("/communities/:id/assignments", authenticate, async (req, res) => {
+  try {
+    await ensureCommunitySchema();
+    const userId = Number(req.user.id);
+    const communityId = Number(req.params.id);
+    const title = String(req.body?.title || "").trim();
+    const instructions = String(req.body?.instructions || "").trim();
+    const rubric = String(req.body?.rubric || "").trim();
+    const dueAtRaw = String(req.body?.due_at || "").trim();
+    const parsedPoints = Number(req.body?.points);
+    const points = Number.isFinite(parsedPoints)
+      ? Math.max(0.9, Math.min(3, parsedPoints))
+      : 3;
+    if (!communityId || !title) {
+      return res.status(400).json({ message: "title is required" });
+    }
+    const role = await getCommunityRole(communityId, userId);
+    if (!isCommunityModOrOwner(role)) return res.status(403).json({ message: "Not allowed" });
+    const dueAt = dueAtRaw ? new Date(dueAtRaw) : null;
+    if (dueAtRaw && Number.isNaN(dueAt?.getTime?.())) {
+      return res.status(400).json({ message: "Invalid due date" });
+    }
+    const [result] = await db.query(
+      `
+      INSERT INTO vine_community_assignments
+      (community_id, creator_id, title, instructions, due_at, points, rubric, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
+      `,
+      [communityId, userId, title.slice(0, 160), instructions || null, dueAt || null, points, rubric || null]
+    );
+
+    const [members] = await db.query(
+      `
+      SELECT user_id
+      FROM vine_community_members
+      WHERE community_id = ?
+        AND user_id != ?
+      `,
+      [communityId, userId]
+    );
+    const [[community]] = await db.query(
+      "SELECT slug FROM vine_communities WHERE id = ? LIMIT 1",
+      [communityId]
+    );
+    const assignmentId = Number(result?.insertId || 0);
+    for (const row of members) {
+      await notifyUser({
+        userId: row.user_id,
+        actorId: userId,
+        type: "community_assignment_created",
+        meta: {
+          community_id: communityId,
+          community_slug: community?.slug || null,
+          assignment_id: assignmentId,
+          title: title.slice(0, 160),
+        },
+      });
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Create community assignment error:", err);
+    res.status(500).json({ message: "Failed to create assignment" });
+  }
+});
+
+router.delete("/communities/:id/assignments/:assignmentId", authenticate, async (req, res) => {
+  try {
+    await ensureCommunitySchema();
+    const userId = Number(req.user.id);
+    const communityId = Number(req.params.id);
+    const assignmentId = Number(req.params.assignmentId);
+    if (!communityId || !assignmentId) {
+      return res.status(400).json({ message: "Invalid request" });
+    }
+    const role = await getCommunityRole(communityId, userId);
+    if (!isCommunityModOrOwner(role)) return res.status(403).json({ message: "Not allowed" });
+
+    const [[assignment]] = await db.query(
+      "SELECT id FROM vine_community_assignments WHERE id = ? AND community_id = ? LIMIT 1",
+      [assignmentId, communityId]
+    );
+    if (!assignment) return res.status(404).json({ message: "Assignment not found" });
+
+    await db.query(
+      "DELETE FROM vine_community_submissions WHERE assignment_id = ? AND community_id = ?",
+      [assignmentId, communityId]
+    );
+    await db.query(
+      "DELETE FROM vine_community_assignments WHERE id = ? AND community_id = ?",
+      [assignmentId, communityId]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Delete assignment error:", err);
+    res.status(500).json({ message: "Failed to delete assignment" });
+  }
+});
+
+router.get("/communities/:slug/assignments", authenticate, async (req, res) => {
+  try {
+    await ensureCommunitySchema();
+    const viewerId = Number(req.user.id);
+    const [[community]] = await db.query("SELECT id FROM vine_communities WHERE slug = ? LIMIT 1", [req.params.slug]);
+    if (!community) return res.status(404).json([]);
+
+    const [rows] = await db.query(
+      `
+      SELECT
+        a.id,
+        a.community_id,
+        a.creator_id,
+        a.title,
+        a.instructions,
+        a.rubric,
+        a.due_at,
+        a.points,
+        a.created_at,
+        cu.username AS creator_username,
+        cu.display_name AS creator_display_name,
+        (SELECT COUNT(*) FROM vine_community_submissions s WHERE s.assignment_id = a.id) AS submission_count,
+        vs.id AS viewer_submission_id,
+        vs.status AS viewer_submission_status,
+        vs.graded_at AS viewer_submission_graded_at,
+        vs.attempt_count AS viewer_submission_attempts,
+        vs.score AS viewer_submission_score,
+        vs.submitted_at AS viewer_submitted_at
+      FROM vine_community_assignments a
+      JOIN vine_users cu ON cu.id = a.creator_id
+      LEFT JOIN vine_community_submissions vs
+        ON vs.assignment_id = a.id
+       AND vs.user_id = ?
+      WHERE a.community_id = ?
+      ORDER BY (a.due_at IS NULL) ASC, a.due_at ASC, a.created_at DESC
+      `,
+      [viewerId, community.id]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error("Get community assignments error:", err);
+    res.status(500).json([]);
+  }
+});
+
+router.post("/communities/:id/assignments/:assignmentId/submissions", authenticate, async (req, res) => {
+  try {
+    await ensureCommunitySchema();
+    const userId = Number(req.user.id);
+    const communityId = Number(req.params.id);
+    const assignmentId = Number(req.params.assignmentId);
+    const content = String(req.body?.content || "").trim();
+    if (!communityId || !assignmentId || !content) {
+      return res.status(400).json({ message: "content is required" });
+    }
+    const role = await getCommunityRole(communityId, userId);
+    if (!role) return res.status(403).json({ message: "Join this community first" });
+
+    const [[assignment]] = await db.query(
+      "SELECT id, community_id, due_at FROM vine_community_assignments WHERE id = ? AND community_id = ? LIMIT 1",
+      [assignmentId, communityId]
+    );
+    if (!assignment) return res.status(404).json({ message: "Assignment not found" });
+    const normalizedRole = String(role || "").toLowerCase();
+    const canBypassDueDate = ["owner", "moderator"].includes(normalizedRole);
+    if (assignment.due_at && !canBypassDueDate) {
+      const dueAt = new Date(assignment.due_at);
+      if (!Number.isNaN(dueAt.getTime()) && dueAt.getTime() < Date.now()) {
+        return res.status(403).json({ message: "Submission window closed. Due date has passed." });
+      }
+    }
+
+    const [[existing]] = await db.query(
+      "SELECT id, attempt_count, graded_at, score, status FROM vine_community_submissions WHERE assignment_id = ? AND user_id = ? LIMIT 1",
+      [assignmentId, userId]
+    );
+
+    if (existing) {
+      const isGraded =
+        existing.graded_at !== null ||
+        existing.score !== null ||
+        ["graded", "needs_revision", "missing"].includes(String(existing.status || "").toLowerCase());
+      if (isGraded) {
+        return res.status(403).json({ message: "Assignment already graded. Resubmission is closed." });
+      }
+      const attempts = Number(existing.attempt_count || 1);
+      if (attempts >= 2) {
+        return res.status(403).json({ message: "Submission limit reached (2 attempts)." });
+      }
+      await db.query(
+        `
+        UPDATE vine_community_submissions
+        SET content = ?, attempt_count = attempt_count + 1, status = 'resubmitted', submitted_at = NOW(), updated_at = NOW()
+        WHERE id = ?
+        `,
+        [content, existing.id]
+      );
+    } else {
+      await db.query(
+        `
+        INSERT INTO vine_community_submissions
+        (assignment_id, community_id, user_id, content, attempt_count, status, submitted_at)
+        VALUES (?, ?, ?, ?, 1, 'submitted', NOW())
+        `,
+        [assignmentId, communityId, userId, content]
+      );
+    }
+
+    const [[assignmentMeta]] = await db.query(
+      `
+      SELECT a.title, c.slug AS community_slug
+      FROM vine_community_assignments a
+      LEFT JOIN vine_communities c ON c.id = a.community_id
+      WHERE a.id = ? AND a.community_id = ?
+      LIMIT 1
+      `,
+      [assignmentId, communityId]
+    );
+    const [mods] = await db.query(
+      `
+      SELECT user_id
+      FROM vine_community_members
+      WHERE community_id = ?
+        AND LOWER(role) IN ('owner', 'moderator')
+        AND user_id != ?
+      `,
+      [communityId, userId]
+    );
+    for (const row of mods) {
+      await notifyUser({
+        userId: row.user_id,
+        actorId: userId,
+        type: "community_assignment_submission",
+        meta: {
+          community_id: communityId,
+          community_slug: assignmentMeta?.community_slug || null,
+          assignment_id: assignmentId,
+          assignment_title: assignmentMeta?.title || null,
+          submitted_at: new Date().toISOString(),
+          attempt_count: existing ? Number(existing.attempt_count || 1) + 1 : 1,
+          is_resubmission: Boolean(existing),
+        },
+      });
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Submit assignment error:", err);
+    res.status(500).json({ message: "Failed to submit assignment" });
+  }
+});
+
+router.get("/communities/:id/assignments/:assignmentId/submissions", authenticate, async (req, res) => {
+  try {
+    await ensureCommunitySchema();
+    const userId = Number(req.user.id);
+    const communityId = Number(req.params.id);
+    const assignmentId = Number(req.params.assignmentId);
+    if (!communityId || !assignmentId) return res.status(400).json([]);
+    const role = await getCommunityRole(communityId, userId);
+    if (!isCommunityModOrOwner(role)) return res.status(403).json([]);
+
+    const [rows] = await db.query(
+      `
+      SELECT
+        s.id,
+        s.assignment_id,
+        s.user_id,
+        s.content,
+        s.status,
+        s.score,
+        s.feedback,
+        s.submitted_at,
+        s.graded_at,
+        u.username,
+        u.display_name,
+        u.avatar_url,
+        u.is_verified
+      FROM vine_community_submissions s
+      JOIN vine_users u ON u.id = s.user_id
+      WHERE s.community_id = ?
+        AND s.assignment_id = ?
+      ORDER BY s.submitted_at DESC
+      `,
+      [communityId, assignmentId]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error("Get assignment submissions error:", err);
+    res.status(500).json([]);
+  }
+});
+
+router.patch("/communities/:id/submissions/:submissionId/grade", authenticate, async (req, res) => {
+  try {
+    await ensureCommunitySchema();
+    const userId = Number(req.user.id);
+    const communityId = Number(req.params.id);
+    const submissionId = Number(req.params.submissionId);
+    const scoreRaw = req.body?.score;
+    const feedback = String(req.body?.feedback || "").trim();
+    const requestedStatus = String(req.body?.status || "graded").trim().toLowerCase();
+    const status = ["graded", "needs_revision", "missing"].includes(requestedStatus)
+      ? requestedStatus
+      : "graded";
+    const score = scoreRaw === "" || scoreRaw === null || scoreRaw === undefined ? null : Number(scoreRaw);
+    if (!communityId || !submissionId) return res.status(400).json({ message: "Invalid request" });
+    const role = await getCommunityRole(communityId, userId);
+    if (!isCommunityModOrOwner(role)) return res.status(403).json({ message: "Not allowed" });
+    if (score !== null && !Number.isFinite(score)) return res.status(400).json({ message: "Invalid score" });
+
+    const [[submission]] = await db.query(
+      `
+      SELECT
+        s.id,
+        s.user_id,
+        s.assignment_id,
+        a.title AS assignment_title,
+        a.points AS assignment_points,
+        c.slug AS community_slug
+      FROM vine_community_submissions s
+      JOIN vine_community_assignments a ON a.id = s.assignment_id
+      LEFT JOIN vine_communities c ON c.id = s.community_id
+      WHERE s.id = ? AND s.community_id = ?
+      LIMIT 1
+      `,
+      [submissionId, communityId]
+    );
+    if (!submission) return res.status(404).json({ message: "Submission not found" });
+
+    await db.query(
+      `
+      UPDATE vine_community_submissions
+      SET score = ?, feedback = ?, status = ?, graded_at = NOW(), graded_by = ?, updated_at = NOW()
+      WHERE id = ? AND community_id = ?
+      `,
+      [score, feedback || null, status || "graded", userId, submissionId, communityId]
+    );
+
+    if (Number(submission.user_id) !== userId) {
+      await notifyUser({
+        userId: submission.user_id,
+        actorId: userId,
+        type: "community_assignment_graded",
+        meta: {
+          community_id: communityId,
+          community_slug: submission.community_slug || null,
+          assignment_id: Number(submission.assignment_id || 0),
+          assignment_title: submission.assignment_title || null,
+          assignment_points: submission.assignment_points ?? null,
+          submission_id: submissionId,
+          score: score,
+          status: status || "graded",
+        },
+      });
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Grade submission error:", err);
+    res.status(500).json({ message: "Failed to grade submission" });
+  }
+});
+
+router.get("/communities/:id/gradebook", authenticate, async (req, res) => {
+  try {
+    await ensureCommunitySchema();
+    const userId = Number(req.user.id);
+    const communityId = Number(req.params.id);
+    if (!communityId) return res.status(400).json([]);
+    const role = await getCommunityRole(communityId, userId);
+    if (!isCommunityModOrOwner(role)) return res.status(403).json([]);
+
+    const [rows] = await db.query(
+      `
+      SELECT
+        a.id AS assignment_id,
+        a.title AS assignment_title,
+        a.points AS assignment_points,
+        a.due_at AS assignment_due_at,
+        u.id AS learner_id,
+        u.username AS learner_username,
+        u.display_name AS learner_display_name,
+        s.id AS submission_id,
+        s.status AS submission_status,
+        s.score AS submission_score,
+        s.submitted_at AS submitted_at,
+        s.graded_at AS graded_at
+      FROM vine_community_assignments a
+      JOIN vine_community_members m ON m.community_id = a.community_id
+      JOIN vine_users u ON u.id = m.user_id
+      LEFT JOIN vine_community_submissions s
+        ON s.assignment_id = a.id
+       AND s.user_id = u.id
+      WHERE a.community_id = ?
+      ORDER BY a.created_at DESC, u.username ASC
+      `,
+      [communityId]
+    );
+
+    if (String(req.query.format || "").toLowerCase() === "csv") {
+      const csvHeader = [
+        "assignment_id",
+        "assignment_title",
+        "assignment_points",
+        "assignment_due_at",
+        "learner_id",
+        "learner_username",
+        "learner_display_name",
+        "submission_id",
+        "submission_status",
+        "submission_score",
+        "submitted_at",
+        "graded_at",
+      ];
+      const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+      const lines = [csvHeader.join(",")];
+      for (const row of rows) {
+        lines.push(
+          [
+            row.assignment_id,
+            row.assignment_title,
+            row.assignment_points,
+            row.assignment_due_at ? new Date(row.assignment_due_at).toISOString() : "",
+            row.learner_id,
+            row.learner_username,
+            row.learner_display_name,
+            row.submission_id,
+            row.submission_status,
+            row.submission_score,
+            row.submitted_at ? new Date(row.submitted_at).toISOString() : "",
+            row.graded_at ? new Date(row.graded_at).toISOString() : "",
+          ]
+            .map(esc)
+            .join(",")
+        );
+      }
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="community-${communityId}-gradebook.csv"`);
+      return res.status(200).send(lines.join("\n"));
+    }
+
+    res.json(rows);
+  } catch (err) {
+    console.error("Get gradebook error:", err);
+    res.status(500).json([]);
+  }
+});
+
+router.get("/communities/:id/badges-streaks", authenticate, async (req, res) => {
+  try {
+    await ensureCommunitySchema();
+    const viewerId = Number(req.user.id);
+    const communityId = Number(req.params.id);
+    if (!communityId) return res.status(400).json([]);
+    const role = await getCommunityRole(communityId, viewerId);
+    if (!role) return res.status(403).json([]);
+
+    const [members] = await db.query(
+      `
+      SELECT u.id, u.username, u.display_name, u.avatar_url, u.is_verified
+      FROM vine_community_members m
+      JOIN vine_users u ON u.id = m.user_id
+      WHERE m.community_id = ?
+      ORDER BY u.username ASC
+      `,
+      [communityId]
+    );
+
+    const [rows] = await db.query(
+      `
+      SELECT
+        s.user_id,
+        s.assignment_id,
+        s.submitted_at,
+        s.score,
+        a.points,
+        a.due_at
+      FROM vine_community_submissions s
+      JOIN vine_community_assignments a ON a.id = s.assignment_id
+      WHERE s.community_id = ?
+      `,
+      [communityId]
+    );
+
+    const byUser = new Map();
+    for (const row of rows) {
+      const key = Number(row.user_id);
+      if (!byUser.has(key)) byUser.set(key, []);
+      byUser.get(key).push(row);
+    }
+
+    const result = members.map((m) => {
+      const submissions = byUser.get(Number(m.id)) || [];
+      let totalOnTime = 0;
+      let perfectCount = 0;
+      let gradedCount = 0;
+      let gradedTotal = 0;
+
+      for (const s of submissions) {
+        const dueAt = s.due_at ? new Date(s.due_at) : null;
+        const submittedAt = s.submitted_at ? new Date(s.submitted_at) : null;
+        if (dueAt && submittedAt && submittedAt.getTime() <= dueAt.getTime()) {
+          totalOnTime += 1;
+        }
+        if (
+          s.score !== null &&
+          s.score !== undefined &&
+          Number.isFinite(Number(s.score)) &&
+          Number.isFinite(Number(s.points)) &&
+          Number(s.points) > 0 &&
+          Number(s.score) >= Number(s.points)
+        ) {
+          perfectCount += 1;
+        }
+        if (s.score !== null && s.score !== undefined && Number.isFinite(Number(s.score))) {
+          gradedCount += 1;
+          gradedTotal += Number(s.score);
+        }
+      }
+
+      // Current streak: walk recent due assignments until first late/missing submission.
+      const dueMap = new Map();
+      for (const s of submissions) {
+        if (!s.due_at) continue;
+        const aid = Number(s.assignment_id);
+        const dueAt = new Date(s.due_at).getTime();
+        const submittedAt = s.submitted_at ? new Date(s.submitted_at).getTime() : null;
+        const onTime = submittedAt !== null && submittedAt <= dueAt;
+        if (!dueMap.has(aid)) {
+          dueMap.set(aid, { dueAt, onTime });
+        } else if (onTime) {
+          // if any attempt for this assignment was on-time, count it as on-time
+          const prev = dueMap.get(aid);
+          dueMap.set(aid, { dueAt: prev.dueAt, onTime: true });
+        }
+      }
+      const dueEntries = [...dueMap.values()].sort((a, b) => b.dueAt - a.dueAt);
+      let currentStreak = 0;
+      for (const e of dueEntries) {
+        if (e.onTime) currentStreak += 1;
+        else break;
+      }
+
+      const avgScore = gradedCount > 0 ? Number((gradedTotal / gradedCount).toFixed(2)) : null;
+      const badges = [];
+      if (currentStreak >= 3) badges.push("🔥 On-Time Streak");
+      if (perfectCount >= 1) badges.push("🎯 Perfect Score");
+      if (submissions.length >= 5) badges.push("📚 Consistent Learner");
+      if (avgScore !== null && avgScore >= 2.7 && gradedCount >= 3) badges.push("🏅 High Achiever");
+
+      return {
+        ...m,
+        submission_count: submissions.length,
+        total_on_time: totalOnTime,
+        current_streak: currentStreak,
+        avg_score: avgScore,
+        badges,
+      };
+    });
+
+    res.json(result);
+  } catch (err) {
+    console.error("Community badges/streaks error:", err);
     res.status(500).json([]);
   }
 });

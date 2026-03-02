@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import VinePostCard from "./VinePostCard";
 import "./VineCommunities.css";
 
@@ -17,6 +17,7 @@ export default function VineCommunities() {
   const token = localStorage.getItem("vine_token");
   const navigate = useNavigate();
   const { slug } = useParams();
+  const [searchParams] = useSearchParams();
   const DEFAULT_AVATAR = "/default-avatar.png";
   const [communities, setCommunities] = useState([]);
   const [activeCommunity, setActiveCommunity] = useState(null);
@@ -41,6 +42,17 @@ export default function VineCommunities() {
   const [eventLocation, setEventLocation] = useState("");
   const [eventDescription, setEventDescription] = useState("");
   const [mediaPosts, setMediaPosts] = useState([]);
+  const [assignments, setAssignments] = useState([]);
+  const [assignmentTitle, setAssignmentTitle] = useState("");
+  const [assignmentInstructions, setAssignmentInstructions] = useState("");
+  const [assignmentDueAt, setAssignmentDueAt] = useState("");
+  const [assignmentPoints, setAssignmentPoints] = useState(3);
+  const [assignmentRubric, setAssignmentRubric] = useState("");
+  const [submissionDrafts, setSubmissionDrafts] = useState({});
+  const [selectedAssignmentId, setSelectedAssignmentId] = useState(null);
+  const [assignmentSubmissions, setAssignmentSubmissions] = useState([]);
+  const [gradingDrafts, setGradingDrafts] = useState({});
+  const [badgesStreaks, setBadgesStreaks] = useState([]);
   const [reputation, setReputation] = useState([]);
   const [reports, setReports] = useState([]);
   const [topicFilter, setTopicFilter] = useState("");
@@ -85,7 +97,7 @@ export default function VineCommunities() {
         return;
       }
 
-      const [pRes, mRes, rulesRes, questionsRes, eventsRes, mediaRes] = await Promise.all([
+      const [pRes, mRes, rulesRes, questionsRes, eventsRes, mediaRes, assignmentsRes] = await Promise.all([
         fetch(
           `${API}/api/vine/communities/${encodeURIComponent(communitySlug)}/posts${nextTopic ? `?topic=${encodeURIComponent(nextTopic)}` : ""}`,
           { headers: { Authorization: `Bearer ${token}` } }
@@ -105,6 +117,9 @@ export default function VineCommunities() {
         fetch(`${API}/api/vine/communities/${encodeURIComponent(communitySlug)}/media`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
+        fetch(`${API}/api/vine/communities/${encodeURIComponent(communitySlug)}/assignments`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
       ]);
       const pData = await pRes.json().catch(() => []);
       const mData = await mRes.json().catch(() => []);
@@ -112,6 +127,7 @@ export default function VineCommunities() {
       const qData = await questionsRes.json().catch(() => []);
       const eventsData = await eventsRes.json().catch(() => []);
       const mediaData = await mediaRes.json().catch(() => []);
+      const assignmentsData = await assignmentsRes.json().catch(() => []);
       setActiveCommunity(cData);
       setPosts(Array.isArray(pData) ? pData : []);
       setMembers(Array.isArray(mData) ? mData : []);
@@ -119,6 +135,7 @@ export default function VineCommunities() {
       setQuestions(Array.isArray(qData) ? qData : []);
       setEvents(Array.isArray(eventsData) ? eventsData : []);
       setMediaPosts(Array.isArray(mediaData) ? mediaData : []);
+      setAssignments(Array.isArray(assignmentsData) ? assignmentsData : []);
       setJoinPolicy(cData?.join_policy || "open");
       setPostPermission(cData?.post_permission || "all");
       setAutoWelcomeEnabled(Number(cData?.auto_welcome_enabled ?? 1) === 1);
@@ -131,6 +148,7 @@ export default function VineCommunities() {
       setQuestions([]);
       setEvents([]);
       setMediaPosts([]);
+      setAssignments([]);
     }
   };
 
@@ -141,6 +159,24 @@ export default function VineCommunities() {
   useEffect(() => {
     loadCommunityDetail(slug, topicFilter);
   }, [slug, topicFilter]);
+
+  useEffect(() => {
+    const tab = String(searchParams.get("tab") || "").toLowerCase();
+    const allowed = new Set([
+      "discussion",
+      "about",
+      "members",
+      "events",
+      "assignments",
+      "media",
+      "reputation",
+      "reports",
+      "settings",
+    ]);
+    if (allowed.has(tab)) {
+      setActiveTab(tab);
+    }
+  }, [searchParams]);
 
   const createCommunity = async () => {
     const trimmedName = name.trim();
@@ -274,6 +310,47 @@ export default function VineCommunities() {
     }
   };
 
+  const loadBadgesStreaks = async () => {
+    if (!activeCommunity?.id) return;
+    try {
+      const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/badges-streaks`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      setBadgesStreaks(Array.isArray(data) ? data : []);
+    } catch {
+      setBadgesStreaks([]);
+    }
+  };
+
+  const loadAssignmentSubmissions = async (assignmentId) => {
+    if (!activeCommunity?.id || !assignmentId) return;
+    try {
+      const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/assignments/${assignmentId}/submissions`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      const rows = Array.isArray(data) ? data : [];
+      setAssignmentSubmissions(rows);
+      const initialDrafts = {};
+      rows.forEach((row) => {
+        const normalized = String(row.status || "").toLowerCase();
+        const safeStatus = ["graded", "needs_revision", "missing"].includes(normalized)
+          ? normalized
+          : "graded";
+        initialDrafts[row.id] = {
+          score: row.score ?? "",
+          feedback: row.feedback || "",
+          status: safeStatus,
+        };
+      });
+      setGradingDrafts(initialDrafts);
+    } catch {
+      setAssignmentSubmissions([]);
+      setGradingDrafts({});
+    }
+  };
+
   useEffect(() => {
     if (activeTab === "settings" && activeCommunity && ["owner", "moderator"].includes(String(activeCommunity.viewer_role || "").toLowerCase())) {
       loadRequests();
@@ -283,6 +360,7 @@ export default function VineCommunities() {
 
   useEffect(() => {
     if (activeTab === "reputation" && activeCommunity?.id) loadReputation();
+    if (activeTab === "assignments" && activeCommunity?.id) loadBadgesStreaks();
     if (activeTab === "reports" && activeCommunity && ["owner", "moderator"].includes(String(activeCommunity.viewer_role || "").toLowerCase())) {
       loadReports();
     }
@@ -431,6 +509,170 @@ export default function VineCommunities() {
     } catch {
       alert("Failed to post");
     }
+  };
+
+  const createAssignment = async () => {
+    if (!activeCommunity?.id || !assignmentTitle.trim()) return;
+    try {
+      const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/assignments`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          title: assignmentTitle.trim(),
+          instructions: assignmentInstructions.trim(),
+          due_at: assignmentDueAt || null,
+          points: Number(assignmentPoints || 100),
+          rubric: assignmentRubric.trim(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || "Failed to create assignment");
+        return;
+      }
+      setAssignmentTitle("");
+      setAssignmentInstructions("");
+      setAssignmentDueAt("");
+      setAssignmentPoints(3);
+      setAssignmentRubric("");
+      await loadCommunityDetail(activeCommunity.slug, topicFilter);
+      alert("Assignment created");
+    } catch {
+      alert("Failed to create assignment");
+    }
+  };
+
+  const submitAssignment = async (assignmentId) => {
+    if (!activeCommunity?.id || !assignmentId) return;
+    const text = String(submissionDrafts[assignmentId] || "").trim();
+    if (!text) return;
+    try {
+      const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/assignments/${assignmentId}/submissions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ content: text }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || "Failed to submit assignment");
+        return;
+      }
+      setSubmissionDrafts((prev) => ({ ...prev, [assignmentId]: "" }));
+      await loadCommunityDetail(activeCommunity.slug, topicFilter);
+      alert("Assignment submitted");
+    } catch {
+      alert("Failed to submit assignment");
+    }
+  };
+
+  const deleteAssignment = async (assignmentId) => {
+    if (!activeCommunity?.id || !assignmentId) return;
+    const ok = window.confirm("Delete this assignment and all submissions?");
+    if (!ok) return;
+    try {
+      const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/assignments/${assignmentId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || "Failed to delete assignment");
+        return;
+      }
+      if (Number(selectedAssignmentId) === Number(assignmentId)) {
+        setSelectedAssignmentId(null);
+        setAssignmentSubmissions([]);
+        setGradingDrafts({});
+      }
+      await loadCommunityDetail(activeCommunity.slug, topicFilter);
+      alert("Assignment deleted");
+    } catch {
+      alert("Failed to delete assignment");
+    }
+  };
+
+  const gradeSubmission = async (submissionId) => {
+    if (!activeCommunity?.id || !submissionId) return;
+    const draft = gradingDrafts[submissionId] || {};
+    try {
+      const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/submissions/${submissionId}/grade`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          score: draft.score,
+          feedback: draft.feedback,
+          status: draft.status || "graded",
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || "Failed to save grade");
+        return;
+      }
+      alert("Grade saved");
+      setAssignmentSubmissions((prev) =>
+        prev.map((s) =>
+          s.id === submissionId
+            ? {
+                ...s,
+                score: draft.score === "" || draft.score === null || draft.score === undefined ? null : Number(draft.score),
+                feedback: draft.feedback || "",
+                status: draft.status || "graded",
+                graded_at: new Date().toISOString(),
+              }
+            : s
+        )
+      );
+      if (selectedAssignmentId) {
+        await loadAssignmentSubmissions(selectedAssignmentId);
+      }
+      await loadCommunityDetail(activeCommunity.slug, topicFilter);
+    } catch {
+      alert("Failed to save grade");
+    }
+  };
+
+  const exportGradebookCsv = async () => {
+    if (!activeCommunity?.id) return;
+    try {
+      const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/gradebook?format=csv`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        alert("Failed to export CSV");
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `community-${activeCommunity.id}-gradebook.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      alert("Failed to export CSV");
+    }
+  };
+
+  const toggleAssignmentReview = async (assignmentId) => {
+    if (!assignmentId) return;
+    if (Number(selectedAssignmentId) === Number(assignmentId)) {
+      setSelectedAssignmentId(null);
+      setAssignmentSubmissions([]);
+      setGradingDrafts({});
+      return;
+    }
+    setSelectedAssignmentId(assignmentId);
+    await loadAssignmentSubmissions(assignmentId);
   };
 
   const scheduleCommunityPost = async () => {
@@ -586,6 +828,14 @@ export default function VineCommunities() {
     if (res.ok) loadCommunityDetail(activeCommunity.slug, topicFilter);
   };
 
+  const isCommunityMod = ["owner", "moderator"].includes(String(activeCommunity?.viewer_role || "").toLowerCase());
+  const isAssignmentPastDue = (assignment) => {
+    if (!assignment?.due_at) return false;
+    const due = new Date(assignment.due_at);
+    if (Number.isNaN(due.getTime())) return false;
+    return due.getTime() < Date.now();
+  };
+
   return (
     <div className="vine-communities-page">
       <div className="communities-top">
@@ -699,6 +949,7 @@ export default function VineCommunities() {
                 <button className={activeTab === "about" ? "active" : ""} onClick={() => setActiveTab("about")}>About</button>
                 <button className={activeTab === "members" ? "active" : ""} onClick={() => setActiveTab("members")}>Members</button>
                 <button className={activeTab === "events" ? "active" : ""} onClick={() => setActiveTab("events")}>Events</button>
+                <button className={activeTab === "assignments" ? "active" : ""} onClick={() => setActiveTab("assignments")}>Assignments</button>
                 <button className={activeTab === "media" ? "active" : ""} onClick={() => setActiveTab("media")}>Media</button>
                 <button className={activeTab === "reputation" ? "active" : ""} onClick={() => setActiveTab("reputation")}>Reputation</button>
                 {["owner", "moderator"].includes(String(activeCommunity.viewer_role || "").toLowerCase()) && (
@@ -709,17 +960,13 @@ export default function VineCommunities() {
                 )}
               </div>
 
-              <div className="community-body-grid">
+              <div
+                className={`community-body-grid ${
+                  activeTab === "discussion" ? "discussion-only" : ""
+                } ${activeTab === "assignments" ? "assignments-only" : ""}`}
+              >
                 {activeTab === "discussion" && (
-                  <>
-                    <aside className="community-info-card">
-                      <h4>About</h4>
-                      <p>{activeCommunity.description || "No description yet."}</p>
-                      <div className="community-info-line">
-                        Created: {new Date(activeCommunity.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                      </div>
-                    </aside>
-                    <section className="community-discussion">
+                  <section className="community-discussion">
                       <div className="discussion-top">
                         <h4>Discussion</h4>
                         <div className="discussion-hint">
@@ -802,7 +1049,6 @@ export default function VineCommunities() {
                         )}
                       </div>
                     </section>
-                  </>
                 )}
                 {activeTab === "about" && (
                   <section className="community-about-panel">
@@ -879,6 +1125,236 @@ export default function VineCommunities() {
                             {ev.description && <div className="member-meta">{ev.description}</div>}
                           </div>
                         ))
+                      )}
+                    </div>
+                  </section>
+                )}
+                {activeTab === "assignments" && (
+                  <section className="community-settings-panel">
+                    <div className="assignment-top-row">
+                      <h4>Assignments</h4>
+                      {isCommunityMod && (
+                        <button onClick={exportGradebookCsv}>Export Gradebook CSV</button>
+                      )}
+                    </div>
+                    {isCommunityMod && (
+                      <div className="assignment-create-grid">
+                        <input
+                          placeholder="Assignment title"
+                          value={assignmentTitle}
+                          onChange={(e) => setAssignmentTitle(e.target.value)}
+                          maxLength={160}
+                        />
+                        <textarea
+                          placeholder="Instructions"
+                          value={assignmentInstructions}
+                          onChange={(e) => setAssignmentInstructions(e.target.value)}
+                        />
+                        <input
+                          type="datetime-local"
+                          value={assignmentDueAt}
+                          onChange={(e) => setAssignmentDueAt(e.target.value)}
+                        />
+                        <input
+                          type="number"
+                          min={0.9}
+                          max={3}
+                          step={0.1}
+                          value={assignmentPoints}
+                          onChange={(e) => setAssignmentPoints(e.target.value)}
+                          placeholder="Points"
+                        />
+                        <textarea
+                          placeholder="Rubric (optional)"
+                          value={assignmentRubric}
+                          onChange={(e) => setAssignmentRubric(e.target.value)}
+                        />
+                        <button onClick={createAssignment}>Create Assignment</button>
+                      </div>
+                    )}
+                    <div className="assignments-list">
+                      {assignments.length === 0 ? (
+                        <div className="community-empty">No assignments yet.</div>
+                      ) : (
+                        assignments.map((a) => {
+                          const draftValue = submissionDrafts[a.id] || "";
+                          const viewerStatus = a.viewer_submission_status || "";
+                          const pastDue = isAssignmentPastDue(a);
+                          const attempts = Number(a.viewer_submission_attempts || 0);
+                          const submissionLocked = attempts >= 2;
+                          const gradedLocked =
+                            Boolean(a.viewer_submission_graded_at) ||
+                            a.viewer_submission_score !== null && a.viewer_submission_score !== undefined ||
+                            ["graded", "needs_revision", "missing"].includes(
+                              String(viewerStatus || "").toLowerCase()
+                            );
+                          return (
+                            <div key={a.id} className={`assignment-row ${isCommunityMod ? "mod-view" : ""}`}>
+                              <div className="member-name">{a.title}</div>
+                              <div className="member-meta">
+                                Due: {a.due_at ? new Date(a.due_at).toLocaleString() : "No due date"} • Points: {a.points}
+                              </div>
+                              {pastDue && (
+                                <div className="assignment-due-warning">Submission window closed (past due date)</div>
+                              )}
+                              {a.instructions && <div className="assignment-body">{a.instructions}</div>}
+                              {a.rubric && <div className="assignment-rubric">Rubric: {a.rubric}</div>}
+                              <div className="member-meta">
+                                Submissions: {a.submission_count || 0}
+                                {a.viewer_submission_status ? ` • Your status: ${a.viewer_submission_status}` : ""}
+                                {a.viewer_submission_score !== null && a.viewer_submission_score !== undefined ? ` • Score: ${a.viewer_submission_score}` : ""}
+                                {attempts > 0 ? ` • Attempts: ${attempts}/2` : ""}
+                              </div>
+                              {!isCommunityMod && Number(activeCommunity.is_member) === 1 && (
+                                <>
+                                  {!submissionLocked && !gradedLocked ? (
+                                    <div className="assignment-submit-row">
+                                      <textarea
+                                        placeholder="Write your answer/submission"
+                                        value={draftValue}
+                                        onChange={(e) =>
+                                          setSubmissionDrafts((prev) => ({ ...prev, [a.id]: e.target.value }))
+                                        }
+                                        disabled={pastDue}
+                                      />
+                                      <button onClick={() => submitAssignment(a.id)} disabled={pastDue}>
+                                        {viewerStatus ? "Resubmit" : "Submit"}
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <div className="assignment-lock-note">
+                                      {gradedLocked
+                                        ? "Assignment already graded. Resubmission is closed."
+                                        : "Submission locked: you already used 2/2 attempts."}
+                                    </div>
+                                  )}
+                                </>
+                              )}
+                              {isCommunityMod && (
+                                <div className="assignment-mod-row">
+                                  <button onClick={() => toggleAssignmentReview(a.id)}>
+                                    {selectedAssignmentId === a.id ? "Hide submissions" : "Review submissions"}
+                                  </button>
+                                  <button
+                                    className="assignment-delete-btn"
+                                    onClick={() => deleteAssignment(a.id)}
+                                  >
+                                    Delete assignment
+                                  </button>
+                                </div>
+                              )}
+                              {isCommunityMod && selectedAssignmentId === a.id && (
+                                <div className="assignment-submissions">
+                                  <div className="assignment-submissions-head">
+                                    <strong>Submissions</strong>
+                                    <button
+                                      type="button"
+                                      className="assignment-submissions-close"
+                                      onClick={() => toggleAssignmentReview(a.id)}
+                                    >
+                                      Close
+                                    </button>
+                                  </div>
+                                  {assignmentSubmissions.length === 0 ? (
+                                    <div className="community-empty">No submissions yet.</div>
+                                  ) : (
+                                    assignmentSubmissions.map((s) => {
+                                      const draft = gradingDrafts[s.id] || { score: "", feedback: "", status: "graded" };
+                                      return (
+                                        <div key={s.id} className="assignment-submission-item">
+                                          <div className="member-name">{s.display_name || s.username}</div>
+                                          <div className="member-meta">@{s.username} • {new Date(s.submitted_at).toLocaleString()}</div>
+                                          <div className="assignment-body">{s.content || "No content"}</div>
+                                          <div className="assignment-grade-grid">
+                                            <input
+                                              type="number"
+                                              step="0.1"
+                                              min={0}
+                                              max={a.points || 3}
+                                              value={draft.score}
+                                              onChange={(e) =>
+                                                setGradingDrafts((prev) => ({
+                                                  ...prev,
+                                                  [s.id]: { ...draft, score: e.target.value },
+                                                }))
+                                              }
+                                              placeholder="Score"
+                                            />
+                                            <select
+                                              value={draft.status || "graded"}
+                                              onChange={(e) =>
+                                                setGradingDrafts((prev) => ({
+                                                  ...prev,
+                                                  [s.id]: { ...draft, status: e.target.value },
+                                                }))
+                                              }
+                                            >
+                                              <option value="graded">graded</option>
+                                              <option value="needs_revision">needs revision</option>
+                                              <option value="missing">missing</option>
+                                            </select>
+                                            <textarea
+                                              placeholder="Feedback"
+                                              value={draft.feedback || ""}
+                                              onChange={(e) =>
+                                                setGradingDrafts((prev) => ({
+                                                  ...prev,
+                                                  [s.id]: { ...draft, feedback: e.target.value },
+                                                }))
+                                              }
+                                            />
+                                            <button onClick={() => gradeSubmission(s.id)}>Save Grade</button>
+                                          </div>
+                                        </div>
+                                      );
+                                    })
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                    <div className="assignment-badges-panel">
+                      <h5>Badges & Streaks</h5>
+                      {badgesStreaks.length === 0 ? (
+                        <div className="community-empty">No learner streak data yet.</div>
+                      ) : (
+                        <div className="assignment-badges-list">
+                          {badgesStreaks.map((row) => (
+                            <button
+                              key={`badge-${row.id}`}
+                              className="assignment-badge-row"
+                              onClick={() => navigate(`/vine/profile/${row.username}`)}
+                            >
+                              <img
+                                src={
+                                  row.avatar_url
+                                    ? (row.avatar_url.startsWith("http") ? row.avatar_url : `${API}${row.avatar_url}`)
+                                    : DEFAULT_AVATAR
+                                }
+                                alt={row.username}
+                                onError={(e) => {
+                                  e.currentTarget.src = DEFAULT_AVATAR;
+                                }}
+                              />
+                              <div>
+                                <div className="member-name">{row.display_name || row.username}</div>
+                                <div className="member-meta">
+                                  Streak: {row.current_streak || 0} • On-time: {row.total_on_time || 0} • Avg: {row.avg_score ?? "-"}
+                                </div>
+                                <div className="assignment-badges-chips">
+                                  {(row.badges || []).length > 0
+                                    ? row.badges.map((b) => (
+                                        <span key={`${row.id}-${b}`} className="assignment-badge-chip">{b}</span>
+                                      ))
+                                    : <span className="assignment-badge-chip muted">No badge yet</span>}
+                                </div>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
                       )}
                     </div>
                   </section>

@@ -25,7 +25,6 @@ export default function VineCommunities() {
   const [members, setMembers] = useState([]);
   const [activeTab, setActiveTab] = useState("discussion");
   const [joinPolicy, setJoinPolicy] = useState("open");
-  const [postPermission, setPostPermission] = useState("all");
   const [autoWelcomeEnabled, setAutoWelcomeEnabled] = useState(true);
   const [welcomeMessage, setWelcomeMessage] = useState("");
   const [pendingRequests, setPendingRequests] = useState([]);
@@ -47,7 +46,7 @@ export default function VineCommunities() {
   const [assignmentTitle, setAssignmentTitle] = useState("");
   const [assignmentInstructions, setAssignmentInstructions] = useState("");
   const [assignmentDueAt, setAssignmentDueAt] = useState("");
-  const [assignmentPoints, setAssignmentPoints] = useState(3);
+  const [assignmentPoints, setAssignmentPoints] = useState(100);
   const [assignmentRubric, setAssignmentRubric] = useState("");
   const [assignmentFile, setAssignmentFile] = useState(null);
   const [submissionDrafts, setSubmissionDrafts] = useState({});
@@ -146,7 +145,6 @@ export default function VineCommunities() {
       setMediaPosts(Array.isArray(mediaData) ? mediaData : []);
       setAssignments(Array.isArray(assignmentsData) ? assignmentsData : []);
       setJoinPolicy(cData?.join_policy || "open");
-      setPostPermission(cData?.post_permission || "all");
       setAutoWelcomeEnabled(Number(cData?.auto_welcome_enabled ?? 1) === 1);
       setWelcomeMessage(cData?.welcome_message || "");
     } catch {
@@ -386,7 +384,7 @@ export default function VineCommunities() {
         },
         body: JSON.stringify({
           join_policy: joinPolicy,
-          post_permission: postPermission,
+          post_permission: "mods_only",
           auto_welcome_enabled: autoWelcomeEnabled ? 1 : 0,
           welcome_message: welcomeMessage,
         }),
@@ -401,7 +399,7 @@ export default function VineCommunities() {
           ? {
               ...prev,
               join_policy: joinPolicy,
-              post_permission: postPermission,
+              post_permission: "mods_only",
               auto_welcome_enabled: autoWelcomeEnabled ? 1 : 0,
               welcome_message: welcomeMessage,
             }
@@ -529,7 +527,7 @@ export default function VineCommunities() {
       formData.append("title", assignmentTitle.trim());
       formData.append("instructions", assignmentInstructions.trim());
       formData.append("due_at", assignmentDueAt || "");
-      formData.append("points", String(Number(assignmentPoints || 3)));
+      formData.append("points", String(Number(assignmentPoints || 100)));
       formData.append("rubric", assignmentRubric.trim());
       if (assignmentFile) formData.append("assignment_file", assignmentFile);
 
@@ -553,7 +551,7 @@ export default function VineCommunities() {
       setAssignmentTitle("");
       setAssignmentInstructions("");
       setAssignmentDueAt("");
-      setAssignmentPoints(3);
+      setAssignmentPoints(100);
       setAssignmentRubric("");
       setAssignmentFile(null);
       await loadCommunityDetail(activeCommunity.slug, topicFilter);
@@ -1031,8 +1029,7 @@ export default function VineCommunities() {
                         </div>
                       </div>
                       {Number(activeCommunity.is_member) === 1 &&
-                      (String(activeCommunity.post_permission || "all") !== "mods_only" ||
-                        ["owner", "moderator"].includes(String(activeCommunity.viewer_role || "").toLowerCase())) ? (
+                      ["owner", "moderator"].includes(String(activeCommunity.viewer_role || "").toLowerCase()) ? (
                         <div className="community-create-box">
                           <div className="community-format-toolbar">
                             <button type="button" onClick={() => applyCommunityFormat("**")} title="Bold">B</button>
@@ -1090,7 +1087,7 @@ export default function VineCommunities() {
                         <div className="community-join-note">
                           {Number(activeCommunity.is_member) !== 1
                             ? "Join this group to post in discussion."
-                            : "Announcements mode is on. Only owner/moderators can post."}
+                            : "Only owner/moderators can post in Discussion. Members can still reply on community posts."}
                         </div>
                       )}
                       <div className="community-posts">
@@ -1128,7 +1125,7 @@ export default function VineCommunities() {
                     <div className="community-info-line">Members: {activeCommunity.member_count || 0}</div>
                     <div className="community-info-line">Visibility: {Number(activeCommunity.is_private) === 1 ? "Private" : "Public"}</div>
                     <div className="community-info-line">Join policy: {String(activeCommunity.join_policy || "open")}</div>
-                    <div className="community-info-line">Posting: {String(activeCommunity.post_permission || "all") === "mods_only" ? "Admins/Mods only" : "All members"}</div>
+                    <div className="community-info-line">Posting: Admins/Mods only</div>
                     {rules.length > 0 && (
                       <div className="rules-list">
                         <h5>Rules</h5>
@@ -1228,8 +1225,7 @@ export default function VineCommunities() {
                         />
                         <input
                           type="number"
-                          min={0.9}
-                          max={3}
+                          min={0.1}
                           step={0.1}
                           value={assignmentPoints}
                           onChange={(e) => setAssignmentPoints(e.target.value)}
@@ -1315,6 +1311,17 @@ export default function VineCommunities() {
                                 {a.viewer_submission_score !== null && a.viewer_submission_score !== undefined ? ` • Score: ${a.viewer_submission_score}` : ""}
                                 {attempts > 0 ? ` • Attempts: ${attempts}/2` : ""}
                               </div>
+                              {a.viewer_submission_content && (
+                                <div className="assignment-my-submission">
+                                  <div className="assignment-my-submission-title">
+                                    Your latest submission
+                                    {a.viewer_submitted_at
+                                      ? ` • ${new Date(a.viewer_submitted_at).toLocaleString()}`
+                                      : ""}
+                                  </div>
+                                  <div className="assignment-body">{a.viewer_submission_content}</div>
+                                </div>
+                              )}
                               {!isCommunityMod && Number(activeCommunity.is_member) === 1 && (
                                 <>
                                   {!submissionLocked && !gradedLocked ? (
@@ -1391,7 +1398,7 @@ export default function VineCommunities() {
                                               type="number"
                                               step="0.1"
                                               min={0}
-                                              max={a.points || 3}
+                                              max={Number(a.points) > 0 ? a.points : undefined}
                                               value={draft.score}
                                               onChange={(e) =>
                                                 setGradingDrafts((prev) => ({
@@ -1468,7 +1475,7 @@ export default function VineCommunities() {
                               <div>
                                 <div className="member-name">{row.display_name || row.username}</div>
                                 <div className="member-meta">
-                                  Streak: {row.current_streak || 0} • On-time: {row.total_on_time || 0} • Avg: {row.avg_score ?? "-"}
+                                  Streak: {row.current_streak || 0} • On-time: {row.total_on_time || 0} • Avg: {row.avg_score ?? "-"}{row.avg_percent !== null && row.avg_percent !== undefined ? ` (${row.avg_percent}%)` : ""}
                                 </div>
                                 <div className="assignment-badges-chips">
                                   {(row.badges || []).length > 0
@@ -1490,7 +1497,7 @@ export default function VineCommunities() {
                         <div><span>🔥</span> On-Time Streak = streak of 3+</div>
                         <div><span>🎯</span> Perfect Score = at least one full score</div>
                         <div><span>📚</span> Consistent Learner = 5+ submissions</div>
-                        <div><span>🏅</span> High Achiever = avg score 2.7+ (min 3 graded)</div>
+                        <div><span>🏅</span> High Achiever = average 85%+ (min 3 graded)</div>
                       </div>
                     </div>
                   </section>
@@ -1584,10 +1591,7 @@ export default function VineCommunities() {
                     </label>
                     <label className="settings-row">
                       <span>Who can post</span>
-                      <select value={postPermission} onChange={(e) => setPostPermission(e.target.value)}>
-                        <option value="all">All members</option>
-                        <option value="mods_only">Only owner/moderators</option>
-                      </select>
+                      <input value="Only owner/moderators" disabled readOnly />
                     </label>
                     <label className="settings-row">
                       <span>Auto welcome for new members</span>

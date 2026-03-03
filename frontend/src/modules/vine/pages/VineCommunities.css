@@ -960,6 +960,21 @@
   font-weight: 700;
 }
 
+.assignment-my-submission {
+  margin-top: 8px;
+  border: 1px solid #dbeafe;
+  background: #f8fbff;
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+
+.assignment-my-submission-title {
+  font-size: 0.8rem;
+  color: #334155;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
 .assignment-submit-row {
   margin-top: 8px;
   display: grid;

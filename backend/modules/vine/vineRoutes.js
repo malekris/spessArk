@@ -15,11 +15,57 @@ import sharp from "sharp";
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "vine_secret_key";
 
-const extractPublicId = (url) => {
-  const parts = url.split("/");
-  const filename = parts.pop().split(".")[0]; // abc123
-  const folder = parts.slice(parts.indexOf("upload") + 1).join("/");
-  return `${folder}/${filename}`;
+const extractCloudinaryPublicId = (rawUrl) => {
+  const asString = String(rawUrl || "").trim();
+  if (!asString) return null;
+  try {
+    const parsed = new URL(asString);
+    const pathParts = parsed.pathname.split("/").filter(Boolean);
+    const uploadIndex = pathParts.findIndex((p) => p === "upload");
+    if (uploadIndex < 0) return null;
+    const tail = pathParts.slice(uploadIndex + 1);
+    if (!tail.length) return null;
+    if (/^(image|video|raw)$/i.test(tail[0])) tail.shift();
+    if (/^(upload|private|authenticated)$/i.test(tail[0])) tail.shift();
+    if (tail[0] && /^v\d+$/i.test(tail[0])) tail.shift();
+    if (!tail.length) return null;
+    const last = tail[tail.length - 1] || "";
+    tail[tail.length - 1] = last.replace(/\.[^/.?#]+$/, "");
+    const publicId = tail.join("/");
+    return publicId || null;
+  } catch {
+    return null;
+  }
+};
+
+const isLikelyVideoUrl = (url) =>
+  /\/video\/upload\//i.test(url) || /\.(mp4|mov|webm|m4v|avi|mkv|ogv)(\?|$)/i.test(url);
+
+const isLikelyRawUrl = (url) =>
+  /\/raw\/upload\//i.test(url) || /\.pdf(\?|$)/i.test(url);
+
+const deleteCloudinaryByUrl = async (url) => {
+  const asString = String(url || "");
+  const publicId = extractCloudinaryPublicId(asString);
+  if (!publicId) return;
+
+  const resourceTypes = isLikelyRawUrl(asString)
+    ? ["raw"]
+    : isLikelyVideoUrl(asString)
+    ? ["video"]
+    : ["image", "video", "raw"];
+
+  for (const resourceType of resourceTypes) {
+    try {
+      const result = await cloudinary.uploader.destroy(publicId, {
+        resource_type: resourceType,
+        invalidate: true,
+      });
+      if (result?.result === "ok" || result?.result === "deleted") return;
+    } catch {
+      // try next resource type
+    }
+  }
 };
 
 const isUserBlocked = async (blockerId, blockedId) => {
@@ -255,7 +301,7 @@ const ensureCommunitySchema = async () => {
       avatar_url VARCHAR(500) NULL,
       banner_url VARCHAR(500) NULL,
       join_policy VARCHAR(20) NOT NULL DEFAULT 'open',
-      post_permission VARCHAR(20) NOT NULL DEFAULT 'all',
+      post_permission VARCHAR(20) NOT NULL DEFAULT 'mods_only',
       auto_welcome_enabled TINYINT(1) NOT NULL DEFAULT 1,
       welcome_message VARCHAR(280) NULL,
       is_private TINYINT(1) NOT NULL DEFAULT 0,
@@ -362,7 +408,7 @@ const ensureCommunitySchema = async () => {
       attachment_url TEXT NULL,
       attachment_name VARCHAR(255) NULL,
       due_at DATETIME NULL,
-      points DECIMAL(6,2) NOT NULL DEFAULT 3.00,
+      points DECIMAL(8,2) NOT NULL DEFAULT 100.00,
       rubric TEXT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME NULL,
@@ -411,8 +457,9 @@ const ensureCommunitySchema = async () => {
   }
   const hasPostPermission = await hasColumn(dbName, "vine_communities", "post_permission");
   if (!hasPostPermission) {
-    await db.query("ALTER TABLE vine_communities ADD COLUMN post_permission VARCHAR(20) NOT NULL DEFAULT 'all'");
+    await db.query("ALTER TABLE vine_communities ADD COLUMN post_permission VARCHAR(20) NOT NULL DEFAULT 'mods_only'");
   }
+  await db.query("UPDATE vine_communities SET post_permission = 'mods_only'");
   const hasAutoWelcome = await hasColumn(dbName, "vine_communities", "auto_welcome_enabled");
   if (!hasAutoWelcome) {
     await db.query("ALTER TABLE vine_communities ADD COLUMN auto_welcome_enabled TINYINT(1) NOT NULL DEFAULT 1");
@@ -446,20 +493,9 @@ const ensureCommunitySchema = async () => {
   await ensureColumnExists(dbName, "vine_community_assignments", "attachment_url", "TEXT NULL");
   await ensureColumnExists(dbName, "vine_community_assignments", "attachment_name", "VARCHAR(255) NULL");
   try {
-    const [[pointsCol]] = await db.query(
-      `
-      SELECT DATA_TYPE AS data_type
-      FROM information_schema.COLUMNS
-      WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'vine_community_assignments' AND COLUMN_NAME = 'points'
-      LIMIT 1
-      `,
-      [dbName]
+    await db.query(
+      "ALTER TABLE vine_community_assignments MODIFY COLUMN points DECIMAL(8,2) NOT NULL DEFAULT 100.00"
     );
-    if (String(pointsCol?.data_type || "").toLowerCase() !== "decimal") {
-      await db.query(
-        "ALTER TABLE vine_community_assignments MODIFY COLUMN points DECIMAL(6,2) NOT NULL DEFAULT 3.00"
-      );
-    }
   } catch (err) {
     console.warn("Community assignments points type migration skipped:", err?.message || err);
   }
@@ -827,6 +863,14 @@ router.delete("/statuses/:id", requireVineAuth, async (req, res) => {
     const userId = Number(req.user.id);
     if (!statusId) return res.status(400).json({ success: false, message: "Invalid status id" });
 
+    const [[statusRow]] = await db.query(
+      "SELECT media_url FROM vine_statuses WHERE id = ? AND user_id = ? LIMIT 1",
+      [statusId, userId]
+    );
+    if (!statusRow) {
+      return res.status(404).json({ success: false, message: "Status not found" });
+    }
+
     const [result] = await db.query(
       `
       UPDATE vine_statuses
@@ -837,8 +881,10 @@ router.delete("/statuses/:id", requireVineAuth, async (req, res) => {
       [statusId, userId]
     );
 
-    if (!result?.affectedRows) {
-      return res.status(404).json({ success: false, message: "Status not found" });
+    if (!result?.affectedRows) return res.status(404).json({ success: false, message: "Status not found" });
+
+    if (statusRow.media_url) {
+      await deleteCloudinaryByUrl(statusRow.media_url);
     }
 
     res.json({ success: true });
@@ -1328,8 +1374,8 @@ router.post("/communities", authenticate, async (req, res) => {
 
     const [created] = await db.query(
       `
-      INSERT INTO vine_communities (name, slug, description, creator_id, join_policy)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO vine_communities (name, slug, description, creator_id, join_policy, post_permission)
+      VALUES (?, ?, ?, ?, ?, 'mods_only')
       `,
       [name.slice(0, 80), slug, description.slice(0, 280) || null, userId, joinPolicy]
     );
@@ -1573,17 +1619,12 @@ router.patch("/communities/:id/settings", authenticate, async (req, res) => {
     const userId = req.user.id;
     const communityId = Number(req.params.id);
     const joinPolicy = String(req.body?.join_policy || "").trim();
-    const postPermission = String(req.body?.post_permission || "").trim();
     const autoWelcomeEnabled = req.body?.auto_welcome_enabled;
     const welcomeMessage = String(req.body?.welcome_message || "").trim();
     if (!communityId) return res.status(400).json({ message: "Invalid community" });
     if (!["open", "approval", "closed"].includes(joinPolicy)) {
       return res.status(400).json({ message: "Invalid join policy" });
     }
-    if (postPermission && !["all", "mods_only"].includes(postPermission)) {
-      return res.status(400).json({ message: "Invalid post permission" });
-    }
-
     const [[roleRow]] = await db.query(
       `
       SELECT role
@@ -1608,7 +1649,7 @@ router.patch("/communities/:id/settings", authenticate, async (req, res) => {
       `,
       [
         joinPolicy,
-        postPermission || "all",
+        "mods_only",
         autoWelcomeEnabled === undefined ? 1 : Number(Boolean(autoWelcomeEnabled)),
         welcomeMessage || null,
         communityId,
@@ -1617,7 +1658,7 @@ router.patch("/communities/:id/settings", authenticate, async (req, res) => {
     res.json({
       success: true,
       join_policy: joinPolicy,
-      post_permission: postPermission || "all",
+      post_permission: "mods_only",
       auto_welcome_enabled: autoWelcomeEnabled === undefined ? 1 : Number(Boolean(autoWelcomeEnabled)),
       welcome_message: welcomeMessage || null,
     });
@@ -1868,6 +1909,9 @@ router.post("/communities/:id/scheduled-posts", authenticate, async (req, res) =
     }
     const role = await getCommunityRole(communityId, userId);
     if (!role) return res.status(403).json({ message: "Join this community first" });
+    if (!isCommunityModOrOwner(role)) {
+      return res.status(403).json({ message: "Only moderators can schedule posts in this community" });
+    }
     const runDate = new Date(runAt);
     if (Number.isNaN(runDate.getTime()) || runDate.getTime() <= Date.now()) {
       return res.status(400).json({ message: "run_at must be in the future" });
@@ -1993,9 +2037,9 @@ router.post("/communities/:id/assignments", authenticate, uploadPostCloudinary.s
     const rubric = String(req.body?.rubric || "").trim();
     const dueAtRaw = String(req.body?.due_at || "").trim();
     const parsedPoints = Number(req.body?.points);
-    const points = Number.isFinite(parsedPoints)
-      ? Math.max(0.9, Math.min(3, parsedPoints))
-      : 3;
+    const points = Number.isFinite(parsedPoints) && parsedPoints > 0
+      ? parsedPoints
+      : 100;
     if (!communityId || !title) {
       return res.status(400).json({ message: "title is required" });
     }
@@ -2127,7 +2171,8 @@ router.get("/communities/:slug/assignments", authenticate, async (req, res) => {
         vs.graded_at AS viewer_submission_graded_at,
         vs.attempt_count AS viewer_submission_attempts,
         vs.score AS viewer_submission_score,
-        vs.submitted_at AS viewer_submitted_at
+        vs.submitted_at AS viewer_submitted_at,
+        vs.content AS viewer_submission_content
       FROM vine_community_assignments a
       JOIN vine_users cu ON cu.id = a.creator_id
       LEFT JOIN vine_community_submissions vs
@@ -2507,6 +2552,8 @@ router.get("/communities/:id/badges-streaks", authenticate, async (req, res) => 
       let perfectCount = 0;
       let gradedCount = 0;
       let gradedTotal = 0;
+      let normalizedCount = 0;
+      let normalizedTotal = 0;
 
       for (const s of submissions) {
         const dueAt = s.due_at ? new Date(s.due_at) : null;
@@ -2527,6 +2574,10 @@ router.get("/communities/:id/badges-streaks", authenticate, async (req, res) => 
         if (s.score !== null && s.score !== undefined && Number.isFinite(Number(s.score))) {
           gradedCount += 1;
           gradedTotal += Number(s.score);
+          if (Number.isFinite(Number(s.points)) && Number(s.points) > 0) {
+            normalizedCount += 1;
+            normalizedTotal += Number(s.score) / Number(s.points);
+          }
         }
       }
 
@@ -2554,11 +2605,12 @@ router.get("/communities/:id/badges-streaks", authenticate, async (req, res) => 
       }
 
       const avgScore = gradedCount > 0 ? Number((gradedTotal / gradedCount).toFixed(2)) : null;
+      const avgPercent = normalizedCount > 0 ? Number(((normalizedTotal / normalizedCount) * 100).toFixed(1)) : null;
       const badges = [];
       if (currentStreak >= 3) badges.push("🔥 On-Time Streak");
       if (perfectCount >= 1) badges.push("🎯 Perfect Score");
       if (submissions.length >= 5) badges.push("📚 Consistent Learner");
-      if (avgScore !== null && avgScore >= 2.7 && gradedCount >= 3) badges.push("🏅 High Achiever");
+      if (avgPercent !== null && avgPercent >= 85 && gradedCount >= 3) badges.push("🏅 High Achiever");
 
       return {
         ...m,
@@ -2566,6 +2618,7 @@ router.get("/communities/:id/badges-streaks", authenticate, async (req, res) => 
         total_on_time: totalOnTime,
         current_streak: currentStreak,
         avg_score: avgScore,
+        avg_percent: avgPercent,
         badges,
       };
     });
@@ -3192,10 +3245,7 @@ router.get("/communities/:slug/posts", authOptional, async (req, res) => {
           if (!membership) {
             return res.status(403).json({ message: "Join this community to post" });
           }
-          if (
-            String(community.post_permission || "all") === "mods_only" &&
-            !isCommunityModOrOwner(membership.role)
-          ) {
+          if (!isCommunityModOrOwner(membership.role)) {
             return res.status(403).json({ message: "Only moderators can post in this community" });
           }
         }
@@ -4669,28 +4719,14 @@ router.delete("/posts/:id", requireVineAuth, async (req, res) => {
 
     // 2️⃣ Delete images from Cloudinary (if any)
     if (post.image_url) {
-      const images = Array.isArray(post.image_url)
-        ? post.image_url
-        : JSON.parse(post.image_url);
-
-      const extractPublicId = (url) => {
-        const parts = url.split("/");
-        const file = parts.pop().split(".")[0];
-        const folder = parts
-          .slice(parts.indexOf("upload") + 1)
-          .join("/");
-        return `${folder}/${file}`;
-      };
-
-      await Promise.all(
-        images.map((url) => {
-          const asString = String(url || "");
-          const isVideo = /\/video\/upload\//i.test(asString) || /\.(mp4|mov|webm|m4v|avi|mkv|ogv)(\?|$)/i.test(asString);
-          return cloudinary.uploader.destroy(extractPublicId(asString), {
-            resource_type: isVideo ? "video" : "image",
-          });
-        })
-      );
+      let images = [];
+      try {
+        const parsed = JSON.parse(post.image_url);
+        images = Array.isArray(parsed) ? parsed : parsed ? [parsed] : [];
+      } catch {
+        images = [post.image_url];
+      }
+      await Promise.all(images.map((url) => deleteCloudinaryByUrl(url)));
     }
 
     // 3️⃣ Delete post from DB

@@ -125,6 +125,7 @@ export default function AdminDashboard() {
 
   /* ---------- Students ---------- */
   const [students, setStudents] = useState([]);
+  const [aLevelLearners, setALevelLearners] = useState([]);
   const [studentForm, setStudentForm] = useState({ name: "", gender: "", dob: "", class_level: "", stream: "" });
   const [selectedOptionals, setSelectedOptionals] = useState([]);
   const [studentError, setStudentError] = useState("");
@@ -454,6 +455,257 @@ export default function AdminDashboard() {
     preview.document.close();
   };
 
+  const handleDownloadEnrollmentSummaryPdf = () => {
+    const doc = new jsPDF("p", "mm", "a4");
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
+    const generatedAt = new Date().toLocaleString();
+
+    const classOrder = ["S1", "S2", "S3", "S4"];
+    const streams = Object.keys(enrollmentByStreamClassGender || {});
+    const sortedStreams = [...streams].sort((a, b) => {
+      const aa = String(a).toLowerCase();
+      const bb = String(b).toLowerCase();
+      const score = (v) => (v === "north" ? 0 : v === "south" ? 1 : 2);
+      const diff = score(aa) - score(bb);
+      return diff !== 0 ? diff : String(a).localeCompare(String(b));
+    });
+
+    let y = 16;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(13);
+    doc.text("St Phllips Equatorial Secondary School", pageW / 2, y, { align: "center" });
+    y += 6;
+    doc.setFontSize(15);
+    doc.text("SPESS ARK", pageW / 2, y, { align: "center" });
+    y += 5;
+    doc.setFontSize(10);
+    doc.text("Enrollment Summary by Stream and Class (S1-S6)", pageW / 2, y, { align: "center" });
+    y += 5;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.text(`Generated: ${generatedAt}`, pageW / 2, y, { align: "center" });
+    y += 8;
+
+    const renderHeader = () => {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(9);
+      doc.text("Class", 14, y);
+      doc.text("Boys", 72, y, { align: "right" });
+      doc.text("Girls", 104, y, { align: "right" });
+      doc.text("Total", 136, y, { align: "right" });
+      doc.setDrawColor(180);
+      doc.line(12, y + 1.5, 140, y + 1.5);
+      y += 5;
+      doc.setFont("helvetica", "normal");
+    };
+
+    let grandBoys = 0;
+    let grandGirls = 0;
+    let grandTotal = 0;
+
+    if (sortedStreams.length === 0) {
+      doc.setFontSize(10);
+      doc.text("No enrollment data available.", 14, y);
+    } else {
+      sortedStreams.forEach((stream) => {
+        const clsMap = enrollmentByStreamClassGender[stream] || {};
+        let streamBoys = 0;
+        let streamGirls = 0;
+        let streamTotal = 0;
+
+        if (y > pageH - 40) {
+          doc.addPage();
+          y = 18;
+        }
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(10);
+        doc.text(`Stream: ${stream}`, 14, y);
+        y += 5;
+        renderHeader();
+
+        classOrder.forEach((cls) => {
+          const row = clsMap[cls] || { Male: 0, Female: 0, total: 0 };
+          const boys = Number(row.Male || 0);
+          const girls = Number(row.Female || 0);
+          const total = Number(row.total || 0);
+
+          streamBoys += boys;
+          streamGirls += girls;
+          streamTotal += total;
+
+          doc.setFontSize(9);
+          doc.text(cls, 14, y);
+          doc.text(String(boys), 72, y, { align: "right" });
+          doc.text(String(girls), 104, y, { align: "right" });
+          doc.text(String(total), 136, y, { align: "right" });
+          y += 5;
+        });
+
+        doc.setDrawColor(160);
+        doc.line(12, y - 1.8, 140, y - 1.8);
+        doc.setFont("helvetica", "bold");
+        doc.text("Stream Total", 14, y + 2);
+        doc.text(String(streamBoys), 72, y + 2, { align: "right" });
+        doc.text(String(streamGirls), 104, y + 2, { align: "right" });
+        doc.text(String(streamTotal), 136, y + 2, { align: "right" });
+        y += 8;
+
+        grandBoys += streamBoys;
+        grandGirls += streamGirls;
+        grandTotal += streamTotal;
+      });
+    }
+
+    // A-Level summary appears in PDF only (not dashboard charts/cards)
+    const alevelByStreamClass = {};
+    (aLevelLearners || []).forEach((l) => {
+      const full = String(l.stream || "").trim(); // e.g. "S5 Arts"
+      const [clsToken, ...streamParts] = full.split(" ");
+      const cls = /^S[56]$/i.test(clsToken || "") ? clsToken.toUpperCase() : "";
+      const stream = streamParts.join(" ").trim();
+      if (!cls || !stream) return;
+      if (!["S5", "S6"].includes(cls)) return;
+      if (!/^(arts|sciences)$/i.test(stream)) return;
+
+      const streamKey = stream[0].toUpperCase() + stream.slice(1).toLowerCase();
+      if (!alevelByStreamClass[streamKey]) alevelByStreamClass[streamKey] = {};
+      if (!alevelByStreamClass[streamKey][cls]) {
+        alevelByStreamClass[streamKey][cls] = { Male: 0, Female: 0, total: 0 };
+      }
+      const g = String(l.gender || "").toLowerCase();
+      if (g === "male") alevelByStreamClass[streamKey][cls].Male += 1;
+      else if (g === "female") alevelByStreamClass[streamKey][cls].Female += 1;
+      alevelByStreamClass[streamKey][cls].total += 1;
+    });
+
+    const alevelStreams = ["Arts", "Sciences"].filter((s) => alevelByStreamClass[s]);
+    if (alevelStreams.length) {
+      if (y > pageH - 70) {
+        doc.addPage();
+        y = 18;
+      }
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      doc.text("A-Level Summary (PDF Only)", 14, y);
+      y += 6;
+
+      alevelStreams.forEach((stream) => {
+        const clsMap = alevelByStreamClass[stream] || {};
+        let streamBoys = 0;
+        let streamGirls = 0;
+        let streamTotal = 0;
+
+        if (y > pageH - 40) {
+          doc.addPage();
+          y = 18;
+        }
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(10);
+        doc.text(`Stream: ${stream}`, 14, y);
+        y += 5;
+        renderHeader();
+
+        ["S5", "S6"].forEach((cls) => {
+          const row = clsMap[cls] || { Male: 0, Female: 0, total: 0 };
+          const boys = Number(row.Male || 0);
+          const girls = Number(row.Female || 0);
+          const total = Number(row.total || 0);
+
+          streamBoys += boys;
+          streamGirls += girls;
+          streamTotal += total;
+
+          doc.setFontSize(9);
+          doc.text(cls, 14, y);
+          doc.text(String(boys), 72, y, { align: "right" });
+          doc.text(String(girls), 104, y, { align: "right" });
+          doc.text(String(total), 136, y, { align: "right" });
+          y += 5;
+        });
+
+        doc.setDrawColor(160);
+        doc.line(12, y - 1.8, 140, y - 1.8);
+        doc.setFont("helvetica", "bold");
+        doc.text("A-Level Stream Total", 14, y + 2);
+        doc.text(String(streamBoys), 72, y + 2, { align: "right" });
+        doc.text(String(streamGirls), 104, y + 2, { align: "right" });
+        doc.text(String(streamTotal), 136, y + 2, { align: "right" });
+        y += 8;
+
+        grandBoys += streamBoys;
+        grandGirls += streamGirls;
+        grandTotal += streamTotal;
+      });
+    }
+
+    if (y > pageH - 20) {
+      doc.addPage();
+      y = 20;
+    }
+    doc.setDrawColor(120);
+    doc.line(12, y, 140, y);
+    y += 5;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.text("Grand Total (All Streams)", 14, y);
+    doc.text(String(grandBoys), 72, y, { align: "right" });
+    doc.text(String(grandGirls), 104, y, { align: "right" });
+    doc.text(String(grandTotal), 136, y, { align: "right" });
+
+    const pages = doc.internal.getNumberOfPages();
+    for (let i = 1; i <= pages; i++) {
+      doc.setPage(i);
+      doc.setFont("helvetica", "italic");
+      doc.setFontSize(8);
+      doc.text(`Generated from SPESS ARK · ${generatedAt} · Page ${i} of ${pages}`, pageW / 2, pageH - 7, { align: "center" });
+    }
+
+    const blob = doc.output("blob");
+    const blobUrl = URL.createObjectURL(blob);
+    const filename = "enrollment_summary_s1_to_s6.pdf";
+    const title = "Enrollment Summary | SPESS ARK";
+    const preview = window.open("", "_blank");
+
+    if (!preview) {
+      window.open(blobUrl, "_blank");
+      return;
+    }
+
+    preview.document.write(`
+      <!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>${title}</title>
+          <style>
+            body { margin: 0; font-family: Arial, sans-serif; background: #0f172a; color: #e2e8f0; }
+            .bar {
+              height: 48px; display: flex; align-items: center; justify-content: space-between;
+              padding: 0 12px; border-bottom: 1px solid #334155; background: #111827;
+            }
+            .title { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 70vw; }
+            .btn {
+              text-decoration: none; background: #2563eb; color: #fff; padding: 8px 12px;
+              border-radius: 8px; font-size: 12px; font-weight: 700;
+            }
+            iframe { width: 100vw; height: calc(100vh - 48px); border: 0; display: block; background: #fff; }
+          </style>
+        </head>
+        <body>
+          <div class="bar">
+            <div class="title">${title}</div>
+            <a class="btn" href="${blobUrl}" download="${filename}">Download PDF</a>
+          </div>
+          <iframe src="${blobUrl}" title="${title}"></iframe>
+        </body>
+      </html>
+    `);
+    preview.document.close();
+  };
+
   /* ---------- Students ---------- */
   const fetchStudents = async () => {
     setLoadingStudents(true);
@@ -480,6 +732,17 @@ export default function AdminDashboard() {
       setStudents([]);
     } finally {
       setLoadingStudents(false);
+    }
+  };
+
+  const fetchALevelLearners = async () => {
+    try {
+      const data = await plainFetch("/api/alevel/learners");
+      if (!Array.isArray(data)) throw new Error("Invalid A-Level learners response");
+      setALevelLearners(data);
+    } catch (err) {
+      console.error("Error loading A-Level learners:", err);
+      setALevelLearners([]);
     }
   };
 
@@ -606,6 +869,7 @@ export default function AdminDashboard() {
   useEffect(() => {
     fetchTeachers();
     fetchStudents();
+    fetchALevelLearners();
     // prefetch marks summary so tracker / download panels are snappy
     fetchMarksSets();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2263,13 +2527,18 @@ export default function AdminDashboard() {
               <h3 style={{ margin: 0, color: "#e5e7eb" }}>
                 Enrollment Breakdown by Stream • Class • Gender
               </h3>
-              <button
-                type="button"
-                className="ghost-btn"
-                onClick={() => setShowEnrollmentChartsModal(false)}
-              >
-                Close
-              </button>
+              <div style={{ display: "flex", gap: "0.5rem" }}>
+                <button type="button" className="ghost-btn" onClick={handleDownloadEnrollmentSummaryPdf}>
+                  PDF
+                </button>
+                <button
+                  type="button"
+                  className="ghost-btn"
+                  onClick={() => setShowEnrollmentChartsModal(false)}
+                >
+                  Close
+                </button>
+              </div>
             </div>
 
             <EnrollmentCharts enrollmentData={enrollmentByStreamClassGender} />

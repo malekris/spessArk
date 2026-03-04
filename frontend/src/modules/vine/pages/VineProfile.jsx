@@ -319,7 +319,7 @@ export default function VineProfile() {
       const userData = data?.user || data || {};
       setTempBio(userData?.bio || "");
       setTempDisplayName(userData?.display_name || "");
-      setTempEmail(userData?.email || currentUser?.email || "");
+      setTempEmail(userData?.email || "");
       setTempLocation(userData?.location || "");
       setTempWebsite(userData?.website || "");
       setTempHobbies(userData?.hobbies || "");

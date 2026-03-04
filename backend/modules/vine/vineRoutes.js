@@ -4972,7 +4972,7 @@ router.post("/users/update-profile", authenticate, async (req, res) => {
       `
       UPDATE vine_users
       SET 
-        email = ?,
+        email = COALESCE(?, email),
         display_name = ?,
         bio = ?,
         location = ?,

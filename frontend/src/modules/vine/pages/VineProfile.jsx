@@ -154,6 +154,7 @@ export default function VineProfile() {
   const [isEditing, setIsEditing] = useState(false);
   const [tempBio, setTempBio] = useState("");
   const [tempDisplayName, setTempDisplayName] = useState("");
+  const [tempEmail, setTempEmail] = useState("");
   const [tempLocation, setTempLocation] = useState("");
   const [tempWebsite, setTempWebsite] = useState("");
   const [tempHobbies, setTempHobbies] = useState("");
@@ -318,6 +319,7 @@ export default function VineProfile() {
       const userData = data?.user || data || {};
       setTempBio(userData?.bio || "");
       setTempDisplayName(userData?.display_name || "");
+      setTempEmail(userData?.email || currentUser?.email || "");
       setTempLocation(userData?.location || "");
       setTempWebsite(userData?.website || "");
       setTempHobbies(userData?.hobbies || "");
@@ -744,7 +746,7 @@ export default function VineProfile() {
   };
 
   const handleUpdateBio = async () => {
-    await fetch(`${API}/api/vine/users/update-profile`, {
+    const res = await fetch(`${API}/api/vine/users/update-profile`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -752,6 +754,7 @@ export default function VineProfile() {
       },
       body: JSON.stringify({
         display_name: tempDisplayName,
+        email: tempEmail,
         bio: tempBio,
         location: tempLocation,
         website: tempWebsite,
@@ -770,6 +773,11 @@ export default function VineProfile() {
         twitter_username: tempTwitterUsername,
       }),
     });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert(data.message || "Failed to update profile");
+      return;
+    }
     setIsEditing(false);
     loadProfile();
   };
@@ -1419,6 +1427,14 @@ export default function VineProfile() {
               placeholder="Display name"
               value={tempDisplayName}
               onChange={(e) => setTempDisplayName(e.target.value)}
+            />
+
+            <input
+              className="edit-input"
+              type="email"
+              placeholder="Account email"
+              value={tempEmail}
+              onChange={(e) => setTempEmail(e.target.value)}
             />
 
             <div className="edit-row">

@@ -1162,6 +1162,7 @@ router.post("/auth/login", async (req, res) => {
           id: user.id,
           username: user.username,
           display_name: user.display_name,
+          email: user.email || null,
           is_admin: user.is_admin,
           role: user.role || "user",
           badge_type: user.badge_type || null,
@@ -3741,6 +3742,7 @@ router.get("/users/:username", authOptional, async (req, res) => {
         u.id, 
         u.username, 
         u.display_name, 
+        u.email,
         u.bio, 
         u.avatar_url, 
         u.banner_url,
@@ -3818,6 +3820,10 @@ router.get("/users/:username", authOptional, async (req, res) => {
 
     if (!isSelf && !user.show_last_active) {
       user.last_active_at = null;
+    }
+
+    if (!isSelf) {
+      user.email = null;
     }
 
     if (!canViewAbout) {
@@ -4899,6 +4905,7 @@ router.post("/users/update-profile", authenticate, async (req, res) => {
   try {
     await ensureProfileAboutSchema();
     const {
+      email,
       display_name,
       bio,
       location,
@@ -4918,10 +4925,22 @@ router.post("/users/update-profile", authenticate, async (req, res) => {
       twitter_username,
     } = req.body;
 
+    const normalizedEmail = String(email || "").trim().toLowerCase();
+    if (normalizedEmail) {
+      const [[existing]] = await db.query(
+        "SELECT id FROM vine_users WHERE email = ? AND id != ? LIMIT 1",
+        [normalizedEmail, req.user.id]
+      );
+      if (existing) {
+        return res.status(409).json({ message: "Email already in use" });
+      }
+    }
+
     await db.query(
       `
       UPDATE vine_users
       SET 
+        email = ?,
         display_name = ?,
         bio = ?,
         location = ?,
@@ -4942,6 +4961,7 @@ router.post("/users/update-profile", authenticate, async (req, res) => {
       WHERE id = ?
       `,
       [
+        normalizedEmail || null,
         display_name || null,
         bio || null,
         location || null,

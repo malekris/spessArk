@@ -16,6 +16,7 @@ function TeacherLogin() {
   // --- 2. Background Slideshow Logic ---
   const [activeIndex, setActiveIndex] = useState(0);
   const [previousIndex, setPreviousIndex] = useState(null);
+  const [useLiteBackground, setUseLiteBackground] = useState(false);
   const backgroundImages = [
     "/slide1.jpg", "/slide2.jpg", "/slide3.jpg", "/slide4.jpg",
     "/slide5.jpg", "/slide6.jpg", "/slide7.jpg", "/slide8.jpg",
@@ -23,6 +24,16 @@ function TeacherLogin() {
   ];
 
   useEffect(() => {
+    const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    const isMobile = window.matchMedia("(max-width: 900px)").matches;
+    const lowMemory = typeof navigator.deviceMemory === "number" ? navigator.deviceMemory <= 4 : false;
+    const saveData = Boolean(conn?.saveData);
+    const slowNet = /(^|[^0-9])(2g|3g)/i.test(String(conn?.effectiveType || ""));
+    setUseLiteBackground(isMobile && (lowMemory || saveData || slowNet));
+  }, []);
+
+  useEffect(() => {
+    if (useLiteBackground) return undefined;
     const interval = setInterval(() => {
       setActiveIndex((prev) => {
         setPreviousIndex(prev);
@@ -30,7 +41,7 @@ function TeacherLogin() {
       });
     }, 9000);
     return () => clearInterval(interval);
-  }, [backgroundImages.length]);
+  }, [backgroundImages.length, useLiteBackground]);
 
   // --- 3. Handlers ---
   const handleChange = (e) => {
@@ -84,17 +95,21 @@ function TeacherLogin() {
     <div className="ark-login-wrapper">
       {/* BACKGROUND LAYER */}
       <div className="ark-bg-slideshow">
-        {backgroundImages.map((img, index) => (
-          <div
-            key={index}
-            className={`ark-slide ${index === activeIndex ? "ark-active" : ""}`}
-            style={
-              index === activeIndex || index === previousIndex
-                ? { backgroundImage: `url(${img})` }
-                : undefined
-            }
-          />
-        ))}
+        {useLiteBackground ? (
+          <div className="ark-bg-pattern" />
+        ) : (
+          backgroundImages.map((img, index) => (
+            <div
+              key={index}
+              className={`ark-slide ${index === activeIndex ? "ark-active" : ""}`}
+              style={
+                index === activeIndex || index === previousIndex
+                  ? { backgroundImage: `url(${img})` }
+                  : undefined
+              }
+            />
+          ))
+        )}
       </div>
 
       {/* TOP NAVIGATION */}

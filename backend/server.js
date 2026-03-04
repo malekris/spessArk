@@ -1634,64 +1634,23 @@ app.put("/api/admin/students/:id", async (req, res) => {
 
     const params = [name, gender, class_level, stream, subjectsJson, id];
 
-    // If your db client supports .query (mysql) or .execute (mysql2/promise)
-    if (db && typeof db.query === "function") {
-      db.query(sql, params, (err, result) => {
-        if (err) {
-          console.error("[UPDATE STUDENT] SQL error (query):", err);
-          return res.status(500).json({ message: "Database update error", detail: err.message });
-        }
-        if (!result || result.affectedRows === 0) {
-          return res.status(404).json({ message: "Student not found" });
-        }
-
-        // fetch updated row
-        db.query("SELECT * FROM students WHERE id = ?", [id], (err2, rows) => {
-          if (err2) {
-            console.error("[UPDATE STUDENT] SQL error (fetch):", err2);
-            return res.status(500).json({ message: "Database fetch error", detail: err2.message });
-          }
-          const row = rows && rows[0];
-          if (!row) return res.status(404).json({ message: "Student not found after update" });
-
-          try {
-            row.subjects = row.subjects ? JSON.parse(row.subjects) : [];
-          } catch (e) {
-            console.warn("[UPDATE STUDENT] subjects JSON parse failed:", e);
-            row.subjects = [];
-          }
-          return res.json(row);
-        });
-      });
-      return;
+    // Promise-based mysql2 pool (current backend setup)
+    const [result] = await db.query(sql, params);
+    if (!result || result.affectedRows === 0) {
+      return res.status(404).json({ message: "Student not found" });
     }
 
-    if (db && typeof db.execute === "function") {
-      // mysql2/promise
-      try {
-        const [result] = await db.execute(sql, params);
-        if (!result || result.affectedRows === 0) {
-          return res.status(404).json({ message: "Student not found" });
-        }
-        const [rows] = await db.execute("SELECT * FROM students WHERE id = ?", [id]);
-        const row = rows && rows[0];
-        if (!row) return res.status(404).json({ message: "Student not found after update" });
-        try {
-          row.subjects = row.subjects ? JSON.parse(row.subjects) : [];
-        } catch (e) {
-          console.warn("[UPDATE STUDENT] subjects JSON parse failed:", e);
-          row.subjects = [];
-        }
-        return res.json(row);
-      } catch (errExec) {
-        console.error("[UPDATE STUDENT] SQL error (execute):", errExec);
-        return res.status(500).json({ message: "Database error", detail: errExec.message });
-      }
-    }
+    const [rows] = await db.query("SELECT * FROM students WHERE id = ?", [id]);
+    const row = rows && rows[0];
+    if (!row) return res.status(404).json({ message: "Student not found after update" });
 
-    // If no supported db client found
-    console.error("[UPDATE STUDENT] db client not detected or unsupported", { dbType: typeof db });
-    return res.status(500).json({ message: "Server database configuration error" });
+    try {
+      row.subjects = row.subjects ? JSON.parse(row.subjects) : [];
+    } catch (e) {
+      console.warn("[UPDATE STUDENT] subjects JSON parse failed:", e);
+      row.subjects = [];
+    }
+    return res.json(row);
   } catch (err) {
     console.error("[UPDATE STUDENT] Unexpected server error:", err && err.stack ? err.stack : err);
     return res.status(500).json({ message: "Server error", detail: err.message || String(err) });

@@ -20,6 +20,22 @@
   z-index: -1; /* Behind the card */
 }
 
+.ark-bg-pattern {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 20% 20%, rgba(14, 165, 233, 0.2), transparent 34%),
+    radial-gradient(circle at 80% 70%, rgba(56, 189, 248, 0.15), transparent 36%),
+    repeating-linear-gradient(
+      45deg,
+      rgba(148, 163, 184, 0.08) 0,
+      rgba(148, 163, 184, 0.08) 1px,
+      transparent 1px,
+      transparent 9px
+    ),
+    linear-gradient(180deg, #030712 0%, #0b1220 100%);
+}
+
 /* THE GLASS CARD - ADMIN RED */
 .ark-glass-card {
   position: relative;

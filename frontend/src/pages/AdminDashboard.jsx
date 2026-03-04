@@ -1,5 +1,5 @@
 // src/pages/AdminDashboard.jsx
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, useRef } from "react";
 import "./AdminDashboard.css";
 import jsPDF from "jspdf";
 import AssignSubjectsPanel from "../components/AssignSubjectsPanel";
@@ -126,6 +126,9 @@ export default function AdminDashboard() {
   const [savingStudent, setSavingStudent] = useState(false);
   const [deletingStudentId, setDeletingStudentId] = useState(null);
   const [editingStudent, setEditingStudent] = useState(null);
+  const savingStudentRef = useRef(false);
+  const [showStudentSaveConfirm, setShowStudentSaveConfirm] = useState(false);
+  const [pendingStudentSave, setPendingStudentSave] = useState(null);
 
   /* ---------- Filters & marks ---------- */
   const [classFilter, setClassFilter] = useState("");
@@ -474,14 +477,10 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleAddStudent = async (e) => {
-    e?.preventDefault();
-    const { name, gender, dob, class_level, stream } = studentForm;
-    if (!name || !gender || !dob || !class_level || !stream) {
-      setStudentError("Please fill in all required fields.");
-      return;
-    }
-    const subjects = [...COMPULSORY_SUBJECTS, ...selectedOptionals];
+  const performAddStudent = async (payload) => {
+    if (savingStudentRef.current) return;
+    const { name, gender, dob, class_level, stream, subjects } = payload;
+    savingStudentRef.current = true;
     setSavingStudent(true);
     setStudentError("");
     try {
@@ -499,12 +498,28 @@ export default function AdminDashboard() {
       setStudents((p) => [studentToAdd, ...p]);
       setStudentForm({ name: "", gender: "", dob: "", class_level: "", stream: "" });
       setSelectedOptionals([]);
+      setPendingStudentSave(null);
+      setShowStudentSaveConfirm(false);
     } catch (err) {
       console.error("Error adding student:", err);
       setStudentError(err.message || "Could not add student.");
     } finally {
+      savingStudentRef.current = false;
       setSavingStudent(false);
     }
+  };
+
+  const handleAddStudent = async (e) => {
+    e?.preventDefault();
+    if (savingStudentRef.current) return;
+    const { name, gender, dob, class_level, stream } = studentForm;
+    if (!name || !gender || !dob || !class_level || !stream) {
+      setStudentError("Please fill in all required fields.");
+      return;
+    }
+    const subjects = [...COMPULSORY_SUBJECTS, ...selectedOptionals];
+    setPendingStudentSave({ name, gender, dob, class_level, stream, subjects });
+    setShowStudentSaveConfirm(true);
   };
 
   const handleDeleteStudent = async (id) => {
@@ -2219,6 +2234,42 @@ export default function AdminDashboard() {
             </div>
 
             <EnrollmentCharts enrollmentData={enrollmentByStreamClassGender} />
+          </div>
+        </div>
+      )}
+
+      {showStudentSaveConfirm && pendingStudentSave && (
+        <div className="modal-backdrop" onClick={() => !savingStudent && setShowStudentSaveConfirm(false)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <h2>Confirm Learner Save</h2>
+            <div style={{ display: "grid", gap: "0.45rem", marginTop: "0.6rem" }}>
+              <div><strong>Name:</strong> {pendingStudentSave.name}</div>
+              <div><strong>Date of Birth:</strong> {pendingStudentSave.dob}</div>
+              <div><strong>Class:</strong> {pendingStudentSave.class_level}</div>
+              <div><strong>Stream:</strong> {pendingStudentSave.stream}</div>
+              <div>
+                <strong>Subjects:</strong>{" "}
+                {Array.isArray(pendingStudentSave.subjects) ? pendingStudentSave.subjects.join(", ") : "—"}
+              </div>
+            </div>
+            <div style={{ marginTop: "1rem", display: "flex", gap: "0.6rem" }}>
+              <button
+                className="primary-btn"
+                type="button"
+                disabled={savingStudent}
+                onClick={() => performAddStudent(pendingStudentSave)}
+              >
+                {savingStudent ? "Saving…" : "Confirm Save"}
+              </button>
+              <button
+                className="ghost-btn"
+                type="button"
+                disabled={savingStudent}
+                onClick={() => setShowStudentSaveConfirm(false)}
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}

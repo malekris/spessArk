@@ -654,6 +654,25 @@ app.post("/api/students", async (req, res) => {
       return res.status(400).json({ message: "Missing required fields" });
     }
 
+    // Guard against accidental duplicate submissions on slow networks.
+    const [existing] = await pool.query(
+      `SELECT id, name, class_level, stream, dob
+       FROM students
+       WHERE LOWER(TRIM(name)) = LOWER(TRIM(?))
+         AND class_level = ?
+         AND stream = ?
+         AND (dob <=> ?)
+       LIMIT 1`,
+      [name, class_level, stream, dob || null]
+    );
+
+    if (existing.length > 0) {
+      return res.status(409).json({
+        message: "Possible duplicate learner detected. This learner already exists for the same class/stream/date of birth.",
+        existing: existing[0],
+      });
+    }
+
     const subjectsJson = JSON.stringify(subjects || []);
 
     const [result] = await pool.query(

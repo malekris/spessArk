@@ -641,6 +641,74 @@ export default function AdminDashboard() {
       });
     }
 
+    // Class-level gender summary (all streams combined)
+    const classSummaryOrder = ["S1", "S2", "S3", "S4", "S5", "S6"];
+    const classSummary = {};
+    classSummaryOrder.forEach((c) => {
+      classSummary[c] = { boys: 0, girls: 0, total: 0 };
+    });
+
+    (students || []).forEach((s) => {
+      const cls = String(s.class_level || "").toUpperCase();
+      if (!classSummary[cls]) return;
+      const g = String(s.gender || "").toLowerCase();
+      if (g === "male") classSummary[cls].boys += 1;
+      else if (g === "female") classSummary[cls].girls += 1;
+      classSummary[cls].total += 1;
+    });
+
+    (aLevelLearners || []).forEach((l) => {
+      const [clsToken] = String(l.stream || "").trim().split(" ");
+      const cls = String(clsToken || "").toUpperCase();
+      if (!classSummary[cls]) return;
+      const g = String(l.gender || "").toLowerCase();
+      if (g === "male") classSummary[cls].boys += 1;
+      else if (g === "female") classSummary[cls].girls += 1;
+      classSummary[cls].total += 1;
+    });
+
+    if (y > pageH - 70) {
+      doc.addPage();
+      y = 18;
+    }
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.text("Class Summary (All Streams Combined)", 14, y);
+    y += 6;
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.text("Class", 14, y);
+    doc.text("Boys", 72, y, { align: "right" });
+    doc.text("Girls", 104, y, { align: "right" });
+    doc.text("Total", 136, y, { align: "right" });
+    doc.setDrawColor(180);
+    doc.line(12, y + 1.5, 140, y + 1.5);
+    y += 5;
+
+    classSummaryOrder.forEach((cls) => {
+      const row = classSummary[cls] || { boys: 0, girls: 0, total: 0 };
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.text(cls, 14, y);
+      doc.text(String(row.boys), 72, y, { align: "right" });
+      doc.text(String(row.girls), 104, y, { align: "right" });
+      doc.text(String(row.total), 136, y, { align: "right" });
+      y += 5;
+    });
+
+    const summaryBoys = classSummaryOrder.reduce((acc, cls) => acc + (classSummary[cls]?.boys || 0), 0);
+    const summaryGirls = classSummaryOrder.reduce((acc, cls) => acc + (classSummary[cls]?.girls || 0), 0);
+    const summaryTotal = classSummaryOrder.reduce((acc, cls) => acc + (classSummary[cls]?.total || 0), 0);
+    doc.setDrawColor(160);
+    doc.line(12, y - 1.8, 140, y - 1.8);
+    doc.setFont("helvetica", "bold");
+    doc.text("Class Summary Total", 14, y + 2);
+    doc.text(String(summaryBoys), 72, y + 2, { align: "right" });
+    doc.text(String(summaryGirls), 104, y + 2, { align: "right" });
+    doc.text(String(summaryTotal), 136, y + 2, { align: "right" });
+    y += 8;
+
     if (y > pageH - 20) {
       doc.addPage();
       y = 20;

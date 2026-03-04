@@ -108,7 +108,14 @@ function LoginPage() {
   </div>
       </div>
 
-      <button className="ark-back-btn" onClick={() => navigate("/")}>
+      <button
+        className="ark-back-btn"
+        onClick={() => navigate("/")}
+        style={{
+          left: "max(16px, env(safe-area-inset-left))",
+          top: "max(16px, env(safe-area-inset-top))",
+        }}
+      >
         <span style={{ marginRight: '5px' }}>←</span> Back to Website
       </button>
 

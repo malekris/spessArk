@@ -59,6 +59,10 @@ export default function VineNotifications() {
         return `posted a new assignment: "${meta.title || "Untitled assignment"}"`;
       case "community_assignment_submission":
         return `${meta.is_resubmission ? "resubmitted" : "submitted"} assignment work${meta.assignment_title ? `: "${meta.assignment_title}"` : ""}`;
+      case "community_join_request":
+        return `requested to join ${meta.community_name ? `"${meta.community_name}"` : "your community"}`;
+      case "community_join_approved":
+        return `approved your join request${meta.community_name ? ` for "${meta.community_name}"` : ""}`;
       case "community_assignment_graded": {
         const score = meta.score;
         const points = meta.assignment_points;
@@ -166,6 +170,22 @@ export default function VineNotifications() {
         const meta = getMeta(n);
         if (meta.community_slug) {
           navigate(`/vine/communities/${meta.community_slug}?tab=assignments`);
+          return;
+        }
+      }
+
+      if (n.type === "community_join_request") {
+        const meta = getMeta(n);
+        if (meta.community_slug) {
+          navigate(`/vine/communities/${meta.community_slug}?tab=settings`);
+          return;
+        }
+      }
+
+      if (n.type === "community_join_approved") {
+        const meta = getMeta(n);
+        if (meta.community_slug) {
+          navigate(`/vine/communities/${meta.community_slug}`);
           return;
         }
       }

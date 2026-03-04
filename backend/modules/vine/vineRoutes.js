@@ -1408,7 +1408,7 @@ router.post("/communities/:id/join", authenticate, async (req, res) => {
     if (!communityId) return res.status(400).json({ message: "Invalid community" });
 
     const [[community]] = await db.query(
-      "SELECT id, join_policy, creator_id, auto_welcome_enabled, welcome_message, name FROM vine_communities WHERE id = ? LIMIT 1",
+      "SELECT id, slug, join_policy, creator_id, auto_welcome_enabled, welcome_message, name FROM vine_communities WHERE id = ? LIMIT 1",
       [communityId]
     );
     if (!community) return res.status(404).json({ message: "Community not found" });
@@ -1433,6 +1433,28 @@ router.post("/communities/:id/join", authenticate, async (req, res) => {
         `,
         [communityId, userId, JSON.stringify(answers)]
       );
+      const [mods] = await db.query(
+        `
+        SELECT user_id
+        FROM vine_community_members
+        WHERE community_id = ?
+          AND LOWER(role) IN ('owner', 'moderator')
+          AND user_id != ?
+        `,
+        [communityId, userId]
+      );
+      for (const mod of mods) {
+        await notifyUser({
+          userId: mod.user_id,
+          actorId: userId,
+          type: "community_join_request",
+          meta: {
+            community_id: communityId,
+            community_slug: community.slug || null,
+            community_name: community.name || null,
+          },
+        });
+      }
       return res.json({ success: true, status: "pending" });
     }
 
@@ -2898,9 +2920,19 @@ router.post("/communities/:id/requests/:requestId/approve", authenticate, async 
     );
 
     const [[community]] = await db.query(
-      "SELECT creator_id, auto_welcome_enabled, welcome_message, name FROM vine_communities WHERE id = ? LIMIT 1",
+      "SELECT creator_id, auto_welcome_enabled, welcome_message, name, slug FROM vine_communities WHERE id = ? LIMIT 1",
       [communityId]
     );
+    await notifyUser({
+      userId: requestRow.user_id,
+      actorId: userId,
+      type: "community_join_approved",
+      meta: {
+        community_id: communityId,
+        community_slug: community?.slug || null,
+        community_name: community?.name || null,
+      },
+    });
     if (community && Number(community.auto_welcome_enabled) === 1) {
       await db.query(
         `

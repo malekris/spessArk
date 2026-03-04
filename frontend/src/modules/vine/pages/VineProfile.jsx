@@ -155,6 +155,7 @@ export default function VineProfile() {
   const [tempBio, setTempBio] = useState("");
   const [tempDisplayName, setTempDisplayName] = useState("");
   const [tempEmail, setTempEmail] = useState("");
+  const [emailTouched, setEmailTouched] = useState(false);
   const [tempLocation, setTempLocation] = useState("");
   const [tempWebsite, setTempWebsite] = useState("");
   const [tempHobbies, setTempHobbies] = useState("");
@@ -320,6 +321,7 @@ export default function VineProfile() {
       setTempBio(userData?.bio || "");
       setTempDisplayName(userData?.display_name || "");
       setTempEmail(userData?.email || "");
+      setEmailTouched(false);
       setTempLocation(userData?.location || "");
       setTempWebsite(userData?.website || "");
       setTempHobbies(userData?.hobbies || "");
@@ -746,32 +748,36 @@ export default function VineProfile() {
   };
 
   const handleUpdateBio = async () => {
+    const payload = {
+      display_name: tempDisplayName,
+      bio: tempBio,
+      location: tempLocation,
+      website: tempWebsite,
+      hobbies: tempHobbies,
+      date_of_birth: tempDateOfBirth || null,
+      favorite_movies: tempFavoriteMovies,
+      favorite_songs: tempFavoriteSongs,
+      favorite_musicians: tempFavoriteMusicians,
+      favorite_books: tempFavoriteBooks,
+      movie_genres: tempMovieGenres,
+      gender: tempGender,
+      contact_email: tempContactEmail,
+      phone_number: tempPhoneNumber,
+      tiktok_username: tempTikTokUsername,
+      instagram_username: tempInstagramUsername,
+      twitter_username: tempTwitterUsername,
+    };
+    if (emailTouched) {
+      payload.email = tempEmail;
+    }
+
     const res = await fetch(`${API}/api/vine/users/update-profile`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({
-        display_name: tempDisplayName,
-        email: tempEmail,
-        bio: tempBio,
-        location: tempLocation,
-        website: tempWebsite,
-        hobbies: tempHobbies,
-        date_of_birth: tempDateOfBirth || null,
-        favorite_movies: tempFavoriteMovies,
-        favorite_songs: tempFavoriteSongs,
-        favorite_musicians: tempFavoriteMusicians,
-        favorite_books: tempFavoriteBooks,
-        movie_genres: tempMovieGenres,
-        gender: tempGender,
-        contact_email: tempContactEmail,
-        phone_number: tempPhoneNumber,
-        tiktok_username: tempTikTokUsername,
-        instagram_username: tempInstagramUsername,
-        twitter_username: tempTwitterUsername,
-      }),
+      body: JSON.stringify(payload),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -1434,7 +1440,10 @@ export default function VineProfile() {
               type="email"
               placeholder="Account email"
               value={tempEmail}
-              onChange={(e) => setTempEmail(e.target.value)}
+              onChange={(e) => {
+                setTempEmail(e.target.value);
+                setEmailTouched(true);
+              }}
             />
 
             <div className="edit-row">

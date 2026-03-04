@@ -1088,6 +1088,25 @@ export default function AdminDashboard() {
 
   /* ------------------ Derived values / filters ------------------ */
   const allSubjectsForFilter = [...COMPULSORY_SUBJECTS, ...OPTIONAL_SUBJECTS];
+  const potentialDuplicateLearner = useMemo(() => {
+    const name = String(studentForm.name || "").trim().toLowerCase();
+    const cls = String(studentForm.class_level || "").trim();
+    const stream = String(studentForm.stream || "").trim();
+    const dob = String(studentForm.dob || "").trim();
+
+    if (!name || !cls || !stream || !dob) return null;
+
+    return (
+      students.find((s) => {
+        const sn = String(s.name || "").trim().toLowerCase();
+        const sc = String(s.class_level || "").trim();
+        const ss = String(s.stream || "").trim();
+        const sd = String(s.dob || "").slice(0, 10);
+        return sn === name && sc === cls && ss === stream && sd === dob;
+      }) || null
+    );
+  }, [students, studentForm.name, studentForm.class_level, studentForm.stream, studentForm.dob]);
+
   const filteredStudents = students.filter((s) => {
     if (classFilter && s.class_level !== classFilter) return false;
     if (streamFilter && s.stream !== streamFilter) return false;
@@ -1361,6 +1380,13 @@ export default function AdminDashboard() {
                     ))}
                   </div>
                 </div>
+
+                {potentialDuplicateLearner && (
+                  <div className="panel-alert" style={{ background: "rgba(245, 158, 11, 0.12)", border: "1px solid rgba(245, 158, 11, 0.45)", color: "#fcd34d" }}>
+                    Potential duplicate: this learner already exists as{" "}
+                    <strong>{potentialDuplicateLearner.name}</strong> ({potentialDuplicateLearner.class_level} {potentialDuplicateLearner.stream}).
+                  </div>
+                )}
 
                 <button className="primary-btn" type="submit" disabled={savingStudent}>{savingStudent ? "Saving…" : "Save Learner"}</button>
               </form>

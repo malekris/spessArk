@@ -719,52 +719,56 @@ useEffect(() => {
         {/* ASSIGNMENTS */}
         <section className="panel" style={{ marginTop: "1rem" }}>
           <div className="panel-card">
-            <table className="teachers-table">
-              <thead>
-                <tr>
-                  <th>Level</th>
-                  <th>Class</th>
-                  <th>Stream</th>
-                  <th>Subject</th>
-                </tr>
-              </thead>
-              <tbody>
-                {assignments.map((a) => (
-                  <tr
-                    key={`ol-${a.id}`}
-                    style={{ cursor: "pointer" }}
-                    onClick={() => {
-                      const obj = { ...a, isAlevel: false };
-                      setSelectedAssignment(obj);
-                      loadStudentsAndMarks(obj);
-                    }}
-                  >
-                    <td>O-Level</td>
-                    <td>{a.class_level}</td>
-                    <td>{a.stream}</td>
-                    <td>{a.subject}</td>
+            <div
+              className="teachers-table-wrapper"
+              style={{ maxWidth: "100%", overflowX: "auto", overflowY: "hidden", WebkitOverflowScrolling: "touch" }}
+            >
+              <table className="teachers-table" style={{ minWidth: "560px" }}>
+                <thead>
+                  <tr>
+                    <th>Level</th>
+                    <th>Class</th>
+                    <th>Stream</th>
+                    <th>Subject</th>
                   </tr>
-                ))}
+                </thead>
+                <tbody>
+                  {assignments.map((a) => (
+                    <tr
+                      key={`ol-${a.id}`}
+                      style={{ cursor: "pointer" }}
+                      onClick={() => {
+                        const obj = { ...a, isAlevel: false };
+                        setSelectedAssignment(obj);
+                        loadStudentsAndMarks(obj);
+                      }}
+                    >
+                      <td>O-Level</td>
+                      <td>{a.class_level}</td>
+                      <td>{a.stream}</td>
+                      <td>{a.subject}</td>
+                    </tr>
+                  ))}
 
-                {aLevelAssignments.map((a) => (
-                  <tr
-                    key={`al-${a.id}`}
-                    style={{ cursor: "pointer", background: "rgba(255,255,255,0.02)" }}
-                    onClick={() => {
-                      const obj = { ...a, isAlevel: true };
-                      setSelectedAssignment(obj);
-                      loadStudentsAndMarks(obj);
-                    }}
-                  >
-                    <td style={{ fontWeight: "bold", color: "#f59e0b" }}>A-Level</td>
-                    <td>{a.stream?.split(" ")[0] ?? "—"}</td>
-
-                    <td>{a.stream}</td>
-                    <td>{a.subject}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                  {aLevelAssignments.map((a) => (
+                    <tr
+                      key={`al-${a.id}`}
+                      style={{ cursor: "pointer", background: "rgba(255,255,255,0.02)" }}
+                      onClick={() => {
+                        const obj = { ...a, isAlevel: true };
+                        setSelectedAssignment(obj);
+                        loadStudentsAndMarks(obj);
+                      }}
+                    >
+                      <td style={{ fontWeight: "bold", color: "#f59e0b" }}>A-Level</td>
+                      <td>{a.stream?.split(" ")[0] ?? "—"}</td>
+                      <td>{a.stream}</td>
+                      <td>{a.subject}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </section>
 

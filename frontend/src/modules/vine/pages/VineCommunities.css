@@ -1031,7 +1031,7 @@
 .assignment-submit-row {
   margin-top: 8px;
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr;
   gap: 8px;
 }
 
@@ -1050,6 +1050,24 @@
   color: #fff;
   font-weight: 700;
   cursor: pointer;
+}
+
+.assignment-submit-actions {
+  display: inline-flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.assignment-submit-actions .assignment-save-draft-btn {
+  background: linear-gradient(135deg, #facc15, #eab308);
+  color: #1f2937;
+  box-shadow: 0 6px 14px rgba(234, 179, 8, 0.35);
+}
+
+.assignment-submit-actions button:not(.assignment-save-draft-btn) {
+  background: linear-gradient(135deg, #ef4444, #b91c1c);
+  color: #fff;
+  box-shadow: 0 6px 14px rgba(185, 28, 28, 0.35);
 }
 
 .assignment-mod-row .assignment-delete-btn {

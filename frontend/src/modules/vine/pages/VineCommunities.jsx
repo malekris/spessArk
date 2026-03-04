@@ -50,6 +50,7 @@ export default function VineCommunities() {
   const [assignmentRubric, setAssignmentRubric] = useState("");
   const [assignmentFile, setAssignmentFile] = useState(null);
   const [submissionDrafts, setSubmissionDrafts] = useState({});
+  const [savedDraftsMap, setSavedDraftsMap] = useState({});
   const [selectedAssignmentId, setSelectedAssignmentId] = useState(null);
   const [assignmentSubmissions, setAssignmentSubmissions] = useState([]);
   const [gradingDrafts, setGradingDrafts] = useState({});
@@ -151,7 +152,15 @@ export default function VineCommunities() {
       setQuestions(Array.isArray(qData) ? qData : []);
       setEvents(Array.isArray(eventsData) ? eventsData : []);
       setMediaPosts(Array.isArray(mediaData) ? mediaData : []);
-      setAssignments(Array.isArray(assignmentsData) ? assignmentsData : []);
+      const safeAssignments = Array.isArray(assignmentsData) ? assignmentsData : [];
+      setAssignments(safeAssignments);
+      const persisted = {};
+      for (const a of safeAssignments) {
+        if (a.viewer_draft_content && !a.viewer_submission_content) {
+          persisted[a.id] = a.viewer_draft_content;
+        }
+      }
+      setSavedDraftsMap(persisted);
       setJoinPolicy(cData?.join_policy || "open");
       setAutoWelcomeEnabled(Number(cData?.auto_welcome_enabled ?? 1) === 1);
       setWelcomeMessage(cData?.welcome_message || "");
@@ -164,6 +173,7 @@ export default function VineCommunities() {
       setEvents([]);
       setMediaPosts([]);
       setAssignments([]);
+      setSavedDraftsMap({});
     }
   };
 
@@ -571,7 +581,7 @@ export default function VineCommunities() {
 
   const submitAssignment = async (assignmentId) => {
     if (!activeCommunity?.id || !assignmentId) return;
-    const text = String(submissionDrafts[assignmentId] || "").trim();
+    const text = String(submissionDrafts[assignmentId] || savedDraftsMap[assignmentId] || "").trim();
     if (!text) return;
     try {
       const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/assignments/${assignmentId}/submissions`, {
@@ -588,10 +598,39 @@ export default function VineCommunities() {
         return;
       }
       setSubmissionDrafts((prev) => ({ ...prev, [assignmentId]: "" }));
+      setSavedDraftsMap((prev) => ({ ...prev, [assignmentId]: "" }));
       await loadCommunityDetail(activeCommunity.slug, topicFilter);
       alert("Assignment submitted");
     } catch {
       alert("Failed to submit assignment");
+    }
+  };
+
+  const saveAssignmentDraft = async (assignmentId) => {
+    if (!activeCommunity?.id || !assignmentId) return;
+    const text = String(submissionDrafts[assignmentId] || "").trim();
+    if (!text) {
+      alert("Write your answer first.");
+      return;
+    }
+    try {
+      const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/assignments/${assignmentId}/draft`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ content: text }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || "Failed to save draft");
+        return;
+      }
+      setSavedDraftsMap((prev) => ({ ...prev, [assignmentId]: text }));
+      alert("Draft saved");
+    } catch {
+      alert("Failed to save draft");
     }
   };
 
@@ -1321,6 +1360,7 @@ export default function VineCommunities() {
                       ) : (
                         assignments.map((a) => {
                           const draftValue = submissionDrafts[a.id] || "";
+                          const persistedDraft = savedDraftsMap[a.id] || "";
                           const viewerStatus = a.viewer_submission_status || "";
                           const pastDue = isAssignmentPastDue(a);
                           const attempts = Number(a.viewer_submission_attempts || 0);
@@ -1379,15 +1419,20 @@ export default function VineCommunities() {
                                     <div className="assignment-submit-row">
                                       <textarea
                                         placeholder="Write your answer/submission"
-                                        value={draftValue}
+                                        value={draftValue || persistedDraft}
                                         onChange={(e) =>
                                           setSubmissionDrafts((prev) => ({ ...prev, [a.id]: e.target.value }))
                                         }
                                         disabled={pastDue}
                                       />
-                                      <button onClick={() => submitAssignment(a.id)} disabled={pastDue}>
-                                        {viewerStatus ? "Resubmit" : "Submit"}
-                                      </button>
+                                      <div className="assignment-submit-actions">
+                                        <button className="assignment-save-draft-btn" type="button" onClick={() => saveAssignmentDraft(a.id)} disabled={pastDue}>
+                                          Save Draft
+                                        </button>
+                                        <button onClick={() => submitAssignment(a.id)} disabled={pastDue}>
+                                          {viewerStatus ? "Resubmit" : "Submit"}
+                                        </button>
+                                      </div>
                                     </div>
                                   ) : (
                                     <div className="assignment-lock-note">

@@ -438,6 +438,19 @@ const ensureCommunitySchema = async () => {
     )
   `);
 
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_community_submission_drafts (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      assignment_id INT NOT NULL,
+      community_id INT NOT NULL,
+      user_id INT NOT NULL,
+      content TEXT NULL,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_assignment_draft_user (assignment_id, user_id),
+      INDEX idx_assignment_draft_community_user (community_id, user_id)
+    )
+  `);
+
   const hasCommunityId = await hasColumn(dbName, "vine_posts", "community_id");
   if (!hasCommunityId) {
     await db.query("ALTER TABLE vine_posts ADD COLUMN community_id INT NULL");
@@ -2201,6 +2214,10 @@ router.delete("/communities/:id/assignments/:assignmentId", authenticate, async 
       [assignmentId, communityId]
     );
     await db.query(
+      "DELETE FROM vine_community_submission_drafts WHERE assignment_id = ? AND community_id = ?",
+      [assignmentId, communityId]
+    );
+    await db.query(
       "DELETE FROM vine_community_assignments WHERE id = ? AND community_id = ?",
       [assignmentId, communityId]
     );
@@ -2242,16 +2259,21 @@ router.get("/communities/:slug/assignments", authenticate, async (req, res) => {
         vs.attempt_count AS viewer_submission_attempts,
         vs.score AS viewer_submission_score,
         vs.submitted_at AS viewer_submitted_at,
-        vs.content AS viewer_submission_content
+        vs.content AS viewer_submission_content,
+        vd.content AS viewer_draft_content,
+        vd.updated_at AS viewer_draft_updated_at
       FROM vine_community_assignments a
       JOIN vine_users cu ON cu.id = a.creator_id
       LEFT JOIN vine_community_submissions vs
         ON vs.assignment_id = a.id
        AND vs.user_id = ?
+      LEFT JOIN vine_community_submission_drafts vd
+        ON vd.assignment_id = a.id
+       AND vd.user_id = ?
       WHERE a.community_id = ?
       ORDER BY (a.due_at IS NULL) ASC, a.due_at ASC, a.created_at DESC
       `,
-      [viewerId, community.id]
+      [viewerId, viewerId, community.id]
     );
     res.json(rows);
   } catch (err) {
@@ -2322,6 +2344,10 @@ router.post("/communities/:id/assignments/:assignmentId/submissions", authentica
         [assignmentId, communityId, userId, content]
       );
     }
+    await db.query(
+      "DELETE FROM vine_community_submission_drafts WHERE assignment_id = ? AND community_id = ? AND user_id = ?",
+      [assignmentId, communityId, userId]
+    );
 
     const [[assignmentMeta]] = await db.query(
       `
@@ -2364,6 +2390,40 @@ router.post("/communities/:id/assignments/:assignmentId/submissions", authentica
   } catch (err) {
     console.error("Submit assignment error:", err);
     res.status(500).json({ message: "Failed to submit assignment" });
+  }
+});
+
+router.post("/communities/:id/assignments/:assignmentId/draft", authenticate, async (req, res) => {
+  try {
+    await ensureCommunitySchema();
+    const userId = Number(req.user.id);
+    const communityId = Number(req.params.id);
+    const assignmentId = Number(req.params.assignmentId);
+    const content = String(req.body?.content || "").trim();
+    if (!communityId || !assignmentId || !content) {
+      return res.status(400).json({ message: "content is required" });
+    }
+    const role = await getCommunityRole(communityId, userId);
+    if (!role) return res.status(403).json({ message: "Join this community first" });
+
+    const [[assignment]] = await db.query(
+      "SELECT id FROM vine_community_assignments WHERE id = ? AND community_id = ? LIMIT 1",
+      [assignmentId, communityId]
+    );
+    if (!assignment) return res.status(404).json({ message: "Assignment not found" });
+
+    await db.query(
+      `
+      INSERT INTO vine_community_submission_drafts (assignment_id, community_id, user_id, content, updated_at)
+      VALUES (?, ?, ?, ?, NOW())
+      ON DUPLICATE KEY UPDATE content = VALUES(content), updated_at = NOW()
+      `,
+      [assignmentId, communityId, userId, content]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Save assignment draft error:", err);
+    res.status(500).json({ message: "Failed to save draft" });
   }
 });
 

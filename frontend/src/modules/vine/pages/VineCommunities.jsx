@@ -779,6 +779,22 @@ export default function VineCommunities() {
     if (res.ok) loadCommunityDetail(activeCommunity.slug, topicFilter);
   };
 
+  const kickMember = async (memberId, username) => {
+    if (!activeCommunity?.id || !memberId) return;
+    const ok = window.confirm(`Remove @${username} from this community?`);
+    if (!ok) return;
+    const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/members/${memberId}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert(data.message || "Failed to remove member");
+      return;
+    }
+    loadCommunityDetail(activeCommunity.slug, topicFilter);
+  };
+
   const createEvent = async () => {
     if (!activeCommunity?.id || !eventTitle.trim() || !eventStartsAt) return;
     const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/events`, {
@@ -922,8 +938,20 @@ export default function VineCommunities() {
                   className="community-link"
                   onClick={() => navigate(`/vine/communities/${c.slug}`)}
                 >
-                  <strong>{c.name}</strong>
-                  <span>{c.member_count} members</span>
+                  <div className="community-link-avatar">
+                    {c.avatar_url ? (
+                      <img
+                        src={c.avatar_url.startsWith("http") ? c.avatar_url : `${API}${c.avatar_url}`}
+                        alt={c.name}
+                      />
+                    ) : (
+                      (c.name || "?").trim().charAt(0).toUpperCase()
+                    )}
+                  </div>
+                  <div className="community-link-meta">
+                    <strong>{c.name}</strong>
+                    <span>{c.member_count} members</span>
+                  </div>
                 </button>
                 <button className="community-join" onClick={() => toggleJoin(c)}>
                   {Number(c.is_member) === 1
@@ -1141,7 +1169,7 @@ export default function VineCommunities() {
                     <h4>Members</h4>
                     <div className="community-members-list">
                       {members.map((m) => (
-                        <button key={m.id} className="member-row" onClick={() => navigate(`/vine/profile/${m.username}`)}>
+                        <div key={m.id} className="member-row" onClick={() => navigate(`/vine/profile/${m.username}`)}>
                           <img
                             src={m.avatar_url ? (m.avatar_url.startsWith("http") ? m.avatar_url : `${API}${m.avatar_url}`) : DEFAULT_AVATAR}
                             alt={m.username}
@@ -1149,22 +1177,37 @@ export default function VineCommunities() {
                               e.currentTarget.src = DEFAULT_AVATAR;
                             }}
                           />
-                          <div>
+                          <div className="member-main">
                             <div className="member-name">{m.display_name || m.username}</div>
                             <div className="member-meta">@{m.username} • {m.role}</div>
                           </div>
-                          {String(activeCommunity.viewer_role || "").toLowerCase() === "owner" && Number(m.id) !== Number(activeCommunity.creator_id) && (
-                            <select
-                              className="member-role-select"
-                              value={m.role}
-                              onChange={(e) => updateMemberRole(m.id, e.target.value)}
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <option value="member">member</option>
-                              <option value="moderator">moderator</option>
-                            </select>
-                          )}
-                        </button>
+                          <div className="member-actions" onClick={(e) => e.stopPropagation()}>
+                            {String(activeCommunity.viewer_role || "").toLowerCase() === "owner" && Number(m.id) !== Number(activeCommunity.creator_id) && (
+                              <select
+                                className="member-role-select"
+                                value={m.role}
+                                onChange={(e) => updateMemberRole(m.id, e.target.value)}
+                              >
+                                <option value="member">member</option>
+                                <option value="moderator">moderator</option>
+                              </select>
+                            )}
+                            {["owner", "moderator"].includes(String(activeCommunity.viewer_role || "").toLowerCase()) &&
+                              String(m.role || "").toLowerCase() !== "owner" &&
+                              !(
+                                String(activeCommunity.viewer_role || "").toLowerCase() === "moderator" &&
+                                String(m.role || "").toLowerCase() !== "member"
+                              ) && (
+                                <button
+                                  type="button"
+                                  className="member-kick-btn"
+                                  onClick={() => kickMember(m.id, m.username)}
+                                >
+                                  Remove
+                                </button>
+                              )}
+                          </div>
+                        </div>
                       ))}
                     </div>
                   </section>

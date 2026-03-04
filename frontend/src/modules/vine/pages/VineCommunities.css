@@ -313,8 +313,9 @@
   padding: 8px;
   display: grid;
   grid-template-columns: 44px minmax(0, 1fr);
+  grid-template-rows: auto auto;
   gap: 10px;
-  align-items: center;
+  align-items: start;
   cursor: pointer;
   text-align: left;
 }
@@ -324,6 +325,7 @@
   height: 44px;
   border-radius: 10px;
   object-fit: cover;
+  grid-row: 1 / span 2;
 }
 
 .member-name {
@@ -334,6 +336,22 @@
 .member-meta {
   color: #64748b;
   font-size: 0.82rem;
+}
+
+.member-main {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+}
+
+.member-actions {
+  grid-column: 2;
+  grid-row: 2;
+  justify-self: end;
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .settings-row {
@@ -524,16 +542,51 @@
   text-align: left;
   cursor: pointer;
   padding: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.community-link-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 1px solid #86efac;
+  background: #ecfdf5;
+  color: #065f46;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.community-link-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.community-link-meta {
+  min-width: 0;
 }
 
 .community-link strong {
   display: block;
   color: #064e3b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .community-link span {
   font-size: 0.82rem;
   color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .community-join {
@@ -1204,11 +1257,20 @@
 }
 
 .member-role-select {
-  margin-left: auto;
   border: 1px solid #cbd5e1;
   border-radius: 8px;
   padding: 5px 7px;
-  max-width: 110px;
+  max-width: 140px;
+}
+
+.member-kick-btn {
+  border: 1px solid #fecaca;
+  background: #fff1f2;
+  color: #b91c1c;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-weight: 800;
+  cursor: pointer;
 }
 
 @media (max-width: 900px) {
@@ -1367,11 +1429,12 @@
     height: 40px;
   }
 
+  .member-actions {
+    justify-self: start;
+  }
+
   .member-role-select {
-    margin-left: 0;
     max-width: 100%;
-    width: 100%;
-    grid-column: 1 / -1;
   }
 
   .media-grid {

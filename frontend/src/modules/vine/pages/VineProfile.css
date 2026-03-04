@@ -258,6 +258,16 @@
   color: #ffffff;
 }
 
+.theme-dark .profile-about-compact .about-compact-chip {
+  background: #0a0a0a;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.theme-dark .about-compact-label,
+.theme-dark .about-compact-value {
+  color: #ffffff;
+}
+
 .theme-dark .more-header {
   background: linear-gradient(135deg, #0f172a, #111827);
 }
@@ -702,6 +712,40 @@
 .profile-link:hover {
   background: #f0fdf4;
   border-color: #10b981;
+}
+
+.profile-about-compact {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: -8px 0 16px;
+}
+
+.about-compact-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid #d1fae5;
+  background: #f0fdf4;
+  max-width: 100%;
+}
+
+.about-compact-label {
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: #065f46;
+}
+
+.about-compact-value {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #14532d;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Stats */

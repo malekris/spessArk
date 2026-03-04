@@ -1897,6 +1897,53 @@ router.patch("/communities/:id/members/:memberId/role", authenticate, async (req
   }
 });
 
+router.delete("/communities/:id/members/:memberId", authenticate, async (req, res) => {
+  try {
+    await ensureCommunitySchema();
+    const userId = Number(req.user.id);
+    const communityId = Number(req.params.id);
+    const memberId = Number(req.params.memberId);
+    if (!communityId || !memberId) return res.status(400).json({ message: "Invalid request" });
+    if (memberId === userId) {
+      return res.status(400).json({ message: "Use leave to remove yourself" });
+    }
+
+    const actorRole = String(await getCommunityRole(communityId, userId) || "").toLowerCase();
+    if (!isCommunityModOrOwner(actorRole)) {
+      return res.status(403).json({ message: "Not allowed" });
+    }
+
+    const [[targetRow]] = await db.query(
+      `
+      SELECT role
+      FROM vine_community_members
+      WHERE community_id = ? AND user_id = ?
+      LIMIT 1
+      `,
+      [communityId, memberId]
+    );
+    if (!targetRow) return res.status(404).json({ message: "Member not found" });
+
+    const targetRole = String(targetRow.role || "").toLowerCase();
+    if (targetRole === "owner") {
+      return res.status(403).json({ message: "Owner cannot be removed" });
+    }
+    if (actorRole === "moderator" && targetRole !== "member") {
+      return res.status(403).json({ message: "Moderators can only remove members" });
+    }
+
+    await db.query(
+      "DELETE FROM vine_community_members WHERE community_id = ? AND user_id = ? LIMIT 1",
+      [communityId, memberId]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Kick community member error:", err);
+    res.status(500).json({ message: "Failed to remove member" });
+  }
+});
+
 router.post("/communities/:id/scheduled-posts", authenticate, async (req, res) => {
   try {
     await ensureCommunitySchema();

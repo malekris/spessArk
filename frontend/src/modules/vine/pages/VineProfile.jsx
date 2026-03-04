@@ -1581,6 +1581,17 @@ export default function VineProfile() {
   )}
 </div>
 
+            {aboutFields.length > 0 && (
+              <div className="profile-about-compact">
+                {aboutFields.map((item) => (
+                  <div className="about-compact-chip" key={`compact-about-${item.label}`}>
+                    <span className="about-compact-label">{item.label}:</span>
+                    <span className="about-compact-value">{item.value}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
 
             <div className="profile-stats">
               <span onClick={() => navigate(`/vine/${resolvedUsername}/following`)}>
@@ -1787,19 +1798,6 @@ export default function VineProfile() {
                   >
                     {isMuting ? "Unmute" : "Mute"}
                   </button>
-                  <div className="more-section-title about-title">About</div>
-                  {aboutFields.length === 0 ? (
-                    <div className="empty-state">No about info yet</div>
-                  ) : (
-                    <div className="about-list">
-                      {aboutFields.map((item) => (
-                        <div className="about-row" key={`about-${item.label}`}>
-                          <span className="about-label">{item.label}</span>
-                          <span className="about-value">{item.value}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </div>
               )}
             </div>

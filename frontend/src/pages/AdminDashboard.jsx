@@ -38,6 +38,12 @@ const OPTIONAL_SUBJECTS = [
   "IRE",
   "Kiswahili",
 ];
+const S1_S2_PRESELECT_OPTIONALS = [
+  "Physical Education",
+  "Kiswahili",
+  "Christian Religious Education",
+  "Entrepreneurship",
+];
 
 const formatDateTime = (value) => {
   if (!value) return "—";
@@ -643,6 +649,13 @@ export default function AdminDashboard() {
     const { name, value } = e.target;
     setStudentForm((p) => ({ ...p, [name]: value }));
     setStudentError("");
+
+    if (name === "class_level" && (value === "S1" || value === "S2")) {
+      setSelectedOptionals((prev) => {
+        const merged = Array.from(new Set([...S1_S2_PRESELECT_OPTIONALS, ...prev]));
+        return merged.slice(0, 6);
+      });
+    }
   };
 
   const handleOptionalSubjectToggle = (subject) => {

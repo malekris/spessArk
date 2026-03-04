@@ -71,6 +71,14 @@ export default function VineCommunities() {
     return () => clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    if (activeCommunity?.name) {
+      document.title = `Vine — ${activeCommunity.name}`;
+      return;
+    }
+    document.title = "Vine — Communities";
+  }, [activeCommunity?.name]);
+
   const loadCommunities = async () => {
     try {
       const res = await fetch(`${API}/api/vine/communities`, {

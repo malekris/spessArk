@@ -371,6 +371,12 @@ export default function VineCommunities() {
 
   const loadAssignmentSubmissions = async (assignmentId) => {
     if (!activeCommunity?.id || !assignmentId) return;
+    const viewerRole = String(activeCommunity?.viewer_role || "").toLowerCase();
+    if (viewerRole !== "owner") {
+      setAssignmentSubmissions([]);
+      setGradingDrafts({});
+      return;
+    }
     try {
       const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/assignments/${assignmentId}/submissions`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -568,6 +574,11 @@ export default function VineCommunities() {
 
   const createAssignment = async () => {
     if (!activeCommunity?.id || !assignmentTitle.trim()) return;
+    const viewerRole = String(activeCommunity?.viewer_role || "").toLowerCase();
+    if (viewerRole !== "owner") {
+      alert("Only community owner can create assignments");
+      return;
+    }
     try {
       const formData = new FormData();
       formData.append("title", assignmentTitle.trim());
@@ -664,6 +675,11 @@ export default function VineCommunities() {
 
   const deleteAssignment = async (assignmentId) => {
     if (!activeCommunity?.id || !assignmentId) return;
+    const viewerRole = String(activeCommunity?.viewer_role || "").toLowerCase();
+    if (viewerRole !== "owner") {
+      alert("Only community owner can delete assignments");
+      return;
+    }
     const ok = window.confirm("Delete this assignment and all submissions?");
     if (!ok) return;
     try {
@@ -690,6 +706,11 @@ export default function VineCommunities() {
 
   const gradeSubmission = async (submissionId) => {
     if (!activeCommunity?.id || !submissionId) return;
+    const viewerRole = String(activeCommunity?.viewer_role || "").toLowerCase();
+    if (viewerRole !== "owner") {
+      alert("Only community owner can grade assignments");
+      return;
+    }
     const draft = gradingDrafts[submissionId] || {};
     try {
       const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/submissions/${submissionId}/grade`, {
@@ -756,6 +777,8 @@ export default function VineCommunities() {
 
   const toggleAssignmentReview = async (assignmentId) => {
     if (!assignmentId) return;
+    const viewerRole = String(activeCommunity?.viewer_role || "").toLowerCase();
+    if (viewerRole !== "owner") return;
     if (Number(selectedAssignmentId) === Number(assignmentId)) {
       setSelectedAssignmentId(null);
       setAssignmentSubmissions([]);
@@ -1126,6 +1149,7 @@ export default function VineCommunities() {
   };
 
   const isCommunityMod = ["owner", "moderator"].includes(String(activeCommunity?.viewer_role || "").toLowerCase());
+  const isCommunityOwner = String(activeCommunity?.viewer_role || "").toLowerCase() === "owner";
   const isAttendanceManager = ["owner", "moderator"].includes(String(activeCommunity?.viewer_role || "").toLowerCase());
   const isAssignmentPastDue = (assignment) => {
     if (!assignment?.due_at) return false;
@@ -1622,11 +1646,11 @@ export default function VineCommunities() {
                   <section className="community-settings-panel">
                     <div className="assignment-top-row">
                       <h4>Assignments</h4>
-                      {isCommunityMod && (
+                      {isCommunityOwner && (
                         <button onClick={exportGradebookCsv}>Export Gradebook CSV</button>
                       )}
                     </div>
-                    {isCommunityMod && (
+                    {isCommunityOwner && (
                       <div className="assignment-create-grid">
                         <input
                           placeholder="Assignment title"
@@ -1744,7 +1768,7 @@ export default function VineCommunities() {
                                   <div className="assignment-body">{a.viewer_submission_content}</div>
                                 </div>
                               )}
-                              {!isCommunityMod && Number(activeCommunity.is_member) === 1 && (
+                              {!isCommunityOwner && Number(activeCommunity.is_member) === 1 && (
                                 <>
                                   {!submissionLocked && !gradedLocked ? (
                                     <div className="assignment-submit-row">
@@ -1774,7 +1798,7 @@ export default function VineCommunities() {
                                   )}
                                 </>
                               )}
-                              {isCommunityMod && (
+                              {isCommunityOwner && (
                                 <div className="assignment-mod-row">
                                   <button onClick={() => toggleAssignmentReview(a.id)}>
                                     {selectedAssignmentId === a.id ? "Hide submissions" : "Review submissions"}
@@ -1787,7 +1811,7 @@ export default function VineCommunities() {
                                   </button>
                                 </div>
                               )}
-                              {isCommunityMod && selectedAssignmentId === a.id && (
+                              {isCommunityOwner && selectedAssignmentId === a.id && (
                                 <div className="assignment-submissions">
                                   <div className="assignment-submissions-head">
                                     <strong>Submissions</strong>

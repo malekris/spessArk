@@ -1833,8 +1833,8 @@ router.post("/communities/:id/rules", authenticate, async (req, res) => {
     const text = String(req.body?.rule_text || "").trim();
     if (!communityId || !text) return res.status(400).json({ message: "Invalid rule" });
 
-    const role = await getCommunityRole(communityId, userId);
-    if (!isCommunityModOrOwner(role)) return res.status(403).json({ message: "Not allowed" });
+    const role = String(await getCommunityRole(communityId, userId) || "").toLowerCase();
+    if (role !== "owner") return res.status(403).json({ message: "Only community owner can create assignments" });
 
     await db.query(
       `
@@ -1856,8 +1856,8 @@ router.delete("/communities/:id/rules/:ruleId", authenticate, async (req, res) =
     const userId = req.user.id;
     const communityId = Number(req.params.id);
     const ruleId = Number(req.params.ruleId);
-    const role = await getCommunityRole(communityId, userId);
-    if (!isCommunityModOrOwner(role)) return res.status(403).json({ message: "Not allowed" });
+    const role = String(await getCommunityRole(communityId, userId) || "").toLowerCase();
+    if (role !== "owner") return res.status(403).json({ message: "Only community owner can delete assignments" });
     await db.query(
       "DELETE FROM vine_community_rules WHERE id = ? AND community_id = ?",
       [ruleId, communityId]
@@ -2562,7 +2562,7 @@ router.post("/communities/:id/assignments/:assignmentId/submissions", authentica
     );
     if (!assignment) return res.status(404).json({ message: "Assignment not found" });
     const normalizedRole = String(role || "").toLowerCase();
-    const canBypassDueDate = ["owner", "moderator"].includes(normalizedRole);
+    const canBypassDueDate = normalizedRole === "owner";
     if (assignment.due_at && !canBypassDueDate) {
       const dueAt = new Date(assignment.due_at);
       if (!Number.isNaN(dueAt.getTime()) && dueAt.getTime() < Date.now()) {
@@ -2695,8 +2695,8 @@ router.get("/communities/:id/assignments/:assignmentId/submissions", authenticat
     const communityId = Number(req.params.id);
     const assignmentId = Number(req.params.assignmentId);
     if (!communityId || !assignmentId) return res.status(400).json([]);
-    const role = await getCommunityRole(communityId, userId);
-    if (!isCommunityModOrOwner(role)) return res.status(403).json([]);
+    const role = String(await getCommunityRole(communityId, userId) || "").toLowerCase();
+    if (role !== "owner") return res.status(403).json([]);
 
     const [rows] = await db.query(
       `
@@ -2743,8 +2743,8 @@ router.patch("/communities/:id/submissions/:submissionId/grade", authenticate, a
       : "graded";
     const score = scoreRaw === "" || scoreRaw === null || scoreRaw === undefined ? null : Number(scoreRaw);
     if (!communityId || !submissionId) return res.status(400).json({ message: "Invalid request" });
-    const role = await getCommunityRole(communityId, userId);
-    if (!isCommunityModOrOwner(role)) return res.status(403).json({ message: "Not allowed" });
+    const role = String(await getCommunityRole(communityId, userId) || "").toLowerCase();
+    if (role !== "owner") return res.status(403).json({ message: "Only community owner can grade assignments" });
     if (score !== null && !Number.isFinite(score)) return res.status(400).json({ message: "Invalid score" });
 
     const [[submission]] = await db.query(

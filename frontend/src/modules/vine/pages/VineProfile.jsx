@@ -2095,24 +2095,7 @@ export default function VineProfile() {
         <button onClick={() => setSettingsOpen(false)}>✕</button>
       </div>
 
-      {/* 1️⃣ DM Privacy */}
-      <div className="settings-item">
-        <label>Who can message me</label>
-        <select
-          value={dmPrivacy}
-          onChange={(e) => {
-            const value = e.target.value;
-            setDmPrivacy(value);
-            saveSettings({ dm_privacy: value });
-          }}
-        >
-          <option value="everyone">Everyone</option>
-          <option value="followers">Followers only</option>
-          <option value="no_one">No one</option>
-        </select>
-      </div>
-
-      {/* 2️⃣ Private Profile */}
+      {/* 1️⃣ Private Profile */}
       <div className="settings-item">
         <label>
           <input
@@ -2128,7 +2111,7 @@ export default function VineProfile() {
         </label>
       </div>
 
-      {/* 3️⃣ Hide like counts */}
+      {/* 2️⃣ Hide like counts */}
       <div className="settings-item">
         <label>
           <input
@@ -2144,7 +2127,7 @@ export default function VineProfile() {
         </label>
       </div>
 
-      {/* 4️⃣ Show last active */}
+      {/* 3️⃣ Show last active */}
       <div className="settings-item">
         <label>
           <input

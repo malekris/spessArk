@@ -1266,6 +1266,38 @@ const getCommunityRole = async (communityId, userId) => {
   return row?.role || null;
 };
 
+const getCommunityVisibilityScope = async (userId) => {
+  const uid = Number(userId || 0);
+  if (!uid) return { isOwner: false, hasMembership: false };
+  const [[row]] = await db.query(
+    `
+    SELECT
+      SUM(CASE WHEN LOWER(role) = 'owner' THEN 1 ELSE 0 END) AS owner_count,
+      COUNT(*) AS membership_count
+    FROM vine_community_members
+    WHERE user_id = ?
+    `,
+    [uid]
+  );
+  return {
+    isOwner: Number(row?.owner_count || 0) > 0,
+    hasMembership: Number(row?.membership_count || 0) > 0,
+  };
+};
+
+const canAccessCommunityByVisibilityPolicy = async (userId, communityId) => {
+  const uid = Number(userId || 0);
+  const cid = Number(communityId || 0);
+  if (!uid || !cid) return true;
+  const scope = await getCommunityVisibilityScope(uid);
+  if (scope.isOwner || !scope.hasMembership) return true;
+  const [membership] = await db.query(
+    "SELECT 1 FROM vine_community_members WHERE community_id = ? AND user_id = ? LIMIT 1",
+    [cid, uid]
+  );
+  return membership.length > 0;
+};
+
 const isCommunityModOrOwner = (role) =>
   ["owner", "moderator"].includes(String(role || "").toLowerCase());
 
@@ -1336,7 +1368,21 @@ const publishDueScheduledPosts = async () => {
 router.get("/communities", authenticate, async (req, res) => {
   try {
     await ensureCommunitySchema();
-    const userId = req.user.id;
+    const userId = Number(req.user.id);
+    const scope = await getCommunityVisibilityScope(userId);
+    const params = [userId, userId, userId];
+    let visibilityWhere = "";
+    if (!scope.isOwner && scope.hasMembership) {
+      visibilityWhere = `
+        WHERE EXISTS (
+          SELECT 1
+          FROM vine_community_members vm
+          WHERE vm.community_id = c.id
+            AND vm.user_id = ?
+        )
+      `;
+      params.push(userId);
+    }
     const [rows] = await db.query(
       `
       SELECT
@@ -1360,9 +1406,10 @@ router.get("/communities", authenticate, async (req, res) => {
         (SELECT role FROM vine_community_members m WHERE m.community_id = c.id AND m.user_id = ? LIMIT 1) AS viewer_role,
         (SELECT status FROM vine_community_join_requests r WHERE r.community_id = c.id AND r.user_id = ? LIMIT 1) AS join_request_status
       FROM vine_communities c
+      ${visibilityWhere}
       ORDER BY member_count DESC, c.created_at DESC
       `,
-      [userId, userId, userId]
+      params
     );
     res.json(rows);
   } catch (err) {
@@ -1565,7 +1612,7 @@ router.delete("/communities/:id/leave", authenticate, async (req, res) => {
 router.get("/communities/:slug", authOptional, async (req, res) => {
   try {
     await ensureCommunitySchema();
-    const viewerId = req.user?.id || 0;
+    const viewerId = Number(req.user?.id || 0);
     const [[community]] = await db.query(
       `
       SELECT
@@ -1595,6 +1642,10 @@ router.get("/communities/:slug", authOptional, async (req, res) => {
       [viewerId, viewerId, viewerId, req.params.slug]
     );
     if (!community) return res.status(404).json({ message: "Community not found" });
+    if (viewerId) {
+      const allowed = await canAccessCommunityByVisibilityPolicy(viewerId, community.id);
+      if (!allowed) return res.status(403).json({ message: "Not allowed" });
+    }
     res.json(community);
   } catch (err) {
     console.error("Get community error:", err);
@@ -1605,12 +1656,17 @@ router.get("/communities/:slug", authOptional, async (req, res) => {
 router.get("/communities/:slug/members", authOptional, async (req, res) => {
   try {
     await ensureCommunitySchema();
+    const viewerId = Number(req.user?.id || 0);
     const limit = Math.min(24, Math.max(1, Number(req.query.limit || 8)));
     const [[community]] = await db.query(
       "SELECT id FROM vine_communities WHERE slug = ? LIMIT 1",
       [req.params.slug]
     );
     if (!community) return res.status(404).json([]);
+    if (viewerId) {
+      const allowed = await canAccessCommunityByVisibilityPolicy(viewerId, community.id);
+      if (!allowed) return res.status(403).json([]);
+    }
 
     const [rows] = await db.query(
       `
@@ -2508,6 +2564,8 @@ router.get("/communities/:slug/assignments", authenticate, async (req, res) => {
     const viewerId = Number(req.user.id);
     const [[community]] = await db.query("SELECT id FROM vine_communities WHERE slug = ? LIMIT 1", [req.params.slug]);
     if (!community) return res.status(404).json([]);
+    const allowed = await canAccessCommunityByVisibilityPolicy(viewerId, community.id);
+    if (!allowed) return res.status(403).json([]);
 
     const [rows] = await db.query(
       `
@@ -3324,13 +3382,17 @@ router.get("/communities/:slug/posts", authOptional, async (req, res) => {
   try {
     await ensureCommunitySchema();
     await publishDueScheduledPosts();
-    const viewerId = req.user?.id || null;
+    const viewerId = Number(req.user?.id || 0) || null;
     const topic = String(req.query?.topic || "").trim().toLowerCase();
     const [[community]] = await db.query(
       "SELECT id, name, slug FROM vine_communities WHERE slug = ? LIMIT 1",
       [req.params.slug]
     );
     if (!community) return res.status(404).json([]);
+    if (viewerId) {
+      const allowed = await canAccessCommunityByVisibilityPolicy(viewerId, community.id);
+      if (!allowed) return res.status(403).json([]);
+    }
 
     const [posts] = await db.query(
       `

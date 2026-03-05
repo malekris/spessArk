@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import VinePostCard from "./VinePostCard";
 import "./VineCommunities.css";
 
@@ -41,6 +43,16 @@ export default function VineCommunities() {
   const [eventStartsAt, setEventStartsAt] = useState("");
   const [eventLocation, setEventLocation] = useState("");
   const [eventDescription, setEventDescription] = useState("");
+  const [sessions, setSessions] = useState([]);
+  const [sessionTitle, setSessionTitle] = useState("");
+  const [sessionStartsAt, setSessionStartsAt] = useState("");
+  const [sessionEndsAt, setSessionEndsAt] = useState("");
+  const [sessionNotes, setSessionNotes] = useState("");
+  const [selectedSessionId, setSelectedSessionId] = useState(null);
+  const [attendanceRows, setAttendanceRows] = useState([]);
+  const [attendanceDrafts, setAttendanceDrafts] = useState({});
+  const [attendanceSummary, setAttendanceSummary] = useState({ lessons_attended: 0 });
+  const [attendanceRecords, setAttendanceRecords] = useState([]);
   const [mediaPosts, setMediaPosts] = useState([]);
   const [assignments, setAssignments] = useState([]);
   const [assignmentTitle, setAssignmentTitle] = useState("");
@@ -164,6 +176,12 @@ export default function VineCommunities() {
       setJoinPolicy(cData?.join_policy || "open");
       setAutoWelcomeEnabled(Number(cData?.auto_welcome_enabled ?? 1) === 1);
       setWelcomeMessage(cData?.welcome_message || "");
+      setSessions([]);
+      setSelectedSessionId(null);
+      setAttendanceRows([]);
+      setAttendanceDrafts({});
+      setAttendanceSummary({ lessons_attended: 0 });
+      setAttendanceRecords([]);
     } catch {
       setActiveCommunity(null);
       setPosts([]);
@@ -171,6 +189,12 @@ export default function VineCommunities() {
       setRules([]);
       setQuestions([]);
       setEvents([]);
+      setSessions([]);
+      setSelectedSessionId(null);
+      setAttendanceRows([]);
+      setAttendanceDrafts({});
+      setAttendanceSummary({ lessons_attended: 0 });
+      setAttendanceRecords([]);
       setMediaPosts([]);
       setAssignments([]);
       setSavedDraftsMap({});
@@ -386,6 +410,14 @@ export default function VineCommunities() {
   useEffect(() => {
     if (activeTab === "reputation" && activeCommunity?.id) loadReputation();
     if (activeTab === "assignments" && activeCommunity?.id) loadBadgesStreaks();
+    if (activeTab === "attendance" && activeCommunity?.id) {
+      const role = String(activeCommunity.viewer_role || "").toLowerCase();
+      if (["owner", "moderator"].includes(role)) {
+        loadSessions();
+      } else {
+        loadAttendanceRecords();
+      }
+    }
     if (activeTab === "reports" && activeCommunity && ["owner", "moderator"].includes(String(activeCommunity.viewer_role || "").toLowerCase())) {
       loadReports();
     }
@@ -869,6 +901,185 @@ export default function VineCommunities() {
     loadCommunityDetail(activeCommunity.slug, topicFilter);
   };
 
+  const loadSessions = async () => {
+    if (!activeCommunity?.id) return;
+    try {
+      const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/sessions`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => []);
+      setSessions(Array.isArray(data) ? data : []);
+    } catch {
+      setSessions([]);
+    }
+  };
+
+  const createSession = async () => {
+    if (!activeCommunity?.id || !sessionTitle.trim() || !sessionStartsAt) return;
+    try {
+      const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/sessions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          title: sessionTitle.trim(),
+          starts_at: sessionStartsAt,
+          ends_at: sessionEndsAt || null,
+          notes: sessionNotes.trim(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || "Failed to create class");
+        return;
+      }
+      setSessionTitle("");
+      setSessionStartsAt("");
+      setSessionEndsAt("");
+      setSessionNotes("");
+      await loadSessions();
+      alert("Class session created");
+    } catch {
+      alert("Failed to create class");
+    }
+  };
+
+  const loadAttendance = async (sessionId) => {
+    if (!activeCommunity?.id || !sessionId) return;
+    try {
+      const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/sessions/${sessionId}/attendance`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => []);
+      const rows = Array.isArray(data) ? data : [];
+      setAttendanceRows(rows);
+      const nextDrafts = {};
+      for (const r of rows) {
+        nextDrafts[r.user_id] = r.status || "absent";
+      }
+      setAttendanceDrafts(nextDrafts);
+    } catch {
+      setAttendanceRows([]);
+      setAttendanceDrafts({});
+    }
+  };
+
+  const loadAttendanceSummary = async () => {
+    if (!activeCommunity?.id) return;
+    try {
+      const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/attendance/summary`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({ lessons_attended: 0 }));
+      setAttendanceSummary({ lessons_attended: Number(data?.lessons_attended || 0) });
+    } catch {
+      setAttendanceSummary({ lessons_attended: 0 });
+    }
+  };
+
+  const loadAttendanceRecords = async () => {
+    if (!activeCommunity?.id) return;
+    try {
+      const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/attendance/my-records`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({ lessons_attended: 0, lessons_missed: 0, rows: [] }));
+      setAttendanceSummary({
+        lessons_attended: Number(data?.lessons_attended || 0),
+        lessons_missed: Number(data?.lessons_missed || 0),
+      });
+      setAttendanceRecords(Array.isArray(data?.rows) ? data.rows : []);
+    } catch {
+      setAttendanceRecords([]);
+      setAttendanceSummary({ lessons_attended: 0, lessons_missed: 0 });
+    }
+  };
+
+  const saveAttendance = async () => {
+    if (!activeCommunity?.id || !selectedSessionId) return;
+    try {
+      const entries = Object.entries(attendanceDrafts).map(([user_id, status]) => ({
+        user_id: Number(user_id),
+        status,
+      }));
+      const res = await fetch(
+        `${API}/api/vine/communities/${activeCommunity.id}/sessions/${selectedSessionId}/attendance/bulk`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ entries }),
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || "Failed to save attendance");
+        return;
+      }
+      await loadAttendance(selectedSessionId);
+      await loadSessions();
+      alert("Attendance saved");
+    } catch {
+      alert("Failed to save attendance");
+    }
+  };
+
+  const exportAttendanceCsv = () => {
+    if (!selectedSessionId) return;
+    const session = sessions.find((s) => Number(s.id) === Number(selectedSessionId));
+    const header = ["display_name", "username", "role", "status"];
+    const rows = attendanceRows.map((row) => [
+      String(row.display_name || row.username || ""),
+      String(row.username || ""),
+      String(row.community_role || "member"),
+      String(attendanceDrafts[row.user_id] || row.status || "absent"),
+    ]);
+    const csv = [header, ...rows]
+      .map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","))
+      .join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const safeTitle = String(session?.title || "session").replace(/[^a-z0-9-_]+/gi, "_");
+    a.download = `attendance_${safeTitle}_${selectedSessionId}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportAttendancePdf = () => {
+    if (!selectedSessionId) return;
+    const session = sessions.find((s) => Number(s.id) === Number(selectedSessionId));
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
+    doc.setFontSize(16);
+    doc.text(`${activeCommunity?.name || "Community"} — Class Register`, 40, 42);
+    doc.setFontSize(11);
+    doc.text(`Session: ${session?.title || "Untitled"}`, 40, 62);
+    doc.text(`Date: ${session?.starts_at ? new Date(session.starts_at).toLocaleString() : ""}`, 40, 78);
+    const body = attendanceRows.map((row, idx) => [
+      idx + 1,
+      row.display_name || row.username || "",
+      `@${row.username || ""}`,
+      attendanceDrafts[row.user_id] || row.status || "absent",
+      "",
+    ]);
+    autoTable(doc, {
+      startY: 92,
+      head: [["No", "Name", "Username", "Status", "Signature"]],
+      body,
+      styles: { fontSize: 10, cellPadding: 6 },
+      headStyles: { fillColor: [20, 83, 45] },
+    });
+    const blob = doc.output("blob");
+    const url = URL.createObjectURL(blob);
+    window.open(url, "_blank", "noopener,noreferrer");
+    setTimeout(() => URL.revokeObjectURL(url), 60 * 1000);
+  };
+
   const reportToMods = async (postId) => {
     if (!activeCommunity?.id) return;
     const reason = window.prompt("Report reason");
@@ -908,6 +1119,7 @@ export default function VineCommunities() {
   };
 
   const isCommunityMod = ["owner", "moderator"].includes(String(activeCommunity?.viewer_role || "").toLowerCase());
+  const isAttendanceManager = ["owner", "moderator"].includes(String(activeCommunity?.viewer_role || "").toLowerCase());
   const isAssignmentPastDue = (assignment) => {
     if (!assignment?.due_at) return false;
     const due = new Date(assignment.due_at);
@@ -1067,6 +1279,7 @@ export default function VineCommunities() {
                 <button className={activeTab === "about" ? "active" : ""} onClick={() => setActiveTab("about")}>About</button>
                 <button className={activeTab === "members" ? "active" : ""} onClick={() => setActiveTab("members")}>Members</button>
                 <button className={activeTab === "events" ? "active" : ""} onClick={() => setActiveTab("events")}>Events</button>
+                <button className={activeTab === "attendance" ? "active" : ""} onClick={() => setActiveTab("attendance")}>Attendance</button>
                 <button className={activeTab === "assignments" ? "active" : ""} onClick={() => setActiveTab("assignments")}>Assignments</button>
                 <button className={activeTab === "media" ? "active" : ""} onClick={() => setActiveTab("media")}>Media</button>
                 <button className={activeTab === "reputation" ? "active" : ""} onClick={() => setActiveTab("reputation")}>Reputation</button>
@@ -1081,7 +1294,9 @@ export default function VineCommunities() {
               <div
                 className={`community-body-grid ${
                   activeTab === "discussion" ? "discussion-only" : ""
-                } ${activeTab === "assignments" ? "assignments-only" : ""}`}
+                } ${activeTab === "assignments" ? "assignments-only" : ""} ${
+                  activeTab === "attendance" ? "attendance-only" : ""
+                }`}
               >
                 {activeTab === "discussion" && (
                   <section className="community-discussion">
@@ -1285,6 +1500,148 @@ export default function VineCommunities() {
                         ))
                       )}
                     </div>
+                  </section>
+                )}
+                {activeTab === "attendance" && (
+                  <section className="community-settings-panel attendance-panel">
+                    <div className="assignment-top-row attendance-top-row">
+                      <h4>Class Register</h4>
+                      {isAttendanceManager && (
+                        <div className="attendance-actions">
+                          <button onClick={saveAttendance} disabled={!selectedSessionId}>Save Register</button>
+                          <button type="button" onClick={exportAttendanceCsv} disabled={!selectedSessionId}>Export CSV</button>
+                          <button type="button" onClick={exportAttendancePdf} disabled={!selectedSessionId}>Export PDF</button>
+                        </div>
+                      )}
+                    </div>
+
+                    {isAttendanceManager ? (
+                      <>
+                      <div className="attendance-create-grid">
+                        <input
+                          placeholder="Class title"
+                          value={sessionTitle}
+                          onChange={(e) => setSessionTitle(e.target.value)}
+                          maxLength={180}
+                        />
+                        <input
+                          type="datetime-local"
+                          value={sessionStartsAt}
+                          onChange={(e) => setSessionStartsAt(e.target.value)}
+                        />
+                        <input
+                          type="datetime-local"
+                          value={sessionEndsAt}
+                          onChange={(e) => setSessionEndsAt(e.target.value)}
+                        />
+                        <input
+                          placeholder="Notes (optional)"
+                          value={sessionNotes}
+                          onChange={(e) => setSessionNotes(e.target.value)}
+                        />
+                        <button onClick={createSession}>Create Class Session</button>
+                      </div>
+
+                    <div className="attendance-session-list">
+                      {sessions.length === 0 ? (
+                        <div className="community-empty">No class sessions yet.</div>
+                      ) : (
+                        sessions.map((s) => (
+                          <button
+                            key={s.id}
+                            type="button"
+                            className={`attendance-session-card ${Number(selectedSessionId) === Number(s.id) ? "active" : ""}`}
+                            onClick={async () => {
+                              setSelectedSessionId(s.id);
+                              await loadAttendance(s.id);
+                            }}
+                          >
+                            <div className="member-name">{s.title}</div>
+                            <div className="member-meta">
+                              {new Date(s.starts_at).toLocaleString()}
+                              {s.ends_at ? ` → ${new Date(s.ends_at).toLocaleString()}` : ""}
+                            </div>
+                            <div className="member-meta">
+                              Present {s.present_count || 0} • Absent {s.absent_count || 0} • Late {s.late_count || 0} • Excused {s.excused_count || 0}
+                            </div>
+                          </button>
+                        ))
+                      )}
+                    </div>
+
+                    {selectedSessionId && (
+                      <div className="assignment-submissions attendance-mark-panel">
+                        <div className="assignment-submissions-head">
+                          <strong>Mark Attendance</strong>
+                        </div>
+                        {attendanceRows.length === 0 ? (
+                          <div className="community-empty">No members found.</div>
+                        ) : (
+                          attendanceRows.map((row) => (
+                            <div className="assignment-submission-item attendance-member-row" key={`att-${row.user_id}`}>
+                              <div className="assignment-submission-head">
+                                <img
+                                  src={row.avatar_url ? (row.avatar_url.startsWith("http") ? row.avatar_url : `${API}${row.avatar_url}`) : DEFAULT_AVATAR}
+                                  alt={row.username}
+                                  onError={(e) => {
+                                    e.currentTarget.src = DEFAULT_AVATAR;
+                                  }}
+                                />
+                                <div>
+                                  <div className="member-name">{row.display_name || row.username}</div>
+                                  <div className="member-meta">@{row.username} • {row.community_role}</div>
+                                </div>
+                              </div>
+                              <div className="assignment-grade-grid attendance-status-row">
+                                <select
+                                  className="attendance-status-select"
+                                  value={attendanceDrafts[row.user_id] || "absent"}
+                                  onChange={(e) =>
+                                    setAttendanceDrafts((prev) => ({ ...prev, [row.user_id]: e.target.value }))
+                                  }
+                                  disabled={!isAttendanceManager}
+                                >
+                                  <option value="present">present</option>
+                                  <option value="absent">absent</option>
+                                  <option value="late">late</option>
+                                  <option value="excused">excused</option>
+                                </select>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
+                      </>
+                    ) : (
+                      <div className="attendance-member-view">
+                        <div className="attendance-summary-grid">
+                          <div className="attendance-summary-card">
+                            <div className="attendance-summary-label">Lessons Attended</div>
+                            <div className="attendance-summary-value">{attendanceSummary.lessons_attended || 0}</div>
+                          </div>
+                          <div className="attendance-summary-card missed">
+                            <div className="attendance-summary-label">Lessons Missed</div>
+                            <div className="attendance-summary-value">{attendanceSummary.lessons_missed || 0}</div>
+                          </div>
+                        </div>
+                        <div className="attendance-history-list">
+                          {attendanceRecords.length === 0 ? (
+                            <div className="community-empty">No attendance records yet.</div>
+                          ) : (
+                            attendanceRecords.map((row) => (
+                              <div key={`my-att-${row.session_id}`} className="attendance-history-row">
+                                <div className="member-name">{row.title || "Lesson"}</div>
+                                <div className="member-meta">{new Date(row.starts_at).toLocaleString()}</div>
+                                <div className={`attendance-status-pill ${String(row.status || "").toLowerCase()}`}>
+                                  {String(row.status || "absent")}
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </section>
                 )}
                 {activeTab === "assignments" && (

@@ -300,6 +300,7 @@ const ensureCommunitySchema = async () => {
       description VARCHAR(280) NULL,
       avatar_url VARCHAR(500) NULL,
       banner_url VARCHAR(500) NULL,
+      banner_offset_y INT NOT NULL DEFAULT 0,
       join_policy VARCHAR(20) NOT NULL DEFAULT 'open',
       post_permission VARCHAR(20) NOT NULL DEFAULT 'mods_only',
       auto_welcome_enabled TINYINT(1) NOT NULL DEFAULT 1,
@@ -497,6 +498,10 @@ const ensureCommunitySchema = async () => {
   const hasCommunityBanner = await hasColumn(dbName, "vine_communities", "banner_url");
   if (!hasCommunityBanner) {
     await db.query("ALTER TABLE vine_communities ADD COLUMN banner_url VARCHAR(500) NULL");
+  }
+  const hasCommunityBannerOffset = await hasColumn(dbName, "vine_communities", "banner_offset_y");
+  if (!hasCommunityBannerOffset) {
+    await db.query("ALTER TABLE vine_communities ADD COLUMN banner_offset_y INT NOT NULL DEFAULT 0");
   }
   const hasPostPermission = await hasColumn(dbName, "vine_communities", "post_permission");
   if (!hasPostPermission) {
@@ -1392,6 +1397,7 @@ router.get("/communities", authenticate, async (req, res) => {
         c.description,
         c.avatar_url,
         c.banner_url,
+        c.banner_offset_y,
         c.join_policy,
         c.post_permission,
         c.auto_welcome_enabled,
@@ -1622,6 +1628,7 @@ router.get("/communities/:slug", authOptional, async (req, res) => {
         c.description,
         c.avatar_url,
         c.banner_url,
+        c.banner_offset_y,
         c.join_policy,
         c.post_permission,
         c.auto_welcome_enabled,
@@ -1871,6 +1878,28 @@ router.post(
     }
   }
 );
+
+router.post("/communities/:id/banner-position", authenticate, async (req, res) => {
+  try {
+    await ensureCommunitySchema();
+    const userId = Number(req.user.id);
+    const communityId = Number(req.params.id);
+    const raw = Number(req.body?.offsetY);
+    if (!communityId || !Number.isFinite(raw)) {
+      return res.status(400).json({ message: "Invalid request" });
+    }
+    const role = String(await getCommunityRole(communityId, userId) || "").toLowerCase();
+    if (role !== "owner") {
+      return res.status(403).json({ message: "Only community owner can adjust banner position" });
+    }
+    const offsetY = Math.max(-260, Math.min(260, Math.round(raw)));
+    await db.query("UPDATE vine_communities SET banner_offset_y = ? WHERE id = ?", [offsetY, communityId]);
+    res.json({ success: true, banner_offset_y: offsetY });
+  } catch (err) {
+    console.error("Update community banner position error:", err);
+    res.status(500).json({ message: "Failed to update banner position" });
+  }
+});
 
 router.get("/communities/:id/rules", authOptional, async (req, res) => {
   try {

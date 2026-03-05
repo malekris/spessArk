@@ -81,7 +81,11 @@ export default function VineCommunities() {
   const [description, setDescription] = useState("");
   const [communityAvatarFile, setCommunityAvatarFile] = useState(null);
   const [communityBannerFile, setCommunityBannerFile] = useState(null);
+  const [communityBannerOffset, setCommunityBannerOffset] = useState(0);
+  const [isAdjustingCommunityBanner, setIsAdjustingCommunityBanner] = useState(false);
   const [showCreateCommunity, setShowCreateCommunity] = useState(false);
+  const communityBannerDragStart = useRef(0);
+  const communityBannerOffsetStart = useRef(0);
   const communityPostRef = useRef(null);
   const assignmentFileInputRef = useRef(null);
   const [nowMs, setNowMs] = useState(Date.now());
@@ -183,6 +187,8 @@ export default function VineCommunities() {
       setJoinPolicy(cData?.join_policy || "open");
       setAutoWelcomeEnabled(Number(cData?.auto_welcome_enabled ?? 1) === 1);
       setWelcomeMessage(cData?.welcome_message || "");
+      setCommunityBannerOffset(Number(cData?.banner_offset_y || 0));
+      setIsAdjustingCommunityBanner(false);
       setSessions([]);
       setSelectedSessionId(null);
       setAttendanceRows([]);
@@ -205,6 +211,8 @@ export default function VineCommunities() {
       setMediaPosts([]);
       setAssignments([]);
       setSavedDraftsMap({});
+      setCommunityBannerOffset(0);
+      setIsAdjustingCommunityBanner(false);
     }
   };
 
@@ -511,6 +519,52 @@ export default function VineCommunities() {
     setCommunityBannerFile(null);
     await loadCommunityDetail(activeCommunity.slug, topicFilter);
     await loadCommunities();
+  };
+
+  const startCommunityBannerDrag = (e) => {
+    if (!isAdjustingCommunityBanner) return;
+    communityBannerDragStart.current = e.touches ? e.touches[0].clientY : e.clientY;
+    communityBannerOffsetStart.current = Number(communityBannerOffset || 0);
+  };
+
+  const onCommunityBannerDrag = (e) => {
+    if (!isAdjustingCommunityBanner) return;
+    const y = e.touches ? e.touches[0].clientY : e.clientY;
+    const delta = y - communityBannerDragStart.current;
+    const next = Math.max(-260, Math.min(260, communityBannerOffsetStart.current + delta));
+    setCommunityBannerOffset(next);
+  };
+
+  const stopCommunityBannerDrag = async () => {
+    if (!isAdjustingCommunityBanner || !activeCommunity?.id) return;
+    try {
+      const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/banner-position`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ offsetY: Math.round(communityBannerOffset) }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || "Failed to save banner position");
+        return;
+      }
+      setCommunityBannerOffset(Number(data.banner_offset_y ?? Math.round(communityBannerOffset)));
+      setIsAdjustingCommunityBanner(false);
+      setActiveCommunity((prev) =>
+        prev
+          ? {
+              ...prev,
+              banner_offset_y: Number(data.banner_offset_y ?? Math.round(communityBannerOffset)),
+            }
+          : prev
+      );
+      await loadCommunities();
+    } catch {
+      alert("Failed to save banner position");
+    }
   };
 
   const applyCommunityFormat = (leftToken, rightToken = leftToken) => {
@@ -1279,9 +1333,20 @@ export default function VineCommunities() {
                   className="community-banner"
                   style={
                     activeCommunity.banner_url
-                      ? { backgroundImage: `url(${activeCommunity.banner_url})` }
+                      ? {
+                          backgroundImage: `url(${activeCommunity.banner_url})`,
+                          backgroundPosition: `center calc(50% + ${communityBannerOffset}px)`,
+                          cursor: isAdjustingCommunityBanner ? "grab" : "default",
+                        }
                       : undefined
                   }
+                  onMouseDown={isAdjustingCommunityBanner ? startCommunityBannerDrag : undefined}
+                  onMouseMove={isAdjustingCommunityBanner ? onCommunityBannerDrag : undefined}
+                  onMouseUp={isAdjustingCommunityBanner ? stopCommunityBannerDrag : undefined}
+                  onMouseLeave={isAdjustingCommunityBanner ? stopCommunityBannerDrag : undefined}
+                  onTouchStart={isAdjustingCommunityBanner ? startCommunityBannerDrag : undefined}
+                  onTouchMove={isAdjustingCommunityBanner ? onCommunityBannerDrag : undefined}
+                  onTouchEnd={isAdjustingCommunityBanner ? stopCommunityBannerDrag : undefined}
                 />
                 <div className="community-identity">
                   <div className="community-avatar">
@@ -2037,6 +2102,21 @@ export default function VineCommunities() {
                         <button type="button" onClick={uploadCommunityBanner} disabled={!communityBannerFile}>
                           Upload Banner
                         </button>
+                        {isCommunityOwner && (
+                          <button
+                            type="button"
+                            className="community-banner-adjust-btn"
+                            onClick={() => {
+                              if (isAdjustingCommunityBanner) {
+                                stopCommunityBannerDrag();
+                              } else {
+                                setIsAdjustingCommunityBanner(true);
+                              }
+                            }}
+                          >
+                            {isAdjustingCommunityBanner ? "Save Banner Position" : "Adjust Banner Position"}
+                          </button>
+                        )}
                       </label>
                     </div>
 

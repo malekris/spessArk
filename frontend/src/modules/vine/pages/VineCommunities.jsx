@@ -1028,6 +1028,13 @@ export default function VineCommunities() {
     }
   };
 
+  const markAllPresent = () => {
+    if (!attendanceRows.length) return;
+    const next = {};
+    for (const row of attendanceRows) next[row.user_id] = "present";
+    setAttendanceDrafts(next);
+  };
+
   const exportAttendanceCsv = () => {
     if (!selectedSessionId) return;
     const session = sessions.find((s) => Number(s.id) === Number(selectedSessionId));
@@ -1056,10 +1063,11 @@ export default function VineCommunities() {
     const session = sessions.find((s) => Number(s.id) === Number(selectedSessionId));
     const doc = new jsPDF({ unit: "pt", format: "a4" });
     doc.setFontSize(16);
-    doc.text(`${activeCommunity?.name || "Community"} — Class Register`, 40, 42);
+    doc.text("ST. PHILLIPS EQUATORIAL SECONDARY SCHOOL", 40, 42);
     doc.setFontSize(11);
-    doc.text(`Session: ${session?.title || "Untitled"}`, 40, 62);
-    doc.text(`Date: ${session?.starts_at ? new Date(session.starts_at).toLocaleString() : ""}`, 40, 78);
+    doc.text(`${activeCommunity?.name || "Community"} - Register`, 40, 62);
+    doc.text(`Session: ${session?.title || "Untitled"}`, 40, 78);
+    doc.text(`Date: ${session?.starts_at ? new Date(session.starts_at).toLocaleString() : ""}`, 40, 94);
     const body = attendanceRows.map((row, idx) => [
       idx + 1,
       row.display_name || row.username || "",
@@ -1068,7 +1076,7 @@ export default function VineCommunities() {
       "",
     ]);
     autoTable(doc, {
-      startY: 92,
+      startY: 108,
       head: [["No", "Name", "Username", "Status", "Signature"]],
       body,
       styles: { fontSize: 10, cellPadding: 6 },
@@ -1509,6 +1517,7 @@ export default function VineCommunities() {
                       {isAttendanceManager && (
                         <div className="attendance-actions">
                           <button onClick={saveAttendance} disabled={!selectedSessionId}>Save Register</button>
+                          <button type="button" onClick={markAllPresent} disabled={!selectedSessionId || attendanceRows.length === 0}>Mark All Present</button>
                           <button type="button" onClick={exportAttendanceCsv} disabled={!selectedSessionId}>Export CSV</button>
                           <button type="button" onClick={exportAttendancePdf} disabled={!selectedSessionId}>Export PDF</button>
                         </div>

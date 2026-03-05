@@ -215,11 +215,8 @@ export default function VineCommunities() {
       "discussion",
       "about",
       "members",
-      "events",
+      "attendance",
       "assignments",
-      "media",
-      "reputation",
-      "reports",
       "settings",
     ]);
     if (allowed.has(tab)) {
@@ -408,7 +405,6 @@ export default function VineCommunities() {
   }, [activeTab, activeCommunity?.id, activeCommunity?.viewer_role]);
 
   useEffect(() => {
-    if (activeTab === "reputation" && activeCommunity?.id) loadReputation();
     if (activeTab === "assignments" && activeCommunity?.id) loadBadgesStreaks();
     if (activeTab === "attendance" && activeCommunity?.id) {
       const role = String(activeCommunity.viewer_role || "").toLowerCase();
@@ -1286,14 +1282,8 @@ export default function VineCommunities() {
                 <button className={activeTab === "discussion" ? "active" : ""} onClick={() => setActiveTab("discussion")}>Discussion</button>
                 <button className={activeTab === "about" ? "active" : ""} onClick={() => setActiveTab("about")}>About</button>
                 <button className={activeTab === "members" ? "active" : ""} onClick={() => setActiveTab("members")}>Members</button>
-                <button className={activeTab === "events" ? "active" : ""} onClick={() => setActiveTab("events")}>Events</button>
                 <button className={activeTab === "attendance" ? "active" : ""} onClick={() => setActiveTab("attendance")}>Attendance</button>
                 <button className={activeTab === "assignments" ? "active" : ""} onClick={() => setActiveTab("assignments")}>Assignments</button>
-                <button className={activeTab === "media" ? "active" : ""} onClick={() => setActiveTab("media")}>Media</button>
-                <button className={activeTab === "reputation" ? "active" : ""} onClick={() => setActiveTab("reputation")}>Reputation</button>
-                {["owner", "moderator"].includes(String(activeCommunity.viewer_role || "").toLowerCase()) && (
-                  <button className={activeTab === "reports" ? "active" : ""} onClick={() => setActiveTab("reports")}>Reports</button>
-                )}
                 {["owner", "moderator"].includes(String(activeCommunity.viewer_role || "").toLowerCase()) && (
                   <button className={activeTab === "settings" ? "active" : ""} onClick={() => setActiveTab("settings")}>Settings</button>
                 )}
@@ -1479,34 +1469,6 @@ export default function VineCommunities() {
                           </div>
                         </div>
                       ))}
-                    </div>
-                  </section>
-                )}
-                {activeTab === "events" && (
-                  <section className="community-settings-panel">
-                    <h4>Events</h4>
-                    {["owner", "moderator"].includes(String(activeCommunity.viewer_role || "").toLowerCase()) && (
-                      <div className="event-create-grid">
-                        <input placeholder="Event title" value={eventTitle} onChange={(e) => setEventTitle(e.target.value)} />
-                        <input type="datetime-local" value={eventStartsAt} onChange={(e) => setEventStartsAt(e.target.value)} />
-                        <input placeholder="Location (optional)" value={eventLocation} onChange={(e) => setEventLocation(e.target.value)} />
-                        <textarea placeholder="Event description (optional)" value={eventDescription} onChange={(e) => setEventDescription(e.target.value)} />
-                        <button onClick={createEvent}>Create Event</button>
-                      </div>
-                    )}
-                    <div className="events-list">
-                      {events.length === 0 ? (
-                        <div className="community-empty">No events yet.</div>
-                      ) : (
-                        events.map((ev) => (
-                          <div key={ev.id} className="event-row">
-                            <div className="member-name">{ev.title}</div>
-                            <div className="member-meta">{new Date(ev.starts_at).toLocaleString()}</div>
-                            {ev.location && <div className="member-meta">{ev.location}</div>}
-                            {ev.description && <div className="member-meta">{ev.description}</div>}
-                          </div>
-                        ))
-                      )}
                     </div>
                   </section>
                 )}
@@ -1973,82 +1935,6 @@ export default function VineCommunities() {
                         <div><span>🏅</span> High Achiever = average 85%+ (min 3 graded)</div>
                       </div>
                     </div>
-                  </section>
-                )}
-                {activeTab === "media" && (
-                  <section className="community-members-panel">
-                    <h4>Media</h4>
-                    <div className="media-grid">
-                      {mediaPosts.length === 0 ? (
-                        <div className="community-empty">No media yet.</div>
-                      ) : (
-                        mediaPosts.flatMap((p) => {
-                          let urls = [];
-                          try {
-                            const parsed = JSON.parse(p.image_url || "[]");
-                            urls = Array.isArray(parsed) ? parsed : [p.image_url];
-                          } catch {
-                            urls = [p.image_url];
-                          }
-                          return urls.filter(Boolean).map((url, i) => (
-                            <button
-                              key={`${p.id}-${i}`}
-                              className="media-item"
-                              onClick={() => navigate(`/vine/feed?post=${p.id}`)}
-                            >
-                              {String(url).match(/\.(mp4|mov|webm)$/i) ? (
-                                <video src={url} muted />
-                              ) : (
-                                <img src={url} alt="" />
-                              )}
-                            </button>
-                          ));
-                        })
-                      )}
-                    </div>
-                  </section>
-                )}
-                {activeTab === "reputation" && (
-                  <section className="community-members-panel">
-                    <h4>Top Contributors</h4>
-                    <div className="community-members-list">
-                      {reputation.map((r) => (
-                        <button key={r.id} className="member-row" onClick={() => navigate(`/vine/profile/${r.username}`)}>
-                          <img
-                            src={r.avatar_url ? (r.avatar_url.startsWith("http") ? r.avatar_url : `${API}${r.avatar_url}`) : DEFAULT_AVATAR}
-                            alt={r.username}
-                            onError={(e) => {
-                              e.currentTarget.src = DEFAULT_AVATAR;
-                            }}
-                          />
-                          <div>
-                            <div className="member-name">{r.display_name || r.username}</div>
-                            <div className="member-meta">Posts {r.posts_count} • Comments {r.comments_count} • Likes {r.likes_received}</div>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  </section>
-                )}
-                {activeTab === "reports" && ["owner", "moderator"].includes(String(activeCommunity.viewer_role || "").toLowerCase()) && (
-                  <section className="community-settings-panel">
-                    <h4>Mod Reports Queue</h4>
-                    {reports.length === 0 ? (
-                      <div className="community-empty">No reports.</div>
-                    ) : (
-                      reports.map((r) => (
-                        <div key={r.id} className="request-row">
-                          <div>
-                            <div className="member-name">Report #{r.id} • {r.reason}</div>
-                            <div className="member-meta">By {r.reporter_display_name || r.reporter_username} • {new Date(r.created_at).toLocaleString()} • {r.status}</div>
-                          </div>
-                          <div className="request-actions">
-                            <button onClick={() => updateReportStatus(r.id, "resolved")}>Resolve</button>
-                            <button onClick={() => updateReportStatus(r.id, "dismissed")}>Dismiss</button>
-                          </div>
-                        </div>
-                      ))
-                    )}
                   </section>
                 )}
                 {activeTab === "settings" && ["owner", "moderator"].includes(String(activeCommunity.viewer_role || "").toLowerCase()) && (

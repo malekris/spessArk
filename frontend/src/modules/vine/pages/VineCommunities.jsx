@@ -1481,8 +1481,19 @@ export default function VineCommunities() {
                                         );
                                       return (
                                         <div key={s.id} className="assignment-submission-item">
-                                          <div className="member-name">{s.display_name || s.username}</div>
-                                          <div className="member-meta">@{s.username} • {new Date(s.submitted_at).toLocaleString()}</div>
+                                          <div className="assignment-submission-head">
+                                            <img
+                                              src={s.avatar_url ? (s.avatar_url.startsWith("http") ? s.avatar_url : `${API}${s.avatar_url}`) : DEFAULT_AVATAR}
+                                              alt={s.username}
+                                              onError={(e) => {
+                                                e.currentTarget.src = DEFAULT_AVATAR;
+                                              }}
+                                            />
+                                            <div>
+                                              <div className="member-name">{s.display_name || s.username}</div>
+                                              <div className="member-meta">@{s.username} • {new Date(s.submitted_at).toLocaleString()}</div>
+                                            </div>
+                                          </div>
                                           <div className="assignment-body">{s.content || "No content"}</div>
                                           {gradeLocked && (
                                             <div className="assignment-lock-note">

@@ -1137,6 +1137,21 @@
   padding: 8px;
 }
 
+.assignment-submission-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.assignment-submission-head img {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid #bbf7d0;
+  background: #ecfdf5;
+}
+
 .assignment-grade-grid {
   margin-top: 8px;
   display: grid;

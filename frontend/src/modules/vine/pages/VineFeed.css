@@ -786,6 +786,17 @@
   color: #64748b;
 }
 
+.tagged-users-preview {
+  margin-top: 8px;
+  border-radius: 10px;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1e3a8a;
+  padding: 8px 10px;
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
 .theme-dark .feed-mention-suggest-list {
   background: #0f172a;
   border-color: rgba(255, 255, 255, 0.14);
@@ -811,6 +822,12 @@
 
 .theme-dark .feed-mention-handle {
   color: rgba(255, 255, 255, 0.72);
+}
+
+.theme-dark .tagged-users-preview {
+  border-color: rgba(59, 130, 246, 0.45);
+  background: rgba(30, 58, 138, 0.35);
+  color: #bfdbfe;
 }
 
 /* Footer (greeting + actions) */

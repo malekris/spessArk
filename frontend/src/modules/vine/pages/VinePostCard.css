@@ -389,6 +389,34 @@
   color: #1f2937;
 }
 
+.post-tagged-users {
+  margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+}
+
+.post-tagged-label {
+  color: #64748b;
+  font-weight: 700;
+}
+
+.post-tagged-user {
+  border: none;
+  background: rgba(29, 155, 240, 0.1);
+  color: #1d4ed8;
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.post-tagged-user:hover {
+  text-decoration: underline;
+}
+
 .post-pdf-list {
   display: flex;
   flex-direction: column;
@@ -434,6 +462,15 @@
 .theme-dark .mention-preview {
   background: rgba(29, 155, 240, 0.18);
   color: #ffffff;
+}
+
+.theme-dark .post-tagged-label {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.theme-dark .post-tagged-user {
+  background: rgba(29, 155, 240, 0.25);
+  color: #bfdbfe;
 }
 
 .mention-suggest-list {

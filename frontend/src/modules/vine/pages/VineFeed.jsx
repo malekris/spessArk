@@ -44,6 +44,14 @@ const applyMention = (value, anchor, username) => {
   return `${before}@${username} ${after}`;
 };
 
+const extractTaggedUsernames = (text) => {
+  if (!text) return [];
+  const matches = String(text).match(/@([a-zA-Z0-9._]{1,30})/g) || [];
+  const set = new Set();
+  matches.forEach((m) => set.add(m.slice(1).toLowerCase()));
+  return Array.from(set);
+};
+
 const formatStatusTime = (dateValue) => {
   const dt = new Date(dateValue);
   if (Number.isNaN(dt.getTime())) return "";
@@ -526,6 +534,24 @@ export default function VineFeed() {
     });
   };
 
+  const insertTagToken = () => {
+    const el = createInputRef.current;
+    if (!el) return;
+    const start = el.selectionStart ?? content.length;
+    const end = el.selectionEnd ?? content.length;
+    const before = content.slice(0, start);
+    const after = content.slice(end);
+    const needsSpace = before.length > 0 && !/\s$/.test(before);
+    const next = `${before}${needsSpace ? " " : ""}@${after}`;
+    const caret = start + (needsSpace ? 2 : 1);
+    setContent(next);
+    setMentionAnchor({ start: caret - 1, end: caret, query: "" });
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(caret, caret);
+    });
+  };
+
   const handleOpenNotifications = () => {
     localStorage.setItem(bellSeenKey, new Date().toISOString());
     setUnread(0);
@@ -808,6 +834,7 @@ export default function VineFeed() {
           <button type="button" onClick={() => applyComposeFormat("*")} title="Italic"><em>I</em></button>
           <button type="button" onClick={() => applyComposeFormat("__")} title="Underline"><u>U</u></button>
           <button type="button" onClick={() => applyComposeFormat("~~")} title="Strikethrough"><s>S</s></button>
+          <button type="button" onClick={insertTagToken} title="Tag user">@</button>
         </div>
         <textarea
                       className={`create-textarea ${
@@ -843,6 +870,11 @@ export default function VineFeed() {
                         }
                       }}
                     />
+          {extractTaggedUsernames(content).length > 0 && (
+            <div className="tagged-users-preview">
+              Tagged: {extractTaggedUsernames(content).map((u) => `@${u}`).join(", ")}
+            </div>
+          )}
           {mentionResults.length > 0 && mentionAnchor && (
             <div className="feed-mention-suggest-list">
               {mentionResults.map((u) => (

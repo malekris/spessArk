@@ -98,6 +98,30 @@ const renderMentions = (text, navigate) => {
   });
 };
 
+const extractTaggedUsernames = (text) => {
+  if (!text) return [];
+  const matches = String(text).match(/@([a-zA-Z0-9._]{1,30})/g) || [];
+  const seen = new Set();
+  const ordered = [];
+  matches.forEach((m) => {
+    const user = m.slice(1).toLowerCase();
+    if (!seen.has(user)) {
+      seen.add(user);
+      ordered.push(user);
+    }
+  });
+  return ordered;
+};
+
+const stripMentionsFromPostText = (text) => {
+  if (!text) return "";
+  return String(text)
+    .replace(/(^|[\s])@[a-zA-Z0-9._]{1,30}\b/g, "$1")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+};
+
 const getMentionAnchor = (value, caret) => {
   const left = value.slice(0, caret);
   const at = left.lastIndexOf("@");
@@ -178,12 +202,14 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
   const [likedUsers, setLikedUsers] = useState([]);
   const [latestLiker, setLatestLiker] = useState(null);
 
+  const displayPostContent = stripMentionsFromPostText(post.content || "");
   const CONTENT_LIMIT = 280;
-  const hasLongContent = (post.content || "").length > CONTENT_LIMIT;
+  const hasLongContent = displayPostContent.length > CONTENT_LIMIT;
   const contentToShow =
     hasLongContent && !isExpanded
-      ? `${post.content.slice(0, CONTENT_LIMIT).trimEnd()}...`
-      : post.content;
+      ? `${displayPostContent.slice(0, CONTENT_LIMIT).trimEnd()}...`
+      : displayPostContent;
+  const taggedUsers = extractTaggedUsernames(post.content || "");
 
 
   const canShowLikeCount = !post.hide_like_counts || isPostAuthor;
@@ -787,6 +813,21 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
   </div>
         )}
       {/* Action footer */}
+      {taggedUsers.length > 0 && (
+        <div className="post-tagged-users">
+          <span className="post-tagged-label">Tagged:</span>
+          {taggedUsers.map((u, idx) => (
+            <button
+              key={`post-tagged-${post.id}-${u}`}
+              type="button"
+              className="post-tagged-user"
+              onClick={() => navigate(`/vine/profile/${u}`)}
+            >
+              @{u}{idx < taggedUsers.length - 1 ? "," : ""}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="vine-post-footer">
       <button
   className={`action-btn ${postUserLiked ? "active-like" : ""}`}

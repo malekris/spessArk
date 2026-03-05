@@ -1908,7 +1908,12 @@ export default function VineCommunities() {
                                 }}
                               />
                               <div>
-                                <div className="member-name">{row.display_name || row.username}</div>
+                                <div className="member-name">
+                                  {row.display_name || row.username}
+                                  {Number(row.is_verified) === 1 && (
+                                    <span className="community-verified-badge" title="Verified">✓</span>
+                                  )}
+                                </div>
                                 <div className="member-meta">
                                   Streak: {row.current_streak || 0} • On-time: {row.total_on_time || 0} • Avg: {row.avg_score ?? "-"}{row.avg_percent !== null && row.avg_percent !== undefined ? ` (${row.avg_percent}%)` : ""}
                                 </div>

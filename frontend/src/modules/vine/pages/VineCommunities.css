@@ -1436,6 +1436,19 @@
 }
 
 @media (min-width: 901px) {
+  .community-banner {
+    height: 230px;
+  }
+
+  .community-identity {
+    margin-top: -36px;
+    padding-top: 20px;
+  }
+
+  .community-title-wrap {
+    margin-top: 8px;
+  }
+
   .community-body-grid.assignments-only .community-settings-panel {
     padding: 16px;
   }

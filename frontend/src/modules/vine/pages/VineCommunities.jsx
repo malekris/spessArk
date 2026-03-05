@@ -1064,7 +1064,10 @@ export default function VineCommunities() {
     doc.text(`${activeCommunity?.name || "Community"} - Register`, 40, 62);
     doc.text(`Session: ${session?.title || "Untitled"}`, 40, 78);
     doc.text(`Date: ${session?.starts_at ? new Date(session.starts_at).toLocaleString() : ""}`, 40, 94);
-    const body = attendanceRows.map((row, idx) => [
+    const pdfRows = attendanceRows.filter(
+      (row) => String(row.community_role || "").toLowerCase() !== "owner"
+    );
+    const body = pdfRows.map((row, idx) => [
       idx + 1,
       row.display_name || row.username || "",
       `@${row.username || ""}`,

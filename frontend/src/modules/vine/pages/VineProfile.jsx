@@ -263,10 +263,7 @@ export default function VineProfile() {
   const isPrivateLocked = Boolean(profile?.privateLocked) && !isMe;
   const canShowLastActive = userObj.show_last_active !== 0 || isMe;
   const canMessage =
-    !isMe &&
-    Number(userObj.is_following) === 1 &&
-    Number(userObj.is_followed_by) === 1 &&
-    userObj.dm_privacy !== "no_one";
+    !isMe;
   const aboutFields = [
     { label: "Hobbies", value: userObj?.hobbies },
     { label: "Date of Birth", value: userObj?.date_of_birth ? new Date(userObj.date_of_birth).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "" },

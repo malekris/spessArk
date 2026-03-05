@@ -199,31 +199,12 @@ router.post("/start", authenticate, async (req, res) => {
     }
 
     const [[receiver]] = await db.query(
-      "SELECT dm_privacy FROM vine_users WHERE id = ?",
+      "SELECT id FROM vine_users WHERE id = ?",
       [receiverId]
     );
 
     if (!receiver) {
       return res.status(404).json({ error: "User not found" });
-    }
-
-    if (receiver.dm_privacy === "no_one") {
-      return res.status(403).json({ error: "User does not accept messages" });
-    }
-
-    if (receiver.dm_privacy === "followers") {
-      const follows = await isFollowing(senderId, receiverId);
-      if (!follows) {
-        return res.status(403).json({ error: "Followers only" });
-      }
-    }
-
-    const [iFollowThem, theyFollowMe] = await Promise.all([
-      isFollowing(senderId, receiverId),
-      isFollowing(receiverId, senderId),
-    ]);
-    if (!iFollowThem || !theyFollowMe) {
-      return res.status(403).json({ error: "You can only DM mutual followers" });
     }
 
     // Check if exists
@@ -299,14 +280,11 @@ router.post("/send", authenticate, async (req, res) => {
       }
 
       const [[receiver]] = await db.query(
-        "SELECT id, dm_privacy FROM vine_users WHERE id = ?",
+        "SELECT id FROM vine_users WHERE id = ?",
         [receiverId]
       );
       if (!receiver) {
         return res.status(404).json({ error: "User not found" });
-      }
-      if (receiver.dm_privacy === "no_one") {
-        return res.status(403).json({ error: "User does not accept messages" });
       }
 
       const [existing] = await db.query(
@@ -329,14 +307,6 @@ router.post("/send", authenticate, async (req, res) => {
         otherId = receiverId;
         createConversationWithUserId = receiverId;
       }
-    }
-
-    const [iFollowThem, theyFollowMe] = await Promise.all([
-      isFollowing(senderId, otherId),
-      isFollowing(otherId, senderId),
-    ]);
-    if (!iFollowThem || !theyFollowMe) {
-      return res.status(403).json({ error: "You can only DM mutual followers" });
     }
 
     const [muted] = await db.query(

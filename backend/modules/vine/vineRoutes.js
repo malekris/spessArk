@@ -1404,6 +1404,18 @@ router.post("/communities", authenticate, async (req, res) => {
     if (!name || name.length < 3) {
       return res.status(400).json({ message: "Community name must be at least 3 characters" });
     }
+    const [[ownerRow]] = await db.query(
+      `
+      SELECT COUNT(*) AS owner_count
+      FROM vine_community_members
+      WHERE user_id = ?
+        AND LOWER(role) = 'owner'
+      `,
+      [userId]
+    );
+    if (Number(ownerRow?.owner_count || 0) < 1) {
+      return res.status(403).json({ message: "Only existing community owners can create new communities" });
+    }
 
     let baseSlug = slugifyCommunityName(name) || `community-${Date.now()}`;
     let slug = baseSlug;

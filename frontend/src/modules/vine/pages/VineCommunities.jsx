@@ -17,6 +17,13 @@ const parseAnswers = (value) => {
 
 export default function VineCommunities() {
   const token = localStorage.getItem("vine_token");
+  const currentUser = (() => {
+    try {
+      return JSON.parse(localStorage.getItem("vine_user") || "{}");
+    } catch {
+      return {};
+    }
+  })();
   const navigate = useNavigate();
   const { slug } = useParams();
   const [searchParams] = useSearchParams();
@@ -226,6 +233,10 @@ export default function VineCommunities() {
 
   const createCommunity = async () => {
     const trimmedName = name.trim();
+    if (!canCreateCommunity) {
+      alert("Only existing community owners can create new communities");
+      return;
+    }
     if (trimmedName.length < 3) {
       alert("Community name must be at least 3 characters");
       return;
@@ -1151,6 +1162,7 @@ export default function VineCommunities() {
   const isCommunityMod = ["owner", "moderator"].includes(String(activeCommunity?.viewer_role || "").toLowerCase());
   const isCommunityOwner = String(activeCommunity?.viewer_role || "").toLowerCase() === "owner";
   const isAttendanceManager = ["owner", "moderator"].includes(String(activeCommunity?.viewer_role || "").toLowerCase());
+  const canCreateCommunity = communities.some((c) => Number(c.creator_id) === Number(currentUser?.id));
   const isAssignmentPastDue = (assignment) => {
     if (!assignment?.due_at) return false;
     const due = new Date(assignment.due_at);
@@ -1194,32 +1206,34 @@ export default function VineCommunities() {
 
       <div className="communities-layout">
         <aside className="communities-sidebar">
-          <div className="communities-create">
-            <button
-              className="communities-create-toggle"
-              onClick={() => setShowCreateCommunity((prev) => !prev)}
-            >
-              {showCreateCommunity ? "Close Create Community" : "Create Community"}
-            </button>
-            {showCreateCommunity && (
-              <div className="communities-create-panel">
-                <h3>Create Community</h3>
-                <input
-                  placeholder="Community name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  maxLength={80}
-                />
-                <textarea
-                  placeholder="Description"
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  maxLength={280}
-                />
-                <button onClick={createCommunity}>Create</button>
-              </div>
-            )}
-          </div>
+          {canCreateCommunity && (
+            <div className="communities-create">
+              <button
+                className="communities-create-toggle"
+                onClick={() => setShowCreateCommunity((prev) => !prev)}
+              >
+                {showCreateCommunity ? "Close Create Community" : "Create Community"}
+              </button>
+              {showCreateCommunity && (
+                <div className="communities-create-panel">
+                  <h3>Create Community</h3>
+                  <input
+                    placeholder="Community name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    maxLength={80}
+                  />
+                  <textarea
+                    placeholder="Description"
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    maxLength={280}
+                  />
+                  <button onClick={createCommunity}>Create</button>
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="community-list">
             {communities.map((c) => (

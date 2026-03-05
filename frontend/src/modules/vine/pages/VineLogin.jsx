@@ -7,9 +7,22 @@ export default function VineLogin() {
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(false);
+  const [showDesktopForm, setShowDesktopForm] = useState(false);
 
   useEffect(() => {
     document.title = "Vine — Login";
+  }, []);
+
+  useEffect(() => {
+    const updateViewport = () => {
+      const desktop = window.matchMedia("(min-width: 769px)").matches;
+      setIsDesktop(desktop);
+      if (!desktop) setShowDesktopForm(true);
+    };
+    updateViewport();
+    window.addEventListener("resize", updateViewport);
+    return () => window.removeEventListener("resize", updateViewport);
   }, []);
 
   const handleLogin = async (e) => {
@@ -59,33 +72,45 @@ export default function VineLogin() {
   </Link>   
         <h2 className="vine-title">Welcome to SPESS VINE 🌱</h2>
 
-        <form className="vine-form" onSubmit={handleLogin}>
-          <input
-            type="text"
-            placeholder="Username or email"
-            value={identifier}
-            onChange={(e) => setIdentifier(e.target.value)}
-          />
-
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-
-          <button className="vine-btn" disabled={loading}>
-            {loading ? "Signing in..." : "Login"}
+        {isDesktop && !showDesktopForm ? (
+          <button
+            type="button"
+            className="login-scroll-trigger"
+            onClick={() => setShowDesktopForm(true)}
+          >
+            Click To Login
           </button>
-        </form>
+        ) : (
+          <div className={isDesktop ? "login-scroll-unfold" : ""}>
+            <form className="vine-form" onSubmit={handleLogin}>
+              <input
+                type="text"
+                placeholder="Username or email"
+                value={identifier}
+                onChange={(e) => setIdentifier(e.target.value)}
+              />
 
-        <div className="vine-links">
-          <Link to="/vine/forgot-password">Forgot password?</Link>
-        </div>
+              <input
+                type="password"
+                placeholder="Password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
 
-        <div className="vine-footer">
-          New to Vine? <Link to="/vine/register">Sign Up</Link>
-        </div>
+              <button className="vine-btn" disabled={loading}>
+                {loading ? "Signing in..." : "Login"}
+              </button>
+            </form>
+
+            <div className="vine-links">
+              <Link to="/vine/forgot-password">Forgot password?</Link>
+            </div>
+
+            <div className="vine-footer">
+              New to Vine? <Link to="/vine/register">Sign Up</Link>
+            </div>
+          </div>
+        )}
       
       </div>
     </div>

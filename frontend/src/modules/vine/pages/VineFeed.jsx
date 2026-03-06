@@ -129,6 +129,72 @@ export default function VineFeed() {
   const suggestionSlotsRef = useRef([]);
   const createInputRef = useRef(null);
 
+  const revokePreviewUrls = (items) => {
+    for (const item of items || []) {
+      if (item?.revoke && typeof item.src === "string" && item.src.startsWith("blob:")) {
+        URL.revokeObjectURL(item.src);
+      }
+    }
+  };
+
+  const buildPreviewItems = async (files) => {
+    const list = Array.from(files || []);
+    const items = await Promise.all(
+      list.map(
+        (file) =>
+          new Promise((resolve) => {
+            if (file?.type?.startsWith("video/")) {
+              resolve({ src: URL.createObjectURL(file), isVideo: true, revoke: true });
+              return;
+            }
+            const reader = new FileReader();
+            reader.onload = () => resolve({ src: String(reader.result || ""), isVideo: false, revoke: false });
+            reader.onerror = () => resolve({ src: URL.createObjectURL(file), isVideo: false, revoke: true });
+            reader.readAsDataURL(file);
+          })
+      )
+    );
+    return items.filter((p) => p?.src);
+  };
+
+  const convertHeicToJpeg = async (file) => {
+    try {
+      const blob = await heic2any({
+        blob: file,
+        toType: "image/jpeg",
+        quality: 0.9,
+      });
+      const outBlob = Array.isArray(blob) ? blob[0] : blob;
+      return new File(
+        [outBlob],
+        file.name.replace(/\.(heic|heif)$/i, ".jpg"),
+        { type: "image/jpeg" }
+      );
+    } catch (err) {
+      console.warn("heic2any conversion failed, trying canvas fallback", err);
+    }
+
+    try {
+      const bitmap = await createImageBitmap(file);
+      const canvas = document.createElement("canvas");
+      canvas.width = bitmap.width;
+      canvas.height = bitmap.height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return null;
+      ctx.drawImage(bitmap, 0, 0);
+      const jpegBlob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.9));
+      if (!jpegBlob) return null;
+      return new File(
+        [jpegBlob],
+        file.name.replace(/\.(heic|heif)$/i, ".jpg"),
+        { type: "image/jpeg" }
+      );
+    } catch (err) {
+      console.warn("Canvas HEIC conversion fallback failed", err);
+      return null;
+    }
+  };
+
   const normalizeImageFiles = async (fileList) => {
     const files = Array.from(fileList || []);
     const converted = await Promise.all(
@@ -138,23 +204,11 @@ export default function VineFeed() {
           /\.heic$/i.test(file.name) ||
           /\.heif$/i.test(file.name);
         if (!isHeic) return file;
-        try {
-          const blob = await heic2any({
-            blob: file,
-            toType: "image/jpeg",
-            quality: 0.9,
-          });
-          const outBlob = Array.isArray(blob) ? blob[0] : blob;
-          return new File(
-            [outBlob],
-            file.name.replace(/\.(heic|heif)$/i, ".jpg"),
-            { type: "image/jpeg" }
-          );
-        } catch (err) {
-          console.warn("HEIC conversion failed, skipping file", err);
-          alert("HEIC image could not be converted. Please use JPG/PNG/WebP.");
-          return null;
-        }
+        const convertedFile = await convertHeicToJpeg(file);
+        if (convertedFile) return convertedFile;
+        console.warn("HEIC conversion failed; file skipped");
+        alert("HEIC image could not be converted on this device. Please use JPG/PNG/WebP.");
+        return null;
       })
     );
     return converted.filter(Boolean);
@@ -636,7 +690,10 @@ export default function VineFeed() {
       setPosts((prev) => [newPost, ...prev]);
       setContent("");
       setImages([]);
-      setPreviews([]);
+      setPreviews((prev) => {
+        revokePreviewUrls(prev);
+        return [];
+      });
       setCommunityId("");
     } catch (err) {
       console.error("Post creation error", err);
@@ -941,23 +998,31 @@ export default function VineFeed() {
                     const files = await normalizeImageFiles(e.target.files);
                     if (!files.length) return;
                     setImages(files);
-                    setPreviews(files.map((f) => URL.createObjectURL(f)));
+                    const previewItems = await buildPreviewItems(files);
+                    setPreviews((prev) => {
+                      revokePreviewUrls(prev);
+                      return previewItems;
+                    });
                   }}
                 />
               </label>
 
               {previews.length > 0 && (
                 <div className="preview-strip">
-                  {previews.map((src, i) => (
+                  {previews.map((preview, i) => (
                     <div key={i} className="preview-tile">
-                      {images[i]?.type?.startsWith("video/") ? (
-                        <video src={src} muted playsInline preload="metadata" />
+                      {preview.isVideo ? (
+                        <video src={preview.src} muted playsInline preload="metadata" />
                       ) : (
-                        <img src={src} alt="" />
+                        <img src={preview.src} alt="" />
                       )}
                       <button
                         className="remove-preview"
                         onClick={() => {
+                          const removed = previews[i];
+                          if (removed?.revoke && removed?.src?.startsWith("blob:")) {
+                            URL.revokeObjectURL(removed.src);
+                          }
                           setImages(images.filter((_, idx) => idx !== i));
                           setPreviews(previews.filter((_, idx) => idx !== i));
                         }}
@@ -1173,22 +1238,12 @@ export default function VineFeed() {
                     /\.heif$/i.test(file.name);
                   let picked = file;
                   if (isHeic) {
-                    try {
-                      const blob = await heic2any({
-                        blob: file,
-                        toType: "image/jpeg",
-                        quality: 0.9,
-                      });
-                      const outBlob = Array.isArray(blob) ? blob[0] : blob;
-                      picked = new File(
-                        [outBlob],
-                        file.name.replace(/\.(heic|heif)$/i, ".jpg"),
-                        { type: "image/jpeg" }
-                      );
-                    } catch {
-                      alert("HEIC image could not be converted. Please use JPG/PNG/WebP.");
+                    const convertedFile = await convertHeicToJpeg(file);
+                    if (!convertedFile) {
+                      alert("HEIC image could not be converted on this device. Please use JPG/PNG/WebP.");
                       return;
                     }
+                    picked = convertedFile;
                   }
                   if (statusMediaPreview) URL.revokeObjectURL(statusMediaPreview);
                   setStatusMediaFile(picked);

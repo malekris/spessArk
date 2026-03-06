@@ -757,14 +757,41 @@ const isPracticalSubmissionFile = (file) => {
   return allowedByExt || allowedMimes.has(type);
 };
 
-const uploadBufferToCloudinary = async (buffer, options = {}) =>
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const shouldRetryCloudinaryUpload = (err) => {
+  const name = String(err?.name || "").toLowerCase();
+  const code = Number(err?.http_code || 0);
+  return name.includes("timeout") || code === 499 || code === 500 || code === 503;
+};
+
+const uploadBufferToCloudinaryOnce = (buffer, options = {}) =>
   new Promise((resolve, reject) => {
-    const stream = cloudinary.uploader.upload_stream(options, (err, result) => {
-      if (err) return reject(err);
-      resolve(result);
-    });
+    const stream = cloudinary.uploader.upload_stream(
+      { timeout: 180000, ...options },
+      (err, result) => {
+        if (err) return reject(err);
+        resolve(result);
+      }
+    );
     stream.end(buffer);
   });
+
+const uploadBufferToCloudinary = async (buffer, options = {}) => {
+  let attempt = 0;
+  let lastErr = null;
+  while (attempt < 3) {
+    try {
+      return await uploadBufferToCloudinaryOnce(buffer, options);
+    } catch (err) {
+      lastErr = err;
+      attempt += 1;
+      if (attempt >= 3 || !shouldRetryCloudinaryUpload(err)) break;
+      await sleep(500 * attempt);
+    }
+  }
+  throw lastErr;
+};
 
 // Text status (24h) - create
 router.post("/statuses", requireVineAuth, uploadPostCloudinary.single("media"), async (req, res) => {
@@ -1867,8 +1894,8 @@ router.post(
       if (!req.file) return res.status(400).json({ message: "No file uploaded" });
 
       const role = await getCommunityRole(communityId, userId);
-      if (!isCommunityModOrOwner(role)) {
-        return res.status(403).json({ message: "Only owner/moderators can change community avatar" });
+      if (String(role || "").toLowerCase() !== "owner") {
+        return res.status(403).json({ message: "Only community owner can change community avatar" });
       }
 
       const normalized = await normalizeImageBuffer(req.file);
@@ -1902,8 +1929,8 @@ router.post(
       if (!req.file) return res.status(400).json({ message: "No file uploaded" });
 
       const role = await getCommunityRole(communityId, userId);
-      if (!isCommunityModOrOwner(role)) {
-        return res.status(403).json({ message: "Only owner/moderators can change community banner" });
+      if (String(role || "").toLowerCase() !== "owner") {
+        return res.status(403).json({ message: "Only community owner can change community banner" });
       }
 
       const normalized = await normalizeImageBuffer(req.file);
@@ -2040,7 +2067,9 @@ router.post("/communities/:id/questions", authenticate, async (req, res) => {
     const question = String(req.body?.question_text || "").trim();
     if (!communityId || !question) return res.status(400).json({ message: "Invalid question" });
     const role = await getCommunityRole(communityId, userId);
-    if (!isCommunityModOrOwner(role)) return res.status(403).json({ message: "Not allowed" });
+    if (String(role || "").toLowerCase() !== "owner") {
+      return res.status(403).json({ message: "Only community owner can add join questions" });
+    }
 
     await db.query(
       `
@@ -2063,7 +2092,9 @@ router.delete("/communities/:id/questions/:questionId", authenticate, async (req
     const communityId = Number(req.params.id);
     const questionId = Number(req.params.questionId);
     const role = await getCommunityRole(communityId, userId);
-    if (!isCommunityModOrOwner(role)) return res.status(403).json({ message: "Not allowed" });
+    if (String(role || "").toLowerCase() !== "owner") {
+      return res.status(403).json({ message: "Only community owner can delete join questions" });
+    }
     await db.query(
       "DELETE FROM vine_community_join_questions WHERE id = ? AND community_id = ?",
       [questionId, communityId]
@@ -2164,8 +2195,8 @@ router.post("/communities/:id/scheduled-posts", authenticate, async (req, res) =
     }
     const role = await getCommunityRole(communityId, userId);
     if (!role) return res.status(403).json({ message: "Join this community first" });
-    if (!isCommunityModOrOwner(role)) {
-      return res.status(403).json({ message: "Only moderators can schedule posts in this community" });
+    if (String(role || "").toLowerCase() !== "owner") {
+      return res.status(403).json({ message: "Only community owner can schedule posts" });
     }
     const runDate = new Date(runAt);
     if (Number.isNaN(runDate.getTime()) || runDate.getTime() <= Date.now()) {
@@ -2193,7 +2224,7 @@ router.get("/communities/:id/scheduled-posts", authenticate, async (req, res) =>
     const communityId = Number(req.params.id);
     if (!communityId) return res.status(400).json([]);
     const role = await getCommunityRole(communityId, userId);
-    if (!isCommunityModOrOwner(role)) return res.status(403).json([]);
+    if (String(role || "").toLowerCase() !== "owner") return res.status(403).json([]);
     const [rows] = await db.query(
       `
       SELECT id, user_id, content, run_at, status, created_at
@@ -2388,10 +2419,16 @@ router.post("/communities/:id/sessions/:sessionId/attendance/bulk", authenticate
     const allowedStatuses = new Set(["present", "absent", "late", "excused"]);
 
     const [[session]] = await db.query(
-      "SELECT id FROM vine_community_sessions WHERE id = ? AND community_id = ? LIMIT 1",
+      "SELECT id, starts_at, ends_at FROM vine_community_sessions WHERE id = ? AND community_id = ? LIMIT 1",
       [sessionId, communityId]
     );
     if (!session) return res.status(404).json({ message: "Session not found" });
+    if (session.ends_at) {
+      const endsAt = new Date(session.ends_at);
+      if (!Number.isNaN(endsAt.getTime()) && endsAt.getTime() <= Date.now()) {
+        return res.status(409).json({ message: "Session has ended and attendance is now locked" });
+      }
+    }
 
     for (const entry of entries) {
       const targetUserId = Number(entry?.user_id);
@@ -2463,7 +2500,10 @@ router.get("/communities/:id/attendance/my-records", authenticate, async (req, r
        AND a.community_id = s.community_id
        AND a.user_id = ?
       WHERE s.community_id = ?
-        AND s.starts_at <= NOW()
+        AND (
+          s.starts_at <= NOW()
+          OR a.status IS NOT NULL
+        )
       ORDER BY s.starts_at DESC
       LIMIT 500
       `,
@@ -2697,7 +2737,7 @@ router.get("/communities/:slug/assignments", authenticate, async (req, res) => {
       const placeholders = submissionIds.map(() => "?").join(", ");
       const [fileRows] = await db.query(
         `
-        SELECT submission_id, file_url, file_name, file_mime, created_at
+        SELECT id, submission_id, file_url, file_name, file_mime, created_at
         FROM vine_community_submission_files
         WHERE submission_id IN (${placeholders})
         ORDER BY created_at ASC, id ASC
@@ -2709,6 +2749,7 @@ router.get("/communities/:slug/assignments", authenticate, async (req, res) => {
         const sid = Number(row.submission_id);
         if (!bySubmission[sid]) bySubmission[sid] = [];
         bySubmission[sid].push({
+          id: row.id,
           file_url: row.file_url,
           file_name: row.file_name,
           file_mime: row.file_mime,
@@ -2911,6 +2952,84 @@ router.post("/communities/:id/assignments/:assignmentId/submissions", authentica
   }
 });
 
+router.delete("/communities/:id/assignments/:assignmentId/submission-files/:fileId", authenticate, async (req, res) => {
+  try {
+    await ensureCommunitySchema();
+    const userId = Number(req.user.id);
+    const communityId = Number(req.params.id);
+    const assignmentId = Number(req.params.assignmentId);
+    const fileId = Number(req.params.fileId);
+    if (!communityId || !assignmentId || !fileId) {
+      return res.status(400).json({ message: "Invalid request" });
+    }
+    const role = await getCommunityRole(communityId, userId);
+    if (!role) return res.status(403).json({ message: "Join this community first" });
+
+    const [[assignment]] = await db.query(
+      "SELECT id, due_at, assignment_type FROM vine_community_assignments WHERE id = ? AND community_id = ? LIMIT 1",
+      [assignmentId, communityId]
+    );
+    if (!assignment) return res.status(404).json({ message: "Assignment not found" });
+    if (String(assignment.assignment_type || "").toLowerCase() !== "practical") {
+      return res.status(400).json({ message: "File deletion is only available for practical assignments" });
+    }
+    if (assignment.due_at) {
+      const dueAt = new Date(assignment.due_at);
+      if (!Number.isNaN(dueAt.getTime()) && dueAt.getTime() < Date.now()) {
+        return res.status(403).json({ message: "Submission window closed. Due date has passed." });
+      }
+    }
+
+    const [[row]] = await db.query(
+      `
+      SELECT
+        f.id,
+        f.submission_id,
+        f.file_url,
+        s.user_id
+      FROM vine_community_submission_files f
+      JOIN vine_community_submissions s ON s.id = f.submission_id
+      WHERE f.id = ?
+        AND f.assignment_id = ?
+        AND f.community_id = ?
+      LIMIT 1
+      `,
+      [fileId, assignmentId, communityId]
+    );
+    if (!row) return res.status(404).json({ message: "File not found" });
+    if (Number(row.user_id) !== Number(userId)) {
+      return res.status(403).json({ message: "You can only delete your own uploaded files" });
+    }
+
+    await db.query("DELETE FROM vine_community_submission_files WHERE id = ? LIMIT 1", [fileId]);
+    await deleteCloudinaryByUrl(row.file_url);
+
+    const [remaining] = await db.query(
+      `
+      SELECT file_url, file_name, file_mime
+      FROM vine_community_submission_files
+      WHERE submission_id = ?
+      ORDER BY created_at ASC, id ASC
+      `,
+      [row.submission_id]
+    );
+    const latest = remaining.length ? remaining[remaining.length - 1] : null;
+    await db.query(
+      `
+      UPDATE vine_community_submissions
+      SET attachment_url = ?, attachment_name = ?, attachment_mime = ?, updated_at = NOW()
+      WHERE id = ?
+      `,
+      [latest?.file_url || null, latest?.file_name || null, latest?.file_mime || null, row.submission_id]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Delete practical submission file error:", err);
+    res.status(500).json({ message: "Failed to delete file" });
+  }
+});
+
 router.post("/communities/:id/assignments/:assignmentId/draft", authenticate, async (req, res) => {
   try {
     await ensureCommunitySchema();
@@ -2987,7 +3106,7 @@ router.get("/communities/:id/assignments/:assignmentId/submissions", authenticat
       const placeholders = submissionIds.map(() => "?").join(", ");
       const [fileRows] = await db.query(
         `
-        SELECT submission_id, file_url, file_name, file_mime, created_at
+        SELECT id, submission_id, file_url, file_name, file_mime, created_at
         FROM vine_community_submission_files
         WHERE submission_id IN (${placeholders})
         ORDER BY created_at ASC, id ASC
@@ -2999,6 +3118,7 @@ router.get("/communities/:id/assignments/:assignmentId/submissions", authenticat
         const sid = Number(row.submission_id);
         if (!bySubmission[sid]) bySubmission[sid] = [];
         bySubmission[sid].push({
+          id: row.id,
           file_url: row.file_url,
           file_name: row.file_name,
           file_mime: row.file_mime,
@@ -3889,29 +4009,36 @@ router.get("/communities/:slug/posts", authOptional, async (req, res) => {
           if (!communityId && req.files.some((f) => isPdfFile(f))) {
             return res.status(400).json({ message: "PDF uploads are only allowed in communities." });
           }
-          const uploads = await Promise.all(
-            req.files.map(async (file) => {
-              if (isPdfFile(file)) {
-                return uploadBufferToCloudinary(file.buffer, {
+          const uploads = [];
+          for (const file of req.files) {
+            if (isPdfFile(file)) {
+              uploads.push(
+                await uploadBufferToCloudinary(file.buffer, {
                   folder: "vine/community-docs",
                   resource_type: "raw",
                   public_id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
                   format: "pdf",
-                });
-              }
-              if (isVideoFile(file)) {
-                return uploadBufferToCloudinary(file.buffer, {
+                })
+              );
+              continue;
+            }
+            if (isVideoFile(file)) {
+              uploads.push(
+                await uploadBufferToCloudinary(file.buffer, {
                   folder: "vine/posts",
                   resource_type: "video",
-                });
-              }
-              const normalized = await normalizeImageBuffer(file);
-              return uploadBufferToCloudinary(normalized.buffer, {
+                })
+              );
+              continue;
+            }
+            const normalized = await normalizeImageBuffer(file);
+            uploads.push(
+              await uploadBufferToCloudinary(normalized.buffer, {
                 folder: "vine/posts",
                 resource_type: "image",
-              });
-            })
-          );
+              })
+            );
+          }
   
           imageUrls = uploads.map(u => u.secure_url);
         }

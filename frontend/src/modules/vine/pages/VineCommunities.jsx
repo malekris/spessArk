@@ -427,7 +427,9 @@ export default function VineCommunities() {
   useEffect(() => {
     if (activeTab === "settings" && activeCommunity && ["owner", "moderator"].includes(String(activeCommunity.viewer_role || "").toLowerCase())) {
       loadRequests();
-      loadScheduledPosts();
+      if (String(activeCommunity.viewer_role || "").toLowerCase() === "owner") {
+        loadScheduledPosts();
+      }
     }
   }, [activeTab, activeCommunity?.id, activeCommunity?.viewer_role]);
 
@@ -437,6 +439,7 @@ export default function VineCommunities() {
       const role = String(activeCommunity.viewer_role || "").toLowerCase();
       if (["owner", "moderator"].includes(role)) {
         loadSessions();
+        if (role === "moderator") loadAttendanceRecords();
       } else {
         loadAttendanceRecords();
       }
@@ -780,6 +783,27 @@ export default function VineCommunities() {
     }
   };
 
+  const deletePracticalSubmissionFile = async (assignmentId, fileId) => {
+    if (!activeCommunity?.id || !assignmentId || !fileId) return;
+    try {
+      const res = await fetch(
+        `${API}/api/vine/communities/${activeCommunity.id}/assignments/${assignmentId}/submission-files/${fileId}`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || "Failed to delete file");
+        return;
+      }
+      await loadCommunityDetail(activeCommunity.slug, topicFilter);
+    } catch {
+      alert("Failed to delete file");
+    }
+  };
+
   const gradeSubmission = async (submissionId) => {
     if (!activeCommunity?.id || !submissionId) return;
     const viewerRole = String(activeCommunity?.viewer_role || "").toLowerCase();
@@ -1094,6 +1118,10 @@ export default function VineCommunities() {
 
   const saveAttendance = async () => {
     if (!activeCommunity?.id || !selectedSessionId) return;
+    if (isSelectedSessionClosed) {
+      alert("This session has ended. Attendance is locked.");
+      return;
+    }
     try {
       const entries = Object.entries(attendanceDrafts).map(([user_id, status]) => ({
         user_id: Number(user_id),
@@ -1117,6 +1145,9 @@ export default function VineCommunities() {
       }
       await loadAttendance(selectedSessionId);
       await loadSessions();
+      if (String(activeCommunity?.viewer_role || "").toLowerCase() === "moderator") {
+        await loadAttendanceRecords();
+      }
       alert("Attendance saved");
     } catch {
       alert("Failed to save attendance");
@@ -1157,29 +1188,71 @@ export default function VineCommunities() {
     if (!selectedSessionId) return;
     const session = sessions.find((s) => Number(s.id) === Number(selectedSessionId));
     const doc = new jsPDF({ unit: "pt", format: "a4" });
+    const normalizedRows = attendanceRows.filter(
+      (row) => String(row.community_role || "").toLowerCase() !== "owner"
+    );
+    const withStatus = normalizedRows.map((row) => ({
+      ...row,
+      _status: String(attendanceDrafts[row.user_id] || row.status || "absent").toLowerCase(),
+    }));
+    const presentRows = withStatus.filter((row) => row._status === "present");
+    const absentRows = withStatus.filter((row) => row._status === "absent");
+    const ownerRow = attendanceRows.find(
+      (row) => String(row.community_role || "").toLowerCase() === "owner"
+    );
+    const teacherName = ownerRow?.display_name || ownerRow?.username || "Class Teacher";
+    const moderatorName = currentUser?.display_name || currentUser?.username || "Moderator";
+    const totalLearners = normalizedRows.length;
+    const totalPresent = presentRows.length;
+    const totalAbsent = absentRows.length;
+
     doc.setFontSize(16);
     doc.text("ST. PHILLIPS EQUATORIAL SECONDARY SCHOOL", 40, 42);
     doc.setFontSize(11);
     doc.text(`${activeCommunity?.name || "Community"} - Register`, 40, 62);
     doc.text(`Session: ${session?.title || "Untitled"}`, 40, 78);
     doc.text(`Date: ${session?.starts_at ? new Date(session.starts_at).toLocaleString() : ""}`, 40, 94);
-    const pdfRows = attendanceRows.filter(
-      (row) => String(row.community_role || "").toLowerCase() !== "owner"
-    );
-    const body = pdfRows.map((row, idx) => [
+    const signingBody = presentRows.map((row, idx) => [
       idx + 1,
       row.display_name || row.username || "",
       `@${row.username || ""}`,
-      attendanceDrafts[row.user_id] || row.status || "absent",
+      "present",
       "",
     ]);
+
     autoTable(doc, {
       startY: 108,
       head: [["No", "Name", "Username", "Status", "Signature"]],
-      body,
+      body: signingBody.length ? signingBody : [["-", "No present learners", "-", "-", "-"]],
       styles: { fontSize: 10, cellPadding: 6 },
       headStyles: { fillColor: [20, 83, 45] },
     });
+
+    const signTableEndY = doc.lastAutoTable?.finalY || 108;
+    doc.setFontSize(12);
+    doc.text("Absentee List", 40, signTableEndY + 24);
+    const absentBody = absentRows.map((row, idx) => [
+      idx + 1,
+      row.display_name || row.username || "",
+      `@${row.username || ""}`,
+      "absent",
+    ]);
+    autoTable(doc, {
+      startY: signTableEndY + 32,
+      head: [["No", "Name", "Username", "Status"]],
+      body: absentBody.length ? absentBody : [["-", "No absentees", "-", "-"]],
+      styles: { fontSize: 10, cellPadding: 6 },
+      headStyles: { fillColor: [160, 30, 30] },
+    });
+
+    const absentTableEndY = doc.lastAutoTable?.finalY || signTableEndY + 32;
+    doc.setFontSize(11);
+    doc.text(`Total learners (group members): ${totalLearners}`, 40, absentTableEndY + 26);
+    doc.text(`Learners present: ${totalPresent}`, 40, absentTableEndY + 44);
+    doc.text(`Learners absent: ${totalAbsent}`, 40, absentTableEndY + 62);
+    doc.text(`Class teacher signature: ${teacherName} ____________________`, 40, absentTableEndY + 90);
+    doc.text(`Moderator (${moderatorName}) signature: ____________________`, 40, absentTableEndY + 112);
+
     const blob = doc.output("blob");
     const url = URL.createObjectURL(blob);
     window.open(url, "_blank", "noopener,noreferrer");
@@ -1226,7 +1299,14 @@ export default function VineCommunities() {
 
   const isCommunityMod = ["owner", "moderator"].includes(String(activeCommunity?.viewer_role || "").toLowerCase());
   const isCommunityOwner = String(activeCommunity?.viewer_role || "").toLowerCase() === "owner";
+  const isCommunityModerator = String(activeCommunity?.viewer_role || "").toLowerCase() === "moderator";
   const isAttendanceManager = ["owner", "moderator"].includes(String(activeCommunity?.viewer_role || "").toLowerCase());
+  const selectedSession = sessions.find((s) => Number(s.id) === Number(selectedSessionId));
+  const isSelectedSessionClosed = Boolean(
+    selectedSession?.ends_at &&
+      !Number.isNaN(new Date(selectedSession.ends_at).getTime()) &&
+      new Date(selectedSession.ends_at).getTime() <= nowMs
+  );
   const canCreateCommunity = communities.some((c) => Number(c.creator_id) === Number(currentUser?.id));
   const isAssignmentPastDue = (assignment) => {
     if (!assignment?.due_at) return false;
@@ -1260,6 +1340,26 @@ export default function VineCommunities() {
     if (days > 0) return `${days}d ${hours}h remaining`;
     if (hours > 0) return `${hours}h ${minutes}m remaining`;
     return `${minutes}m remaining`;
+  };
+
+  const formatSubmissionRelativeTime = (value) => {
+    if (!value) return "";
+    const dt = new Date(value);
+    if (Number.isNaN(dt.getTime())) return "";
+    const diffMs = Date.now() - dt.getTime();
+    const minuteMs = 60 * 1000;
+    const hourMs = 60 * minuteMs;
+    const dayMs = 24 * hourMs;
+    if (diffMs < hourMs) {
+      const mins = Math.max(1, Math.floor(diffMs / minuteMs));
+      return `${mins} ${mins === 1 ? "minute" : "minutes"} ago`;
+    }
+    if (diffMs < dayMs) {
+      const hrs = Math.max(1, Math.floor(diffMs / hourMs));
+      return `${hrs} ${hrs === 1 ? "hour" : "hours"} ago`;
+    }
+    const days = Math.max(1, Math.floor(diffMs / dayMs));
+    return `${days} ${days === 1 ? "day" : "days"} ago`;
   };
 
   return (
@@ -1595,13 +1695,16 @@ export default function VineCommunities() {
                       <h4>Class Register</h4>
                       {isAttendanceManager && (
                         <div className="attendance-actions">
-                          <button onClick={saveAttendance} disabled={!selectedSessionId}>Save Register</button>
-                          <button type="button" onClick={markAllPresent} disabled={!selectedSessionId || attendanceRows.length === 0}>Mark All Present</button>
+                          <button onClick={saveAttendance} disabled={!selectedSessionId || isSelectedSessionClosed}>Save Register</button>
+                          <button type="button" onClick={markAllPresent} disabled={!selectedSessionId || attendanceRows.length === 0 || isSelectedSessionClosed}>Mark All Present</button>
                           <button type="button" onClick={exportAttendanceCsv} disabled={!selectedSessionId}>Export CSV</button>
                           <button type="button" onClick={exportAttendancePdf} disabled={!selectedSessionId}>Export PDF</button>
                         </div>
                       )}
                     </div>
+                    {isAttendanceManager && selectedSessionId && isSelectedSessionClosed && (
+                      <div className="community-empty">This session has ended. Attendance is locked.</div>
+                    )}
 
                     {isAttendanceManager ? (
                       <>
@@ -1661,6 +1764,16 @@ export default function VineCommunities() {
                       <div className="assignment-submissions attendance-mark-panel">
                         <div className="assignment-submissions-head">
                           <strong>Mark Attendance</strong>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedSessionId(null);
+                              setAttendanceRows([]);
+                              setAttendanceDrafts({});
+                            }}
+                          >
+                            Close Session
+                          </button>
                         </div>
                         {attendanceRows.length === 0 ? (
                           <div className="community-empty">No members found.</div>
@@ -1687,7 +1800,7 @@ export default function VineCommunities() {
                                   onChange={(e) =>
                                     setAttendanceDrafts((prev) => ({ ...prev, [row.user_id]: e.target.value }))
                                   }
-                                  disabled={!isAttendanceManager}
+                                  disabled={!isAttendanceManager || isSelectedSessionClosed}
                                 >
                                   <option value="present">present</option>
                                   <option value="absent">absent</option>
@@ -1698,6 +1811,35 @@ export default function VineCommunities() {
                             </div>
                           ))
                         )}
+                      </div>
+                    )}
+                    {isCommunityModerator && (
+                      <div className="attendance-member-view">
+                        <div className="attendance-summary-grid">
+                          <div className="attendance-summary-card">
+                            <div className="attendance-summary-label">Lessons Attended</div>
+                            <div className="attendance-summary-value">{attendanceSummary.lessons_attended || 0}</div>
+                          </div>
+                          <div className="attendance-summary-card missed">
+                            <div className="attendance-summary-label">Lessons Missed</div>
+                            <div className="attendance-summary-value">{attendanceSummary.lessons_missed || 0}</div>
+                          </div>
+                        </div>
+                        <div className="attendance-history-list">
+                          {attendanceRecords.length === 0 ? (
+                            <div className="community-empty">No attendance records yet.</div>
+                          ) : (
+                            attendanceRecords.map((row) => (
+                              <div key={`my-att-mod-${row.session_id}`} className="attendance-history-row">
+                                <div className="member-name">{row.title || "Lesson"}</div>
+                                <div className="member-meta">{new Date(row.starts_at).toLocaleString()}</div>
+                                <div className={`attendance-status-pill ${String(row.status || "").toLowerCase()}`}>
+                                  {String(row.status || "absent")}
+                                </div>
+                              </div>
+                            ))
+                          )}
+                        </div>
                       </div>
                     )}
                       </>
@@ -1815,6 +1957,9 @@ export default function VineCommunities() {
                           const persistedDraft = savedDraftsMap[a.id] || "";
                           const practicalFiles = Array.isArray(submissionFiles[a.id]) ? submissionFiles[a.id] : [];
                           const isPractical = String(a.assignment_type || "theory").toLowerCase() === "practical";
+                          const uploadedFilesCount = Array.isArray(a.viewer_submission_files)
+                            ? a.viewer_submission_files.length
+                            : (a.viewer_submission_attachment_url ? 1 : 0);
                           const viewerStatus = a.viewer_submission_status || "";
                           const pastDue = isAssignmentPastDue(a);
                           const attempts = Number(a.viewer_submission_attempts || 0);
@@ -1855,8 +2000,13 @@ export default function VineCommunities() {
                               {a.rubric && <div className="assignment-rubric">Rubric: {a.rubric}</div>}
                               <div className="member-meta">
                                 Submissions: {a.submission_count || 0}
-                                {a.viewer_submission_status ? ` • Your status: ${a.viewer_submission_status}` : ""}
+                                {isPractical
+                                  ? (a.viewer_submitted_at
+                                      ? ` • Last submitted: ${formatSubmissionRelativeTime(a.viewer_submitted_at)}`
+                                      : " • No upload yet for this practical assignment")
+                                  : (a.viewer_submission_status ? ` • Your status: ${a.viewer_submission_status}` : "")}
                                 {a.viewer_submission_score !== null && a.viewer_submission_score !== undefined ? ` • Score: ${a.viewer_submission_score}` : ""}
+                                {isPractical && uploadedFilesCount > 0 ? ` • Files uploaded: ${uploadedFilesCount}` : ""}
                                 {!isPractical && attempts > 0 ? ` • Attempts: ${attempts}/2` : ""}
                               </div>
                               {a.viewer_submission_content && (
@@ -1873,10 +2023,19 @@ export default function VineCommunities() {
                               {Array.isArray(a.viewer_submission_files) && a.viewer_submission_files.length > 0 ? (
                                 <div className="assignment-attachment">
                                   {a.viewer_submission_files.map((f, i) => (
-                                    <div key={`my-sub-file-${a.id}-${i}`}>
+                                    <div key={`my-sub-file-${a.id}-${i}`} className="community-file-chip">
                                       <a href={f.file_url} target="_blank" rel="noreferrer">
                                         📎 {f.file_name || `Uploaded file ${i + 1}`}
                                       </a>
+                                      {isPractical && !pastDue && (
+                                        <button
+                                          type="button"
+                                          onClick={() => deletePracticalSubmissionFile(a.id, f.id)}
+                                          title="Delete file"
+                                        >
+                                          ×
+                                        </button>
+                                      )}
                                     </div>
                                   ))}
                                 </div>
@@ -1891,14 +2050,16 @@ export default function VineCommunities() {
                                 <>
                                   {!submissionLocked && !gradedLocked ? (
                                     <div className="assignment-submit-row">
-                                      <textarea
-                                        placeholder="Write your answer/submission"
-                                        value={draftValue || persistedDraft}
-                                        onChange={(e) =>
-                                          setSubmissionDrafts((prev) => ({ ...prev, [a.id]: e.target.value }))
-                                        }
-                                        disabled={pastDue}
-                                      />
+                                      {!isPractical && (
+                                        <textarea
+                                          placeholder="Write your answer/submission"
+                                          value={draftValue || persistedDraft}
+                                          onChange={(e) =>
+                                            setSubmissionDrafts((prev) => ({ ...prev, [a.id]: e.target.value }))
+                                          }
+                                          disabled={pastDue}
+                                        />
+                                      )}
                                       {isPractical && (
                                         <label className="assignment-file-picker">
                                           <span>
@@ -1925,6 +2086,18 @@ export default function VineCommunities() {
                                           {practicalFiles.map((f, i) => (
                                             <div key={`practical-file-${a.id}-${i}`} className="community-file-chip">
                                               <span>{f.name}</span>
+                                              <button
+                                                type="button"
+                                                onClick={() =>
+                                                  setSubmissionFiles((prev) => ({
+                                                    ...prev,
+                                                    [a.id]: practicalFiles.filter((_, idx) => idx !== i),
+                                                  }))
+                                                }
+                                                title="Remove file"
+                                              >
+                                                ×
+                                              </button>
                                             </div>
                                           ))}
                                         </div>
@@ -1936,7 +2109,7 @@ export default function VineCommunities() {
                                           </button>
                                         )}
                                         <button onClick={() => submitAssignment(a.id, a.assignment_type)} disabled={pastDue}>
-                                          {viewerStatus ? "Resubmit" : "Submit"}
+                                          {isPractical ? "Submit" : (viewerStatus ? "Resubmit" : "Submit")}
                                         </button>
                                       </div>
                                     </div>
@@ -1979,6 +2152,9 @@ export default function VineCommunities() {
                                   ) : (
                                     assignmentSubmissions.map((s) => {
                                       const draft = gradingDrafts[s.id] || { score: "", feedback: "", status: "graded" };
+                                      const submissionFilesCount = Array.isArray(s.submission_files)
+                                        ? s.submission_files.length
+                                        : (s.attachment_url ? 1 : 0);
                                       const gradeLocked =
                                         Boolean(s.graded_at) ||
                                         s.score !== null && s.score !== undefined ||
@@ -1997,7 +2173,10 @@ export default function VineCommunities() {
                                             />
                                             <div>
                                               <div className="member-name">{s.display_name || s.username}</div>
-                                              <div className="member-meta">@{s.username} • {new Date(s.submitted_at).toLocaleString()}</div>
+                                              <div className="member-meta">
+                                                @{s.username} • {new Date(s.submitted_at).toLocaleString()}
+                                                {submissionFilesCount > 0 ? ` • Files: ${submissionFilesCount}` : ""}
+                                              </div>
                                             </div>
                                           </div>
                                           <div className="assignment-body">{s.content || "No content"}</div>
@@ -2139,75 +2318,77 @@ export default function VineCommunities() {
                 )}
                 {activeTab === "settings" && ["owner", "moderator"].includes(String(activeCommunity.viewer_role || "").toLowerCase()) && (
                   <section className="community-settings-panel">
-                    <h4>Group Settings</h4>
-                    <label className="settings-row">
-                      <span>How members join this community</span>
-                      <select value={joinPolicy} onChange={(e) => setJoinPolicy(e.target.value)}>
-                        <option value="open">Open (anyone can join)</option>
-                        <option value="approval">Approval required</option>
-                        <option value="closed">Closed (no new members)</option>
-                      </select>
-                    </label>
-                    <label className="settings-row">
-                      <span>Who can post</span>
-                      <input value="Only owner/moderators" disabled readOnly />
-                    </label>
-                    <label className="settings-row">
-                      <span>Auto welcome for new members</span>
-                      <select value={autoWelcomeEnabled ? "1" : "0"} onChange={(e) => setAutoWelcomeEnabled(e.target.value === "1")}>
-                        <option value="1">Enabled</option>
-                        <option value="0">Disabled</option>
-                      </select>
-                    </label>
-                    <label className="settings-row">
-                      <span>Welcome message</span>
-                      <input
-                        value={welcomeMessage}
-                        onChange={(e) => setWelcomeMessage(e.target.value)}
-                        maxLength={280}
-                        placeholder={`Welcome to ${activeCommunity.name}!`}
-                      />
-                    </label>
-                    <button className="save-settings-btn" onClick={saveSettings}>Save Settings</button>
-                    <div className="community-upload-grid">
-                      <label className="settings-row">
-                        <span>Community avatar</span>
-                        <input
-                          type="file"
-                          accept="image/*,.heic,.heif"
-                          onChange={(e) => setCommunityAvatarFile(e.target.files?.[0] || null)}
-                        />
-                        <button type="button" onClick={uploadCommunityAvatar} disabled={!communityAvatarFile}>
-                          Upload Avatar
-                        </button>
-                      </label>
-                      <label className="settings-row">
-                        <span>Community banner</span>
-                        <input
-                          type="file"
-                          accept="image/*,.heic,.heif"
-                          onChange={(e) => setCommunityBannerFile(e.target.files?.[0] || null)}
-                        />
-                        <button type="button" onClick={uploadCommunityBanner} disabled={!communityBannerFile}>
-                          Upload Banner
-                        </button>
-                        {isCommunityOwner && (
-                          <button
-                            type="button"
-                            className="community-banner-adjust-btn"
-                            onClick={() => {
-                              if (isAdjustingCommunityBanner) {
-                                stopCommunityBannerDrag();
-                              } else {
-                                setIsAdjustingCommunityBanner(true);
-                              }
-                            }}
-                          >
-                            {isAdjustingCommunityBanner ? "Save Banner Position" : "Adjust Banner Position"}
-                          </button>
-                        )}
-                      </label>
-                    </div>
+                    <h4>{isCommunityOwner ? "Group Settings" : "Pending Join Requests"}</h4>
+                    {isCommunityOwner && (
+                      <>
+                        <label className="settings-row">
+                          <span>How members join this community</span>
+                          <select value={joinPolicy} onChange={(e) => setJoinPolicy(e.target.value)}>
+                            <option value="open">Open (anyone can join)</option>
+                            <option value="approval">Approval required</option>
+                            <option value="closed">Closed (no new members)</option>
+                          </select>
+                        </label>
+                        <label className="settings-row">
+                          <span>Who can post</span>
+                          <input value="Only owner/moderators" disabled readOnly />
+                        </label>
+                        <label className="settings-row">
+                          <span>Auto welcome for new members</span>
+                          <select value={autoWelcomeEnabled ? "1" : "0"} onChange={(e) => setAutoWelcomeEnabled(e.target.value === "1")}>
+                            <option value="1">Enabled</option>
+                            <option value="0">Disabled</option>
+                          </select>
+                        </label>
+                        <label className="settings-row">
+                          <span>Welcome message</span>
+                          <input
+                            value={welcomeMessage}
+                            onChange={(e) => setWelcomeMessage(e.target.value)}
+                            maxLength={280}
+                            placeholder={`Welcome to ${activeCommunity.name}!`}
+                          />
+                        </label>
+                        <button className="save-settings-btn" onClick={saveSettings}>Save Settings</button>
+                        <div className="community-upload-grid">
+                          <label className="settings-row">
+                            <span>Community avatar</span>
+                            <input
+                              type="file"
+                              accept="image/*,.heic,.heif"
+                              onChange={(e) => setCommunityAvatarFile(e.target.files?.[0] || null)}
+                            />
+                            <button type="button" onClick={uploadCommunityAvatar} disabled={!communityAvatarFile}>
+                              Upload Avatar
+                            </button>
+                          </label>
+                          <label className="settings-row">
+                            <span>Community banner</span>
+                            <input
+                              type="file"
+                              accept="image/*,.heic,.heif"
+                              onChange={(e) => setCommunityBannerFile(e.target.files?.[0] || null)}
+                            />
+                            <button type="button" onClick={uploadCommunityBanner} disabled={!communityBannerFile}>
+                              Upload Banner
+                            </button>
+                            <button
+                              type="button"
+                              className="community-banner-adjust-btn"
+                              onClick={() => {
+                                if (isAdjustingCommunityBanner) {
+                                  stopCommunityBannerDrag();
+                                } else {
+                                  setIsAdjustingCommunityBanner(true);
+                                }
+                              }}
+                            >
+                              {isAdjustingCommunityBanner ? "Save Banner Position" : "Adjust Banner Position"}
+                            </button>
+                          </label>
+                        </div>
+                      </>
+                    )}
 
                     {joinPolicy === "approval" && (
                       <div className="request-panel">
@@ -2238,47 +2419,51 @@ export default function VineCommunities() {
                       </div>
                     )}
 
-                    <div className="rules-editor">
-                      <h5>Rules</h5>
-                      {rules.map((r) => (
-                        <div key={r.id} className="rule-edit-row">
-                          <span>{r.rule_text}</span>
-                          <button onClick={() => removeRule(r.id)}>Delete</button>
-                        </div>
-                      ))}
-                      <div className="inline-add-row">
-                        <input value={newRule} onChange={(e) => setNewRule(e.target.value)} placeholder="Add a rule" maxLength={240} />
-                        <button onClick={addRule}>Add</button>
-                      </div>
-                    </div>
-
-                    <div className="rules-editor">
-                      <h5>Join Questions</h5>
-                      {questions.map((q) => (
-                        <div key={q.id} className="rule-edit-row">
-                          <span>{q.question_text}</span>
-                          <button onClick={() => removeQuestion(q.id)}>Delete</button>
-                        </div>
-                      ))}
-                      <div className="inline-add-row">
-                        <input value={newQuestion} onChange={(e) => setNewQuestion(e.target.value)} placeholder="Add a join question" maxLength={240} />
-                        <button onClick={addQuestion}>Add</button>
-                      </div>
-                    </div>
-
-                    <div className="rules-editor">
-                      <h5>Scheduled Posts</h5>
-                      {scheduledPosts.length === 0 ? (
-                        <div className="community-empty">No scheduled posts.</div>
-                      ) : (
-                        scheduledPosts.map((s) => (
-                          <div key={s.id} className="rule-edit-row">
-                            <span>{s.content}</span>
-                            <small>{new Date(s.run_at).toLocaleString()}</small>
+                    {isCommunityOwner && (
+                      <>
+                        <div className="rules-editor">
+                          <h5>Rules</h5>
+                          {rules.map((r) => (
+                            <div key={r.id} className="rule-edit-row">
+                              <span>{r.rule_text}</span>
+                              <button onClick={() => removeRule(r.id)}>Delete</button>
+                            </div>
+                          ))}
+                          <div className="inline-add-row">
+                            <input value={newRule} onChange={(e) => setNewRule(e.target.value)} placeholder="Add a rule" maxLength={240} />
+                            <button onClick={addRule}>Add</button>
                           </div>
-                        ))
-                      )}
-                    </div>
+                        </div>
+
+                        <div className="rules-editor">
+                          <h5>Join Questions</h5>
+                          {questions.map((q) => (
+                            <div key={q.id} className="rule-edit-row">
+                              <span>{q.question_text}</span>
+                              <button onClick={() => removeQuestion(q.id)}>Delete</button>
+                            </div>
+                          ))}
+                          <div className="inline-add-row">
+                            <input value={newQuestion} onChange={(e) => setNewQuestion(e.target.value)} placeholder="Add a join question" maxLength={240} />
+                            <button onClick={addQuestion}>Add</button>
+                          </div>
+                        </div>
+
+                        <div className="rules-editor">
+                          <h5>Scheduled Posts</h5>
+                          {scheduledPosts.length === 0 ? (
+                            <div className="community-empty">No scheduled posts.</div>
+                          ) : (
+                            scheduledPosts.map((s) => (
+                              <div key={s.id} className="rule-edit-row">
+                                <span>{s.content}</span>
+                                <small>{new Date(s.run_at).toLocaleString()}</small>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </>
+                    )}
                   </section>
                 )}
               </div>

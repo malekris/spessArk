@@ -690,13 +690,15 @@ export default function VineCommunities() {
   const submitAssignment = async (assignmentId, assignmentTypeValue = "theory") => {
     if (!activeCommunity?.id || !assignmentId) return;
     const text = String(submissionDrafts[assignmentId] || savedDraftsMap[assignmentId] || "").trim();
-    const file = submissionFiles[assignmentId] || null;
+    const files = Array.isArray(submissionFiles[assignmentId]) ? submissionFiles[assignmentId] : [];
     const isPractical = String(assignmentTypeValue || "theory").toLowerCase() === "practical";
-    if (!text && !file) return;
+    if (!text && files.length === 0) return;
     try {
       const formData = new FormData();
       if (text) formData.append("content", text);
-      if (isPractical && file) formData.append("submission_file", file);
+      if (isPractical && files.length > 0) {
+        files.forEach((file) => formData.append("submission_files", file));
+      }
       const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/assignments/${assignmentId}/submissions`, {
         method: "POST",
         headers: {
@@ -711,7 +713,7 @@ export default function VineCommunities() {
       }
       setSubmissionDrafts((prev) => ({ ...prev, [assignmentId]: "" }));
       setSavedDraftsMap((prev) => ({ ...prev, [assignmentId]: "" }));
-      setSubmissionFiles((prev) => ({ ...prev, [assignmentId]: null }));
+      setSubmissionFiles((prev) => ({ ...prev, [assignmentId]: [] }));
       await loadCommunityDetail(activeCommunity.slug, topicFilter);
       alert("Assignment submitted");
     } catch {
@@ -1811,7 +1813,7 @@ export default function VineCommunities() {
                         assignments.map((a) => {
                           const draftValue = submissionDrafts[a.id] || "";
                           const persistedDraft = savedDraftsMap[a.id] || "";
-                          const practicalFile = submissionFiles[a.id] || null;
+                          const practicalFiles = Array.isArray(submissionFiles[a.id]) ? submissionFiles[a.id] : [];
                           const isPractical = String(a.assignment_type || "theory").toLowerCase() === "practical";
                           const viewerStatus = a.viewer_submission_status || "";
                           const pastDue = isAssignmentPastDue(a);
@@ -1855,7 +1857,7 @@ export default function VineCommunities() {
                                 Submissions: {a.submission_count || 0}
                                 {a.viewer_submission_status ? ` • Your status: ${a.viewer_submission_status}` : ""}
                                 {a.viewer_submission_score !== null && a.viewer_submission_score !== undefined ? ` • Score: ${a.viewer_submission_score}` : ""}
-                                {attempts > 0 ? ` • Attempts: ${attempts}/2` : ""}
+                                {!isPractical && attempts > 0 ? ` • Attempts: ${attempts}/2` : ""}
                               </div>
                               {a.viewer_submission_content && (
                                 <div className="assignment-my-submission">
@@ -1868,13 +1870,23 @@ export default function VineCommunities() {
                                   <div className="assignment-body">{a.viewer_submission_content}</div>
                                 </div>
                               )}
-                              {a.viewer_submission_attachment_url && (
+                              {Array.isArray(a.viewer_submission_files) && a.viewer_submission_files.length > 0 ? (
+                                <div className="assignment-attachment">
+                                  {a.viewer_submission_files.map((f, i) => (
+                                    <div key={`my-sub-file-${a.id}-${i}`}>
+                                      <a href={f.file_url} target="_blank" rel="noreferrer">
+                                        📎 {f.file_name || `Uploaded file ${i + 1}`}
+                                      </a>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : a.viewer_submission_attachment_url ? (
                                 <div className="assignment-attachment">
                                   <a href={a.viewer_submission_attachment_url} target="_blank" rel="noreferrer">
                                     📎 {a.viewer_submission_attachment_name || "Your uploaded file"}
                                   </a>
                                 </div>
-                              )}
+                              ) : null}
                               {!isCommunityOwner && Number(activeCommunity.is_member) === 1 && (
                                 <>
                                   {!submissionLocked && !gradedLocked ? (
@@ -1890,22 +1902,32 @@ export default function VineCommunities() {
                                       {isPractical && (
                                         <label className="assignment-file-picker">
                                           <span>
-                                            {practicalFile
-                                              ? practicalFile.name
-                                              : "Upload PPT/XLS/DOC/Access/PUB"}
+                                            {practicalFiles.length > 0
+                                              ? `${practicalFiles.length} file(s) selected`
+                                              : "Upload PPT/XLS/DOC/Access/PUB/PDF"}
                                           </span>
                                           <input
                                             type="file"
-                                            accept=".ppt,.pptx,.xls,.xlsx,.doc,.docx,.mdb,.accdb,.pub,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/x-msaccess,application/vnd.ms-access,application/vnd.ms-publisher"
+                                            accept=".ppt,.pptx,.xls,.xlsx,.doc,.docx,.mdb,.accdb,.pub,.pdf,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/x-msaccess,application/vnd.ms-access,application/vnd.ms-publisher,application/pdf"
+                                            multiple
                                             onChange={(e) =>
                                               setSubmissionFiles((prev) => ({
                                                 ...prev,
-                                                [a.id]: e.target.files?.[0] || null,
+                                                [a.id]: Array.from(e.target.files || []),
                                               }))
                                             }
                                             disabled={pastDue}
                                           />
                                         </label>
+                                      )}
+                                      {isPractical && practicalFiles.length > 0 && (
+                                        <div className="community-files-list">
+                                          {practicalFiles.map((f, i) => (
+                                            <div key={`practical-file-${a.id}-${i}`} className="community-file-chip">
+                                              <span>{f.name}</span>
+                                            </div>
+                                          ))}
+                                        </div>
                                       )}
                                       <div className="assignment-submit-actions">
                                         {!isPractical && (
@@ -1979,13 +2001,23 @@ export default function VineCommunities() {
                                             </div>
                                           </div>
                                           <div className="assignment-body">{s.content || "No content"}</div>
-                                          {s.attachment_url && (
+                                          {Array.isArray(s.submission_files) && s.submission_files.length > 0 ? (
+                                            <div className="assignment-attachment">
+                                              {s.submission_files.map((f, i) => (
+                                                <div key={`submission-file-${s.id}-${i}`}>
+                                                  <a href={f.file_url} target="_blank" rel="noreferrer">
+                                                    📎 {f.file_name || `Submitted file ${i + 1}`}
+                                                  </a>
+                                                </div>
+                                              ))}
+                                            </div>
+                                          ) : s.attachment_url ? (
                                             <div className="assignment-attachment">
                                               <a href={s.attachment_url} target="_blank" rel="noreferrer">
                                                 📎 {s.attachment_name || "Submitted file"}
                                               </a>
                                             </div>
-                                          )}
+                                          ) : null}
                                           {gradeLocked && (
                                             <div className="assignment-lock-note">
                                               Grade finalized. This submission is locked.

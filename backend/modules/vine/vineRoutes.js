@@ -486,6 +486,23 @@ const ensureCommunitySchema = async () => {
     )
   `);
 
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_community_submission_files (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      submission_id INT NOT NULL,
+      assignment_id INT NOT NULL,
+      community_id INT NOT NULL,
+      user_id INT NOT NULL,
+      file_url TEXT NOT NULL,
+      file_name VARCHAR(255) NULL,
+      file_mime VARCHAR(120) NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_submission_files_submission (submission_id, created_at),
+      INDEX idx_submission_files_assignment (assignment_id, community_id),
+      INDEX idx_submission_files_user (user_id, created_at)
+    )
+  `);
+
   const hasCommunityId = await hasColumn(dbName, "vine_posts", "community_id");
   if (!hasCommunityId) {
     await db.query("ALTER TABLE vine_posts ADD COLUMN community_id INT NULL");
@@ -723,7 +740,7 @@ const isPdfFile = (file) => {
 const isPracticalSubmissionFile = (file) => {
   const type = String(file?.mimetype || "").toLowerCase();
   const name = String(file?.originalname || "").toLowerCase();
-  const allowedByExt = /\.(ppt|pptx|xls|xlsx|doc|docx|mdb|accdb|pub)$/i.test(name);
+  const allowedByExt = /\.(ppt|pptx|xls|xlsx|doc|docx|mdb|accdb|pub|pdf)$/i.test(name);
   const allowedMimes = new Set([
     "application/vnd.ms-powerpoint",
     "application/vnd.openxmlformats-officedocument.presentationml.presentation",
@@ -735,6 +752,7 @@ const isPracticalSubmissionFile = (file) => {
     "application/msaccess",
     "application/vnd.ms-access",
     "application/vnd.ms-publisher",
+    "application/pdf",
   ]);
   return allowedByExt || allowedMimes.has(type);
 };
@@ -2601,6 +2619,10 @@ router.delete("/communities/:id/assignments/:assignmentId", authenticate, async 
       [assignmentId, communityId]
     );
     await db.query(
+      "DELETE FROM vine_community_submission_files WHERE assignment_id = ? AND community_id = ?",
+      [assignmentId, communityId]
+    );
+    await db.query(
       "DELETE FROM vine_community_submission_drafts WHERE assignment_id = ? AND community_id = ?",
       [assignmentId, communityId]
     );
@@ -2668,6 +2690,38 @@ router.get("/communities/:slug/assignments", authenticate, async (req, res) => {
       `,
       [viewerId, viewerId, community.id]
     );
+    const submissionIds = rows
+      .map((r) => Number(r.viewer_submission_id))
+      .filter((id) => Number.isFinite(id) && id > 0);
+    if (submissionIds.length > 0) {
+      const placeholders = submissionIds.map(() => "?").join(", ");
+      const [fileRows] = await db.query(
+        `
+        SELECT submission_id, file_url, file_name, file_mime, created_at
+        FROM vine_community_submission_files
+        WHERE submission_id IN (${placeholders})
+        ORDER BY created_at ASC, id ASC
+        `,
+        submissionIds
+      );
+      const bySubmission = {};
+      for (const row of fileRows) {
+        const sid = Number(row.submission_id);
+        if (!bySubmission[sid]) bySubmission[sid] = [];
+        bySubmission[sid].push({
+          file_url: row.file_url,
+          file_name: row.file_name,
+          file_mime: row.file_mime,
+          created_at: row.created_at,
+        });
+      }
+      for (const row of rows) {
+        const sid = Number(row.viewer_submission_id || 0);
+        row.viewer_submission_files = sid > 0 ? (bySubmission[sid] || []) : [];
+      }
+    } else {
+      for (const row of rows) row.viewer_submission_files = [];
+    }
     res.json(rows);
   } catch (err) {
     console.error("Get community assignments error:", err);
@@ -2675,14 +2729,14 @@ router.get("/communities/:slug/assignments", authenticate, async (req, res) => {
   }
 });
 
-router.post("/communities/:id/assignments/:assignmentId/submissions", authenticate, uploadPostCloudinary.single("submission_file"), async (req, res) => {
+router.post("/communities/:id/assignments/:assignmentId/submissions", authenticate, uploadPostCloudinary.array("submission_files", 10), async (req, res) => {
   try {
     await ensureCommunitySchema();
     const userId = Number(req.user.id);
     const communityId = Number(req.params.id);
     const assignmentId = Number(req.params.assignmentId);
     const content = String(req.body?.content || "").trim();
-    const file = req.file || null;
+    const files = Array.isArray(req.files) ? req.files : [];
     if (!communityId || !assignmentId) return res.status(400).json({ message: "Invalid request" });
     const role = await getCommunityRole(communityId, userId);
     if (!role) return res.status(403).json({ message: "Join this community first" });
@@ -2693,14 +2747,14 @@ router.post("/communities/:id/assignments/:assignmentId/submissions", authentica
     );
     if (!assignment) return res.status(404).json({ message: "Assignment not found" });
     const isPractical = String(assignment.assignment_type || "theory").toLowerCase() === "practical";
-    if (!content && !file) {
+    if (!content && files.length === 0) {
       return res.status(400).json({ message: isPractical ? "Upload a file or add notes" : "content is required" });
     }
-    if (file && !isPractical) {
+    if (files.length > 0 && !isPractical) {
       return res.status(400).json({ message: "File upload is only allowed for practical assignments" });
     }
-    if (file && isPractical && !isPracticalSubmissionFile(file)) {
-      return res.status(400).json({ message: "Invalid practical file type. Use PPT, XLS, DOC, Access, or Publisher files." });
+    if (files.length > 0 && isPractical && files.some((file) => !isPracticalSubmissionFile(file))) {
+      return res.status(400).json({ message: "Invalid practical file type. Use PPT, XLS, DOC, Access, Publisher, or PDF files." });
     }
     const normalizedRole = String(role || "").toLowerCase();
     const canBypassDueDate = normalizedRole === "owner";
@@ -2711,21 +2765,23 @@ router.post("/communities/:id/assignments/:assignmentId/submissions", authentica
       }
     }
 
-    let attachmentUrl = null;
-    let attachmentName = null;
-    let attachmentMime = null;
-    if (file && isPractical) {
-      const originalName = String(file.originalname || "").trim();
-      const ext = originalName.includes(".") ? originalName.split(".").pop().toLowerCase() : "bin";
-      const uploaded = await uploadBufferToCloudinary(file.buffer, {
-        folder: "vine/assignment-submissions",
-        resource_type: "raw",
-        public_id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
-        format: ext,
-      });
-      attachmentUrl = uploaded.secure_url || uploaded.url || null;
-      attachmentName = originalName.slice(0, 255) || `submission.${ext}`;
-      attachmentMime = String(file.mimetype || "").slice(0, 120) || null;
+    const uploadedFiles = [];
+    if (files.length > 0 && isPractical) {
+      for (const file of files) {
+        const originalName = String(file.originalname || "").trim();
+        const ext = originalName.includes(".") ? originalName.split(".").pop().toLowerCase() : "bin";
+        const uploaded = await uploadBufferToCloudinary(file.buffer, {
+          folder: "vine/assignment-submissions",
+          resource_type: "raw",
+          public_id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+          format: ext,
+        });
+        uploadedFiles.push({
+          url: uploaded.secure_url || uploaded.url || null,
+          name: originalName.slice(0, 255) || `submission.${ext}`,
+          mime: String(file.mimetype || "").slice(0, 120) || null,
+        });
+      }
     }
 
     const [[existing]] = await db.query(
@@ -2733,6 +2789,8 @@ router.post("/communities/:id/assignments/:assignmentId/submissions", authentica
       [assignmentId, userId]
     );
 
+    const primaryAttachment = uploadedFiles[0] || null;
+    let submissionId = null;
     if (existing) {
       if (!isPractical) {
         const isGraded =
@@ -2754,7 +2812,7 @@ router.post("/communities/:id/assignments/:assignmentId/submissions", authentica
             attachment_url = ?,
             attachment_name = ?,
             attachment_mime = ?,
-            attempt_count = attempt_count + 1,
+            attempt_count = CASE WHEN ? THEN attempt_count ELSE attempt_count + 1 END,
             status = 'resubmitted',
             submitted_at = NOW(),
             updated_at = NOW()
@@ -2762,21 +2820,45 @@ router.post("/communities/:id/assignments/:assignmentId/submissions", authentica
         `,
         [
           content || null,
-          attachmentUrl || existing.attachment_url || null,
-          attachmentName || existing.attachment_name || null,
-          attachmentMime || existing.attachment_mime || null,
+          primaryAttachment?.url || existing.attachment_url || null,
+          primaryAttachment?.name || existing.attachment_name || null,
+          primaryAttachment?.mime || existing.attachment_mime || null,
+          isPractical ? 1 : 0,
           existing.id,
         ]
       );
+      submissionId = Number(existing.id);
     } else {
-      await db.query(
+      const [inserted] = await db.query(
         `
         INSERT INTO vine_community_submissions
         (assignment_id, community_id, user_id, content, attachment_url, attachment_name, attachment_mime, attempt_count, status, submitted_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'submitted', NOW())
         `,
-        [assignmentId, communityId, userId, content || null, attachmentUrl, attachmentName, attachmentMime]
+        [
+          assignmentId,
+          communityId,
+          userId,
+          content || null,
+          primaryAttachment?.url || null,
+          primaryAttachment?.name || null,
+          primaryAttachment?.mime || null,
+        ]
       );
+      submissionId = Number(inserted?.insertId || 0);
+    }
+    if (submissionId && uploadedFiles.length > 0 && isPractical) {
+      for (const file of uploadedFiles) {
+        if (!file.url) continue;
+        await db.query(
+          `
+          INSERT INTO vine_community_submission_files
+          (submission_id, assignment_id, community_id, user_id, file_url, file_name, file_mime, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
+          `,
+          [submissionId, assignmentId, communityId, userId, file.url, file.name || null, file.mime || null]
+        );
+      }
     }
     await db.query(
       "DELETE FROM vine_community_submission_drafts WHERE assignment_id = ? AND community_id = ? AND user_id = ?",
@@ -2814,7 +2896,9 @@ router.post("/communities/:id/assignments/:assignmentId/submissions", authentica
           assignment_id: assignmentId,
           assignment_title: assignmentMeta?.title || null,
           submitted_at: new Date().toISOString(),
-          attempt_count: existing ? Number(existing.attempt_count || 1) + 1 : 1,
+          attempt_count: existing
+            ? (isPractical ? Number(existing.attempt_count || 1) : Number(existing.attempt_count || 1) + 1)
+            : 1,
           is_resubmission: Boolean(existing),
         },
       });
@@ -2898,6 +2982,36 @@ router.get("/communities/:id/assignments/:assignmentId/submissions", authenticat
       `,
       [communityId, assignmentId]
     );
+    const submissionIds = rows.map((r) => Number(r.id)).filter((id) => Number.isFinite(id) && id > 0);
+    if (submissionIds.length > 0) {
+      const placeholders = submissionIds.map(() => "?").join(", ");
+      const [fileRows] = await db.query(
+        `
+        SELECT submission_id, file_url, file_name, file_mime, created_at
+        FROM vine_community_submission_files
+        WHERE submission_id IN (${placeholders})
+        ORDER BY created_at ASC, id ASC
+        `,
+        submissionIds
+      );
+      const bySubmission = {};
+      for (const row of fileRows) {
+        const sid = Number(row.submission_id);
+        if (!bySubmission[sid]) bySubmission[sid] = [];
+        bySubmission[sid].push({
+          file_url: row.file_url,
+          file_name: row.file_name,
+          file_mime: row.file_mime,
+          created_at: row.created_at,
+        });
+      }
+      for (const row of rows) {
+        const sid = Number(row.id || 0);
+        row.submission_files = sid > 0 ? (bySubmission[sid] || []) : [];
+      }
+    } else {
+      for (const row of rows) row.submission_files = [];
+    }
     res.json(rows);
   } catch (err) {
     console.error("Get assignment submissions error:", err);

@@ -436,6 +436,7 @@ const ensureCommunitySchema = async () => {
       creator_id INT NOT NULL,
       title VARCHAR(160) NOT NULL,
       instructions TEXT NULL,
+      assignment_type VARCHAR(20) NOT NULL DEFAULT 'theory',
       attachment_url TEXT NULL,
       attachment_name VARCHAR(255) NULL,
       due_at DATETIME NULL,
@@ -455,6 +456,9 @@ const ensureCommunitySchema = async () => {
       community_id INT NOT NULL,
       user_id INT NOT NULL,
       content TEXT NULL,
+      attachment_url TEXT NULL,
+      attachment_name VARCHAR(255) NULL,
+      attachment_mime VARCHAR(120) NULL,
       attempt_count INT NOT NULL DEFAULT 1,
       status VARCHAR(20) NOT NULL DEFAULT 'submitted',
       score DECIMAL(6,2) NULL,
@@ -540,6 +544,7 @@ const ensureCommunitySchema = async () => {
   await ensureColumnExists(dbName, "vine_community_assignments", "rubric", "TEXT NULL");
   await ensureColumnExists(dbName, "vine_community_assignments", "attachment_url", "TEXT NULL");
   await ensureColumnExists(dbName, "vine_community_assignments", "attachment_name", "VARCHAR(255) NULL");
+  await ensureColumnExists(dbName, "vine_community_assignments", "assignment_type", "VARCHAR(20) NOT NULL DEFAULT 'theory'");
   try {
     await db.query(
       "ALTER TABLE vine_community_assignments MODIFY COLUMN points DECIMAL(8,2) NOT NULL DEFAULT 100.00"
@@ -553,6 +558,9 @@ const ensureCommunitySchema = async () => {
   await ensureColumnExists(dbName, "vine_community_submissions", "feedback", "TEXT NULL");
   await ensureColumnExists(dbName, "vine_community_submissions", "graded_at", "DATETIME NULL");
   await ensureColumnExists(dbName, "vine_community_submissions", "graded_by", "INT NULL");
+  await ensureColumnExists(dbName, "vine_community_submissions", "attachment_url", "TEXT NULL");
+  await ensureColumnExists(dbName, "vine_community_submissions", "attachment_name", "VARCHAR(255) NULL");
+  await ensureColumnExists(dbName, "vine_community_submissions", "attachment_mime", "VARCHAR(120) NULL");
 
   communitySchemaReady = true;
 };
@@ -710,6 +718,25 @@ const isPdfFile = (file) => {
   const type = String(file?.mimetype || "").toLowerCase();
   const name = String(file?.originalname || "").toLowerCase();
   return type === "application/pdf" || /\.pdf$/i.test(name);
+};
+
+const isPracticalSubmissionFile = (file) => {
+  const type = String(file?.mimetype || "").toLowerCase();
+  const name = String(file?.originalname || "").toLowerCase();
+  const allowedByExt = /\.(ppt|pptx|xls|xlsx|doc|docx|mdb|accdb|pub)$/i.test(name);
+  const allowedMimes = new Set([
+    "application/vnd.ms-powerpoint",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/x-msaccess",
+    "application/msaccess",
+    "application/vnd.ms-access",
+    "application/vnd.ms-publisher",
+  ]);
+  return allowedByExt || allowedMimes.has(type);
 };
 
 const uploadBufferToCloudinary = async (buffer, options = {}) =>
@@ -2476,6 +2503,8 @@ router.post("/communities/:id/assignments", authenticate, uploadPostCloudinary.s
     const title = String(req.body?.title || "").trim();
     const instructions = String(req.body?.instructions || "").trim();
     const rubric = String(req.body?.rubric || "").trim();
+    const assignmentTypeRaw = String(req.body?.assignment_type || "theory").trim().toLowerCase();
+    const assignmentType = ["theory", "practical"].includes(assignmentTypeRaw) ? assignmentTypeRaw : "theory";
     const dueAtRaw = String(req.body?.due_at || "").trim();
     const parsedPoints = Number(req.body?.points);
     const points = Number.isFinite(parsedPoints) && parsedPoints > 0
@@ -2508,10 +2537,10 @@ router.post("/communities/:id/assignments", authenticate, uploadPostCloudinary.s
     const [result] = await db.query(
       `
       INSERT INTO vine_community_assignments
-      (community_id, creator_id, title, instructions, attachment_url, attachment_name, due_at, points, rubric, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+      (community_id, creator_id, title, instructions, assignment_type, attachment_url, attachment_name, due_at, points, rubric, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
       `,
-      [communityId, userId, title.slice(0, 160), instructions || null, attachmentUrl, attachmentName, dueAt || null, points, rubric || null]
+      [communityId, userId, title.slice(0, 160), instructions || null, assignmentType, attachmentUrl, attachmentName, dueAt || null, points, rubric || null]
     );
 
     const [members] = await db.query(
@@ -2604,6 +2633,7 @@ router.get("/communities/:slug/assignments", authenticate, async (req, res) => {
         a.creator_id,
         a.title,
         a.instructions,
+        a.assignment_type,
         a.attachment_url,
         a.attachment_name,
         a.rubric,
@@ -2620,6 +2650,9 @@ router.get("/communities/:slug/assignments", authenticate, async (req, res) => {
         vs.score AS viewer_submission_score,
         vs.submitted_at AS viewer_submitted_at,
         vs.content AS viewer_submission_content,
+        vs.attachment_url AS viewer_submission_attachment_url,
+        vs.attachment_name AS viewer_submission_attachment_name,
+        vs.attachment_mime AS viewer_submission_attachment_mime,
         vd.content AS viewer_draft_content,
         vd.updated_at AS viewer_draft_updated_at
       FROM vine_community_assignments a
@@ -2642,24 +2675,33 @@ router.get("/communities/:slug/assignments", authenticate, async (req, res) => {
   }
 });
 
-router.post("/communities/:id/assignments/:assignmentId/submissions", authenticate, async (req, res) => {
+router.post("/communities/:id/assignments/:assignmentId/submissions", authenticate, uploadPostCloudinary.single("submission_file"), async (req, res) => {
   try {
     await ensureCommunitySchema();
     const userId = Number(req.user.id);
     const communityId = Number(req.params.id);
     const assignmentId = Number(req.params.assignmentId);
     const content = String(req.body?.content || "").trim();
-    if (!communityId || !assignmentId || !content) {
-      return res.status(400).json({ message: "content is required" });
-    }
+    const file = req.file || null;
+    if (!communityId || !assignmentId) return res.status(400).json({ message: "Invalid request" });
     const role = await getCommunityRole(communityId, userId);
     if (!role) return res.status(403).json({ message: "Join this community first" });
 
     const [[assignment]] = await db.query(
-      "SELECT id, community_id, due_at FROM vine_community_assignments WHERE id = ? AND community_id = ? LIMIT 1",
+      "SELECT id, community_id, due_at, assignment_type FROM vine_community_assignments WHERE id = ? AND community_id = ? LIMIT 1",
       [assignmentId, communityId]
     );
     if (!assignment) return res.status(404).json({ message: "Assignment not found" });
+    const isPractical = String(assignment.assignment_type || "theory").toLowerCase() === "practical";
+    if (!content && !file) {
+      return res.status(400).json({ message: isPractical ? "Upload a file or add notes" : "content is required" });
+    }
+    if (file && !isPractical) {
+      return res.status(400).json({ message: "File upload is only allowed for practical assignments" });
+    }
+    if (file && isPractical && !isPracticalSubmissionFile(file)) {
+      return res.status(400).json({ message: "Invalid practical file type. Use PPT, XLS, DOC, Access, or Publisher files." });
+    }
     const normalizedRole = String(role || "").toLowerCase();
     const canBypassDueDate = normalizedRole === "owner";
     if (assignment.due_at && !canBypassDueDate) {
@@ -2669,39 +2711,71 @@ router.post("/communities/:id/assignments/:assignmentId/submissions", authentica
       }
     }
 
+    let attachmentUrl = null;
+    let attachmentName = null;
+    let attachmentMime = null;
+    if (file && isPractical) {
+      const originalName = String(file.originalname || "").trim();
+      const ext = originalName.includes(".") ? originalName.split(".").pop().toLowerCase() : "bin";
+      const uploaded = await uploadBufferToCloudinary(file.buffer, {
+        folder: "vine/assignment-submissions",
+        resource_type: "raw",
+        public_id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+        format: ext,
+      });
+      attachmentUrl = uploaded.secure_url || uploaded.url || null;
+      attachmentName = originalName.slice(0, 255) || `submission.${ext}`;
+      attachmentMime = String(file.mimetype || "").slice(0, 120) || null;
+    }
+
     const [[existing]] = await db.query(
-      "SELECT id, attempt_count, graded_at, score, status FROM vine_community_submissions WHERE assignment_id = ? AND user_id = ? LIMIT 1",
+      "SELECT id, attempt_count, graded_at, score, status, attachment_url, attachment_name, attachment_mime FROM vine_community_submissions WHERE assignment_id = ? AND user_id = ? LIMIT 1",
       [assignmentId, userId]
     );
 
     if (existing) {
-      const isGraded =
-        existing.graded_at !== null ||
-        existing.score !== null ||
-        ["graded", "needs_revision", "missing"].includes(String(existing.status || "").toLowerCase());
-      if (isGraded) {
-        return res.status(403).json({ message: "Assignment already graded. Resubmission is closed." });
-      }
-      const attempts = Number(existing.attempt_count || 1);
-      if (attempts >= 2) {
-        return res.status(403).json({ message: "Submission limit reached (2 attempts)." });
+      if (!isPractical) {
+        const isGraded =
+          existing.graded_at !== null ||
+          existing.score !== null ||
+          ["graded", "needs_revision", "missing"].includes(String(existing.status || "").toLowerCase());
+        if (isGraded) {
+          return res.status(403).json({ message: "Assignment already graded. Resubmission is closed." });
+        }
+        const attempts = Number(existing.attempt_count || 1);
+        if (attempts >= 2) {
+          return res.status(403).json({ message: "Submission limit reached (2 attempts)." });
+        }
       }
       await db.query(
         `
         UPDATE vine_community_submissions
-        SET content = ?, attempt_count = attempt_count + 1, status = 'resubmitted', submitted_at = NOW(), updated_at = NOW()
+        SET content = ?,
+            attachment_url = ?,
+            attachment_name = ?,
+            attachment_mime = ?,
+            attempt_count = attempt_count + 1,
+            status = 'resubmitted',
+            submitted_at = NOW(),
+            updated_at = NOW()
         WHERE id = ?
         `,
-        [content, existing.id]
+        [
+          content || null,
+          attachmentUrl || existing.attachment_url || null,
+          attachmentName || existing.attachment_name || null,
+          attachmentMime || existing.attachment_mime || null,
+          existing.id,
+        ]
       );
     } else {
       await db.query(
         `
         INSERT INTO vine_community_submissions
-        (assignment_id, community_id, user_id, content, attempt_count, status, submitted_at)
-        VALUES (?, ?, ?, ?, 1, 'submitted', NOW())
+        (assignment_id, community_id, user_id, content, attachment_url, attachment_name, attachment_mime, attempt_count, status, submitted_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'submitted', NOW())
         `,
-        [assignmentId, communityId, userId, content]
+        [assignmentId, communityId, userId, content || null, attachmentUrl, attachmentName, attachmentMime]
       );
     }
     await db.query(
@@ -2807,6 +2881,9 @@ router.get("/communities/:id/assignments/:assignmentId/submissions", authenticat
         s.status,
         s.score,
         s.feedback,
+        s.attachment_url,
+        s.attachment_name,
+        s.attachment_mime,
         s.submitted_at,
         s.graded_at,
         u.username,

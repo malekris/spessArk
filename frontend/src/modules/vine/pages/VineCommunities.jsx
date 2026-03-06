@@ -64,11 +64,13 @@ export default function VineCommunities() {
   const [assignments, setAssignments] = useState([]);
   const [assignmentTitle, setAssignmentTitle] = useState("");
   const [assignmentInstructions, setAssignmentInstructions] = useState("");
+  const [assignmentType, setAssignmentType] = useState("theory");
   const [assignmentDueAt, setAssignmentDueAt] = useState("");
   const [assignmentPoints, setAssignmentPoints] = useState(100);
   const [assignmentRubric, setAssignmentRubric] = useState("");
   const [assignmentFile, setAssignmentFile] = useState(null);
   const [submissionDrafts, setSubmissionDrafts] = useState({});
+  const [submissionFiles, setSubmissionFiles] = useState({});
   const [savedDraftsMap, setSavedDraftsMap] = useState({});
   const [selectedAssignmentId, setSelectedAssignmentId] = useState(null);
   const [assignmentSubmissions, setAssignmentSubmissions] = useState([]);
@@ -648,6 +650,7 @@ export default function VineCommunities() {
       const formData = new FormData();
       formData.append("title", assignmentTitle.trim());
       formData.append("instructions", assignmentInstructions.trim());
+      formData.append("assignment_type", assignmentType);
       formData.append("due_at", assignmentDueAt || "");
       formData.append("points", String(Number(assignmentPoints || 100)));
       formData.append("rubric", assignmentRubric.trim());
@@ -672,6 +675,7 @@ export default function VineCommunities() {
       }
       setAssignmentTitle("");
       setAssignmentInstructions("");
+      setAssignmentType("theory");
       setAssignmentDueAt("");
       setAssignmentPoints(100);
       setAssignmentRubric("");
@@ -683,18 +687,22 @@ export default function VineCommunities() {
     }
   };
 
-  const submitAssignment = async (assignmentId) => {
+  const submitAssignment = async (assignmentId, assignmentTypeValue = "theory") => {
     if (!activeCommunity?.id || !assignmentId) return;
     const text = String(submissionDrafts[assignmentId] || savedDraftsMap[assignmentId] || "").trim();
-    if (!text) return;
+    const file = submissionFiles[assignmentId] || null;
+    const isPractical = String(assignmentTypeValue || "theory").toLowerCase() === "practical";
+    if (!text && !file) return;
     try {
+      const formData = new FormData();
+      if (text) formData.append("content", text);
+      if (isPractical && file) formData.append("submission_file", file);
       const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/assignments/${assignmentId}/submissions`, {
         method: "POST",
         headers: {
-          "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ content: text }),
+        body: formData,
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -703,6 +711,7 @@ export default function VineCommunities() {
       }
       setSubmissionDrafts((prev) => ({ ...prev, [assignmentId]: "" }));
       setSavedDraftsMap((prev) => ({ ...prev, [assignmentId]: "" }));
+      setSubmissionFiles((prev) => ({ ...prev, [assignmentId]: null }));
       await loadCommunityDetail(activeCommunity.slug, topicFilter);
       alert("Assignment submitted");
     } catch {
@@ -1747,6 +1756,13 @@ export default function VineCommunities() {
                           value={assignmentDueAt}
                           onChange={(e) => setAssignmentDueAt(e.target.value)}
                         />
+                        <select
+                          value={assignmentType}
+                          onChange={(e) => setAssignmentType(e.target.value)}
+                        >
+                          <option value="theory">Theory</option>
+                          <option value="practical">Practical</option>
+                        </select>
                         <input
                           type="number"
                           min={0.1}
@@ -1795,21 +1811,26 @@ export default function VineCommunities() {
                         assignments.map((a) => {
                           const draftValue = submissionDrafts[a.id] || "";
                           const persistedDraft = savedDraftsMap[a.id] || "";
+                          const practicalFile = submissionFiles[a.id] || null;
+                          const isPractical = String(a.assignment_type || "theory").toLowerCase() === "practical";
                           const viewerStatus = a.viewer_submission_status || "";
                           const pastDue = isAssignmentPastDue(a);
                           const attempts = Number(a.viewer_submission_attempts || 0);
-                          const submissionLocked = attempts >= 2;
-                          const gradedLocked =
-                            Boolean(a.viewer_submission_graded_at) ||
-                            a.viewer_submission_score !== null && a.viewer_submission_score !== undefined ||
-                            ["graded", "needs_revision", "missing"].includes(
-                              String(viewerStatus || "").toLowerCase()
-                            );
+                          const submissionLocked = isPractical ? false : attempts >= 2;
+                          const gradedLocked = isPractical
+                            ? false
+                            : (
+                                Boolean(a.viewer_submission_graded_at) ||
+                                (a.viewer_submission_score !== null && a.viewer_submission_score !== undefined) ||
+                                ["graded", "needs_revision", "missing"].includes(
+                                  String(viewerStatus || "").toLowerCase()
+                                )
+                              );
                           return (
                             <div key={a.id} className={`assignment-row ${isCommunityMod ? "mod-view" : ""}`}>
                               <div className="member-name">{a.title}</div>
                               <div className="member-meta">
-                                Due: {a.due_at ? new Date(a.due_at).toLocaleString() : "No due date"} • Points: {a.points}
+                                Due: {a.due_at ? new Date(a.due_at).toLocaleString() : "No due date"} • Points: {a.points} • Type: {String(a.assignment_type || "theory")}
                               </div>
                               <div className="member-meta">
                                 {formatAssignmentCountdown(a.due_at)} • Created: {formatAssignmentCreatedAt(a.created_at)}
@@ -1847,6 +1868,13 @@ export default function VineCommunities() {
                                   <div className="assignment-body">{a.viewer_submission_content}</div>
                                 </div>
                               )}
+                              {a.viewer_submission_attachment_url && (
+                                <div className="assignment-attachment">
+                                  <a href={a.viewer_submission_attachment_url} target="_blank" rel="noreferrer">
+                                    📎 {a.viewer_submission_attachment_name || "Your uploaded file"}
+                                  </a>
+                                </div>
+                              )}
                               {!isCommunityOwner && Number(activeCommunity.is_member) === 1 && (
                                 <>
                                   {!submissionLocked && !gradedLocked ? (
@@ -1859,11 +1887,33 @@ export default function VineCommunities() {
                                         }
                                         disabled={pastDue}
                                       />
+                                      {isPractical && (
+                                        <label className="assignment-file-picker">
+                                          <span>
+                                            {practicalFile
+                                              ? practicalFile.name
+                                              : "Upload PPT/XLS/DOC/Access/PUB"}
+                                          </span>
+                                          <input
+                                            type="file"
+                                            accept=".ppt,.pptx,.xls,.xlsx,.doc,.docx,.mdb,.accdb,.pub,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/x-msaccess,application/vnd.ms-access,application/vnd.ms-publisher"
+                                            onChange={(e) =>
+                                              setSubmissionFiles((prev) => ({
+                                                ...prev,
+                                                [a.id]: e.target.files?.[0] || null,
+                                              }))
+                                            }
+                                            disabled={pastDue}
+                                          />
+                                        </label>
+                                      )}
                                       <div className="assignment-submit-actions">
-                                        <button className="assignment-save-draft-btn" type="button" onClick={() => saveAssignmentDraft(a.id)} disabled={pastDue}>
-                                          Save Draft
-                                        </button>
-                                        <button onClick={() => submitAssignment(a.id)} disabled={pastDue}>
+                                        {!isPractical && (
+                                          <button className="assignment-save-draft-btn" type="button" onClick={() => saveAssignmentDraft(a.id)} disabled={pastDue}>
+                                            Save Draft
+                                          </button>
+                                        )}
+                                        <button onClick={() => submitAssignment(a.id, a.assignment_type)} disabled={pastDue}>
                                           {viewerStatus ? "Resubmit" : "Submit"}
                                         </button>
                                       </div>
@@ -1929,6 +1979,13 @@ export default function VineCommunities() {
                                             </div>
                                           </div>
                                           <div className="assignment-body">{s.content || "No content"}</div>
+                                          {s.attachment_url && (
+                                            <div className="assignment-attachment">
+                                              <a href={s.attachment_url} target="_blank" rel="noreferrer">
+                                                📎 {s.attachment_name || "Submitted file"}
+                                              </a>
+                                            </div>
+                                          )}
                                           {gradeLocked && (
                                             <div className="assignment-lock-note">
                                               Grade finalized. This submission is locked.

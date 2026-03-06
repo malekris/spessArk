@@ -404,7 +404,7 @@ autoTable(doc, {
     fontSize: 9,
     cellPadding: 2,
   },
-  columnStyles: {
+  columnStyles: { 
     // Subject
     0: {
       cellWidth: COLUMN_WIDTH * 0.18,

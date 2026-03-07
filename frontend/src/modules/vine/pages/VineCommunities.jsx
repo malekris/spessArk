@@ -1901,6 +1901,7 @@ export default function VineCommunities() {
                           onChange={(e) => setAssignmentDueAt(e.target.value)}
                         />
                         <select
+                          className="assignment-type-select"
                           value={assignmentType}
                           onChange={(e) => setAssignmentType(e.target.value)}
                         >

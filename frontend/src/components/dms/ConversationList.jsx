@@ -64,17 +64,18 @@ export default function ConversationList() {
     socket.on("connect", registerUser);
 
     loadConversations();
-
     // Listen for realtime inbox updates
     const refreshInbox = () => loadConversations();
 
     socket.on("dm_received", refreshInbox);
     socket.on("inbox_updated", refreshInbox);
+    socket.on("messages_seen", refreshInbox);
 
     return () => {
       socket.off("connect", registerUser);
       socket.off("dm_received", refreshInbox);
       socket.off("inbox_updated", refreshInbox);
+      socket.off("messages_seen", refreshInbox);
     };
   }, []);
 

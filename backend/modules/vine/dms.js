@@ -574,5 +574,85 @@ router.get("/unread-total", authenticate, async (req, res) => {
   }
 });
 
+/* =========================
+   PRESENCE RAIL (ACTIVE / RECENT)
+========================= */
+router.get("/presence", authenticate, async (req, res) => {
+  const userId = Number(req.user.id);
+  try {
+    const [activeNow] = await db.query(
+      `
+      SELECT
+        u.id,
+        u.username,
+        u.display_name,
+        u.avatar_url,
+        u.is_verified,
+        u.last_active_at
+      FROM vine_users u
+      WHERE u.id != ?
+        AND u.show_last_active = 1
+        AND u.last_active_at IS NOT NULL
+        AND u.last_active_at >= (NOW() - INTERVAL 2 MINUTE)
+        AND NOT EXISTS (
+          SELECT 1
+          FROM vine_blocks b
+          WHERE (b.blocker_id = ? AND b.blocked_id = u.id)
+             OR (b.blocker_id = u.id AND b.blocked_id = ?)
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM vine_mutes m
+          WHERE m.muter_id = ?
+            AND m.muted_id = u.id
+        )
+      ORDER BY u.last_active_at DESC
+      LIMIT 20
+      `,
+      [userId, userId, userId, userId]
+    );
+
+    const [recentlyActive] = await db.query(
+      `
+      SELECT
+        u.id,
+        u.username,
+        u.display_name,
+        u.avatar_url,
+        u.is_verified,
+        u.last_active_at
+      FROM vine_users u
+      WHERE u.id != ?
+        AND u.show_last_active = 1
+        AND u.last_active_at IS NOT NULL
+        AND u.last_active_at < (NOW() - INTERVAL 2 MINUTE)
+        AND NOT EXISTS (
+          SELECT 1
+          FROM vine_blocks b
+          WHERE (b.blocker_id = ? AND b.blocked_id = u.id)
+             OR (b.blocker_id = u.id AND b.blocked_id = ?)
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM vine_mutes m
+          WHERE m.muter_id = ?
+            AND m.muted_id = u.id
+        )
+      ORDER BY u.last_active_at DESC
+      LIMIT 40
+      `,
+      [userId, userId, userId, userId]
+    );
+
+    res.json({
+      active_now: Array.isArray(activeNow) ? activeNow : [],
+      recently_active: Array.isArray(recentlyActive) ? recentlyActive : [],
+    });
+  } catch (err) {
+    console.error("Presence rail error:", err);
+    res.status(500).json({ active_now: [], recently_active: [] });
+  }
+});
+
 
 export default router;

@@ -16,7 +16,7 @@ const ORIGIN = API.replace(/\/api$/, "");
 const formatRelativeTime = (date) => {
   const diff = Math.floor((Date.now() - new Date(date)) / 1000);
 
-  if (diff < 60) return "just now";
+  if (diff < 60) return "online now";
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
   return `${Math.floor(diff / 86400)}d ago`;
@@ -1598,7 +1598,9 @@ export default function VineProfile() {
 
   {userObj?.last_active_at && canShowLastActive && (
     <span className="last-active">
-      🟢 Last active {formatRelativeTime(userObj.last_active_at)}
+      {formatRelativeTime(userObj.last_active_at) === "online now"
+        ? "🟢 Online now"
+        : `🟢 Last active ${formatRelativeTime(userObj.last_active_at)}`}
     </span>
   )}
 </div>

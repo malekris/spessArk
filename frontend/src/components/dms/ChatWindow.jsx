@@ -7,24 +7,18 @@ import "./ChatWindow.css";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const DEFAULT_AVATAR = "/default-avatar.png";
-const formatChatDateTime = (dateString) => {
+const formatLastSeenAgo = (dateString) => {
   if (!dateString) return "";
-  const d = new Date(dateString);
-  if (Number.isNaN(d.getTime())) return "";
-  const now = new Date();
-  const dateOpts =
-    d.getFullYear() === now.getFullYear()
-      ? { month: "short", day: "numeric" }
-      : { month: "short", day: "numeric", year: "numeric" };
-  const datePart = d.toLocaleDateString("en-US", dateOpts);
-  const timePart = d
-    .toLocaleTimeString("en-US", {
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-    })
-    .toLowerCase();
-  return `${datePart} at ${timePart}`;
+  const ts = new Date(dateString).getTime();
+  if (Number.isNaN(ts)) return "";
+  const seconds = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
 };
 
 const isSameDay = (a, b) => {
@@ -59,12 +53,20 @@ export default function ChatWindow() {
 
   const [messages, setMessages] = useState([]);
   const [partner, setPartner] = useState(null);
+  const [, setLastSeenTick] = useState(0);
 
   const scrollRef = useRef(null);
   const stickToBottomRef = useRef(true);
 
   const currentUser = JSON.parse(localStorage.getItem("vine_user"));
   const myId = currentUser?.id;
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setLastSeenTick((v) => v + 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     const registerUser = () => {
@@ -421,7 +423,7 @@ fetch(`${API}/api/dms/conversations/${conversationId}/read`, {
               </strong>
               {partner.show_last_active !== 0 && partner.last_active_at && (
                 <div className="chat-lastseen">
-                  Last seen on {formatChatDateTime(partner.last_active_at)}
+                  Last seen {formatLastSeenAgo(partner.last_active_at)}
                 </div>
               )}
             </div>

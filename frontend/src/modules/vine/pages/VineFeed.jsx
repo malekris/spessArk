@@ -65,6 +65,20 @@ const formatStatusTime = (dateValue) => {
   return dt.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 };
 
+const formatPresenceAgo = (value) => {
+  if (!value) return "";
+  const ts = new Date(value).getTime();
+  if (Number.isNaN(ts)) return "";
+  const diffSec = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (diffSec < 60) return `${diffSec}s ago`;
+  const mins = Math.floor(diffSec / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+};
+
 // ────────────────────────────────────────────────
 //  MAIN FEED COMPONENT
 // ────────────────────────────────────────────────
@@ -126,6 +140,9 @@ export default function VineFeed() {
   const [statusViewsLoading, setStatusViewsLoading] = useState(false);
   const [mentionResults, setMentionResults] = useState([]);
   const [mentionAnchor, setMentionAnchor] = useState(null);
+  const [activeNowUsers, setActiveNowUsers] = useState([]);
+  const [recentlyActiveUsers, setRecentlyActiveUsers] = useState([]);
+  const [presenceModalOpen, setPresenceModalOpen] = useState(false);
   const suggestionSlotsRef = useRef([]);
   const createInputRef = useRef(null);
 
@@ -667,6 +684,62 @@ export default function VineFeed() {
   }, [token, bellSeenKey]);
 
   useEffect(() => {
+    if (!token) return;
+    const loadPresence = async () => {
+      try {
+        const res = await fetch(`${API}/api/dms/presence`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json().catch(() => ({}));
+        setActiveNowUsers(Array.isArray(data?.active_now) ? data.active_now : []);
+        setRecentlyActiveUsers(Array.isArray(data?.recently_active) ? data.recently_active : []);
+      } catch {
+        setActiveNowUsers([]);
+        setRecentlyActiveUsers([]);
+      }
+    };
+    loadPresence();
+    const interval = setInterval(loadPresence, 30 * 1000);
+    socket.on("dm_received", loadPresence);
+    socket.on("messages_seen", loadPresence);
+    return () => {
+      clearInterval(interval);
+      socket.off("dm_received", loadPresence);
+      socket.off("messages_seen", loadPresence);
+    };
+  }, [token]);
+
+  const openDmFromPresence = async (u) => {
+    try {
+      const res = await fetch(`${API}/api/dms/start`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ userId: u.id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.error || "Cannot start conversation");
+        return;
+      }
+      setPresenceModalOpen(false);
+      if (data.conversationId) {
+        navigate(`/vine/dms/${data.conversationId}`);
+      } else {
+        const p = new URLSearchParams({
+          username: u.username || "",
+          displayName: u.display_name || u.username || "",
+        });
+        navigate(`/vine/dms/new/${u.id}?${p.toString()}`);
+      }
+    } catch {
+      alert("Cannot start conversation");
+    }
+  };
+
+  useEffect(() => {
     document.title = "Vine — Feed";
   }, []);
 
@@ -743,10 +816,10 @@ export default function VineFeed() {
 
         <div className="nav-right">
           <button
-            className="nav-btn help-btn desktop-only"
-            onClick={() => navigate("/vine/help")}
+            className="nav-btn help-btn"
+            onClick={() => setPresenceModalOpen(true)}
           >
-            Help
+            Active now ({activeNowUsers.length})
           </button>
           <input
             className="vine-search nav-search desktop-only"
@@ -793,10 +866,6 @@ export default function VineFeed() {
 
           <button className="discover-btn" onClick={() => navigate("/vine/communities")}>
             👥 Communities
-          </button>
-
-          <button className="discover-btn mobile-only" onClick={() => navigate("/vine/help")}>
-            ❓ Help
           </button>
 
           {isModerator && (
@@ -1201,6 +1270,7 @@ export default function VineFeed() {
         <footer className="vine-feed-footer">
           <div>© {new Date().getFullYear()} Vine. All rights reserved.</div>
           <div className="vine-footer-links">
+            <button onClick={() => navigate("/vine/help")}>Help</button>
             <button onClick={() => navigate("/vine/legal/terms")}>Terms of Service</button>
             <button onClick={() => navigate("/vine/legal/privacy")}>Privacy Policy</button>
             <button onClick={() => navigate("/vine/legal/cookies")}>Cookie Policy</button>
@@ -1213,6 +1283,63 @@ export default function VineFeed() {
       <div className="vine-right-sidebar">
         {/* You can add <VineSuggestions /> here if desired */}
       </div>
+
+      {presenceModalOpen && (
+        <div className="feed-presence-backdrop" onClick={() => setPresenceModalOpen(false)}>
+          <div className="feed-presence-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="feed-presence-head">
+              <h3>Active now</h3>
+              <button onClick={() => setPresenceModalOpen(false)}>✕</button>
+            </div>
+            <div className="feed-presence-section">
+              <h4>Active now ({activeNowUsers.length})</h4>
+              {activeNowUsers.length === 0 ? (
+                <div className="feed-presence-empty">No one active right now.</div>
+              ) : (
+                <div className="feed-presence-list">
+                  {activeNowUsers.map((u) => {
+                    const avatar = u.avatar_url
+                      ? (u.avatar_url.startsWith("http") ? u.avatar_url : `${API}${u.avatar_url}`)
+                      : DEFAULT_AVATAR;
+                    return (
+                      <button key={`presence-active-${u.id}`} className="feed-presence-item" onClick={() => openDmFromPresence(u)}>
+                        <img src={avatar} alt={u.username} onError={(e) => { e.currentTarget.src = DEFAULT_AVATAR; }} />
+                        <div>
+                          <div className="feed-presence-name">{u.display_name || u.username}</div>
+                          <div className="feed-presence-time">online now</div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            <div className="feed-presence-section">
+              <h4>Recently active</h4>
+              {recentlyActiveUsers.length === 0 ? (
+                <div className="feed-presence-empty">No recent activity.</div>
+              ) : (
+                <div className="feed-presence-list">
+                  {recentlyActiveUsers.map((u) => {
+                    const avatar = u.avatar_url
+                      ? (u.avatar_url.startsWith("http") ? u.avatar_url : `${API}${u.avatar_url}`)
+                      : DEFAULT_AVATAR;
+                    return (
+                      <button key={`presence-recent-${u.id}`} className="feed-presence-item" onClick={() => openDmFromPresence(u)}>
+                        <img src={avatar} alt={u.username} onError={(e) => { e.currentTarget.src = DEFAULT_AVATAR; }} />
+                        <div>
+                          <div className="feed-presence-name">{u.display_name || u.username}</div>
+                          <div className="feed-presence-time">{formatPresenceAgo(u.last_active_at)}</div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {statusComposerOpen && (
         <div className="status-modal-backdrop" onClick={() => setStatusComposerOpen(false)}>

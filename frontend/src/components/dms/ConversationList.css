@@ -191,6 +191,107 @@
   margin-top: 50px;
 }
 
+.dm-presence-panel {
+  width: 100%;
+  max-width: 800px;
+  background: #ffffff;
+  border: 1px solid #dcfce7;
+  border-radius: 18px;
+  padding: 12px;
+  margin-bottom: 14px;
+}
+
+.dm-presence-section + .dm-presence-section {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #ecfdf5;
+}
+
+.dm-presence-title {
+  font-weight: 800;
+  color: #065f46;
+  margin-bottom: 8px;
+}
+
+.dm-presence-empty {
+  color: #6b7280;
+  font-size: 0.86rem;
+}
+
+.dm-active-now-row {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.dm-active-now-user {
+  border: 1px solid #bbf7d0;
+  background: #f0fdf4;
+  border-radius: 999px;
+  padding: 5px 10px 5px 5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.dm-active-now-user img {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid #10b981;
+  object-fit: cover;
+}
+
+.dm-active-now-user span {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #065f46;
+}
+
+.dm-recent-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.dm-recent-item {
+  border: 1px solid #d1fae5;
+  background: #f8fffb;
+  border-radius: 12px;
+  padding: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.dm-recent-item img {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 2px solid #10b981;
+  object-fit: cover;
+}
+
+.dm-recent-name {
+  font-weight: 700;
+  color: #064e3b;
+  font-size: 0.88rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 160px;
+}
+
+.dm-recent-time {
+  font-size: 0.78rem;
+  color: #6b7280;
+}
+
 /* ───── MOBILE ONLY (DESKTOP AS IS) ───── */
 @media (max-width: 768px) {
   .dm-list {
@@ -232,5 +333,16 @@
 
   .dm-preview {
     font-size: 0.85rem;
+  }
+
+  .dm-presence-panel {
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+    margin-bottom: 0;
+  }
+
+  .dm-recent-list {
+    grid-template-columns: 1fr;
   }
 }

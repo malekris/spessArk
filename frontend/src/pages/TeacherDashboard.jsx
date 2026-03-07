@@ -613,6 +613,7 @@ useEffect(() => {
   // Compute dynamic columns for render
   // ----------------------------
   const renderColumns = selectedAssignment?.isAlevel ? ["MID", "EOT"] : ["AOI1", "AOI2", "AOI3"];
+  const learnersTableMinWidth = Math.max(1100, 320 + renderColumns.length * 190);
 
   // ============================
   // RENDER
@@ -874,9 +875,9 @@ useEffect(() => {
 
               <div
                 className="teachers-table-wrapper"
-                style={{ maxWidth: "100%", overflowX: "auto", overflowY: "hidden", WebkitOverflowScrolling: "touch" }}
+                style={{ maxWidth: "100%", maxHeight: "62vh", overflowX: "auto", overflowY: "auto", WebkitOverflowScrolling: "touch" }}
               >
-                <table className="teachers-table" style={{ minWidth: "920px" }}>
+                <table className="teachers-table" style={{ minWidth: `${learnersTableMinWidth}px` }}>
                   <thead>
                     <tr>
                       <th>Learner</th>

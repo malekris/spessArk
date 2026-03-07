@@ -131,7 +131,13 @@ export default function AssessmentSubmissionTracker({
         };
       }
 
-      map[key].subjects.set(m.subject, m.teacher_name || "—");
+      const existing = map[key].subjects.get(m.subject) || {
+        teacher: m.teacher_name || "—",
+        aois: new Set(),
+      };
+      if (m.teacher_name) existing.teacher = m.teacher_name;
+      if (m.aoi_label) existing.aois.add(m.aoi_label);
+      map[key].subjects.set(m.subject, existing);
     });
 
     return Object.values(map).map((group) => {
@@ -204,12 +210,13 @@ export default function AssessmentSubmissionTracker({
   
       doc.setFontSize(9);
   
-      [...group.subjects.entries()].forEach(([subject, teacher]) => {
+      [...group.subjects.entries()].forEach(([subject, meta]) => {
         if (y > pageH - 20) {
           doc.addPage();
           y = 20;
         }
-        doc.text(`• ${subject} — ${teacher}`, 18, y);
+        const aoiCount = meta?.aois?.size || 0;
+        doc.text(`• ${subject} — ${meta?.teacher || "—"} (AOIs: ${aoiCount})`, 18, y);
         y += 5;
       });
 
@@ -349,9 +356,9 @@ export default function AssessmentSubmissionTracker({
                 <details>
                   <summary>✅ Submitted subjects</summary>
                   <ul>
-                    {[...group.subjects.entries()].map(([subject, teacher]) => (
+                    {[...group.subjects.entries()].map(([subject, meta]) => (
                       <li key={subject}>
-                        {subject} — 👨‍🏫 {teacher}
+                        {subject} — 👨‍🏫 {meta?.teacher || "—"} — AOIs submitted: {meta?.aois?.size || 0}
                       </li>
                     ))}
                   </ul>

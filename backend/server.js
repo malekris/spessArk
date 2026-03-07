@@ -1697,12 +1697,22 @@ export const io = new Server(server, {
     origin: "*", // fine for dev
   },
 });
+const socketToUserId = new Map();
+const userIdToSockets = new Map();
+
+export const getOnlineUserIds = () => Array.from(userIdToSockets.keys());
+
 io.on("connection", (socket) => {
   console.log("🔌 Socket connected:", socket.id);
 
   socket.on("register", (userId) => {
-    socket.join(`user-${userId}`);
-    console.log("👤 User joined room:", userId);
+    const uid = Number(userId);
+    if (!uid) return;
+    socket.join(`user-${uid}`);
+    socketToUserId.set(socket.id, uid);
+    if (!userIdToSockets.has(uid)) userIdToSockets.set(uid, new Set());
+    userIdToSockets.get(uid).add(socket.id);
+    console.log("👤 User joined room:", uid);
   });
 
   socket.on("join_conversation", (conversationId) => {
@@ -1715,6 +1725,15 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", () => {
+    const uid = socketToUserId.get(socket.id);
+    if (uid) {
+      const set = userIdToSockets.get(uid);
+      if (set) {
+        set.delete(socket.id);
+        if (set.size === 0) userIdToSockets.delete(uid);
+      }
+      socketToUserId.delete(socket.id);
+    }
     console.log("❌ Socket disconnected:", socket.id);
   });
 });

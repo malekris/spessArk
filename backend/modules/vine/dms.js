@@ -1,5 +1,5 @@
 import express from "express";
-import { db, io } from "../../server.js";
+import { db, io, getOnlineUserIds } from "../../server.js";
 import { authenticate } from "../auth.js";
 
 const router = express.Router();
@@ -580,43 +580,51 @@ router.get("/unread-total", authenticate, async (req, res) => {
 router.get("/presence", authenticate, async (req, res) => {
   const userId = Number(req.user.id);
   try {
-    const [activeNow] = await db.query(
-      `
-      SELECT
-        u.id,
-        u.username,
-        u.display_name,
-        u.avatar_url,
-        u.is_verified,
-        u.last_active_at
-      FROM vine_users u
-      WHERE u.id != ?
-        AND EXISTS (
-          SELECT 1
-          FROM vine_follows f
-          WHERE f.follower_id = u.id
-            AND f.following_id = ?
-        )
-        AND u.show_last_active = 1
-        AND u.last_active_at IS NOT NULL
-        AND u.last_active_at >= (NOW() - INTERVAL 2 MINUTE)
-        AND NOT EXISTS (
-          SELECT 1
-          FROM vine_blocks b
-          WHERE (b.blocker_id = ? AND b.blocked_id = u.id)
-             OR (b.blocker_id = u.id AND b.blocked_id = ?)
-        )
-        AND NOT EXISTS (
-          SELECT 1
-          FROM vine_mutes m
-          WHERE m.muter_id = ?
-            AND m.muted_id = u.id
-        )
-      ORDER BY u.last_active_at DESC
-      LIMIT 20
-      `,
-      [userId, userId, userId, userId, userId]
-    );
+    const onlineUserIds = getOnlineUserIds()
+      .map((id) => Number(id))
+      .filter((id) => id && id !== userId);
+
+    let activeNow = [];
+    if (onlineUserIds.length > 0) {
+      const [rows] = await db.query(
+        `
+        SELECT
+          u.id,
+          u.username,
+          u.display_name,
+          u.avatar_url,
+          u.is_verified,
+          u.last_active_at
+        FROM vine_users u
+        WHERE u.id IN (?)
+          AND EXISTS (
+            SELECT 1
+            FROM vine_follows f
+            WHERE f.follower_id = u.id
+              AND f.following_id = ?
+          )
+          AND u.show_last_active = 1
+          AND NOT EXISTS (
+            SELECT 1
+            FROM vine_blocks b
+            WHERE (b.blocker_id = ? AND b.blocked_id = u.id)
+               OR (b.blocker_id = u.id AND b.blocked_id = ?)
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM vine_mutes m
+            WHERE m.muter_id = ?
+              AND m.muted_id = u.id
+          )
+        ORDER BY u.last_active_at DESC
+        LIMIT 20
+        `,
+        [onlineUserIds, userId, userId, userId, userId]
+      );
+      activeNow = Array.isArray(rows) ? rows : [];
+    }
+
+    const excludeIds = [userId, ...activeNow.map((u) => Number(u.id)).filter(Boolean)];
 
     const [recentlyActive] = await db.query(
       `
@@ -628,7 +636,7 @@ router.get("/presence", authenticate, async (req, res) => {
         u.is_verified,
         u.last_active_at
       FROM vine_users u
-      WHERE u.id != ?
+      WHERE u.id NOT IN (?)
         AND EXISTS (
           SELECT 1
           FROM vine_follows f
@@ -637,7 +645,6 @@ router.get("/presence", authenticate, async (req, res) => {
         )
         AND u.show_last_active = 1
         AND u.last_active_at IS NOT NULL
-        AND u.last_active_at < (NOW() - INTERVAL 2 MINUTE)
         AND NOT EXISTS (
           SELECT 1
           FROM vine_blocks b
@@ -653,11 +660,11 @@ router.get("/presence", authenticate, async (req, res) => {
       ORDER BY u.last_active_at DESC
       LIMIT 40
       `,
-      [userId, userId, userId, userId, userId]
+      [excludeIds, userId, userId, userId, userId]
     );
 
     res.json({
-      active_now: Array.isArray(activeNow) ? activeNow : [],
+      active_now: activeNow,
       recently_active: Array.isArray(recentlyActive) ? recentlyActive : [],
     });
   } catch (err) {

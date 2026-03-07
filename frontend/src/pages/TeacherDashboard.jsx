@@ -24,7 +24,14 @@ const formatDateTime = (value) => {
 };
 
 const calculateAverage = (marksObj) => {
-  const values = Object.values(marksObj || {}).filter((v) => typeof v === "number");
+  const values = Object.values(marksObj || {})
+    .map((v) => {
+      if (v === null || v === undefined || v === "" || v === "Missed") return null;
+      if (typeof v === "number") return Number.isFinite(v) ? v : null;
+      const parsed = Number(v);
+      return Number.isFinite(parsed) ? parsed : null;
+    })
+    .filter((v) => v !== null);
   if (values.length === 0) return "—";
   const avg = values.reduce((a, b) => a + b, 0) / values.length;
   return avg.toFixed(2);
@@ -200,7 +207,6 @@ useEffect(() => {
         assignmentId: assignment.id,
         year: marksYear,
         term: marksTerm,      // ✅ ALWAYS include term
-        ...(isAlevel ? { examType } : {}), // keep examType only for A-Level
       });
       
 
@@ -558,7 +564,7 @@ useEffect(() => {
       doc.setFontSize(10);
       doc.setFont("helvetica", "normal");
       doc.text(`${selectedAssignment.subject} | ${selectedAssignment.class_level} ${selectedAssignment.stream}`, 105, 24, { align: "center" });
-      doc.text(`${marksYear} • ${selectedAssignment?.isAlevel ? examType : marksTerm}`, 105, 29, { align: "center" });
+      doc.text(`${marksYear} • ${marksTerm}`, 105, 29, { align: "center" });
 
       const columns = selectedAssignment?.isAlevel ? ["MID", "EOT"] : ["AOI1", "AOI2", "AOI3"];
       const head = ["#", "Learner", "Gender", ...columns, "Avg"];
@@ -569,7 +575,15 @@ useEffect(() => {
           const v = m[c];
           return v === undefined ? "—" : v === "Missed" ? "Missed" : String(v);
         });
-        const numeric = columns.map((c) => m[c]).filter((v) => typeof v === "number");
+        const numeric = columns
+          .map((c) => {
+            const v = m[c];
+            if (v === null || v === undefined || v === "" || v === "Missed") return null;
+            if (typeof v === "number") return Number.isFinite(v) ? v : null;
+            const parsed = Number(v);
+            return Number.isFinite(parsed) ? parsed : null;
+          })
+          .filter((v) => v !== null);
         const avg = numeric.length ? (numeric.reduce((a, b) => a + b, 0) / numeric.length).toFixed(2) : "—";
         return [i + 1, s.name, s.gender, ...cells, avg];
       });
@@ -750,16 +764,17 @@ useEffect(() => {
                     </tr>
                   ))}
 
-                  {aLevelAssignments.map((a) => (
-                    <tr
-                      key={`al-${a.id}`}
-                      style={{ cursor: "pointer", background: "rgba(255,255,255,0.02)" }}
-                      onClick={() => {
-                        const obj = { ...a, isAlevel: true };
-                        setSelectedAssignment(obj);
-                        loadStudentsAndMarks(obj);
-                      }}
-                    >
+                {aLevelAssignments.map((a) => (
+                  <tr
+                    key={`al-${a.id}`}
+                    style={{ cursor: "pointer", background: "rgba(255,255,255,0.02)" }}
+                    onClick={() => {
+                      const derivedClass = a.stream?.split(" ")[0] ?? "A-Level";
+                      const obj = { ...a, class_level: derivedClass, isAlevel: true };
+                      setSelectedAssignment(obj);
+                      loadStudentsAndMarks(obj);
+                    }}
+                  >
                       <td style={{ fontWeight: "bold", color: "#f59e0b" }}>A-Level</td>
                       <td>{a.stream?.split(" ")[0] ?? "—"}</td>
                       <td>{a.stream}</td>
@@ -777,7 +792,7 @@ useEffect(() => {
           <section className="panel" style={{ marginTop: "1rem" }}>
             <div className="panel-card">
               <div className="panel-alert">
-                You are entering marks for <strong>{selectedAssignment.class_level} {selectedAssignment.stream} — {selectedAssignment.subject}</strong> ({marksYear}, {selectedAssignment?.isAlevel ? examType : marksTerm})
+                You are entering marks for <strong>{selectedAssignment.class_level} {selectedAssignment.stream} — {selectedAssignment.subject}</strong> ({marksYear}, {marksTerm})
               </div>
 
               {/* Analytics (read-only) */}
@@ -809,32 +824,37 @@ useEffect(() => {
                     </div>
                   </div>
 
-                  <table className="teachers-table" style={{ marginTop: "0.8rem" }}>
-                    <thead>
-                      <tr>
-                        <th>AOI</th>
-                        <th>Attempts</th>
-                        <th>Average</th>
-                        <th>Missed</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {Array.isArray(analytics.aois) && analytics.aois.length > 0 ? (
-                        analytics.aois.map((aoi) => (
-                          <tr key={aoi.aoi_label}>
-                            <td>{aoi.aoi_label}</td>
-                            <td>{aoi.attempts}</td>
-                            <td>{aoi.average_score ?? "—"}</td>
-                            <td>{aoi.missed_count}</td>
-                          </tr>
-                        ))
-                      ) : (
+                  <div
+                    className="teachers-table-wrapper"
+                    style={{ marginTop: "0.8rem", maxWidth: "100%", overflowX: "auto", overflowY: "hidden", WebkitOverflowScrolling: "touch" }}
+                  >
+                    <table className="teachers-table" style={{ minWidth: "460px" }}>
+                      <thead>
                         <tr>
-                          <td colSpan={4} className="muted-text">No AOI data yet</td>
+                          <th>AOI</th>
+                          <th>Attempts</th>
+                          <th>Average</th>
+                          <th>Missed</th>
                         </tr>
-                      )}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {Array.isArray(analytics.aois) && analytics.aois.length > 0 ? (
+                          analytics.aois.map((aoi) => (
+                            <tr key={aoi.aoi_label}>
+                              <td>{aoi.aoi_label}</td>
+                              <td>{aoi.attempts}</td>
+                              <td>{aoi.average_score ?? "—"}</td>
+                              <td>{aoi.missed_count}</td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan={4} className="muted-text">No AOI data yet</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
 
@@ -852,65 +872,70 @@ useEffect(() => {
                 </button>
               </div>
 
-              <table className="teachers-table">
-                <thead>
-                  <tr>
-                    <th>Learner</th>
-                    <th>Gender</th>
-                    {renderColumns.map((c) => (
-                      <th key={c}>{c}</th>
-                    ))}
-                    <th>Avg</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {students.map((s) => {
-                    const marksForS = studentMarks[s.id] || {};
-                    const statusForS = studentStatus[s.id] || {};
+              <div
+                className="teachers-table-wrapper"
+                style={{ maxWidth: "100%", overflowX: "auto", overflowY: "hidden", WebkitOverflowScrolling: "touch" }}
+              >
+                <table className="teachers-table" style={{ minWidth: "920px" }}>
+                  <thead>
+                    <tr>
+                      <th>Learner</th>
+                      <th>Gender</th>
+                      {renderColumns.map((c) => (
+                        <th key={c}>{c}</th>
+                      ))}
+                      <th>Avg</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {students.map((s) => {
+                      const marksForS = studentMarks[s.id] || {};
+                      const statusForS = studentStatus[s.id] || {};
 
-                    return (
-                      <tr key={s.id}>
-                        <td>{s.name}</td>
-                        <td>{s.gender}</td>
+                      return (
+                        <tr key={s.id}>
+                          <td>{s.name}</td>
+                          <td>{s.gender}</td>
 
-                        {renderColumns.map((aoi) => {
-                          const status = statusForS[aoi] ?? "Present";
-                          const value = marksForS[aoi];
-                          const errorKey = `${s.id}_${aoi}`;
+                          {renderColumns.map((aoi) => {
+                            const status = statusForS[aoi] ?? "Present";
+                            const value = marksForS[aoi];
+                            const errorKey = `${s.id}_${aoi}`;
 
-                          return (
-                            <td key={aoi}>
-                              <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
-                                <select value={status} onChange={(e) => setAOIStatus(s.id, aoi, e.target.value)} style={{ width: "84px" }}>
-                                  <option>Present</option>
-                                  <option>Missed</option>
-                                </select>
+                            return (
+                              <td key={aoi}>
+                                <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", whiteSpace: "nowrap" }}>
+                                  <select value={status} onChange={(e) => setAOIStatus(s.id, aoi, e.target.value)} style={{ width: "84px" }}>
+                                    <option>Present</option>
+                                    <option>Missed</option>
+                                  </select>
 
-                                <input
-                                  type="number"
-                                  min={selectedAssignment?.isAlevel ? 0 : 0.9}
-                                  max={selectedAssignment?.isAlevel ? 100 : 3.0}
-                                  step={selectedAssignment?.isAlevel ? 1 : 0.1}
-                                  disabled={status === "Missed"}
-                                  value={value === undefined || value === null ? "" : (value === "Missed" ? "" : value)}
-                                  onChange={(e) => setAOIScore(s.id, aoi, e.target.value)}
-                                  style={{ width: "64px", border: markErrors[errorKey] ? "2px solid #dc2626" : undefined, backgroundColor: markErrors[errorKey] ? "#fff5f5" : undefined }}
-                                />
-                              </div>
+                                  <input
+                                    type="number"
+                                    min={selectedAssignment?.isAlevel ? 0 : 0.9}
+                                    max={selectedAssignment?.isAlevel ? 100 : 3.0}
+                                    step={selectedAssignment?.isAlevel ? 1 : 0.1}
+                                    disabled={status === "Missed"}
+                                    value={value === undefined || value === null ? "" : (value === "Missed" ? "" : value)}
+                                    onChange={(e) => setAOIScore(s.id, aoi, e.target.value)}
+                                    style={{ width: "64px", border: markErrors[errorKey] ? "2px solid #dc2626" : undefined, backgroundColor: markErrors[errorKey] ? "#fff5f5" : undefined }}
+                                  />
+                                </div>
 
-                              {markErrors[errorKey] && (
-                                <div style={{ color: "#fecaca", fontSize: "0.75rem", marginTop: "0.2rem" }}>{markErrors[errorKey]}</div>
-                              )}
-                            </td>
-                          );
-                        })}
+                                {markErrors[errorKey] && (
+                                  <div style={{ color: "#fecaca", fontSize: "0.75rem", marginTop: "0.2rem" }}>{markErrors[errorKey]}</div>
+                                )}
+                              </td>
+                            );
+                          })}
 
-                        <td>{calculateAverage(studentMarks[s.id])}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                          <td>{calculateAverage(studentMarks[s.id])}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
 
               <div style={{ textAlign: "right", marginTop: "1rem", display: "flex", gap: "0.6rem", justifyContent: "flex-end" }}>
                 <button className="secondary-btn" onClick={handleDownloadPDF}>Download PDF</button>

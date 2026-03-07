@@ -272,56 +272,93 @@ router.get("/alevel-analytics/subject", authTeacher, async (req, res) => {
     const { assignmentId, examType, term } = req.query;
     const teacherId = req.teacher?.id;
 
-    if (!assignmentId || !examType || !term || !teacherId) {
+    if (!assignmentId || !term || !teacherId) {
       return res.json({ aois: [], overall_average: "—" });
     }
 
-    // 1. Get subject_id
+    // 1. Get assignment context (subject + stream)
     const [[ts]] = await db.query(
-      `SELECT subject_id FROM alevel_teacher_subjects WHERE id = ?`,
+      `SELECT ats.subject_id, ats.stream, s.name AS subject_name
+       FROM alevel_teacher_subjects ats
+       JOIN alevel_subjects s ON s.id = ats.subject_id
+       WHERE ats.id = ?`,
       [assignmentId]
     );
 
     if (!ts) return res.json({ aois: [], overall_average: "—" });
 
-    // 2. Get exam_id
-    const [[exam]] = await db.query(
-      `SELECT id FROM alevel_exams WHERE name = ?`,
-      [examType]
+    const examFilter = examType ? "AND ae.name = ?" : "";
+    const examParams = examType ? [examType] : [];
+
+    // 2. AOI-level stats (stream-aware)
+    const [aoiRows] = await db.query(
+      `
+      SELECT
+        ae.name AS aoi_label,
+        COUNT(*) AS attempts,
+        AVG(am.score) AS average_score,
+        SUM(CASE WHEN am.score IS NULL THEN 1 ELSE 0 END) AS missed_count
+      FROM alevel_marks am
+      JOIN alevel_exams ae ON ae.id = am.exam_id
+      JOIN alevel_learners l ON l.id = am.learner_id
+      WHERE am.subject_id = ?
+        AND am.teacher_id = ?
+        AND am.term = ?
+        AND l.stream = ?
+        ${examFilter}
+      GROUP BY ae.name
+      ORDER BY FIELD(ae.name, 'MID', 'EOT'), ae.name
+      `,
+      [ts.subject_id, teacherId, term, ts.stream, ...examParams]
     );
 
-    if (!exam) return res.json({ aois: [], overall_average: "—" });
-
-    // 3. Stats
-    const [[stats]] = await db.query(`
+    // 3. Overall average (stream-aware)
+    const [[overall]] = await db.query(
+      `
       SELECT
-        COUNT(*) AS attempts,
-        AVG(score) AS average_score,
-        SUM(CASE WHEN score IS NULL THEN 1 ELSE 0 END) AS missed_count
-      FROM alevel_marks
-      WHERE subject_id = ?
-        AND exam_id = ?
-        AND teacher_id = ?
-        AND term = ?
-    `, [ts.subject_id, exam.id, teacherId, term]);
+        AVG(am.score) AS overall_average
+      FROM alevel_marks am
+      JOIN alevel_learners l ON l.id = am.learner_id
+      JOIN alevel_exams ae ON ae.id = am.exam_id
+      WHERE am.subject_id = ?
+        AND am.teacher_id = ?
+        AND am.term = ?
+        AND l.stream = ?
+        ${examFilter}
+      `,
+      [ts.subject_id, teacherId, term, ts.stream, ...examParams]
+    );
 
-    const avg = Number(stats?.average_score);
+    // 4. Registered learners for this subject + stream
+    const [[reg]] = await db.query(
+      `
+      SELECT COUNT(DISTINCT als.learner_id) AS registered_learners
+      FROM alevel_learner_subjects als
+      JOIN alevel_learners l ON l.id = als.learner_id
+      WHERE als.subject_id = ?
+        AND l.stream = ?
+      `,
+      [ts.subject_id, ts.stream]
+    );
 
     return res.json({
       meta: {
-        registered_learners: stats?.attempts ?? 0,
+        registered_learners: reg?.registered_learners ?? 0,
         term,
       },
-      aois: [
-        {
-          aoi_label: examType,
-          attempts: stats?.attempts ?? 0,
+      aois: (aoiRows || []).map((r) => {
+        const avg = Number(r.average_score);
+        return {
+          aoi_label: r.aoi_label,
+          attempts: r.attempts ?? 0,
           average_score: Number.isFinite(avg) ? avg.toFixed(2) : "—",
-          missed_count: stats?.missed_count ?? 0,
-        },
-      ],
-      overall_average: Number.isFinite(avg) ? avg.toFixed(2) : "—",
-      assignment: { subject: "A-Level" },
+          missed_count: r.missed_count ?? 0,
+        };
+      }),
+      overall_average: Number.isFinite(Number(overall?.overall_average))
+        ? Number(overall.overall_average).toFixed(2)
+        : "—",
+      assignment: { subject: ts.subject_name || "A-Level" },
     });
   } catch (err) {
     console.error("❌ A-Level analytics crash:", err);

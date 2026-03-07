@@ -751,8 +751,9 @@ const pickFirst = (xml, regex) => {
 };
 
 const parseRssItems = (xml, source) => {
-  const items = String(xml || "").match(/<item\b[\s\S]*?<\/item>/gi) || [];
-  return items
+  const xmlText = String(xml || "");
+  const items = xmlText.match(/<item\b[\s\S]*?<\/item>/gi) || [];
+  const rssRows = items
     .map((item) => {
       const title = pickFirst(item, /<title>([\s\S]*?)<\/title>/i).replace(/<!\[CDATA\[|\]\]>/g, "");
       const url = pickFirst(item, /<link>([\s\S]*?)<\/link>/i).replace(/<!\[CDATA\[|\]\]>/g, "");
@@ -773,6 +774,37 @@ const parseRssItems = (xml, source) => {
       };
     })
     .filter(Boolean);
+
+  const entries = xmlText.match(/<entry\b[\s\S]*?<\/entry>/gi) || [];
+  const atomRows = entries
+    .map((entry) => {
+      const title = pickFirst(entry, /<title[^>]*>([\s\S]*?)<\/title>/i).replace(/<!\[CDATA\[|\]\]>/g, "");
+      const url =
+        pickFirst(entry, /<link[^>]*href=["']([^"']+)["'][^>]*\/?>/i) ||
+        pickFirst(entry, /<id>([\s\S]*?)<\/id>/i);
+      const pub =
+        pickFirst(entry, /<published[^>]*>([\s\S]*?)<\/published>/i) ||
+        pickFirst(entry, /<updated[^>]*>([\s\S]*?)<\/updated>/i);
+      const summaryRaw =
+        pickFirst(entry, /<summary[^>]*>([\s\S]*?)<\/summary>/i) ||
+        pickFirst(entry, /<content[^>]*>([\s\S]*?)<\/content>/i);
+      const description = stripHtml(summaryRaw);
+      const mediaUrl =
+        pickFirst(entry, /<media:content[^>]*url=["']([^"']+)["']/i) ||
+        pickFirst(entry, /<link[^>]*rel=["']enclosure["'][^>]*href=["']([^"']+)["']/i);
+      if (!title || !url) return null;
+      return {
+        source,
+        title: title.slice(0, 280),
+        url: url.trim(),
+        publishedAt: toDateOrNull(pub),
+        summary: description.slice(0, 240),
+        image: mediaUrl || null,
+      };
+    })
+    .filter(Boolean);
+
+  return [...rssRows, ...atomRows];
 };
 
 const fetchRssNews = async () => {
@@ -4213,6 +4245,66 @@ router.post("/news/refresh", authenticate, async (req, res) => {
   } catch (err) {
     console.error("Manual news refresh error:", err);
     res.status(500).json({ message: "Failed to refresh news" });
+  }
+});
+
+router.get("/news/health", authenticate, async (req, res) => {
+  try {
+    const user = req.user || {};
+    if (!isModeratorAccount(user)) {
+      return res.status(403).json({ message: "Only moderators can view news health." });
+    }
+    const rssFeeds = (process.env.NEWS_RSS_FEEDS || "").trim();
+    const feeds = rssFeeds
+      ? rssFeeds.split(",").map((s) => s.trim()).filter(Boolean)
+      : [];
+    const checks = [];
+    for (const feed of feeds.slice(0, 12)) {
+      try {
+        const r = await fetch(feed, { headers: { "User-Agent": "VineNewsBot/1.0" } });
+        const text = r.ok ? await r.text() : "";
+        const parsed = r.ok ? parseRssItems(text, new URL(feed).hostname) : [];
+        checks.push({
+          feed,
+          ok: r.ok,
+          status: r.status,
+          parsed_items: parsed.length,
+        });
+      } catch (err) {
+        checks.push({
+          feed,
+          ok: false,
+          status: null,
+          parsed_items: 0,
+          error: String(err?.message || err),
+        });
+      }
+    }
+
+    const [[ingestRow]] = await db.query(
+      "SELECT COUNT(*) AS total, MAX(ingested_at) AS last_ingested_at FROM vine_news_ingest"
+    );
+    const [sources] = await db.query(
+      `
+      SELECT source, COUNT(*) AS total
+      FROM vine_news_ingest
+      GROUP BY source
+      ORDER BY total DESC
+      LIMIT 20
+      `
+    );
+
+    res.json({
+      feeds: checks,
+      ingest: {
+        total: Number(ingestRow?.total || 0),
+        last_ingested_at: ingestRow?.last_ingested_at || null,
+        by_source: sources || [],
+      },
+    });
+  } catch (err) {
+    console.error("News health error:", err);
+    res.status(500).json({ message: "Failed to load news health" });
   }
 });
   // Create new post(with image to TL)

@@ -591,6 +591,12 @@ router.get("/presence", authenticate, async (req, res) => {
         u.last_active_at
       FROM vine_users u
       WHERE u.id != ?
+        AND EXISTS (
+          SELECT 1
+          FROM vine_follows f
+          WHERE f.follower_id = u.id
+            AND f.following_id = ?
+        )
         AND u.show_last_active = 1
         AND u.last_active_at IS NOT NULL
         AND u.last_active_at >= (NOW() - INTERVAL 2 MINUTE)
@@ -609,7 +615,7 @@ router.get("/presence", authenticate, async (req, res) => {
       ORDER BY u.last_active_at DESC
       LIMIT 20
       `,
-      [userId, userId, userId, userId]
+      [userId, userId, userId, userId, userId]
     );
 
     const [recentlyActive] = await db.query(
@@ -623,6 +629,12 @@ router.get("/presence", authenticate, async (req, res) => {
         u.last_active_at
       FROM vine_users u
       WHERE u.id != ?
+        AND EXISTS (
+          SELECT 1
+          FROM vine_follows f
+          WHERE f.follower_id = u.id
+            AND f.following_id = ?
+        )
         AND u.show_last_active = 1
         AND u.last_active_at IS NOT NULL
         AND u.last_active_at < (NOW() - INTERVAL 2 MINUTE)
@@ -641,7 +653,7 @@ router.get("/presence", authenticate, async (req, res) => {
       ORDER BY u.last_active_at DESC
       LIMIT 40
       `,
-      [userId, userId, userId, userId]
+      [userId, userId, userId, userId, userId]
     );
 
     res.json({

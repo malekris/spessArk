@@ -1,6 +1,7 @@
 import express from "express";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
 import { db } from "../../server.js";
 import { sendVineWelcomeEmail, sendVineResetCodeEmail, sendVineVerificationCodeEmail, sendVineSuspensionEmail, sendVineUnsuspensionEmail, sendVineWarningEmail } from "../../utils/email.js";
 import authMiddleware from "../../middleware/authMiddleware.js";
@@ -712,6 +713,196 @@ const ensureStatusSchema = async () => {
   await ensureColumnExists(dbName, "vine_statuses", "media_type", "VARCHAR(20) NULL");
 
   statusSchemaReady = true;
+};
+
+let newsSchemaReady = false;
+const ensureNewsSchema = async () => {
+  if (newsSchemaReady) return;
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_news_ingest (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      source VARCHAR(80) NOT NULL,
+      external_id CHAR(64) NOT NULL,
+      title VARCHAR(280) NOT NULL,
+      article_url TEXT NOT NULL,
+      published_at DATETIME NULL,
+      post_id INT NULL,
+      ingested_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_news_external (external_id),
+      INDEX idx_news_ingested (ingested_at),
+      INDEX idx_news_source (source, ingested_at)
+    )
+  `);
+  newsSchemaReady = true;
+};
+
+const toDateOrNull = (value) => {
+  if (!value) return null;
+  const dt = new Date(value);
+  if (Number.isNaN(dt.getTime())) return null;
+  return dt;
+};
+
+const stripHtml = (raw) => String(raw || "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+
+const pickFirst = (xml, regex) => {
+  const m = String(xml || "").match(regex);
+  return m?.[1] ? String(m[1]).trim() : "";
+};
+
+const parseRssItems = (xml, source) => {
+  const items = String(xml || "").match(/<item\b[\s\S]*?<\/item>/gi) || [];
+  return items
+    .map((item) => {
+      const title = pickFirst(item, /<title>([\s\S]*?)<\/title>/i).replace(/<!\[CDATA\[|\]\]>/g, "");
+      const url = pickFirst(item, /<link>([\s\S]*?)<\/link>/i).replace(/<!\[CDATA\[|\]\]>/g, "");
+      const pub = pickFirst(item, /<pubDate>([\s\S]*?)<\/pubDate>/i);
+      const descriptionRaw = pickFirst(item, /<description>([\s\S]*?)<\/description>/i).replace(/<!\[CDATA\[|\]\]>/g, "");
+      const description = stripHtml(descriptionRaw);
+      const mediaUrl =
+        pickFirst(item, /<media:content[^>]*url=["']([^"']+)["']/i) ||
+        pickFirst(item, /<enclosure[^>]*url=["']([^"']+)["'][^>]*type=["']image\//i);
+      if (!title || !url) return null;
+      return {
+        source,
+        title: title.slice(0, 280),
+        url,
+        publishedAt: toDateOrNull(pub),
+        summary: description.slice(0, 240),
+        image: mediaUrl || null,
+      };
+    })
+    .filter(Boolean);
+};
+
+const fetchRssNews = async () => {
+  const rssFeeds = (process.env.NEWS_RSS_FEEDS || "").trim();
+  const feeds = rssFeeds
+    ? rssFeeds.split(",").map((s) => s.trim()).filter(Boolean)
+    : [
+        "https://feeds.bbci.co.uk/news/world/rss.xml",
+        "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",
+        "https://www.reuters.com/world/rss",
+      ];
+  const all = [];
+  for (const feed of feeds.slice(0, 6)) {
+    try {
+      const res = await fetch(feed, { headers: { "User-Agent": "VineNewsBot/1.0" } });
+      if (!res.ok) continue;
+      const xml = await res.text();
+      all.push(...parseRssItems(xml, new URL(feed).hostname.replace(/^www\./, "")));
+    } catch {
+      // ignore individual feed failure
+    }
+  }
+  return all;
+};
+
+const fetchGdeltNews = async () => {
+  const query = encodeURIComponent('(news OR "breaking news") lang:English');
+  const endpoint = `https://api.gdeltproject.org/api/v2/doc/doc?query=${query}&mode=ArtList&maxrecords=25&format=json&sort=datedesc`;
+  try {
+    const res = await fetch(endpoint, { headers: { "User-Agent": "VineNewsBot/1.0" } });
+    if (!res.ok) return [];
+    const data = await res.json().catch(() => ({}));
+    const rows = Array.isArray(data?.articles) ? data.articles : [];
+    return rows
+      .map((a) => {
+        const title = String(a?.title || "").trim();
+        const url = String(a?.url || "").trim();
+        if (!title || !url) return null;
+        return {
+          source: String(a?.sourceCommonName || a?.domain || "gdelt").slice(0, 80),
+          title: title.slice(0, 280),
+          url,
+          publishedAt: toDateOrNull(a?.seendate || a?.socialimage || a?.date),
+          summary: stripHtml(a?.snippet || "").slice(0, 240),
+          image: String(a?.socialimage || "").trim() || null,
+        };
+      })
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+};
+
+const getOrCreateNewsBotUserId = async () => {
+  const botUsername = (process.env.VINE_NEWS_BOT_USERNAME || "vine_news").trim().toLowerCase();
+  const [[existing]] = await db.query("SELECT id FROM vine_users WHERE username = ? LIMIT 1", [botUsername]);
+  if (existing?.id) return Number(existing.id);
+  const hash = await bcrypt.hash(`vine-news-${Date.now()}`, 10);
+  const [inserted] = await db.query(
+    `
+    INSERT INTO vine_users (username, display_name, password_hash, bio, is_verified, is_admin)
+    VALUES (?, 'Vine News', ?, 'Automated news feed (RSS + GDELT).', 1, 0)
+    `,
+    [botUsername, hash]
+  );
+  return Number(inserted.insertId);
+};
+
+let newsIngestInFlight = false;
+let lastNewsIngestAt = 0;
+const NEWS_INGEST_INTERVAL_MS = 5 * 60 * 1000;
+
+const ingestExternalNews = async () => {
+  await ensureNewsSchema();
+  const botUserId = await getOrCreateNewsBotUserId();
+  const [rss, gdelt] = await Promise.all([fetchRssNews(), fetchGdeltNews()]);
+  const merged = [...rss, ...gdelt]
+    .filter((row) => row?.url && row?.title)
+    .slice(0, 60);
+
+  for (const item of merged) {
+    const externalId = crypto
+      .createHash("sha256")
+      .update(String(item.url).trim().toLowerCase())
+      .digest("hex");
+    const [[exists]] = await db.query(
+      "SELECT id FROM vine_news_ingest WHERE external_id = ? LIMIT 1",
+      [externalId]
+    );
+    if (exists) continue;
+
+    const textParts = [
+      item.title,
+      item.summary ? item.summary : "",
+      item.url,
+      "#news",
+    ].filter(Boolean);
+    const content = textParts.join("\n\n").slice(0, 1900);
+    const imageUrl = item.image ? JSON.stringify([item.image]) : null;
+
+    const [postResult] = await db.query(
+      `
+      INSERT INTO vine_posts (user_id, content, image_url, created_at)
+      VALUES (?, ?, ?, ?)
+      `,
+      [botUserId, content, imageUrl, item.publishedAt || new Date()]
+    );
+
+    await db.query(
+      `
+      INSERT INTO vine_news_ingest (source, external_id, title, article_url, published_at, post_id)
+      VALUES (?, ?, ?, ?, ?, ?)
+      `,
+      [item.source || "news", externalId, item.title, item.url, item.publishedAt, postResult.insertId]
+    );
+  }
+};
+
+const triggerNewsIngestIfDue = () => {
+  const now = Date.now();
+  if (newsIngestInFlight) return;
+  if (now - lastNewsIngestAt < NEWS_INGEST_INTERVAL_MS) return;
+  newsIngestInFlight = true;
+  lastNewsIngestAt = now;
+  ingestExternalNews()
+    .catch((err) => console.error("News ingest error:", err?.message || err))
+    .finally(() => {
+      newsIngestInFlight = false;
+      lastNewsIngestAt = Date.now();
+    });
 };
 
 const isHeicFile = (file) => {
@@ -3803,9 +3994,10 @@ router.get("/communities/:slug/posts", authOptional, async (req, res) => {
 });
 
   // create posts
-  router.get("/posts", authOptional, async (req, res) => {
+router.get("/posts", authOptional, async (req, res) => {
     try {
       await ensureCommunitySchema();
+      triggerNewsIngestIfDue();
       await publishDueScheduledPosts();
       const viewerId = req.user?.id || null;
       const feedTag = String(req.query.tag || "").trim().replace(/^#/, "").toLowerCase();
@@ -4008,6 +4200,21 @@ router.get("/communities/:slug/posts", authOptional, async (req, res) => {
       res.status(500).json([]);
     }
   });
+
+router.post("/news/refresh", authenticate, async (req, res) => {
+  try {
+    const user = req.user || {};
+    if (!isModeratorAccount(user)) {
+      return res.status(403).json({ message: "Only moderators can refresh news." });
+    }
+    await ingestExternalNews();
+    lastNewsIngestAt = Date.now();
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Manual news refresh error:", err);
+    res.status(500).json({ message: "Failed to refresh news" });
+  }
+});
   // Create new post(with image to TL)
   router.post(
     "/posts",

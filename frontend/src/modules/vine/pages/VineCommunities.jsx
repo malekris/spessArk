@@ -144,7 +144,7 @@ export default function VineCommunities() {
           `${API}/api/vine/communities/${encodeURIComponent(communitySlug)}/posts${nextTopic ? `?topic=${encodeURIComponent(nextTopic)}` : ""}`,
           { headers: { Authorization: `Bearer ${token}` } }
         ),
-        fetch(`${API}/api/vine/communities/${encodeURIComponent(communitySlug)}/members?limit=24`, {
+        fetch(`${API}/api/vine/communities/${encodeURIComponent(communitySlug)}/members?limit=500`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
         fetch(`${API}/api/vine/communities/${cData.id}/rules`, {

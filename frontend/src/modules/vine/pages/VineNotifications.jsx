@@ -57,8 +57,13 @@ export default function VineNotifications() {
       case "guardian_warning": return "sent you a warning about reported content";
       case "community_assignment_created":
         return `posted a new assignment: "${meta.title || "Untitled assignment"}"`;
-      case "community_assignment_submission":
+      case "community_assignment_submission": {
+        const isPractical = String(meta.assignment_type || "").toLowerCase() === "practical";
+        if (isPractical) {
+          return `Submitted a practical assignment${meta.assignment_title ? `: "${meta.assignment_title}"` : ""}`;
+        }
         return `${meta.is_resubmission ? "resubmitted" : "submitted"} assignment work${meta.assignment_title ? `: "${meta.assignment_title}"` : ""}`;
+      }
       case "community_join_request":
         return `requested to join ${meta.community_name ? `"${meta.community_name}"` : "your community"}`;
       case "community_join_approved":

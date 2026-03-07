@@ -2929,7 +2929,7 @@ router.post("/communities/:id/assignments/:assignmentId/submissions", authentica
 
     const [[assignmentMeta]] = await db.query(
       `
-      SELECT a.title, c.slug AS community_slug
+      SELECT a.title, a.assignment_type, c.slug AS community_slug
       FROM vine_community_assignments a
       LEFT JOIN vine_communities c ON c.id = a.community_id
       WHERE a.id = ? AND a.community_id = ?
@@ -2957,6 +2957,7 @@ router.post("/communities/:id/assignments/:assignmentId/submissions", authentica
           community_slug: assignmentMeta?.community_slug || null,
           assignment_id: assignmentId,
           assignment_title: assignmentMeta?.title || null,
+          assignment_type: assignmentMeta?.assignment_type || "theory",
           submitted_at: new Date().toISOString(),
           attempt_count: existing
             ? (isPractical ? Number(existing.attempt_count || 1) : Number(existing.attempt_count || 1) + 1)

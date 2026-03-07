@@ -85,9 +85,15 @@ export default function VineLogin() {
             <form className="vine-form" onSubmit={handleLogin}>
               <input
                 type="text"
-                placeholder="Username or email"
+                placeholder="Username"
                 value={identifier}
-                onChange={(e) => setIdentifier(e.target.value)}
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                onKeyDown={(e) => {
+                  if (e.key === " ") e.preventDefault();
+                }}
+                onChange={(e) => setIdentifier(e.target.value.replace(/\s+/g, ""))}
               />
 
               <input

@@ -170,8 +170,8 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
   const isModerator =
     Number(currentUser?.is_admin) === 1 ||
     String(currentUser?.role || "").toLowerCase() === "moderator" ||
-    ["vine guardian","vine_guardian"].includes(String(currentUser?.username || "").toLowerCase());
-  const isGuardianPost = ["vine guardian","vine_guardian"].includes(String(post.username || "").toLowerCase());
+    ["vine guardian","vine_guardian","vine news","vine_news"].includes(String(currentUser?.username || "").toLowerCase());
+  const isGuardianPost = ["vine guardian","vine_guardian","vine news","vine_news"].includes(String(post.username || "").toLowerCase());
   const isCommunityInteractionLocked = Boolean(communityInteractionLocked) && Number(post.community_id) > 0;
 
   // ── State ───────────────────────────────────────
@@ -876,12 +876,12 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
           <strong className="liked-by-latest">
             {latestLiker.display_name || latestLiker.username}
             {(Number(latestLiker.is_verified) === 1 ||
-              ["vine guardian", "vine_guardian"].includes(
+              ["vine guardian", "vine_guardian", "vine news", "vine_news"].includes(
                 String(latestLiker.username || "").toLowerCase()
               )) && (
               <span
                 className={`verified ${
-                  ["vine guardian", "vine_guardian"].includes(
+                  ["vine guardian", "vine_guardian", "vine news", "vine_news"].includes(
                     String(latestLiker.username || "").toLowerCase()
                   )
                     ? "guardian"
@@ -1130,7 +1130,7 @@ function Comment({ comment, commentLikes, commentUserLiked, setCommentLikes, set
     isPostOwner ||
     Number(currentUserId) === Number(comment.user_id) ||
     isModerator;
-  const isGuardianComment = ["vine guardian","vine_guardian"].includes(String(comment.username || "").toLowerCase());
+  const isGuardianComment = ["vine guardian","vine_guardian","vine news","vine_news"].includes(String(comment.username || "").toLowerCase());
 
   useEffect(() => {
     const q = mentionAnchor?.query;

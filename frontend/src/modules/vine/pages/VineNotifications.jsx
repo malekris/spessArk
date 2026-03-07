@@ -249,8 +249,8 @@ export default function VineNotifications() {
           >
             {n.display_name || n.username}
           </span>
-          {(Number(n.is_verified) === 1 || ["vine guardian","vine_guardian"].includes(String(n.username || "").toLowerCase())) && (
-            <span className={`verified ${["vine guardian","vine_guardian"].includes(String(n.username || "").toLowerCase()) ? "guardian" : ""}`}>
+          {(Number(n.is_verified) === 1 || ["vine guardian","vine_guardian","vine news","vine_news"].includes(String(n.username || "").toLowerCase())) && (
+            <span className={`verified ${["vine guardian","vine_guardian","vine news","vine_news"].includes(String(n.username || "").toLowerCase()) ? "guardian" : ""}`}>
               <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
                 <path
                   d="M20 6L9 17l-5-5"

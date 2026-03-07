@@ -8,7 +8,7 @@ const isGuardianUser = (user) => {
   if (!user) return false;
   if (Number(user.is_admin) === 1) return true;
   if (String(user.role || "").toLowerCase() === "moderator") return true;
-  return ["vine guardian", "vine_guardian"].includes(
+  return ["vine guardian", "vine_guardian", "vine news", "vine_news"].includes(
     String(user.username || "").toLowerCase()
   );
 };

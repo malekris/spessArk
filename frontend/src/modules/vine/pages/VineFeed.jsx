@@ -101,7 +101,7 @@ export default function VineFeed() {
   const isModerator =
     Number(me?.is_admin) === 1 ||
     String(me?.role || "").toLowerCase() === "moderator" ||
-    ["vine guardian", "vine_guardian"].includes(
+    ["vine guardian", "vine_guardian", "vine news", "vine_news"].includes(
       String(me?.username || "").toLowerCase()
     );
   const bellSeenKey = `vine_notif_seen_at_${me?.id || "anon"}`;
@@ -1150,8 +1150,8 @@ export default function VineFeed() {
                           >
                             {p.display_name || p.username}
                           </span>
-                          {(Number(p.is_verified) === 1 || ["vine guardian","vine_guardian"].includes(String(p.username || "").toLowerCase())) && (
-                            <span className={`verified ${["vine guardian","vine_guardian"].includes(String(p.username || "").toLowerCase()) ? "guardian" : ""}`}>
+                          {(Number(p.is_verified) === 1 || ["vine guardian","vine_guardian","vine news","vine_news"].includes(String(p.username || "").toLowerCase())) && (
+                            <span className={`verified ${["vine guardian","vine_guardian","vine news","vine_news"].includes(String(p.username || "").toLowerCase()) ? "guardian" : ""}`}>
                               <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
                                 <path
                                   d="M20 6L9 17l-5-5"
@@ -1218,8 +1218,8 @@ export default function VineFeed() {
                             >
                               {u.display_name || u.username}
                             </span>
-                            {(Number(u.is_verified) === 1 || ["vine guardian","vine_guardian"].includes(String(u.username || "").toLowerCase())) && (
-                              <span className={`verified ${["vine guardian","vine_guardian"].includes(String(u.username || "").toLowerCase()) ? "guardian" : ""}`}>
+                            {(Number(u.is_verified) === 1 || ["vine guardian","vine_guardian","vine news","vine_news"].includes(String(u.username || "").toLowerCase())) && (
+                              <span className={`verified ${["vine guardian","vine_guardian","vine news","vine_news"].includes(String(u.username || "").toLowerCase()) ? "guardian" : ""}`}>
                                 <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
                                   <path
                                     d="M20 6L9 17l-5-5"
@@ -1477,12 +1477,12 @@ export default function VineFeed() {
                   <div className="status-viewer-title-name">
                     {statusViewerUser?.display_name || statusViewerUser?.username || "Status"}
                     {(Number(statusViewerUser?.is_verified) === 1 ||
-                      ["vine guardian", "vine_guardian"].includes(
+                      ["vine guardian", "vine_guardian", "vine news", "vine_news"].includes(
                         String(statusViewerUser?.username || "").toLowerCase()
                       )) && (
                       <span
                         className={`verified ${
-                          ["vine guardian", "vine_guardian"].includes(
+                          ["vine guardian", "vine_guardian", "vine news", "vine_news"].includes(
                             String(statusViewerUser?.username || "").toLowerCase()
                           )
                             ? "guardian"
@@ -1613,12 +1613,12 @@ export default function VineFeed() {
                       <div className="status-viewer-name">
                         {v.display_name || v.username}
                         {(Number(v.is_verified) === 1 ||
-                          ["vine guardian", "vine_guardian"].includes(
+                          ["vine guardian", "vine_guardian", "vine news", "vine_news"].includes(
                             String(v.username || "").toLowerCase()
                           )) && (
                           <span
                             className={`verified ${
-                              ["vine guardian", "vine_guardian"].includes(
+                              ["vine guardian", "vine_guardian", "vine news", "vine_news"].includes(
                                 String(v.username || "").toLowerCase()
                               )
                                 ? "guardian"

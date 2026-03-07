@@ -255,8 +255,8 @@ export default function VineProfile() {
   const isModerator =
     Number(currentUser?.is_admin) === 1 ||
     String(currentUser?.role || "").toLowerCase() === "moderator" ||
-    ["vine guardian","vine_guardian"].includes(String(currentUser?.username || "").toLowerCase());
-  const isGuardianProfile = ["vine guardian","vine_guardian"].includes(String(userObj?.username || "").toLowerCase());
+    ["vine guardian","vine_guardian","vine news","vine_news"].includes(String(currentUser?.username || "").toLowerCase());
+  const isGuardianProfile = ["vine guardian","vine_guardian","vine news","vine_news"].includes(String(userObj?.username || "").toLowerCase());
   const isBlocked = Boolean(profile?.blocked) && !isMe;
   const isBlocking = Boolean(userObj?.is_blocking) && !isMe;
   const isMutingUser = Boolean(userObj?.is_muting) && !isMe;
@@ -1909,8 +1909,8 @@ export default function VineProfile() {
                                   onClick={() => navigate(`/vine/profile/${comment.username}`)}
                                 >
                                   <span>{comment.display_name || comment.username}</span>
-                                  {(Number(comment.is_verified) === 1 || ["vine guardian","vine_guardian"].includes(String(comment.username || "").toLowerCase())) && (
-                                    <span className={`verified ${["vine guardian","vine_guardian"].includes(String(comment.username || "").toLowerCase()) ? "guardian" : ""}`}>
+                                  {(Number(comment.is_verified) === 1 || ["vine guardian","vine_guardian","vine news","vine_news"].includes(String(comment.username || "").toLowerCase())) && (
+                                    <span className={`verified ${["vine guardian","vine_guardian","vine news","vine_news"].includes(String(comment.username || "").toLowerCase()) ? "guardian" : ""}`}>
                                       <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
                                         <path
                                           d="M20 6L9 17l-5-5"

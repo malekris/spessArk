@@ -359,6 +359,13 @@
   flex: 0 0 auto;
 }
 
+.inline-feeling {
+  color: #475569;
+  font-size: 0.9rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .mention {
   color: #1d9bf0;
   font-weight: 700;
@@ -580,6 +587,17 @@
   overflow-wrap: break-word;
 }
 
+.post-feeling-line {
+  margin-top: 4px;
+  color: #475569;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.post-feeling-line strong {
+  color: #0f766e;
+}
+
 .see-more-btn {
   background: transparent;
   border: none;
@@ -648,6 +666,18 @@
 .theme-dark .link-preview-desc,
 .theme-dark .link-preview-domain {
   color: #ffffff;
+}
+
+.theme-dark .post-feeling-line {
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.theme-dark .post-feeling-line strong {
+  color: #6ee7b7;
+}
+
+.theme-dark .inline-feeling {
+  color: rgba(255, 255, 255, 0.82);
 }
 
 

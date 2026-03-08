@@ -16,6 +16,16 @@ const STATUS_COLORS = [
   "#7f1d1d",
   "#1e3a8a",
 ];
+const FEELING_OPTIONS = [
+  { value: "", label: "No feeling" },
+  { value: "happy", label: "Happy" },
+  { value: "sad", label: "Sad" },
+  { value: "excited", label: "Excited" },
+  { value: "grateful", label: "Grateful" },
+  { value: "blessed", label: "Blessed" },
+  { value: "motivated", label: "Motivated" },
+  { value: "tired", label: "Tired" },
+];
 
 // ────────────────────────────────────────────────
 //  HELPERS
@@ -111,6 +121,7 @@ export default function VineFeed() {
   const [content, setContent] = useState("");
   const [images, setImages] = useState([]);
   const [previews, setPreviews] = useState([]);
+  const [feeling, setFeeling] = useState("");
   const [unread, setUnread] = useState(0);           // notifications
   const [unreadDMs, setUnreadDMs] = useState(0);     // DMs
   const [handledDeepLink, setHandledDeepLink] = useState(false);
@@ -745,11 +756,15 @@ export default function VineFeed() {
 
   // ── Post Creation ───────────────────────────────
   const submitPost = async () => {
-    if (!content.trim() && images.length === 0) return;
+    if (!content.trim() && images.length === 0 && !feeling) return;
 
     try {
       const formData = new FormData();
-      if (content.trim()) formData.append("content", content);
+      const normalizedContent = content.trim();
+      const outgoingContent = feeling
+        ? `[[feeling:${feeling}]]${normalizedContent ? ` ${normalizedContent}` : ""}`
+        : normalizedContent;
+      if (outgoingContent) formData.append("content", outgoingContent);
       if (communityId) formData.append("community_id", String(communityId));
       images.forEach((img) => formData.append("images", img));
 
@@ -762,6 +777,7 @@ export default function VineFeed() {
       const newPost = await res.json();
       setPosts((prev) => [newPost, ...prev]);
       setContent("");
+      setFeeling("");
       setImages([]);
       setPreviews((prev) => {
         revokePreviewUrls(prev);
@@ -1035,17 +1051,16 @@ export default function VineFeed() {
           <div className="create-footer">
             <div className="greeting">
               {getGreeting()}, <span className="name">{myUsername}</span>
-              <div className="create-target-row">
-                <span>Post to:</span>
+              <div className="create-feeling-row">
+                <span>Feeling:</span>
                 <select
-                  value={communityId}
-                  onChange={(e) => setCommunityId(e.target.value)}
-                  className="community-select"
+                  value={feeling}
+                  onChange={(e) => setFeeling(e.target.value)}
+                  className="feeling-select"
                 >
-                  <option value="">Public feed</option>
-                  {myCommunities.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
+                  {FEELING_OPTIONS.map((opt) => (
+                    <option key={opt.value || "none"} value={opt.value}>
+                      {opt.label}
                     </option>
                   ))}
                 </select>

@@ -862,7 +862,25 @@
   color: #475569;
 }
 
+.create-feeling-row {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: #475569;
+}
+
 .community-select {
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.82rem;
+  background: #fff;
+  color: #064e3b;
+}
+
+.feeling-select {
   border: 1px solid #cbd5e1;
   border-radius: 999px;
   padding: 4px 10px;
@@ -1130,6 +1148,12 @@
 }
 
 .theme-dark .community-select {
+  background: #111827;
+  color: #e5e7eb;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.theme-dark .feeling-select {
   background: #111827;
   color: #e5e7eb;
   border-color: rgba(255, 255, 255, 0.2);

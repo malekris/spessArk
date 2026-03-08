@@ -136,6 +136,27 @@ const stripMentionsFromPostText = (text) => {
     .trim();
 };
 
+const extractFeelingFromContent = (text) => {
+  const raw = String(text || "");
+  const match = raw.match(/^\s*\[\[feeling:([a-z_]+)\]\]\s*/i);
+  if (!match) {
+    return { feeling: "", content: raw };
+  }
+  return {
+    feeling: String(match[1] || "").toLowerCase(),
+    content: raw.slice(match[0].length),
+  };
+};
+
+const formatFeelingLabel = (value) => {
+  if (!value) return "";
+  return value
+    .split("_")
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+};
+
 const getMentionAnchor = (value, caret) => {
   const left = value.slice(0, caret);
   const at = left.lastIndexOf("@");
@@ -216,7 +237,8 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
   const [likedUsers, setLikedUsers] = useState([]);
   const [latestLiker, setLatestLiker] = useState(null);
 
-  const displayPostContent = stripMentionsFromPostText(post.content || "");
+  const { feeling: postFeeling, content: postContentWithoutFeeling } = extractFeelingFromContent(post.content || "");
+  const displayPostContent = stripMentionsFromPostText(postContentWithoutFeeling || "");
   const CONTENT_LIMIT = 280;
   const hasLongContent = displayPostContent.length > CONTENT_LIMIT;
   const contentToShow =
@@ -681,13 +703,9 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
                   </span>
                 )}
               </span>
-              <span
-                className="username handle clickable"
-                onClick={() => navigate(`/vine/profile/${post.username}`)}
-                title={`@${post.username}`}
-              >
-                @{post.username}
-              </span>
+              {postFeeling && (
+                <span className="inline-feeling">is feeling {formatFeelingLabel(postFeeling)}</span>
+              )}
               <span className="time top-time">
                 • {formatPostDate(post.sort_time || post.created_at)}
               </span>
@@ -726,8 +744,8 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
       {/* Post content */}
       <p
         className={`vine-post-content ${
-          post.content &&
-          post.content.length < 120 &&
+          displayPostContent &&
+          displayPostContent.length < 120 &&
           !post.image_url
             ? "big-text"
             : ""

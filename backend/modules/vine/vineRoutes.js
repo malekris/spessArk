@@ -1072,6 +1072,20 @@ const isPracticalSubmissionFile = (file) => {
 };
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const asyncMapLimit = async (items, limit, mapper) => {
+  const out = new Array(items.length);
+  let cursor = 0;
+  const workers = new Array(Math.max(1, Math.min(limit, items.length))).fill(null).map(async () => {
+    while (true) {
+      const idx = cursor;
+      cursor += 1;
+      if (idx >= items.length) return;
+      out[idx] = await mapper(items[idx], idx);
+    }
+  });
+  await Promise.all(workers);
+  return out;
+};
 
 const shouldRetryCloudinaryUpload = (err) => {
   const name = String(err?.name || "").toLowerCase();
@@ -1385,6 +1399,19 @@ const normalizeImageBuffer = async (file) => {
     } catch (err) {
       console.warn("HEIC decode failed, sending original file to Cloudinary", err);
       return { buffer: file.buffer, mimetype: file.mimetype || "image/heic" };
+    }
+  }
+  const mime = String(file.mimetype || "").toLowerCase();
+  if (mime.startsWith("image/")) {
+    try {
+      const buffer = await sharp(file.buffer)
+        .rotate()
+        .resize({ width: 2560, height: 2560, fit: "inside", withoutEnlargement: true })
+        .jpeg({ quality: 86, mozjpeg: true })
+        .toBuffer();
+      return { buffer, mimetype: "image/jpeg" };
+    } catch {
+      return { buffer: file.buffer, mimetype: file.mimetype || "image/jpeg" };
     }
   }
   return { buffer: file.buffer, mimetype: file.mimetype || "image/jpeg" };
@@ -4434,38 +4461,29 @@ router.get("/news/health", authenticate, async (req, res) => {
           if (!communityId && req.files.some((f) => isPdfFile(f))) {
             return res.status(400).json({ message: "PDF uploads are only allowed in communities." });
           }
-          const uploads = [];
-          for (const file of req.files) {
+          const uploads = await asyncMapLimit(req.files, 3, async (file, idx) => {
             if (isPdfFile(file)) {
-              uploads.push(
-                await uploadBufferToCloudinary(file.buffer, {
-                  folder: "vine/community-docs",
-                  resource_type: "raw",
-                  public_id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
-                  format: "pdf",
-                })
-              );
-              continue;
+              return uploadBufferToCloudinary(file.buffer, {
+                folder: "vine/community-docs",
+                resource_type: "raw",
+                public_id: `${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 10)}`,
+                format: "pdf",
+              });
             }
             if (isVideoFile(file)) {
-              uploads.push(
-                await uploadBufferToCloudinary(file.buffer, {
-                  folder: "vine/posts",
-                  resource_type: "video",
-                })
-              );
-              continue;
+              return uploadBufferToCloudinary(file.buffer, {
+                folder: "vine/posts",
+                resource_type: "video",
+              });
             }
             const normalized = await normalizeImageBuffer(file);
-            uploads.push(
-              await uploadBufferToCloudinary(normalized.buffer, {
-                folder: "vine/posts",
-                resource_type: "image",
-              })
-            );
-          }
-  
-          imageUrls = uploads.map(u => u.secure_url);
+            return uploadBufferToCloudinary(normalized.buffer, {
+              folder: "vine/posts",
+              resource_type: "image",
+            });
+          });
+
+          imageUrls = uploads.map((u) => u.secure_url);
         }
   
         if ((!content || !content.trim()) && imageUrls.length === 0) {

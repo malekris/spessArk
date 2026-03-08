@@ -366,6 +366,27 @@
   white-space: nowrap;
 }
 
+@media (min-width: 769px) {
+  .name-row {
+    justify-content: flex-start;
+    gap: 8px;
+  }
+
+  .name-main {
+    flex: 0 1 auto;
+    max-width: clamp(140px, 34vw, 360px);
+  }
+
+  .inline-feeling {
+    flex: 0 1 auto;
+    margin-left: 2px;
+  }
+
+  .top-time {
+    margin-left: 2px;
+  }
+}
+
 .mention {
   color: #1d9bf0;
   font-weight: 700;
@@ -395,6 +416,16 @@
 
 .post-link:hover {
   color: #1e40af;
+}
+
+.inline-gif {
+  display: block;
+  max-width: min(100%, 320px);
+  max-height: 280px;
+  border-radius: 12px;
+  margin: 8px 0;
+  border: 1px solid #cbd5e1;
+  object-fit: cover;
 }
 
 .mention-preview {
@@ -547,6 +578,10 @@
 
 .theme-dark .post-link {
   color: #93c5fd;
+}
+
+.theme-dark .inline-gif {
+  border-color: rgba(255, 255, 255, 0.2);
 }
 /* Keep your existing delete button styles, just tweak positioning */
 .delete-post-btn {
@@ -787,6 +822,45 @@
   font-weight: 800;
   cursor: pointer;
   white-space: nowrap;
+}
+
+.gif-pick-btn {
+  border: 1px solid #bbf7d0 !important;
+  background: linear-gradient(145deg, #ecfdf5, #d1fae5) !important;
+  color: #065f46 !important;
+  border-radius: 999px !important;
+  font-weight: 800 !important;
+  padding: 0 14px !important;
+}
+
+.comment-gif-preview {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 6px;
+  border: 1px solid #bbf7d0;
+  border-radius: 10px;
+  padding: 5px;
+  background: #ecfdf5;
+}
+
+.comment-gif-preview img {
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: 8px;
+}
+
+.comment-gif-preview button {
+  border: none;
+  background: #dc2626;
+  color: #fff;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-weight: 800;
+  padding: 0;
+  line-height: 1;
 }
 
 .community-join-note {
@@ -1454,6 +1528,7 @@
 }
 .comment-reply-box {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   margin-top: 10px;
 }

@@ -343,3 +343,55 @@ export async function sendVineWarningEmail(email, username, reason = "") {
   };
   await sendWithRetry(payload, 2);
 }
+
+export async function sendVineDeletionScheduledEmail(email, username, deleteAt) {
+  if (!email) return;
+  const when = new Date(deleteAt);
+  const readable = Number.isNaN(when.getTime())
+    ? String(deleteAt || "")
+    : when.toLocaleString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      });
+  const payload = {
+    from: "SPESS VINE <no-reply@stphillipsequatorial.com>",
+    to: email,
+    subject: "SPESS VINE account deletion scheduled",
+    html: `
+      <div style="font-family: Arial; background:#fff7ed; padding:30px;">
+        <div style="max-width:600px; margin:auto; background:white; padding:32px; border-radius:18px;">
+          <h2 style="color:#9a3412;">Account deletion scheduled</h2>
+          <p>Hello ${username || "Viner"},</p>
+          <p>Your Vine account has been scheduled for deletion.</p>
+          <p><strong>Deletion date:</strong> ${readable}</p>
+          <p>If you log back into Vine before that date, you can cancel the deletion from Settings.</p>
+          <p style="font-size:13px;color:#777;">After the deadline, your account and Vine data will be permanently removed.</p>
+        </div>
+      </div>
+    `,
+  };
+  await sendWithRetry(payload, 2);
+}
+
+export async function sendVineDeletionCancelledEmail(email, username) {
+  if (!email) return;
+  const payload = {
+    from: "SPESS VINE <no-reply@stphillipsequatorial.com>",
+    to: email,
+    subject: "SPESS VINE account deletion cancelled",
+    html: `
+      <div style="font-family: Arial; background:#f0fdf4; padding:30px;">
+        <div style="max-width:600px; margin:auto; background:white; padding:32px; border-radius:18px;">
+          <h2 style="color:#14532d;">Deletion cancelled</h2>
+          <p>Hello ${username || "Viner"},</p>
+          <p>Your pending Vine account deletion has been cancelled.</p>
+          <p>You can continue using your account normally.</p>
+        </div>
+      </div>
+    `,
+  };
+  await sendWithRetry(payload, 2);
+}

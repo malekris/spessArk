@@ -54,7 +54,11 @@ export default function VineLogin() {
       localStorage.setItem("vine_user", JSON.stringify(data.user));
 
       // Redirect
-      window.location.href = "/vine/feed";
+      if (data?.user?.delete_requested_at) {
+        window.location.href = "/vine/settings";
+      } else {
+        window.location.href = "/vine/feed";
+      }
 
     } catch (err) {
       console.error(err);

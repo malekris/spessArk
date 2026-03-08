@@ -8,29 +8,32 @@
   /* Signature Mint-Glow Theme */
   background: radial-gradient(circle at top, #f0fdf4 0%, #dcfce7 100%);
   background-attachment: fixed;
-  padding: 40px 20px;
+  padding: 86px 20px 24px;
   box-sizing: border-box;
   font-family: 'Inter', system-ui, sans-serif;
 }
 
 /* ───── Topbar (Glass Style) ───── */
 .vine-notifications-page .vine-profile-topbar {
-  width: 100%;
-  max-width: 800px;
+  width: 100vw;
+  max-width: none;
   background: rgba(255, 255, 255, 0.85);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   padding: 15px 25px;
-  border-radius: 20px;
+  border-radius: 0;
   display: flex;
   align-items: center;
   gap: 20px;
   border: 1px solid rgba(167, 243, 208, 0.6);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.04);
-  margin-bottom: 25px;
-  position: sticky;
-  top: 10px;
-  z-index: 100;
+  margin: 0;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  box-sizing: border-box;
 }
 
 .vine-notifications-page .vine-profile-topbar button {
@@ -172,7 +175,7 @@
 /* ───── MOBILE TWEAKS (DESKTOP AS IS) ───── */
 @media (max-width: 768px) {
   .vine-notifications-page {
-    padding: 0;
+    padding: 62px 0 0;
     background: #ffffff; /* Clean mobile list style */
     align-items: stretch;
   }

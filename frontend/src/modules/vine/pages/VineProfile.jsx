@@ -48,18 +48,54 @@ const formatPostDate = (date) => {
 
 const renderMentions = (text, navigate) => {
   if (!text) return text;
+  const isGifUrl = (url) => {
+    const value = String(url || "").toLowerCase();
+    return (
+      /\.(gif)(\?|$)/i.test(value) ||
+      value.includes("giphy.com/media/") ||
+      value.includes("media.tenor.com/")
+    );
+  };
   const parts = text.split(
-    /(@[a-zA-Z0-9._]{1,30}|#[a-zA-Z0-9_]{1,60}|\*\*[^*\n]+\*\*|~~[^~\n]+~~|__[^_\n]+__|\*[^*\n]+\*)/g
+    /(https?:\/\/[^\s]+|@[a-zA-Z0-9._]{1,30}|#[a-zA-Z0-9_]{1,60}|\*\*[^*\n]+\*\*|~~[^~\n]+~~|__[^_\n]+__|\*[^*\n]+\*)/g
   );
   return parts.map((part, idx) => {
+    if (/^https?:\/\/[^\s]+$/i.test(part)) {
+      if (isGifUrl(part)) {
+        return (
+          <img
+            key={`gif-${idx}`}
+            className="inline-gif"
+            src={part}
+            alt="gif"
+            loading="lazy"
+            onClick={(e) => e.stopPropagation()}
+          />
+        );
+      }
+      return (
+        <a
+          key={`url-${idx}`}
+          className="post-link"
+          href={part}
+          target="_blank"
+          rel="noreferrer noopener"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {part}
+        </a>
+      );
+    }
     if (part.startsWith("@")) {
       const username = part.slice(1);
+      const isAllMention = username.toLowerCase() === "all";
       return (
         <span
           key={`mention-${idx}-${username}`}
           className="mention"
           onClick={(e) => {
             e.stopPropagation();
+            if (isAllMention) return;
             navigate(`/vine/profile/${username}`);
           }}
         >
@@ -1079,7 +1115,7 @@ export default function VineProfile() {
   if (error && !profile) {
     return (
       <div className="error-screen">
-        ❌ {error} <button onClick={() => navigate(-1)}>Go Back</button>
+        ❌ {error} <button onClick={() => navigate("/vine/feed")}>Go Back</button>
       </div>
     );
   }
@@ -1092,7 +1128,7 @@ export default function VineProfile() {
     <div className="vine-profile-wrapper">
       {/* Top sticky bar */}
       <div className="vine-profile-topbar">
-        <button className="back-btn" onClick={() => navigate(-1)}>←</button>
+        <button className="back-btn" onClick={() => navigate("/vine/feed")}>←</button>
         <div className="topbar-info">
           <span className="profile-title">{displayName}</span>
           <span className="post-count-mini">{profile?.posts?.length || 0} Posts</span>
@@ -1357,7 +1393,7 @@ export default function VineProfile() {
 
                           <button
                             className="profile-settings-btn"
-                            onClick={() => setSettingsOpen(true)}
+                            onClick={() => navigate("/vine/settings")}
                             title="Settings"
                           >
                             ⚙️ Settings

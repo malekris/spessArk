@@ -21,6 +21,7 @@ import VineLogin from "./modules/vine/pages/VineLogin";
 import VineRegister from "./modules/vine/pages/VineRegister";
 import VineFeed from "./modules/vine/pages/VineFeed";
 import VineProfile from "./modules/vine/pages/VineProfile";
+import VineSettings from "./modules/vine/pages/VineSettings";
 import VineForgotPassword from "./modules/vine/pages/VineForgotPassword";
 import VineResetPassword from "./modules/vine/pages/VineResetPassword";
 import VineFollowers from "./modules/vine/pages/VineFollowers";
@@ -138,6 +139,7 @@ function App() {
 <Route path="/vine/register" element={<VineRegister />} />
 <Route path="/vine/feed" element={<VineFeed />} />
 <Route path="/vine/profile/:username" element={<VineProfile />} />
+<Route path="/vine/settings" element={<VineSettings />} />
 <Route path="/vine/forgot-password" element={<VineForgotPassword />} />
 <Route path="/vine/reset-password" element={<VineResetPassword />} />
 <Route path="/vine/:username/followers" element={<VineFollowers />} />

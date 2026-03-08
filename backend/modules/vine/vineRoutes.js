@@ -3,7 +3,7 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { db } from "../../server.js";
-import { sendVineWelcomeEmail, sendVineResetCodeEmail, sendVineVerificationCodeEmail, sendVineSuspensionEmail, sendVineUnsuspensionEmail, sendVineWarningEmail } from "../../utils/email.js";
+import { sendVineWelcomeEmail, sendVineResetCodeEmail, sendVineVerificationCodeEmail, sendVineSuspensionEmail, sendVineUnsuspensionEmail, sendVineWarningEmail, sendVineDeletionScheduledEmail, sendVineDeletionCancelledEmail } from "../../utils/email.js";
 import authMiddleware from "../../middleware/authMiddleware.js";
 import authOptional from "../authOptional.js";
 import { authenticate } from "../auth.js";
@@ -15,6 +15,7 @@ import sharp from "sharp";
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "vine_secret_key";
+const GIPHY_API_KEY = process.env.GIPHY_API_KEY || "";
 
 const extractCloudinaryPublicId = (rawUrl) => {
   const asString = String(rawUrl || "").trim();
@@ -37,6 +38,49 @@ const extractCloudinaryPublicId = (rawUrl) => {
   } catch {
     return null;
   }
+};
+
+const mapGiphyGif = (item) => {
+  const images = item?.images || {};
+  const full =
+    images.fixed_width?.url ||
+    images.downsized?.url ||
+    images.original?.url ||
+    null;
+  const preview =
+    images.fixed_width_small?.url ||
+    images.fixed_height_small?.url ||
+    images.preview_gif?.url ||
+    images.fixed_width?.url ||
+    full;
+  if (!full) return null;
+  return {
+    id: item?.id || crypto.randomUUID(),
+    title: item?.title || "GIF",
+    url: full,
+    preview_url: preview,
+  };
+};
+
+const fetchGiphy = async (endpoint, params = {}) => {
+  if (!GIPHY_API_KEY) {
+    return { results: [], error: "GIPHY_API_KEY missing" };
+  }
+  const qs = new URLSearchParams({
+    api_key: GIPHY_API_KEY,
+    rating: "pg-13",
+    lang: "en",
+    ...params,
+  });
+  const url = `https://api.giphy.com/v1/gifs/${endpoint}?${qs.toString()}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    const txt = await res.text().catch(() => "");
+    throw new Error(`GIPHY ${endpoint} failed (${res.status}): ${txt}`);
+  }
+  const json = await res.json();
+  const results = Array.isArray(json?.data) ? json.data.map(mapGiphyGif).filter(Boolean) : [];
+  return { results };
 };
 
 const isLikelyVideoUrl = (url) =>
@@ -96,6 +140,12 @@ const isModeratorAccount = (user) => {
   if (Number(user.is_admin) === 1) return true;
   if (String(user.role || "").toLowerCase() === "moderator") return true;
   return ["vine guardian","vine_guardian"].includes(String(user.username || "").toLowerCase());
+};
+
+const getClientIp = (req) => {
+  const forwarded = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
+  if (forwarded) return forwarded.slice(0, 64);
+  return String(req.socket?.remoteAddress || "").slice(0, 64);
 };
 
 const hasTable = async (dbName, tableName) => {
@@ -277,6 +327,198 @@ const ensureProfileAboutSchema = async () => {
   await addIfMissing("about_privacy", "VARCHAR(20) NOT NULL DEFAULT 'everyone'");
 
   profileAboutSchemaReady = true;
+};
+
+let advancedSettingsSchemaReady = false;
+const ensureAdvancedSettingsSchema = async () => {
+  if (advancedSettingsSchemaReady) return;
+  const dbName = await getDbName();
+  if (!dbName) return;
+
+  const addIfMissing = async (column, definition) => {
+    const exists = await hasColumn(dbName, "vine_users", column);
+    if (!exists) {
+      await db.query(`ALTER TABLE vine_users ADD COLUMN ${column} ${definition}`);
+    }
+  };
+
+  await addIfMissing("two_factor_email", "TINYINT(1) NOT NULL DEFAULT 0");
+  await addIfMissing("mentions_privacy", "VARCHAR(20) NOT NULL DEFAULT 'everyone'");
+  await addIfMissing("tags_privacy", "VARCHAR(20) NOT NULL DEFAULT 'everyone'");
+  await addIfMissing("hide_from_search", "TINYINT(1) NOT NULL DEFAULT 0");
+  await addIfMissing("notif_inapp_likes", "TINYINT(1) NOT NULL DEFAULT 1");
+  await addIfMissing("notif_inapp_comments", "TINYINT(1) NOT NULL DEFAULT 1");
+  await addIfMissing("notif_inapp_mentions", "TINYINT(1) NOT NULL DEFAULT 1");
+  await addIfMissing("notif_inapp_messages", "TINYINT(1) NOT NULL DEFAULT 1");
+  await addIfMissing("notif_inapp_reports", "TINYINT(1) NOT NULL DEFAULT 1");
+  await addIfMissing("notif_email_likes", "TINYINT(1) NOT NULL DEFAULT 0");
+  await addIfMissing("notif_email_comments", "TINYINT(1) NOT NULL DEFAULT 0");
+  await addIfMissing("notif_email_mentions", "TINYINT(1) NOT NULL DEFAULT 1");
+  await addIfMissing("notif_email_messages", "TINYINT(1) NOT NULL DEFAULT 0");
+  await addIfMissing("notif_email_reports", "TINYINT(1) NOT NULL DEFAULT 1");
+  await addIfMissing("quiet_hours_enabled", "TINYINT(1) NOT NULL DEFAULT 0");
+  await addIfMissing("quiet_hours_start", "VARCHAR(5) NOT NULL DEFAULT '22:00'");
+  await addIfMissing("quiet_hours_end", "VARCHAR(5) NOT NULL DEFAULT '07:00'");
+  await addIfMissing("notif_digest", "VARCHAR(20) NOT NULL DEFAULT 'instant'");
+  await addIfMissing("muted_words", "TEXT NULL");
+  await addIfMissing("autoplay_media", "TINYINT(1) NOT NULL DEFAULT 1");
+  await addIfMissing("blur_sensitive_media", "TINYINT(1) NOT NULL DEFAULT 0");
+  await addIfMissing("deactivated_at", "DATETIME NULL");
+  await addIfMissing("delete_requested_at", "DATETIME NULL");
+
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_user_sessions (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      user_id INT NOT NULL,
+      session_jti VARCHAR(64) NOT NULL UNIQUE,
+      device_info VARCHAR(255) NULL,
+      ip_address VARCHAR(64) NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      last_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      revoked_at DATETIME NULL,
+      INDEX idx_vus_user (user_id),
+      INDEX idx_vus_revoked (revoked_at)
+    )
+  `);
+
+  advancedSettingsSchemaReady = true;
+};
+
+const ACCOUNT_DELETE_GRACE_DAYS = 10;
+const ACCOUNT_DELETE_SWEEP_MS = 60 * 60 * 1000;
+
+const getAccountDeletionDueAt = (deleteRequestedAt) => {
+  if (!deleteRequestedAt) return null;
+  const dt = new Date(deleteRequestedAt);
+  if (Number.isNaN(dt.getTime())) return null;
+  dt.setDate(dt.getDate() + ACCOUNT_DELETE_GRACE_DAYS);
+  return dt;
+};
+
+const collectJsonUrls = (raw) => {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed.filter(Boolean);
+    return parsed ? [parsed] : [];
+  } catch {
+    return [raw];
+  }
+};
+
+const purgeUserAccount = async (userId) => {
+  const numericUserId = Number(userId);
+  if (!numericUserId) return false;
+
+  const [[user]] = await db.query(
+    "SELECT id, avatar_url, banner_url FROM vine_users WHERE id = ? LIMIT 1",
+    [numericUserId]
+  );
+  if (!user) return false;
+
+  const [posts] = await db.query(
+    "SELECT id, image_url FROM vine_posts WHERE user_id = ?",
+    [numericUserId]
+  );
+  const [statuses] = await db.query(
+    "SELECT media_url FROM vine_statuses WHERE user_id = ?",
+    [numericUserId]
+  );
+  const [submissionFiles] = await db.query(
+    `
+    SELECT f.file_url
+    FROM vine_community_submission_files f
+    JOIN vine_community_submissions s ON s.id = f.submission_id
+    WHERE s.user_id = ?
+    `,
+    [numericUserId]
+  );
+  const [assignmentFiles] = await db.query(
+    "SELECT attachment_url FROM vine_community_assignments WHERE creator_id = ? AND attachment_url IS NOT NULL AND attachment_url != ''",
+    [numericUserId]
+  );
+  const [ownedCommunities] = await db.query(
+    "SELECT id, avatar_url, banner_url FROM vine_communities WHERE creator_id = ?",
+    [numericUserId]
+  );
+
+  const urlsToDelete = [
+    ...posts.flatMap((row) => collectJsonUrls(row.image_url)),
+    ...statuses.map((row) => row.media_url).filter(Boolean),
+    ...submissionFiles.map((row) => row.file_url).filter(Boolean),
+    ...assignmentFiles.map((row) => row.attachment_url).filter(Boolean),
+    ...ownedCommunities.flatMap((row) => [row.avatar_url, row.banner_url].filter(Boolean)),
+    ...[user.avatar_url, user.banner_url].filter(Boolean),
+  ];
+  await Promise.allSettled(Array.from(new Set(urlsToDelete)).map((url) => deleteCloudinaryByUrl(url)));
+
+  const communityIds = ownedCommunities.map((row) => Number(row.id)).filter(Boolean);
+  if (communityIds.length) {
+    const placeholders = communityIds.map(() => "?").join(", ");
+    await db.query(`DELETE FROM vine_community_submission_files WHERE community_id IN (${placeholders})`, communityIds);
+    await db.query(`DELETE FROM vine_community_submission_drafts WHERE community_id IN (${placeholders})`, communityIds);
+    await db.query(`DELETE FROM vine_community_submissions WHERE community_id IN (${placeholders})`, communityIds);
+    await db.query(`DELETE FROM vine_community_assignments WHERE community_id IN (${placeholders})`, communityIds);
+    await db.query(`DELETE FROM vine_community_attendance WHERE community_id IN (${placeholders})`, communityIds);
+    await db.query(`DELETE FROM vine_community_sessions WHERE community_id IN (${placeholders})`, communityIds);
+    await db.query(`DELETE FROM vine_community_reports WHERE community_id IN (${placeholders})`, communityIds);
+    await db.query(`DELETE FROM vine_community_events WHERE community_id IN (${placeholders})`, communityIds);
+    await db.query(`DELETE FROM vine_community_join_questions WHERE community_id IN (${placeholders})`, communityIds);
+    await db.query(`DELETE FROM vine_community_rules WHERE community_id IN (${placeholders})`, communityIds);
+    await db.query(`DELETE FROM vine_community_join_requests WHERE community_id IN (${placeholders})`, communityIds);
+    await db.query(`DELETE FROM vine_community_members WHERE community_id IN (${placeholders})`, communityIds);
+    await db.query(`DELETE FROM vine_scheduled_posts WHERE community_id IN (${placeholders})`, communityIds);
+    await db.query(`DELETE FROM vine_posts WHERE community_id IN (${placeholders})`, communityIds);
+    await db.query(`DELETE FROM vine_communities WHERE id IN (${placeholders})`, communityIds);
+  }
+
+  await db.query("DELETE FROM vine_community_submission_files WHERE user_id = ?", [numericUserId]).catch(() => {});
+  await db.query("DELETE FROM vine_community_submission_drafts WHERE user_id = ?", [numericUserId]).catch(() => {});
+  await db.query("DELETE FROM vine_community_submissions WHERE user_id = ?", [numericUserId]).catch(() => {});
+  await db.query("DELETE FROM vine_community_members WHERE user_id = ?", [numericUserId]).catch(() => {});
+  await db.query("DELETE FROM vine_community_join_requests WHERE user_id = ?", [numericUserId]).catch(() => {});
+  await db.query("DELETE FROM vine_community_sessions WHERE created_by = ?", [numericUserId]).catch(() => {});
+  await db.query("DELETE FROM vine_community_attendance WHERE user_id = ? OR marked_by = ?", [numericUserId, numericUserId]).catch(() => {});
+  await db.query("DELETE FROM vine_community_assignments WHERE creator_id = ?", [numericUserId]).catch(() => {});
+  await db.query("DELETE FROM vine_status_views WHERE viewer_id = ? OR user_id = ?", [numericUserId, numericUserId]).catch(() => {});
+  await db.query("DELETE FROM vine_statuses WHERE user_id = ?", [numericUserId]).catch(() => {});
+  await db.query("DELETE FROM vine_comment_likes WHERE user_id = ?", [numericUserId]).catch(() => {});
+  await db.query("DELETE FROM vine_comments WHERE user_id = ?", [numericUserId]).catch(() => {});
+  await db.query("DELETE FROM vine_post_views WHERE user_id = ?", [numericUserId]).catch(() => {});
+  await db.query("DELETE FROM vine_bookmarks WHERE user_id = ?", [numericUserId]).catch(() => {});
+  await db.query("DELETE FROM vine_likes WHERE user_id = ?", [numericUserId]).catch(() => {});
+  await db.query("DELETE FROM vine_revines WHERE user_id = ?", [numericUserId]).catch(() => {});
+  await db.query("DELETE FROM vine_posts WHERE user_id = ?", [numericUserId]).catch(() => {});
+  await db.query("DELETE FROM vine_notifications WHERE user_id = ? OR actor_id = ?", [numericUserId, numericUserId]).catch(() => {});
+  await db.query("DELETE FROM vine_reports WHERE reporter_id = ? OR reported_user_id = ?", [numericUserId, numericUserId]).catch(() => {});
+  await db.query("DELETE FROM vine_user_suspensions WHERE user_id = ? OR created_by = ?", [numericUserId, numericUserId]).catch(() => {});
+  await db.query("DELETE FROM vine_blocks WHERE blocker_id = ? OR blocked_id = ?", [numericUserId, numericUserId]).catch(() => {});
+  await db.query("DELETE FROM vine_mutes WHERE muter_id = ? OR muted_id = ?", [numericUserId, numericUserId]).catch(() => {});
+  await db.query("DELETE FROM vine_follows WHERE follower_id = ? OR following_id = ?", [numericUserId, numericUserId]).catch(() => {});
+  await db.query("DELETE FROM vine_messages WHERE sender_id = ?", [numericUserId]).catch(() => {});
+  await db.query("DELETE FROM vine_conversation_deletes WHERE user_id = ?", [numericUserId]).catch(() => {});
+  await db.query("DELETE FROM vine_conversations WHERE user1_id = ? OR user2_id = ?", [numericUserId, numericUserId]).catch(() => {});
+  await db.query("DELETE FROM vine_user_sessions WHERE user_id = ?", [numericUserId]).catch(() => {});
+  await db.query("DELETE FROM vine_login_events WHERE user_id = ?", [numericUserId]).catch(() => {});
+  await db.query("DELETE FROM vine_users WHERE id = ?", [numericUserId]).catch(() => {});
+  return true;
+};
+
+const sweepExpiredAccountDeletions = async () => {
+  await ensureAdvancedSettingsSchema();
+  const [rows] = await db.query(
+    `
+    SELECT id, delete_requested_at
+    FROM vine_users
+    WHERE delete_requested_at IS NOT NULL
+    `
+  );
+  for (const row of rows) {
+    const dueAt = getAccountDeletionDueAt(row.delete_requested_at);
+    if (dueAt && dueAt <= new Date()) {
+      await purgeUserAccount(row.id);
+    }
+  }
 };
 
 let communitySchemaReady = false;
@@ -826,7 +1068,15 @@ const fetchRssNews = async () => {
       last_error: null,
     });
     try {
-      const res = await fetch(feed, { headers: { "User-Agent": "VineNewsBot/1.0" } });
+      const res = await fetch(feed, {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+          Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml, */*;q=0.8",
+          "Cache-Control": "no-cache",
+          Pragma: "no-cache",
+        },
+      });
       if (!res.ok) {
         const cur = newsFeedRuntimeStats.get(feed);
         updateNewsFeedStat(feed, {
@@ -840,6 +1090,35 @@ const fetchRssNews = async () => {
       }
       const xml = await res.text();
       const parsed = parseRssItems(xml, new URL(feed).hostname.replace(/^www\./, ""));
+      if (parsed.length === 0) {
+        // Some publishers block non-browser clients on first pass; retry once.
+        const retry = await fetch(feed, {
+          headers: {
+            "User-Agent":
+              "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+            Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml, */*;q=0.8",
+            "Cache-Control": "no-cache",
+            Pragma: "no-cache",
+          },
+        });
+        if (retry.ok) {
+          const retryXml = await retry.text();
+          const retryParsed = parseRssItems(retryXml, new URL(feed).hostname.replace(/^www\./, ""));
+          if (retryParsed.length > 0) {
+            all.push(...retryParsed);
+            const cur = newsFeedRuntimeStats.get(feed);
+            updateNewsFeedStat(feed, {
+              last_status: Number(retry.status || 200),
+              successes: Number(cur?.successes || 0) + 1,
+              consecutive_failures: 0,
+              last_ok_at: new Date().toISOString(),
+              last_error: null,
+              last_parsed_items: retryParsed.length,
+            });
+            continue;
+          }
+        }
+      }
       all.push(...parsed);
       const cur = newsFeedRuntimeStats.get(feed);
       updateNewsFeedStat(feed, {
@@ -908,7 +1187,8 @@ const getOrCreateNewsBotUserId = async () => {
 
 let newsIngestInFlight = false;
 let lastNewsIngestAt = 0;
-const NEWS_INGEST_INTERVAL_MS = 5 * 60 * 1000;
+const NEWS_INGEST_INTERVAL_MS = 60 * 60 * 1000;
+const NEWS_BACKGROUND_TICK_MS = 5 * 60 * 1000;
 const newsFeedRuntimeStats = new Map();
 let newsBootIngestScheduled = false;
 
@@ -1024,9 +1304,25 @@ const scheduleNewsIngestOnBoot = () => {
   setTimeout(() => {
     triggerNewsIngestIfDue();
   }, 12_000);
+  const ticker = setInterval(() => {
+    triggerNewsIngestIfDue();
+  }, NEWS_BACKGROUND_TICK_MS);
+  if (typeof ticker.unref === "function") ticker.unref();
 };
 
 scheduleNewsIngestOnBoot();
+
+setTimeout(() => {
+  sweepExpiredAccountDeletions().catch((err) =>
+    console.error("Account deletion sweep error:", err?.message || err)
+  );
+}, 15_000);
+const accountDeletionTicker = setInterval(() => {
+  sweepExpiredAccountDeletions().catch((err) =>
+    console.error("Account deletion sweep error:", err?.message || err)
+  );
+}, ACCOUNT_DELETE_SWEEP_MS);
+if (typeof accountDeletionTicker.unref === "function") accountDeletionTicker.unref();
 
 const isHeicFile = (file) => {
   const name = file?.originalname || "";
@@ -1431,12 +1727,64 @@ const extractMentions = (text) => {
   return Array.from(new Set(names.map((n) => n.toLowerCase())));
 };
 
+const resolveAtAllTargetIds = async ({ actorId, postId }) => {
+  if (!actorId) return [];
+  let communityId = null;
+  if (postId) {
+    const [[postRow]] = await db.query(
+      "SELECT community_id FROM vine_posts WHERE id = ? LIMIT 1",
+      [postId]
+    );
+    communityId = postRow?.community_id ?? null;
+  }
+
+  if (communityId) {
+    const [communityMembers] = await db.query(
+      "SELECT user_id FROM vine_community_members WHERE community_id = ?",
+      [communityId]
+    );
+    return communityMembers.map((m) => Number(m.user_id)).filter((id) => Number.isFinite(id));
+  }
+
+  const [followers] = await db.query(
+    "SELECT follower_id AS user_id FROM vine_follows WHERE following_id = ?",
+    [actorId]
+  );
+  return followers.map((f) => Number(f.user_id)).filter((id) => Number.isFinite(id));
+};
+
 const notifyMentions = async ({ mentions, actorId, postId, commentId, type }) => {
   if (!mentions?.length) return;
-  const placeholders = mentions.map(() => "?").join(", ");
-  const [users] = await db.query(
-    `SELECT id, username FROM vine_users WHERE LOWER(username) IN (${placeholders})`,
-    mentions
+  await ensureAdvancedSettingsSchema();
+  const mentionSet = new Set((mentions || []).map((m) => String(m || "").toLowerCase()).filter(Boolean));
+  const hasAtAll = mentionSet.has("all");
+  mentionSet.delete("all");
+
+  const userRows = [];
+  if (mentionSet.size > 0) {
+    const explicitMentions = Array.from(mentionSet);
+    const placeholders = explicitMentions.map(() => "?").join(", ");
+    const [users] = await db.query(
+      `SELECT id, username, mentions_privacy, tags_privacy FROM vine_users WHERE LOWER(username) IN (${placeholders})`,
+      explicitMentions
+    );
+    userRows.push(...users);
+  }
+
+  if (hasAtAll) {
+    const atAllIds = await resolveAtAllTargetIds({ actorId, postId });
+    if (atAllIds.length > 0) {
+      const placeholders = atAllIds.map(() => "?").join(", ");
+      const [allUsers] = await db.query(
+        `SELECT id, username, mentions_privacy, tags_privacy FROM vine_users WHERE id IN (${placeholders})`,
+        atAllIds
+      );
+      userRows.push(...allUsers);
+    }
+  }
+
+  const users = Array.from(
+    new Map(userRows.map((u) => [Number(u.id), u])).values()
   );
 
   for (const user of users) {
@@ -1444,6 +1792,24 @@ const notifyMentions = async ({ mentions, actorId, postId, commentId, type }) =>
     if (await isUserBlocked(user.id, actorId)) continue;
     if (await isUserBlocked(actorId, user.id)) continue;
     if (await isMutedBy(user.id, actorId)) continue;
+    const privacyValue = String(
+      type === "mention_post" || type === "mention_comment"
+        ? user.mentions_privacy || "everyone"
+        : user.tags_privacy || "everyone"
+    ).toLowerCase();
+    if (privacyValue === "no_one") continue;
+    if (privacyValue === "followers") {
+      const [[isFollower]] = await db.query(
+        `
+        SELECT 1 AS ok
+        FROM vine_follows
+        WHERE follower_id = ? AND following_id = ?
+        LIMIT 1
+        `,
+        [actorId, user.id]
+      );
+      if (!isFollower?.ok) continue;
+    }
 
     await db.query(
       `INSERT INTO vine_notifications (user_id, actor_id, type, post_id, comment_id)
@@ -1575,6 +1941,7 @@ router.post("/auth/login", async (req, res) => {
     console.log("BODY:", req.body);
 
     try {
+      await ensureAdvancedSettingsSchema();
       const { identifier, password } = req.body;
   
       if (!identifier || !password) {
@@ -1591,12 +1958,20 @@ router.post("/auth/login", async (req, res) => {
       }
   
       const user = rows[0];
+      if (user?.delete_requested_at) {
+        const dueAt = getAccountDeletionDueAt(user.delete_requested_at);
+        if (dueAt && dueAt <= new Date()) {
+          await purgeUserAccount(user.id);
+          return res.status(403).json({ message: "Account deletion completed." });
+        }
+      }
   
       const ok = await bcrypt.compare(password, user.password_hash);
       if (!ok) {
         return res.status(401).json({ message: "Invalid login" });
       }
   
+      const sessionJti = crypto.randomBytes(16).toString("hex");
       const token = jwt.sign(
         {
           id: user.id,
@@ -1604,6 +1979,7 @@ router.post("/auth/login", async (req, res) => {
           is_admin: user.is_admin,
           role: user.role || "user",
           badge_type: user.badge_type || null,
+          jti: sessionJti,
         },
         process.env.JWT_SECRET,
         { expiresIn: "7d" }
@@ -1614,6 +1990,15 @@ router.post("/auth/login", async (req, res) => {
         await db.query(
           "INSERT INTO vine_login_events (user_id, created_at) VALUES (?, NOW())",
           [user.id]
+        );
+      } catch (_) {}
+      try {
+        await db.query(
+          `
+          INSERT INTO vine_user_sessions (user_id, session_jti, device_info, ip_address, created_at, last_seen_at)
+          VALUES (?, ?, ?, ?, NOW(), NOW())
+          `,
+          [user.id, sessionJti, String(req.headers["user-agent"] || "").slice(0, 255), getClientIp(req)]
         );
       } catch (_) {}
   
@@ -1627,6 +2012,9 @@ router.post("/auth/login", async (req, res) => {
           is_admin: user.is_admin,
           role: user.role || "user",
           badge_type: user.badge_type || null,
+          delete_requested_at: user.delete_requested_at || null,
+          deactivated_at: user.deactivated_at || null,
+          deletion_due_at: user.delete_requested_at ? getAccountDeletionDueAt(user.delete_requested_at)?.toISOString() || null : null,
         }
       });
   
@@ -1658,12 +2046,38 @@ async function requireVineAuth(req, res, next) {
     const token = auth.split(" ")[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     req.user = decoded;
+    if (req.user?.jti) {
+      const [[session]] = await db.query(
+        "SELECT revoked_at FROM vine_user_sessions WHERE user_id = ? AND session_jti = ? LIMIT 1",
+        [req.user.id, req.user.jti]
+      );
+      if (!session || session.revoked_at) {
+        return res.status(401).json({ message: "Session expired" });
+      }
+    }
+    const [[userRow]] = await db.query(
+      "SELECT delete_requested_at FROM vine_users WHERE id = ? LIMIT 1",
+      [req.user.id]
+    );
+    const dueAt = getAccountDeletionDueAt(userRow?.delete_requested_at);
+    if (dueAt && dueAt <= new Date()) {
+      await purgeUserAccount(req.user.id);
+      return res.status(403).json({ message: "Account deletion completed." });
+    }
 
     // 🔑 UPDATE LAST ACTIVE
     await db.query(
       "UPDATE vine_users SET last_active_at = NOW() WHERE id = ?",
       [req.user.id]
     );
+    if (req.user?.jti) {
+      try {
+        await db.query(
+          "UPDATE vine_user_sessions SET last_seen_at = NOW() WHERE user_id = ? AND session_jti = ? AND revoked_at IS NULL",
+          [req.user.id, req.user.jti]
+        );
+      } catch (_) {}
+    }
 
     next();
   } catch {
@@ -4379,7 +4793,15 @@ router.get("/news/health", authenticate, async (req, res) => {
     const checks = [];
     for (const feed of feeds.slice(0, 12)) {
       try {
-        const r = await fetch(feed, { headers: { "User-Agent": "VineNewsBot/1.0" } });
+        const r = await fetch(feed, {
+          headers: {
+            "User-Agent":
+              "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            Accept: "application/rss+xml, application/atom+xml, application/xml, text/xml, */*;q=0.8",
+            "Cache-Control": "no-cache",
+            Pragma: "no-cache",
+          },
+        });
         const text = r.ok ? await r.text() : "";
         const parsed = r.ok ? parseRssItems(text, new URL(feed).hostname) : [];
         const runtime = newsFeedRuntimeStats.get(feed);
@@ -4600,6 +5022,7 @@ router.get("/users/search", authenticate, async (req, res) => {
   }
 
   try {
+    await ensureAdvancedSettingsSchema();
     const viewerId = req.user?.id || null;
     const [rows] = await db.query(
       `
@@ -4612,6 +5035,7 @@ router.get("/users/search", authenticate, async (req, res) => {
       FROM vine_users
       WHERE (username LIKE ? OR display_name LIKE ?)
         AND id != ${viewerId || 0}
+        AND COALESCE(hide_from_search, 0) = 0
         AND NOT EXISTS (
           SELECT 1 FROM vine_follows f
           WHERE f.follower_id = ${viewerId || 0}
@@ -4657,6 +5081,7 @@ router.get("/search", authenticate, async (req, res) => {
   }
 
   try {
+    await ensureAdvancedSettingsSchema();
     const like = `%${q}%`;
 
     const [users] = await db.query(
@@ -4670,6 +5095,7 @@ router.get("/search", authenticate, async (req, res) => {
       FROM vine_users
       WHERE (username LIKE ? OR display_name LIKE ?)
         AND id != ?
+        AND COALESCE(hide_from_search, 0) = 0
         AND NOT EXISTS (
           SELECT 1 FROM vine_mutes m
           WHERE m.muter_id = ?
@@ -4874,6 +5300,7 @@ router.get("/users/mention", authenticate, async (req, res) => {
   if (!q || q.length < 1) return res.json([]);
 
   try {
+    await ensureAdvancedSettingsSchema();
     const viewerId = req.user?.id || null;
     const [rows] = await db.query(
       `
@@ -4881,6 +5308,7 @@ router.get("/users/mention", authenticate, async (req, res) => {
       FROM vine_users
       WHERE (username LIKE ? OR display_name LIKE ?)
         AND id != ${viewerId || 0}
+        AND COALESCE(hide_from_search, 0) = 0
         ${
           viewerId
             ? `AND NOT EXISTS (
@@ -4895,10 +5323,50 @@ router.get("/users/mention", authenticate, async (req, res) => {
       `,
       [`${q}%`, `%${q}%`]
     );
-    res.json(rows);
+    const list = [...rows];
+    if ("all".startsWith(String(q).toLowerCase())) {
+      list.unshift({
+        id: -1,
+        username: "all",
+        display_name: "Everyone",
+        avatar_url: null,
+        is_verified: 0,
+      });
+    }
+    res.json(list.slice(0, 8));
   } catch (err) {
     console.error("Mention search error:", err);
     res.status(500).json([]);
+  }
+});
+
+router.get("/gifs/trending", authenticate, async (req, res) => {
+  try {
+    const limit = Math.min(30, Math.max(1, Number(req.query.limit || 20)));
+    const { results, error } = await fetchGiphy("trending", { limit: String(limit) });
+    if (error) {
+      return res.status(503).json({ message: error, results: [] });
+    }
+    res.json({ results });
+  } catch (err) {
+    console.error("GIF trending error:", err);
+    res.status(500).json({ message: "Failed to load trending GIFs", results: [] });
+  }
+});
+
+router.get("/gifs/search", authenticate, async (req, res) => {
+  try {
+    const q = String(req.query.q || "").trim();
+    const limit = Math.min(30, Math.max(1, Number(req.query.limit || 20)));
+    if (!q) return res.json({ results: [] });
+    const { results, error } = await fetchGiphy("search", { q, limit: String(limit) });
+    if (error) {
+      return res.status(503).json({ message: error, results: [] });
+    }
+    res.json({ results });
+  } catch (err) {
+    console.error("GIF search error:", err);
+    res.status(500).json({ message: "Failed to search GIFs", results: [] });
   }
 });
 
@@ -6211,16 +6679,41 @@ router.post("/users/update-profile", authenticate, async (req, res) => {
 router.patch("/users/me/settings", authenticate, async (req, res) => {
   try {
     await ensureProfileAboutSchema();
+    await ensureAdvancedSettingsSchema();
     const {
       dm_privacy,
       is_private,
       hide_like_counts,
       show_last_active,
       about_privacy,
+      two_factor_email,
+      mentions_privacy,
+      tags_privacy,
+      hide_from_search,
+      notif_inapp_likes,
+      notif_inapp_comments,
+      notif_inapp_mentions,
+      notif_inapp_messages,
+      notif_inapp_reports,
+      notif_email_likes,
+      notif_email_comments,
+      notif_email_mentions,
+      notif_email_messages,
+      notif_email_reports,
+      quiet_hours_enabled,
+      quiet_hours_start,
+      quiet_hours_end,
+      notif_digest,
+      muted_words,
+      autoplay_media,
+      blur_sensitive_media,
     } = req.body || {};
 
     const allowedDm = new Set(["everyone", "followers", "no_one"]);
     const allowedAbout = new Set(["everyone", "followers", "no_one"]);
+    const allowedMentions = new Set(["everyone", "followers", "no_one"]);
+    const allowedTags = new Set(["everyone", "followers", "no_one"]);
+    const allowedDigest = new Set(["instant", "hourly", "daily"]);
     const updates = [];
     const params = [];
 
@@ -6255,6 +6748,74 @@ router.patch("/users/me/settings", authenticate, async (req, res) => {
       params.push(about_privacy);
     }
 
+    if (two_factor_email !== undefined) {
+      updates.push("two_factor_email = ?");
+      params.push(two_factor_email ? 1 : 0);
+    }
+
+    if (mentions_privacy !== undefined) {
+      if (!allowedMentions.has(String(mentions_privacy))) {
+        return res.status(400).json({ message: "Invalid mentions_privacy" });
+      }
+      updates.push("mentions_privacy = ?");
+      params.push(mentions_privacy);
+    }
+
+    if (tags_privacy !== undefined) {
+      if (!allowedTags.has(String(tags_privacy))) {
+        return res.status(400).json({ message: "Invalid tags_privacy" });
+      }
+      updates.push("tags_privacy = ?");
+      params.push(tags_privacy);
+    }
+
+    if (hide_from_search !== undefined) {
+      updates.push("hide_from_search = ?");
+      params.push(hide_from_search ? 1 : 0);
+    }
+
+    const boolFields = [
+      ["notif_inapp_likes", notif_inapp_likes],
+      ["notif_inapp_comments", notif_inapp_comments],
+      ["notif_inapp_mentions", notif_inapp_mentions],
+      ["notif_inapp_messages", notif_inapp_messages],
+      ["notif_inapp_reports", notif_inapp_reports],
+      ["notif_email_likes", notif_email_likes],
+      ["notif_email_comments", notif_email_comments],
+      ["notif_email_mentions", notif_email_mentions],
+      ["notif_email_messages", notif_email_messages],
+      ["notif_email_reports", notif_email_reports],
+      ["quiet_hours_enabled", quiet_hours_enabled],
+      ["autoplay_media", autoplay_media],
+      ["blur_sensitive_media", blur_sensitive_media],
+    ];
+    for (const [field, value] of boolFields) {
+      if (value !== undefined) {
+        updates.push(`${field} = ?`);
+        params.push(value ? 1 : 0);
+      }
+    }
+
+    if (quiet_hours_start !== undefined) {
+      updates.push("quiet_hours_start = ?");
+      params.push(String(quiet_hours_start || "").slice(0, 5) || "22:00");
+    }
+    if (quiet_hours_end !== undefined) {
+      updates.push("quiet_hours_end = ?");
+      params.push(String(quiet_hours_end || "").slice(0, 5) || "07:00");
+    }
+    if (notif_digest !== undefined) {
+      if (!allowedDigest.has(String(notif_digest))) {
+        return res.status(400).json({ message: "Invalid notif_digest" });
+      }
+      updates.push("notif_digest = ?");
+      params.push(notif_digest);
+    }
+    if (muted_words !== undefined) {
+      updates.push("muted_words = ?");
+      params.push(String(muted_words || "").slice(0, 5000) || null);
+    }
+
     if (!updates.length) {
       return res.json({ success: true });
     }
@@ -6270,7 +6831,12 @@ router.patch("/users/me/settings", authenticate, async (req, res) => {
 
     const [[user]] = await db.query(
       `
-      SELECT dm_privacy, is_private, hide_like_counts, show_last_active, about_privacy
+      SELECT dm_privacy, is_private, hide_like_counts, show_last_active, about_privacy,
+             two_factor_email, mentions_privacy, tags_privacy, hide_from_search,
+             notif_inapp_likes, notif_inapp_comments, notif_inapp_mentions, notif_inapp_messages, notif_inapp_reports,
+             notif_email_likes, notif_email_comments, notif_email_mentions, notif_email_messages, notif_email_reports,
+             quiet_hours_enabled, quiet_hours_start, quiet_hours_end, notif_digest,
+             muted_words, autoplay_media, blur_sensitive_media
       FROM vine_users
       WHERE id = ?
       `,
@@ -6281,6 +6847,205 @@ router.patch("/users/me/settings", authenticate, async (req, res) => {
   } catch (err) {
     console.error("Update settings error:", err);
     res.status(500).json({ message: "Failed to update settings" });
+  }
+});
+
+router.get("/users/me/preferences", authenticate, async (req, res) => {
+  try {
+    await ensureProfileAboutSchema();
+    await ensureAdvancedSettingsSchema();
+    const [[prefs]] = await db.query(
+      `
+      SELECT dm_privacy, is_private, hide_like_counts, show_last_active, about_privacy,
+             two_factor_email, mentions_privacy, tags_privacy, hide_from_search,
+             notif_inapp_likes, notif_inapp_comments, notif_inapp_mentions, notif_inapp_messages, notif_inapp_reports,
+             notif_email_likes, notif_email_comments, notif_email_mentions, notif_email_messages, notif_email_reports,
+             quiet_hours_enabled, quiet_hours_start, quiet_hours_end, notif_digest,
+             muted_words, autoplay_media, blur_sensitive_media,
+             deactivated_at, delete_requested_at
+      FROM vine_users
+      WHERE id = ?
+      LIMIT 1
+      `,
+      [req.user.id]
+    );
+    res.json(prefs || {});
+  } catch (err) {
+    console.error("Get preferences error:", err);
+    res.status(500).json({ message: "Failed to load preferences" });
+  }
+});
+
+router.get("/users/me/sessions", authenticate, async (req, res) => {
+  try {
+    await ensureAdvancedSettingsSchema();
+    const [rows] = await db.query(
+      `
+      SELECT id, session_jti, device_info, ip_address, created_at, last_seen_at, revoked_at
+      FROM vine_user_sessions
+      WHERE user_id = ?
+      ORDER BY last_seen_at DESC, created_at DESC
+      LIMIT 30
+      `,
+      [req.user.id]
+    );
+    const currentJti = String(req.user?.jti || "");
+    res.json(
+      (rows || []).map((row) => ({
+        ...row,
+        is_current: currentJti && String(row.session_jti) === currentJti,
+      }))
+    );
+  } catch (err) {
+    console.error("Get sessions error:", err);
+    res.status(500).json([]);
+  }
+});
+
+router.post("/users/me/sessions/logout-all", authenticate, async (req, res) => {
+  try {
+    await ensureAdvancedSettingsSchema();
+    const currentJti = String(req.user?.jti || "");
+    if (currentJti) {
+      await db.query(
+        "UPDATE vine_user_sessions SET revoked_at = NOW() WHERE user_id = ? AND session_jti != ? AND revoked_at IS NULL",
+        [req.user.id, currentJti]
+      );
+    } else {
+      await db.query(
+        "UPDATE vine_user_sessions SET revoked_at = NOW() WHERE user_id = ? AND revoked_at IS NULL",
+        [req.user.id]
+      );
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Logout all sessions error:", err);
+    res.status(500).json({ message: "Failed to log out sessions" });
+  }
+});
+
+router.get("/users/me/export", authenticate, async (req, res) => {
+  try {
+    const format = String(req.query.format || "json").toLowerCase();
+    const userId = req.user.id;
+    const [[user]] = await db.query(
+      "SELECT id, username, display_name, email, bio, created_at FROM vine_users WHERE id = ? LIMIT 1",
+      [userId]
+    );
+    const [posts] = await db.query(
+      "SELECT id, content, created_at FROM vine_posts WHERE user_id = ? ORDER BY created_at DESC LIMIT 1000",
+      [userId]
+    );
+    const [comments] = await db.query(
+      "SELECT id, post_id, content, created_at FROM vine_comments WHERE user_id = ? ORDER BY created_at DESC LIMIT 1000",
+      [userId]
+    );
+    const [likes] = await db.query(
+      "SELECT post_id, created_at FROM vine_likes WHERE user_id = ? ORDER BY created_at DESC LIMIT 1000",
+      [userId]
+    );
+
+    if (format === "csv") {
+      const csvRows = [
+        ["section", "id", "ref", "content", "created_at"].join(","),
+        ...posts.map((p) => ["post", p.id, "", JSON.stringify(p.content || ""), p.created_at].join(",")),
+        ...comments.map((c) => ["comment", c.id, c.post_id, JSON.stringify(c.content || ""), c.created_at].join(",")),
+        ...likes.map((l, idx) => ["like", idx + 1, l.post_id, "", l.created_at].join(",")),
+      ].join("\n");
+      res.setHeader("Content-Type", "text/csv; charset=utf-8");
+      res.setHeader("Content-Disposition", 'attachment; filename="vine-data-export.csv"');
+      return res.send(csvRows);
+    }
+
+    res.json({
+      exported_at: new Date().toISOString(),
+      user: user || null,
+      posts: posts || [],
+      comments: comments || [],
+      likes: likes || [],
+    });
+  } catch (err) {
+    console.error("Export data error:", err);
+    res.status(500).json({ message: "Failed to export data" });
+  }
+});
+
+router.post("/users/me/deactivate", authenticate, async (req, res) => {
+  try {
+    await ensureAdvancedSettingsSchema();
+    const [[user]] = await db.query(
+      "SELECT email, display_name, username FROM vine_users WHERE id = ? LIMIT 1",
+      [req.user.id]
+    );
+    const now = new Date();
+    const dueAt = getAccountDeletionDueAt(now);
+    await db.query(
+      "UPDATE vine_users SET deactivated_at = NOW(), delete_requested_at = NOW() WHERE id = ?",
+      [req.user.id]
+    );
+    await db.query(
+      "UPDATE vine_user_sessions SET revoked_at = NOW() WHERE user_id = ? AND revoked_at IS NULL",
+      [req.user.id]
+    ).catch(() => {});
+    sendVineDeletionScheduledEmail(
+      user?.email,
+      user?.display_name || user?.username || "Viner",
+      dueAt
+    ).catch((err) => console.warn("Deletion scheduled email failed:", err?.message || err));
+    res.json({ success: true, delete_requested_at: now.toISOString(), deletion_due_at: dueAt?.toISOString() || null });
+  } catch (err) {
+    console.error("Deactivate account error:", err);
+    res.status(500).json({ message: "Failed to deactivate account" });
+  }
+});
+
+router.post("/users/me/delete-request", authenticate, async (req, res) => {
+  try {
+    await ensureAdvancedSettingsSchema();
+    const [[user]] = await db.query(
+      "SELECT email, display_name, username FROM vine_users WHERE id = ? LIMIT 1",
+      [req.user.id]
+    );
+    const now = new Date();
+    const dueAt = getAccountDeletionDueAt(now);
+    await db.query(
+      "UPDATE vine_users SET delete_requested_at = NOW(), deactivated_at = COALESCE(deactivated_at, NOW()) WHERE id = ?",
+      [req.user.id]
+    );
+    sendVineDeletionScheduledEmail(
+      user?.email,
+      user?.display_name || user?.username || "Viner",
+      dueAt
+    ).catch((err) => console.warn("Deletion request email failed:", err?.message || err));
+    res.json({ success: true, delete_requested_at: now.toISOString(), deletion_due_at: dueAt?.toISOString() || null });
+  } catch (err) {
+    console.error("Delete request error:", err);
+    res.status(500).json({ message: "Failed to submit delete request" });
+  }
+});
+
+router.post("/users/me/cancel-deletion", authenticate, async (req, res) => {
+  try {
+    await ensureAdvancedSettingsSchema();
+    const [[user]] = await db.query(
+      "SELECT email, display_name, username, delete_requested_at FROM vine_users WHERE id = ? LIMIT 1",
+      [req.user.id]
+    );
+    if (!user?.delete_requested_at) {
+      return res.json({ success: true, pending: false });
+    }
+    await db.query(
+      "UPDATE vine_users SET delete_requested_at = NULL, deactivated_at = NULL WHERE id = ?",
+      [req.user.id]
+    );
+    sendVineDeletionCancelledEmail(
+      user?.email,
+      user?.display_name || user?.username || "Viner"
+    ).catch((err) => console.warn("Deletion cancelled email failed:", err?.message || err));
+    res.json({ success: true, pending: false });
+  } catch (err) {
+    console.error("Cancel deletion error:", err);
+    res.status(500).json({ message: "Failed to cancel deletion" });
   }
 });
 
@@ -8009,6 +8774,27 @@ router.get("/users/me/mutes", authenticate, async (req, res) => {
     res.json(rows);
   } catch (err) {
     console.error("Muted list error:", err);
+    res.status(500).json([]);
+  }
+});
+
+// ⛔ List blocked users for current user
+router.get("/users/me/blocks", authenticate, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const [rows] = await db.query(
+      `
+      SELECT u.id, u.username, u.display_name, u.avatar_url, u.is_verified
+      FROM vine_blocks b
+      JOIN vine_users u ON u.id = b.blocked_id
+      WHERE b.blocker_id = ?
+      ORDER BY b.created_at DESC
+      `,
+      [userId]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error("Blocked list error:", err);
     res.status(500).json([]);
   }
 });

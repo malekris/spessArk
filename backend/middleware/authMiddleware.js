@@ -1,6 +1,15 @@
 import jwt from "jsonwebtoken";
+import { db } from "../server.js";
 
-export default function authMiddleware(req, res, next) {
+const getDeletionDueAt = (value) => {
+  if (!value) return null;
+  const dt = new Date(value);
+  if (Number.isNaN(dt.getTime())) return null;
+  dt.setDate(dt.getDate() + 10);
+  return dt;
+};
+
+export default async function authMiddleware(req, res, next) {
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -11,6 +20,23 @@ export default function authMiddleware(req, res, next) {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    if (decoded?.jti) {
+      const [[session]] = await db.query(
+        "SELECT revoked_at FROM vine_user_sessions WHERE user_id = ? AND session_jti = ? LIMIT 1",
+        [decoded.id, decoded.jti]
+      );
+      if (!session || session.revoked_at) {
+        return res.status(401).json({ message: "Session expired" });
+      }
+    }
+    const [[user]] = await db.query(
+      "SELECT delete_requested_at FROM vine_users WHERE id = ? LIMIT 1",
+      [decoded.id]
+    );
+    const dueAt = getDeletionDueAt(user?.delete_requested_at);
+    if (dueAt && dueAt <= new Date()) {
+      return res.status(403).json({ message: "Account deletion completed." });
+    }
     req.user = decoded; // now req.user.id works
     next();
   } catch (err) {

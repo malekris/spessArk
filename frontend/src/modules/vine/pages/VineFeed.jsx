@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import heic2any from "heic2any";
 import { useNavigate } from "react-router-dom";
 import VinePostCard from "./VinePostCard";
+import GifPickerModal from "../components/GifPickerModal";
 import "./VineFeed.css";
 import VineSuggestions from "./VineSuggestions";
 import { socket } from "../../../socket";
@@ -151,6 +152,8 @@ export default function VineFeed() {
   const [statusViewsLoading, setStatusViewsLoading] = useState(false);
   const [mentionResults, setMentionResults] = useState([]);
   const [mentionAnchor, setMentionAnchor] = useState(null);
+  const [gifPickerOpen, setGifPickerOpen] = useState(false);
+  const [composeGifUrl, setComposeGifUrl] = useState("");
   const [activeNowUsers, setActiveNowUsers] = useState([]);
   const [recentlyActiveUsers, setRecentlyActiveUsers] = useState([]);
   const [presenceModalOpen, setPresenceModalOpen] = useState(false);
@@ -756,7 +759,7 @@ export default function VineFeed() {
 
   // ── Post Creation ───────────────────────────────
   const submitPost = async () => {
-    if (!content.trim() && images.length === 0 && !feeling) return;
+    if (!content.trim() && images.length === 0 && !feeling && !composeGifUrl) return;
 
     try {
       const formData = new FormData();
@@ -764,7 +767,10 @@ export default function VineFeed() {
       const outgoingContent = feeling
         ? `[[feeling:${feeling}]]${normalizedContent ? ` ${normalizedContent}` : ""}`
         : normalizedContent;
-      if (outgoingContent) formData.append("content", outgoingContent);
+      const contentWithGif = composeGifUrl
+        ? `${outgoingContent}${outgoingContent ? "\n" : ""}${composeGifUrl}`
+        : outgoingContent;
+      if (contentWithGif) formData.append("content", contentWithGif);
       if (communityId) formData.append("community_id", String(communityId));
       images.forEach((img) => formData.append("images", img));
 
@@ -784,9 +790,14 @@ export default function VineFeed() {
         return [];
       });
       setCommunityId("");
+      setComposeGifUrl("");
     } catch (err) {
       console.error("Post creation error", err);
     }
+  };
+
+  const addGifToComposer = () => {
+    setGifPickerOpen(true);
   };
   useEffect(() => {
     if (!targetPostId) return;
@@ -805,6 +816,14 @@ export default function VineFeed() {
   // ── Render ──────────────────────────────────────
   return (
     <div className="vine-feed-container">
+      <GifPickerModal
+        open={gifPickerOpen}
+        token={token}
+        onClose={() => setGifPickerOpen(false)}
+        onSelect={(gifUrl) => {
+          setComposeGifUrl(gifUrl);
+        }}
+      />
       {/* Top Navigation Bar */}
       <nav className="vine-nav-top">
         <div className="vine-nav-row">
@@ -1047,6 +1066,12 @@ export default function VineFeed() {
               ))}
             </div>
           )}
+          {composeGifUrl && (
+            <div className="gif-preview-chip">
+              <img src={composeGifUrl} alt="Selected GIF" />
+              <button type="button" onClick={() => setComposeGifUrl("")}>×</button>
+            </div>
+          )}
 
           <div className="create-footer">
             <div className="greeting">
@@ -1069,6 +1094,9 @@ export default function VineFeed() {
 
             <div className="right-actions">
               <span className="char-count">{content.length}/2000</span>
+              <button className="gif-insert-btn" type="button" onClick={addGifToComposer}>
+                GIF
+              </button>
 
               <label className="image-picker media-icon-picker" title="Add photo or video">
                 <span className="media-icon" aria-hidden="true">📷</span>

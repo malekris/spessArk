@@ -3,6 +3,7 @@ import "./VinePostCard.css";
 import { useNavigate } from "react-router-dom";
 import ImageCarousel from "./ImageCarousel";
 import MiniProfileCard from "../components/MiniProfileCard";
+import GifPickerModal from "../components/GifPickerModal";
 import { createPortal } from "react-dom";
 
 // ────────────────────────────────────────────────
@@ -45,11 +46,31 @@ const formatPostDate = (dateString) => {
 
 const renderMentions = (text, navigate) => {
   if (!text) return text;
+  const isGifUrl = (url) => {
+    const value = String(url || "").toLowerCase();
+    return (
+      /\.(gif)(\?|$)/i.test(value) ||
+      value.includes("giphy.com/media/") ||
+      value.includes("media.tenor.com/")
+    );
+  };
   const parts = text.split(
     /(https?:\/\/[^\s]+|@[a-zA-Z0-9._]{1,30}|#[a-zA-Z0-9_]{1,60}|\*\*[^*\n]+\*\*|~~[^~\n]+~~|__[^_\n]+__|\*[^*\n]+\*)/g
   );
   return parts.map((part, idx) => {
     if (/^https?:\/\/[^\s]+$/i.test(part)) {
+      if (isGifUrl(part)) {
+        return (
+          <img
+            key={`gif-${idx}`}
+            className="inline-gif"
+            src={part}
+            alt="gif"
+            loading="lazy"
+            onClick={(e) => e.stopPropagation()}
+          />
+        );
+      }
       return (
         <a
           key={`url-${idx}`}
@@ -65,12 +86,14 @@ const renderMentions = (text, navigate) => {
     }
     if (part.startsWith("@")) {
       const username = part.slice(1);
+      const isAllMention = username.toLowerCase() === "all";
       return (
         <span
           key={`mention-${idx}-${username}`}
           className="mention"
           onClick={(e) => {
             e.stopPropagation();
+            if (isAllMention) return;
             navigate(`/vine/profile/${username}`);
           }}
         >
@@ -228,6 +251,10 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
   const [bookmarked, setBookmarked] = useState(post.user_bookmarked || false);
   const [mentionResults, setMentionResults] = useState([]);
   const [mentionAnchor, setMentionAnchor] = useState(null);
+  const [gifPickerCommentOpen, setGifPickerCommentOpen] = useState(false);
+  const [commentGifUrl, setCommentGifUrl] = useState("");
+
+  const addGifToComment = () => setGifPickerCommentOpen(true);
   const [showReportModal, setShowReportModal] = useState(false);
   const [reportTarget, setReportTarget] = useState({ postId: null, commentId: null });
   const [reportCategory, setReportCategory] = useState("abuse");
@@ -576,19 +603,22 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
     ? Number(targetComment?.user_id) === Number(current_user_id)
     : isPostAuthor;
 
-  const sendComment = async (content, parent_comment_id = null) => {
+  const sendComment = async (content, parent_comment_id = null, gifUrl = "") => {
     if (isCommunityInteractionLocked) {
       alert("Join this community to comment or revine.");
       return;
     }
-    if (!content.trim()) return;
+    if (!content.trim() && !gifUrl) return;
+    const finalContent = gifUrl
+      ? `${content.trim()}${content.trim() ? "\n" : ""}${gifUrl}`
+      : content;
     const res = await fetch(`${API}/api/vine/posts/${post.id}/comments`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ content, parent_comment_id }),
+      body: JSON.stringify({ content: finalContent, parent_comment_id }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -596,7 +626,10 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
       return;
     }
     if (res.ok) {
-      if (!parent_comment_id) setText("");
+      if (!parent_comment_id) {
+        setText("");
+        setCommentGifUrl("");
+      }
       fetchComments();
     }
   };
@@ -629,6 +662,14 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
   // ── Render ──────────────────────────────────────
   return (
     <div className="vine-post light-green-theme" id={`post-${post.id}`} ref={postRef}>
+      <GifPickerModal
+        open={gifPickerCommentOpen}
+        token={token}
+        onClose={() => setGifPickerCommentOpen(false)}
+        onSelect={(gifUrl) => {
+          setCommentGifUrl(gifUrl);
+        }}
+      />
       {/* Header: Avatar + User meta */}
       <div className="vine-post-header">
       <div
@@ -853,7 +894,10 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
               key={`post-tagged-${post.id}-${u}`}
               type="button"
               className="post-tagged-user"
-              onClick={() => navigate(`/vine/profile/${u}`)}
+              onClick={() => {
+                if (String(u).toLowerCase() === "all") return;
+                navigate(`/vine/profile/${u}`);
+              }}
             >
               @{u}{idx < taggedUsers.length - 1 ? "," : ""}
             </button>
@@ -967,8 +1011,17 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
                   placeholder="Post your reply"
                   rows={1}
                 />
-                <button onClick={() => sendComment(text)}>Reply</button>
+                <button className="gif-pick-btn" type="button" onClick={addGifToComment}>
+                  GIF
+                </button>
+                <button onClick={() => sendComment(text, null, commentGifUrl)}>Reply</button>
               </div>
+              {commentGifUrl && (
+                <div className="comment-gif-preview">
+                  <img src={commentGifUrl} alt="Selected GIF" />
+                  <button type="button" onClick={() => setCommentGifUrl("")}>×</button>
+                </div>
+              )}
               {mentionResults.length > 0 && mentionAnchor && (
                 <div className="mention-suggest-list">
                   {mentionResults.map((u) => (
@@ -1157,6 +1210,10 @@ function Comment({ comment, commentLikes, commentUserLiked, setCommentLikes, set
   const [replying, setReplying] = useState(false);
   const [replyText, setReplyText] = useState("");
   const [showReplies, setShowReplies] = useState(false);
+  const [gifPickerReplyOpen, setGifPickerReplyOpen] = useState(false);
+  const [replyGifUrl, setReplyGifUrl] = useState("");
+
+  const addGifToReply = () => setGifPickerReplyOpen(true);
 
   const canDelete =
     isPostOwner ||
@@ -1196,6 +1253,14 @@ function Comment({ comment, commentLikes, commentUserLiked, setCommentLikes, set
 
   return (
     <div className="vine-comment-node" id={`comment-${comment.id}`}>
+      <GifPickerModal
+        open={gifPickerReplyOpen}
+        token={token}
+        onClose={() => setGifPickerReplyOpen(false)}
+        onSelect={(gifUrl) => {
+          setReplyGifUrl(gifUrl);
+        }}
+      />
       <div className="comment-main">
         <div className="comment-meta">
           <img
@@ -1313,15 +1378,25 @@ className={`mini-btn ${
               }}
               placeholder="Write a reply..."
             />
+            <button className="gif-pick-btn" type="button" onClick={addGifToReply}>
+              GIF
+            </button>
             <button
               onClick={() => {
-                onReply(replyText, comment.id);
+                onReply(replyText, comment.id, replyGifUrl);
                 setReplyText("");
+                setReplyGifUrl("");
                 setReplying(false);
               }}
             >
               Send
             </button>
+            {replyGifUrl && (
+              <div className="comment-gif-preview">
+                <img src={replyGifUrl} alt="Selected GIF" />
+                <button type="button" onClick={() => setReplyGifUrl("")}>×</button>
+              </div>
+            )}
             {mentionResults.length > 0 && mentionAnchor && (
               <div className="mention-suggest-list">
                 {mentionResults.map((u) => (

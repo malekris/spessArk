@@ -91,6 +91,10 @@ export default function VineCommunities() {
   const communityPostRef = useRef(null);
   const assignmentFileInputRef = useRef(null);
   const [nowMs, setNowMs] = useState(Date.now());
+  const canManageCommunitySettings = ["owner", "moderator"].includes(
+    String(activeCommunity?.viewer_role || "").toLowerCase()
+  );
+  const pendingRequestCount = pendingRequests.length;
 
   useEffect(() => {
     const timer = setInterval(() => setNowMs(Date.now()), 60 * 1000);
@@ -432,6 +436,16 @@ export default function VineCommunities() {
       }
     }
   }, [activeTab, activeCommunity?.id, activeCommunity?.viewer_role]);
+
+  useEffect(() => {
+    if (!activeCommunity?.id || !canManageCommunitySettings) {
+      setPendingRequests([]);
+      return;
+    }
+    loadRequests();
+    const interval = setInterval(loadRequests, 25000);
+    return () => clearInterval(interval);
+  }, [activeCommunity?.id, canManageCommunitySettings]);
 
   useEffect(() => {
     if (activeTab === "assignments" && activeCommunity?.id) loadBadgesStreaks();
@@ -1501,8 +1515,13 @@ export default function VineCommunities() {
                 <button className={activeTab === "members" ? "active" : ""} onClick={() => setActiveTab("members")}>Members</button>
                 <button className={activeTab === "attendance" ? "active" : ""} onClick={() => setActiveTab("attendance")}>Attendance</button>
                 <button className={activeTab === "assignments" ? "active" : ""} onClick={() => setActiveTab("assignments")}>Assignments</button>
-                {["owner", "moderator"].includes(String(activeCommunity.viewer_role || "").toLowerCase()) && (
-                  <button className={activeTab === "settings" ? "active" : ""} onClick={() => setActiveTab("settings")}>Settings</button>
+                {canManageCommunitySettings && (
+                  <button className={activeTab === "settings" ? "active" : ""} onClick={() => setActiveTab("settings")}>
+                    <span>Settings</span>
+                    {pendingRequestCount > 0 && (
+                      <span className="tab-count-badge">{pendingRequestCount}</span>
+                    )}
+                  </button>
                 )}
               </div>
 

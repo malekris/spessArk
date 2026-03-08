@@ -906,6 +906,50 @@
   border: 1px solid #bbf7d0;
 }
 
+.gif-insert-btn {
+  border: 1px solid #bbf7d0;
+  background: linear-gradient(145deg, #ecfdf5, #d1fae5);
+  color: #065f46;
+  border-radius: 999px;
+  padding: 7px 12px;
+  font-size: 0.82rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.gif-insert-btn:hover {
+  background: linear-gradient(145deg, #dcfce7, #bbf7d0);
+}
+
+.gif-preview-chip {
+  margin-top: 10px;
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 8px;
+  border: 1px solid #bbf7d0;
+  border-radius: 12px;
+  padding: 6px;
+  background: #ecfdf5;
+}
+
+.gif-preview-chip img {
+  width: 88px;
+  height: 88px;
+  border-radius: 10px;
+  object-fit: cover;
+}
+
+.gif-preview-chip button {
+  border: none;
+  background: #dc2626;
+  color: #fff;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-weight: 800;
+}
+
 /* Image Upload Button */
 .image-picker {
   background: #d9fbee;

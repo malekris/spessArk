@@ -31,8 +31,9 @@
   max-width: 1150px;
   margin: 0 auto;
   display: grid;
-  grid-template-columns: 320px 1fr;
+  grid-template-columns: 260px 1fr;
   gap: 14px;
+  align-items: start;
 }
 
 .communities-sidebar,
@@ -41,6 +42,14 @@
   border: 1px solid #d1fae5;
   border-radius: 16px;
   padding: 12px;
+}
+
+.communities-sidebar {
+  display: flex;
+  flex-direction: column;
+  max-height: min(520px, calc(100vh - 220px));
+  overflow: hidden;
+  align-self: start;
 }
 
 .community-hero {
@@ -151,12 +160,31 @@
   padding: 7px 12px;
   font-weight: 700;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .community-tabs button.active {
   background: #065f46;
   color: #fff;
   border-color: #065f46;
+}
+
+.tab-count-badge {
+  min-width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  font-size: 0.72rem;
+  font-weight: 900;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
 }
 
 .community-info-card {
@@ -210,18 +238,24 @@
 }
 
 .community-discussion {
-  border: 1px solid #e2e8f0;
-  border-radius: 14px;
-  padding: 10px;
-  background: #fff;
+  border: 1px solid #cfe9dd;
+  border-radius: 18px;
+  padding: 14px;
+  background:
+    linear-gradient(160deg, rgba(255, 255, 255, 0.97), rgba(240, 253, 244, 0.9));
+  box-shadow:
+    0 12px 28px rgba(6, 78, 59, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
 }
 
 .community-create-box {
-  border: 1px solid #d1fae5;
-  background: #f8fffb;
-  border-radius: 12px;
-  padding: 10px;
-  margin-bottom: 10px;
+  border: 1px solid #b7ead6;
+  background:
+    linear-gradient(145deg, #f8fffb, #ecfdf5);
+  border-radius: 16px;
+  padding: 12px;
+  margin-bottom: 14px;
+  box-shadow: 0 8px 18px rgba(5, 150, 105, 0.09);
 }
 
 .community-format-toolbar {
@@ -475,7 +509,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 8px;
+  margin-bottom: 12px;
 }
 
 .discussion-top h4 {
@@ -538,6 +572,17 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.community-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.community-list::-webkit-scrollbar-thumb {
+  background: rgba(16, 185, 129, 0.35);
+  border-radius: 999px;
 }
 
 .community-row {
@@ -636,7 +681,7 @@
 .community-posts {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
 }
 
 .topic-filter {
@@ -649,7 +694,12 @@
 .community-post-wrap {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
+  border: 1px solid #cdeedd;
+  border-radius: 18px;
+  background: linear-gradient(160deg, #ffffff, #f6fff9);
+  padding: 10px;
+  box-shadow: 0 10px 22px rgba(6, 78, 59, 0.08);
 }
 
 .community-post-tools {
@@ -658,16 +708,18 @@
   justify-content: flex-end;
   flex-wrap: wrap;
   gap: 8px;
+  padding: 2px 2px 0;
 }
 
 .community-post-tools button {
-  border: 1px solid #d1fae5;
-  background: #ffffff;
+  border: 1px solid #a7f3d0;
+  background: linear-gradient(145deg, #ffffff, #ecfdf5);
   color: #065f46;
   border-radius: 999px;
-  padding: 5px 10px;
+  padding: 6px 12px;
   font-weight: 700;
   cursor: pointer;
+  box-shadow: 0 4px 10px rgba(5, 150, 105, 0.1);
 }
 
 .topic-chip {
@@ -678,6 +730,28 @@
   padding: 4px 10px;
   font-weight: 700;
   font-size: 0.82rem;
+}
+
+.community-post-wrap .vine-post {
+  margin: 0;
+  border-radius: 16px;
+  box-shadow: none;
+}
+
+@media (min-width: 1024px) {
+  .community-discussion {
+    padding: 16px;
+    border-radius: 20px;
+  }
+
+  .community-post-wrap {
+    padding: 12px;
+    border-radius: 20px;
+  }
+
+  .community-create-box textarea {
+    min-height: 110px;
+  }
 }
 
 .schedule-controls {
@@ -1578,8 +1652,18 @@
     grid-template-columns: 1fr;
   }
 
+  .communities-sidebar {
+    max-height: none;
+    overflow: visible;
+  }
+
   .community-body-grid {
     grid-template-columns: 1fr;
+  }
+
+  .community-list {
+    overflow-y: visible;
+    padding-right: 0;
   }
 
   .community-members-grid {

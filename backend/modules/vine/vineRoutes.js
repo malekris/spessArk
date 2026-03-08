@@ -817,14 +817,47 @@ const fetchRssNews = async () => {
         "https://www.reuters.com/world/rss",
       ];
   const all = [];
-  for (const feed of feeds.slice(0, 6)) {
+  for (const feed of feeds.slice(0, 20)) {
+    const startedAt = new Date().toISOString();
+    const prev = newsFeedRuntimeStats.get(feed);
+    updateNewsFeedStat(feed, {
+      attempts: Number(prev?.attempts || 0) + 1,
+      last_checked_at: startedAt,
+      last_error: null,
+    });
     try {
       const res = await fetch(feed, { headers: { "User-Agent": "VineNewsBot/1.0" } });
-      if (!res.ok) continue;
+      if (!res.ok) {
+        const cur = newsFeedRuntimeStats.get(feed);
+        updateNewsFeedStat(feed, {
+          last_status: Number(res.status || 0),
+          failures: Number(cur?.failures || 0) + 1,
+          consecutive_failures: Number(cur?.consecutive_failures || 0) + 1,
+          last_error: `HTTP ${res.status}`,
+          last_parsed_items: 0,
+        });
+        continue;
+      }
       const xml = await res.text();
-      all.push(...parseRssItems(xml, new URL(feed).hostname.replace(/^www\./, "")));
-    } catch {
-      // ignore individual feed failure
+      const parsed = parseRssItems(xml, new URL(feed).hostname.replace(/^www\./, ""));
+      all.push(...parsed);
+      const cur = newsFeedRuntimeStats.get(feed);
+      updateNewsFeedStat(feed, {
+        last_status: Number(res.status || 200),
+        successes: Number(cur?.successes || 0) + 1,
+        consecutive_failures: 0,
+        last_ok_at: new Date().toISOString(),
+        last_error: null,
+        last_parsed_items: parsed.length,
+      });
+    } catch (err) {
+      const cur = newsFeedRuntimeStats.get(feed);
+      updateNewsFeedStat(feed, {
+        failures: Number(cur?.failures || 0) + 1,
+        consecutive_failures: Number(cur?.consecutive_failures || 0) + 1,
+        last_error: String(err?.message || "Fetch failed"),
+        last_parsed_items: 0,
+      });
     }
   }
   return all;
@@ -876,6 +909,27 @@ const getOrCreateNewsBotUserId = async () => {
 let newsIngestInFlight = false;
 let lastNewsIngestAt = 0;
 const NEWS_INGEST_INTERVAL_MS = 5 * 60 * 1000;
+const newsFeedRuntimeStats = new Map();
+let newsBootIngestScheduled = false;
+
+const updateNewsFeedStat = (feed, patch = {}) => {
+  const key = String(feed || "").trim();
+  if (!key) return;
+  const prev = newsFeedRuntimeStats.get(key) || {
+    feed: key,
+    attempts: 0,
+    successes: 0,
+    failures: 0,
+    consecutive_failures: 0,
+    last_status: null,
+    last_ok_at: null,
+    last_error: null,
+    last_checked_at: null,
+    last_parsed_items: 0,
+  };
+  const next = { ...prev, ...patch };
+  newsFeedRuntimeStats.set(key, next);
+};
 
 const ingestExternalNews = async () => {
   await ensureNewsSchema();
@@ -963,6 +1017,16 @@ const triggerNewsIngestIfDue = () => {
       lastNewsIngestAt = Date.now();
     });
 };
+
+const scheduleNewsIngestOnBoot = () => {
+  if (newsBootIngestScheduled) return;
+  newsBootIngestScheduled = true;
+  setTimeout(() => {
+    triggerNewsIngestIfDue();
+  }, 12_000);
+};
+
+scheduleNewsIngestOnBoot();
 
 const isHeicFile = (file) => {
   const name = file?.originalname || "";
@@ -4291,22 +4355,29 @@ router.get("/news/health", authenticate, async (req, res) => {
         const r = await fetch(feed, { headers: { "User-Agent": "VineNewsBot/1.0" } });
         const text = r.ok ? await r.text() : "";
         const parsed = r.ok ? parseRssItems(text, new URL(feed).hostname) : [];
+        const runtime = newsFeedRuntimeStats.get(feed);
         checks.push({
           feed,
           ok: r.ok,
           status: r.status,
           parsed_items: parsed.length,
+          runtime: runtime || null,
         });
       } catch (err) {
+        const runtime = newsFeedRuntimeStats.get(feed);
         checks.push({
           feed,
           ok: false,
           status: null,
           parsed_items: 0,
           error: String(err?.message || err),
+          runtime: runtime || null,
         });
       }
     }
+    const runtime_feeds = Array.from(newsFeedRuntimeStats.values()).sort((a, b) =>
+      String(a.feed).localeCompare(String(b.feed))
+    );
 
     const [[ingestRow]] = await db.query(
       "SELECT COUNT(*) AS total, MAX(ingested_at) AS last_ingested_at FROM vine_news_ingest"
@@ -4327,6 +4398,12 @@ router.get("/news/health", authenticate, async (req, res) => {
         total: Number(ingestRow?.total || 0),
         last_ingested_at: ingestRow?.last_ingested_at || null,
         by_source: sources || [],
+      },
+      runtime: {
+        in_flight: newsIngestInFlight,
+        last_ingest_at: lastNewsIngestAt ? new Date(lastNewsIngestAt).toISOString() : null,
+        interval_ms: NEWS_INGEST_INTERVAL_MS,
+        feeds: runtime_feeds,
       },
     });
   } catch (err) {

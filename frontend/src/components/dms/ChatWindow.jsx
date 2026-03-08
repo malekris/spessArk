@@ -241,8 +241,9 @@ fetch(`${API}/api/dms/conversations/${conversationId}/read`, {
   useEffect(() => {
     if (!socket || !conversationId) return;
   
-    const handleSeen = ({ conversationId: cid }) => {
+    const handleSeen = ({ conversationId: cid, seenBy }) => {
       if (String(cid) !== String(conversationId)) return;
+      if (Number(seenBy) === Number(myId)) return;
   
       setMessages(prev =>
         prev.map(m =>
@@ -335,8 +336,9 @@ fetch(`${API}/api/dms/conversations/${conversationId}/read`, {
       }
     };
   
-    const handleSeen = ({ conversationId: seenId }) => {
+    const handleSeen = ({ conversationId: seenId, seenBy }) => {
       if (String(seenId) === String(conversationId)) {
+        if (Number(seenBy) === Number(myId)) return;
         setMessages(prev =>
           prev.map(m =>
             m.sender_id === myId ? { ...m, is_read: 1 } : m

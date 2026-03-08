@@ -4300,6 +4300,7 @@ router.get("/communities/:id/gradebook", authenticate, async (req, res) => {
         ON s.assignment_id = a.id
        AND s.user_id = u.id
       WHERE a.community_id = ?
+        AND LOWER(COALESCE(m.role, 'member')) != 'owner'
       ORDER BY a.created_at DESC, u.username ASC
       `,
       [communityId]

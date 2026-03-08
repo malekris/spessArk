@@ -904,13 +904,40 @@ const ingestExternalNews = async () => {
     ].filter(Boolean);
     const content = textParts.join("\n\n").slice(0, 1900);
     const imageUrl = item.image ? JSON.stringify([item.image]) : null;
+    let linkPreview = {
+      url: item.url,
+      title: item.title,
+      description: item.summary || null,
+      image: item.image || null,
+      site_name: item.source || null,
+      domain: (() => {
+        try {
+          return new URL(item.url).hostname.replace(/^www\./i, "");
+        } catch {
+          return null;
+        }
+      })(),
+    };
+    if (!linkPreview.description || !linkPreview.image) {
+      const scraped = await fetchLinkPreview(item.url);
+      if (scraped) {
+        linkPreview = {
+          ...linkPreview,
+          title: scraped.title || linkPreview.title,
+          description: scraped.description || linkPreview.description,
+          image: scraped.image || linkPreview.image,
+          site_name: scraped.site_name || linkPreview.site_name,
+          domain: scraped.domain || linkPreview.domain,
+        };
+      }
+    }
 
     const [postResult] = await db.query(
       `
-      INSERT INTO vine_posts (user_id, content, image_url, created_at)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO vine_posts (user_id, content, image_url, link_preview, created_at)
+      VALUES (?, ?, ?, ?, ?)
       `,
-      [botUserId, content, imageUrl, item.publishedAt || new Date()]
+      [botUserId, content, imageUrl, JSON.stringify(linkPreview), item.publishedAt || new Date()]
     );
 
     await db.query(

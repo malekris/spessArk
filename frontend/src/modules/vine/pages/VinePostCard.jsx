@@ -46,9 +46,23 @@ const formatPostDate = (dateString) => {
 const renderMentions = (text, navigate) => {
   if (!text) return text;
   const parts = text.split(
-    /(@[a-zA-Z0-9._]{1,30}|#[a-zA-Z0-9_]{1,60}|\*\*[^*\n]+\*\*|~~[^~\n]+~~|__[^_\n]+__|\*[^*\n]+\*)/g
+    /(https?:\/\/[^\s]+|@[a-zA-Z0-9._]{1,30}|#[a-zA-Z0-9_]{1,60}|\*\*[^*\n]+\*\*|~~[^~\n]+~~|__[^_\n]+__|\*[^*\n]+\*)/g
   );
   return parts.map((part, idx) => {
+    if (/^https?:\/\/[^\s]+$/i.test(part)) {
+      return (
+        <a
+          key={`url-${idx}`}
+          className="post-link"
+          href={part}
+          target="_blank"
+          rel="noreferrer noopener"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {part}
+        </a>
+      );
+    }
     if (part.startsWith("@")) {
       const username = part.slice(1);
       return (

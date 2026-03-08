@@ -380,6 +380,16 @@
   font: inherit;
 }
 
+.post-link {
+  color: #1d4ed8;
+  text-decoration: underline;
+  word-break: break-word;
+}
+
+.post-link:hover {
+  color: #1e40af;
+}
+
 .mention-preview {
   margin: 6px 0 2px;
   padding: 6px 10px;
@@ -526,6 +536,10 @@
 .theme-dark .mention-name,
 .theme-dark .mention-handle {
   color: #ffffff;
+}
+
+.theme-dark .post-link {
+  color: #93c5fd;
 }
 /* Keep your existing delete button styles, just tweak positioning */
 .delete-post-btn {

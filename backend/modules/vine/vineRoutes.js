@@ -3678,6 +3678,55 @@ router.delete("/communities/:id/assignments/:assignmentId", authenticate, async 
   }
 });
 
+router.patch("/communities/:id/assignments/:assignmentId/deadline", authenticate, async (req, res) => {
+  try {
+    await ensureCommunitySchema();
+    const userId = Number(req.user.id);
+    const communityId = Number(req.params.id);
+    const assignmentId = Number(req.params.assignmentId);
+    const dueAtRaw = String(req.body?.due_at || "").trim();
+    if (!communityId || !assignmentId || !dueAtRaw) {
+      return res.status(400).json({ message: "due_at is required" });
+    }
+
+    const role = await getCommunityRole(communityId, userId);
+    if (String(role || "").toLowerCase() !== "owner") {
+      return res.status(403).json({ message: "Only community owner can extend deadlines" });
+    }
+
+    const [[assignment]] = await db.query(
+      "SELECT id, due_at FROM vine_community_assignments WHERE id = ? AND community_id = ? LIMIT 1",
+      [assignmentId, communityId]
+    );
+    if (!assignment) return res.status(404).json({ message: "Assignment not found" });
+    if (!assignment.due_at) {
+      return res.status(400).json({ message: "Assignment has no existing deadline to extend" });
+    }
+
+    const currentDue = new Date(assignment.due_at);
+    const nextDue = new Date(dueAtRaw);
+    if (Number.isNaN(nextDue.getTime())) {
+      return res.status(400).json({ message: "Invalid due date" });
+    }
+    if (currentDue.getTime() <= Date.now()) {
+      return res.status(403).json({ message: "Deadline already elapsed. Extension is locked." });
+    }
+    if (nextDue.getTime() <= currentDue.getTime()) {
+      return res.status(400).json({ message: "New deadline must be later than current deadline" });
+    }
+
+    await db.query(
+      "UPDATE vine_community_assignments SET due_at = ?, updated_at = NOW() WHERE id = ? AND community_id = ?",
+      [nextDue, assignmentId, communityId]
+    );
+
+    return res.json({ success: true, due_at: nextDue.toISOString() });
+  } catch (err) {
+    console.error("Extend assignment deadline error:", err);
+    return res.status(500).json({ message: "Failed to extend deadline" });
+  }
+});
+
 router.get("/communities/:slug/assignments", authenticate, async (req, res) => {
   try {
     await ensureCommunitySchema();

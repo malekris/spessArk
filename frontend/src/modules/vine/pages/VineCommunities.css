@@ -1822,6 +1822,41 @@
   gap: 8px;
 }
 
+.assignment-deadline-edit {
+  margin-top: 6px;
+  margin-bottom: 6px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.assignment-deadline-edit input {
+  border: 1px solid #a7f3d0;
+  border-radius: 8px;
+  padding: 6px 8px;
+  background: #fff;
+  color: #14532d;
+}
+
+.assignment-deadline-edit button {
+  border: 1px solid #166534;
+  background: #166534;
+  color: #fff;
+  border-radius: 999px;
+  padding: 6px 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.assignment-deadline-locked {
+  margin-top: 6px;
+  margin-bottom: 6px;
+  color: #b91c1c;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
 .community-insights-grid {
   display: grid;
   grid-template-columns: 1fr;
@@ -1917,6 +1952,20 @@
   margin-bottom: 8px;
 }
 
+.calendar-timeline-pill {
+  margin-bottom: 8px;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  background: rgba(255, 255, 255, 0.75);
+  color: #14532d;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.74rem;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .calendar-day-head {
   text-align: center;
   font-weight: 700;
@@ -1935,9 +1984,27 @@
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
+.calendar-day-cell.today {
+  border-color: #059669;
+  box-shadow:
+    0 0 0 2px rgba(5, 150, 105, 0.28) inset,
+    0 0 0 2px rgba(16, 185, 129, 0.2),
+    0 8px 16px rgba(6, 95, 70, 0.16);
+}
+
 .calendar-day-cell:hover {
   transform: translateY(-1px);
   box-shadow: 0 7px 14px rgba(6, 95, 70, 0.12);
+}
+
+.calendar-day-cell.in-range:not(.empty) {
+  background: linear-gradient(165deg, rgba(209, 250, 229, 0.85), rgba(236, 253, 245, 0.9));
+}
+
+.calendar-day-cell.range-start:not(.empty),
+.calendar-day-cell.range-end:not(.empty) {
+  background: linear-gradient(165deg, rgba(110, 231, 183, 0.9), rgba(167, 243, 208, 0.95));
+  border-color: #10b981;
 }
 
 .calendar-day-cell.empty {
@@ -1953,6 +2020,68 @@
 .calendar-dot-row {
   display: flex;
   gap: 3px;
+}
+
+.calendar-marker-stack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.calendar-deadline-chip {
+  border-radius: 999px;
+  font-size: 0.58rem;
+  line-height: 1;
+  padding: 2px 5px;
+  font-weight: 800;
+  border: 1px solid transparent;
+}
+
+.calendar-deadline-chip.ok {
+  background: #dcfce7;
+  color: #166534;
+  border-color: #86efac;
+}
+
+.calendar-deadline-chip.watch {
+  background: #fef3c7;
+  color: #92400e;
+  border-color: #fcd34d;
+}
+
+.calendar-deadline-chip.soon {
+  background: #ffedd5;
+  color: #9a3412;
+  border-color: #fdba74;
+}
+
+.calendar-deadline-chip.due {
+  background: #fee2e2;
+  color: #b91c1c;
+  border-color: #fca5a5;
+}
+
+.calendar-deadline-chip.overdue {
+  background: #e2e8f0;
+  color: #334155;
+  border-color: #cbd5e1;
+}
+
+.calendar-session-chip {
+  border-radius: 999px;
+  font-size: 0.56rem;
+  line-height: 1;
+  padding: 2px 5px;
+  font-weight: 800;
+  background: #dbeafe;
+  color: #1e40af;
+  border: 1px solid #93c5fd;
+}
+
+.calendar-extra-count {
+  font-size: 0.56rem;
+  font-weight: 800;
+  color: #166534;
 }
 
 .calendar-dot {

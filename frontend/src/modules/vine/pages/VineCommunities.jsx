@@ -77,6 +77,7 @@ export default function VineCommunities() {
   const [gradingDrafts, setGradingDrafts] = useState({});
   const [badgesStreaks, setBadgesStreaks] = useState([]);
   const [progressRows, setProgressRows] = useState([]);
+  const [deadlineEdits, setDeadlineEdits] = useState({});
   const [reputation, setReputation] = useState([]);
   const [reports, setReports] = useState([]);
   const [topicFilter, setTopicFilter] = useState("");
@@ -951,22 +952,114 @@ export default function VineCommunities() {
       }
       const rows = await res.json().catch(() => []);
       const doc = new jsPDF({ unit: "pt", format: "a4" });
-      doc.setFontSize(13);
-      doc.text(`${activeCommunity?.name || "Community"} — Gradebook`, 40, 34);
-      autoTable(doc, {
-        startY: 48,
-        head: [["Learner", "Assignment", "Score", "Status", "Submitted", "Graded"]],
-        body: (Array.isArray(rows) ? rows : []).map((r) => [
-          r.learner_display_name || r.learner_username || "",
-          r.assignment_title || "",
-          r.submission_score ?? "-",
-          r.submission_status || "pending",
-          r.submitted_at ? new Date(r.submitted_at).toLocaleString() : "-",
-          r.graded_at ? new Date(r.graded_at).toLocaleString() : "-",
-        ]),
-        styles: { fontSize: 8, cellPadding: 4 },
-        headStyles: { fillColor: [6, 95, 70] },
-      });
+      const safeRows = Array.isArray(rows) ? rows : [];
+      const grouped = safeRows.reduce((acc, row) => {
+        const key = String(row.assignment_id || "0");
+        if (!acc[key]) acc[key] = [];
+        acc[key].push(row);
+        return acc;
+      }, {});
+      const sections = Object.values(grouped);
+
+      const pageWidth = doc.internal.pageSize.getWidth();
+      doc.setFontSize(14);
+      doc.setTextColor(6, 78, 59);
+      doc.text("ST. PHILLIPS EQUATORIAL SECONDARY SCHOOL", pageWidth / 2, 26, { align: "center" });
+      doc.setFontSize(9);
+      doc.setTextColor(30, 64, 175);
+      doc.text("info@stphillipsequatorial.com", pageWidth / 2, 40, { align: "center" });
+      doc.setDrawColor(167, 243, 208);
+      doc.line(40, 48, pageWidth - 40, 48);
+      doc.setTextColor(15, 23, 42);
+      doc.setFontSize(12);
+      doc.text(`${activeCommunity?.name || "Community"} — Gradebook`, 40, 62);
+
+      if (sections.length === 0) {
+        doc.setFontSize(11);
+        doc.text("No gradebook records available.", 40, 82);
+      } else {
+        let cursorY = 80;
+        sections.forEach((group, index) => {
+          const first = group[0] || {};
+          const assignmentTitle = first.assignment_title || `Assignment ${first.assignment_id || ""}`;
+          const dueText = first.assignment_due_at
+            ? new Date(first.assignment_due_at).toLocaleString()
+            : "No due date";
+          const pointsText = first.assignment_points ?? "-";
+          const submittedLearners = group
+            .filter((r) => r.submission_id !== null && r.submission_id !== undefined)
+            .map((r) => r.learner_display_name || r.learner_username || "Unknown");
+          const missingLearners = group
+            .filter((r) => r.submission_id === null || r.submission_id === undefined)
+            .map((r) => r.learner_display_name || r.learner_username || "Unknown");
+
+          if (index > 0) {
+            doc.addPage();
+            const nextPageWidth = doc.internal.pageSize.getWidth();
+            doc.setFontSize(14);
+            doc.setTextColor(6, 78, 59);
+            doc.text("ST. PHILLIPS EQUATORIAL SECONDARY SCHOOL", nextPageWidth / 2, 26, { align: "center" });
+            doc.setFontSize(9);
+            doc.setTextColor(30, 64, 175);
+            doc.text("info@stphillipsequatorial.com", nextPageWidth / 2, 40, { align: "center" });
+            doc.setDrawColor(167, 243, 208);
+            doc.line(40, 48, nextPageWidth - 40, 48);
+            doc.setTextColor(15, 23, 42);
+            cursorY = 66;
+          }
+
+          doc.setFontSize(11);
+          doc.text(`Assignment: ${assignmentTitle}`, 40, cursorY);
+          doc.setFontSize(9);
+          doc.text(`Due: ${dueText}   •   Points: ${pointsText}`, 40, cursorY + 14);
+
+          autoTable(doc, {
+            startY: cursorY + 22,
+            head: [["Learner", "Score", "Status", "Submitted", "Graded"]],
+            body: group.map((r) => {
+              const hasSubmission = r.submission_id !== null && r.submission_id !== undefined;
+              const dueAt = r.assignment_due_at ? new Date(r.assignment_due_at) : null;
+              const deadlinePassed = dueAt && !Number.isNaN(dueAt.getTime()) && dueAt.getTime() < Date.now();
+              const submittedText = hasSubmission
+                ? (r.submitted_at ? new Date(r.submitted_at).toLocaleString() : "-")
+                : (deadlinePassed ? "Missed assignment" : "-");
+              const gradedText = r.graded_at
+                ? new Date(r.graded_at).toLocaleString()
+                : (!hasSubmission && deadlinePassed ? "Ungraded" : "Pending");
+              const statusText = hasSubmission
+                ? (r.submission_status || "pending")
+                : (deadlinePassed ? "missing" : "pending");
+
+              return [
+                r.learner_display_name || r.learner_username || "",
+                r.submission_score ?? "-",
+                statusText,
+                submittedText,
+                gradedText,
+              ];
+            }),
+            styles: { fontSize: 8, cellPadding: 4 },
+            headStyles: { fillColor: [6, 95, 70] },
+          });
+
+          const tableEndY = doc.lastAutoTable?.finalY || (cursorY + 22);
+          const totalLearners = group.length;
+          const submittedCount = submittedLearners.length;
+          const missingCount = missingLearners.length;
+          doc.setFontSize(8);
+          doc.text(
+            `Class stats — Total learners: ${totalLearners} | Submitted: ${submittedCount} | Never submitted: ${missingCount}`,
+            40,
+            tableEndY + 14
+          );
+          const submittedText = `Submitted by: ${submittedLearners.length ? submittedLearners.join(", ") : "None"}`;
+          const missedText = `Never submitted: ${missingLearners.length ? missingLearners.join(", ") : "None"}`;
+          const submittedLines = doc.splitTextToSize(submittedText, 515);
+          const missedLines = doc.splitTextToSize(missedText, 515);
+          doc.text(submittedLines, 40, tableEndY + 28);
+          doc.text(missedLines, 40, tableEndY + 28 + (submittedLines.length * 10));
+        });
+      }
       const blob = doc.output("blob");
       const url = URL.createObjectURL(blob);
       window.open(url, "_blank", "noopener,noreferrer");
@@ -1025,6 +1118,45 @@ export default function VineCommunities() {
       await loadCommunityDetail(activeCommunity.slug, topicFilter);
     } catch {
       alert("Failed to create announcement");
+    }
+  };
+
+  const toDatetimeLocalValue = (value) => {
+    if (!value) return "";
+    const dt = new Date(value);
+    if (Number.isNaN(dt.getTime())) return "";
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
+  };
+
+  const extendAssignmentDeadline = async (assignmentId) => {
+    if (!activeCommunity?.id || !assignmentId) return;
+    const nextDueAt = String(deadlineEdits[assignmentId] || "").trim();
+    if (!nextDueAt) {
+      alert("Pick a new deadline first");
+      return;
+    }
+    try {
+      const res = await fetch(
+        `${API}/api/vine/communities/${activeCommunity.id}/assignments/${assignmentId}/deadline`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ due_at: nextDueAt }),
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || "Failed to extend deadline");
+        return;
+      }
+      await loadCommunityDetail(activeCommunity.slug, topicFilter);
+      alert("Deadline extended");
+    } catch {
+      alert("Failed to extend deadline");
     }
   };
 
@@ -1527,8 +1659,20 @@ export default function VineCommunities() {
     });
   };
 
+  const getAssignmentDeadlineMeta = (value) => {
+    const due = new Date(value);
+    if (Number.isNaN(due.getTime())) return { label: "", tone: "ok" };
+    const diffDays = Math.ceil((due.getTime() - nowMs) / (24 * 60 * 60 * 1000));
+    if (diffDays < 0) return { label: "Overdue", tone: "overdue" };
+    if (diffDays === 0) return { label: "Due", tone: "due" };
+    if (diffDays <= 2) return { label: `D-${diffDays}`, tone: "soon" };
+    if (diffDays <= 6) return { label: `D-${diffDays}`, tone: "watch" };
+    return { label: `D-${diffDays}`, tone: "ok" };
+  };
+
   const announcementPosts = posts.filter((p) => Number(p.is_community_pinned) === 1).slice(0, 5);
   const newAnnouncementCount = announcementPosts.filter((p) => !seenAnnouncementIds[p.id]).length;
+  const announcementBadgeCount = isCommunityOwner ? 0 : newAnnouncementCount;
   const calendarItems = [
     ...assignments
       .filter((a) => a?.due_at)
@@ -1569,7 +1713,29 @@ export default function VineCommunities() {
     }
     return acc;
   }, {});
+  Object.keys(calendarItemsByDay).forEach((k) => {
+    calendarItemsByDay[k].sort((a, b) => {
+      if (a.type === b.type) return a.when.getTime() - b.when.getTime();
+      return a.type === "assignment" ? -1 : 1;
+    });
+  });
   const upcomingCalendarItems = calendarItems.filter((item) => item.when.getTime() >= nowMs).slice(0, 8);
+  const nowDate = new Date(nowMs);
+  const isCurrentMonthView =
+    calendarMonth.getFullYear() === nowDate.getFullYear() &&
+    calendarMonth.getMonth() === nowDate.getMonth();
+  const monthAssignmentDays = assignments
+    .filter((a) => a?.due_at)
+    .map((a) => new Date(a.due_at))
+    .filter((d) =>
+      !Number.isNaN(d.getTime()) &&
+      d.getFullYear() === calendarMonth.getFullYear() &&
+      d.getMonth() === calendarMonth.getMonth()
+    )
+    .map((d) => d.getDate())
+    .sort((a, b) => a - b);
+  const timelineStartDay = monthAssignmentDays.length ? monthAssignmentDays[0] : null;
+  const timelineEndDay = monthAssignmentDays.length > 1 ? monthAssignmentDays[monthAssignmentDays.length - 1] : timelineStartDay;
   const progressSummary = progressRows.reduce(
     (acc, row) => {
       acc.count += 1;
@@ -1721,8 +1887,8 @@ export default function VineCommunities() {
               <div className="community-tabs">
                 <button className={activeTab === "announcements" ? "active" : ""} onClick={() => setActiveTab("announcements")}>
                   <span>Announcements</span>
-                  {newAnnouncementCount > 0 && (
-                    <span className="tab-count-badge">{newAnnouncementCount}</span>
+                  {announcementBadgeCount > 0 && (
+                    <span className="tab-count-badge">{announcementBadgeCount}</span>
                   )}
                 </button>
                 <button className={activeTab === "attendance" ? "active" : ""} onClick={() => setActiveTab("attendance")}>Attendance</button>
@@ -2163,20 +2329,58 @@ export default function VineCommunities() {
                             </button>
                           </div>
                         </div>
+                        {timelineStartDay && (
+                          <div className="calendar-timeline-pill">
+                            {timelineStartDay === timelineEndDay
+                              ? `Timeline: Day ${timelineStartDay}`
+                              : `Timeline: Day ${timelineStartDay} → Day ${timelineEndDay}`}
+                          </div>
+                        )}
                         <div className="community-calendar-grid">
                           {["S", "M", "T", "W", "T", "F", "S"].map((d) => (
                             <div key={`head-${d}`} className="calendar-day-head">{d}</div>
                           ))}
                           {monthCells.map((day, idx) => (
-                            <div key={`day-${idx}`} className={`calendar-day-cell ${day ? "" : "empty"}`}>
+                            <div
+                              key={`day-${idx}`}
+                              className={`calendar-day-cell ${day ? "" : "empty"} ${
+                                day && isCurrentMonthView && day === nowDate.getDate() ? "today" : ""
+                              } ${
+                                day && timelineStartDay && timelineEndDay && day >= timelineStartDay && day <= timelineEndDay
+                                  ? "in-range"
+                                  : ""
+                              } ${
+                                day && timelineStartDay && day === timelineStartDay ? "range-start" : ""
+                              } ${
+                                day && timelineEndDay && day === timelineEndDay ? "range-end" : ""
+                              }`}
+                            >
                               {day ? (
                                 <>
                                   <span>{day}</span>
-                                  {calendarItemsByDay[day]?.length > 0 && (
-                                    <div className="calendar-dot-row">
-                                      {calendarItemsByDay[day].slice(0, 3).map((item) => (
-                                        <span key={item.id} className={`calendar-dot ${item.type}`} />
-                                      ))}
+                                  {calendarItemsByDay[day]?.length > 0 && (() => {
+                                    const dayItems = calendarItemsByDay[day];
+                                    const assignmentsForDay = dayItems.filter((it) => it.type === "assignment");
+                                    const sessionsForDay = dayItems.filter((it) => it.type === "session");
+                                    return (
+                                      <div className="calendar-marker-stack">
+                                        {assignmentsForDay.slice(0, 2).map((item) => {
+                                          const meta = getAssignmentDeadlineMeta(item.when);
+                                          return (
+                                            <span key={`assign-${item.id}`} className={`calendar-deadline-chip ${meta.tone}`}>
+                                              {meta.label}
+                                            </span>
+                                          );
+                                        })}
+                                        {sessionsForDay.length > 0 && (
+                                          <span className="calendar-session-chip">S{sessionsForDay.length}</span>
+                                        )}
+                                      </div>
+                                    );
+                                  })()}
+                                  {calendarItemsByDay[day]?.length > 3 && (
+                                    <div className="calendar-extra-count">
+                                      +{calendarItemsByDay[day].length - 3}
                                     </div>
                                   )}
                                 </>
@@ -2194,7 +2398,10 @@ export default function VineCommunities() {
                                   {item.type === "assignment" ? "Assignment" : "Session"}
                                 </span>
                                 <span>{item.title}</span>
-                                <small>{formatSimpleDate(item.when)}</small>
+                                <small>
+                                  {formatSimpleDate(item.when)}
+                                  {item.type === "assignment" ? ` • ${getAssignmentDeadlineMeta(item.when).label}` : ""}
+                                </small>
                               </div>
                             ))
                           )}
@@ -2300,6 +2507,28 @@ export default function VineCommunities() {
                               <div className="member-meta">
                                 Due: {a.due_at ? new Date(a.due_at).toLocaleString() : "No due date"} • Points: {a.points} • Type: {String(a.assignment_type || "theory")}
                               </div>
+                              {isCommunityOwner && a.due_at && !isAssignmentPastDue(a) && (
+                                <div className="assignment-deadline-edit">
+                                  <input
+                                    type="datetime-local"
+                                    value={deadlineEdits[a.id] ?? toDatetimeLocalValue(a.due_at)}
+                                    onChange={(e) =>
+                                      setDeadlineEdits((prev) => ({ ...prev, [a.id]: e.target.value }))
+                                    }
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => extendAssignmentDeadline(a.id)}
+                                  >
+                                    Extend deadline
+                                  </button>
+                                </div>
+                              )}
+                              {isCommunityOwner && a.due_at && isAssignmentPastDue(a) && (
+                                <div className="assignment-deadline-locked">
+                                  Deadline elapsed. Extension locked.
+                                </div>
+                              )}
                               <div className="member-meta">
                                 {formatAssignmentCountdown(a.due_at)} • Created: {formatAssignmentCreatedAt(a.created_at)}
                               </div>
@@ -2641,9 +2870,6 @@ export default function VineCommunities() {
                   <section className="community-announcements">
                     <div className="community-announcements-head">
                       <h4>Announcements</h4>
-                      {newAnnouncementCount > 0 && (
-                        <span className="community-announcements-badge">{newAnnouncementCount} new</span>
-                      )}
                     </div>
                     <div className="community-announcement-create">
                       <textarea
@@ -2787,8 +3013,8 @@ export default function VineCommunities() {
                   <section className="community-announcements">
                     <div className="community-announcements-head">
                       <h4>Announcements</h4>
-                      {newAnnouncementCount > 0 && (
-                        <span className="community-announcements-badge">{newAnnouncementCount} new</span>
+                      {announcementBadgeCount > 0 && (
+                        <span className="community-announcements-badge">{announcementBadgeCount} new</span>
                       )}
                     </div>
                     <div className="community-announcements-list">

@@ -32,7 +32,7 @@ export default function VineCommunities() {
   const [activeCommunity, setActiveCommunity] = useState(null);
   const [posts, setPosts] = useState([]);
   const [members, setMembers] = useState([]);
-  const [activeTab, setActiveTab] = useState("attendance");
+  const [activeTab, setActiveTab] = useState("announcements");
   const [joinPolicy, setJoinPolicy] = useState("open");
   const [autoWelcomeEnabled, setAutoWelcomeEnabled] = useState(true);
   const [welcomeMessage, setWelcomeMessage] = useState("");
@@ -252,7 +252,7 @@ export default function VineCommunities() {
     if (allowed.has(tab)) {
       setActiveTab(tab);
     } else {
-      setActiveTab("attendance");
+      setActiveTab("announcements");
     }
   }, [searchParams]);
 

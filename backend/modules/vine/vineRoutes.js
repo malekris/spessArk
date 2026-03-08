@@ -4367,6 +4367,7 @@ router.get("/communities/:id/progress", authenticate, async (req, res) => {
         GROUP BY a.user_id
       ) attq ON attq.user_id = m.user_id
       WHERE m.community_id = ?
+        AND LOWER(COALESCE(m.role, 'member')) != 'owner'
       ORDER BY m.role = 'owner' DESC, m.role = 'moderator' DESC, u.username ASC
       `,
       [communityId, communityId, communityId]

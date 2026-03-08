@@ -27,6 +27,13 @@ const FEELING_OPTIONS = [
   { value: "motivated", label: "Motivated" },
   { value: "tired", label: "Tired" },
 ];
+const STATUS_REACTIONS = [
+  { key: "like", emoji: "👍" },
+  { key: "love", emoji: "❤️" },
+  { key: "laugh", emoji: "😂" },
+  { key: "sad", emoji: "😢" },
+  { key: "fire", emoji: "🔥" },
+];
 
 // ────────────────────────────────────────────────
 //  HELPERS
@@ -150,6 +157,8 @@ export default function VineFeed() {
   const [statusViewers, setStatusViewers] = useState([]);
   const [statusViewsOpen, setStatusViewsOpen] = useState(false);
   const [statusViewsLoading, setStatusViewsLoading] = useState(false);
+  const [statusReplyText, setStatusReplyText] = useState("");
+  const [statusReplySending, setStatusReplySending] = useState(false);
   const [mentionResults, setMentionResults] = useState([]);
   const [mentionAnchor, setMentionAnchor] = useState(null);
   const [gifPickerOpen, setGifPickerOpen] = useState(false);
@@ -447,6 +456,10 @@ export default function VineFeed() {
   }, [statusViewerOpen, statusIndex, statusItems, statusViewsOpen]);
 
   useEffect(() => {
+    setStatusReplyText("");
+  }, [statusViewerOpen, statusIndex]);
+
+  useEffect(() => {
     if (!statusViewerOpen || !statusItems[statusIndex]) return;
     const current = statusItems[statusIndex];
     const isMine = Number(current.user_id) === Number(me?.id || 0);
@@ -595,6 +608,73 @@ export default function VineFeed() {
       loadStatusRail();
     } catch {
       alert("Failed to delete status");
+    }
+  };
+
+  const reactToCurrentStatus = async (reaction) => {
+    const current = statusItems[statusIndex];
+    if (!current || !reaction) return;
+    try {
+      const res = await fetch(`${API}/api/vine/statuses/${current.id}/react`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ reaction }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || "Failed to react");
+        return;
+      }
+      const counts = data?.counts || {};
+      setStatusItems((prev) =>
+        prev.map((s, idx) =>
+          idx === statusIndex
+            ? {
+                ...s,
+                viewer_reaction: data?.viewer_reaction || null,
+                reaction_like_count: Number(counts.like || 0),
+                reaction_love_count: Number(counts.love || 0),
+                reaction_laugh_count: Number(counts.laugh || 0),
+                reaction_sad_count: Number(counts.sad || 0),
+                reaction_fire_count: Number(counts.fire || 0),
+              }
+            : s
+        )
+      );
+    } catch {
+      alert("Failed to react");
+    }
+  };
+
+  const sendStatusReply = async () => {
+    const current = statusItems[statusIndex];
+    if (!current) return;
+    const text = statusReplyText.trim();
+    if (!text) return;
+    setStatusReplySending(true);
+    try {
+      const res = await fetch(`${API}/api/vine/statuses/${current.id}/reply`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ text }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || "Failed to send reply");
+        return;
+      }
+      setStatusReplyText("");
+      alert("Reply sent to inbox.");
+    } catch {
+      alert("Failed to send reply");
+    } finally {
+      setStatusReplySending(false);
     }
   };
 
@@ -1582,6 +1662,38 @@ export default function VineFeed() {
                 </div>
               ) : (
                 statusItems[statusIndex].text_content
+              )}
+            </div>
+            <div className="status-interact-row">
+              <div className="status-reactions">
+                {STATUS_REACTIONS.map((r) => {
+                  const count = Number(statusItems[statusIndex]?.[`reaction_${r.key}_count`] || 0);
+                  const active = String(statusItems[statusIndex]?.viewer_reaction || "") === r.key;
+                  return (
+                    <button
+                      key={`status-react-${r.key}`}
+                      className={`status-reaction-btn ${active ? "active" : ""}`}
+                      onClick={() => reactToCurrentStatus(r.key)}
+                      title={`React ${r.key}`}
+                    >
+                      <span>{r.emoji}</span>
+                      <small>{count}</small>
+                    </button>
+                  );
+                })}
+              </div>
+              {Number(statusItems[statusIndex]?.user_id) !== Number(me?.id || 0) && (
+                <div className="status-reply-box">
+                  <input
+                    value={statusReplyText}
+                    onChange={(e) => setStatusReplyText(e.target.value)}
+                    placeholder="Reply to this status..."
+                    maxLength={1000}
+                  />
+                  <button onClick={sendStatusReply} disabled={statusReplySending || !statusReplyText.trim()}>
+                    {statusReplySending ? "Sending..." : "Reply"}
+                  </button>
+                </div>
               )}
             </div>
             <div className="status-viewer-actions">

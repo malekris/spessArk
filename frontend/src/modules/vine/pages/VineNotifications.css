@@ -166,6 +166,32 @@
   font-weight: 500;
 }
 
+.notif-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.notif-action {
+  border: none;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-weight: 700;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.notif-action.accept {
+  background: #059669;
+  color: #fff;
+}
+
+.notif-action.decline {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
 .empty-notifs {
   color: #064e3b;
   font-weight: 700;
@@ -209,6 +235,10 @@
 
   .notif-text {
     font-size: 0.95rem;
+  }
+
+  .notif-actions {
+    flex-wrap: wrap;
   }
 }
 .notification-item {

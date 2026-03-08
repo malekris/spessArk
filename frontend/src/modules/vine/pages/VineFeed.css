@@ -543,6 +543,73 @@
   text-align: left;
 }
 
+.status-interact-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.status-reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.status-reaction-btn {
+  border: 1px solid #d1d5db;
+  background: #ffffff;
+  color: #064e3b;
+  border-radius: 999px;
+  padding: 6px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.status-reaction-btn.active {
+  border-color: #10b981;
+  background: #ecfdf5;
+}
+
+.status-reaction-btn small {
+  color: #475569;
+  font-size: 0.78rem;
+}
+
+.status-reply-box {
+  display: flex;
+  gap: 8px;
+}
+
+.status-reply-box input {
+  flex: 1;
+  border: 1px solid #d1d5db;
+  border-radius: 999px;
+  padding: 8px 12px;
+  outline: none;
+}
+
+.status-reply-box input:focus {
+  border-color: #10b981;
+}
+
+.status-reply-box button {
+  border: 1px solid #d1d5db;
+  background: #065f46;
+  color: #fff;
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.status-reply-box button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .status-viewer-actions {
   display: flex;
   justify-content: space-between;

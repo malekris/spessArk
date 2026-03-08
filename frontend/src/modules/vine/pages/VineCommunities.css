@@ -81,8 +81,8 @@
 }
 
 .community-avatar {
-  width: 66px;
-  height: 66px;
+  width: 96px;
+  height: 96px;
   border-radius: 16px;
   background: linear-gradient(145deg, #ecfdf5, #d1fae5);
   border: 3px solid #ffffff;
@@ -661,6 +661,22 @@
   padding: 6px 10px;
   font-weight: 700;
   cursor: pointer;
+}
+
+.community-join-static {
+  cursor: default;
+  opacity: 0.85;
+  border-color: #d97706;
+  background: linear-gradient(145deg, #f59e0b, #b45309);
+  color: #fff7ed;
+  box-shadow: 0 6px 14px rgba(180, 83, 9, 0.28);
+}
+
+.community-leave-about {
+  margin-top: 10px;
+  border-color: #fecaca;
+  background: #fff1f2;
+  color: #b91c1c;
 }
 
 .community-header h3 {

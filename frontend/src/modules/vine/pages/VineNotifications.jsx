@@ -49,6 +49,8 @@ export default function VineNotifications() {
       case "revine": return "revined your post";
       case "mention_post": return "mentioned you in a post";
       case "mention_comment": return "mentioned you in a comment";
+      case "follow_request": return "requested to follow you";
+      case "follow_request_accepted": return "accepted your follow request";
       case "report_post": return "reported a post to Guardian";
       case "report_comment": return "reported a comment to Guardian";
       case "appeal": return "submitted an appeal";
@@ -109,6 +111,54 @@ export default function VineNotifications() {
     const past = new Date(dateString);
     return (now - past) < 60000; // less than 1 minute
   };
+
+  const markRead = async (id) => {
+    try {
+      await fetch(`${API}/api/vine/notifications/${id}/read`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setNotifications((prev) =>
+        prev.map((n) => (n.id === id ? { ...n, is_read: 1 } : n))
+      );
+    } catch {
+      // no-op
+    }
+  };
+
+  const respondFollowRequest = async (notification, action) => {
+    let requestId = getMeta(notification).follow_request_id;
+    if (!requestId) {
+      try {
+        const res = await fetch(`${API}/api/vine/users/me/follow-requests`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const list = await res.json();
+        const match = Array.isArray(list)
+          ? list.find((r) => String(r.username || "").toLowerCase() === String(notification.username || "").toLowerCase())
+          : null;
+        requestId = match?.id || null;
+      } catch {
+        requestId = null;
+      }
+    }
+    if (!requestId) return;
+    try {
+      const res = await fetch(`${API}/api/vine/users/follow-requests/${requestId}/respond`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ action }),
+      });
+      if (!res.ok) return;
+      await markRead(notification.id);
+      setNotifications((prev) => prev.filter((n) => n.id !== notification.id));
+    } catch (err) {
+      console.error("Follow request response failed", err);
+    }
+  };
   
   
   return (
@@ -134,13 +184,14 @@ export default function VineNotifications() {
     role="button"
     tabIndex={0}
     onClick={async () => {
-      await fetch(`${API}/api/vine/notifications/${n.id}/read`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      await markRead(n.id);
     
-      if (n.type === "follow") {
+      if (n.type === "follow" || n.type === "follow_request_accepted") {
         navigate(`/vine/profile/${n.username}`);
+        return;
+      }
+      if (n.type === "follow_request") {
+        navigate("/vine/settings");
         return;
       }
 
@@ -269,6 +320,25 @@ export default function VineNotifications() {
       <div className="notif-time">
         {timeAgo(n.created_at)}
          </div>
+      {n.type === "follow_request" && (
+        <div
+          className="notif-actions"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            className="notif-action accept"
+            onClick={() => respondFollowRequest(n, "accept")}
+          >
+            Accept
+          </button>
+          <button
+            className="notif-action decline"
+            onClick={() => respondFollowRequest(n, "reject")}
+          >
+            Rescind
+          </button>
+        </div>
+      )}
 
     </div>
   </div>

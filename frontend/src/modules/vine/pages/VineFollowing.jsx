@@ -18,7 +18,9 @@ export default function VineFollowing() {
 
   useEffect(() => {
     setLoading(true);
-    fetch(`${API}/api/vine/users/${username}/following`)
+    fetch(`${API}/api/vine/users/${username}/following`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
       .then(res => res.json())
       .then(data => {
         setUsers(Array.isArray(data) ? data : []);
@@ -28,7 +30,7 @@ export default function VineFollowing() {
         console.error(err);
         setLoading(false);
       });
-  }, [username]);
+  }, [username, token]);
 
   const handleUnfollow = async (userId) => {
     try {

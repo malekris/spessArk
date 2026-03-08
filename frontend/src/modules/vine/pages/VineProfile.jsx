@@ -208,6 +208,7 @@ export default function VineProfile() {
   const [tempInstagramUsername, setTempInstagramUsername] = useState("");
   const [tempTwitterUsername, setTempTwitterUsername] = useState("");
   const [isFollowing, setIsFollowing] = useState(false);
+  const [isFollowRequested, setIsFollowRequested] = useState(false);
   const [justUpdated, setJustUpdated] = useState(false);
   const updatedTimerRef = useRef(null);
 
@@ -677,6 +678,9 @@ export default function VineProfile() {
   useEffect(() => {
     if (profile?.user?.is_following !== undefined) {
       setIsFollowing(Boolean(profile.user.is_following));
+    }
+    if (profile?.user?.follow_request_pending !== undefined) {
+      setIsFollowRequested(Boolean(profile.user.follow_request_pending));
     }
   }, [profile]);
 
@@ -1420,15 +1424,27 @@ export default function VineProfile() {
                               <button
                                 className="follow-btn"
                                 onClick={async () => {
-                                  await fetch(`${API}/api/vine/users/${userObj.id}/follow`, {
-                                    method: isFollowing ? "DELETE" : "POST",
+                                  const method = (isFollowing || isFollowRequested) ? "DELETE" : "POST";
+                                  const res = await fetch(`${API}/api/vine/users/${userObj.id}/follow`, {
+                                    method,
                                     headers: { Authorization: `Bearer ${token}` },
                                   });
-                                  setIsFollowing(!isFollowing);
+                                  const data = await res.json().catch(() => ({}));
+                                  if (!res.ok) {
+                                    alert(data?.message || "Action failed");
+                                    return;
+                                  }
+                                  if (method === "DELETE") {
+                                    setIsFollowing(false);
+                                    setIsFollowRequested(false);
+                                  } else {
+                                    setIsFollowing(Boolean(data?.following));
+                                    setIsFollowRequested(Boolean(data?.pending));
+                                  }
                                   loadProfile();
                                 }}
                               >
-                                {isFollowing ? "Unfollow" : "Follow"}
+                                {isFollowing ? "Unfollow" : isFollowRequested ? "Requested" : "Follow"}
                               </button>
 
                               {canMessage && (

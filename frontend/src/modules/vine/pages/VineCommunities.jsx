@@ -32,7 +32,7 @@ export default function VineCommunities() {
   const [activeCommunity, setActiveCommunity] = useState(null);
   const [posts, setPosts] = useState([]);
   const [members, setMembers] = useState([]);
-  const [activeTab, setActiveTab] = useState("discussion");
+  const [activeTab, setActiveTab] = useState("about");
   const [joinPolicy, setJoinPolicy] = useState("open");
   const [autoWelcomeEnabled, setAutoWelcomeEnabled] = useState(true);
   const [welcomeMessage, setWelcomeMessage] = useState("");
@@ -233,7 +233,6 @@ export default function VineCommunities() {
   useEffect(() => {
     const tab = String(searchParams.get("tab") || "").toLowerCase();
     const allowed = new Set([
-      "discussion",
       "about",
       "members",
       "attendance",
@@ -1436,13 +1435,13 @@ export default function VineCommunities() {
                     <span>{c.member_count} members</span>
                   </div>
                 </button>
-                <button className="community-join" onClick={() => toggleJoin(c)}>
-                  {Number(c.is_member) === 1
-                    ? "Leave"
-                    : String(c.join_request_status || "") === "pending"
-                    ? "Requested"
-                    : "Join"}
-                </button>
+                {Number(c.is_member) === 1 ? (
+                  <span className="community-join community-join-static">Joined</span>
+                ) : (
+                  <button className="community-join" onClick={() => toggleJoin(c)}>
+                    {String(c.join_request_status || "") === "pending" ? "Requested" : "Join"}
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -1510,10 +1509,8 @@ export default function VineCommunities() {
               </div>
 
               <div className="community-tabs">
-                <button className={activeTab === "discussion" ? "active" : ""} onClick={() => setActiveTab("discussion")}>Discussion</button>
-                <button className={activeTab === "about" ? "active" : ""} onClick={() => setActiveTab("about")}>About</button>
-                <button className={activeTab === "members" ? "active" : ""} onClick={() => setActiveTab("members")}>Members</button>
                 <button className={activeTab === "attendance" ? "active" : ""} onClick={() => setActiveTab("attendance")}>Attendance</button>
+                <button className={activeTab === "members" ? "active" : ""} onClick={() => setActiveTab("members")}>Members</button>
                 <button className={activeTab === "assignments" ? "active" : ""} onClick={() => setActiveTab("assignments")}>Assignments</button>
                 {canManageCommunitySettings && (
                   <button className={activeTab === "settings" ? "active" : ""} onClick={() => setActiveTab("settings")}>
@@ -1523,6 +1520,7 @@ export default function VineCommunities() {
                     )}
                   </button>
                 )}
+                <button className={activeTab === "about" ? "active" : ""} onClick={() => setActiveTab("about")}>About</button>
               </div>
 
               <div
@@ -1650,6 +1648,21 @@ export default function VineCommunities() {
                     <div className="community-info-line">Visibility: {Number(activeCommunity.is_private) === 1 ? "Private" : "Public"}</div>
                     <div className="community-info-line">Join policy: {String(activeCommunity.join_policy || "open")}</div>
                     <div className="community-info-line">Posting: Admins/Mods only</div>
+                    {Number(activeCommunity.is_member) === 1 && (
+                      <button
+                        className="community-join community-leave-about"
+                        onClick={() =>
+                          toggleJoin({
+                            id: activeCommunity.id,
+                            slug: activeCommunity.slug,
+                            is_member: activeCommunity.is_member,
+                            join_request_status: activeCommunity.join_request_status,
+                          })
+                        }
+                      >
+                        Leave Community
+                      </button>
+                    )}
                     {rules.length > 0 && (
                       <div className="rules-list">
                         <h5>Rules</h5>

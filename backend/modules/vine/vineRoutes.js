@@ -384,6 +384,26 @@ const ensureAdvancedSettingsSchema = async () => {
   advancedSettingsSchemaReady = true;
 };
 
+let followRequestSchemaReady = false;
+const ensureFollowRequestSchema = async () => {
+  if (followRequestSchemaReady) return;
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_follow_requests (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      requester_id INT NOT NULL,
+      target_id INT NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'pending',
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      reviewed_at DATETIME NULL,
+      reviewed_by INT NULL,
+      UNIQUE KEY uniq_follow_request_pair (requester_id, target_id),
+      INDEX idx_follow_request_target_status (target_id, status),
+      INDEX idx_follow_request_requester_status (requester_id, status)
+    )
+  `);
+  followRequestSchemaReady = true;
+};
+
 const ACCOUNT_DELETE_GRACE_DAYS = 10;
 const ACCOUNT_DELETE_SWEEP_MS = 60 * 60 * 1000;
 
@@ -495,6 +515,7 @@ const purgeUserAccount = async (userId) => {
   await db.query("DELETE FROM vine_blocks WHERE blocker_id = ? OR blocked_id = ?", [numericUserId, numericUserId]).catch(() => {});
   await db.query("DELETE FROM vine_mutes WHERE muter_id = ? OR muted_id = ?", [numericUserId, numericUserId]).catch(() => {});
   await db.query("DELETE FROM vine_follows WHERE follower_id = ? OR following_id = ?", [numericUserId, numericUserId]).catch(() => {});
+  await db.query("DELETE FROM vine_follow_requests WHERE requester_id = ? OR target_id = ? OR reviewed_by = ?", [numericUserId, numericUserId, numericUserId]).catch(() => {});
   await db.query("DELETE FROM vine_messages WHERE sender_id = ?", [numericUserId]).catch(() => {});
   await db.query("DELETE FROM vine_conversation_deletes WHERE user_id = ?", [numericUserId]).catch(() => {});
   await db.query("DELETE FROM vine_conversations WHERE user1_id = ? OR user2_id = ?", [numericUserId, numericUserId]).catch(() => {});
@@ -948,6 +969,19 @@ const ensureStatusSchema = async () => {
       viewed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       UNIQUE KEY uniq_status_view (status_id, viewer_id),
       INDEX idx_status_viewer (viewer_id, viewed_at)
+    )
+  `);
+
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_status_reactions (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      status_id INT NOT NULL,
+      user_id INT NOT NULL,
+      reaction VARCHAR(20) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_status_reaction (status_id, user_id),
+      INDEX idx_status_reactions_status (status_id, reaction)
     )
   `);
 
@@ -1558,14 +1592,25 @@ router.get("/statuses/user/:userId", requireVineAuth, async (req, res) => {
         EXISTS (
           SELECT 1 FROM vine_status_views sv
           WHERE sv.status_id = s.id AND sv.viewer_id = ?
-        ) AS seen_by_viewer
+        ) AS seen_by_viewer,
+        (
+          SELECT sr.reaction
+          FROM vine_status_reactions sr
+          WHERE sr.status_id = s.id AND sr.user_id = ?
+          LIMIT 1
+        ) AS viewer_reaction,
+        (SELECT COUNT(*) FROM vine_status_reactions sr WHERE sr.status_id = s.id AND sr.reaction = 'like') AS reaction_like_count,
+        (SELECT COUNT(*) FROM vine_status_reactions sr WHERE sr.status_id = s.id AND sr.reaction = 'love') AS reaction_love_count,
+        (SELECT COUNT(*) FROM vine_status_reactions sr WHERE sr.status_id = s.id AND sr.reaction = 'laugh') AS reaction_laugh_count,
+        (SELECT COUNT(*) FROM vine_status_reactions sr WHERE sr.status_id = s.id AND sr.reaction = 'sad') AS reaction_sad_count,
+        (SELECT COUNT(*) FROM vine_status_reactions sr WHERE sr.status_id = s.id AND sr.reaction = 'fire') AS reaction_fire_count
       FROM vine_statuses s
       WHERE s.user_id = ?
         AND s.is_deleted = 0
         AND s.expires_at > NOW()
       ORDER BY s.created_at ASC
       `,
-      [viewerId, userId]
+      [viewerId, viewerId, userId]
     );
 
     res.json(rows);
@@ -1679,6 +1724,185 @@ router.get("/statuses/:id/views", requireVineAuth, async (req, res) => {
   } catch (err) {
     console.error("Status views fetch error:", err);
     res.status(500).json([]);
+  }
+});
+
+router.post("/statuses/:id/react", requireVineAuth, async (req, res) => {
+  try {
+    await ensureStatusSchema();
+    const statusId = Number(req.params.id);
+    const userId = Number(req.user.id);
+    const reaction = String(req.body?.reaction || "").trim().toLowerCase();
+    const allowed = new Set(["like", "love", "laugh", "sad", "fire"]);
+    if (!statusId) return res.status(400).json({ message: "Invalid status id" });
+    if (!allowed.has(reaction)) return res.status(400).json({ message: "Invalid reaction" });
+
+    const [[statusRow]] = await db.query(
+      `
+      SELECT id, user_id
+      FROM vine_statuses
+      WHERE id = ? AND is_deleted = 0 AND expires_at > NOW()
+      LIMIT 1
+      `,
+      [statusId]
+    );
+    if (!statusRow) return res.status(404).json({ message: "Status not found" });
+
+    if (await isUserBlocked(statusRow.user_id, userId)) {
+      return res.status(403).json({ message: "You have been blocked" });
+    }
+    if (await isUserBlocked(userId, statusRow.user_id)) {
+      return res.status(403).json({ message: "You have blocked this user" });
+    }
+
+    const [[existing]] = await db.query(
+      "SELECT reaction FROM vine_status_reactions WHERE status_id = ? AND user_id = ? LIMIT 1",
+      [statusId, userId]
+    );
+
+    let viewerReaction = reaction;
+    if (existing && String(existing.reaction || "").toLowerCase() === reaction) {
+      await db.query(
+        "DELETE FROM vine_status_reactions WHERE status_id = ? AND user_id = ?",
+        [statusId, userId]
+      );
+      viewerReaction = null;
+    } else {
+      await db.query(
+        `
+        INSERT INTO vine_status_reactions (status_id, user_id, reaction, created_at, updated_at)
+        VALUES (?, ?, ?, NOW(), NOW())
+        ON DUPLICATE KEY UPDATE reaction = VALUES(reaction), updated_at = NOW()
+        `,
+        [statusId, userId, reaction]
+      );
+    }
+
+    const [countsRows] = await db.query(
+      `
+      SELECT reaction, COUNT(*) AS total
+      FROM vine_status_reactions
+      WHERE status_id = ?
+      GROUP BY reaction
+      `,
+      [statusId]
+    );
+    const counts = { like: 0, love: 0, laugh: 0, sad: 0, fire: 0 };
+    countsRows.forEach((r) => {
+      const key = String(r.reaction || "").toLowerCase();
+      if (counts[key] !== undefined) counts[key] = Number(r.total || 0);
+    });
+
+    res.json({ success: true, viewer_reaction: viewerReaction, counts });
+  } catch (err) {
+    console.error("Status react error:", err);
+    res.status(500).json({ message: "Failed to react" });
+  }
+});
+
+router.post("/statuses/:id/reply", requireVineAuth, async (req, res) => {
+  try {
+    await ensureStatusSchema();
+    const statusId = Number(req.params.id);
+    const senderId = Number(req.user.id);
+    const text = String(req.body?.text || "").trim();
+    if (!statusId) return res.status(400).json({ message: "Invalid status id" });
+    if (!text) return res.status(400).json({ message: "Reply cannot be empty" });
+    if (text.length > 1000) return res.status(400).json({ message: "Reply is too long" });
+
+    const [[statusRow]] = await db.query(
+      `
+      SELECT s.id, s.user_id, u.username, u.display_name
+      FROM vine_statuses s
+      JOIN vine_users u ON u.id = s.user_id
+      WHERE s.id = ? AND s.is_deleted = 0 AND s.expires_at > NOW()
+      LIMIT 1
+      `,
+      [statusId]
+    );
+    if (!statusRow) return res.status(404).json({ message: "Status not found" });
+    if (Number(statusRow.user_id) === senderId) {
+      return res.status(400).json({ message: "Cannot reply to your own status" });
+    }
+
+    const receiverId = Number(statusRow.user_id);
+    if (await isUserBlocked(receiverId, senderId)) {
+      return res.status(403).json({ message: "You have been blocked" });
+    }
+    if (await isUserBlocked(senderId, receiverId)) {
+      return res.status(403).json({ message: "You have blocked this user" });
+    }
+    if (await isUserMuted(receiverId, senderId)) {
+      return res.status(403).json({ message: "User has muted you" });
+    }
+
+    let conversationId = null;
+    let user1Id = senderId;
+    let user2Id = receiverId;
+    const [existingConvo] = await db.query(
+      `
+      SELECT id, user1_id, user2_id
+      FROM vine_conversations
+      WHERE (user1_id = ? AND user2_id = ?)
+         OR (user1_id = ? AND user2_id = ?)
+      LIMIT 1
+      `,
+      [senderId, receiverId, receiverId, senderId]
+    );
+    if (existingConvo.length) {
+      conversationId = Number(existingConvo[0].id);
+      user1Id = Number(existingConvo[0].user1_id);
+      user2Id = Number(existingConvo[0].user2_id);
+    } else {
+      const [createdConvo] = await db.query(
+        "INSERT INTO vine_conversations (user1_id, user2_id) VALUES (?, ?)",
+        [senderId, receiverId]
+      );
+      conversationId = Number(createdConvo.insertId);
+      user1Id = senderId;
+      user2Id = receiverId;
+    }
+
+    const dmContent = `[Status reply] ${text}`;
+    const [insertedMsg] = await db.query(
+      "INSERT INTO vine_messages (conversation_id, sender_id, content) VALUES (?, ?, ?)",
+      [conversationId, senderId, dmContent]
+    );
+    await db.query(
+      "DELETE FROM vine_conversation_deletes WHERE conversation_id = ? AND user_id IN (?, ?)",
+      [conversationId, senderId, receiverId]
+    );
+
+    const [[fullMessage]] = await db.query(
+      `
+      SELECT
+        m.id,
+        m.conversation_id,
+        m.sender_id,
+        m.content,
+        m.created_at,
+        u.username,
+        u.avatar_url,
+        u.is_verified
+      FROM vine_messages m
+      JOIN vine_users u ON u.id = m.sender_id
+      WHERE m.id = ?
+      LIMIT 1
+      `,
+      [insertedMsg.insertId]
+    );
+
+    io.to(`conversation-${conversationId}`).emit("dm_received", fullMessage);
+    io.to(`user-${user1Id}`).emit("dm_received", fullMessage);
+    io.to(`user-${user2Id}`).emit("dm_received", fullMessage);
+    io.to(`user-${user1Id}`).emit("inbox_updated");
+    io.to(`user-${user2Id}`).emit("inbox_updated");
+    io.to(`user-${user2Id}`).emit("notification");
+
+    res.json({ success: true, conversationId, message: fullMessage });
+  } catch (err) {
+    console.error("Status reply error:", err);
+    res.status(500).json({ message: "Failed to send status reply" });
   }
 });
 
@@ -5417,6 +5641,7 @@ router.get("/users/new", authOptional, async (req, res) => {
 router.get("/users/:username", authOptional, async (req, res) => {
   try {
     await ensureProfileAboutSchema();
+    await ensureFollowRequestSchema();
     const { username } = req.params;
     const viewerId = req.user?.id || null;
 
@@ -5466,6 +5691,15 @@ router.get("/users/:username", authOptional, async (req, res) => {
                  AND following_id = u.id)`
             : "0"
         } AS is_following,
+        ${
+          viewerId
+            ? `(SELECT COUNT(*) > 0
+                 FROM vine_follow_requests fr
+                 WHERE fr.requester_id = ${viewerId}
+                   AND fr.target_id = u.id
+                   AND fr.status = 'pending')`
+            : "0"
+        } AS follow_request_pending,
 
         ${
           viewerId
@@ -7052,6 +7286,7 @@ router.post("/users/me/cancel-deletion", authenticate, async (req, res) => {
 // follow
 router.post("/users/:id/follow", authenticate, async (req, res) => {
   try {
+    await ensureFollowRequestSchema();
     const targetId = Number(req.params.id);   // person being followed
     const actorId = req.user.id;              // person doing the following
 
@@ -7060,6 +7295,41 @@ router.post("/users/:id/follow", authenticate, async (req, res) => {
     }
     if (await isUserBlocked(targetId, actorId)) {
       return res.status(403).json({ message: "You have been blocked" });
+    }
+    const [[targetUser]] = await db.query(
+      "SELECT id, is_private FROM vine_users WHERE id = ? LIMIT 1",
+      [targetId]
+    );
+    if (!targetUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+    const [[alreadyFollowing]] = await db.query(
+      "SELECT 1 AS ok FROM vine_follows WHERE follower_id = ? AND following_id = ? LIMIT 1",
+      [actorId, targetId]
+    );
+    if (alreadyFollowing?.ok) {
+      return res.json({ success: true, following: true, pending: false });
+    }
+
+    if (Number(targetUser.is_private) === 1) {
+      await db.query(
+        `
+        INSERT INTO vine_follow_requests (requester_id, target_id, status, created_at, reviewed_at, reviewed_by)
+        VALUES (?, ?, 'pending', NOW(), NULL, NULL)
+        ON DUPLICATE KEY UPDATE status = 'pending', created_at = NOW(), reviewed_at = NULL, reviewed_by = NULL
+        `,
+        [actorId, targetId]
+      );
+      const muted = await isMutedBy(targetId, actorId);
+      if (!muted) {
+        await db.query(
+          `INSERT INTO vine_notifications (user_id, actor_id, type)
+           VALUES (?, ?, 'follow_request')`,
+          [targetId, actorId]
+        );
+        io.to(`user-${targetId}`).emit("notification");
+      }
+      return res.json({ success: true, following: false, pending: true });
     }
 
     // Insert follow (ignore duplicates)
@@ -7083,7 +7353,7 @@ router.post("/users/:id/follow", authenticate, async (req, res) => {
       }
     }
 
-    res.json({ success: true });
+    res.json({ success: true, following: true, pending: false });
 
   } catch (err) {
     console.error("FOLLOW ERROR:", err);
@@ -7093,11 +7363,113 @@ router.post("/users/:id/follow", authenticate, async (req, res) => {
 
 // unfollow
 router.delete("/users/:id/follow", authenticate, async (req, res) => {
+  await ensureFollowRequestSchema();
   await db.query(
     "DELETE FROM vine_follows WHERE follower_id = ? AND following_id = ?",
     [req.user.id, req.params.id]
   );
+  await db.query(
+    "DELETE FROM vine_follow_requests WHERE requester_id = ? AND target_id = ?",
+    [req.user.id, req.params.id]
+  );
   res.json({ success: true });
+});
+
+router.get("/users/me/follow-requests", authenticate, async (req, res) => {
+  try {
+    await ensureFollowRequestSchema();
+    const userId = Number(req.user.id);
+    const [rows] = await db.query(
+      `
+      SELECT
+        fr.id,
+        fr.requester_id,
+        fr.created_at,
+        u.username,
+        u.display_name,
+        u.avatar_url,
+        u.is_verified
+      FROM vine_follow_requests fr
+      JOIN vine_users u ON u.id = fr.requester_id
+      WHERE fr.target_id = ?
+        AND fr.status = 'pending'
+      ORDER BY fr.created_at DESC
+      `,
+      [userId]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error("Follow requests list error:", err);
+    res.status(500).json([]);
+  }
+});
+
+router.post("/users/follow-requests/:id/respond", authenticate, async (req, res) => {
+  try {
+    await ensureFollowRequestSchema();
+    const requestId = Number(req.params.id);
+    const userId = Number(req.user.id);
+    const action = String(req.body?.action || "").toLowerCase();
+    if (!requestId) return res.status(400).json({ message: "Invalid request id" });
+    if (!["accept", "reject"].includes(action)) {
+      return res.status(400).json({ message: "Invalid action" });
+    }
+
+    const [[requestRow]] = await db.query(
+      `
+      SELECT id, requester_id, target_id, status
+      FROM vine_follow_requests
+      WHERE id = ?
+      LIMIT 1
+      `,
+      [requestId]
+    );
+    if (!requestRow) return res.status(404).json({ message: "Request not found" });
+    if (Number(requestRow.target_id) !== userId) {
+      return res.status(403).json({ message: "Not allowed" });
+    }
+    if (String(requestRow.status || "").toLowerCase() !== "pending") {
+      return res.status(400).json({ message: "Request already handled" });
+    }
+
+    if (action === "accept") {
+      await db.query(
+        "INSERT IGNORE INTO vine_follows (follower_id, following_id) VALUES (?, ?)",
+        [requestRow.requester_id, userId]
+      );
+      await db.query(
+        `
+        UPDATE vine_follow_requests
+        SET status = 'accepted', reviewed_at = NOW(), reviewed_by = ?
+        WHERE id = ?
+        `,
+        [userId, requestId]
+      );
+      const muted = await isMutedBy(requestRow.requester_id, userId);
+      if (!muted) {
+        await db.query(
+          `INSERT INTO vine_notifications (user_id, actor_id, type)
+           VALUES (?, ?, 'follow_request_accepted')`,
+          [requestRow.requester_id, userId]
+        );
+        io.to(`user-${requestRow.requester_id}`).emit("notification");
+      }
+      return res.json({ success: true, status: "accepted" });
+    }
+
+    await db.query(
+      `
+      UPDATE vine_follow_requests
+      SET status = 'rejected', reviewed_at = NOW(), reviewed_by = ?
+      WHERE id = ?
+      `,
+      [userId, requestId]
+    );
+    res.json({ success: true, status: "rejected" });
+  } catch (err) {
+    console.error("Follow request respond error:", err);
+    res.status(500).json({ message: "Failed to respond to request" });
+  }
 });
 
 // block a user
@@ -7207,7 +7579,15 @@ router.get("/users/:username/followers", authOptional, async (req, res) => {
             ? `(SELECT COUNT(*) > 0 FROM vine_follows 
                 WHERE follower_id = ${viewerId} AND following_id = u.id)`
             : "0"
-        } AS is_following
+        } AS is_following,
+        ${
+          viewerId
+            ? `(SELECT COUNT(*) > 0 FROM vine_follow_requests fr
+                WHERE fr.requester_id = ${viewerId}
+                  AND fr.target_id = u.id
+                  AND fr.status = 'pending')`
+            : "0"
+        } AS is_follow_requested
       FROM vine_follows f
       JOIN vine_users u ON f.follower_id = u.id
       WHERE f.following_id = ?
@@ -7252,7 +7632,15 @@ router.get("/users/:username/following", authOptional, async (req, res) => {
             ? `(SELECT COUNT(*) > 0 FROM vine_follows 
                 WHERE follower_id = ${viewerId} AND following_id = u.id)`
             : "0"
-        } AS is_following
+        } AS is_following,
+        ${
+          viewerId
+            ? `(SELECT COUNT(*) > 0 FROM vine_follow_requests fr
+                WHERE fr.requester_id = ${viewerId}
+                  AND fr.target_id = u.id
+                  AND fr.status = 'pending')`
+            : "0"
+        } AS is_follow_requested
       FROM vine_follows f
       JOIN vine_users u ON f.following_id = u.id
       WHERE f.follower_id = ?

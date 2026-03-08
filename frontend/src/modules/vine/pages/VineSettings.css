@@ -245,6 +245,12 @@
   padding: 8px 10px;
 }
 
+.settings-user-actions {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+
 .settings-user-left {
   display: inline-flex;
   align-items: center;

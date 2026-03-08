@@ -20,6 +20,7 @@ export default function VineSettings() {
   const [sessions, setSessions] = useState([]);
   const [saveMsg, setSaveMsg] = useState("");
   const [blockedUsers, setBlockedUsers] = useState([]);
+  const [followRequests, setFollowRequests] = useState([]);
 
   const [privateProfile, setPrivateProfile] = useState(false);
   const [hideLikeCounts, setHideLikeCounts] = useState(false);
@@ -93,6 +94,18 @@ export default function VineSettings() {
     }
   };
 
+  const loadFollowRequests = async () => {
+    try {
+      const res = await fetch(`${API}/api/vine/users/me/follow-requests`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => []);
+      setFollowRequests(Array.isArray(data) ? data : []);
+    } catch {
+      setFollowRequests([]);
+    }
+  };
+
   useEffect(() => {
     const load = async () => {
       if (!token || !me?.username) {
@@ -142,7 +155,7 @@ export default function VineSettings() {
         setBlurSensitiveMedia(Boolean(prefData.blur_sensitive_media));
         setDeleteRequestedAt(prefData.delete_requested_at || null);
 
-        await Promise.all([loadSessions(), loadBlockedUsers()]);
+        await Promise.all([loadSessions(), loadBlockedUsers(), loadFollowRequests()]);
       } finally {
         setLoading(false);
       }
@@ -397,6 +410,27 @@ export default function VineSettings() {
     }
   };
 
+  const respondFollowRequest = async (requestId, action) => {
+    try {
+      const res = await fetch(`${API}/api/vine/users/follow-requests/${requestId}/respond`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ action }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data?.message || "Failed to respond to follow request");
+        return;
+      }
+      setFollowRequests((prev) => prev.filter((r) => Number(r.id) !== Number(requestId)));
+    } catch {
+      alert("Failed to respond to follow request");
+    }
+  };
+
   if (loading) {
     return <div className="vine-settings-page">Loading settings...</div>;
   }
@@ -489,6 +523,52 @@ export default function VineSettings() {
                     >
                       Unblock
                     </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="settings-item stack">
+            <label>Follow requests</label>
+            {followRequests.length === 0 ? (
+              <div className="settings-hint">No pending follow requests.</div>
+            ) : (
+              <div className="settings-user-list">
+                {followRequests.map((r) => (
+                  <div className="settings-user-row" key={`follow-request-${r.id}`}>
+                    <button
+                      className="settings-user-left"
+                      type="button"
+                      onClick={() => navigate(`/vine/profile/${r.username}`)}
+                    >
+                      <img
+                        src={r.avatar_url || DEFAULT_AVATAR}
+                        alt={r.username}
+                        onError={(e) => {
+                          e.currentTarget.src = DEFAULT_AVATAR;
+                        }}
+                      />
+                      <span className="settings-user-meta">
+                        <strong>{r.display_name || r.username}</strong>
+                        <small>@{r.username}</small>
+                      </span>
+                    </button>
+                    <div className="settings-user-actions">
+                      <button
+                        className="settings-primary-btn"
+                        type="button"
+                        onClick={() => respondFollowRequest(r.id, "accept")}
+                      >
+                        Accept
+                      </button>
+                      <button
+                        className="danger-btn danger-outline"
+                        type="button"
+                        onClick={() => respondFollowRequest(r.id, "reject")}
+                      >
+                        Refuse
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>

@@ -29,15 +29,22 @@ export default function VineFollowers() {
       .catch(() => setLoading(false));
   }, [username, token]);
 
-  const toggleFollow = async (userId, isFollowing) => {
+  const toggleFollow = async (userId, isFollowing, isRequested) => {
     try {
-      await fetch(`${API}/api/vine/users/${userId}/follow`, {
-        method: isFollowing ? "DELETE" : "POST",
+      const res = await fetch(`${API}/api/vine/users/${userId}/follow`, {
+        method: (isFollowing || isRequested) ? "DELETE" : "POST",
         headers: { Authorization: `Bearer ${token}` },
       });
+      const data = await res.json().catch(() => ({}));
       setUsers((prev) =>
         prev.map((u) =>
-          u.id === userId ? { ...u, is_following: isFollowing ? 0 : 1 } : u
+          u.id === userId
+            ? {
+                ...u,
+                is_following: Number(data?.following ? 1 : 0),
+                is_follow_requested: Number(data?.pending ? 1 : 0),
+              }
+            : u
         )
       );
     } catch (err) {
@@ -120,10 +127,14 @@ export default function VineFollowers() {
                 className={`row-follow-btn ${u.is_following ? "following" : ""}`}
                 onClick={(e) => {
                   e.stopPropagation();
-                  toggleFollow(u.id, Boolean(u.is_following));
+                  toggleFollow(
+                    u.id,
+                    Boolean(u.is_following),
+                    Boolean(u.is_follow_requested)
+                  );
                 }}
               >
-                {u.is_following ? "Unfollow" : "Follow"}
+                {u.is_following ? "Unfollow" : u.is_follow_requested ? "Requested" : "Follow"}
               </button>
             </div>
           ))

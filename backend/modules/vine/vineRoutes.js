@@ -4305,6 +4305,106 @@ router.get("/communities/:id/gradebook", authenticate, async (req, res) => {
   }
 });
 
+router.get("/communities/:id/progress", authenticate, async (req, res) => {
+  try {
+    await ensureCommunitySchema();
+    const viewerId = Number(req.user.id);
+    const communityId = Number(req.params.id);
+    if (!communityId) return res.status(400).json([]);
+
+    const role = await getCommunityRole(communityId, viewerId);
+    if (!isCommunityModOrOwner(role)) return res.status(403).json([]);
+
+    const [[assignmentTotals]] = await db.query(
+      `SELECT COUNT(*) AS total_assignments
+       FROM vine_community_assignments
+       WHERE community_id = ?`,
+      [communityId]
+    );
+    const totalAssignments = Number(assignmentTotals?.total_assignments || 0);
+
+    const [[sessionTotals]] = await db.query(
+      `SELECT COUNT(*) AS total_sessions
+       FROM vine_community_sessions
+       WHERE community_id = ?
+         AND starts_at <= NOW()`,
+      [communityId]
+    );
+    const totalSessions = Number(sessionTotals?.total_sessions || 0);
+
+    const [rows] = await db.query(
+      `
+      SELECT
+        u.id AS learner_id,
+        u.username AS learner_username,
+        u.display_name AS learner_display_name,
+        u.avatar_url AS learner_avatar_url,
+        u.is_verified AS learner_is_verified,
+        m.role AS community_role,
+        COALESCE(subq.submission_count, 0) AS submission_count,
+        COALESCE(subq.avg_score, NULL) AS avg_score,
+        COALESCE(attq.present_count, 0) AS present_count
+      FROM vine_community_members m
+      JOIN vine_users u ON u.id = m.user_id
+      LEFT JOIN (
+        SELECT
+          s.user_id,
+          COUNT(DISTINCT s.assignment_id) AS submission_count,
+          AVG(s.score) AS avg_score
+        FROM vine_community_submissions s
+        WHERE s.community_id = ?
+        GROUP BY s.user_id
+      ) subq ON subq.user_id = m.user_id
+      LEFT JOIN (
+        SELECT
+          a.user_id,
+          COUNT(*) AS present_count
+        FROM vine_community_attendance a
+        JOIN vine_community_sessions sess ON sess.id = a.session_id
+        WHERE a.community_id = ?
+          AND sess.starts_at <= NOW()
+          AND a.status = 'present'
+        GROUP BY a.user_id
+      ) attq ON attq.user_id = m.user_id
+      WHERE m.community_id = ?
+      ORDER BY m.role = 'owner' DESC, m.role = 'moderator' DESC, u.username ASC
+      `,
+      [communityId, communityId, communityId]
+    );
+
+    const payload = rows.map((r) => {
+      const submissionRate = totalAssignments > 0
+        ? Math.round((Number(r.submission_count || 0) / totalAssignments) * 100)
+        : 0;
+      const attendanceRate = totalSessions > 0
+        ? Math.round((Number(r.present_count || 0) / totalSessions) * 100)
+        : 0;
+      const avgScoreNum = r.avg_score === null || r.avg_score === undefined ? null : Number(r.avg_score);
+      let riskFlag = "on_track";
+      if (attendanceRate < 60 || submissionRate < 50 || (avgScoreNum !== null && avgScoreNum < 40)) {
+        riskFlag = "at_risk";
+      } else if (attendanceRate < 75 || submissionRate < 75 || (avgScoreNum !== null && avgScoreNum < 60)) {
+        riskFlag = "watch";
+      }
+
+      return {
+        ...r,
+        total_assignments: totalAssignments,
+        total_sessions: totalSessions,
+        submission_rate: submissionRate,
+        attendance_rate: attendanceRate,
+        avg_score: avgScoreNum,
+        risk_flag: riskFlag,
+      };
+    });
+
+    res.json(payload);
+  } catch (err) {
+    console.error("Get community progress error:", err);
+    res.status(500).json([]);
+  }
+});
+
 router.get("/communities/:id/badges-streaks", authenticate, async (req, res) => {
   try {
     await ensureCommunitySchema();
@@ -6708,6 +6808,40 @@ router.delete("/posts/:id", requireVineAuth, async (req, res) => {
   } catch (err) {
     console.error("Delete Post Error:", err);
     res.status(500).json({ message: "Server error during deletion" });
+  }
+});
+
+// EDIT a post (owner or moderator)
+router.patch("/posts/:id", requireVineAuth, async (req, res) => {
+  const postId = Number(req.params.id);
+  const userId = Number(req.user.id);
+  const content = String(req.body?.content || "").trim();
+
+  if (!postId) return res.status(400).json({ message: "Invalid post id" });
+  if (!content) return res.status(400).json({ message: "Post content is required" });
+  if (content.length > 2000) return res.status(400).json({ message: "Post too long" });
+
+  try {
+    const [[post]] = await db.query(
+      "SELECT id, user_id FROM vine_posts WHERE id = ? LIMIT 1",
+      [postId]
+    );
+    if (!post) return res.status(404).json({ message: "Post not found" });
+
+    const isModerator = isModeratorAccount(req.user);
+    if (Number(post.user_id) !== userId && !isModerator) {
+      return res.status(403).json({ message: "Not allowed" });
+    }
+
+    await db.query(
+      "UPDATE vine_posts SET content = ?, updated_at = NOW() WHERE id = ?",
+      [content, postId]
+    );
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("Edit post error:", err);
+    return res.status(500).json({ message: "Failed to edit post" });
   }
 });
 

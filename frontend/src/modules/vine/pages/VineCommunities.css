@@ -1654,6 +1654,441 @@
   cursor: pointer;
 }
 
+.community-announcements {
+  border: 1px solid #fef3c7;
+  background: linear-gradient(145deg, #fffef8, #fffbeb);
+  border-radius: 14px;
+  padding: 10px;
+  margin-bottom: 12px;
+}
+
+.community-announcements-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.community-announcements-head h4 {
+  margin: 0;
+  color: #854d0e;
+}
+
+.community-announcements-badge {
+  border-radius: 999px;
+  background: #b91c1c;
+  color: #fff;
+  padding: 2px 8px;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.community-announcements-list {
+  display: grid;
+  gap: 8px;
+}
+
+.community-announcement-create {
+  border: 1px solid #fde68a;
+  border-radius: 12px;
+  background: #fff;
+  padding: 8px;
+  margin-bottom: 8px;
+}
+
+.community-announcement-create textarea {
+  width: 100%;
+  border: 1px solid #fde68a;
+  border-radius: 10px;
+  padding: 8px 10px;
+  min-height: 80px;
+  resize: vertical;
+  font: inherit;
+  box-sizing: border-box;
+}
+
+.community-announcement-create-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.community-announcement-create-actions span {
+  font-size: 0.75rem;
+  color: #92400e;
+  font-weight: 700;
+}
+
+.community-announcement-create-actions button {
+  border: 1px solid #166534;
+  background: #166534;
+  color: #fff;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.community-announcement-create-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.community-announcement-row {
+  border: 1px solid #fde68a;
+  border-radius: 10px;
+  background: #fff;
+  padding: 8px 10px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.community-announcement-row.unseen {
+  background: #fffbeb;
+}
+
+.community-announcement-main {
+  display: grid;
+  gap: 2px;
+}
+
+.community-announcement-main strong {
+  color: #713f12;
+  font-size: 0.9rem;
+}
+
+.community-announcement-main span {
+  color: #374151;
+  font-size: 0.86rem;
+}
+
+.community-announcement-meta {
+  display: grid;
+  justify-items: end;
+  align-content: center;
+  gap: 3px;
+}
+
+.announcement-unpin-btn {
+  border: 1px solid #fca5a5;
+  background: #fff1f2;
+  color: #b91c1c;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.announcement-owner-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.announcement-edit-btn {
+  border: 1px solid #86efac;
+  background: #ecfdf5;
+  color: #166534;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.announcement-edit-box {
+  width: 100%;
+  min-height: 70px;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+  padding: 6px 8px;
+  box-sizing: border-box;
+  font: inherit;
+  resize: vertical;
+}
+
+.announcement-new-dot {
+  font-size: 0.68rem;
+  font-weight: 800;
+  color: #b91c1c;
+}
+
+.assignment-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.community-insights-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.community-calendar-card,
+.community-progress-card {
+  border: 1px solid #d1fae5;
+  border-radius: 14px;
+  padding: 10px;
+}
+
+.community-calendar-card {
+  position: relative;
+  isolation: isolate;
+  background:
+    radial-gradient(circle at 8% 8%, rgba(255, 255, 255, 0.96), rgba(255, 255, 255, 0.66) 48%, rgba(255, 255, 255, 0.58) 100%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.72), rgba(240, 253, 244, 0.55));
+  backdrop-filter: blur(18px) saturate(165%);
+  -webkit-backdrop-filter: blur(18px) saturate(165%);
+  border: 1px solid rgba(167, 243, 208, 0.8);
+  box-shadow:
+    0 18px 36px rgba(6, 95, 70, 0.16),
+    0 2px 0 rgba(255, 255, 255, 0.85) inset,
+    0 -1px 0 rgba(16, 185, 129, 0.22) inset;
+}
+
+.community-calendar-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 16px;
+  right: 16px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.95), transparent);
+  z-index: 0;
+}
+
+.community-calendar-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 14px;
+  pointer-events: none;
+  background: radial-gradient(circle at 85% 10%, rgba(16, 185, 129, 0.12), transparent 44%);
+  z-index: 0;
+}
+
+.community-calendar-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.community-progress-card {
+  background: linear-gradient(140deg, #14532d, #166534);
+}
+
+.community-calendar-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  color: #14532d;
+}
+
+.community-calendar-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.community-calendar-nav button {
+  border: 1px solid #86efac;
+  background: rgba(255, 255, 255, 0.82);
+  color: #14532d;
+  border-radius: 8px;
+  padding: 2px 8px;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.community-calendar-nav button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 5px 10px rgba(6, 95, 70, 0.16);
+}
+
+.community-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.calendar-day-head {
+  text-align: center;
+  font-weight: 700;
+  font-size: 0.75rem;
+  color: #14532d;
+}
+
+.calendar-day-cell {
+  min-height: 42px;
+  border: 1px solid rgba(167, 243, 208, 0.65);
+  border-radius: 10px;
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.92), rgba(236, 253, 245, 0.82));
+  padding: 3px 5px;
+  display: grid;
+  align-content: space-between;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.calendar-day-cell:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 7px 14px rgba(6, 95, 70, 0.12);
+}
+
+.calendar-day-cell.empty {
+  border-color: transparent;
+  background: transparent;
+}
+
+.calendar-day-cell span {
+  font-size: 0.75rem;
+  color: #14532d;
+}
+
+.calendar-dot-row {
+  display: flex;
+  gap: 3px;
+}
+
+.calendar-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.calendar-dot.assignment {
+  background: #0ea5e9;
+  box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.2);
+}
+
+.calendar-dot.session {
+  background: #f59e0b;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2);
+}
+
+.community-calendar-upcoming {
+  display: grid;
+  gap: 6px;
+}
+
+.calendar-upcoming-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.84rem;
+  color: #14532d;
+  border: 1px solid rgba(167, 243, 208, 0.55);
+  border-radius: 10px;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.calendar-pill {
+  border-radius: 999px;
+  padding: 2px 7px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  color: #fff;
+}
+
+.calendar-pill.assignment {
+  background: #0284c7;
+}
+
+.calendar-pill.session {
+  background: #d97706;
+}
+
+.community-progress-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+  margin-bottom: 8px;
+}
+
+.community-progress-summary > div {
+  border: 1px solid #d1fae5;
+  border-radius: 10px;
+  background: #fff;
+  padding: 8px;
+  display: grid;
+  gap: 3px;
+}
+
+.community-progress-summary span {
+  font-size: 0.73rem;
+  color: #64748b;
+}
+
+.community-progress-summary b {
+  font-size: 1rem;
+  color: #065f46;
+}
+
+.community-progress-table {
+  display: grid;
+  gap: 6px;
+}
+
+.progress-row {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+  padding: 8px;
+  display: grid;
+  grid-template-columns: 1.3fr repeat(4, auto);
+  gap: 10px;
+  align-items: center;
+  font-size: 0.82rem;
+  color: #334155;
+}
+
+.progress-user {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.progress-user img {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid #a7f3d0;
+}
+
+.risk-pill {
+  justify-self: end;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.risk-pill.on_track {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.risk-pill.watch {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.risk-pill.at_risk {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
 @media (max-width: 900px) {
   .vine-communities-page {
     padding: 82px 10px 20px;
@@ -1684,6 +2119,15 @@
 
   .community-members-grid {
     grid-template-columns: repeat(6, 1fr);
+  }
+
+  .progress-row {
+    grid-template-columns: 1fr;
+    justify-items: start;
+  }
+
+  .community-progress-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -1799,6 +2243,12 @@
   .assignment-top-row {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .assignment-actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr;
   }
 
   .assignment-submit-row {

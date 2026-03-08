@@ -32,7 +32,7 @@ export default function VineCommunities() {
   const [activeCommunity, setActiveCommunity] = useState(null);
   const [posts, setPosts] = useState([]);
   const [members, setMembers] = useState([]);
-  const [activeTab, setActiveTab] = useState("about");
+  const [activeTab, setActiveTab] = useState("attendance");
   const [joinPolicy, setJoinPolicy] = useState("open");
   const [autoWelcomeEnabled, setAutoWelcomeEnabled] = useState(true);
   const [welcomeMessage, setWelcomeMessage] = useState("");
@@ -76,6 +76,7 @@ export default function VineCommunities() {
   const [assignmentSubmissions, setAssignmentSubmissions] = useState([]);
   const [gradingDrafts, setGradingDrafts] = useState({});
   const [badgesStreaks, setBadgesStreaks] = useState([]);
+  const [progressRows, setProgressRows] = useState([]);
   const [reputation, setReputation] = useState([]);
   const [reports, setReports] = useState([]);
   const [topicFilter, setTopicFilter] = useState("");
@@ -86,6 +87,14 @@ export default function VineCommunities() {
   const [communityBannerOffset, setCommunityBannerOffset] = useState(0);
   const [isAdjustingCommunityBanner, setIsAdjustingCommunityBanner] = useState(false);
   const [showCreateCommunity, setShowCreateCommunity] = useState(false);
+  const [announcementText, setAnnouncementText] = useState("");
+  const [editingAnnouncementId, setEditingAnnouncementId] = useState(null);
+  const [editingAnnouncementText, setEditingAnnouncementText] = useState("");
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
+  const [seenAnnouncementIds, setSeenAnnouncementIds] = useState({});
   const communityBannerDragStart = useRef(0);
   const communityBannerOffsetStart = useRef(0);
   const communityPostRef = useRef(null);
@@ -238,9 +247,12 @@ export default function VineCommunities() {
       "attendance",
       "assignments",
       "settings",
+      "announcements",
     ]);
     if (allowed.has(tab)) {
       setActiveTab(tab);
+    } else {
+      setActiveTab("attendance");
     }
   }, [searchParams]);
 
@@ -393,6 +405,24 @@ export default function VineCommunities() {
     }
   };
 
+  const loadProgress = async () => {
+    if (!activeCommunity?.id) return;
+    const role = String(activeCommunity?.viewer_role || "").toLowerCase();
+    if (!["owner", "moderator"].includes(role)) {
+      setProgressRows([]);
+      return;
+    }
+    try {
+      const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/progress`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      setProgressRows(Array.isArray(data) ? data : []);
+    } catch {
+      setProgressRows([]);
+    }
+  };
+
   const loadAssignmentSubmissions = async (assignmentId) => {
     if (!activeCommunity?.id || !assignmentId) return;
     const viewerRole = String(activeCommunity?.viewer_role || "").toLowerCase();
@@ -448,6 +478,7 @@ export default function VineCommunities() {
 
   useEffect(() => {
     if (activeTab === "assignments" && activeCommunity?.id) loadBadgesStreaks();
+    if (activeTab === "announcements" && activeCommunity?.id) loadProgress();
     if (activeTab === "attendance" && activeCommunity?.id) {
       const role = String(activeCommunity.viewer_role || "").toLowerCase();
       if (["owner", "moderator"].includes(role)) {
@@ -461,6 +492,26 @@ export default function VineCommunities() {
       loadReports();
     }
   }, [activeTab, activeCommunity?.id, activeCommunity?.viewer_role]);
+
+  useEffect(() => {
+    const now = new Date();
+    setCalendarMonth(new Date(now.getFullYear(), now.getMonth(), 1));
+  }, [activeCommunity?.id]);
+
+  useEffect(() => {
+    if (!activeCommunity?.id || !currentUser?.id) {
+      setSeenAnnouncementIds({});
+      return;
+    }
+    try {
+      const key = `vine_announcements_seen_${currentUser.id}_${activeCommunity.id}`;
+      const raw = localStorage.getItem(key);
+      const parsed = raw ? JSON.parse(raw) : {};
+      setSeenAnnouncementIds(parsed && typeof parsed === "object" ? parsed : {});
+    } catch {
+      setSeenAnnouncementIds({});
+    }
+  }, [activeCommunity?.id, currentUser?.id]);
 
   const saveSettings = async () => {
     if (!activeCommunity?.id) return;
@@ -885,6 +936,95 @@ export default function VineCommunities() {
       URL.revokeObjectURL(url);
     } catch {
       alert("Failed to export CSV");
+    }
+  };
+
+  const exportGradebookPdf = async () => {
+    if (!activeCommunity?.id) return;
+    try {
+      const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/gradebook`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        alert("Failed to export PDF");
+        return;
+      }
+      const rows = await res.json().catch(() => []);
+      const doc = new jsPDF({ unit: "pt", format: "a4" });
+      doc.setFontSize(13);
+      doc.text(`${activeCommunity?.name || "Community"} — Gradebook`, 40, 34);
+      autoTable(doc, {
+        startY: 48,
+        head: [["Learner", "Assignment", "Score", "Status", "Submitted", "Graded"]],
+        body: (Array.isArray(rows) ? rows : []).map((r) => [
+          r.learner_display_name || r.learner_username || "",
+          r.assignment_title || "",
+          r.submission_score ?? "-",
+          r.submission_status || "pending",
+          r.submitted_at ? new Date(r.submitted_at).toLocaleString() : "-",
+          r.graded_at ? new Date(r.graded_at).toLocaleString() : "-",
+        ]),
+        styles: { fontSize: 8, cellPadding: 4 },
+        headStyles: { fillColor: [6, 95, 70] },
+      });
+      const blob = doc.output("blob");
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank", "noopener,noreferrer");
+      setTimeout(() => URL.revokeObjectURL(url), 60 * 1000);
+    } catch {
+      alert("Failed to export PDF");
+    }
+  };
+
+  const markAnnouncementRead = (postId) => {
+    if (!activeCommunity?.id || !currentUser?.id || !postId) return;
+    const next = { ...seenAnnouncementIds, [postId]: Date.now() };
+    setSeenAnnouncementIds(next);
+    try {
+      const key = `vine_announcements_seen_${currentUser.id}_${activeCommunity.id}`;
+      localStorage.setItem(key, JSON.stringify(next));
+    } catch {
+      // no-op
+    }
+  };
+
+  const createAnnouncement = async () => {
+    if (!activeCommunity?.id || !announcementText.trim()) return;
+    const viewerRole = String(activeCommunity?.viewer_role || "").toLowerCase();
+    if (viewerRole !== "owner") {
+      alert("Only the community owner can create announcements");
+      return;
+    }
+    try {
+      const formData = new FormData();
+      formData.append("content", announcementText.trim());
+      formData.append("community_id", String(activeCommunity.id));
+
+      const postRes = await fetch(`${API}/api/vine/posts`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+      const postData = await postRes.json().catch(() => ({}));
+      if (!postRes.ok || !postData?.id) {
+        alert(postData.message || "Failed to create announcement");
+        return;
+      }
+
+      const pinRes = await fetch(
+        `${API}/api/vine/communities/${activeCommunity.id}/posts/${postData.id}/pin`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+      if (!pinRes.ok) {
+        alert("Announcement posted, but failed to pin.");
+      }
+      setAnnouncementText("");
+      await loadCommunityDetail(activeCommunity.slug, topicFilter);
+    } catch {
+      alert("Failed to create announcement");
     }
   };
 
@@ -1375,6 +1515,76 @@ export default function VineCommunities() {
     return `${days} ${days === 1 ? "day" : "days"} ago`;
   };
 
+  const formatSimpleDate = (value) => {
+    if (!value) return "";
+    const dt = new Date(value);
+    if (Number.isNaN(dt.getTime())) return "";
+    return dt.toLocaleString([], {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  };
+
+  const announcementPosts = posts.filter((p) => Number(p.is_community_pinned) === 1).slice(0, 5);
+  const newAnnouncementCount = announcementPosts.filter((p) => !seenAnnouncementIds[p.id]).length;
+  const calendarItems = [
+    ...assignments
+      .filter((a) => a?.due_at)
+      .map((a) => ({
+        id: `a-${a.id}`,
+        when: new Date(a.due_at),
+        type: "assignment",
+        title: a.title || "Assignment",
+      })),
+    ...sessions
+      .filter((s) => s?.starts_at)
+      .map((s) => ({
+        id: `s-${s.id}`,
+        when: new Date(s.starts_at),
+        type: "session",
+        title: s.title || "Class session",
+      })),
+  ]
+    .filter((item) => !Number.isNaN(item.when.getTime()))
+    .sort((a, b) => a.when.getTime() - b.when.getTime());
+
+  const calendarStart = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 1);
+  const calendarEnd = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 0);
+  const firstWeekday = calendarStart.getDay();
+  const monthDays = calendarEnd.getDate();
+  const monthCells = [];
+  for (let i = 0; i < firstWeekday; i += 1) monthCells.push(null);
+  for (let d = 1; d <= monthDays; d += 1) monthCells.push(d);
+
+  const calendarItemsByDay = calendarItems.reduce((acc, item) => {
+    if (
+      item.when.getFullYear() === calendarMonth.getFullYear() &&
+      item.when.getMonth() === calendarMonth.getMonth()
+    ) {
+      const day = item.when.getDate();
+      if (!acc[day]) acc[day] = [];
+      acc[day].push(item);
+    }
+    return acc;
+  }, {});
+  const upcomingCalendarItems = calendarItems.filter((item) => item.when.getTime() >= nowMs).slice(0, 8);
+  const progressSummary = progressRows.reduce(
+    (acc, row) => {
+      acc.count += 1;
+      acc.avgAttendance += Number(row.attendance_rate || 0);
+      acc.avgSubmission += Number(row.submission_rate || 0);
+      if (row.avg_score !== null && row.avg_score !== undefined) {
+        acc.scoredCount += 1;
+        acc.avgScore += Number(row.avg_score || 0);
+      }
+      if (String(row.risk_flag || "") === "at_risk") acc.atRisk += 1;
+      return acc;
+    },
+    { count: 0, avgAttendance: 0, avgSubmission: 0, avgScore: 0, scoredCount: 0, atRisk: 0 }
+  );
+
   return (
     <div className="vine-communities-page">
       <div className="communities-top">
@@ -1509,6 +1719,12 @@ export default function VineCommunities() {
               </div>
 
               <div className="community-tabs">
+                <button className={activeTab === "announcements" ? "active" : ""} onClick={() => setActiveTab("announcements")}>
+                  <span>Announcements</span>
+                  {newAnnouncementCount > 0 && (
+                    <span className="tab-count-badge">{newAnnouncementCount}</span>
+                  )}
+                </button>
                 <button className={activeTab === "attendance" ? "active" : ""} onClick={() => setActiveTab("attendance")}>Attendance</button>
                 <button className={activeTab === "members" ? "active" : ""} onClick={() => setActiveTab("members")}>Members</button>
                 <button className={activeTab === "assignments" ? "active" : ""} onClick={() => setActiveTab("assignments")}>Assignments</button>
@@ -1911,8 +2127,80 @@ export default function VineCommunities() {
                     <div className="assignment-top-row">
                       <h4>Assignments</h4>
                       {isCommunityOwner && (
-                        <button onClick={exportGradebookCsv}>Export Gradebook CSV</button>
+                        <div className="assignment-actions">
+                          <button onClick={exportGradebookCsv}>Export Gradebook CSV</button>
+                          <button onClick={exportGradebookPdf}>Export Gradebook PDF</button>
+                        </div>
                       )}
+                    </div>
+                    <div className="community-insights-grid">
+                      <div className="community-calendar-card">
+                        <div className="community-calendar-head">
+                          <strong>Assignment Calendar</strong>
+                          <div className="community-calendar-nav">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setCalendarMonth(
+                                  new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1)
+                                )
+                              }
+                            >
+                              ←
+                            </button>
+                            <span>
+                              {calendarMonth.toLocaleDateString([], { month: "long", year: "numeric" })}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setCalendarMonth(
+                                  new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1)
+                                )
+                              }
+                            >
+                              →
+                            </button>
+                          </div>
+                        </div>
+                        <div className="community-calendar-grid">
+                          {["S", "M", "T", "W", "T", "F", "S"].map((d) => (
+                            <div key={`head-${d}`} className="calendar-day-head">{d}</div>
+                          ))}
+                          {monthCells.map((day, idx) => (
+                            <div key={`day-${idx}`} className={`calendar-day-cell ${day ? "" : "empty"}`}>
+                              {day ? (
+                                <>
+                                  <span>{day}</span>
+                                  {calendarItemsByDay[day]?.length > 0 && (
+                                    <div className="calendar-dot-row">
+                                      {calendarItemsByDay[day].slice(0, 3).map((item) => (
+                                        <span key={item.id} className={`calendar-dot ${item.type}`} />
+                                      ))}
+                                    </div>
+                                  )}
+                                </>
+                              ) : null}
+                            </div>
+                          ))}
+                        </div>
+                        <div className="community-calendar-upcoming">
+                          {upcomingCalendarItems.length === 0 ? (
+                            <span>No upcoming items.</span>
+                          ) : (
+                            upcomingCalendarItems.map((item) => (
+                              <div key={`upcoming-${item.id}`} className="calendar-upcoming-row">
+                                <span className={`calendar-pill ${item.type}`}>
+                                  {item.type === "assignment" ? "Assignment" : "Session"}
+                                </span>
+                                <span>{item.title}</span>
+                                <small>{formatSimpleDate(item.when)}</small>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+
                     </div>
                     {isCommunityOwner && (
                       <div className="assignment-create-grid">
@@ -2346,6 +2634,255 @@ export default function VineCommunities() {
                         <div><span>📚</span> Consistent Learner = 5+ submissions</div>
                         <div><span>🏅</span> High Achiever = average 85%+ (min 3 graded)</div>
                       </div>
+                    </div>
+                  </section>
+                )}
+                {activeTab === "announcements" && isCommunityOwner && (
+                  <section className="community-announcements">
+                    <div className="community-announcements-head">
+                      <h4>Announcements</h4>
+                      {newAnnouncementCount > 0 && (
+                        <span className="community-announcements-badge">{newAnnouncementCount} new</span>
+                      )}
+                    </div>
+                    <div className="community-announcement-create">
+                      <textarea
+                        placeholder="Write announcement for members..."
+                        value={announcementText}
+                        onChange={(e) => setAnnouncementText(e.target.value)}
+                        maxLength={2000}
+                      />
+                      <div className="community-announcement-create-actions">
+                        <span>{announcementText.length}/2000</span>
+                        <button
+                          type="button"
+                          onClick={createAnnouncement}
+                          disabled={!announcementText.trim()}
+                        >
+                          Post Announcement
+                        </button>
+                      </div>
+                    </div>
+                    <div className="community-announcements-list">
+                      {announcementPosts.length === 0 ? (
+                        <div className="community-empty">No announcements yet.</div>
+                      ) : (
+                        announcementPosts.map((post) => {
+                          const isSeen = Boolean(seenAnnouncementIds[post.id]);
+                          return (
+                            <div
+                              key={`announcement-${post.id}`}
+                              className={`community-announcement-row ${isSeen ? "seen" : "unseen"}`}
+                              onClick={() => {
+                                markAnnouncementRead(post.id);
+                                navigate(`/vine/feed?post=${post.id}`);
+                              }}
+                              role="button"
+                              tabIndex={0}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  markAnnouncementRead(post.id);
+                                  navigate(`/vine/feed?post=${post.id}`);
+                                }
+                              }}
+                            >
+                              <div className="community-announcement-main">
+                                <strong>{post.display_name || post.username}</strong>
+                                {Number(editingAnnouncementId) === Number(post.id) ? (
+                                  <textarea
+                                    value={editingAnnouncementText}
+                                    onChange={(e) => setEditingAnnouncementText(e.target.value)}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="announcement-edit-box"
+                                    maxLength={2000}
+                                  />
+                                ) : (
+                                  <span>{(post.content || "").trim().slice(0, 120) || "Pinned announcement"}</span>
+                                )}
+                              </div>
+                              <div className="community-announcement-meta">
+                                {!isSeen && <span className="announcement-new-dot">NEW</span>}
+                                <small>{formatSimpleDate(post.created_at)}</small>
+                                {Number(editingAnnouncementId) === Number(post.id) ? (
+                                  <div className="announcement-owner-actions" onClick={(e) => e.stopPropagation()}>
+                                    <button
+                                      type="button"
+                                      className="announcement-edit-btn"
+                                      onClick={async () => {
+                                        const nextText = editingAnnouncementText.trim();
+                                        if (!nextText) return;
+                                        const res = await fetch(`${API}/api/vine/posts/${post.id}`, {
+                                          method: "PATCH",
+                                          headers: {
+                                            "Content-Type": "application/json",
+                                            Authorization: `Bearer ${token}`,
+                                          },
+                                          body: JSON.stringify({ content: nextText }),
+                                        });
+                                        if (!res.ok) {
+                                          alert("Failed to edit announcement");
+                                          return;
+                                        }
+                                        setEditingAnnouncementId(null);
+                                        setEditingAnnouncementText("");
+                                        await loadCommunityDetail(activeCommunity.slug, topicFilter);
+                                      }}
+                                    >
+                                      Save
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="announcement-unpin-btn"
+                                      onClick={() => {
+                                        setEditingAnnouncementId(null);
+                                        setEditingAnnouncementText("");
+                                      }}
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="announcement-owner-actions" onClick={(e) => e.stopPropagation()}>
+                                    <button
+                                      type="button"
+                                      className="announcement-edit-btn"
+                                      onClick={() => {
+                                        setEditingAnnouncementId(post.id);
+                                        setEditingAnnouncementText(String(post.content || ""));
+                                      }}
+                                    >
+                                      Edit
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="announcement-unpin-btn"
+                                      onClick={async () => {
+                                        const ok = window.confirm("Remove this announcement?");
+                                        if (!ok) return;
+                                        const res = await fetch(`${API}/api/vine/posts/${post.id}`, {
+                                          method: "DELETE",
+                                          headers: { Authorization: `Bearer ${token}` },
+                                        });
+                                        if (!res.ok) {
+                                          alert("Failed to remove announcement");
+                                          return;
+                                        }
+                                        await loadCommunityDetail(activeCommunity.slug, topicFilter);
+                                      }}
+                                    >
+                                      Remove
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </section>
+                )}
+                {activeTab === "announcements" && !isCommunityOwner && (
+                  <section className="community-announcements">
+                    <div className="community-announcements-head">
+                      <h4>Announcements</h4>
+                      {newAnnouncementCount > 0 && (
+                        <span className="community-announcements-badge">{newAnnouncementCount} new</span>
+                      )}
+                    </div>
+                    <div className="community-announcements-list">
+                      {announcementPosts.length === 0 ? (
+                        <div className="community-empty">No announcements yet.</div>
+                      ) : (
+                        announcementPosts.map((post) => {
+                          const isSeen = Boolean(seenAnnouncementIds[post.id]);
+                          return (
+                            <div
+                              key={`announcement-member-${post.id}`}
+                              className={`community-announcement-row ${isSeen ? "seen" : "unseen"}`}
+                              onClick={() => {
+                                markAnnouncementRead(post.id);
+                                navigate(`/vine/feed?post=${post.id}`);
+                              }}
+                              role="button"
+                              tabIndex={0}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  markAnnouncementRead(post.id);
+                                  navigate(`/vine/feed?post=${post.id}`);
+                                }
+                              }}
+                            >
+                              <div className="community-announcement-main">
+                                <strong>{post.display_name || post.username}</strong>
+                                <span>{(post.content || "").trim().slice(0, 120) || "Pinned announcement"}</span>
+                              </div>
+                              <div className="community-announcement-meta">
+                                {!isSeen && <span className="announcement-new-dot">NEW</span>}
+                                <small>{formatSimpleDate(post.created_at)}</small>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </section>
+                )}
+                {activeTab === "announcements" && isCommunityMod && (
+                  <section className="community-progress-card">
+                    <strong>Progress Dashboard</strong>
+                    <div className="community-progress-summary">
+                      <div>
+                        <span>Learners</span>
+                        <b>{progressSummary.count}</b>
+                      </div>
+                      <div>
+                        <span>Avg attendance</span>
+                        <b>
+                          {progressSummary.count
+                            ? Math.round(progressSummary.avgAttendance / progressSummary.count)
+                            : 0}
+                          %
+                        </b>
+                      </div>
+                      <div>
+                        <span>Submission rate</span>
+                        <b>
+                          {progressSummary.count
+                            ? Math.round(progressSummary.avgSubmission / progressSummary.count)
+                            : 0}
+                          %
+                        </b>
+                      </div>
+                      <div>
+                        <span>At risk</span>
+                        <b>{progressSummary.atRisk}</b>
+                      </div>
+                    </div>
+                    <div className="community-progress-table">
+                      {(progressRows || []).map((row) => (
+                        <div key={`progress-${row.learner_id}`} className="progress-row">
+                          <div className="progress-user">
+                            <img
+                              src={row.learner_avatar_url ? (row.learner_avatar_url.startsWith("http") ? row.learner_avatar_url : `${API}${row.learner_avatar_url}`) : DEFAULT_AVATAR}
+                              alt={row.learner_username}
+                              onError={(e) => {
+                                e.currentTarget.src = DEFAULT_AVATAR;
+                              }}
+                            />
+                            <span>{row.learner_display_name || row.learner_username}</span>
+                          </div>
+                          <span>{row.attendance_rate}% attend</span>
+                          <span>{row.submission_rate}% submit</span>
+                          <span>{row.avg_score === null ? "-" : Number(row.avg_score).toFixed(1)}</span>
+                          <span className={`risk-pill ${row.risk_flag}`}>{row.risk_flag}</span>
+                        </div>
+                      ))}
+                      {(!progressRows || progressRows.length === 0) && (
+                        <div className="community-empty">No progress data yet.</div>
+                      )}
                     </div>
                   </section>
                 )}

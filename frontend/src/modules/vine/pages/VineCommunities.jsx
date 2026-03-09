@@ -1069,6 +1069,65 @@ export default function VineCommunities() {
     }
   };
 
+  const exportSubmittedWorkPdf = async (assignment) => {
+    if (!activeCommunity?.id || !assignment?.id) return;
+    if (String(activeCommunity?.viewer_role || "").toLowerCase() !== "owner") {
+      alert("Only community owner can export submitted work");
+      return;
+    }
+    if (String(assignment.assignment_type || "theory").toLowerCase() !== "theory") {
+      alert("Submitted work PDF is available for theory assignments only");
+      return;
+    }
+    try {
+      const res = await fetch(
+        `${API}/api/vine/communities/${activeCommunity.id}/assignments/${assignment.id}/submissions`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!res.ok) {
+        alert("Failed to load submissions");
+        return;
+      }
+      const rows = await res.json().catch(() => []);
+      const submissions = Array.isArray(rows) ? rows : [];
+      const doc = new jsPDF({ unit: "pt", format: "a4" });
+      const pageWidth = doc.internal.pageSize.getWidth();
+
+      if (submissions.length === 0) {
+        doc.setFontSize(13);
+        doc.text(`${assignment.title || "Assignment"} — Submitted Work`, pageWidth / 2, 48, { align: "center" });
+        doc.setFontSize(11);
+        doc.text("No submissions yet.", 40, 78);
+      } else {
+        submissions.forEach((s, idx) => {
+          if (idx > 0) doc.addPage();
+          doc.setFontSize(13);
+          doc.text(`${assignment.title || "Assignment"} — Submitted Work`, pageWidth / 2, 36, { align: "center" });
+          doc.setFontSize(10);
+          doc.text(`Learner: ${s.display_name || s.username || "Unknown"} (@${s.username || "-"})`, 40, 62);
+          doc.text(`Submitted: ${s.submitted_at ? new Date(s.submitted_at).toLocaleString() : "-"}`, 40, 78);
+          doc.text(`Score: ${s.score === null || s.score === undefined ? "Pending" : s.score}`, 40, 94);
+          doc.text(`Status: ${s.status || "submitted"}`, 40, 110);
+          autoTable(doc, {
+            startY: 126,
+            head: [["Submitted Work"]],
+            body: [[String(s.content || "No written content submitted.")]],
+            styles: { fontSize: 10, cellPadding: 8, valign: "top" },
+            headStyles: { fillColor: [6, 95, 70] },
+            bodyStyles: { minCellHeight: 420 },
+          });
+        });
+      }
+
+      const blob = doc.output("blob");
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank", "noopener,noreferrer");
+      setTimeout(() => URL.revokeObjectURL(url), 60 * 1000);
+    } catch {
+      alert("Failed to export submitted work");
+    }
+  };
+
   const markAnnouncementRead = (postId) => {
     if (!activeCommunity?.id || !currentUser?.id || !postId) return;
     const next = { ...seenAnnouncementIds, [postId]: Date.now() };
@@ -2677,6 +2736,11 @@ export default function VineCommunities() {
                                   <button onClick={() => toggleAssignmentReview(a.id)}>
                                     {selectedAssignmentId === a.id ? "Hide submissions" : "Review submissions"}
                                   </button>
+                                  {String(a.assignment_type || "theory").toLowerCase() === "theory" && (
+                                    <button onClick={() => exportSubmittedWorkPdf(a)}>
+                                      Submitted Work PDF
+                                    </button>
+                                  )}
                                   <button
                                     className="assignment-delete-btn"
                                     onClick={() => deleteAssignment(a.id)}

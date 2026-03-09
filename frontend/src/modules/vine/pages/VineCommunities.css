@@ -1857,6 +1857,110 @@
   font-weight: 700;
 }
 
+.library-upload-row {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr auto;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.library-upload-row input[type="text"] {
+  border: 1px solid #a7f3d0;
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+
+.library-upload-row button {
+  border: 1px solid #166534;
+  background: #166534;
+  color: #fff;
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.library-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 10px;
+}
+
+.library-card {
+  border: 1px solid #d1fae5;
+  border-radius: 14px;
+  padding: 10px;
+  background: linear-gradient(150deg, #ffffff, #f0fdf4);
+  cursor: pointer;
+  display: grid;
+  gap: 8px;
+  box-shadow: 0 8px 18px rgba(6, 95, 70, 0.08);
+}
+
+.library-thumb {
+  height: 118px;
+  border-radius: 10px;
+  background:
+    radial-gradient(circle at 10% 10%, rgba(255, 255, 255, 0.75), transparent 38%),
+    linear-gradient(145deg, #064e3b, #10b981);
+  display: grid;
+  place-items: center;
+  color: #ffffff;
+  font-weight: 900;
+  font-size: 1.05rem;
+  letter-spacing: 0.08em;
+  position: relative;
+  overflow: hidden;
+}
+
+.library-thumb-preview {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  pointer-events: none;
+}
+
+.library-thumb-overlay {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  border-radius: 999px;
+  background: rgba(6, 78, 59, 0.8);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  font-size: 0.62rem;
+  font-weight: 800;
+  padding: 2px 7px;
+}
+
+.library-meta {
+  display: grid;
+  gap: 4px;
+}
+
+.library-meta strong {
+  color: #052e16;
+  font-size: 0.94rem;
+  line-height: 1.25;
+}
+
+.library-meta small {
+  color: #64748b;
+  font-size: 0.75rem;
+}
+
+.library-remove-btn {
+  justify-self: end;
+  border: 1px solid #fca5a5;
+  background: #fff1f2;
+  color: #b91c1c;
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 0.74rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
 .community-insights-grid {
   display: grid;
   grid-template-columns: 1fr;
@@ -2372,6 +2476,10 @@
   .assignment-top-row {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .library-upload-row {
+    grid-template-columns: 1fr;
   }
 
   .assignment-actions {

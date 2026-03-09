@@ -69,6 +69,9 @@ export default function VineCommunities() {
   const [assignmentPoints, setAssignmentPoints] = useState(100);
   const [assignmentRubric, setAssignmentRubric] = useState("");
   const [assignmentFile, setAssignmentFile] = useState(null);
+  const [libraryItems, setLibraryItems] = useState([]);
+  const [libraryTitle, setLibraryTitle] = useState("");
+  const [libraryFile, setLibraryFile] = useState(null);
   const [submissionDrafts, setSubmissionDrafts] = useState({});
   const [submissionFiles, setSubmissionFiles] = useState({});
   const [savedDraftsMap, setSavedDraftsMap] = useState({});
@@ -100,6 +103,7 @@ export default function VineCommunities() {
   const communityBannerOffsetStart = useRef(0);
   const communityPostRef = useRef(null);
   const assignmentFileInputRef = useRef(null);
+  const libraryFileInputRef = useRef(null);
   const [nowMs, setNowMs] = useState(Date.now());
   const canManageCommunitySettings = ["owner", "moderator"].includes(
     String(activeCommunity?.viewer_role || "").toLowerCase()
@@ -135,6 +139,7 @@ export default function VineCommunities() {
     if (!communitySlug) {
       setActiveCommunity(null);
       setPosts([]);
+      setLibraryItems([]);
       return;
     }
     try {
@@ -150,10 +155,11 @@ export default function VineCommunities() {
         setQuestions([]);
         setEvents([]);
         setMediaPosts([]);
+        setLibraryItems([]);
         return;
       }
 
-      const [pRes, mRes, rulesRes, questionsRes, eventsRes, mediaRes, assignmentsRes] = await Promise.all([
+      const [pRes, mRes, rulesRes, questionsRes, eventsRes, mediaRes, assignmentsRes, libraryRes] = await Promise.all([
         fetch(
           `${API}/api/vine/communities/${encodeURIComponent(communitySlug)}/posts${nextTopic ? `?topic=${encodeURIComponent(nextTopic)}` : ""}`,
           { headers: { Authorization: `Bearer ${token}` } }
@@ -176,6 +182,9 @@ export default function VineCommunities() {
         fetch(`${API}/api/vine/communities/${encodeURIComponent(communitySlug)}/assignments`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
+        fetch(`${API}/api/vine/communities/${encodeURIComponent(communitySlug)}/library`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
       ]);
       const pData = await pRes.json().catch(() => []);
       const mData = await mRes.json().catch(() => []);
@@ -184,6 +193,7 @@ export default function VineCommunities() {
       const eventsData = await eventsRes.json().catch(() => []);
       const mediaData = await mediaRes.json().catch(() => []);
       const assignmentsData = await assignmentsRes.json().catch(() => []);
+      const libraryData = await libraryRes.json().catch(() => []);
       setActiveCommunity(cData);
       setPosts(Array.isArray(pData) ? pData : []);
       setMembers(Array.isArray(mData) ? mData : []);
@@ -193,6 +203,7 @@ export default function VineCommunities() {
       setMediaPosts(Array.isArray(mediaData) ? mediaData : []);
       const safeAssignments = Array.isArray(assignmentsData) ? assignmentsData : [];
       setAssignments(safeAssignments);
+      setLibraryItems(Array.isArray(libraryData) ? libraryData : []);
       const persisted = {};
       for (const a of safeAssignments) {
         if (a.viewer_draft_content && !a.viewer_submission_content) {
@@ -226,6 +237,7 @@ export default function VineCommunities() {
       setAttendanceRecords([]);
       setMediaPosts([]);
       setAssignments([]);
+      setLibraryItems([]);
       setSavedDraftsMap({});
       setCommunityBannerOffset(0);
       setIsAdjustingCommunityBanner(false);
@@ -247,6 +259,7 @@ export default function VineCommunities() {
       "members",
       "attendance",
       "assignments",
+      "library",
       "settings",
       "announcements",
     ]);
@@ -1239,6 +1252,54 @@ export default function VineCommunities() {
     }
   };
 
+  const uploadLibraryPdf = async () => {
+    if (!activeCommunity?.id) return;
+    if (!libraryTitle.trim() || !libraryFile) {
+      alert("Add title and pick a PDF");
+      return;
+    }
+    try {
+      const formData = new FormData();
+      formData.append("title", libraryTitle.trim());
+      formData.append("library_pdf", libraryFile);
+      const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/library`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || "Failed to upload PDF");
+        return;
+      }
+      setLibraryTitle("");
+      setLibraryFile(null);
+      if (libraryFileInputRef.current) libraryFileInputRef.current.value = "";
+      await loadCommunityDetail(activeCommunity.slug, topicFilter);
+    } catch {
+      alert("Failed to upload PDF");
+    }
+  };
+
+  const deleteLibraryItem = async (itemId) => {
+    if (!activeCommunity?.id || !itemId) return;
+    const ok = window.confirm("Remove this PDF from library?");
+    if (!ok) return;
+    try {
+      const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/library/${itemId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        alert("Failed to remove PDF");
+        return;
+      }
+      await loadCommunityDetail(activeCommunity.slug, topicFilter);
+    } catch {
+      alert("Failed to remove PDF");
+    }
+  };
+
   const toggleAssignmentReview = async (assignmentId) => {
     if (!assignmentId) return;
     const viewerRole = String(activeCommunity?.viewer_role || "").toLowerCase();
@@ -1973,6 +2034,7 @@ export default function VineCommunities() {
                 <button className={activeTab === "attendance" ? "active" : ""} onClick={() => setActiveTab("attendance")}>Attendance</button>
                 <button className={activeTab === "members" ? "active" : ""} onClick={() => setActiveTab("members")}>Members</button>
                 <button className={activeTab === "assignments" ? "active" : ""} onClick={() => setActiveTab("assignments")}>Assignments</button>
+                <button className={activeTab === "library" ? "active" : ""} onClick={() => setActiveTab("library")}>Library</button>
                 {canManageCommunitySettings && (
                   <button className={activeTab === "settings" ? "active" : ""} onClick={() => setActiveTab("settings")}>
                     <span>Settings</span>
@@ -2947,6 +3009,88 @@ export default function VineCommunities() {
                         <div><span>📚</span> Consistent Learner = 5+ submissions</div>
                         <div><span>🏅</span> High Achiever = average 85%+ (min 3 graded)</div>
                       </div>
+                    </div>
+                  </section>
+                )}
+                {activeTab === "library" && (
+                  <section className="community-settings-panel community-library-panel">
+                    <div className="assignment-top-row">
+                      <h4>Library</h4>
+                    </div>
+                    {isCommunityOwner && (
+                      <div className="library-upload-row">
+                        <input
+                          type="text"
+                          placeholder="PDF title"
+                          value={libraryTitle}
+                          maxLength={180}
+                          onChange={(e) => setLibraryTitle(e.target.value)}
+                        />
+                        <label className="assignment-file-picker">
+                          <span>{libraryFile ? libraryFile.name : "Choose PDF"}</span>
+                          <input
+                            ref={libraryFileInputRef}
+                            type="file"
+                            accept=".pdf,application/pdf"
+                            onChange={(e) => setLibraryFile(e.target.files?.[0] || null)}
+                          />
+                        </label>
+                        <button type="button" onClick={uploadLibraryPdf}>
+                          Upload PDF
+                        </button>
+                      </div>
+                    )}
+                    <div className="library-grid">
+                      {libraryItems.length === 0 ? (
+                        <div className="community-empty">No PDFs in library yet.</div>
+                      ) : (
+                        libraryItems.map((item) => (
+                          <div
+                            key={`library-${item.id}`}
+                            className="library-card"
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => window.open(item.pdf_url, "_blank", "noopener,noreferrer")}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                window.open(item.pdf_url, "_blank", "noopener,noreferrer");
+                              }
+                            }}
+                          >
+                            <div className="library-thumb">
+                              <object
+                                data={`${item.pdf_url}#page=1&view=FitH`}
+                                type="application/pdf"
+                                className="library-thumb-preview"
+                                aria-label={item.title}
+                              >
+                                <span>PDF</span>
+                              </object>
+                              <div className="library-thumb-overlay">PDF</div>
+                            </div>
+                            <div className="library-meta">
+                              <strong>{item.title}</strong>
+                              <small>
+                                {item.uploader_display_name || item.uploader_username} •{" "}
+                                {item.created_at ? new Date(item.created_at).toLocaleDateString() : ""}
+                              </small>
+                            </div>
+                            {isCommunityOwner && (
+                              <button
+                                type="button"
+                                className="library-remove-btn"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  deleteLibraryItem(item.id);
+                                }}
+                              >
+                                Remove
+                              </button>
+                            )}
+                          </div>
+                        ))
+                      )}
                     </div>
                   </section>
                 )}

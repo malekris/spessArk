@@ -767,6 +767,19 @@ const ensureCommunitySchema = async () => {
     )
   `);
 
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_community_library (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      community_id INT NOT NULL,
+      uploader_id INT NOT NULL,
+      title VARCHAR(180) NOT NULL,
+      pdf_url TEXT NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_library_community_created (community_id, created_at),
+      INDEX idx_library_uploader (uploader_id)
+    )
+  `);
+
   const hasCommunityId = await hasColumn(dbName, "vine_posts", "community_id");
   if (!hasCommunityId) {
     await db.query("ALTER TABLE vine_posts ADD COLUMN community_id INT NULL");
@@ -3550,6 +3563,121 @@ router.get("/communities/:slug/media", authOptional, async (req, res) => {
   } catch (err) {
     console.error("Get community media error:", err);
     res.status(500).json([]);
+  }
+});
+
+router.get("/communities/:slug/library", authenticate, async (req, res) => {
+  try {
+    await ensureCommunitySchema();
+    const viewerId = Number(req.user.id);
+    const [[community]] = await db.query(
+      "SELECT id FROM vine_communities WHERE slug = ? LIMIT 1",
+      [req.params.slug]
+    );
+    if (!community) return res.status(404).json([]);
+    const allowed = await canAccessCommunityByVisibilityPolicy(viewerId, community.id);
+    if (!allowed) return res.status(403).json([]);
+
+    const [rows] = await db.query(
+      `
+      SELECT
+        l.id,
+        l.community_id,
+        l.uploader_id,
+        l.title,
+        l.pdf_url,
+        l.created_at,
+        u.username AS uploader_username,
+        u.display_name AS uploader_display_name
+      FROM vine_community_library l
+      JOIN vine_users u ON u.id = l.uploader_id
+      WHERE l.community_id = ?
+      ORDER BY l.created_at DESC, l.id DESC
+      `,
+      [community.id]
+    );
+
+    res.json(rows);
+  } catch (err) {
+    console.error("Get community library error:", err);
+    res.status(500).json([]);
+  }
+});
+
+router.post("/communities/:id/library", authenticate, uploadPostCloudinary.single("library_pdf"), async (req, res) => {
+  try {
+    await ensureCommunitySchema();
+    const userId = Number(req.user.id);
+    const communityId = Number(req.params.id);
+    const title = String(req.body?.title || "").trim();
+    if (!communityId || !title) {
+      return res.status(400).json({ message: "title is required" });
+    }
+    if (!req.file || !isPdfFile(req.file)) {
+      return res.status(400).json({ message: "PDF file is required" });
+    }
+
+    const role = String(await getCommunityRole(communityId, userId) || "").toLowerCase();
+    if (role !== "owner") {
+      return res.status(403).json({ message: "Only community owner can upload library PDFs" });
+    }
+
+    const uploaded = await uploadBufferToCloudinary(req.file.buffer, {
+      folder: "vine/community-library",
+      resource_type: "raw",
+      public_id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+      format: "pdf",
+    });
+    const pdfUrl = uploaded.secure_url || uploaded.url || null;
+    if (!pdfUrl) {
+      return res.status(500).json({ message: "Upload failed" });
+    }
+
+    await db.query(
+      `
+      INSERT INTO vine_community_library (community_id, uploader_id, title, pdf_url, created_at)
+      VALUES (?, ?, ?, ?, NOW())
+      `,
+      [communityId, userId, title.slice(0, 180), pdfUrl]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Upload community library PDF error:", err);
+    res.status(500).json({ message: "Failed to upload PDF" });
+  }
+});
+
+router.delete("/communities/:id/library/:itemId", authenticate, async (req, res) => {
+  try {
+    await ensureCommunitySchema();
+    const userId = Number(req.user.id);
+    const communityId = Number(req.params.id);
+    const itemId = Number(req.params.itemId);
+    if (!communityId || !itemId) return res.status(400).json({ message: "Invalid request" });
+
+    const role = String(await getCommunityRole(communityId, userId) || "").toLowerCase();
+    if (role !== "owner") {
+      return res.status(403).json({ message: "Only community owner can remove library PDFs" });
+    }
+
+    const [[item]] = await db.query(
+      "SELECT id, pdf_url FROM vine_community_library WHERE id = ? AND community_id = ? LIMIT 1",
+      [itemId, communityId]
+    );
+    if (!item) return res.status(404).json({ message: "Library item not found" });
+
+    await db.query(
+      "DELETE FROM vine_community_library WHERE id = ? AND community_id = ?",
+      [itemId, communityId]
+    );
+    if (item.pdf_url) {
+      await deleteCloudinaryByUrl(item.pdf_url);
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Delete community library PDF error:", err);
+    res.status(500).json({ message: "Failed to delete PDF" });
   }
 });
 

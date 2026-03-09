@@ -1092,30 +1092,50 @@ export default function VineCommunities() {
       const submissions = Array.isArray(rows) ? rows : [];
       const doc = new jsPDF({ unit: "pt", format: "a4" });
       const pageWidth = doc.internal.pageSize.getWidth();
+      const drawSchoolHeader = () => {
+        doc.setFontSize(14);
+        doc.setTextColor(6, 78, 59);
+        doc.text("ST. PHILLIPS EQUATORIAL SECONDARY SCHOOL", pageWidth / 2, 24, { align: "center" });
+        doc.setFontSize(9);
+        doc.setTextColor(30, 64, 175);
+        doc.text("info@stphillipsequatorial.com", pageWidth / 2, 38, { align: "center" });
+        doc.setDrawColor(167, 243, 208);
+        doc.line(40, 46, pageWidth - 40, 46);
+        doc.setTextColor(15, 23, 42);
+      };
 
       if (submissions.length === 0) {
+        drawSchoolHeader();
         doc.setFontSize(13);
-        doc.text(`${assignment.title || "Assignment"} — Submitted Work`, pageWidth / 2, 48, { align: "center" });
+        doc.text(`${assignment.title || "Assignment"} — Submitted Work`, pageWidth / 2, 66, { align: "center" });
         doc.setFontSize(11);
-        doc.text("No submissions yet.", 40, 78);
+        doc.text("No submissions yet.", 40, 96);
       } else {
         submissions.forEach((s, idx) => {
           if (idx > 0) doc.addPage();
+          drawSchoolHeader();
           doc.setFontSize(13);
-          doc.text(`${assignment.title || "Assignment"} — Submitted Work`, pageWidth / 2, 36, { align: "center" });
+          doc.text(`${assignment.title || "Assignment"} — Submitted Work`, pageWidth / 2, 62, { align: "center" });
           doc.setFontSize(10);
-          doc.text(`Learner: ${s.display_name || s.username || "Unknown"} (@${s.username || "-"})`, 40, 62);
-          doc.text(`Submitted: ${s.submitted_at ? new Date(s.submitted_at).toLocaleString() : "-"}`, 40, 78);
-          doc.text(`Score: ${s.score === null || s.score === undefined ? "Pending" : s.score}`, 40, 94);
-          doc.text(`Status: ${s.status || "submitted"}`, 40, 110);
+          doc.text(`Learner: ${s.display_name || s.username || "Unknown"} (@${s.username || "-"})`, 40, 86);
+          doc.text(`Submitted: ${s.submitted_at ? new Date(s.submitted_at).toLocaleString() : "-"}`, 40, 102);
+          doc.text(`Score: ${s.score === null || s.score === undefined ? "Pending" : s.score}`, 40, 118);
+          doc.text(`Status: ${s.status || "submitted"}`, 40, 134);
           autoTable(doc, {
-            startY: 126,
+            startY: 150,
             head: [["Submitted Work"]],
             body: [[String(s.content || "No written content submitted.")]],
             styles: { fontSize: 10, cellPadding: 8, valign: "top" },
             headStyles: { fillColor: [6, 95, 70] },
-            bodyStyles: { minCellHeight: 420 },
+            bodyStyles: { minCellHeight: 330 },
           });
+          const tableEndY = doc.lastAutoTable?.finalY || 500;
+          doc.setFontSize(10);
+          doc.text("Teacher Comment:", 40, tableEndY + 20);
+          const feedbackText = String(s.feedback || "").trim() || "No comment.";
+          const feedbackLines = doc.splitTextToSize(feedbackText, pageWidth - 80);
+          doc.setFontSize(9);
+          doc.text(feedbackLines, 40, tableEndY + 36);
         });
       }
 

@@ -952,6 +952,44 @@ const ensureModerationSchema = async () => {
   moderationSchemaReady = true;
 };
 
+let pollSchemaReady = false;
+const ensurePollSchema = async () => {
+  if (pollSchemaReady) return;
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_polls (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      post_id INT NOT NULL UNIQUE,
+      question VARCHAR(240) NOT NULL,
+      expires_at DATETIME NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_poll_post (post_id)
+    )
+  `);
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_poll_options (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      poll_id INT NOT NULL,
+      option_text VARCHAR(180) NOT NULL,
+      position INT NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_poll_option_poll (poll_id, position)
+    )
+  `);
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_poll_votes (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      poll_id INT NOT NULL,
+      option_id INT NOT NULL,
+      user_id INT NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_poll_vote_user (poll_id, user_id),
+      INDEX idx_poll_vote_poll_option (poll_id, option_id),
+      INDEX idx_poll_vote_user (user_id)
+    )
+  `);
+  pollSchemaReady = true;
+};
+
 let statusSchemaReady = false;
 const ensureStatusSchema = async () => {
   if (statusSchemaReady) return;
@@ -5001,6 +5039,7 @@ router.post("/communities/:id/requests/:requestId/reject", authenticate, async (
 router.get("/communities/:slug/posts", authOptional, async (req, res) => {
   try {
     await ensureCommunitySchema();
+    await ensurePollSchema();
     await publishDueScheduledPosts();
     const viewerId = Number(req.user?.id || 0) || null;
     const topic = String(req.query?.topic || "").trim().toLowerCase();
@@ -5042,7 +5081,8 @@ router.get("/communities/:slug/posts", authOptional, async (req, res) => {
         (SELECT COUNT(*) FROM vine_post_views WHERE post_id = p.id) AS views,
         ${viewerId ? `(SELECT COUNT(*) > 0 FROM vine_likes WHERE post_id = p.id AND user_id = ${viewerId})` : "0"} AS user_liked,
         ${viewerId ? `(SELECT COUNT(*) > 0 FROM vine_revines WHERE post_id = p.id AND user_id = ${viewerId})` : "0"} AS user_revined,
-        ${viewerId ? `(SELECT COUNT(*) > 0 FROM vine_bookmarks WHERE post_id = p.id AND user_id = ${viewerId})` : "0"} AS user_bookmarked
+        ${viewerId ? `(SELECT COUNT(*) > 0 FROM vine_bookmarks WHERE post_id = p.id AND user_id = ${viewerId})` : "0"} AS user_bookmarked,
+        (SELECT COUNT(*) > 0 FROM vine_polls vp WHERE vp.post_id = p.id) AS has_poll
       FROM vine_posts p
       JOIN vine_users u ON u.id = p.user_id
       LEFT JOIN vine_communities c ON c.id = p.community_id
@@ -5064,6 +5104,7 @@ router.get("/communities/:slug/posts", authOptional, async (req, res) => {
 router.get("/posts", authOptional, async (req, res) => {
     try {
       await ensureCommunitySchema();
+      await ensurePollSchema();
       triggerNewsIngestIfDue();
       await publishDueScheduledPosts();
       const viewerId = req.user?.id || null;
@@ -5132,7 +5173,8 @@ router.get("/posts", authOptional, async (req, res) => {
               viewerId
                 ? `(SELECT COUNT(*) > 0 FROM vine_bookmarks WHERE post_id = p.id AND user_id = ${viewerId})`
                 : "0"
-            } AS user_bookmarked
+            } AS user_bookmarked,
+            (SELECT COUNT(*) > 0 FROM vine_polls vp WHERE vp.post_id = p.id) AS has_poll
   
           FROM vine_posts p
           JOIN vine_users u ON p.user_id = u.id
@@ -5223,7 +5265,8 @@ router.get("/posts", authOptional, async (req, res) => {
               viewerId
                 ? `(SELECT COUNT(*) > 0 FROM vine_bookmarks WHERE post_id = p.id AND user_id = ${viewerId})`
                 : "0"
-            } AS user_bookmarked
+            } AS user_bookmarked,
+            (SELECT COUNT(*) > 0 FROM vine_polls vp WHERE vp.post_id = p.id) AS has_poll
   
           FROM vine_revines r
           JOIN vine_posts p ON r.post_id = p.id
@@ -5371,8 +5414,11 @@ router.get("/news/health", authenticate, async (req, res) => {
     async (req, res) => {
       try {
         await ensureCommunitySchema();
+        await ensurePollSchema();
         const userId = req.user.id;
         const { content } = req.body;
+        const pollQuestionRaw = String(req.body?.poll_question || "").trim();
+        let pollOptionsRaw = req.body?.poll_options || "[]";
         const communityId =
           req.body?.community_id !== undefined &&
           req.body?.community_id !== null &&
@@ -5413,6 +5459,22 @@ router.get("/news/health", authenticate, async (req, res) => {
   
         if ((!content || !content.trim()) && imageUrls.length === 0) {
           return res.status(400).json({ message: "Post cannot be empty" });
+        }
+        let pollOptions = [];
+        if (pollQuestionRaw) {
+          try {
+            pollOptions = JSON.parse(String(pollOptionsRaw || "[]"));
+          } catch {
+            pollOptions = [];
+          }
+          if (!Array.isArray(pollOptions)) pollOptions = [];
+          pollOptions = pollOptions
+            .map((o) => String(o || "").trim())
+            .filter(Boolean)
+            .slice(0, 4);
+          if (pollOptions.length < 2) {
+            return res.status(400).json({ message: "Poll needs at least 2 options" });
+          }
         }
 
         if (communityId) {
@@ -5463,6 +5525,26 @@ router.get("/news/health", authenticate, async (req, res) => {
           ]
         );
 
+        if (pollQuestionRaw && pollOptions.length >= 2) {
+          const [pollInsert] = await db.query(
+            `
+            INSERT INTO vine_polls (post_id, question, created_at)
+            VALUES (?, ?, NOW())
+            `,
+            [result.insertId, pollQuestionRaw.slice(0, 240)]
+          );
+          const pollId = Number(pollInsert.insertId);
+          for (let i = 0; i < pollOptions.length; i += 1) {
+            await db.query(
+              `
+              INSERT INTO vine_poll_options (poll_id, option_text, position, created_at)
+              VALUES (?, ?, ?, NOW())
+              `,
+              [pollId, pollOptions[i].slice(0, 180), i]
+            );
+          }
+        }
+
         const mentions = extractMentions(content?.trim() || "");
         await notifyMentions({
           mentions,
@@ -5497,7 +5579,8 @@ router.get("/news/health", authenticate, async (req, res) => {
             0 AS views,
             0 AS user_liked,
             0 AS user_revined,
-            0 AS user_bookmarked
+            0 AS user_bookmarked,
+            (SELECT COUNT(*) > 0 FROM vine_polls vp WHERE vp.post_id = p.id) AS has_poll
           FROM vine_posts p
           JOIN vine_users u ON p.user_id = u.id
           LEFT JOIN vine_communities c ON c.id = p.community_id
@@ -5511,6 +5594,136 @@ router.get("/news/health", authenticate, async (req, res) => {
       }
     }
   );
+
+router.get("/posts/:id/poll", authOptional, async (req, res) => {
+  try {
+    await ensurePollSchema();
+    const postId = Number(req.params.id);
+    const viewerId = req.user?.id ? Number(req.user.id) : null;
+    if (!postId) return res.status(400).json({ message: "Invalid post id" });
+
+    const [[poll]] = await db.query(
+      "SELECT id, post_id, question, expires_at FROM vine_polls WHERE post_id = ? LIMIT 1",
+      [postId]
+    );
+    if (!poll) return res.status(404).json({ message: "Poll not found" });
+
+    const [options] = await db.query(
+      `
+      SELECT
+        o.id,
+        o.option_text,
+        o.position,
+        (SELECT COUNT(*) FROM vine_poll_votes v WHERE v.option_id = o.id) AS votes
+      FROM vine_poll_options o
+      WHERE o.poll_id = ?
+      ORDER BY o.position ASC, o.id ASC
+      `,
+      [poll.id]
+    );
+
+    const [[totals]] = await db.query(
+      "SELECT COUNT(*) AS total_votes FROM vine_poll_votes WHERE poll_id = ?",
+      [poll.id]
+    );
+    let userVoteOptionId = null;
+    if (viewerId) {
+      const [[vote]] = await db.query(
+        "SELECT option_id FROM vine_poll_votes WHERE poll_id = ? AND user_id = ? LIMIT 1",
+        [poll.id, viewerId]
+      );
+      userVoteOptionId = vote?.option_id || null;
+    }
+
+    res.json({
+      poll_id: poll.id,
+      post_id: poll.post_id,
+      question: poll.question,
+      expires_at: poll.expires_at,
+      total_votes: Number(totals?.total_votes || 0),
+      user_vote_option_id: userVoteOptionId,
+      options: (options || []).map((o) => ({
+        id: o.id,
+        option_text: o.option_text,
+        position: o.position,
+        votes: Number(o.votes || 0),
+      })),
+    });
+  } catch (err) {
+    console.error("Get poll error:", err);
+    res.status(500).json({ message: "Failed to load poll" });
+  }
+});
+
+router.post("/posts/:id/poll/vote", requireVineAuth, async (req, res) => {
+  try {
+    await ensurePollSchema();
+    const postId = Number(req.params.id);
+    const userId = Number(req.user.id);
+    const optionId = Number(req.body?.option_id);
+    if (!postId || !optionId) return res.status(400).json({ message: "option_id is required" });
+
+    const [[poll]] = await db.query(
+      "SELECT id, expires_at FROM vine_polls WHERE post_id = ? LIMIT 1",
+      [postId]
+    );
+    if (!poll) return res.status(404).json({ message: "Poll not found" });
+    if (poll.expires_at) {
+      const exp = new Date(poll.expires_at);
+      if (!Number.isNaN(exp.getTime()) && exp.getTime() < Date.now()) {
+        return res.status(403).json({ message: "Poll has ended" });
+      }
+    }
+
+    const [[option]] = await db.query(
+      "SELECT id FROM vine_poll_options WHERE id = ? AND poll_id = ? LIMIT 1",
+      [optionId, poll.id]
+    );
+    if (!option) return res.status(404).json({ message: "Option not found" });
+
+    await db.query(
+      `
+      INSERT INTO vine_poll_votes (poll_id, option_id, user_id, created_at)
+      VALUES (?, ?, ?, NOW())
+      ON DUPLICATE KEY UPDATE option_id = VALUES(option_id), created_at = NOW()
+      `,
+      [poll.id, optionId, userId]
+    );
+
+    const [options] = await db.query(
+      `
+      SELECT
+        o.id,
+        o.option_text,
+        o.position,
+        (SELECT COUNT(*) FROM vine_poll_votes v WHERE v.option_id = o.id) AS votes
+      FROM vine_poll_options o
+      WHERE o.poll_id = ?
+      ORDER BY o.position ASC, o.id ASC
+      `,
+      [poll.id]
+    );
+    const [[totals]] = await db.query(
+      "SELECT COUNT(*) AS total_votes FROM vine_poll_votes WHERE poll_id = ?",
+      [poll.id]
+    );
+    res.json({
+      success: true,
+      poll_id: poll.id,
+      total_votes: Number(totals?.total_votes || 0),
+      user_vote_option_id: optionId,
+      options: (options || []).map((o) => ({
+        id: o.id,
+        option_text: o.option_text,
+        position: o.position,
+        votes: Number(o.votes || 0),
+      })),
+    });
+  } catch (err) {
+    console.error("Vote poll error:", err);
+    res.status(500).json({ message: "Failed to vote poll" });
+  }
+});
     
 /* =========================
    SEARCH USERS

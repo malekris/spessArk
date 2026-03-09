@@ -163,6 +163,8 @@ export default function VineFeed() {
   const [mentionAnchor, setMentionAnchor] = useState(null);
   const [gifPickerOpen, setGifPickerOpen] = useState(false);
   const [composeGifUrl, setComposeGifUrl] = useState("");
+  const [pollOpen, setPollOpen] = useState(false);
+  const [pollOptions, setPollOptions] = useState(["", ""]);
   const [activeNowUsers, setActiveNowUsers] = useState([]);
   const [recentlyActiveUsers, setRecentlyActiveUsers] = useState([]);
   const [presenceModalOpen, setPresenceModalOpen] = useState(false);
@@ -840,10 +842,18 @@ export default function VineFeed() {
   // ── Post Creation ───────────────────────────────
   const submitPost = async () => {
     if (!content.trim() && images.length === 0 && !feeling && !composeGifUrl) return;
+    if (composeGifUrl && images.length > 0) {
+      alert("You can post either a GIF or photos/videos, not both.");
+      return;
+    }
 
     try {
       const formData = new FormData();
       const normalizedContent = content.trim();
+      if (pollOpen && !normalizedContent) {
+        alert("Write your poll text in the main create box.");
+        return;
+      }
       const outgoingContent = feeling
         ? `[[feeling:${feeling}]]${normalizedContent ? ` ${normalizedContent}` : ""}`
         : normalizedContent;
@@ -853,6 +863,15 @@ export default function VineFeed() {
       if (contentWithGif) formData.append("content", contentWithGif);
       if (communityId) formData.append("community_id", String(communityId));
       images.forEach((img) => formData.append("images", img));
+      const cleanedPollOptions = pollOptions.map((o) => String(o || "").trim()).filter(Boolean).slice(0, 4);
+      if (pollOpen) {
+        if (cleanedPollOptions.length < 2) {
+          alert("Poll needs at least 2 options.");
+          return;
+        }
+        formData.append("poll_question", normalizedContent.slice(0, 240));
+        formData.append("poll_options", JSON.stringify(cleanedPollOptions));
+      }
 
       const res = await fetch(`${API}/api/vine/posts`, {
         method: "POST",
@@ -871,12 +890,18 @@ export default function VineFeed() {
       });
       setCommunityId("");
       setComposeGifUrl("");
+      setPollOpen(false);
+      setPollOptions(["", ""]);
     } catch (err) {
       console.error("Post creation error", err);
     }
   };
 
   const addGifToComposer = () => {
+    if (images.length > 0) {
+      alert("Remove photos/videos first. GIF and photos/videos cannot be posted together.");
+      return;
+    }
     setGifPickerOpen(true);
   };
   useEffect(() => {
@@ -1177,6 +1202,13 @@ export default function VineFeed() {
               <button className="gif-insert-btn" type="button" onClick={addGifToComposer}>
                 GIF
               </button>
+              <button
+                className="gif-insert-btn"
+                type="button"
+                onClick={() => setPollOpen((prev) => !prev)}
+              >
+                Poll
+              </button>
 
               <label className="image-picker media-icon-picker" title="Add photo or video">
                 <span className="media-icon" aria-hidden="true">📷</span>
@@ -1187,6 +1219,11 @@ export default function VineFeed() {
                   multiple
                   hidden
                   onChange={async (e) => {
+                    if (composeGifUrl) {
+                      alert("Remove GIF first. GIF and photos/videos cannot be posted together.");
+                      e.target.value = "";
+                      return;
+                    }
                     const files = await normalizeImageFiles(e.target.files);
                     if (!files.length) return;
                     setImages(files);
@@ -1231,6 +1268,34 @@ export default function VineFeed() {
               </button>
             </div>
           </div>
+          {pollOpen && (
+            <div className="composer-poll-builder">
+              {pollOptions.map((opt, idx) => (
+                <input
+                  key={`poll-opt-${idx}`}
+                  type="text"
+                  placeholder={`Option ${idx + 1}`}
+                  maxLength={180}
+                  value={opt}
+                  onChange={(e) =>
+                    setPollOptions((prev) => prev.map((v, i) => (i === idx ? e.target.value : v)))
+                  }
+                />
+              ))}
+              <div className="composer-poll-actions">
+                {pollOptions.length < 4 && (
+                  <button type="button" onClick={() => setPollOptions((prev) => [...prev, ""])}>
+                    + Add option
+                  </button>
+                )}
+                {pollOptions.length > 2 && (
+                  <button type="button" onClick={() => setPollOptions((prev) => prev.slice(0, -1))}>
+                    − Remove option
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {trendingPosts.length > 0 && (

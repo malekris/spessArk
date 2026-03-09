@@ -1708,3 +1708,37 @@
   line-height: 1.35;
   font-weight: 500;
 }
+
+.composer-poll-builder {
+  margin-top: 10px;
+  border: 1px solid #a7f3d0;
+  border-radius: 12px;
+  background: #f8fffb;
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.composer-poll-builder input {
+  border: 1px solid #d1fae5;
+  border-radius: 10px;
+  padding: 8px 10px;
+  font: inherit;
+  color: #0f172a;
+  background: #ffffff;
+}
+
+.composer-poll-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.composer-poll-actions button {
+  border: 1px solid #a7f3d0;
+  background: #ffffff;
+  color: #065f46;
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-weight: 700;
+  cursor: pointer;
+}

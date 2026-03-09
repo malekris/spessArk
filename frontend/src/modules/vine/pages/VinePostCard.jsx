@@ -263,6 +263,9 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
   const [showLikesModal, setShowLikesModal] = useState(false);
   const [likedUsers, setLikedUsers] = useState([]);
   const [latestLiker, setLatestLiker] = useState(null);
+  const [poll, setPoll] = useState(post.poll || null);
+  const [pollLoading, setPollLoading] = useState(false);
+  const [pollVotingOptionId, setPollVotingOptionId] = useState(null);
 
   const { feeling: postFeeling, content: postContentWithoutFeeling } = extractFeelingFromContent(post.content || "");
   const displayPostContent = stripMentionsFromPostText(postContentWithoutFeeling || "");
@@ -322,6 +325,29 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
     observer.observe(el);
     return () => observer.disconnect();
   }, [post.id, token]);
+
+  useEffect(() => {
+    if (!post?.has_poll) {
+      setPoll(null);
+      return;
+    }
+    const loadPoll = async () => {
+      setPollLoading(true);
+      try {
+        const res = await fetch(`${API}/api/vine/posts/${post.id}/poll`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) return;
+        setPoll(data);
+      } catch {
+        // no-op
+      } finally {
+        setPollLoading(false);
+      }
+    };
+    loadPoll();
+  }, [post?.id, post?.has_poll, token]);
 
   useEffect(() => {
     if (post.comments !== undefined) {
@@ -434,6 +460,36 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
       console.error("Error fetching comments:", err);
       setComments([]);
       setCommentCount(0);
+    }
+  };
+
+  const votePoll = async (optionId) => {
+    if (!token || !post?.id || !optionId) return;
+    setPollVotingOptionId(optionId);
+    try {
+      const res = await fetch(`${API}/api/vine/posts/${post.id}/poll/vote`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ option_id: optionId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || "Failed to vote");
+        return;
+      }
+      setPoll((prev) => ({
+        ...(prev || {}),
+        ...data,
+        question: prev?.question || data?.question || "",
+        expires_at: prev?.expires_at || data?.expires_at || null,
+      }));
+    } catch {
+      alert("Failed to vote");
+    } finally {
+      setPollVotingOptionId(null);
     }
   };
   
@@ -802,6 +858,39 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
         >
           {isExpanded ? "See less" : "See more"}
         </button>
+      )}
+
+      {post.has_poll && (
+        <div className="post-poll-box">
+          <div className="post-poll-question">{poll?.question || "Poll"}</div>
+          {pollLoading && !poll ? (
+            <div className="post-poll-loading">Loading poll…</div>
+          ) : (
+            <div className="post-poll-options">
+              {(poll?.options || []).map((opt) => {
+                const total = Number(poll?.total_votes || 0);
+                const votes = Number(opt.votes || 0);
+                const percent = total > 0 ? Math.round((votes / total) * 100) : 0;
+                const selected = Number(poll?.user_vote_option_id) === Number(opt.id);
+                return (
+                  <button
+                    key={`poll-opt-${opt.id}`}
+                    type="button"
+                    className={`post-poll-option ${selected ? "selected" : ""}`}
+                    onClick={() => votePoll(opt.id)}
+                    disabled={Boolean(pollVotingOptionId)}
+                  >
+                    <span className="post-poll-option-label">{opt.option_text}</span>
+                    <span className="post-poll-option-meta">
+                      {total > 0 ? `${votes} • ${percent}%` : `${votes}`}
+                    </span>
+                  </button>
+                );
+              })}
+              <div className="post-poll-total-votes">{Number(poll?.total_votes || 0)} votes</div>
+            </div>
+          )}
+        </div>
       )}
 
       {linkPreview?.url && (

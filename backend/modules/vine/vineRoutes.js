@@ -1272,10 +1272,55 @@ const getOrCreateNewsBotUserId = async () => {
 
 let newsIngestInFlight = false;
 let lastNewsIngestAt = 0;
-const NEWS_INGEST_INTERVAL_MS = 60 * 60 * 1000;
+let lastNewsIngestDayKey = "";
+const NEWS_INGEST_TIMEZONE =
+  String(process.env.NEWS_INGEST_TIMEZONE || "Africa/Kampala").trim() ||
+  "Africa/Kampala";
+const NEWS_DAILY_HOUR = Math.min(
+  23,
+  Math.max(0, Number.parseInt(process.env.NEWS_DAILY_HOUR || "12", 10) || 12)
+);
+const NEWS_DAILY_MINUTE = Math.min(
+  59,
+  Math.max(0, Number.parseInt(process.env.NEWS_DAILY_MINUTE || "0", 10) || 0)
+);
 const NEWS_BACKGROUND_TICK_MS = 5 * 60 * 1000;
 const newsFeedRuntimeStats = new Map();
 let newsBootIngestScheduled = false;
+
+const getNewsZonedParts = () => {
+  const dtf = new Intl.DateTimeFormat("en-CA", {
+    timeZone: NEWS_INGEST_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  const parts = dtf.formatToParts(new Date());
+  const map = Object.fromEntries(parts.map((p) => [p.type, p.value]));
+  const year = Number(map.year || 0);
+  const month = Number(map.month || 0);
+  const day = Number(map.day || 0);
+  const hour = Number(map.hour || 0);
+  const minute = Number(map.minute || 0);
+  return {
+    dayKey: `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(
+      2,
+      "0"
+    )}`,
+    minutesOfDay: hour * 60 + minute,
+  };
+};
+
+const getNewsDueWindow = () => {
+  const now = getNewsZonedParts();
+  const targetMinutes = NEWS_DAILY_HOUR * 60 + NEWS_DAILY_MINUTE;
+  const due =
+    now.minutesOfDay >= targetMinutes && lastNewsIngestDayKey !== now.dayKey;
+  return { ...now, targetMinutes, due };
+};
 
 const updateNewsFeedStat = (feed, patch = {}) => {
   const key = String(feed || "").trim();
@@ -1370,11 +1415,12 @@ const ingestExternalNews = async () => {
 };
 
 const triggerNewsIngestIfDue = () => {
-  const now = Date.now();
   if (newsIngestInFlight) return;
-  if (now - lastNewsIngestAt < NEWS_INGEST_INTERVAL_MS) return;
+  const dueWindow = getNewsDueWindow();
+  if (!dueWindow.due) return;
   newsIngestInFlight = true;
-  lastNewsIngestAt = now;
+  lastNewsIngestAt = Date.now();
+  lastNewsIngestDayKey = dueWindow.dayKey;
   ingestExternalNews()
     .catch((err) => console.error("News ingest error:", err?.message || err))
     .finally(() => {
@@ -5319,6 +5365,7 @@ router.post("/news/refresh", authenticate, async (req, res) => {
     }
     await ingestExternalNews();
     lastNewsIngestAt = Date.now();
+    lastNewsIngestDayKey = getNewsZonedParts().dayKey;
     res.json({ success: true });
   } catch (err) {
     console.error("Manual news refresh error:", err);
@@ -5397,7 +5444,11 @@ router.get("/news/health", authenticate, async (req, res) => {
       runtime: {
         in_flight: newsIngestInFlight,
         last_ingest_at: lastNewsIngestAt ? new Date(lastNewsIngestAt).toISOString() : null,
-        interval_ms: NEWS_INGEST_INTERVAL_MS,
+        mode: "daily",
+        timezone: NEWS_INGEST_TIMEZONE,
+        daily_hour: NEWS_DAILY_HOUR,
+        daily_minute: NEWS_DAILY_MINUTE,
+        last_ingest_day_key: lastNewsIngestDayKey || null,
         feeds: runtime_feeds,
       },
     });

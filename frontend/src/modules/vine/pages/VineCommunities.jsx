@@ -1642,15 +1642,33 @@ export default function VineCommunities() {
       row.display_name || row.username || "",
       `@${row.username || ""}`,
       "present",
-      "",
+      "__________________________",
     ]);
 
     autoTable(doc, {
       startY: 108,
       head: [["No", "Name", "Username", "Status", "Signature"]],
       body: signingBody.length ? signingBody : [["-", "No present learners", "-", "-", "-"]],
-      styles: { fontSize: 10, cellPadding: 6 },
-      headStyles: { fillColor: [20, 83, 45] },
+      theme: "grid",
+      styles: {
+        fontSize: 10,
+        cellPadding: 7,
+        lineColor: [35, 35, 35],
+        lineWidth: 0.9,
+        textColor: [20, 20, 20],
+      },
+      headStyles: {
+        fillColor: [20, 83, 45],
+        textColor: [255, 255, 255],
+        lineColor: [30, 30, 30],
+        lineWidth: 1,
+      },
+      bodyStyles: { minCellHeight: 24 },
+      columnStyles: {
+        0: { cellWidth: 36, halign: "center" },
+        3: { cellWidth: 68, halign: "center" },
+        4: { cellWidth: 180 },
+      },
     });
 
     const signTableEndY = doc.lastAutoTable?.finalY || 108;
@@ -1666,8 +1684,24 @@ export default function VineCommunities() {
       startY: signTableEndY + 32,
       head: [["No", "Name", "Username", "Status"]],
       body: absentBody.length ? absentBody : [["-", "No absentees", "-", "-"]],
-      styles: { fontSize: 10, cellPadding: 6 },
-      headStyles: { fillColor: [160, 30, 30] },
+      theme: "grid",
+      styles: {
+        fontSize: 10,
+        cellPadding: 7,
+        lineColor: [35, 35, 35],
+        lineWidth: 0.9,
+        textColor: [20, 20, 20],
+      },
+      headStyles: {
+        fillColor: [160, 30, 30],
+        textColor: [255, 255, 255],
+        lineColor: [30, 30, 30],
+        lineWidth: 1,
+      },
+      columnStyles: {
+        0: { cellWidth: 36, halign: "center" },
+        3: { cellWidth: 68, halign: "center" },
+      },
     });
 
     const absentTableEndY = doc.lastAutoTable?.finalY || signTableEndY + 32;

@@ -544,7 +544,8 @@ useEffect(() => {
       }
 
       alert("Marks saved successfully.");
-      loadStudentsAndMarks(selectedAssignment);
+      await loadStudentsAndMarks(selectedAssignment);
+      await loadAnalytics(selectedAssignment);
     } catch (err) {
       console.error("Save marks error:", err);
       setMarksError(err.message);

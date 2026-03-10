@@ -612,7 +612,7 @@ useEffect(() => {
         theme: "grid",
         styles: { fontSize: 9, cellPadding: 3, valign: "middle" },
         headStyles: { fillColor: [226, 232, 240], textColor: 15, fontStyle: "bold" },
-        columnStyles: { 0: { cellWidth: 8 }, 1: { cellWidth: 70 }, 2: { cellWidth: 20 } },
+        columnStyles: { 0: { cellWidth: 12 }, 1: { cellWidth: 66 }, 2: { cellWidth: 20 } },
         didDrawPage: () => {
           const ph = doc.internal.pageSize.height;
           doc.setFontSize(8);

@@ -938,10 +938,10 @@ app.post("/api/teacher/marks", authTeacher, async (req, res) => {
 
     const assignmentSubject = (assignmentRow.subject || "").trim();
 
-    // 2) Collect unique studentIds from payload
+    // 2) Collect unique studentIds from payload (upserts + clears)
     const studentIds = Array.from(
       new Set(
-        marks
+        [...marks, ...clearMarks]
           .map((m) => Number(m.studentId))
           .filter((id) => Number.isInteger(id) && id > 0)
       )
@@ -1257,10 +1257,12 @@ app.post("/api/teachers/marks", authTeacher, async (req, res) => {
     }
     const assignmentSubject = (assignmentRow.subject || "").trim();
 
-    // build unique student id list
+    // build unique student id list (upserts + clears)
     const studentIds = Array.from(
       new Set(
-        marks.map((m) => Number(m.studentId)).filter((id) => Number.isInteger(id) && id > 0)
+        [...marks, ...clearMarks]
+          .map((m) => Number(m.studentId))
+          .filter((id) => Number.isInteger(id) && id > 0)
       )
     );
     if (studentIds.length === 0) {

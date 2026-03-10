@@ -486,7 +486,12 @@ useEffect(() => {
           const scoreTouched = score !== undefined && score !== null && score !== "";
           const statusTouched = status === "Missed";
 
-          if (!scoreTouched && !statusTouched) continue;
+          if (!scoreTouched && !statusTouched) {
+            if (hadSavedValue) {
+              clearMarks.push({ studentId: s.id, aoi });
+            }
+            continue;
+          }
 
           if (status === "Missed") {
             payload.push({ studentId: s.id, aoi, score: "Missed" });
@@ -585,7 +590,7 @@ useEffect(() => {
         const m = studentMarks[s.id] || {};
         const cells = columns.map((c) => {
           const v = m[c];
-          return v === undefined ? "—" : v === "Missed" ? "Missed" : String(v);
+          return v === undefined || v === null || v === "" ? "" : v === "Missed" ? "Missed" : String(v);
         });
         const numeric = columns
           .map((c) => {
@@ -596,7 +601,7 @@ useEffect(() => {
             return Number.isFinite(parsed) ? parsed : null;
           })
           .filter((v) => v !== null);
-        const avg = numeric.length ? (numeric.reduce((a, b) => a + b, 0) / numeric.length).toFixed(2) : "—";
+        const avg = numeric.length ? (numeric.reduce((a, b) => a + b, 0) / numeric.length).toFixed(2) : "";
         return [i + 1, s.name, s.gender, ...cells, avg];
       });
 

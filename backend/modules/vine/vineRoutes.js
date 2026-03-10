@@ -5419,6 +5419,7 @@ router.get("/news/health", authenticate, async (req, res) => {
         const { content } = req.body;
         const pollQuestionRaw = String(req.body?.poll_question || "").trim();
         let pollOptionsRaw = req.body?.poll_options || "[]";
+        const pollDurationRaw = Number(req.body?.poll_duration_hours);
         const communityId =
           req.body?.community_id !== undefined &&
           req.body?.community_id !== null &&
@@ -5461,6 +5462,7 @@ router.get("/news/health", authenticate, async (req, res) => {
           return res.status(400).json({ message: "Post cannot be empty" });
         }
         let pollOptions = [];
+        let pollExpiresAt = null;
         if (pollQuestionRaw) {
           try {
             pollOptions = JSON.parse(String(pollOptionsRaw || "[]"));
@@ -5475,6 +5477,10 @@ router.get("/news/health", authenticate, async (req, res) => {
           if (pollOptions.length < 2) {
             return res.status(400).json({ message: "Poll needs at least 2 options" });
           }
+          const safeDurationHours = Number.isFinite(pollDurationRaw)
+            ? Math.min(24 * 30, Math.max(1, Math.floor(pollDurationRaw)))
+            : 24;
+          pollExpiresAt = new Date(Date.now() + safeDurationHours * 60 * 60 * 1000);
         }
 
         if (communityId) {
@@ -5528,10 +5534,10 @@ router.get("/news/health", authenticate, async (req, res) => {
         if (pollQuestionRaw && pollOptions.length >= 2) {
           const [pollInsert] = await db.query(
             `
-            INSERT INTO vine_polls (post_id, question, created_at)
-            VALUES (?, ?, NOW())
+            INSERT INTO vine_polls (post_id, question, expires_at, created_at)
+            VALUES (?, ?, ?, NOW())
             `,
-            [result.insertId, pollQuestionRaw.slice(0, 240)]
+            [result.insertId, pollQuestionRaw.slice(0, 240), pollExpiresAt]
           );
           const pollId = Number(pollInsert.insertId);
           for (let i = 0; i < pollOptions.length; i += 1) {

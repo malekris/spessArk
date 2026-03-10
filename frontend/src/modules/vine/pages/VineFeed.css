@@ -764,6 +764,10 @@
   transform: translateY(-1px);
 }
 
+.vine-create-box.styled-live::before {
+  background: none;
+}
+
 .create-format-toolbar {
   position: relative;
   z-index: 1;
@@ -805,6 +809,10 @@
 .vine-create-box textarea::placeholder {
   color: #94a3b8;
   font-weight: 500;
+}
+
+.vine-create-box.styled-live textarea::placeholder {
+  color: var(--composer-placeholder, rgba(255, 255, 255, 0.86));
 }
 
 .feed-mention-suggest-list {
@@ -1709,6 +1717,48 @@
   font-weight: 500;
 }
 
+.composer-style-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.composer-style-label {
+  font-size: 0.86rem;
+  font-weight: 800;
+  color: #065f46;
+}
+
+.composer-style-swatch {
+  border: 1px solid #a7f3d0;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #065f46;
+  font-weight: 700;
+  font-size: 0.8rem;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.composer-style-swatch.color {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  padding: 0;
+}
+
+.composer-style-swatch.active {
+  box-shadow: 0 0 0 2px #065f46 inset;
+}
+
+.composer-style-note {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #64748b;
+}
+
 .composer-poll-builder {
   margin-top: 10px;
   border: 1px solid #a7f3d0;
@@ -1741,4 +1791,13 @@
   padding: 5px 10px;
   font-weight: 700;
   cursor: pointer;
+}
+
+.composer-poll-actions select {
+  border: 1px solid #a7f3d0;
+  background: #ffffff;
+  color: #065f46;
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-weight: 700;
 }

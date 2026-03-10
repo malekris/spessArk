@@ -633,6 +633,19 @@
   color: #0f766e;
 }
 
+.vine-post-content.styled-card-text {
+  min-height: 180px;
+  padding: 28px 22px !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  border-radius: 18px !important;
+  font-size: 1.65rem !important;
+  line-height: 1.35 !important;
+  font-weight: 800 !important;
+}
+
 .see-more-btn {
   background: transparent;
   border: none;
@@ -1601,6 +1614,13 @@
   color: #064e3b;
   font-weight: 800;
   margin-bottom: 8px;
+}
+
+.post-poll-expiry {
+  color: #64748b;
+  font-size: 0.8rem;
+  font-weight: 700;
+  margin: -2px 0 8px;
 }
 
 .post-poll-options {

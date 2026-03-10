@@ -44,6 +44,22 @@ const formatPostDate = (dateString) => {
   });
 };
 
+const formatPollExpiry = (expiresAt) => {
+  if (!expiresAt) return "";
+  const end = new Date(String(expiresAt).replace(" ", "T"));
+  if (Number.isNaN(end.getTime())) return "";
+  const diff = end.getTime() - Date.now();
+  if (diff <= 0) return "Poll ended";
+  const mins = Math.ceil(diff / (60 * 1000));
+  if (mins < 60) return `Poll expires in ${mins} min`;
+  const hours = Math.ceil(diff / (60 * 60 * 1000));
+  if (hours < 24) return `Poll expires in ${hours} hour${hours === 1 ? "" : "s"}`;
+  const days = Math.floor(hours / 24);
+  const remHours = hours % 24;
+  if (remHours === 0) return `Poll expires in ${days} day${days === 1 ? "" : "s"}`;
+  return `Poll expires in ${days}d ${remHours}h`;
+};
+
 const renderMentions = (text, navigate) => {
   if (!text) return text;
   const isGifUrl = (url) => {
@@ -159,15 +175,28 @@ const stripMentionsFromPostText = (text) => {
     .trim();
 };
 
-const extractFeelingFromContent = (text) => {
+const extractPostMetaFromContent = (text) => {
   const raw = String(text || "");
-  const match = raw.match(/^\s*\[\[feeling:([a-z_]+)\]\]\s*/i);
-  if (!match) {
-    return { feeling: "", content: raw };
+  let out = raw;
+  let feeling = "";
+  let postBg = "";
+  while (true) {
+    const match = out.match(/^\s*\[\[(feeling|postbg):([^\]]+)\]\]\s*/i);
+    if (!match) break;
+    const key = String(match[1] || "").toLowerCase();
+    const value = String(match[2] || "").trim();
+    if (key === "feeling" && !feeling) {
+      feeling = value.toLowerCase();
+    }
+    if (key === "postbg" && !postBg && /^#[0-9a-f]{6}$/i.test(value)) {
+      postBg = value;
+    }
+    out = out.slice(match[0].length);
   }
   return {
-    feeling: String(match[1] || "").toLowerCase(),
-    content: raw.slice(match[0].length),
+    feeling,
+    postBg,
+    content: out,
   };
 };
 
@@ -178,6 +207,16 @@ const formatFeelingLabel = (value) => {
     .filter(Boolean)
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(" ");
+};
+
+const getContrastTextColor = (hex) => {
+  const clean = String(hex || "").replace("#", "");
+  if (!/^[0-9a-f]{6}$/i.test(clean)) return "#ffffff";
+  const r = parseInt(clean.slice(0, 2), 16);
+  const g = parseInt(clean.slice(2, 4), 16);
+  const b = parseInt(clean.slice(4, 6), 16);
+  const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  return luminance > 0.62 ? "#0f172a" : "#ffffff";
 };
 
 const getMentionAnchor = (value, caret) => {
@@ -267,15 +306,37 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
   const [pollLoading, setPollLoading] = useState(false);
   const [pollVotingOptionId, setPollVotingOptionId] = useState(null);
 
-  const { feeling: postFeeling, content: postContentWithoutFeeling } = extractFeelingFromContent(post.content || "");
-  const displayPostContent = stripMentionsFromPostText(postContentWithoutFeeling || "");
+  const { feeling: postFeeling, postBg, content: postContentWithoutMeta } = extractPostMetaFromContent(post.content || "");
+  const displayPostContent = stripMentionsFromPostText(postContentWithoutMeta || "");
   const CONTENT_LIMIT = 280;
   const hasLongContent = displayPostContent.length > CONTENT_LIMIT;
   const contentToShow =
     hasLongContent && !isExpanded
       ? `${displayPostContent.slice(0, CONTENT_LIMIT).trimEnd()}...`
       : displayPostContent;
+  const contentWordCount = displayPostContent ? displayPostContent.split(/\s+/).filter(Boolean).length : 0;
+  const useStyledTextCard =
+    Boolean(postBg) &&
+    contentWordCount > 0 &&
+    contentWordCount <= 22 &&
+    !post.image_url &&
+    !post.link_preview &&
+    !post.has_poll;
+  const contentStyle = useStyledTextCard
+    ? {
+        whiteSpace: "pre-wrap",
+        background: postBg,
+        color: getContrastTextColor(postBg),
+        borderRadius: 16,
+        padding: "20px 16px",
+        fontWeight: 800,
+      }
+    : { whiteSpace: "pre-wrap" };
+  const normalizedPostText = String(displayPostContent || "").trim().toLowerCase();
+  const normalizedPollQuestion = String(poll?.question || "").trim().toLowerCase();
+  const showPollQuestion = Boolean(normalizedPollQuestion) && normalizedPollQuestion !== normalizedPostText;
   const taggedUsers = extractTaggedUsernames(post.content || "");
+  const pollExpired = Boolean(poll?.expires_at) && new Date(String(poll.expires_at).replace(" ", "T")).getTime() <= Date.now();
 
 
   const canShowLikeCount = !post.hide_like_counts || isPostAuthor;
@@ -464,7 +525,7 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
   };
 
   const votePoll = async (optionId) => {
-    if (!token || !post?.id || !optionId) return;
+    if (!token || !post?.id || !optionId || pollExpired) return;
     setPollVotingOptionId(optionId);
     try {
       const res = await fetch(`${API}/api/vine/posts/${post.id}/poll/vote`, {
@@ -846,8 +907,8 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
           !post.image_url
             ? "big-text"
             : ""
-        }`}
-        style={{ whiteSpace: "pre-wrap" }}   // ← this one line fixes paragraphs
+        } ${useStyledTextCard ? "styled-card-text" : ""}`}
+        style={contentStyle}
       >
         {renderMentions(contentToShow, navigate)}
       </p>
@@ -862,7 +923,12 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
 
       {post.has_poll && (
         <div className="post-poll-box">
-          <div className="post-poll-question">{poll?.question || "Poll"}</div>
+          {showPollQuestion && (
+            <div className="post-poll-question">{poll?.question || "Poll"}</div>
+          )}
+          {poll?.expires_at && (
+            <div className="post-poll-expiry">{formatPollExpiry(poll.expires_at)}</div>
+          )}
           {pollLoading && !poll ? (
             <div className="post-poll-loading">Loading poll…</div>
           ) : (
@@ -878,7 +944,7 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
                     type="button"
                     className={`post-poll-option ${selected ? "selected" : ""}`}
                     onClick={() => votePoll(opt.id)}
-                    disabled={Boolean(pollVotingOptionId)}
+                    disabled={Boolean(pollVotingOptionId) || pollExpired}
                   >
                     <span className="post-poll-option-label">{opt.option_text}</span>
                     <span className="post-poll-option-meta">

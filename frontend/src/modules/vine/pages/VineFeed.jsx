@@ -27,6 +27,16 @@ const FEELING_OPTIONS = [
   { value: "motivated", label: "Motivated" },
   { value: "tired", label: "Tired" },
 ];
+const POST_BG_COLORS = [
+  "#14532d",
+  "#0f766e",
+  "#1d4ed8",
+  "#7c3aed",
+  "#b91c1c",
+  "#92400e",
+  "#0f172a",
+];
+const STYLED_TEXT_WORD_LIMIT = 22;
 const STATUS_REACTIONS = [
   { key: "like", emoji: "👍" },
   { key: "love", emoji: "❤️" },
@@ -44,6 +54,16 @@ const getGreeting = () => {
   if (hour < 12) return "Good morning";
   if (hour < 17) return "Good afternoon";
   return "Good evening";
+};
+
+const getContrastTextColor = (hex) => {
+  const clean = String(hex || "").replace("#", "");
+  if (!/^[0-9a-f]{6}$/i.test(clean)) return "#ffffff";
+  const r = parseInt(clean.slice(0, 2), 16);
+  const g = parseInt(clean.slice(2, 4), 16);
+  const b = parseInt(clean.slice(4, 6), 16);
+  const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  return luminance > 0.62 ? "#0f172a" : "#ffffff";
 };
 
 const getMentionAnchor = (value, caret) => {
@@ -165,6 +185,8 @@ export default function VineFeed() {
   const [composeGifUrl, setComposeGifUrl] = useState("");
   const [pollOpen, setPollOpen] = useState(false);
   const [pollOptions, setPollOptions] = useState(["", ""]);
+  const [pollDurationHours, setPollDurationHours] = useState(24);
+  const [postBgColor, setPostBgColor] = useState("");
   const [activeNowUsers, setActiveNowUsers] = useState([]);
   const [recentlyActiveUsers, setRecentlyActiveUsers] = useState([]);
   const [presenceModalOpen, setPresenceModalOpen] = useState(false);
@@ -850,13 +872,22 @@ export default function VineFeed() {
     try {
       const formData = new FormData();
       const normalizedContent = content.trim();
+      const wordCount = normalizedContent ? normalizedContent.split(/\s+/).filter(Boolean).length : 0;
+      const useStyledText =
+        Boolean(postBgColor) &&
+        wordCount > 0 &&
+        wordCount <= STYLED_TEXT_WORD_LIMIT &&
+        images.length === 0 &&
+        !composeGifUrl &&
+        !pollOpen;
       if (pollOpen && !normalizedContent) {
         alert("Write your poll text in the main create box.");
         return;
       }
-      const outgoingContent = feeling
-        ? `[[feeling:${feeling}]]${normalizedContent ? ` ${normalizedContent}` : ""}`
-        : normalizedContent;
+      const markers = [];
+      if (feeling) markers.push(`[[feeling:${feeling}]]`);
+      if (useStyledText) markers.push(`[[postbg:${postBgColor}]]`);
+      const outgoingContent = `${markers.join("")}${normalizedContent ? `${markers.length ? " " : ""}${normalizedContent}` : ""}`;
       const contentWithGif = composeGifUrl
         ? `${outgoingContent}${outgoingContent ? "\n" : ""}${composeGifUrl}`
         : outgoingContent;
@@ -871,6 +902,7 @@ export default function VineFeed() {
         }
         formData.append("poll_question", normalizedContent.slice(0, 240));
         formData.append("poll_options", JSON.stringify(cleanedPollOptions));
+        formData.append("poll_duration_hours", String(pollDurationHours));
       }
 
       const res = await fetch(`${API}/api/vine/posts`, {
@@ -892,6 +924,8 @@ export default function VineFeed() {
       setComposeGifUrl("");
       setPollOpen(false);
       setPollOptions(["", ""]);
+      setPollDurationHours(24);
+      setPostBgColor("");
     } catch (err) {
       console.error("Post creation error", err);
     }
@@ -916,6 +950,16 @@ export default function VineFeed() {
     // 🔥 clear URL params after scroll
     navigate("/vine/feed", { replace: true });
   }, [posts, targetPostId]);
+
+  const composerWordCount = content.trim() ? content.trim().split(/\s+/).filter(Boolean).length : 0;
+  const canUseStyledText =
+    composerWordCount > 0 &&
+    composerWordCount <= STYLED_TEXT_WORD_LIMIT &&
+    images.length === 0 &&
+    !composeGifUrl &&
+    !pollOpen;
+  const showLiveStyledComposer = Boolean(postBgColor) && canUseStyledText;
+  const composerTextColor = getContrastTextColor(postBgColor);
   
 
   // ── Render ──────────────────────────────────────
@@ -1094,7 +1138,17 @@ export default function VineFeed() {
         </div>
 
         {/* Create Post Box */}
-        <div className="vine-create-box">
+        <div
+          className={`vine-create-box ${showLiveStyledComposer ? "styled-live" : ""}`}
+          style={
+            showLiveStyledComposer
+              ? {
+                  "--composer-placeholder":
+                    composerTextColor === "#0f172a" ? "rgba(15,23,42,0.65)" : "rgba(255,255,255,0.86)",
+                }
+              : undefined
+          }
+        >
         <div className="create-format-toolbar">
           <button type="button" onClick={() => applyComposeFormat("**")} title="Bold">B</button>
           <button type="button" onClick={() => applyComposeFormat("*")} title="Italic"><em>I</em></button>
@@ -1106,6 +1160,18 @@ export default function VineFeed() {
                       className={`create-textarea ${
                         content.length > 0 && content.length < 120 ? "big-text" : ""
                       }`}
+                      style={
+                        showLiveStyledComposer
+                          ? {
+                              background: postBgColor,
+                              color: composerTextColor,
+                              borderRadius: 18,
+                              padding: "18px 16px",
+                              fontWeight: 800,
+                              boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.18)",
+                            }
+                          : undefined
+                      }
                       ref={createInputRef}
                       placeholder="What's happening?"
                       value={content}
@@ -1177,6 +1243,31 @@ export default function VineFeed() {
               <button type="button" onClick={() => setComposeGifUrl("")}>×</button>
             </div>
           )}
+          <div className="composer-style-row">
+            <span className="composer-style-label">Text style:</span>
+            <button
+              type="button"
+              className={`composer-style-swatch ${!postBgColor ? "active" : ""}`}
+              onClick={() => setPostBgColor("")}
+            >
+              Normal
+            </button>
+            {POST_BG_COLORS.map((c) => (
+              <button
+                key={`post-bg-${c}`}
+                type="button"
+                className={`composer-style-swatch color ${postBgColor === c ? "active" : ""}`}
+                style={{ background: c }}
+                onClick={() => setPostBgColor(c)}
+                title={c}
+              />
+            ))}
+            {!canUseStyledText && postBgColor && (
+              <span className="composer-style-note">
+                Long or mixed-media post: normal style will be used.
+              </span>
+            )}
+          </div>
 
           <div className="create-footer">
             <div className="greeting">
@@ -1283,6 +1374,18 @@ export default function VineFeed() {
                 />
               ))}
               <div className="composer-poll-actions">
+                <select
+                  value={pollDurationHours}
+                  onChange={(e) => setPollDurationHours(Number(e.target.value) || 24)}
+                >
+                  <option value={1}>1 hour</option>
+                  <option value={6}>6 hours</option>
+                  <option value={12}>12 hours</option>
+                  <option value={24}>24 hours</option>
+                  <option value={48}>2 days</option>
+                  <option value={72}>3 days</option>
+                  <option value={168}>7 days</option>
+                </select>
                 {pollOptions.length < 4 && (
                   <button type="button" onClick={() => setPollOptions((prev) => [...prev, ""])}>
                     + Add option

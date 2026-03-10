@@ -918,6 +918,7 @@ app.post("/api/teacher/marks", authTeacher, async (req, res) => {
     const year = parseInt(req.body.year, 10);
     const term = req.body.term?.trim();
     const marks = req.body.marks;
+    const clearMarks = Array.isArray(req.body.clearMarks) ? req.body.clearMarks : [];
 
     if (!assignmentId || !year || !term || !Array.isArray(marks)) {
       return res.status(400).json({ message: "Invalid marks payload" });
@@ -1008,7 +1009,33 @@ app.post("/api/teacher/marks", authTeacher, async (req, res) => {
       });
     }
 
-    // 4) Validate each mark entry and insert/upsert using the transaction connection
+    // 4) Clear explicitly emptied marks first
+    for (const m of clearMarks) {
+      const aoi = (m.aoi || "").trim().toUpperCase();
+      const sid = Number(m.studentId);
+
+      if (!aoi || !["AOI1", "AOI2", "AOI3"].includes(aoi) || !Number.isInteger(sid) || sid <= 0) {
+        await conn.rollback();
+        return res.status(400).json({ message: "Invalid clearMarks payload" });
+      }
+
+      if (!registeredIdsSet.has(sid)) {
+        await conn.rollback();
+        return res.status(400).json({ message: `Student ${sid} is not registered for ${assignmentSubject}` });
+      }
+
+      await conn.query(
+        `DELETE FROM marks
+         WHERE assignment_id = ?
+           AND student_id = ?
+           AND year = ?
+           AND term = ?
+           AND aoi_label = ?`,
+        [assignmentId, sid, year, term, aoi]
+      );
+    }
+
+    // 5) Validate each mark entry and insert/upsert using the transaction connection
     for (const m of marks) {
       const isMissed = m.score === "Missed";
       const aoi = (m.aoi || "").trim().toUpperCase();
@@ -1212,6 +1239,7 @@ app.post("/api/teachers/marks", authTeacher, async (req, res) => {
     const year = parseInt(req.body.year, 10);
     const term = req.body.term?.trim();
     const marks = req.body.marks;
+    const clearMarks = Array.isArray(req.body.clearMarks) ? req.body.clearMarks : [];
 
     if (!assignmentId || !year || !term || !Array.isArray(marks)) {
       return res.status(400).json({ message: "Invalid marks payload" });
@@ -1294,6 +1322,32 @@ app.post("/api/teachers/marks", authTeacher, async (req, res) => {
       return res.status(400).json({
         message: `Students not registered for ${assignmentSubject}: ${notRegistered.join(",")}`,
       });
+    }
+
+    // clear explicitly emptied marks first
+    for (const m of clearMarks) {
+      const aoi = (m.aoi || "").trim().toUpperCase();
+      const sid = Number(m.studentId);
+
+      if (!aoi || !["AOI1", "AOI2", "AOI3"].includes(aoi) || !Number.isInteger(sid) || sid <= 0) {
+        await conn.rollback();
+        return res.status(400).json({ message: "Invalid clearMarks payload" });
+      }
+
+      if (!registeredIdsSet.has(sid)) {
+        await conn.rollback();
+        return res.status(400).json({ message: `Student ${sid} is not registered for ${assignmentSubject}` });
+      }
+
+      await conn.query(
+        `DELETE FROM marks
+         WHERE assignment_id = ?
+           AND student_id = ?
+           AND year = ?
+           AND term = ?
+           AND aoi_label = ?`,
+        [assignmentId, sid, year, term, aoi]
+      );
     }
 
     // validate and upsert marks using transaction connection

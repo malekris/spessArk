@@ -119,6 +119,7 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
   // ----------------------------
   const [students, setStudents] = useState([]);
   const [studentMarks, setStudentMarks] = useState({});
+  const [initialStudentMarks, setInitialStudentMarks] = useState({});
   const [studentStatus, setStudentStatus] = useState({});
 
   const [marksYear, setMarksYear] = useState(new Date().getFullYear());
@@ -317,6 +318,7 @@ useEffect(() => {
 
       setStudents(studentsList);
       setStudentMarks(studentMarksInit);
+      setInitialStudentMarks(studentMarksInit);
       setStudentStatus(studentStatusInit);
       setMarkErrors({});
     } catch (err) {
@@ -324,6 +326,7 @@ useEffect(() => {
       setMarksError("Failed to load learners or marks.");
       setStudents([]);
       setStudentMarks({});
+      setInitialStudentMarks({});
       setStudentStatus({});
     } finally {
       setMarksLoading(false);
@@ -424,7 +427,11 @@ useEffect(() => {
   const setAOIScore = (studentId, aoi, raw) => {
     if (raw === "") {
       setStudentMarks((p) => ({ ...(p || {}), [studentId]: { ...(p?.[studentId] || {}), [aoi]: "" } }));
-      setMarkErrors((p) => ({ ...(p || {}), [`${studentId}_${aoi}`]: "Score required" }));
+      setMarkErrors((p) => {
+        const copy = { ...(p || {}) };
+        delete copy[`${studentId}_${aoi}`];
+        return copy;
+      });
       return;
     }
 
@@ -462,6 +469,7 @@ useEffect(() => {
 
     try {
       const payload = [];
+      const clearMarks = [];
       const errors = {};
       const isAlevel = selectedAssignment?.isAlevel === true;
       const columns = isAlevel ? ["MID", "EOT"] : ["AOI1", "AOI2", "AOI3"];
@@ -473,6 +481,7 @@ useEffect(() => {
         for (const aoi of columns) {
           const score = marksByAoi[aoi];
           const status = statusByAoi[aoi];
+          const hadSavedValue = initialStudentMarks[s.id]?.[aoi] !== undefined;
 
           const scoreTouched = score !== undefined && score !== null && score !== "";
           const statusTouched = status === "Missed";
@@ -485,7 +494,9 @@ useEffect(() => {
           }
 
           if (!scoreTouched) {
-            errors[`${s.id}_${aoi}`] = "Score required";
+            if (hadSavedValue) {
+              clearMarks.push({ studentId: s.id, aoi });
+            }
             continue;
           }
 
@@ -518,8 +529,8 @@ useEffect(() => {
 
       const endpoint = isAlevel ? "/api/alevel/teachers/alevel-marks" : "/api/teachers/marks";
       const payloadBody = isAlevel
-        ? { assignmentId: selectedAssignment.id, year: Number(marksYear),term:marksTerm, examType, marks: payload }
-        : { assignmentId: selectedAssignment.id, year: Number(marksYear), term: marksTerm, marks: payload };
+        ? { assignmentId: selectedAssignment.id, year: Number(marksYear),term:marksTerm, examType, marks: payload, clearMarks }
+        : { assignmentId: selectedAssignment.id, year: Number(marksYear), term: marksTerm, marks: payload, clearMarks };
 
       const res = await fetch(`${API_BASE}${endpoint}`, {
         method: "POST",

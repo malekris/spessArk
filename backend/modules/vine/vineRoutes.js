@@ -12,10 +12,63 @@ import { io } from "../../server.js";
 import { uploadPostCloudinary } from "../../middleware/upload.js";
 import cloudinary from "../../config/cloudinary.js";
 import sharp from "sharp";
+import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "vine_secret_key";
 const GIPHY_API_KEY = process.env.GIPHY_API_KEY || "";
+const USE_R2_UPLOADS = String(process.env.USE_R2_UPLOADS || "").toLowerCase() === "true";
+const R2_ACCOUNT_ID = String(process.env.R2_ACCOUNT_ID || "").trim();
+const R2_BUCKET = String(process.env.R2_BUCKET || "").trim();
+const R2_ACCESS_KEY_ID = String(process.env.R2_ACCESS_KEY_ID || "").trim();
+const R2_SECRET_ACCESS_KEY = String(process.env.R2_SECRET_ACCESS_KEY || "").trim();
+const R2_PUBLIC_BASE_URL = String(process.env.R2_PUBLIC_BASE_URL || "").trim().replace(/\/+$/, "");
+const R2_ENDPOINT =
+  R2_ACCOUNT_ID
+    ? `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`
+    : String(process.env.R2_ENDPOINT || "").trim();
+const r2Ready = Boolean(
+  R2_BUCKET && R2_ACCESS_KEY_ID && R2_SECRET_ACCESS_KEY && R2_ENDPOINT && R2_PUBLIC_BASE_URL
+);
+const r2Client = r2Ready
+  ? new S3Client({
+      region: "auto",
+      endpoint: R2_ENDPOINT,
+      credentials: {
+        accessKeyId: R2_ACCESS_KEY_ID,
+        secretAccessKey: R2_SECRET_ACCESS_KEY,
+      },
+    })
+  : null;
+
+const isR2Url = (rawUrl) => {
+  const asString = String(rawUrl || "").trim();
+  if (!asString) return false;
+  if (R2_PUBLIC_BASE_URL && asString.startsWith(R2_PUBLIC_BASE_URL)) return true;
+  return /\.r2\.dev\//i.test(asString) || /\.r2\.cloudflarestorage\.com\//i.test(asString);
+};
+
+const extractR2KeyFromUrl = (rawUrl) => {
+  const asString = String(rawUrl || "").trim();
+  if (!asString) return null;
+  if (R2_PUBLIC_BASE_URL && asString.startsWith(R2_PUBLIC_BASE_URL)) {
+    return asString.slice(R2_PUBLIC_BASE_URL.length).replace(/^\/+/, "");
+  }
+  try {
+    const parsed = new URL(asString);
+    const parts = parsed.pathname.split("/").filter(Boolean);
+    if (!parts.length) return null;
+    if (
+      /\.r2\.cloudflarestorage\.com$/i.test(parsed.hostname) &&
+      parts[0] === R2_BUCKET
+    ) {
+      parts.shift();
+    }
+    return parts.join("/") || null;
+  } catch {
+    return null;
+  }
+};
 
 const extractCloudinaryPublicId = (rawUrl) => {
   const asString = String(rawUrl || "").trim();
@@ -90,6 +143,22 @@ const isLikelyRawUrl = (url) =>
   /\/raw\/upload\//i.test(url) || /\.pdf(\?|$)/i.test(url);
 
 const deleteCloudinaryByUrl = async (url) => {
+  if (isR2Url(url) && r2Client && r2Ready) {
+    const key = extractR2KeyFromUrl(url);
+    if (!key) return;
+    try {
+      await r2Client.send(
+        new DeleteObjectCommand({
+          Bucket: R2_BUCKET,
+          Key: key,
+        })
+      );
+    } catch {
+      // ignore r2 delete misses
+    }
+    return;
+  }
+
   const asString = String(url || "");
   const publicId = extractCloudinaryPublicId(asString);
   if (!publicId) return;
@@ -1520,6 +1589,57 @@ const shouldRetryCloudinaryUpload = (err) => {
   return name.includes("timeout") || code === 499 || code === 500 || code === 503;
 };
 
+const inferExtAndMime = (options = {}) => {
+  const format = String(options?.format || "").trim().toLowerCase();
+  const resourceType = String(options?.resource_type || "image").toLowerCase();
+  if (format) {
+    if (format === "pdf") return { ext: "pdf", mime: "application/pdf" };
+    if (format === "webp") return { ext: "webp", mime: "image/webp" };
+    if (format === "png") return { ext: "png", mime: "image/png" };
+    if (format === "jpg" || format === "jpeg")
+      return { ext: "jpg", mime: "image/jpeg" };
+    return { ext: format, mime: "application/octet-stream" };
+  }
+  if (resourceType === "video") return { ext: "mp4", mime: "video/mp4" };
+  if (resourceType === "raw") return { ext: "bin", mime: "application/octet-stream" };
+  return { ext: "jpg", mime: "image/jpeg" };
+};
+
+const buildR2ObjectKey = (options = {}) => {
+  const folder = String(options?.folder || "vine").replace(/^\/+|\/+$/g, "");
+  const publicIdRaw = String(options?.public_id || "").trim();
+  const { ext } = inferExtAndMime(options);
+  const seed = `${Date.now()}-${crypto.randomUUID()}`;
+  const publicIdBase = publicIdRaw
+    ? publicIdRaw.replace(/^\/+|\/+$/g, "").replace(/\.[a-z0-9]+$/i, "")
+    : seed;
+  return `${folder}/${publicIdBase}.${ext}`;
+};
+
+const uploadBufferToR2 = async (buffer, options = {}) => {
+  if (!r2Client || !r2Ready) {
+    throw new Error("R2 is not configured");
+  }
+  const key = buildR2ObjectKey(options);
+  const { mime } = inferExtAndMime(options);
+  await r2Client.send(
+    new PutObjectCommand({
+      Bucket: R2_BUCKET,
+      Key: key,
+      Body: buffer,
+      ContentType: mime,
+      CacheControl: "public, max-age=31536000, immutable",
+    })
+  );
+  const url = `${R2_PUBLIC_BASE_URL}/${key}`;
+  return {
+    secure_url: url,
+    url,
+    public_id: key,
+    provider: "r2",
+  };
+};
+
 const uploadBufferToCloudinaryOnce = (buffer, options = {}) =>
   new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
@@ -1533,6 +1653,11 @@ const uploadBufferToCloudinaryOnce = (buffer, options = {}) =>
   });
 
 const uploadBufferToCloudinary = async (buffer, options = {}) => {
+  const resourceType = String(options?.resource_type || "image").toLowerCase();
+  const isRawDoc = resourceType === "raw";
+  if (USE_R2_UPLOADS && r2Ready && !isRawDoc) {
+    return uploadBufferToR2(buffer, options);
+  }
   let attempt = 0;
   let lastErr = null;
   while (attempt < 3) {

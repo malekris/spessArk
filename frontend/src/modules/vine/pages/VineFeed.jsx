@@ -37,8 +37,8 @@ const POST_BG_COLORS = [
   "#0f172a",
 ];
 const STYLED_TEXT_WORD_LIMIT = 22;
-const FEED_MEDIA_UPLOADS_FROZEN = true;
-const STATUS_MEDIA_UPLOADS_FROZEN = true;
+const FEED_MEDIA_UPLOADS_FROZEN = false;
+const STATUS_MEDIA_UPLOADS_FROZEN = false;
 const STATUS_REACTIONS = [
   { key: "like", emoji: "👍" },
   { key: "love", emoji: "❤️" },

@@ -46,6 +46,8 @@ const S1_S2_PRESELECT_OPTIONALS = [
   "Christian Religious Education",
   "Entrepreneurship",
 ];
+const CLASS_SORT_ORDER = ["S1", "S2", "S3", "S4"];
+const STREAM_SORT_ORDER = ["North", "South"];
 
 const formatDateTime = (value) => {
   if (!value) return "—";
@@ -59,6 +61,81 @@ const isPromotionWindowOpen = (date = new Date()) => {
   const month = date.getMonth(); // 0-based
   const day = date.getDate();
   return (month === 11 && day >= 5) || (month === 0 && day <= 30);
+};
+
+const buildStreamReadinessFromAssignments = (assignments = []) => {
+  const compulsoryKeys = new Set(COMPULSORY_SUBJECTS.map((s) => s.toLowerCase()));
+  const optionalKeys = new Set(OPTIONAL_SUBJECTS.map((s) => s.toLowerCase()));
+  const grouped = new Map();
+
+  assignments.forEach((row) => {
+    const classLevel = String(row?.class_level ?? row?.class ?? "").trim();
+    const stream = String(row?.stream ?? "").trim();
+    const subject = String(row?.subject ?? "").trim();
+    if (!classLevel || !stream || !subject) return;
+
+    const key = `${classLevel}__${stream}`;
+    if (!grouped.has(key)) {
+      grouped.set(key, { class: classLevel, stream, subjects: new Map() });
+    }
+
+    const subjectKey = subject.toLowerCase();
+    if (!grouped.get(key).subjects.has(subjectKey)) {
+      grouped.get(key).subjects.set(subjectKey, subject);
+    }
+  });
+
+  const rows = Array.from(grouped.values()).map((group) => {
+    const subjectKeys = new Set(group.subjects.keys());
+
+    const assignedCompulsorySubjects = COMPULSORY_SUBJECTS.filter((s) =>
+      subjectKeys.has(s.toLowerCase())
+    );
+    const missingCompulsorySubjects = COMPULSORY_SUBJECTS.filter(
+      (s) => !subjectKeys.has(s.toLowerCase())
+    );
+    const assignedOptionalSubjects = OPTIONAL_SUBJECTS.filter((s) =>
+      subjectKeys.has(s.toLowerCase())
+    );
+    const unknownSubjects = Array.from(group.subjects.entries())
+      .filter(([key]) => !compulsoryKeys.has(key) && !optionalKeys.has(key))
+      .map(([, label]) => label)
+      .sort((a, b) => a.localeCompare(b));
+
+    const status = missingCompulsorySubjects.length === 0 ? "READY" : "NOT_READY";
+
+    return {
+      class: group.class,
+      stream: group.stream,
+      status,
+      uiLabel: status === "READY" ? "green" : "red",
+      assignedCompulsorySubjects,
+      missingCompulsorySubjects,
+      assignedOptionalSubjects,
+      optionalCount: assignedOptionalSubjects.length,
+      unknownSubjects,
+    };
+  });
+
+  rows.sort((a, b) => {
+    const aClassIndex = CLASS_SORT_ORDER.indexOf(a.class);
+    const bClassIndex = CLASS_SORT_ORDER.indexOf(b.class);
+    const classDiff =
+      (aClassIndex === -1 ? 999 : aClassIndex) -
+      (bClassIndex === -1 ? 999 : bClassIndex);
+    if (classDiff !== 0) return classDiff;
+
+    const aStreamIndex = STREAM_SORT_ORDER.indexOf(a.stream);
+    const bStreamIndex = STREAM_SORT_ORDER.indexOf(b.stream);
+    const streamDiff =
+      (aStreamIndex === -1 ? 999 : aStreamIndex) -
+      (bStreamIndex === -1 ? 999 : bStreamIndex);
+    if (streamDiff !== 0) return streamDiff;
+
+    return `${a.class}${a.stream}`.localeCompare(`${b.class}${b.stream}`);
+  });
+
+  return rows;
 };
 
 export default function AdminDashboard() {
@@ -244,6 +321,25 @@ export default function AdminDashboard() {
       }
       setStreamReadiness(data.streams);
     } catch (err) {
+      if (err?.status === 404) {
+        try {
+          const assignments = await adminFetch("/api/admin/assignments");
+          const streams = buildStreamReadinessFromAssignments(
+            Array.isArray(assignments) ? assignments : []
+          );
+          setStreamReadiness(streams);
+          setStreamReadinessError("");
+          return;
+        } catch (fallbackErr) {
+          console.error("Fallback stream readiness error:", fallbackErr);
+          setStreamReadiness([]);
+          setStreamReadinessError(
+            fallbackErr.message || "Could not load stream readiness."
+          );
+          return;
+        }
+      }
+
       console.error("Error loading stream readiness:", err);
       setStreamReadiness([]);
       setStreamReadinessError(err.message || "Could not load stream readiness.");

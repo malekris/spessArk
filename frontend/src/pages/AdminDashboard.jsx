@@ -11,6 +11,8 @@ import useIdleLogout from "../hooks/useIdleLogout";
 import EnrollmentInsightsPanel from "../components/EnrollmentInsightsPanel";
 import EnrollmentCharts from "../components/EnrollmentCharts";
 import AssessmentSubmissionTracker from "../components/AssessmentSubmissionTracker";
+import AuditLogsPanel from "../components/AuditLogsPanel";
+import PromotionPanel from "../components/PromotionPanel";
 
 // API base (fallback for local dev)
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5001";
@@ -50,6 +52,13 @@ const formatDateTime = (value) => {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return String(value);
   return d.toLocaleString();
+};
+
+// Promotion window: opens Dec 5 and locks after Jan 30 (inclusive window).
+const isPromotionWindowOpen = (date = new Date()) => {
+  const month = date.getMonth(); // 0-based
+  const day = date.getDate();
+  return (month === 11 && day >= 5) || (month === 0 && day <= 30);
 };
 
 export default function AdminDashboard() {
@@ -105,9 +114,24 @@ export default function AdminDashboard() {
   /* -------------------- UI state -------------------- */
   const [activeSection, setActiveSection] = useState("");
   const [showEnrollmentChartsModal, setShowEnrollmentChartsModal] = useState(false);
+  const [dashboardClock, setDashboardClock] = useState(() => new Date());
   useEffect(() => {
     document.title = activeSection ? `${activeSection} | SPESS ARK` : "Admin Dashboard | SPESS ARK";
   }, [activeSection]);
+  useEffect(() => {
+    const timerId = window.setInterval(() => setDashboardClock(new Date()), 60_000);
+    return () => window.clearInterval(timerId);
+  }, []);
+
+  const promotionWindowOpen = useMemo(
+    () => isPromotionWindowOpen(dashboardClock),
+    [dashboardClock]
+  );
+  useEffect(() => {
+    if (!promotionWindowOpen && activeSection === "Learner Promotion") {
+      setActiveSection("");
+    }
+  }, [promotionWindowOpen, activeSection]);
 
   /* ---------- Notices ---------- */
   const [notices, setNotices] = useState([]);
@@ -157,6 +181,11 @@ export default function AdminDashboard() {
   const [marksheetStream, setMarksheetStream] = useState("");
   const [marksheetError, setMarksheetError] = useState("");
 
+  /* ---------- Stream readiness ---------- */
+  const [streamReadiness, setStreamReadiness] = useState([]);
+  const [loadingStreamReadiness, setLoadingStreamReadiness] = useState(false);
+  const [streamReadinessError, setStreamReadinessError] = useState("");
+
   /* ---------- Cards ---------- */
   const cards = [
     { title: "Add Students", subtitle: "Enroll new learners", icon: "🎓" },
@@ -165,6 +194,19 @@ export default function AdminDashboard() {
     { title: "Manage Teachers", subtitle: "Accounts & permissions", icon: "🧑🏽‍🏫" },
     { title: "End of Term Reports", subtitle: "Term 1 & Term 2 report cards", icon: "📘", route: "/admin/reports/term" },
     { title: "End of Year Reports", subtitle: "Term 3 report cards", icon: "📕", route: "/admin/reports/year" },
+    {
+      title: "Learner Promotion",
+      subtitle: promotionWindowOpen
+        ? "Promote classes and graduate S4"
+        : "Promotion window closed for now",
+      icon: "⬆️",
+      status: promotionWindowOpen ? "active" : "archived",
+      inactiveMessage: promotionWindowOpen
+        ? ""
+        : "Inactive (opens Dec 5, locks Jan 30)",
+    },
+    { title: "Stream Readiness", subtitle: "Compulsory coverage by class and stream", icon: "🧭" },
+    { title: "Audit Log", subtitle: "Track system actions and changes", icon: "🛡️" },
     { title: "Notices", subtitle: "Create school notices", icon: "📢" },
     { title: "Enrollment Insights", subtitle: "Registration statistics per class/stream/subject", icon: "📈" },
     {
@@ -189,6 +231,24 @@ export default function AdminDashboard() {
       setNoticesError("Could not load notices");
     } finally {
       setLoadingNotices(false);
+    }
+  };
+
+  const fetchStreamReadiness = async () => {
+    setLoadingStreamReadiness(true);
+    setStreamReadinessError("");
+    try {
+      const data = await adminFetch("/api/admin/stream-readiness");
+      if (!Array.isArray(data?.streams)) {
+        throw new Error("Invalid stream readiness response");
+      }
+      setStreamReadiness(data.streams);
+    } catch (err) {
+      console.error("Error loading stream readiness:", err);
+      setStreamReadiness([]);
+      setStreamReadinessError(err.message || "Could not load stream readiness.");
+    } finally {
+      setLoadingStreamReadiness(false);
     }
   };
 
@@ -958,6 +1018,8 @@ export default function AdminDashboard() {
     } else if (activeSection === "Assessment Submission Tracker") {
       // load marks so tracker has data
       fetchMarksSets();
+    } else if (activeSection === "Stream Readiness") {
+      fetchStreamReadiness();
     } else if (activeSection === "Assign Subjects") {
       console.log("[AdminDashboard] opening Assign Subjects panel");
     }
@@ -1426,9 +1488,10 @@ export default function AdminDashboard() {
   
 
   /* ------------------ Card click handler ------------------ */
-  const handleCardClick = (title) => {
-    console.log("[AdminDashboard] card clicked:", title);
-    setActiveSection((prev) => (prev === title ? "" : title));
+  const handleCardClick = (card) => {
+    if (card?.status === "archived") return;
+    console.log("[AdminDashboard] card clicked:", card?.title);
+    setActiveSection((prev) => (prev === card?.title ? "" : card?.title));
   };
 
   /* ------------------ Derived values / filters ------------------ */
@@ -2261,6 +2324,152 @@ export default function AdminDashboard() {
         </section>
       );
     }
+    if (activeSection === "Stream Readiness") {
+      const readyCount = streamReadiness.filter((s) => s.status === "READY").length;
+      const notReadyCount = streamReadiness.length - readyCount;
+
+      return (
+        <section className="panel">
+          <div className="panel-header">
+            <div>
+              <h2>Stream Readiness Indicator</h2>
+              <p>A stream is ready only when all compulsory subjects are assigned.</p>
+            </div>
+            <button className="panel-close" type="button" onClick={() => setActiveSection("")}>
+              ✕ Close
+            </button>
+          </div>
+
+          {streamReadinessError && <div className="panel-alert panel-alert-error">{streamReadinessError}</div>}
+
+          <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap", marginBottom: "0.9rem" }}>
+            <div style={{ padding: "0.45rem 0.75rem", borderRadius: "999px", background: "rgba(34,197,94,0.18)", border: "1px solid rgba(34,197,94,0.45)", color: "#bbf7d0", fontSize: "0.78rem", letterSpacing: "0.08em", textTransform: "uppercase" }}>
+              Ready: <strong>{readyCount}</strong>
+            </div>
+            <div style={{ padding: "0.45rem 0.75rem", borderRadius: "999px", background: "rgba(239,68,68,0.18)", border: "1px solid rgba(239,68,68,0.45)", color: "#fecaca", fontSize: "0.78rem", letterSpacing: "0.08em", textTransform: "uppercase" }}>
+              Not Ready: <strong>{notReadyCount}</strong>
+            </div>
+            <button type="button" className="ghost-btn" onClick={fetchStreamReadiness} disabled={loadingStreamReadiness}>
+              {loadingStreamReadiness ? "Refreshing…" : "Refresh"}
+            </button>
+          </div>
+
+          {loadingStreamReadiness && streamReadiness.length === 0 ? (
+            <p className="muted-text">Loading stream readiness…</p>
+          ) : streamReadiness.length === 0 ? (
+            <p className="muted-text">No stream assignments found.</p>
+          ) : (
+            <div className="teachers-table-wrapper">
+              <table className="teachers-table">
+                <thead>
+                  <tr>
+                    <th>Class</th>
+                    <th>Stream</th>
+                    <th>Status</th>
+                    <th>Missing Compulsory</th>
+                    <th>Optionals ({OPTIONAL_SUBJECTS.length})</th>
+                    <th>Unknown Subjects</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {streamReadiness.map((row) => (
+                    <tr key={`${row.class}-${row.stream}`}>
+                      <td>{row.class}</td>
+                      <td>{row.stream}</td>
+                      <td>
+                        <span
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            padding: "0.2rem 0.6rem",
+                            borderRadius: "999px",
+                            fontSize: "0.72rem",
+                            letterSpacing: "0.08em",
+                            textTransform: "uppercase",
+                            border: row.uiLabel === "green"
+                              ? "1px solid rgba(34,197,94,0.5)"
+                              : "1px solid rgba(239,68,68,0.5)",
+                            background: row.uiLabel === "green"
+                              ? "rgba(34,197,94,0.18)"
+                              : "rgba(239,68,68,0.18)",
+                            color: row.uiLabel === "green" ? "#bbf7d0" : "#fecaca",
+                          }}
+                        >
+                          {row.status}
+                        </span>
+                      </td>
+                      <td>{row.missingCompulsorySubjects.length ? row.missingCompulsorySubjects.join(", ") : "—"}</td>
+                      <td>{row.optionalCount} • {row.assignedOptionalSubjects.join(", ") || "—"}</td>
+                      <td>{row.unknownSubjects.length ? row.unknownSubjects.join(", ") : "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      );
+    }
+    if (activeSection === "Audit Log") {
+      return (
+        <section className="panel">
+          <div className="panel-header">
+            <div>
+              <h2>Audit Log</h2>
+              <p>Most recent activities first. Filter by user, action, entity type and date range.</p>
+            </div>
+            <button className="panel-close" onClick={() => setActiveSection("")}>
+              ✕ Close
+            </button>
+          </div>
+
+          <AuditLogsPanel />
+        </section>
+      );
+    }
+    if (activeSection === "Learner Promotion") {
+      if (promotionWindowOpen) {
+        return (
+          <section className="panel">
+            <div className="panel-header">
+              <div>
+                <h2>Learner Promotion</h2>
+                <p>Preview and execute class promotions with full history tracking.</p>
+              </div>
+              <button className="panel-close" onClick={() => setActiveSection("")}>
+                ✕ Close
+              </button>
+            </div>
+
+            <PromotionPanel />
+          </section>
+        );
+      }
+
+      return (
+        <section className="panel">
+          <div className="panel-header">
+            <div>
+              <h2>Learner Promotion</h2>
+              <p>Module is currently archived and inactive for this period.</p>
+            </div>
+            <button className="panel-close" onClick={() => setActiveSection("")}>
+              ✕ Close
+            </button>
+          </div>
+          <div
+            className="panel-alert"
+            style={{
+              background: "rgba(245, 158, 11, 0.12)",
+              border: "1px solid rgba(245, 158, 11, 0.45)",
+              color: "#fcd34d",
+            }}
+          >
+            Learner Promotion is inactive. It auto-opens on December 5 and auto-locks on January 30.
+          </div>
+        </section>
+      );
+    }
     if (activeSection === "Assessment Submission Tracker") {
       return (
         <section className="panel">
@@ -2542,14 +2751,27 @@ export default function AdminDashboard() {
 
         <section className="admin-grid">
           {cards.map((card) => (
-            <article key={card.title} className="admin-card">
+            <article
+              key={card.title}
+              className={`admin-card ${card.status === "archived" ? "admin-card-archived" : ""}`}
+            >
               <div className="card-icon">{card.icon}</div>
               <div className="card-body">
                 <h2>{card.title}</h2>
                 <p>{card.subtitle}</p>
+                {card.status === "archived" && (
+                  <p className="card-status-tag">{card.inactiveMessage || "Archived"}</p>
+                )}
               </div>
               <div className="card-footer">
-                <button className="card-button" type="button" onClick={() => handleCardClick(card.title)}>Open</button>
+                <button
+                  className="card-button"
+                  type="button"
+                  onClick={() => handleCardClick(card)}
+                  disabled={card.status === "archived"}
+                >
+                  {card.status === "archived" ? "Inactive" : "Open"}
+                </button>
               </div>
             </article>
           ))}

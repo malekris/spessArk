@@ -11,9 +11,12 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import teacherRoutes from "./routes/teachers.js";
 import adminReportsRoutes from "./routes/adminReports.js";
+import adminAuditLogsRoutes from "./routes/adminAuditLogs.js";
+import adminPromotionRoutes from "./routes/adminPromotionRoutes.js";
 import authAdmin from "./middleware/authAdmin.js";
 import studentRoutes from "./routes/students.js";
 import classesRoutes from "./routes/classes.js";
+import streamReadinessRoutes from "./routes/streamReadiness.js";
 import alevelRoutes from "./modules/alevel/alevel.routes.js";
 import newSignupRoutes from "./routes/newSignup.js";
 import alevelReports from "./modules/alevel/alevelReports.js";
@@ -22,6 +25,7 @@ import vineAuth from "./modules/vine/vineAuth.js";
 import dmRoutes from "./modules/vine/dms.js";
 import path from "path";
 import { fileURLToPath } from "url";
+import { extractClientIp, logAuditEvent } from "./utils/auditLogger.js";
 
 
 const app = express();
@@ -48,7 +52,10 @@ app.use(express.json());
 app.use("/api/teachers", teacherRoutes);
 app.use("/api/students", studentRoutes);
 app.use("/api/admin/reports", adminReportsRoutes);
+app.use("/api/admin/audit-logs", adminAuditLogsRoutes);
+app.use("/api/admin", adminPromotionRoutes);
 app.use("/api/classes", classesRoutes);
+app.use("/api/admin/stream-readiness", streamReadinessRoutes);
 app.use("/api/alevel", alevelRoutes);
 app.use("/api/new-signup", newSignupRoutes);
 app.use("/api/alevel/reports", alevelReports);
@@ -133,6 +140,16 @@ app.post("/api/admin/login", async (req, res) => {
     process.env.JWT_SECRET || "dev_secret",
     { expiresIn: "1d" }
   );
+
+  await logAuditEvent({
+    userId: 1,
+    userRole: "admin",
+    action: "LOGIN",
+    entityType: "login",
+    entityId: 1,
+    description: `Admin login successful (${username})`,
+    ipAddress: extractClientIp(req),
+  });
 
   res.json({ token });
 });
@@ -872,6 +889,16 @@ app.post("/api/admin/assignments", authAdmin, async (req, res) => {
       [teacherId, class_level, stream, subject]
     );
 
+    await logAuditEvent({
+      userId: Number(req.admin?.id) || 1,
+      userRole: "admin",
+      action: "ASSIGN_SUBJECT",
+      entityType: "subject",
+      entityId: Number(result.insertId),
+      description: `${subject} assigned to ${class_level} ${stream} (teacher #${teacherId})`,
+      ipAddress: extractClientIp(req),
+    });
+
     res.status(201).json({
       id: result.insertId,
       teacherId,
@@ -991,6 +1018,16 @@ app.post("/api/teacher/marks", authTeacher, async (req, res) => {
     }
 
     const assignmentSubject = (assignmentRow.subject || "").trim();
+    const [[existingMarksMeta]] = await pool.query(
+      `SELECT COUNT(*) AS count
+       FROM marks
+       WHERE assignment_id = ?
+         AND teacher_id = ?
+         AND year = ?
+         AND term = ?`,
+      [assignmentId, teacherId, year, term]
+    );
+    const hasExistingMarks = Number(existingMarksMeta?.count || 0) > 0;
 
     // 2) Collect unique studentIds from payload (upserts + clears)
     const studentIds = Array.from(
@@ -1169,6 +1206,19 @@ app.post("/api/teacher/marks", authTeacher, async (req, res) => {
     conn.release();
     conn = null;
 
+    const marksAction =
+      hasExistingMarks || clearMarks.length > 0 ? "UPDATE_MARKS" : "SUBMIT_MARKS";
+    const marksVerb = marksAction === "UPDATE_MARKS" ? "Updated" : "Submitted";
+    await logAuditEvent({
+      userId: teacherId,
+      userRole: "teacher",
+      action: marksAction,
+      entityType: "marks",
+      entityId: assignmentId,
+      description: `${marksVerb} ${assignmentSubject} marks for ${assignmentRow.class_level} ${assignmentRow.stream} (${term} ${year})`,
+      ipAddress: extractClientIp(req),
+    });
+
     res.json({ message: "Marks saved successfully" });
   } catch (err) {
     if (conn) {
@@ -1325,6 +1375,16 @@ app.post("/api/teachers/marks", authTeacher, async (req, res) => {
       return res.status(404).json({ message: "Assignment not found or not assigned to this teacher" });
     }
     const assignmentSubject = (assignmentRow.subject || "").trim();
+    const [[existingMarksMeta]] = await pool.query(
+      `SELECT COUNT(*) AS count
+       FROM marks
+       WHERE assignment_id = ?
+         AND teacher_id = ?
+         AND year = ?
+         AND term = ?`,
+      [assignmentId, teacherId, year, term]
+    );
+    const hasExistingMarks = Number(existingMarksMeta?.count || 0) > 0;
 
     // build unique student id list (upserts + clears)
     const studentIds = Array.from(
@@ -1495,6 +1555,19 @@ app.post("/api/teachers/marks", authTeacher, async (req, res) => {
     conn.release();
     conn = null;
 
+    const marksAction =
+      hasExistingMarks || clearMarks.length > 0 ? "UPDATE_MARKS" : "SUBMIT_MARKS";
+    const marksVerb = marksAction === "UPDATE_MARKS" ? "Updated" : "Submitted";
+    await logAuditEvent({
+      userId: teacherId,
+      userRole: "teacher",
+      action: marksAction,
+      entityType: "marks",
+      entityId: assignmentId,
+      description: `${marksVerb} ${assignmentSubject} marks for ${assignmentRow.class_level} ${assignmentRow.stream} (${term} ${year})`,
+      ipAddress: extractClientIp(req),
+    });
+
     res.json({ message: "Marks saved successfully" });
   } catch (err) {
     if (conn) {
@@ -1517,6 +1590,14 @@ app.delete("/api/admin/marks-set", authAdmin, async (req, res) => {
       });
     }
 
+    const [[assignmentRow]] = await pool.query(
+      `SELECT class_level, stream, subject
+       FROM teacher_assignments
+       WHERE id = ?
+       LIMIT 1`,
+      [assignmentId]
+    );
+
     const [result] = await pool.query(
       `DELETE FROM marks
        WHERE assignment_id = ?
@@ -1525,6 +1606,17 @@ app.delete("/api/admin/marks-set", authAdmin, async (req, res) => {
          AND aoi_label = ?`,
       [assignmentId, term, year, aoi]
     );
+
+    await logAuditEvent({
+      userId: Number(req.admin?.id) || 1,
+      userRole: "admin",
+      action: "UNLOCK_MARKS",
+      entityType: "marks",
+      entityId: Number(assignmentId),
+      description:
+        `Unlocked ${aoi} for ${assignmentRow?.subject || "subject"} (${assignmentRow?.class_level || "?"} ${assignmentRow?.stream || "?"}) ${term} ${year}; rows affected: ${result.affectedRows}`,
+      ipAddress: extractClientIp(req),
+    });
 
     res.json({
       message: "Mark set deleted successfully",

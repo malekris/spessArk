@@ -6,6 +6,7 @@ import dotenv from "dotenv";
 import { sendWelcomeEmail, sendTeacherResetCodeEmail } from "../utils/email.js";
 import { pool } from "../server.js";
 import authTeacher from "../middleware/authTeacher.js";
+import { extractClientIp, logAuditEvent } from "../utils/auditLogger.js";
 
 dotenv.config();
 const router = express.Router();
@@ -139,6 +140,16 @@ router.post("/login", async (req, res) => {
       process.env.JWT_SECRET || "dev_secret",
       { expiresIn: "7d" }
     );
+
+    await logAuditEvent({
+      userId: teacher.id,
+      userRole: "teacher",
+      action: "LOGIN",
+      entityType: "login",
+      entityId: teacher.id,
+      description: "Teacher login successful",
+      ipAddress: extractClientIp(req),
+    });
 
     res.json({
       token,
@@ -506,7 +517,7 @@ router.post("/alevel-marks", authTeacher, async (req, res) => {
 
     // 1. Resolve subject from assignment
     const [[ts]] = await pool.query(
-      `SELECT subject_id FROM alevel_teacher_subjects WHERE id = ?`,
+      `SELECT subject_id, stream FROM alevel_teacher_subjects WHERE id = ?`,
       [assignmentId]
     );
 
@@ -519,6 +530,18 @@ router.post("/alevel-marks", authTeacher, async (req, res) => {
     if (!ts || !exam || !term) {
       return res.status(400).json({ message: "Invalid assignment, exam or term" });
     }
+
+    const [[existingMarksMeta]] = await pool.query(
+      `
+      SELECT COUNT(*) AS count
+      FROM alevel_marks
+      WHERE subject_id = ?
+        AND teacher_id = ?
+        AND term = ?
+      `,
+      [ts.subject_id, teacherId, term]
+    );
+    const hasExistingMarks = Number(existingMarksMeta?.count || 0) > 0;
 
     // 3. Save marks scoped by subject + exam + teacher + term
 for (const m of marks) {
@@ -547,6 +570,18 @@ for (const m of marks) {
     m.score === "Missed" ? null : m.score
   ]);
 }
+
+    const action = hasExistingMarks ? "UPDATE_MARKS" : "SUBMIT_MARKS";
+    const verb = action === "UPDATE_MARKS" ? "Updated" : "Submitted";
+    await logAuditEvent({
+      userId: teacherId,
+      userRole: "teacher",
+      action,
+      entityType: "marks",
+      entityId: Number(assignmentId),
+      description: `${verb} A-Level marks for stream ${ts.stream || "Unknown"} (${term})`,
+      ipAddress: extractClientIp(req),
+    });
 
 
     res.json({ message: "A-Level marks saved successfully" });

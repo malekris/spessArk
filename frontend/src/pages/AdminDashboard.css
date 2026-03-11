@@ -136,6 +136,16 @@
   z-index: 10;
 }
 
+.admin-card-archived {
+  border-color: rgba(148, 163, 184, 0.45);
+  background: linear-gradient(180deg, rgba(30, 41, 59, 0.88), rgba(15, 23, 42, 0.85));
+}
+
+.admin-card-archived:hover {
+  transform: none;
+  box-shadow: 0 18px 40px rgba(2, 6, 23, 0.8);
+}
+
 /* colorful glows per card using nth-child for easy styling without markup changes */
 .admin-grid > .admin-card:nth-child(1) .card-icon { background: linear-gradient(135deg,#7c3aed,#06b6d4); box-shadow: 0 8px 24px rgba(124,58,237,0.18); }
 .admin-grid > .admin-card:nth-child(2) .card-icon { background: linear-gradient(135deg,#ef4444,#f97316); box-shadow: 0 8px 24px rgba(249,115,22,0.18); }
@@ -184,6 +194,19 @@
   margin: 0.35rem 0 0;
   font-size: 0.86rem;
   color: #9ca3af;
+}
+
+.card-status-tag {
+  display: inline-block;
+  margin-top: 0.55rem;
+  padding: 0.2rem 0.52rem;
+  border-radius: 999px;
+  border: 1px solid rgba(251, 191, 36, 0.45);
+  background: rgba(245, 158, 11, 0.12);
+  color: #fbbf24;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 /* footer actions */

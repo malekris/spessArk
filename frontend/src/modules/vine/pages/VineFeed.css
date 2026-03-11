@@ -316,6 +316,12 @@
   display: none;
 }
 
+.status-media-picker.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: grayscale(0.25);
+}
+
 .status-media-preview-wrap {
   width: 100%;
   display: flex;
@@ -1757,6 +1763,12 @@
   font-size: 0.78rem;
   font-weight: 700;
   color: #64748b;
+}
+
+.media-icon-picker.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: grayscale(0.25);
 }
 
 .composer-poll-builder {

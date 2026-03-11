@@ -1093,7 +1093,7 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
           className="action-btn"
           onClick={() => {
             navigator.clipboard.writeText(
-              `${window.location.origin}/posts/${post.id}`
+              `${API}/api/vine/share/${post.id}`
             );
             alert("Copied! 🌱");
           }}

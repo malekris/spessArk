@@ -5457,6 +5457,111 @@ router.get("/news/health", authenticate, async (req, res) => {
     res.status(500).json({ message: "Failed to load news health" });
   }
 });
+
+router.get("/share/:id", async (req, res) => {
+  try {
+    const postId = Number(req.params.id);
+    if (!postId) return res.status(400).send("Invalid post");
+
+    const [[post]] = await db.query(
+      `
+      SELECT
+        p.id,
+        p.content,
+        p.image_url,
+        p.link_preview,
+        p.created_at,
+        u.username,
+        u.display_name,
+        u.avatar_url
+      FROM vine_posts p
+      JOIN vine_users u ON u.id = p.user_id
+      WHERE p.id = ?
+      LIMIT 1
+      `,
+      [postId]
+    );
+    if (!post) return res.status(404).send("Post not found");
+
+    const frontendBase =
+      String(process.env.VINE_PUBLIC_BASE_URL || "").trim() ||
+      `${req.protocol}://${req.get("host")}`.replace(/\/+$/, "");
+    const appTarget = `${frontendBase}/vine/feed?post=${postId}`;
+    const shareUrl = `${req.protocol}://${req.get("host")}/api/vine/share/${postId}`;
+
+    const rawText = String(post.content || "")
+      .replace(/^\s*\[\[feeling:[^\]]+\]\]\s*/i, "")
+      .replace(/^\s*\[\[postbg:[^\]]+\]\]\s*/i, "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    let previewImage = "";
+    try {
+      const arr = JSON.parse(post.image_url || "[]");
+      if (Array.isArray(arr)) {
+        previewImage =
+          arr.find((u) => typeof u === "string" && !/\.pdf(\?|$)/i.test(u)) || "";
+      }
+    } catch {
+      previewImage = "";
+    }
+    if (!previewImage && post.link_preview) {
+      try {
+        const link = typeof post.link_preview === "string"
+          ? JSON.parse(post.link_preview)
+          : post.link_preview;
+        previewImage = String(link?.image || "").trim();
+      } catch {
+        previewImage = "";
+      }
+    }
+    if (!previewImage && post.avatar_url) {
+      previewImage = String(post.avatar_url || "").trim();
+      if (previewImage && !/^https?:\/\//i.test(previewImage)) {
+        previewImage = `${frontendBase}${previewImage.startsWith("/") ? "" : "/"}${previewImage}`;
+      }
+    }
+
+    const title = `${post.display_name || post.username} on Vine`;
+    const description = (rawText || "View this Vine post").slice(0, 280);
+    const esc = (v) =>
+      String(v || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.send(`<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${esc(title)}</title>
+  <meta name="description" content="${esc(description)}" />
+  <meta property="og:type" content="article" />
+  <meta property="og:site_name" content="Vine" />
+  <meta property="og:title" content="${esc(title)}" />
+  <meta property="og:description" content="${esc(description)}" />
+  <meta property="og:url" content="${esc(shareUrl)}" />
+  ${previewImage ? `<meta property="og:image" content="${esc(previewImage)}" />` : ""}
+  <meta name="twitter:card" content="${previewImage ? "summary_large_image" : "summary"}" />
+  <meta name="twitter:title" content="${esc(title)}" />
+  <meta name="twitter:description" content="${esc(description)}" />
+  ${previewImage ? `<meta name="twitter:image" content="${esc(previewImage)}" />` : ""}
+  <meta http-equiv="refresh" content="0;url=${esc(appTarget)}" />
+  <link rel="canonical" href="${esc(appTarget)}" />
+</head>
+<body>
+  <script>window.location.replace(${JSON.stringify(appTarget)});</script>
+  <p>Redirecting to Vine post...</p>
+</body>
+</html>`);
+  } catch (err) {
+    console.error("Share preview error:", err);
+    res.status(500).send("Failed to load share preview");
+  }
+});
   // Create new post(with image to TL)
   router.post(
     "/posts",

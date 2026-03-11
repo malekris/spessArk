@@ -37,6 +37,8 @@ const POST_BG_COLORS = [
   "#0f172a",
 ];
 const STYLED_TEXT_WORD_LIMIT = 22;
+const FEED_MEDIA_UPLOADS_FROZEN = true;
+const STATUS_MEDIA_UPLOADS_FROZEN = true;
 const STATUS_REACTIONS = [
   { key: "like", emoji: "👍" },
   { key: "love", emoji: "❤️" },
@@ -559,12 +561,16 @@ export default function VineFeed() {
 
   const submitStatus = async () => {
     const text = statusText.trim();
-    if (!text && !statusMediaFile) return;
+    if (!text) return;
+    if (STATUS_MEDIA_UPLOADS_FROZEN && statusMediaFile) {
+      alert("Status media uploads are temporarily disabled.");
+      return;
+    }
     try {
       const body = new FormData();
       if (text) body.append("text", text);
       body.append("bg_color", statusBgColor);
-      if (statusMediaFile) body.append("media", statusMediaFile);
+      if (!STATUS_MEDIA_UPLOADS_FROZEN && statusMediaFile) body.append("media", statusMediaFile);
       const res = await fetch(`${API}/api/vine/statuses`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
@@ -863,6 +869,10 @@ export default function VineFeed() {
 
   // ── Post Creation ───────────────────────────────
   const submitPost = async () => {
+    if (FEED_MEDIA_UPLOADS_FROZEN && images.length > 0) {
+      alert("Photo/video uploads are temporarily disabled on feed.");
+      return;
+    }
     if (!content.trim() && images.length === 0 && !feeling && !composeGifUrl) return;
     if (composeGifUrl && images.length > 0) {
       alert("You can post either a GIF or photos/videos, not both.");
@@ -1301,15 +1311,30 @@ export default function VineFeed() {
                 Poll
               </button>
 
-              <label className="image-picker media-icon-picker" title="Add photo or video">
+              <label
+                className={`image-picker media-icon-picker ${FEED_MEDIA_UPLOADS_FROZEN ? "disabled" : ""}`}
+                title={
+                  FEED_MEDIA_UPLOADS_FROZEN
+                    ? "Photo/video uploads are temporarily disabled"
+                    : "Add photo or video"
+                }
+                onClick={(e) => {
+                  if (FEED_MEDIA_UPLOADS_FROZEN) {
+                    e.preventDefault();
+                    alert("Photo/video uploads are temporarily disabled on feed.");
+                  }
+                }}
+              >
                 <span className="media-icon" aria-hidden="true">📷</span>
                 <span className="media-icon" aria-hidden="true">🎥</span>
                 <input
                   type="file"
                   accept="image/*,video/*,.heic,.heif"
                   multiple
+                  disabled={FEED_MEDIA_UPLOADS_FROZEN}
                   hidden
                   onChange={async (e) => {
+                    if (FEED_MEDIA_UPLOADS_FROZEN) return;
                     if (composeGifUrl) {
                       alert("Remove GIF first. GIF and photos/videos cannot be posted together.");
                       e.target.value = "";
@@ -1642,12 +1667,21 @@ export default function VineFeed() {
               placeholder="Share a quick text status..."
               onChange={(e) => setStatusText(e.target.value)}
             />
-            <label className="status-media-picker">
+            <label
+              className={`status-media-picker ${STATUS_MEDIA_UPLOADS_FROZEN ? "disabled" : ""}`}
+              onClick={(e) => {
+                if (!STATUS_MEDIA_UPLOADS_FROZEN) return;
+                e.preventDefault();
+                alert("Status media uploads are temporarily disabled.");
+              }}
+            >
               Add photo/video
               <input
                 type="file"
                 accept="image/*,video/*,.heic,.heif"
+                disabled={STATUS_MEDIA_UPLOADS_FROZEN}
                 onChange={async (e) => {
+                  if (STATUS_MEDIA_UPLOADS_FROZEN) return;
                   const file = e.target.files?.[0];
                   if (!file) return;
                   const isHeic =

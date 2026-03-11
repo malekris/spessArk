@@ -42,9 +42,11 @@ router.get("/admin/assignments", async (req, res) => {
     const [rows] = await db.query(`
       SELECT 
         ats.id,
+        ats.teacher_id,
         ats.stream,
         s.name AS subject,
-        t.name AS teacher_name
+        t.name AS teacher_name,
+        t.email AS teacher_email
       FROM alevel_teacher_subjects ats
       JOIN alevel_subjects s ON s.id = ats.subject_id
       JOIN teachers t ON t.id = ats.teacher_id
@@ -112,6 +114,34 @@ router.get("/teachers/alevel-assignments", authTeacher, async (req, res) => {
     res.json(rows || []);
   } catch (err) {
     console.error("alevel assignments error:", err);
+    res.status(500).json({ message: "Failed to fetch alevel assignments" });
+  }
+});
+
+/* GET A-Level assignments by logged-in teacher email (id-drift safe) */
+router.get("/teachers/alevel-assignments-by-email", authTeacher, async (req, res) => {
+  try {
+    const teacherEmail = String(req.teacher?.email || "").trim();
+    if (!teacherEmail) return res.json([]);
+
+    const [rows] = await db.query(
+      `
+      SELECT
+        ats.id,
+        ats.stream,
+        s.name AS subject
+      FROM alevel_teacher_subjects ats
+      JOIN alevel_subjects s ON s.id = ats.subject_id
+      JOIN teachers t ON t.id = ats.teacher_id
+      WHERE LOWER(t.email) = LOWER(?)
+      ORDER BY ats.id DESC
+      `,
+      [teacherEmail]
+    );
+
+    res.json(rows || []);
+  } catch (err) {
+    console.error("alevel assignments by email error:", err);
     res.status(500).json({ message: "Failed to fetch alevel assignments" });
   }
 });

@@ -1,13 +1,14 @@
 // src/pages/EndOfTermReports.jsx
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import generateReportCardPDF from "../components/reportCardPdf";
 
   const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 
-  function EndOfTermReports() {
+  function EndOfTermReports({ mode = "term" }) {
+  const isEndOfYearMode = mode === "year";
   const currentYear = new Date().getFullYear();
   const [year, setYear] = useState(String(currentYear));  
-  const [term, setTerm] = useState("1");
+  const [term, setTerm] = useState(isEndOfYearMode ? "3" : "1");
   const [classLevel, setClassLevel] = useState("S3");
   const [stream, setStream] = useState("North");
   const [studentId, setStudentId] = useState("");
@@ -15,6 +16,13 @@ import generateReportCardPDF from "../components/reportCardPdf";
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [data, setData] = useState([]);
+  const termOptions = useMemo(
+    () => (isEndOfYearMode ? [{ value: "3", label: "Term 3" }] : [
+      { value: "1", label: "Term 1" },
+      { value: "2", label: "Term 2" },
+    ]),
+    [isEndOfYearMode]
+  );
 
   /* ======================
      FETCH REPORT DATA
@@ -38,8 +46,12 @@ import generateReportCardPDF from "../components/reportCardPdf";
         params.append("student_id", studentId);
       }
   
+      const reportEndpoint = isEndOfYearMode
+        ? "/api/admin/reports/year"
+        : "/api/admin/reports/term";
+
       const res = await fetch(
-        `${API_BASE}/api/admin/reports/term?${params.toString()}`,
+        `${API_BASE}${reportEndpoint}?${params.toString()}`,
         {
           headers: {
             "x-admin-key": localStorage.getItem("adminKey") || "",
@@ -83,12 +95,13 @@ import generateReportCardPDF from "../components/reportCardPdf";
       term,
       class_level: classLevel,
       stream,
+      reportType: isEndOfYearMode ? "year" : "term",
     });
   };
 
   return (
     <div className="admin-section">
-      <h2>📘 End of Term Reports</h2>
+      <h2>{isEndOfYearMode ? "📕 End of Year Reports" : "📘 End of Term Reports"}</h2>
 
       {/* FILTERS */}
       <div className="filter-grid">
@@ -99,8 +112,9 @@ import generateReportCardPDF from "../components/reportCardPdf";
         </select>
 
         <select value={term} onChange={(e) => setTerm(e.target.value)}>
-          <option value="1">Term 1</option>
-          <option value="2">Term 2</option>
+          {termOptions.map((t) => (
+            <option key={t.value} value={t.value}>{t.label}</option>
+          ))}
         </select>
 
         <select value={classLevel} onChange={(e) => setClassLevel(e.target.value)}>

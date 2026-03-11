@@ -344,7 +344,18 @@ router.get("/assignments", authTeacher, async (req, res) => {
 // =======================
 router.get("/alevel-assignments", authTeacher, async (req, res) => {
   try {
-    const teacherId = req.teacher.id;
+    const teacherId = Number(req.teacher.id);
+    const teacherEmail = String(req.teacher.email || "").trim();
+
+    // Resolve canonical teacher id by email to survive id drift across environments.
+    let canonicalTeacherId = teacherId;
+    if (teacherEmail) {
+      const [[teacherRow]] = await pool.query(
+        `SELECT id FROM teachers WHERE email = ? LIMIT 1`,
+        [teacherEmail]
+      );
+      if (teacherRow?.id) canonicalTeacherId = Number(teacherRow.id);
+    }
 
     const [rows] = await pool.query(
       `
@@ -357,14 +368,56 @@ router.get("/alevel-assignments", authTeacher, async (req, res) => {
       LEFT JOIN alevel_subjects s 
         ON s.id = ats.subject_id
       WHERE ats.teacher_id = ?
+         OR ats.teacher_id = ?
       ORDER BY ats.stream, s.name
       `,
-      [teacherId]
+      [teacherId, canonicalTeacherId]
     );
 
     return res.json(rows || []);
   } catch (err) {
     console.error("❌ A-Level teacher assignments error:", err);
+    return res.status(500).json({
+      message: "Failed to load A-Level assignments",
+    });
+  }
+});
+
+// Alias for mixed frontend deployments that request the nested path.
+router.get("/teachers/alevel-assignments", authTeacher, async (req, res) => {
+  try {
+    const teacherId = Number(req.teacher.id);
+    const teacherEmail = String(req.teacher.email || "").trim();
+
+    let canonicalTeacherId = teacherId;
+    if (teacherEmail) {
+      const [[teacherRow]] = await pool.query(
+        `SELECT id FROM teachers WHERE email = ? LIMIT 1`,
+        [teacherEmail]
+      );
+      if (teacherRow?.id) canonicalTeacherId = Number(teacherRow.id);
+    }
+
+    const [rows] = await pool.query(
+      `
+      SELECT
+        ats.id,
+        ats.stream,
+        s.name AS subject,
+        NULL AS class_level
+      FROM alevel_teacher_subjects ats
+      LEFT JOIN alevel_subjects s
+        ON s.id = ats.subject_id
+      WHERE ats.teacher_id = ?
+         OR ats.teacher_id = ?
+      ORDER BY ats.stream, s.name
+      `,
+      [teacherId, canonicalTeacherId]
+    );
+
+    return res.json(rows || []);
+  } catch (err) {
+    console.error("❌ A-Level teacher assignments alias error:", err);
     return res.status(500).json({
       message: "Failed to load A-Level assignments",
     });

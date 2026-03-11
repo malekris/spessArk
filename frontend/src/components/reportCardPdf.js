@@ -175,6 +175,12 @@ const abbreviateName = (name = "") => {
   return `${firstInitial}. ${lastName}`;
 };
 
+const formatReportSubject = (subject = "") => {
+  return String(subject).trim() === "Christian Religious Education"
+    ? "CRE"
+    : String(subject || "");
+};
+
 const originalWarn = console.warn;
 console.warn = (...args) => {
   if (
@@ -196,7 +202,9 @@ export default async function generateReportCardPDF(data, meta) {
     return;
   }
 
-  const doc = new jsPDF("l", "mm", "a4");
+  const isEndOfYear = meta?.reportType === "year";
+  // Unified portrait layout for both term and end-of-year reports.
+  const doc = new jsPDF("p", "mm", "a4");
   // ===== PAGE METRICS =====
 const PAGE_WIDTH = doc.internal.pageSize.getWidth();
 const PAGE_HEIGHT = doc.internal.pageSize.getHeight();
@@ -207,7 +215,9 @@ const pageWidth = PAGE_WIDTH;
 // ===== COLUMN LAYOUT =====
 const LEFT_COL_X = 15;
 const RIGHT_COL_X = pageWidth / 2 + 5;
-const COLUMN_WIDTH = pageWidth / 2 - 25;
+// Use a single-column flow for all report types (layout-only change).
+const SINGLE_COLUMN_MODE = true;
+const COLUMN_WIDTH = SINGLE_COLUMN_MODE ? pageWidth - 30 : pageWidth / 2 - 25;
 
 // ✅ ADD THIS
 const SAFE_TABLE_WIDTH = COLUMN_WIDTH;
@@ -216,10 +226,21 @@ const SAFE_TABLE_WIDTH = COLUMN_WIDTH;
 const RHYTHM = 6;
 const CONTENT_START_Y = 64; // 🔒 single source of truth
 
-const getColumnX = () =>
-  currentColumn === "left" ? LEFT_COL_X : RIGHT_COL_X;
+const getColumnX = () => {
+  if (SINGLE_COLUMN_MODE) return LEFT_COL_X;
+  return currentColumn === "left" ? LEFT_COL_X : RIGHT_COL_X;
+};
 
 const ensureSpace = (requiredHeight) => {
+  if (SINGLE_COLUMN_MODE) {
+    if (currentY + requiredHeight > PAGE_HEIGHT - 25) {
+      doc.addPage();
+      currentColumn = "left";
+      currentY = CONTENT_START_Y + RHYTHM * 2;
+    }
+    return;
+  }
+
   if (currentY + requiredHeight > PAGE_HEIGHT - 25) {
     if (currentColumn === "left") {
       currentColumn = "right";
@@ -308,12 +329,15 @@ doc.setLineWidth(0.6);
 doc.line(15, 40, pageWidth - 15, 40);
 
 // Report title (ONLY ONCE)
+const reportTitle = isEndOfYear
+  ? `END OF YEAR REPORT CARD — ${meta.year}`
+  : `END OF TERM REPORT — TERM ${meta.term} ${meta.year}`;
 doc.setFont("helvetica", "bold");
 doc.setFontSize(12);
 doc.text(
-  `END OF TERM REPORT — TERM ${meta.term} ${meta.year}`,
+  reportTitle,
   pageWidth / 2,
-  48,
+  47,
   { align: "center" }
 );
 
@@ -324,7 +348,7 @@ doc.text(
    STUDENT INFO (FIXED LAYOUT)
 =========================== */
 
-const infoStartY = 52; // ⬅ pushed down to avoid collision
+const infoStartY = 56; // add breathing room below report title
 const infoLeftX = 15;
 const infoRightX = pageWidth / 2 + 10;
 
@@ -352,16 +376,66 @@ doc.text(student.info.stream || "—", infoRightX + 30, infoStartY + 6);
 /* ===========================
    SUBJECT TABLE DATA (REQUIRED)
 =========================== */
-const tableData = student.subjects.map((s) => [
-  s.subject,
-  s.AOI1 ?? "—",
-  s.AOI2 ?? "—",
-  s.AOI3 ?? "—",
-  s.average ?? "MISSED",
-  s.remark,
-  abbreviateName(s.teacher_name),
+const formatCell = (v, digits = 2) =>
+  v === null || v === undefined || v === "" || Number.isNaN(Number(v))
+    ? ""
+    : Number(v).toFixed(digits);
+const formatAoiCell = (value, status) => {
+  if (String(status || "").toLowerCase() === "missed") return "X";
+  return formatCell(value, 1);
+};
+const displayMissedAsX = (value, fallback = "") => {
+  if (value === null || value === undefined || value === "") return fallback;
+  return String(value).trim().toUpperCase() === "MISSED" ? "X" : value;
+};
 
-]);
+const tableHead = isEndOfYear
+  ? [[
+      "Subject",
+      "A1",
+      "A2",
+      "A3",
+      "AVG",
+      "20%",
+      "80%",
+      "100%",
+      "GRD",
+      "Remark",
+      "Teacher",
+    ]]
+  : [[
+      "Subject",
+      "A1",
+      "A2",
+      "A3",
+      "AV",
+      "Remark",
+      "Teacher",
+    ]];
+
+const tableData = isEndOfYear
+  ? student.subjects.map((s) => [
+      formatReportSubject(s.subject),
+      formatAoiCell(s.AOI1, s.AOI1_status),
+      formatAoiCell(s.AOI2, s.AOI2_status),
+      formatAoiCell(s.AOI3, s.AOI3_status),
+      formatCell(s.average, 2),
+      formatCell(s.percent20, 2),
+      formatCell(s.percent80, 2),
+      formatCell(s.percent100, 2),
+      s.grade || "",
+      s.remark || "",
+      abbreviateName(s.teacher_name),
+    ])
+  : student.subjects.map((s) => [
+      formatReportSubject(s.subject),
+      s.AOI1 ?? "X",
+      s.AOI2 ?? "X",
+      s.AOI3 ?? "X",
+      s.average ?? "X",
+      displayMissedAsX(s.remark, "X"),
+      abbreviateName(s.teacher_name),
+    ]);
 
 // 🔒 FORCE LEFT COLUMN FOR SUBJECTS
 currentColumn = "left";
@@ -376,15 +450,7 @@ autoTable(doc, {
 
   tableWidth: COLUMN_WIDTH,
 
-  head: [[
-    "Subject",
-    "A1",
-    "A2",
-    "A3",
-    "AV",
-    "Remark",
-    "Teacher",
-  ]],
+  head: tableHead,
 
   body: tableData,
 
@@ -404,44 +470,51 @@ autoTable(doc, {
     fontSize: 9,
     cellPadding: 2,
   },
-  columnStyles: { 
-    // Subject
-    0: {
-      cellWidth: COLUMN_WIDTH * 0.18,
-    },
-  
-    // AOI columns
-    1: { cellWidth: COLUMN_WIDTH * 0.08, halign: "center" },
-    2: { cellWidth: COLUMN_WIDTH * 0.08, halign: "center" },
-    3: { cellWidth: COLUMN_WIDTH * 0.08, halign: "center" },
-  
-    // Average
-    4: {
-      cellWidth: COLUMN_WIDTH * 0.08,
-      halign: "center",
-    },
-  
-      // 🔥 REMARK — NEVER BREAK WORDS
-5: {
-  cellWidth: COLUMN_WIDTH * 0.24,   // ⬅️ slightly wider (this is key)
-  overflow: "visible",              // ⬅️ NOT linebreak, NOT ellipsize
-  wordBreak: "keep-all",             // ⬅️ DO NOT split words
-  whiteSpace: "nowrap",              // ⬅️ FORCE single line
-  halign: "center",
-  cellPadding: { left: 2, right: 2, top: 2, bottom: 2 },
-},
-
-  
-    // 🔥 TEACHER — TAKE SPACE AWAY
-    // 🔥 TEACHER — SLIM BUT SAFE
-6: {
-  cellWidth: COLUMN_WIDTH * 0.18,   // ⬅️ slightly smaller
-  overflow: "ellipsize",
-  wordBreak: "keep-all",
-  cellPadding: { left: 2, right: 2, top: 2, bottom: 2 },
-},
-
-  },
+  columnStyles: isEndOfYear
+    ? {
+        0: { cellWidth: COLUMN_WIDTH * 0.17 },
+        1: { cellWidth: COLUMN_WIDTH * 0.07, halign: "center" },
+        2: { cellWidth: COLUMN_WIDTH * 0.07, halign: "center" },
+        3: { cellWidth: COLUMN_WIDTH * 0.07, halign: "center" },
+        4: { cellWidth: COLUMN_WIDTH * 0.08, halign: "center" },
+        5: { cellWidth: COLUMN_WIDTH * 0.08, halign: "center" },
+        6: { cellWidth: COLUMN_WIDTH * 0.08, halign: "center" },
+        7: { cellWidth: COLUMN_WIDTH * 0.09, halign: "center" },
+        8: { cellWidth: COLUMN_WIDTH * 0.07, halign: "center" },
+        9: {
+          cellWidth: COLUMN_WIDTH * 0.14,
+          overflow: "linebreak",
+          halign: "left",
+          cellPadding: { left: 2, right: 2, top: 2, bottom: 2 },
+        },
+        10: {
+          cellWidth: COLUMN_WIDTH * 0.13,
+          overflow: "ellipsize",
+          halign: "center",
+          cellPadding: { left: 2, right: 2, top: 2, bottom: 2 },
+        },
+      }
+    : {
+        0: { cellWidth: COLUMN_WIDTH * 0.18 },
+        1: { cellWidth: COLUMN_WIDTH * 0.08, halign: "center" },
+        2: { cellWidth: COLUMN_WIDTH * 0.08, halign: "center" },
+        3: { cellWidth: COLUMN_WIDTH * 0.08, halign: "center" },
+        4: { cellWidth: COLUMN_WIDTH * 0.08, halign: "center" },
+        5: {
+          cellWidth: COLUMN_WIDTH * 0.24,
+          overflow: "visible",
+          wordBreak: "keep-all",
+          whiteSpace: "nowrap",
+          halign: "left",
+          cellPadding: { left: 2, right: 2, top: 2, bottom: 2 },
+        },
+        6: {
+          cellWidth: COLUMN_WIDTH * 0.18,
+          overflow: "ellipsize",
+          wordBreak: "keep-all",
+          cellPadding: { left: 2, right: 2, top: 2, bottom: 2 },
+        },
+      },
   
   theme: "grid",
   
@@ -450,9 +523,15 @@ autoTable(doc, {
 
 // remember where it ended (for safety)
 const subjectsTableEndY = doc.lastAutoTable.finalY;
-// 🔁 FORCE SWITCH TO RIGHT COLUMN
-currentColumn = "right";
-currentY = CONTENT_START_Y;
+// For end-of-year portrait, keep summary/scale/comments below the marks table.
+if (SINGLE_COLUMN_MODE) {
+  currentColumn = "left";
+  currentY = subjectsTableEndY + RHYTHM;
+} else {
+  // 🔁 FORCE SWITCH TO RIGHT COLUMN
+  currentColumn = "right";
+  currentY = CONTENT_START_Y;
+}
 
 
 // ✅ ALWAYS define afterTableY immediately after subject table
@@ -462,10 +541,10 @@ const afterTableY = doc.lastAutoTable.finalY + RHYTHM;
        OVERALL AVERAGE
     ============================ */
     const validAverages = student.subjects
-      .map((s) => s.average)
-      .filter((a) => a !== null);
+      .map((s) => (isEndOfYear ? s.percent100 : s.average))
+      .filter((a) => a !== null && a !== undefined && a !== "");
 
-    let overallAverage = "MISSED";
+    let overallAverage = "X";
     if (validAverages.length > 0) {
       overallAverage = (
         validAverages.reduce((a, b) => a + b, 0) / validAverages.length
@@ -474,9 +553,14 @@ const afterTableY = doc.lastAutoTable.finalY + RHYTHM;
 
     const pickComment = (arr, id) => arr[id % arr.length];
 
-let category = "poor";
-if (overallAverage >= 2.5) category = "excellent";
-else if (overallAverage >= 1.5) category = "average";
+    let category = "poor";
+if (isEndOfYear) {
+  if (Number(overallAverage) >= 80) category = "excellent";
+  else if (Number(overallAverage) >= 60) category = "average";
+} else {
+  if (Number(overallAverage) >= 2.5) category = "excellent";
+  else if (Number(overallAverage) >= 1.5) category = "average";
+}
 
 const headTeacherComment = pickComment(
   COMMENT_BANK[category].head,
@@ -509,90 +593,144 @@ const streamPositionText =
 /* ===========================
    SUMMARY TABLE (ONE ROW)
 =========================== */
-ensureSpace(18);
+if (isEndOfYear) {
+  ensureSpace(14);
+  autoTable(doc, {
+    startY: currentY,
+    margin: { left: getColumnX() },
+    tableWidth: COLUMN_WIDTH,
+    body: [[
+      `Overall Average: ${overallAverage}`,
+      `Class Position: ${classPositionText}`,
+      `Stream Position: ${streamPositionText}`,
+    ]],
+    styles: {
+      font: "helvetica",
+      fontSize: 8.8,
+      fontStyle: "bold",
+      halign: "center",
+      cellPadding: 1.8,
+      lineHeight: 1.0,
+    },
+    columnStyles: {
+      0: { cellWidth: COLUMN_WIDTH / 3 },
+      1: { cellWidth: COLUMN_WIDTH / 3 },
+      2: { cellWidth: COLUMN_WIDTH / 3 },
+    },
+    theme: "grid",
+  });
+  currentY = doc.lastAutoTable.finalY + RHYTHM;
+} else {
+  ensureSpace(18);
 
-autoTable(doc, {
-  startY: currentY,
-  margin: { left: getColumnX() },
-  tableWidth: COLUMN_WIDTH,
+  autoTable(doc, {
+    startY: currentY,
+    margin: { left: getColumnX() },
+    tableWidth: COLUMN_WIDTH,
 
-  head: [[
-    "Overall Average",
-    "Class Position",
-    "Stream Position"
-  ]],
+    head: [[
+      "Overall Average",
+      "Class Position",
+      "Stream Position",
+    ]],
 
-  body: [[
-    `${overallAverage}`,
-    classPositionText,
-    streamPositionText
-  ]],
+    body: [[
+      `${overallAverage}`,
+      classPositionText,
+      streamPositionText,
+    ]],
 
-  styles: {
-    font: "helvetica",
-    fontSize: 9,
-    halign: "center",
-    cellPadding: 2,
-    lineHeight: 1.0,
-  },
+    styles: {
+      font: "helvetica",
+      fontSize: 9,
+      halign: "center",
+      cellPadding: 2,
+      lineHeight: 1.0,
+    },
 
-  headStyles: {
-    fillColor: [227, 235, 243],
-    textColor: [31, 41, 55],
-    fontStyle: "bold",
-  },
+    headStyles: {
+      fillColor: [227, 235, 243],
+      textColor: [31, 41, 55],
+      fontStyle: "bold",
+    },
 
-  columnStyles: {
-    0: { cellWidth: COLUMN_WIDTH / 3 },
-    1: { cellWidth: COLUMN_WIDTH / 3 },
-    2: { cellWidth: COLUMN_WIDTH / 3 },
-  },
+    columnStyles: {
+      0: { cellWidth: COLUMN_WIDTH / 3 },
+      1: { cellWidth: COLUMN_WIDTH / 3 },
+      2: { cellWidth: COLUMN_WIDTH / 3 },
+    },
 
-  theme: "grid",
-});
+    theme: "grid",
+  });
 
-currentY = doc.lastAutoTable.finalY + RHYTHM;
+  currentY = doc.lastAutoTable.finalY + RHYTHM;
+}
 
  /* ===========================
    GRADING SCALE (COMPACT)
 =========================== */
-ensureSpace(16);
-
+ensureSpace(10);
 autoTable(doc, {
   startY: currentY,
   margin: { left: getColumnX() },
   tableWidth: COLUMN_WIDTH,
-
-  head: [["BASIC", "MODERATE", "OUTSTANDING"]],
-  body: [["0.9 – 1.4", "1.5 – 2.4", "2.5 – 3.0"]],
-
+  body: [[
+    "BASIC: 0.9 - 1.4",
+    "MODERATE: 1.5 - 2.4",
+    "OUTSTANDING: 2.5 - 3.0",
+  ]],
   styles: {
     font: "helvetica",
-    fontSize: 9,
+    fontSize: 8.6,
+    fontStyle: "bold",
     halign: "center",
-    cellPadding: 2,
+    cellPadding: 1.8,
     lineHeight: 1.0,
   },
-
-  headStyles: {
-    fillColor: [227, 235, 243],
-    textColor: [31, 41, 55],
-    fontStyle: "bold",
-  },
-
   columnStyles: {
     0: { cellWidth: COLUMN_WIDTH / 3 },
     1: { cellWidth: COLUMN_WIDTH / 3 },
     2: { cellWidth: COLUMN_WIDTH / 3 },
   },
-
   theme: "grid",
 });
+currentY = doc.lastAutoTable.finalY + RHYTHM * 0.75;
 
-currentY = doc.lastAutoTable.finalY + RHYTHM;
-
-/* ✅ DEFINE commentY HERE */
-const commentY = doc.lastAutoTable.finalY + 10;
+/* ===========================
+   END OF YEAR GRADE BANDS
+=========================== */
+if (isEndOfYear) {
+  ensureSpace(8);
+  autoTable(doc, {
+    startY: currentY,
+    margin: { left: getColumnX() },
+    tableWidth: COLUMN_WIDTH,
+    body: [[
+      "A: 80 - 100",
+      "B: 70 - 79",
+      "C: 60 - 69",
+      "D: 50 - 59",
+      "E: 00 - 49",
+    ]],
+    styles: {
+      font: "helvetica",
+      fontSize: 8.6,
+      fontStyle: "bold",
+      halign: "center",
+      cellPadding: 1.8,
+      lineHeight: 1.0,
+    },
+    columnStyles: {
+      0: { cellWidth: COLUMN_WIDTH / 5 },
+      1: { cellWidth: COLUMN_WIDTH / 5 },
+      2: { cellWidth: COLUMN_WIDTH / 5 },
+      3: { cellWidth: COLUMN_WIDTH / 5 },
+      4: { cellWidth: COLUMN_WIDTH / 5 },
+    },
+    theme: "grid",
+  });
+  currentY = doc.lastAutoTable.finalY + RHYTHM * 0.75;
+}
 
 /* ===========================
    COMMENTS TABLE
@@ -645,11 +783,9 @@ doc.text("Requirements for Next Term:", getColumnX(), currentY);
 
 doc.setFont("helvetica", "normal");
 const requirementItems = ["Toilet paper", "Reams of paper", "Brooms"];
-requirementItems.forEach((item, idx) => {
-  doc.text(`• ${item}`, getColumnX() + 2, currentY + RHYTHM * (idx + 1));
-});
+doc.text(`• ${requirementItems.join("  •  ")}`, getColumnX() + 2, currentY + RHYTHM);
 
-currentY += RHYTHM * 4;
+currentY += RHYTHM * 2;
 
 /* ===========================
    TERM DATES (AFTER REQUIREMENTS)
@@ -672,16 +808,6 @@ doc.text("__________", termDatesRightX + 35, datesY);
 
 currentY += RHYTHM * 2;
 
-    /* ===========================
-       FOOTER
-    ============================ */
-    doc.setFontSize(8);
-    doc.text(
-      `Generated from SPESS ARK • ${new Date().toLocaleString()} • Not valid without stamp`,
-      pageWidth / 2,
-      290,
-      { align: "center" }
-    );
     progress.update(index + 1);
     await nextPaint();
   }

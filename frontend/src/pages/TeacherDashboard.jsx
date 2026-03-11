@@ -23,8 +23,20 @@ const formatDateTime = (value) => {
   return d.toLocaleString();
 };
 
-const calculateAverage = (marksObj) => {
-  const values = Object.values(marksObj || {})
+const getMarkColumns = (isAlevel, term) => {
+  if (isAlevel) return ["MID", "EOT"];
+  return term === "Term 3" ? ["AOI1", "AOI2", "AOI3", "EXAM80"] : ["AOI1", "AOI2", "AOI3"];
+};
+
+const getScoreConstraints = (isAlevel, aoi) => {
+  if (isAlevel) return { min: 0, max: 100, step: 1 };
+  if (aoi === "EXAM80") return { min: 0, max: 80, step: 1 };
+  return { min: 0.9, max: 3.0, step: 0.1 };
+};
+
+const calculateAverage = (marksObj, averageColumns) => {
+  const values = (averageColumns || [])
+    .map((c) => marksObj?.[c])
     .map((v) => {
       if (v === null || v === undefined || v === "" || v === "Missed") return null;
       if (typeof v === "number") return Number.isFinite(v) ? v : null;
@@ -57,10 +69,10 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
     }
   }, [onLogout]);
 
-  useIdleLogout(() => {
+  const resetIdleTimer = useIdleLogout(() => {
     localStorage.clear();
     navigate("/", { replace: true });
-  });
+  }, 60 * 60 * 1000);
 
   // ----------------------------
   // Orientation hint (mobile)
@@ -68,10 +80,24 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
   const [isPortrait, setIsPortrait] = useState(
     typeof window !== "undefined" && window.matchMedia("(orientation: portrait)").matches
   );
+  const [isMobileTable, setIsMobileTable] = useState(
+    typeof window !== "undefined" && window.matchMedia("(max-width: 900px)").matches
+  );
 
   useEffect(() => {
     const mq = window.matchMedia("(orientation: portrait)");
     const handler = (e) => setIsPortrait(e.matches);
+    if (mq.addEventListener) mq.addEventListener("change", handler);
+    else if (mq.addListener) mq.addListener(handler);
+    return () => {
+      if (mq.removeEventListener) mq.removeEventListener("change", handler);
+      else if (mq.removeListener) mq.removeListener(handler);
+    };
+  }, []);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 900px)");
+    const handler = (e) => setIsMobileTable(e.matches);
     if (mq.addEventListener) mq.addEventListener("change", handler);
     else if (mq.addListener) mq.addListener(handler);
     return () => {
@@ -145,14 +171,100 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
       .then((d) => setAssignments(Array.isArray(d) ? d : []))
       .catch(() => setAssignments([]));
 
-    // A-Level assignments
-    fetch(`${API_BASE}/api/alevel/teachers/alevel-assignments`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((r) => r.json())
-      .then((d) => setALevelAssignments(Array.isArray(d) ? d : []))
-      .catch(() => setALevelAssignments([]));
-  }, []);
+    // A-Level assignments (robust multi-route fetch for mixed deployments)
+    (async () => {
+      try {
+        const endpoints = [
+          "/api/alevel/teachers/alevel-assignments-by-email",
+          "/api/teachers/alevel-assignments",
+          "/api/teachers/teachers/alevel-assignments",
+          "/api/alevel/teachers/alevel-assignments",
+        ];
+
+        const collected = [];
+        for (const ep of endpoints) {
+          try {
+            const res = await fetch(`${API_BASE}${ep}`, {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            if (!res.ok) continue;
+            const body = await res.json().catch(() => null);
+            const rows = Array.isArray(body)
+              ? body
+              : Array.isArray(body?.assignments)
+              ? body.assignments
+              : Array.isArray(body?.data)
+              ? body.data
+              : [];
+            collected.push(...rows);
+          } catch {
+            // try next endpoint
+          }
+        }
+
+        const deduped = Array.from(
+          new Map(
+            collected
+              .filter((r) => r && r.id != null)
+              .map((r) => [
+                `al-${r.id}`,
+                {
+                  ...r,
+                  subject: r.subject ?? r.subject_name ?? "—",
+                  stream: r.stream ?? "—",
+                },
+              ])
+          ).values()
+        );
+
+        // Merge with admin feed so A-Level rows stay visible even when scoped endpoints drift.
+        const teacherId = Number(teacher?.id || 0);
+        const teacherName = String(teacher?.name || "").trim().toLowerCase();
+        const teacherEmail = String(teacher?.email || "").trim().toLowerCase();
+
+        const adminRes = await fetch(`${API_BASE}/api/alevel/admin/assignments`);
+        const adminRows = adminRes.ok ? await adminRes.json().catch(() => []) : [];
+        const adminList = Array.isArray(adminRows) ? adminRows : [];
+        const mine = adminList
+          .filter((r) => {
+            const rowTeacherId = Number(r?.teacher_id || 0);
+            const rowTeacherName = String(r?.teacher_name || "").trim().toLowerCase();
+            const rowTeacherEmail = String(r?.teacher_email || "").trim().toLowerCase();
+            if (teacherId && rowTeacherId && teacherId === rowTeacherId) return true;
+            if (teacherEmail && rowTeacherEmail && teacherEmail === rowTeacherEmail) return true;
+            if (teacherName && rowTeacherName && teacherName === rowTeacherName) return true;
+            return false;
+          })
+          .map((r) => ({
+            id: r.id,
+            stream: r.stream ?? "—",
+            subject: r.subject ?? "—",
+          }));
+        const merged = [...deduped, ...(mine.length > 0 ? mine : adminList.map((r) => ({
+          id: r.id,
+          stream: r.stream ?? "—",
+          subject: r.subject ?? "—",
+        })))];
+        const finalRows = Array.from(
+          new Map(
+            merged
+              .filter((r) => r && r.id != null)
+              .map((r) => [
+                `al-${r.id}`,
+                {
+                  ...r,
+                  subject: r.subject ?? r.subject_name ?? "—",
+                  stream: r.stream ?? "—",
+                },
+              ])
+          ).values()
+        );
+        setALevelAssignments(finalRows);
+      } catch {
+        setALevelAssignments([]);
+      }
+    })();
+  }, [teacher?.id, teacher?.name, teacher?.email]);
 
   useEffect(() => {
     document.title = "Teacher Dashboard | SPESS ARK";
@@ -299,7 +411,7 @@ useEffect(() => {
       });
 
       // 4) initialize student marks/status using the appropriate columns
-      const columns = isAlevel ? ["MID", "EOT"] : ["AOI1", "AOI2", "AOI3"];
+      const columns = getMarkColumns(isAlevel, marksTerm);
 
       const studentMarksInit = {};
       const studentStatusInit = {};
@@ -402,6 +514,7 @@ useEffect(() => {
   // Helpers for mark UI
   // ----------------------------
   const setAOIStatus = (studentId, aoi, value) => {
+    resetIdleTimer();
     setStudentStatus((p) => {
       const copy = { ...(p || {}) };
       copy[studentId] = { ...(copy[studentId] || {}), [aoi]: value };
@@ -425,6 +538,7 @@ useEffect(() => {
   };
 
   const setAOIScore = (studentId, aoi, raw) => {
+    resetIdleTimer();
     if (raw === "") {
       setStudentMarks((p) => ({ ...(p || {}), [studentId]: { ...(p?.[studentId] || {}), [aoi]: "" } }));
       setMarkErrors((p) => {
@@ -437,17 +551,16 @@ useEffect(() => {
 
     const num = Number(raw);
     const isAlevel = selectedAssignment?.isAlevel === true;
+    const limits = getScoreConstraints(isAlevel, aoi);
 
-    if (isAlevel) {
-      if (Number.isNaN(num) || num < 0 || num > 100) {
-        setMarkErrors((p) => ({ ...(p || {}), [`${studentId}_${aoi}`]: "Score must be between 0 and 100" }));
-        return;
-      }
-    } else {
-      if (Number.isNaN(num) || num < 0.9 || num > 3.0) {
-        setMarkErrors((p) => ({ ...(p || {}), [`${studentId}_${aoi}`]: "Score must be between 0.9 and 3.0" }));
-        return;
-      }
+    if (Number.isNaN(num) || num < limits.min || num > limits.max) {
+      const msg = aoi === "EXAM80"
+        ? "Score must be between 0 and 80"
+        : isAlevel
+        ? "Score must be between 0 and 100"
+        : "Score must be between 0.9 and 3.0";
+      setMarkErrors((p) => ({ ...(p || {}), [`${studentId}_${aoi}`]: msg }));
+      return;
     }
 
     setMarkErrors((p) => {
@@ -463,6 +576,7 @@ useEffect(() => {
   // Save marks (respects AOI columns or A-Level MID/EOT)
   // ----------------------------
   const handleSaveMarks = async () => {
+    resetIdleTimer();
     if (!selectedAssignment) return;
     const token = localStorage.getItem("teacherToken");
     if (!token) return;
@@ -472,7 +586,7 @@ useEffect(() => {
       const clearMarks = [];
       const errors = {};
       const isAlevel = selectedAssignment?.isAlevel === true;
-      const columns = isAlevel ? ["MID", "EOT"] : ["AOI1", "AOI2", "AOI3"];
+      const columns = getMarkColumns(isAlevel, marksTerm);
 
       for (const s of students) {
         const marksByAoi = studentMarks[s.id] || {};
@@ -506,17 +620,16 @@ useEffect(() => {
           }
 
           const num = Number(score);
+          const limits = getScoreConstraints(isAlevel, aoi);
 
-          if (isAlevel) {
-            if (Number.isNaN(num) || num < 0 || num > 100) {
-              errors[`${s.id}_${aoi}`] = "Score must be between 0 and 100";
-              continue;
-            }
-          } else {
-            if (Number.isNaN(num) || num < 0.9 || num > 3.0) {
-              errors[`${s.id}_${aoi}`] = "Score must be between 0.9 and 3.0";
-              continue;
-            }
+          if (Number.isNaN(num) || num < limits.min || num > limits.max) {
+            errors[`${s.id}_${aoi}`] =
+              aoi === "EXAM80"
+                ? "Score must be between 0 and 80"
+                : isAlevel
+                ? "Score must be between 0 and 100"
+                : "Score must be between 0.9 and 3.0";
+            continue;
           }
 
           payload.push({ studentId: s.id, aoi, score: num });
@@ -583,16 +696,21 @@ useEffect(() => {
       doc.text(`${selectedAssignment.subject} | ${selectedAssignment.class_level} ${selectedAssignment.stream}`, 105, 24, { align: "center" });
       doc.text(`${marksYear} • ${marksTerm}`, 105, 29, { align: "center" });
 
-      const columns = selectedAssignment?.isAlevel ? ["MID", "EOT"] : ["AOI1", "AOI2", "AOI3"];
-      const head = ["#", "Learner", "Gender", ...columns, "Avg"];
+      const columns = getMarkColumns(selectedAssignment?.isAlevel === true, marksTerm);
+      const hasExam80 = !selectedAssignment?.isAlevel && marksTerm === "Term 3";
+      const pdfAoiColumns = hasExam80 ? columns.filter((c) => c !== "EXAM80") : columns;
+      const pdfAverageColumns = selectedAssignment?.isAlevel ? ["MID", "EOT"] : ["AOI1", "AOI2", "AOI3"];
+      const head = ["#", "Learner", "Gender", ...pdfAoiColumns.map((c) => (c === "EXAM80" ? "/80" : c)), "Avg", ...(hasExam80 ? ["/80"] : [])];
 
       const tableBody = students.map((s, i) => {
         const m = studentMarks[s.id] || {};
-        const cells = columns.map((c) => {
+        const cells = pdfAoiColumns.map((c) => {
           const v = m[c];
           return v === undefined || v === null || v === "" ? "" : v === "Missed" ? "Missed" : String(v);
         });
-        const numeric = columns
+        const exam80 = hasExam80 ? m.EXAM80 : undefined;
+        const exam80Cell = exam80 === undefined || exam80 === null || exam80 === "" ? "" : exam80 === "Missed" ? "Missed" : String(exam80);
+        const numeric = pdfAverageColumns
           .map((c) => {
             const v = m[c];
             if (v === null || v === undefined || v === "" || v === "Missed") return null;
@@ -602,7 +720,7 @@ useEffect(() => {
           })
           .filter((v) => v !== null);
         const avg = numeric.length ? (numeric.reduce((a, b) => a + b, 0) / numeric.length).toFixed(2) : "";
-        return [i + 1, s.name, s.gender, ...cells, avg];
+        return [i + 1, s.name, s.gender, ...cells, avg, ...(hasExam80 ? [exam80Cell] : [])];
       });
 
       autoTable(doc, {
@@ -629,8 +747,15 @@ useEffect(() => {
   // ----------------------------
   // Compute dynamic columns for render
   // ----------------------------
-  const renderColumns = selectedAssignment?.isAlevel ? ["MID", "EOT"] : ["AOI1", "AOI2", "AOI3"];
-  const learnersTableMinWidth = Math.max(1100, 320 + renderColumns.length * 190);
+  const renderColumns = getMarkColumns(selectedAssignment?.isAlevel === true, marksTerm);
+  const hasExam80Column = !selectedAssignment?.isAlevel && marksTerm === "Term 3";
+  const renderAoiColumns = hasExam80Column ? renderColumns.filter((c) => c !== "EXAM80") : renderColumns;
+  const averageColumns = selectedAssignment?.isAlevel ? ["MID", "EOT"] : ["AOI1", "AOI2", "AOI3"];
+  // Keep O-Level table spacing stable across Term 1/2/3 (including Term 3 /80 mode).
+  const effectiveColumnCount = selectedAssignment?.isAlevel ? 2 : 4;
+  const learnersTableMinWidth = Math.max(1100, 320 + effectiveColumnCount * 190);
+  const learnerColWidth = 170;
+  const genderColWidth = 72;
 
   // ============================
   // RENDER
@@ -753,7 +878,13 @@ useEffect(() => {
           <div className="panel-card">
             <div
               className="teachers-table-wrapper"
-              style={{ maxWidth: "100%", overflowX: "auto", overflowY: "hidden", WebkitOverflowScrolling: "touch" }}
+              style={{
+                maxWidth: "100%",
+                maxHeight: "42vh",
+                overflowX: "auto",
+                overflowY: "auto",
+                WebkitOverflowScrolling: "touch",
+              }}
             >
               <table className="teachers-table" style={{ minWidth: "560px" }}>
                 <thead>
@@ -859,7 +990,7 @@ useEffect(() => {
                         {Array.isArray(analytics.aois) && analytics.aois.length > 0 ? (
                           analytics.aois.map((aoi) => (
                             <tr key={aoi.aoi_label}>
-                              <td>{aoi.aoi_label}</td>
+                              <td>{aoi.aoi_label === "EXAM80" ? "/80" : aoi.aoi_label}</td>
                               <td>{aoi.attempts}</td>
                               <td>{aoi.average_score ?? "—"}</td>
                               <td>{aoi.missed_count}</td>
@@ -897,46 +1028,115 @@ useEffect(() => {
                 <table className="teachers-table" style={{ minWidth: `${learnersTableMinWidth}px` }}>
                   <thead>
                     <tr>
-                      <th>Learner</th>
-                      <th>Gender</th>
-                      {renderColumns.map((c) => (
-                        <th key={c}>{c}</th>
+                      <th
+                        style={{
+                          ...(isMobileTable
+                            ? {
+                                minWidth: "140px",
+                                maxWidth: "140px",
+                              }
+                            : {
+                                position: "sticky",
+                                left: 0,
+                                zIndex: 8,
+                                minWidth: `${learnerColWidth}px`,
+                                maxWidth: `${learnerColWidth}px`,
+                                background: "#0f172a",
+                                borderRight: "1px solid rgba(148, 163, 184, 0.24)",
+                              }),
+                        }}
+                      >
+                        Learner
+                      </th>
+                      <th
+                        style={{
+                          ...(isMobileTable
+                            ? {
+                                minWidth: "78px",
+                                maxWidth: "78px",
+                              }
+                            : {
+                                minWidth: `${genderColWidth}px`,
+                                maxWidth: `${genderColWidth}px`,
+                              }),
+                        }}
+                      >
+                        Gender
+                      </th>
+                      {renderAoiColumns.map((c) => (
+                        <th key={c}>{c === "EXAM80" ? "/80" : c}</th>
                       ))}
                       <th>Avg</th>
+                      {hasExam80Column && <th>/80</th>}
                     </tr>
                   </thead>
                   <tbody>
-                    {students.map((s) => {
+                    {students.map((s, rowIndex) => {
                       const marksForS = studentMarks[s.id] || {};
                       const statusForS = studentStatus[s.id] || {};
+                      const stickyRowBg = "#0f172a";
 
                       return (
                         <tr key={s.id}>
-                          <td>{s.name}</td>
-                          <td>{s.gender}</td>
+                          <td
+                            style={{
+                              ...(isMobileTable
+                                ? {
+                                    minWidth: "140px",
+                                    maxWidth: "140px",
+                                  }
+                                : {
+                                    position: "sticky",
+                                    left: 0,
+                                    zIndex: 4,
+                                    minWidth: `${learnerColWidth}px`,
+                                    maxWidth: `${learnerColWidth}px`,
+                                    background: stickyRowBg,
+                                    borderRight: "1px solid rgba(148, 163, 184, 0.22)",
+                                  }),
+                            }}
+                          >
+                            {s.name}
+                          </td>
+                          <td
+                            style={{
+                              ...(isMobileTable
+                                ? {
+                                    minWidth: "78px",
+                                    maxWidth: "78px",
+                                  }
+                                : {
+                                    minWidth: `${genderColWidth}px`,
+                                    maxWidth: `${genderColWidth}px`,
+                                  }),
+                            }}
+                          >
+                            {s.gender}
+                          </td>
 
-                          {renderColumns.map((aoi) => {
+                          {renderAoiColumns.map((aoi) => {
                             const status = statusForS[aoi] ?? "Present";
                             const value = marksForS[aoi];
                             const errorKey = `${s.id}_${aoi}`;
+                            const limits = getScoreConstraints(selectedAssignment?.isAlevel === true, aoi);
 
                             return (
                               <td key={aoi}>
                                 <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", whiteSpace: "nowrap" }}>
-                                  <select value={status} onChange={(e) => setAOIStatus(s.id, aoi, e.target.value)} style={{ width: "84px" }}>
+                                  <select value={status} onChange={(e) => setAOIStatus(s.id, aoi, e.target.value)} style={{ width: "70px" }}>
                                     <option>Present</option>
                                     <option>Missed</option>
                                   </select>
 
                                   <input
                                     type="number"
-                                    min={selectedAssignment?.isAlevel ? 0 : 0.9}
-                                    max={selectedAssignment?.isAlevel ? 100 : 3.0}
-                                    step={selectedAssignment?.isAlevel ? 1 : 0.1}
+                                    min={limits.min}
+                                    max={limits.max}
+                                    step={limits.step}
                                     disabled={status === "Missed"}
                                     value={value === undefined || value === null ? "" : (value === "Missed" ? "" : value)}
                                     onChange={(e) => setAOIScore(s.id, aoi, e.target.value)}
-                                    style={{ width: "64px", border: markErrors[errorKey] ? "2px solid #dc2626" : undefined, backgroundColor: markErrors[errorKey] ? "#fff5f5" : undefined }}
+                                    style={{ width: "46px", border: markErrors[errorKey] ? "2px solid #dc2626" : undefined, backgroundColor: markErrors[errorKey] ? "#fff5f5" : undefined }}
                                   />
                                 </div>
 
@@ -947,7 +1147,39 @@ useEffect(() => {
                             );
                           })}
 
-                          <td>{calculateAverage(studentMarks[s.id])}</td>
+                          <td>{calculateAverage(studentMarks[s.id], averageColumns)}</td>
+                          {hasExam80Column && (() => {
+                            const aoi = "EXAM80";
+                            const status = statusForS[aoi] ?? "Present";
+                            const value = marksForS[aoi];
+                            const errorKey = `${s.id}_${aoi}`;
+                            const limits = getScoreConstraints(false, aoi);
+                            return (
+                              <td>
+                                <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", whiteSpace: "nowrap" }}>
+                                  <select value={status} onChange={(e) => setAOIStatus(s.id, aoi, e.target.value)} style={{ width: "70px" }}>
+                                    <option>Present</option>
+                                    <option>Missed</option>
+                                  </select>
+
+                                  <input
+                                    type="number"
+                                    min={limits.min}
+                                    max={limits.max}
+                                    step={limits.step}
+                                    disabled={status === "Missed"}
+                                    value={value === undefined || value === null ? "" : (value === "Missed" ? "" : value)}
+                                    onChange={(e) => setAOIScore(s.id, aoi, e.target.value)}
+                                    style={{ width: "46px", border: markErrors[errorKey] ? "2px solid #dc2626" : undefined, backgroundColor: markErrors[errorKey] ? "#fff5f5" : undefined }}
+                                  />
+                                </div>
+
+                                {markErrors[errorKey] && (
+                                  <div style={{ color: "#fecaca", fontSize: "0.75rem", marginTop: "0.2rem" }}>{markErrors[errorKey]}</div>
+                                )}
+                              </td>
+                            );
+                          })()}
                         </tr>
                       );
                     })}

@@ -164,7 +164,7 @@ export default function AdminDashboard() {
     { title: "Download Marks", subtitle: "View & export assessment scores", icon: "📊" },
     { title: "Manage Teachers", subtitle: "Accounts & permissions", icon: "🧑🏽‍🏫" },
     { title: "End of Term Reports", subtitle: "Term 1 & Term 2 report cards", icon: "📘", route: "/admin/reports/term" },
-    { title: "End of Year Reports", subtitle: "Final student performance (coming soon)", icon: "📕", route: null },
+    { title: "End of Year Reports", subtitle: "Term 3 report cards", icon: "📕", route: "/admin/reports/year" },
     { title: "Notices", subtitle: "Create school notices", icon: "📢" },
     { title: "Enrollment Insights", subtitle: "Registration statistics per class/stream/subject", icon: "📈" },
     {
@@ -2244,6 +2244,20 @@ export default function AdminDashboard() {
             <button className="panel-close" type="button" onClick={() => setActiveSection("")}>✕ Close</button>
           </div>
           <EndOfTermReports />
+        </section>
+      );
+    }
+    if (activeSection === "End of Year Reports") {
+      return (
+        <section className="panel">
+          <div className="panel-header">
+            <div>
+              <h2>End of Year Reports</h2>
+              <p>Generate printable report cards (Term 3).</p>
+            </div>
+            <button className="panel-close" type="button" onClick={() => setActiveSection("")}>✕ Close</button>
+          </div>
+          <EndOfTermReports mode="year" />
         </section>
       );
     }

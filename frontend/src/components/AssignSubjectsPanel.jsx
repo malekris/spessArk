@@ -13,6 +13,12 @@ const FALLBACK_SUBJECTS = [
 ];
 
 export default function AssignSubjectsPanel({ active }) {
+  const formatDateTime = (value) => {
+    if (!value) return "—";
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return String(value);
+    return d.toLocaleString();
+  };
 
   // 1️⃣ ALL useState FIRST
   const [loading, setLoading] = useState(false);
@@ -229,116 +235,112 @@ export default function AssignSubjectsPanel({ active }) {
     printWindow.focus();
     printWindow.print();
   }
-  function addWatermark(doc, text) {
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
-  
-    doc.saveGraphicsState();
-  
-    doc.setFont("times", "italic");
-    doc.setFontSize(18);
-    doc.setTextColor(120); // light gray
-    doc.setGState(new doc.GState({ opacity: 0.12 }));
-  
-    doc.text(
-      text,
-      pageWidth / 2,
-      pageHeight / 2,
-      {
-        align: "center",
-        angle: 35,
-      }
-    );
-  
-    doc.restoreGraphicsState();
+  function formatPdfDate(value) {
+    if (!value) return "—";
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return "—";
+    return d.toLocaleString();
   }
-  
+
   function handleExportAssignmentsPDF() {
     if (filteredAssignments.length === 0) {
       alert("No assignments to export.");
       return;
     }
-    const footerText = `Generated from SPESS ARK • Downloaded by Admin • ${new Date().toLocaleString()} • Not valid without stamp`;
-
     const doc = new jsPDF("p", "mm", "a4");
-    const exportedBy =
-    localStorage.getItem("adminName") ||
-    localStorage.getItem("teacherName") ||
-    "SPESS ARK User";
+    const generatedAt = new Date().toLocaleString();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const filterLine = `Class: ${printClass || "All"}   •   Stream: ${printStream || "All"}   •   Records: ${filteredAssignments.length}`;
 
-  const timestamp = new Date().toLocaleString();
-  const watermarkText = `Downloaded by ${exportedBy}\n${timestamp}`;
-    doc.setFont("times", "bold");
-    doc.setFontSize(14);
-    doc.text("Teacher Assignments", 105, 15, { align: "center" });
-  
-    doc.setFontSize(10);
-    doc.setFont("times", "normal");
-    doc.text(
-      `Class: ${printClass || "All"}   |   Stream: ${printStream || "All"}`,
-      105,
-      22,
-      { align: "center" }
-    );
+    const drawHeader = () => {
+      // light header block for black/white printing
+      doc.setFillColor(245, 245, 245);
+      doc.rect(10, 8, pageWidth - 20, 22, "F");
+      doc.setDrawColor(170, 170, 170);
+      doc.rect(10, 8, pageWidth - 20, 22, "S");
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(12);
+      doc.setTextColor(25, 25, 25);
+      doc.text("St Phillips Equatorial Secondary School", pageWidth / 2, 16, { align: "center" });
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      doc.text("SPESS ARK • Teacher Assignments Register", pageWidth / 2, 22, { align: "center" });
+
+      doc.setTextColor(60, 60, 60);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.text(`Generated: ${generatedAt}`, 12, 36);
+      doc.text(filterLine, pageWidth / 2, 42, { align: "center" });
+
+      doc.setDrawColor(190, 190, 190);
+      doc.line(10, 45, pageWidth - 10, 45);
+    };
+
+    const drawFooter = () => {
+      doc.setDrawColor(190, 190, 190);
+      doc.line(10, pageHeight - 12, pageWidth - 10, pageHeight - 12);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8.5);
+      doc.setTextColor(80, 80, 80);
+      doc.text(`Generated from SPESS ARK • ${generatedAt}`, pageWidth / 2, pageHeight - 7, { align: "center" });
+    };
+
+    drawHeader();
   
     autoTable(doc, {
-      startY: 30,
-    
-      head: [["Class", "Stream", "Subject", "Teacher"]],
-    
-      body: filteredAssignments.map(a => [
+      startY: 50,
+      margin: { left: 10, right: 10, top: 50, bottom: 16 },
+      head: [["No.", "Class", "Stream", "Subject", "Teacher", "Added"]],
+      body: filteredAssignments.map((a, idx) => [
+        String(idx + 1),
         a.class_level || "—",
         a.stream || "—",
         a.subject || "—",
         a.teacher_name || a.teacher_id || "—",
+        formatPdfDate(a.created_at),
       ]),
-    
       styles: {
-        font: "times",
-        fontSize: 10,
-        cellPadding: 3,
+        font: "helvetica",
+        fontSize: 9,
+        cellPadding: { top: 2.6, right: 2.2, bottom: 2.6, left: 2.2 },
+        textColor: [30, 30, 30],
+        lineColor: [200, 200, 200],
+        lineWidth: 0.2,
       },
-    
       headStyles: {
-        fillColor: [30, 41, 59],
-        textColor: 255,
+        fillColor: [230, 230, 230],
+        textColor: 25,
         fontStyle: "bold",
+        halign: "center",
       },
-    
+      alternateRowStyles: {
+        fillColor: [247, 247, 247],
+      },
+      columnStyles: {
+        0: { cellWidth: 11, halign: "center" },
+        1: { cellWidth: 24 },
+        2: { cellWidth: 22 },
+        3: { cellWidth: 41 },
+        4: { cellWidth: 44 },
+        5: { cellWidth: 42, halign: "center" },
+      },
       theme: "grid",
-    
-      // ✅ FOOTER ON EVERY PAGE
+      willDrawPage: () => {
+        drawHeader();
+      },
       didDrawPage: () => {
-        addFooter(doc, footerText);
+        drawFooter();
       },
     });
-    
-    
 
     // Preview in new tab (NOT auto-download)
     const blobUrl = doc.output("bloburl");
     window.open(blobUrl, "_blank");
   }
-  function addFooter(doc, footerText) {
-    const pageHeight = doc.internal.pageSize.getHeight();
-    const pageWidth = doc.internal.pageSize.getWidth();
-  
-    doc.setFont("times", "italic");
-    doc.setFontSize(8);
-    doc.setTextColor(120);
-  
-    doc.text(
-      footerText,
-      pageWidth / 2,
-      pageHeight - 10,
-      { align: "center" }
-    );
-  
-    // Reset color so it doesn't affect tables
-    doc.setTextColor(0);
-  }
-  
-  
+
   async function deleteAssignment(id) {
     if (!window.confirm("Delete this assignment?")) return;
     setError("");
@@ -414,72 +416,84 @@ export default function AssignSubjectsPanel({ active }) {
             {assignments.length === 0 ? (
               <div className="muted-text">No assignments yet.</div>
             ) : (
-              <div className="teachers-table-wrapper" style={{ marginTop: 12 }}>
-                <table className="teachers-table" style={{ width: "100%" }}>
-                  <thead>
-                    <tr>
-                      <th>Class</th>
-                      <th>Stream</th>
-                      <th>Subject</th>
-                      <th>Teacher</th>
-                      <th>Added</th>
-                      <th />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {assignments.map(a => (
-                      <tr key={a.id}>
-                        <td>{a.class_level || a.class || "—"}</td>
-                        <td>{a.stream || "—"}</td>
-                        <td>{a.subject || "—"}</td>
-                        <td>{a.teacher_name || a.teacher_id || "—"}</td>
-                        <td>{a.created_at || "—"}</td>
-                        <td>
-                          <button type="button" onClick={() => deleteAssignment(a.id)} className="danger-link">Delete</button>
-                        </td>
+              <>
+                <div className="teachers-table-wrapper" style={{ marginTop: 12 }}>
+                  <table className="teachers-table" style={{ width: "100%" }}>
+                    <thead>
+                      <tr>
+                        <th>Class</th>
+                        <th>Stream</th>
+                        <th>Subject</th>
+                        <th>Teacher</th>
+                        <th>Added</th>
+                        <th />
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <div style={{ marginTop: 16 }}>
-                <div style={{ display: "flex", gap: 12, marginTop: 12 }}>
-  <select value={printClass} onChange={e => setPrintClass(e.target.value)}>
-    <option value="">All Classes</option>
-    {classes.map(c => (
-      <option key={c.id} value={c.name}>{c.name}</option>
-    ))}
-  </select>
+                    </thead>
+                    <tbody>
+                      {assignments.map(a => (
+                        <tr key={a.id}>
+                          <td>{a.class_level || a.class || "—"}</td>
+                          <td>{a.stream || "—"}</td>
+                          <td>{a.subject || "—"}</td>
+                          <td>{a.teacher_name || a.teacher_id || "—"}</td>
+                          <td>{formatDateTime(a.created_at)}</td>
+                          <td>
+                            <button type="button" onClick={() => deleteAssignment(a.id)} className="danger-link">Delete</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
 
-  <select value={printStream} onChange={e => setPrintStream(e.target.value)}>
-    <option value="">All Streams</option>
-    <option value="North">North</option>
-    <option value="South">South</option>
-  </select>
-</div>
+                <div
+                  style={{
+                    marginTop: 16,
+                    position: "sticky",
+                    bottom: 0,
+                    zIndex: 8,
+                    paddingTop: 10,
+                    paddingBottom: 6,
+                    borderTop: "1px solid rgba(55, 65, 81, 0.8)",
+                    background: "linear-gradient(to top, rgba(15, 23, 42, 0.98), rgba(15, 23, 42, 0.9))",
+                  }}
+                >
+                  <div style={{ display: "flex", gap: 12, marginTop: 12 }}>
+                    <select value={printClass} onChange={e => setPrintClass(e.target.value)}>
+                      <option value="">All Classes</option>
+                      {classes.map(c => (
+                        <option key={c.id} value={c.name}>{c.name}</option>
+                      ))}
+                    </select>
 
-<div style={{ marginTop: 16, display: "flex", gap: 10 }}>
-  <button
-    type="button"
-    className="ghost-btn"
-    onClick={handlePrintAssignments}
-    disabled={filteredAssignments.length === 0}
-  >
-    🖨️ Print
-  </button>
+                    <select value={printStream} onChange={e => setPrintStream(e.target.value)}>
+                      <option value="">All Streams</option>
+                      <option value="North">North</option>
+                      <option value="South">South</option>
+                    </select>
+                  </div>
 
-  <button
-    type="button"
-    className="primary-btn"
-    onClick={handleExportAssignmentsPDF}
-    disabled={filteredAssignments.length === 0}
-  >
-    📄 Export PDF
-  </button>
-</div>
+                  <div style={{ marginTop: 16, display: "flex", gap: 10 }}>
+                    <button
+                      type="button"
+                      className="ghost-btn"
+                      onClick={handlePrintAssignments}
+                      disabled={filteredAssignments.length === 0}
+                    >
+                      🖨️ Print
+                    </button>
 
-</div>
-
-              </div>
+                    <button
+                      type="button"
+                      className="primary-btn"
+                      onClick={handleExportAssignmentsPDF}
+                      disabled={filteredAssignments.length === 0}
+                    >
+                      📄 Export PDF
+                    </button>
+                  </div>
+                </div>
+              </>
             )}
           </div>
         </>

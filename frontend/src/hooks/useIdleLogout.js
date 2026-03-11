@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useCallback } from "react";
 
 // ⏱ 30 minutes idle timeout (default)
 const DEFAULT_IDLE_TIME = 30 * 60 * 1000;
@@ -6,7 +6,7 @@ const DEFAULT_IDLE_TIME = 30 * 60 * 1000;
 export default function useIdleLogout(onLogout, idleMs = DEFAULT_IDLE_TIME) {
   const timerRef = useRef(null);
 
-  const resetTimer = () => {
+  const resetTimer = useCallback(() => {
     if (timerRef.current) {
       clearTimeout(timerRef.current);
     }
@@ -14,7 +14,7 @@ export default function useIdleLogout(onLogout, idleMs = DEFAULT_IDLE_TIME) {
     timerRef.current = setTimeout(() => {
       onLogout();
     }, idleMs);
-  };
+  }, [onLogout, idleMs]);
 
   useEffect(() => {
     // Any of these count as "active user"
@@ -45,5 +45,7 @@ export default function useIdleLogout(onLogout, idleMs = DEFAULT_IDLE_TIME) {
         window.removeEventListener(e, resetTimer, true);
       });
     };
-  }, [onLogout]);
+  }, [resetTimer]);
+
+  return resetTimer;
 }

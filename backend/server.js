@@ -356,9 +356,63 @@ app.get(
 
 app.get("/api/admin/assignments", authAdmin, async (req, res) => {
   try {
+    const [[dbRow]] = await pool.query("SELECT DATABASE() AS db_name");
+    const schemaName = process.env.DB_NAME || poolConfig.database || dbRow?.db_name;
+
+    if (!schemaName) {
+      throw new Error("Could not resolve active database schema name");
+    }
+
+    const [[{ has_created_at }]] = await pool.query(
+      `
+      SELECT COUNT(*) AS has_created_at
+      FROM information_schema.columns
+      WHERE table_schema = ?
+        AND table_name = 'teacher_assignments'
+        AND column_name = 'created_at'
+      `,
+      [schemaName]
+    );
+
+    if (!has_created_at) {
+      await pool.query(
+        `ALTER TABLE teacher_assignments
+         ADD COLUMN created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP`
+      );
+
+      // Backfill existing rows with earliest marks timestamp where possible.
+      await pool.query(
+        `
+        UPDATE teacher_assignments ta
+        LEFT JOIN (
+          SELECT assignment_id, MIN(created_at) AS first_mark_at
+          FROM marks
+          GROUP BY assignment_id
+        ) m ON m.assignment_id = ta.id
+        SET ta.created_at = COALESCE(m.first_mark_at, NOW())
+        WHERE ta.created_at IS NULL
+        `
+      );
+    }
+
+    // Keep legacy rows populated even when column already exists.
+    await pool.query(
+      `
+      UPDATE teacher_assignments ta
+      LEFT JOIN (
+        SELECT assignment_id, MIN(created_at) AS first_mark_at
+        FROM marks
+        GROUP BY assignment_id
+      ) m ON m.assignment_id = ta.id
+      SET ta.created_at = COALESCE(m.first_mark_at, NOW())
+      WHERE ta.created_at IS NULL
+      `
+    );
+
     const [rows] = await pool.query(`
       SELECT ta.id, ta.class_level, ta.stream, ta.subject,
-             t.name AS teacher_name
+             t.name AS teacher_name,
+             ta.created_at
       FROM teacher_assignments ta
       LEFT JOIN teachers t ON ta.teacher_id = t.id
       ORDER BY ta.class_level, ta.stream, ta.subject
@@ -1009,12 +1063,16 @@ app.post("/api/teacher/marks", authTeacher, async (req, res) => {
       });
     }
 
+    const allowedAois = term === "Term 3"
+      ? ["AOI1", "AOI2", "AOI3", "EXAM80"]
+      : ["AOI1", "AOI2", "AOI3"];
+
     // 4) Clear explicitly emptied marks first
     for (const m of clearMarks) {
       const aoi = (m.aoi || "").trim().toUpperCase();
       const sid = Number(m.studentId);
 
-      if (!aoi || !["AOI1", "AOI2", "AOI3"].includes(aoi) || !Number.isInteger(sid) || sid <= 0) {
+      if (!aoi || !allowedAois.includes(aoi) || !Number.isInteger(sid) || sid <= 0) {
         await conn.rollback();
         return res.status(400).json({ message: "Invalid clearMarks payload" });
       }
@@ -1040,10 +1098,10 @@ app.post("/api/teacher/marks", authTeacher, async (req, res) => {
       const isMissed = m.score === "Missed";
       const aoi = (m.aoi || "").trim().toUpperCase();
 
-      if (!aoi || !["AOI1", "AOI2", "AOI3"].includes(aoi)) {
+      if (!aoi || !allowedAois.includes(aoi)) {
         await conn.rollback();
         return res.status(400).json({
-          message: "Each mark must include a valid AOI (AOI1, AOI2, AOI3)",
+          message: `Each mark must include a valid AOI (${allowedAois.join(", ")})`,
         });
       }
 
@@ -1066,6 +1124,17 @@ app.post("/api/teacher/marks", authTeacher, async (req, res) => {
           return res.status(400).json({
             message: "Present students must have a valid score",
           });
+        }
+
+        const scoreNum = Number(m.score);
+        if (aoi === "EXAM80") {
+          if (scoreNum < 0 || scoreNum > 80) {
+            await conn.rollback();
+            return res.status(400).json({ message: "EXAM80 score must be between 0 and 80" });
+          }
+        } else if (scoreNum < 0.9 || scoreNum > 3.0) {
+          await conn.rollback();
+          return res.status(400).json({ message: "AOI score must be between 0.9 and 3.0" });
         }
       }
 
@@ -1326,12 +1395,16 @@ app.post("/api/teachers/marks", authTeacher, async (req, res) => {
       });
     }
 
+    const allowedAois = term === "Term 3"
+      ? ["AOI1", "AOI2", "AOI3", "EXAM80"]
+      : ["AOI1", "AOI2", "AOI3"];
+
     // clear explicitly emptied marks first
     for (const m of clearMarks) {
       const aoi = (m.aoi || "").trim().toUpperCase();
       const sid = Number(m.studentId);
 
-      if (!aoi || !["AOI1", "AOI2", "AOI3"].includes(aoi) || !Number.isInteger(sid) || sid <= 0) {
+      if (!aoi || !allowedAois.includes(aoi) || !Number.isInteger(sid) || sid <= 0) {
         await conn.rollback();
         return res.status(400).json({ message: "Invalid clearMarks payload" });
       }
@@ -1357,10 +1430,10 @@ app.post("/api/teachers/marks", authTeacher, async (req, res) => {
       const isMissed = m.score === "Missed";
       const aoi = (m.aoi || "").trim().toUpperCase();
 
-      if (!aoi || !["AOI1", "AOI2", "AOI3"].includes(aoi)) {
+      if (!aoi || !allowedAois.includes(aoi)) {
         await conn.rollback();
         return res.status(400).json({
-          message: "Each mark must include a valid AOI (AOI1, AOI2, AOI3)",
+          message: `Each mark must include a valid AOI (${allowedAois.join(", ")})`,
         });
       }
 
@@ -1379,6 +1452,17 @@ app.post("/api/teachers/marks", authTeacher, async (req, res) => {
         ) {
           await conn.rollback();
           return res.status(400).json({ message: "Present students must have a valid score" });
+        }
+
+        const scoreNum = Number(m.score);
+        if (aoi === "EXAM80") {
+          if (scoreNum < 0 || scoreNum > 80) {
+            await conn.rollback();
+            return res.status(400).json({ message: "EXAM80 score must be between 0 and 80" });
+          }
+        } else if (scoreNum < 0.9 || scoreNum > 3.0) {
+          await conn.rollback();
+          return res.status(400).json({ message: "AOI score must be between 0.9 and 3.0" });
         }
       }
 

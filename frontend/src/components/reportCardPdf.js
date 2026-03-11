@@ -429,11 +429,11 @@ const tableData = isEndOfYear
     ])
   : student.subjects.map((s) => [
       formatReportSubject(s.subject),
-      s.AOI1 ?? "X",
-      s.AOI2 ?? "X",
-      s.AOI3 ?? "X",
-      s.average ?? "X",
-      displayMissedAsX(s.remark, "X"),
+      formatAoiCell(s.AOI1, s.AOI1_status),
+      formatAoiCell(s.AOI2, s.AOI2_status),
+      formatAoiCell(s.AOI3, s.AOI3_status),
+      formatCell(s.average, 1),
+      displayMissedAsX(s.remark, ""),
       abbreviateName(s.teacher_name),
     ]);
 

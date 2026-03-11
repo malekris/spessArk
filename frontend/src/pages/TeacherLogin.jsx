@@ -124,7 +124,6 @@ function TeacherLogin() {
           <h2>Student Marks Management</h2>
           <p className="ark-subtitle">Sign in to update marks for your assigned classes.</p>
         </div>
-
         {error && <div className="login-error">{error}</div>}
 
         <form onSubmit={handleSubmit} className="login-actions">

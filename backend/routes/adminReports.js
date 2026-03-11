@@ -51,7 +51,10 @@ router.get("/term", authAdmin, async (req, res) => {
 
         MAX(CASE WHEN m.aoi_label = 'AOI1' THEN m.score END) AS AOI1,
         MAX(CASE WHEN m.aoi_label = 'AOI2' THEN m.score END) AS AOI2,
-        MAX(CASE WHEN m.aoi_label = 'AOI3' THEN m.score END) AS AOI3
+        MAX(CASE WHEN m.aoi_label = 'AOI3' THEN m.score END) AS AOI3,
+        MAX(CASE WHEN m.aoi_label = 'AOI1' THEN m.status END) AS AOI1_status,
+        MAX(CASE WHEN m.aoi_label = 'AOI2' THEN m.status END) AS AOI2_status,
+        MAX(CASE WHEN m.aoi_label = 'AOI3' THEN m.status END) AS AOI3_status
 
       FROM students s
       JOIN marks m ON m.student_id = s.id

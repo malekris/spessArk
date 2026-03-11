@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "./LoginPage.css";
 
@@ -13,6 +13,9 @@ function LoginPage() {
   const [activeIndex, setActiveIndex] = useState(0);
   const [previousIndex, setPreviousIndex] = useState(null);
   const [useLiteBackground, setUseLiteBackground] = useState(false);
+  const [isDesktop, setIsDesktop] = useState(false);
+  const [showDesktopForm, setShowDesktopForm] = useState(false);
+  const wasDesktopRef = useRef(null);
 
   const backgroundImages = [
     "/slide1.jpg", "/slide2.jpg", "/slide3.jpg", "/slide4.jpg",
@@ -40,6 +43,20 @@ function LoginPage() {
     }, 9000);
     return () => clearInterval(interval);
   }, [backgroundImages.length, useLiteBackground]);
+
+  useEffect(() => {
+    const updateViewport = () => {
+      const desktop = window.matchMedia("(min-width: 901px)").matches;
+      setIsDesktop(desktop);
+      if (wasDesktopRef.current === null || wasDesktopRef.current !== desktop) {
+        setShowDesktopForm(!desktop);
+      }
+      wasDesktopRef.current = desktop;
+    };
+    updateViewport();
+    window.addEventListener("resize", updateViewport);
+    return () => window.removeEventListener("resize", updateViewport);
+  }, []);
 
   const triggerShake = () => {
     setIsShaking(true);
@@ -120,54 +137,83 @@ function LoginPage() {
       </button>
 
       {/* 2. The Glass Card */}
-      <div className={`glass-container ${isShaking ? "shake-error" : ""}`}>
-        <div className="ark-header">
-          <h1>SPESS’S ARK</h1>
-          <h2>Portal Access</h2>
-          <p className="ark-subtitle">St. Phillip's Academic Records Kit</p>
-        </div>
-
-        <div className="login-actions">
-          <form onSubmit={handleAdminLogin}>
-            <div className="input-group">
-              <label>Admin Username</label>
-              <input
-                type="text"
-                name="username"
-                autoComplete="off"
-                value={form.username}
-                onChange={(e) => setForm((prev) => ({ ...prev, username: e.target.value }))}
-              />
-            </div>
-
-            <div className="input-group">
-              <label>Admin Password</label>
-              <input
-                type="password"
-                name="password"
-                value={form.password}
-                onChange={(e) => setForm((prev) => ({ ...prev, password: e.target.value }))}
-              />
-            </div>
-
-            {error && <div className="login-error">{error}</div>}
-
-            <button type="submit" className="admin-btn-hot" disabled={loading}>
-              {loading ? "Verifying..." : "Sign in as Admin"}
+      {/*
+        Desktop-only fold state for admin login:
+        - folded: compact pill trigger
+        - unfolded/mobile: full login form
+      */}
+      {(() => {
+        const isFoldedDesktop = isDesktop && !showDesktopForm;
+        return (
+      <div
+        className={`glass-container admin-login-card ${isShaking ? "shake-error" : ""} ${
+          isFoldedDesktop ? "admin-card-folded" : ""
+        }`}
+      >
+        {isFoldedDesktop ? (
+          <div className="admin-fold-pill-shell">
+            <div className="admin-fold-pill-label">SPESS ARK</div>
+            <button
+              type="button"
+              className="admin-login-scroll-trigger"
+              onClick={() => setShowDesktopForm(true)}
+            >
+              Click To Login
             </button>
-          </form>
+          </div>
+        ) : (
+          <>
+            <div className="ark-header">
+              <h1>SPESS’S ARK</h1>
+              <h2>Portal Access</h2>
+              <p className="ark-subtitle">St. Phillip's Academic Records Kit</p>
+            </div>
 
-          <div className="divider"><span>OR</span></div>
+          <div className={`login-actions ${isDesktop ? "admin-login-scroll-unfold" : ""}`}>
+            <form onSubmit={handleAdminLogin}>
+              <div className="input-group">
+                <label>Admin Username</label>
+                <input
+                  type="text"
+                  name="username"
+                  autoComplete="off"
+                  value={form.username}
+                  onChange={(e) => setForm((prev) => ({ ...prev, username: e.target.value }))}
+                />
+              </div>
 
-          <button
-            type="button"
-            className="auth-green-btn"
-            onClick={() => navigate("/ark/teacher-login")}
-          >
-            Teacher Portal Access <span>→</span>
-          </button>
-        </div>
+              <div className="input-group">
+                <label>Admin Password</label>
+                <input
+                  type="password"
+                  name="password"
+                  value={form.password}
+                  onChange={(e) => setForm((prev) => ({ ...prev, password: e.target.value }))}
+                />
+              </div>
+
+              {error && <div className="login-error">{error}</div>}
+
+              <button type="submit" className="admin-btn-hot" disabled={loading}>
+                {loading ? "Verifying..." : "Sign in as Admin"}
+              </button>
+            </form>
+
+            <div className="divider"><span>OR</span></div>
+
+            <button
+              type="button"
+              className="auth-green-btn"
+              onClick={() => navigate("/ark/teacher-login")}
+            >
+              Teacher Portal Access <span>→</span>
+            </button>
+          </div>
+          </>
+        )}
       </div>
+        );
+      })()}
     </div>
   );
 }

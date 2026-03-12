@@ -153,7 +153,7 @@ export default function ALevelDashboard() {
 
   return (
     <div
-      className={`admin-root alevel-admin-root ${isDark ? "mode-dark" : "mode-light"}`}
+      className={`admin-root alevel-admin-root alevel-dashboard-layout ${isDark ? "mode-dark" : "mode-light"}`}
       style={{ display: "flex", flexDirection: "row", minHeight: "100vh", color: palette.rootText, fontFamily: "'Inter', sans-serif" }}
     >
       

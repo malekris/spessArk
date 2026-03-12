@@ -1,5 +1,8 @@
 .alevel-admin-root {
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif !important;
+}
+
+.alevel-dashboard-layout {
   display: flex;
   flex-direction: row;
   min-height: 100vh;
@@ -133,7 +136,7 @@
 }
 
 @media (max-width: 960px) {
-  .alevel-admin-root {
+  .alevel-dashboard-layout {
     flex-direction: column !important;
   }
 

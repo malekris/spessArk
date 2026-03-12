@@ -2,6 +2,7 @@
 import React, { useEffect, useState, useMemo, useRef } from "react";
 import "./AdminDashboard.css";
 import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import AssignSubjectsPanel from "../components/AssignSubjectsPanel";
 import { plainFetch, adminFetch } from "../lib/api";
 import EditStudentModal from "../components/EditStudentModal";
@@ -192,6 +193,7 @@ export default function AdminDashboard() {
   const [activeSection, setActiveSection] = useState("");
   const [showEnrollmentChartsModal, setShowEnrollmentChartsModal] = useState(false);
   const [dashboardClock, setDashboardClock] = useState(() => new Date());
+
   useEffect(() => {
     document.title = activeSection ? `${activeSection} | SPESS ARK` : "Admin Dashboard | SPESS ARK";
   }, [activeSection]);
@@ -252,6 +254,14 @@ export default function AdminDashboard() {
   const [marksError, setMarksError] = useState("");
   const [selectedGroup, setSelectedGroup] = useState(null);
   const [selectedAoi, setSelectedAoi] = useState(null);
+  const [scoreSheetLoading, setScoreSheetLoading] = useState(false);
+  const [scoreSheetError, setScoreSheetError] = useState("");
+  const [scoreSheetFilters, setScoreSheetFilters] = useState({
+    class_level: "S1",
+    stream: "North",
+    term: "Term 1",
+    year: new Date().getFullYear(),
+  });
 
   /* ---------- Marksheet ---------- */
   const [marksheetClass, setMarksheetClass] = useState("");
@@ -1366,6 +1376,187 @@ export default function AdminDashboard() {
     window.open(url, "_blank");
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   };
+
+  const handleDownloadScoreSheetPdf = async () => {
+    setScoreSheetError("");
+
+    const classLevel = String(scoreSheetFilters.class_level || "").trim();
+    const stream = String(scoreSheetFilters.stream || "").trim();
+    const term = String(scoreSheetFilters.term || "").trim();
+    const year = Number(scoreSheetFilters.year);
+
+    if (!classLevel || !stream || !term || !year) {
+      setScoreSheetError("Select class, stream, term and year first.");
+      return;
+    }
+
+    const formatScoreCell = (mark) => {
+      if (!mark) return "";
+      if (String(mark.status || "").toLowerCase() === "missed") return "X";
+      if (mark.score === null || mark.score === undefined || mark.score === "") return "";
+      const n = Number(mark.score);
+      return Number.isFinite(n) ? String(Number(n.toFixed(2))) : String(mark.score);
+    };
+
+    const chunkBy = (list, size) => {
+      const out = [];
+      for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
+      return out;
+    };
+
+    setScoreSheetLoading(true);
+    try {
+      const params = new URLSearchParams({
+        class_level: classLevel,
+        stream,
+        term,
+        year: String(year),
+      });
+      const data = await adminFetch(`/api/admin/score-sheet?${params.toString()}`);
+
+      const students = Array.isArray(data?.students) ? data.students : [];
+      const subjects = Array.isArray(data?.subjects) ? data.subjects : [];
+      const marks = Array.isArray(data?.marks) ? data.marks : [];
+
+      if (students.length === 0) {
+        setScoreSheetError("No learners found in that class and stream.");
+        return;
+      }
+      if (subjects.length === 0) {
+        setScoreSheetError("No submitted subject marks found for that class/stream/term/year.");
+        return;
+      }
+
+      const markMap = new Map(
+        marks.map((m) => [
+          `${m.student_id}|${m.assignment_id}|${String(m.aoi_label || "").toUpperCase()}`,
+          m,
+        ])
+      );
+
+      const subjectChunks = chunkBy(subjects, 4);
+      const doc = new jsPDF("l", "mm", "a4");
+      const pageW = doc.internal.pageSize.getWidth();
+      const pageH = doc.internal.pageSize.getHeight();
+      const generatedAt = formatDateTime(new Date().toISOString());
+      const aoiColumnCount = 12; // 4 subjects × 3 AOIs
+      const numberColWidth = 7;
+      const learnerColWidth = 45;
+      const genderColWidth = 7;
+      const subjectAoiColWidth = (pageW - 16 - numberColWidth - learnerColWidth - genderColWidth) / aoiColumnCount;
+
+      subjectChunks.forEach((subjectChunk, chunkIndex) => {
+        if (chunkIndex > 0) doc.addPage();
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(12);
+        doc.text("St. Phillip's Equatorial Secondary School (SPESS)", pageW / 2, 12, {
+          align: "center",
+        });
+        doc.text("Noticeboard Score Sheet", pageW / 2, 18, { align: "center" });
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(12);
+        doc.text(`Class: ${classLevel}`, 8, 25);
+        doc.text(`Stream: ${stream}`, 52, 25);
+        doc.text(`Term: ${term}`, 98, 25);
+        doc.text(`Year: ${year}`, 140, 25);
+        doc.text(`Subjects ${chunkIndex * 4 + 1}-${chunkIndex * 4 + subjectChunk.length}`, 176, 25);
+
+        const headTop = [
+          { content: "#", rowSpan: 2, styles: { halign: "center", valign: "middle" } },
+          { content: "Learner", rowSpan: 2, styles: { halign: "left", valign: "middle" } },
+          { content: "G", rowSpan: 2, styles: { halign: "center", valign: "middle" } },
+          ...subjectChunk.map((subjectRow) => ({
+            content: String(subjectRow.subject || "Subject"),
+            colSpan: 3,
+            styles: { halign: "center", valign: "middle" },
+          })),
+        ];
+        const headBottom = [
+          ...subjectChunk.flatMap(() => ["A1", "A2", "A3"]),
+        ];
+
+        const body = students.map((student, index) => {
+          const row = [
+            index + 1,
+            student.name || "",
+            String(student.gender || "").slice(0, 1).toUpperCase(),
+          ];
+
+          subjectChunk.forEach((subjectRow) => {
+            ["AOI1", "AOI2", "AOI3"].forEach((aoiLabel) => {
+              const mark = markMap.get(
+                `${student.id}|${subjectRow.assignment_id}|${aoiLabel}`
+              );
+              row.push(formatScoreCell(mark));
+            });
+          });
+
+          return row;
+        });
+
+        autoTable(doc, {
+          startY: 32,
+          margin: { left: 8, right: 8, bottom: 12 },
+          head: [headTop, headBottom],
+          body,
+          theme: "grid",
+          styles: {
+            font: "helvetica",
+            fontSize: 12,
+            cellPadding: 1.2,
+            lineColor: [170, 177, 184],
+            lineWidth: 0.15,
+            textColor: [15, 23, 42],
+            halign: "center",
+          },
+          headStyles: {
+            fillColor: [230, 236, 244],
+            textColor: [15, 23, 42],
+            fontStyle: "bold",
+            fontSize: 12,
+          },
+          bodyStyles: {
+            fillColor: [255, 255, 255],
+          },
+          columnStyles: {
+            0: { cellWidth: numberColWidth, halign: "center" },
+            1: { cellWidth: learnerColWidth, halign: "left" },
+            2: { cellWidth: genderColWidth, halign: "center" },
+            ...Object.fromEntries(
+              Array.from({ length: aoiColumnCount }, (_, idx) => [
+                3 + idx,
+                { cellWidth: subjectAoiColWidth, halign: "center" },
+              ])
+            ),
+          },
+        });
+      });
+
+      const totalPages = doc.internal.getNumberOfPages();
+      for (let i = 1; i <= totalPages; i += 1) {
+        doc.setPage(i);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(12);
+        doc.text(
+          `Generated from SPESS ARK · ${generatedAt} · Page ${i} of ${totalPages}`,
+          pageW / 2,
+          pageH - 8,
+          { align: "center" }
+        );
+      }
+
+      const blob = doc.output("blob");
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (err) {
+      console.error("Score sheet PDF error:", err);
+      setScoreSheetError(err.message || "Failed to generate score sheet PDF.");
+    } finally {
+      setScoreSheetLoading(false);
+    }
+  };
   
   const handleDownloadMarksheetPdf = () => {
     setMarksheetError("");
@@ -1706,6 +1897,32 @@ export default function AdminDashboard() {
   
   const classOptions = Array.from(new Set(students.map((s) => s.class_level))).filter(Boolean);
   const classOptionsForMarksheet = classOptions.length > 0 ? classOptions : ["S1", "S2", "S3", "S4"];
+  const scoreSheetClassOptions = classOptionsForMarksheet;
+  const scoreSheetStreamOptions = useMemo(() => {
+    const selectedClass = String(scoreSheetFilters.class_level || "").trim();
+    const fromStudents = students
+      .filter((s) => !selectedClass || s.class_level === selectedClass)
+      .map((s) => s.stream);
+    const fromMarks = marksSets
+      .filter((m) => !selectedClass || m.class_level === selectedClass)
+      .map((m) => m.stream);
+    const combined = Array.from(new Set([...fromStudents, ...fromMarks])).filter(Boolean);
+    if (combined.length === 0) return ["North", "South"];
+    return combined.sort((a, b) => {
+      const order = { North: 0, South: 1 };
+      const av = order[a] ?? 99;
+      const bv = order[b] ?? 99;
+      return av !== bv ? av - bv : String(a).localeCompare(String(b));
+    });
+  }, [students, marksSets, scoreSheetFilters.class_level]);
+  useEffect(() => {
+    if (!scoreSheetStreamOptions.includes(scoreSheetFilters.stream)) {
+      setScoreSheetFilters((prev) => ({
+        ...prev,
+        stream: scoreSheetStreamOptions[0] || "North",
+      }));
+    }
+  }, [scoreSheetStreamOptions, scoreSheetFilters.stream]);
 
   const totalStudents = students.length;
   const totalBoys = students.filter((s) => s.gender === "Male").length;
@@ -2136,6 +2353,102 @@ export default function AdminDashboard() {
           </div>
     
           {marksError && <div className="panel-alert panel-alert-error">{marksError}</div>}
+
+          <div className="panel-card" style={{ marginBottom: "1rem" }}>
+            <div className="panel-card-header">
+              <h3>Noticeboard Score Sheet (PDF)</h3>
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(145px, 1fr))",
+                gap: "0.7rem",
+              }}
+            >
+              <div className="form-row">
+                <label>Class</label>
+                <select
+                  value={scoreSheetFilters.class_level}
+                  onChange={(e) =>
+                    setScoreSheetFilters((prev) => ({ ...prev, class_level: e.target.value }))
+                  }
+                >
+                  {scoreSheetClassOptions.map((cls) => (
+                    <option key={cls} value={cls}>
+                      {cls}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="form-row">
+                <label>Stream</label>
+                <select
+                  value={scoreSheetFilters.stream}
+                  onChange={(e) =>
+                    setScoreSheetFilters((prev) => ({ ...prev, stream: e.target.value }))
+                  }
+                >
+                  {scoreSheetStreamOptions.map((stream) => (
+                    <option key={stream} value={stream}>
+                      {stream}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="form-row">
+                <label>Term</label>
+                <select
+                  value={scoreSheetFilters.term}
+                  onChange={(e) =>
+                    setScoreSheetFilters((prev) => ({ ...prev, term: e.target.value }))
+                  }
+                >
+                  <option value="Term 1">Term 1</option>
+                  <option value="Term 2">Term 2</option>
+                  <option value="Term 3">Term 3</option>
+                </select>
+              </div>
+
+              <div className="form-row">
+                <label>Year</label>
+                <input
+                  type="number"
+                  min="2020"
+                  max="2100"
+                  value={scoreSheetFilters.year}
+                  onChange={(e) =>
+                    setScoreSheetFilters((prev) => ({
+                      ...prev,
+                      year: Number(e.target.value) || new Date().getFullYear(),
+                    }))
+                  }
+                />
+              </div>
+            </div>
+
+            <div style={{ display: "flex", gap: "0.7rem", alignItems: "center", marginTop: "0.8rem", flexWrap: "wrap" }}>
+              <button
+                type="button"
+                className="primary-btn"
+                onClick={handleDownloadScoreSheetPdf}
+                disabled={scoreSheetLoading}
+              >
+                {scoreSheetLoading ? "Generating PDF…" : "Generate Score Sheet PDF"}
+              </button>
+              <span className="muted-text">
+                Landscape A4 · 4 subjects per page · Helvetica 12
+              </span>
+            </div>
+
+            {scoreSheetError && (
+              <div className="panel-alert panel-alert-error" style={{ marginTop: "0.8rem" }}>
+                {scoreSheetError}
+              </div>
+            )}
+          </div>
     
           <div className="panel-grid">
     
@@ -2605,13 +2918,14 @@ export default function AdminDashboard() {
 
         <div style={{ display: "flex", gap: "0.6rem", alignItems: "center" }}>
   <button
+    type="button"
     className="ghost-btn"
     onClick={() => navigate("/ark/admin/alevel")}
   >
     A-Level
   </button>
 
-  <button className="nav-logout" onClick={handleLogout}>
+  <button type="button" className="nav-logout" onClick={handleLogout}>
     Logout
   </button>
 </div>

@@ -213,8 +213,10 @@ export async function executePromotions({
 
     const notesWithIp = buildPromotionNotes(notes, ipAddress);
     const historyIds = [];
+    const promotedLearnerIds = [];
     let promotedCount = 0;
     let graduatedCount = 0;
+    let clearedMarksCount = 0;
 
     for (const learner of eligible) {
       try {
@@ -264,8 +266,24 @@ export async function executePromotions({
         [learner.toClassLevel, learner.toStream, nextStatus, learner.id]
       );
 
+      promotedLearnerIds.push(learner.id);
+
       if (learner.promotionType === "GRADUATED") graduatedCount += 1;
       else promotedCount += 1;
+    }
+
+    // Clear old O-Level marks for learners that have just moved class.
+    // This keeps the new class session clean and prevents stale rows in Download Marks.
+    if (promotedLearnerIds.length > 0) {
+      const placeholders = promotedLearnerIds.map(() => "?").join(",");
+      const [deleteResult] = await conn.query(
+        `
+        DELETE FROM marks
+        WHERE student_id IN (${placeholders})
+        `,
+        promotedLearnerIds
+      );
+      clearedMarksCount = Number(deleteResult?.affectedRows || 0);
     }
 
     await conn.commit();
@@ -280,6 +298,7 @@ export async function executePromotions({
       processedCount: promotedCount + graduatedCount,
       promotedCount,
       graduatedCount,
+      clearedMarksCount,
       skipped,
       historyIds,
     };
@@ -434,4 +453,3 @@ export async function getPromotionHistory({
     totalPages: Math.max(1, Math.ceil(total / safeLimit)),
   };
 }
-

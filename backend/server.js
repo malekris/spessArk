@@ -990,6 +990,94 @@ app.get("/api/admin/marks-detail", authAdmin, async (req, res) => {
     res.status(500).json({ message: "Failed to load marks detail" });
   }
 });
+
+// ===============================
+// ADMIN → SCORE SHEET (NOTICEBOARD PDF SOURCE)
+// ===============================
+app.get("/api/admin/score-sheet", authAdmin, async (req, res) => {
+  try {
+    const classLevel = String(req.query.class_level || "").trim();
+    const stream = String(req.query.stream || "").trim();
+    const term = String(req.query.term || "").trim();
+    const year = parseInt(req.query.year, 10);
+
+    if (!classLevel || !stream || !term || !year) {
+      return res.status(400).json({
+        message: "class_level, stream, term and year are required",
+      });
+    }
+
+    const [subjects] = await pool.query(
+      `
+      SELECT
+        ta.id AS assignment_id,
+        ta.subject,
+        COALESCE(t.name, '—') AS teacher_name
+      FROM marks m
+      JOIN teacher_assignments ta ON ta.id = m.assignment_id
+      LEFT JOIN teachers t ON t.id = ta.teacher_id
+      WHERE ta.class_level = ?
+        AND ta.stream = ?
+        AND m.term = ?
+        AND m.year = ?
+        AND m.aoi_label IN ('AOI1', 'AOI2', 'AOI3')
+      GROUP BY ta.id, ta.subject, t.name
+      ORDER BY ta.subject
+      `,
+      [classLevel, stream, term, year]
+    );
+
+    const [students] = await pool.query(
+      `
+      SELECT id, name, gender
+      FROM students
+      WHERE class_level = ?
+        AND stream = ?
+      ORDER BY name
+      `,
+      [classLevel, stream]
+    );
+
+    const assignmentIds = (subjects || [])
+      .map((s) => Number(s.assignment_id))
+      .filter((id) => Number.isInteger(id) && id > 0);
+
+    let marks = [];
+    if (assignmentIds.length > 0) {
+      const placeholders = assignmentIds.map(() => "?").join(",");
+      const [rows] = await pool.query(
+        `
+        SELECT
+          assignment_id,
+          student_id,
+          aoi_label,
+          score,
+          status
+        FROM marks
+        WHERE term = ?
+          AND year = ?
+          AND assignment_id IN (${placeholders})
+          AND aoi_label IN ('AOI1', 'AOI2', 'AOI3')
+        `,
+        [term, year, ...assignmentIds]
+      );
+      marks = rows || [];
+    }
+
+    return res.json({
+      class_level: classLevel,
+      stream,
+      term,
+      year,
+      students: students || [],
+      subjects: subjects || [],
+      marks,
+    });
+  } catch (err) {
+    console.error("Score sheet source error:", err);
+    return res.status(500).json({ message: "Failed to load score sheet data" });
+  }
+});
 app.post("/api/teacher/marks", authTeacher, async (req, res) => {
   let conn;
   try {

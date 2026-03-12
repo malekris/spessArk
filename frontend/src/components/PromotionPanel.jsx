@@ -242,7 +242,8 @@ export default function PromotionPanel() {
             <div style={{ marginBottom: "0.8rem", padding: "0.6rem 0.7rem", borderRadius: "0.7rem", border: "1px solid rgba(34,197,94,0.45)", background: "rgba(34,197,94,0.12)", color: "#bbf7d0", fontSize: "0.82rem" }}>
               Processed: <strong>{executeResult.processedCount || 0}</strong> | Promoted:{" "}
               <strong>{executeResult.promotedCount || 0}</strong> | Graduated:{" "}
-              <strong>{executeResult.graduatedCount || 0}</strong>
+              <strong>{executeResult.graduatedCount || 0}</strong> | Marks Cleared:{" "}
+              <strong>{executeResult.clearedMarksCount || 0}</strong>
             </div>
           )}
 
@@ -429,4 +430,3 @@ export default function PromotionPanel() {
     </div>
   );
 }
-

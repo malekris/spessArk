@@ -74,7 +74,7 @@ export async function executePromotionsController(req, res) {
       entityType: "stream",
       entityId: null,
       description:
-        `Promotion batch ${classLevel} ${stream} ${academicYear}: processed=${result.processedCount}, promoted=${result.promotedCount}, graduated=${result.graduatedCount}`,
+        `Promotion batch ${classLevel} ${stream} ${academicYear}: processed=${result.processedCount}, promoted=${result.promotedCount}, graduated=${result.graduatedCount}, marks_cleared=${result.clearedMarksCount || 0}`,
       ipAddress,
     });
 
@@ -136,4 +136,3 @@ export async function getPromotionHistoryController(req, res) {
     return res.status(500).json({ message: "Failed to load promotion history" });
   }
 }
-

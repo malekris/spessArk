@@ -1,12 +1,40 @@
 .alevel-admin-root {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif !important;
+  display: flex;
+  flex-direction: row;
+  min-height: 100vh;
+}
+
+.alevel-admin-root.mode-dark {
   background: radial-gradient(circle at top left, #0b1220, #020617 55%, #000000) !important;
   color: #e5e7eb !important;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif !important;
+}
+
+.alevel-admin-root.mode-light {
+  background: radial-gradient(circle at top left, #f8fafc, #eef2ff 55%, #e2e8f0) !important;
+  color: #0f172a !important;
 }
 
 .alevel-admin-main {
   width: 100%;
   padding: 2.1rem 3rem 3rem;
+}
+
+.alevel-sidebar {
+  position: fixed !important;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  height: 100vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.alevel-dashboard-main {
+  margin-left: 270px;
+  width: calc(100% - 270px);
+  min-width: 0;
+  overflow-x: hidden;
 }
 
 .alevel-admin-root h1,
@@ -47,6 +75,49 @@
   color: #e5e7eb !important;
 }
 
+.alevel-admin-root.mode-light .panel {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(241, 245, 249, 0.96)) !important;
+  border: 1px solid rgba(15, 23, 42, 0.12) !important;
+  box-shadow: 0 18px 50px rgba(15, 23, 42, 0.08) !important;
+}
+
+.alevel-admin-root.mode-light .panel h2,
+.alevel-admin-root.mode-light .panel h3,
+.alevel-admin-root.mode-light .panel p {
+  color: #0f172a !important;
+}
+
+.alevel-admin-root.mode-light .panel .muted-text {
+  color: #334155 !important;
+}
+
+.alevel-admin-root.mode-light .panel-card {
+  border: 1px solid rgba(15, 23, 42, 0.12) !important;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.98)) !important;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08) !important;
+}
+
+.alevel-admin-root.mode-light .teachers-table thead {
+  background: rgba(226, 232, 240, 0.95) !important;
+}
+
+.alevel-admin-root.mode-light .teachers-table th {
+  color: #0f172a !important;
+}
+
+.alevel-admin-root.mode-light .teachers-table tbody tr:nth-child(odd) {
+  background: rgba(255, 255, 255, 0.94) !important;
+}
+
+.alevel-admin-root.mode-light .teachers-table tbody tr:nth-child(even) {
+  background: rgba(248, 250, 252, 0.96) !important;
+}
+
+.alevel-admin-root.mode-light .ghost-btn {
+  border: 1px solid rgba(15, 23, 42, 0.2) !important;
+  color: #0f172a !important;
+}
+
 .alevel-learners-layout {
   align-items: start;
 }
@@ -62,6 +133,23 @@
 }
 
 @media (max-width: 960px) {
+  .alevel-admin-root {
+    flex-direction: column !important;
+  }
+
+  .alevel-sidebar {
+    position: static !important;
+    width: 100% !important;
+    height: auto !important;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .alevel-dashboard-main {
+    margin-left: 0;
+    width: 100%;
+  }
+
   .alevel-admin-main {
     padding: 1.2rem 1rem 2rem;
   }

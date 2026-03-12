@@ -19,6 +19,13 @@ export default function ALevelDashboard() {
   const [trackerSubjects, setTrackerSubjects] = useState([]);
   const [trackerLoading, setTrackerLoading] = useState(false);
   const [trackerError, setTrackerError] = useState("");
+  const [themeMode, setThemeMode] = useState(() => {
+    try {
+      return localStorage.getItem("alevelDashboardTheme") || "dark";
+    } catch {
+      return "dark";
+    }
+  });
 
   useEffect(() => {
     fetch(`${API_BASE}/api/alevel/stats`)
@@ -72,20 +79,59 @@ export default function ALevelDashboard() {
     navigate("/ark", { replace: true });
   }, IDLE_20_MIN);
 
-  // Slate & Amethyst Palette
-  const slateBg = "#1e293b"; 
-  const slateDark = "#0f172a";
-  const amethyst = "#38bdf8"; 
-  const platinum = "#f1f5f9";
-  const cinematicBlack = "#0a0c10"; // Deep cinematic base
+  useEffect(() => {
+    try {
+      localStorage.setItem("alevelDashboardTheme", themeMode);
+    } catch {
+      // ignore storage issues
+    }
+  }, [themeMode]);
+
+  const isDark = themeMode !== "light";
+  const amethyst = "#38bdf8";
+  const palette = isDark
+    ? {
+        rootText: "#f1f5f9",
+        sidebarBg: "#050608",
+        sidebarBorder: "rgba(255, 255, 255, 0.03)",
+        muted: "#94a3b8",
+        mutedStrong: "#64748b",
+        cardBg: "rgba(30, 41, 59, 0.45)",
+        cardBorder: "rgba(255, 255, 255, 0.05)",
+        actionCardBg: "rgba(30, 41, 59, 0.3)",
+        actionHoverBg: "rgba(255,255,255,0.04)",
+        heroOverlay: `linear-gradient(to top, rgba(10, 12, 16, 1) 0%, rgba(10, 12, 16, 0.8) 20%, rgba(10, 12, 16, 0) 60%),
+                      linear-gradient(to right, rgba(10, 12, 16, 1) 0%, rgba(10, 12, 16, 0.4) 100%)`,
+        heroSubtitle: "#cbd5e1",
+        totalCardBg: "linear-gradient(135deg, #1e1b4b 0%, #0a0c10 100%)",
+        totalNumber: "#ffffff",
+        hoverShadow: "0 20px 40px rgba(0,0,0,0.4)",
+      }
+    : {
+        rootText: "#0f172a",
+        sidebarBg: "#ffffff",
+        sidebarBorder: "rgba(15, 23, 42, 0.08)",
+        muted: "#475569",
+        mutedStrong: "#334155",
+        cardBg: "rgba(255, 255, 255, 0.88)",
+        cardBorder: "rgba(15, 23, 42, 0.12)",
+        actionCardBg: "rgba(255, 255, 255, 0.92)",
+        actionHoverBg: "rgba(56, 189, 248, 0.1)",
+        heroOverlay: `linear-gradient(to top, rgba(248, 250, 252, 0.96) 0%, rgba(248, 250, 252, 0.75) 20%, rgba(248, 250, 252, 0.05) 60%),
+                      linear-gradient(to right, rgba(248, 250, 252, 0.9) 0%, rgba(248, 250, 252, 0.2) 100%)`,
+        heroSubtitle: "#1e293b",
+        totalCardBg: "linear-gradient(135deg, #dbeafe 0%, #f8fafc 100%)",
+        totalNumber: "#0f172a",
+        hoverShadow: "0 14px 32px rgba(15, 23, 42, 0.12)",
+      };
 
   const cardStyle = {
-    background: "rgba(30, 41, 59, 0.45)", // Thinner for better cinematic layering
+    background: palette.cardBg,
     backdropFilter: "blur(12px)",
     borderRadius: "18px",
-    border: "1px solid rgba(255, 255, 255, 0.05)",
+    border: `1px solid ${palette.cardBorder}`,
     transition: "all 0.4s cubic-bezier(0.4, 0, 0.2, 1)",
-    color: platinum
+    color: palette.rootText
   };
 
   const navItemStyle = (id) => ({
@@ -97,8 +143,8 @@ export default function ALevelDashboard() {
     fontSize: "0.9rem",
     fontWeight: "500",
     transition: "all 0.3s ease",
-    background: hoveredNav === id ? "rgba(167, 139, 250, 0.1)" : "transparent",
-    color: hoveredNav === id ? amethyst : "#94a3b8",
+    background: hoveredNav === id ? "rgba(56, 189, 248, 0.12)" : "transparent",
+    color: hoveredNav === id ? amethyst : palette.muted,
     border: "none",
     textAlign: "left",
     width: "100%",
@@ -107,15 +153,17 @@ export default function ALevelDashboard() {
 
   return (
     <div
-      className="admin-root alevel-admin-root"
-      style={{ display: "flex", flexDirection: "row", minHeight: "100vh", background: cinematicBlack, color: platinum, fontFamily: "'Inter', sans-serif" }}
+      className={`admin-root alevel-admin-root ${isDark ? "mode-dark" : "mode-light"}`}
+      style={{ display: "flex", flexDirection: "row", minHeight: "100vh", color: palette.rootText, fontFamily: "'Inter', sans-serif" }}
     >
       
       {/* ===== SIDEBAR ===== */}
-      <aside style={{
+      <aside
+        className="alevel-sidebar"
+        style={{
         width: "270px",
-        background: "#050608", // Darker sidebar for cinematic contrast
-        borderRight: "1px solid rgba(255, 255, 255, 0.03)",
+        background: palette.sidebarBg,
+        borderRight: `1px solid ${palette.sidebarBorder}`,
         padding: "2.5rem 1.5rem",
         display: "flex",
         flexDirection: "column",
@@ -123,7 +171,8 @@ export default function ALevelDashboard() {
         top: 0,
         height: "100vh",
         zIndex: 10
-      }}>
+      }}
+      >
         <div style={{ marginBottom: "3rem" }}>
           <h2 style={{ fontSize: "1.1rem", fontWeight: "800", letterSpacing: "0.05em" }}>
             ARK<span style={{ color: amethyst }}>ADMIN</span>
@@ -159,6 +208,25 @@ export default function ALevelDashboard() {
         </nav>
 
         <button
+          type="button"
+          onClick={() => setThemeMode((prev) => (prev === "dark" ? "light" : "dark"))}
+          style={{
+            padding: "0.85rem 0.95rem",
+            borderRadius: "10px",
+            background: isDark ? "rgba(56, 189, 248, 0.12)" : "rgba(15, 23, 42, 0.06)",
+            border: `1px solid ${isDark ? "rgba(56, 189, 248, 0.45)" : "rgba(15, 23, 42, 0.18)"}`,
+            color: isDark ? "#7dd3fc" : "#0f172a",
+            fontSize: "0.76rem",
+            fontWeight: "700",
+            cursor: "pointer",
+            transition: "all 0.2s ease",
+            marginTop: "0.4rem",
+          }}
+        >
+          {isDark ? "Switch to Light Mode" : "Switch to Dark Mode"}
+        </button>
+
+        <button
           onMouseEnter={() => setHoveredNav('back')}
           onMouseLeave={() => setHoveredNav(null)}
           onClick={() => navigate("/ark/admin")}
@@ -166,8 +234,8 @@ export default function ALevelDashboard() {
             padding: "0.9rem",
             borderRadius: "10px",
             background: "transparent",
-            border: `1px solid ${hoveredNav === 'back' ? amethyst : "rgba(148, 163, 184, 0.2)"}`,
-            color: hoveredNav === 'back' ? amethyst : "#64748b",
+            border: `1px solid ${hoveredNav === 'back' ? amethyst : palette.sidebarBorder}`,
+            color: hoveredNav === 'back' ? amethyst : palette.mutedStrong,
             fontSize: "0.8rem",
             fontWeight: "700",
             cursor: "pointer",
@@ -180,7 +248,7 @@ export default function ALevelDashboard() {
       </aside>
 
       {/* ===== MAIN CONTENT ===== */}
-      <main style={{ flex: 1 }}>
+      <main className="alevel-dashboard-main" style={{ flex: 1 }}>
         
         {/* ===== CINEMATIC HERO (NETFLIX STYLE) ===== */}
         <div style={{
@@ -196,15 +264,14 @@ export default function ALevelDashboard() {
           <div style={{
             position: "absolute",
             inset: 0,
-            background: `linear-gradient(to top, ${cinematicBlack} 0%, rgba(10, 12, 16, 0.8) 20%, rgba(10, 12, 16, 0) 60%), 
-                         linear-gradient(to right, ${cinematicBlack} 0%, rgba(10, 12, 16, 0.4) 100%)`
+            background: palette.heroOverlay
           }} />
 
           <div style={{ position: "relative", padding: "0 4rem 4rem 4rem", width: "100%" }}>
-            <h1 style={{ fontSize: "3.5rem", fontWeight: "900", margin: 0, letterSpacing: "-0.04em", textShadow: "0 2px 10px rgba(0,0,0,0.5)" }}>
+            <h1 style={{ fontSize: "3.5rem", fontWeight: "900", margin: 0, letterSpacing: "-0.04em", textShadow: isDark ? "0 2px 10px rgba(0,0,0,0.5)" : "0 1px 4px rgba(255,255,255,0.8)" }}>
               A-Level <span style={{ color: amethyst }}>Manager</span>
             </h1>
-            <p style={{ color: "#cbd5e1", fontSize: "1.2rem", maxWidth: "600px", marginTop: "1rem", lineHeight: "1.5" }}>
+            <p style={{ color: palette.heroSubtitle, fontSize: "1.2rem", maxWidth: "600px", marginTop: "1rem", lineHeight: "1.5" }}>
               A level students are managed from here.. <br/>
               Welcome to St Phillips.
             </p>
@@ -218,8 +285,8 @@ export default function ALevelDashboard() {
           {stats && (
             <div style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
-              gap: "1.5rem",
+              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+              gap: "1.1rem",
               marginBottom: "3rem"
             }}>
               {stats.streams.map((s, i) => (
@@ -229,29 +296,29 @@ export default function ALevelDashboard() {
                   onMouseLeave={() => setHoveredStat(null)}
                   style={{
                     ...cardStyle,
-                    padding: "1.8rem",
+                    padding: "1.35rem",
                     transform: hoveredStat === i ? "translateY(-8px)" : "none",
-                    borderColor: hoveredStat === i ? amethyst : "rgba(255, 255, 255, 0.05)",
-                    boxShadow: hoveredStat === i ? "0 20px 40px rgba(0,0,0,0.4)" : "none"
+                    borderColor: hoveredStat === i ? amethyst : palette.cardBorder,
+                    boxShadow: hoveredStat === i ? palette.hoverShadow : "none"
                   }}
                 >
                   <h3 style={{ margin: 0, fontSize: "0.75rem", letterSpacing: "0.15em", color: amethyst, textTransform: "uppercase", fontWeight: "800" }}>{s.stream}</h3>
                   <div style={{ marginTop: "1.5rem", display: "flex", flexDirection: "column", gap: "0.8rem" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.95rem" }}>
-                      <span style={{ color: "#94a3b8" }}>Male</span>
+                      <span style={{ color: palette.muted }}>Male</span>
                       <span style={{ fontWeight: "600" }}>{s.boys}</span>
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.95rem" }}>
-                      <span style={{ color: "#94a3b8" }}>Female</span>
+                      <span style={{ color: palette.muted }}>Female</span>
                       <span style={{ fontWeight: "600" }}>{s.girls}</span>
                     </div>
                     <div style={{ 
                       marginTop: "0.8rem", 
                       paddingTop: "1rem", 
-                      borderTop: "1px solid rgba(255,255,255,0.05)", 
+                      borderTop: `1px solid ${palette.cardBorder}`,
                       display: "flex", 
                       justifyContent: "space-between", 
-                      color: platinum 
+                      color: palette.rootText 
                     }}>
                       <span style={{ fontWeight: "500", fontSize: "0.85rem", opacity: 0.8 }}>Total</span>
                       <span style={{ fontWeight: "900", fontSize: "1.2rem" }}>{s.total}</span>
@@ -266,26 +333,26 @@ export default function ALevelDashboard() {
                 onMouseLeave={() => setHoveredStat(null)}
                 style={{
                   ...cardStyle,
-                  padding: "1.8rem",
-                  background: `linear-gradient(135deg, #1e1b4b 0%, ${cinematicBlack} 100%)`,
+                  padding: "1.35rem",
+                  background: palette.totalCardBg,
                   border: `1px solid ${amethyst}`,
                   transform: hoveredStat === 'total' ? "translateY(-8px)" : "none",
-                  boxShadow: hoveredStat === 'total' ? `0 15px 40px rgba(167, 139, 250, 0.15)` : "none"
+                  boxShadow: hoveredStat === 'total' ? `0 15px 40px rgba(56, 189, 248, 0.18)` : "none"
                 }}
               >
                 <h3 style={{ margin: 0, fontSize: "0.75rem", letterSpacing: "0.15em", color: amethyst, textTransform: "uppercase" }}>Total Population</h3>
-                <div style={{ fontSize: "4rem", fontWeight: "900", margin: "0.4rem 0", color: "#fff", letterSpacing: "-0.05em" }}>
+                <div style={{ fontSize: "3.2rem", fontWeight: "900", margin: "0.35rem 0", color: palette.totalNumber, letterSpacing: "-0.05em" }}>
                   {stats.streams.reduce((sum, s) => sum + s.total, 0).toLocaleString()}
                 </div>
                 <p style={{ margin: 0, opacity: 0.5, fontSize: "0.75rem", fontWeight: "700", letterSpacing: "0.05em" }}>GLOBAL A-LEVEL REGISTRY</p>
               </div>
 
               {/* STAFF CARD */}
-              <div style={{ ...cardStyle, padding: "1.8rem", display: "flex", alignItems: "center", gap: "1.5rem" }}>
-                <div style={{ fontSize: "3.5rem", fontWeight: "900", color: amethyst }}>{stats.teachers}</div>
+              <div style={{ ...cardStyle, padding: "1.35rem", display: "flex", alignItems: "center", gap: "1rem" }}>
+                <div style={{ fontSize: "2.9rem", fontWeight: "900", color: amethyst }}>{stats.teachers}</div>
                 <div>
-                  <div style={{ color: platinum, fontWeight: "700", textTransform: "uppercase", fontSize: "0.75rem", letterSpacing: "0.1em" }}>Teachers</div>
-                  <div style={{ color: "#64748b", fontSize: "0.85rem", fontWeight: "500" }}>On system</div>
+                  <div style={{ color: palette.rootText, fontWeight: "700", textTransform: "uppercase", fontSize: "0.75rem", letterSpacing: "0.1em" }}>Teachers</div>
+                  <div style={{ color: palette.mutedStrong, fontSize: "0.85rem", fontWeight: "500" }}>On system</div>
                 </div>
               </div>
             </div>
@@ -294,8 +361,8 @@ export default function ALevelDashboard() {
           {/* ACTION CARDS */}
           <div style={{
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
-            gap: "1.5rem"
+            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+            gap: "1.1rem"
           }}>
             {[
               { title: "Register Learners", desc: "Manage student biographical data and enrollment status.", path: "/ark/admin/alevel/learners", id: "act1" },
@@ -317,15 +384,15 @@ export default function ALevelDashboard() {
                 }}
                 style={{
                   ...cardStyle,
-                  padding: "2.5rem 2rem",
+                  padding: "1.6rem 1.35rem",
                   cursor: "pointer",
-                  background: hoveredAction === card.id ? "rgba(255,255,255,0.04)" : "rgba(30, 41, 59, 0.3)",
-                  borderColor: hoveredAction === card.id ? amethyst : "rgba(255, 255, 255, 0.05)",
+                  background: hoveredAction === card.id ? palette.actionHoverBg : palette.actionCardBg,
+                  borderColor: hoveredAction === card.id ? amethyst : palette.cardBorder,
                   transform: hoveredAction === card.id ? "scale(1.02)" : "none"
                 }}
               >
-                <h3 style={{ margin: "0 0 0.8rem 0", fontSize: "1.2rem", fontWeight: "700" }}>{card.title}</h3>
-                <p style={{ color: "#94a3b8", fontSize: "0.95rem", lineHeight: "1.6", marginBottom: "2.5rem" }}>{card.desc}</p>
+                <h3 style={{ margin: "0 0 0.65rem 0", fontSize: "1.05rem", fontWeight: "700" }}>{card.title}</h3>
+                <p style={{ color: palette.muted, fontSize: "0.9rem", lineHeight: "1.5", marginBottom: "1.6rem" }}>{card.desc}</p>
                 <div style={{ 
                   color: amethyst, 
                   fontSize: "0.75rem", 

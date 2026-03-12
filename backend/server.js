@@ -1956,6 +1956,22 @@ io.on("connection", (socket) => {
     io.to(`conversation-${conversationId}`).emit("dm_received", message);
   });
 
+  socket.on("dm_typing_start", ({ conversationId, userId }) => {
+    if (!conversationId || !userId) return;
+    socket.to(`conversation-${conversationId}`).emit("dm_typing_start", {
+      conversationId,
+      userId,
+    });
+  });
+
+  socket.on("dm_typing_stop", ({ conversationId, userId }) => {
+    if (!conversationId || !userId) return;
+    socket.to(`conversation-${conversationId}`).emit("dm_typing_stop", {
+      conversationId,
+      userId,
+    });
+  });
+
   socket.on("disconnect", () => {
     const uid = socketToUserId.get(socket.id);
     if (uid) {

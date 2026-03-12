@@ -1,8 +1,161 @@
 import express from "express";
 import { db, io, getOnlineUserIds } from "../../server.js";
 import { authenticate } from "../auth.js";
+import multer from "multer";
+import cloudinary from "../../config/cloudinary.js";
 
 const router = express.Router();
+const uploadDmMedia = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024 },
+});
+
+let dmSchemaReady = false;
+const ensureDmSchema = async () => {
+  if (dmSchemaReady) return;
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_message_meta (
+      message_id INT PRIMARY KEY,
+      reply_to_id INT NULL,
+      media_url TEXT NULL,
+      media_type VARCHAR(20) NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_conversation_pins (
+      user_id INT NOT NULL,
+      conversation_id INT NOT NULL,
+      pinned_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (user_id, conversation_id),
+      INDEX idx_pins_user_time (user_id, pinned_at)
+    )
+  `);
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_message_reactions (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      message_id INT NOT NULL,
+      user_id INT NOT NULL,
+      reaction VARCHAR(16) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_dm_reaction (message_id, user_id),
+      INDEX idx_dm_reaction_msg (message_id)
+    )
+  `);
+  dmSchemaReady = true;
+};
+
+const uploadBufferToCloudinary = (buffer, options = {}) =>
+  new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      { timeout: 180000, ...options },
+      (err, result) => {
+        if (err) return reject(err);
+        resolve(result);
+      }
+    );
+    stream.end(buffer);
+  });
+
+const hydrateMessages = async (messages, viewerId) => {
+  if (!Array.isArray(messages) || !messages.length) return messages || [];
+  await ensureDmSchema();
+  const ids = messages.map((m) => Number(m.id)).filter(Boolean);
+  const placeholders = ids.map(() => "?").join(",");
+
+  const [metaRows] = await db.query(
+    `
+    SELECT message_id, reply_to_id, media_url, media_type
+    FROM vine_message_meta
+    WHERE message_id IN (${placeholders})
+    `,
+    ids
+  );
+
+  const [reactionRows] = await db.query(
+    `
+    SELECT message_id, reaction, COUNT(*) AS total
+    FROM vine_message_reactions
+    WHERE message_id IN (${placeholders})
+    GROUP BY message_id, reaction
+    `,
+    ids
+  );
+
+  const [viewerRows] = await db.query(
+    `
+    SELECT message_id, reaction
+    FROM vine_message_reactions
+    WHERE user_id = ? AND message_id IN (${placeholders})
+    `,
+    [viewerId, ...ids]
+  );
+
+  const metaMap = new Map();
+  metaRows.forEach((r) => metaMap.set(Number(r.message_id), r));
+
+  const reactionMap = new Map();
+  reactionRows.forEach((r) => {
+    const key = Number(r.message_id);
+    const cur = reactionMap.get(key) || {};
+    cur[String(r.reaction)] = Number(r.total || 0);
+    reactionMap.set(key, cur);
+  });
+
+  const viewerReactionMap = new Map();
+  viewerRows.forEach((r) =>
+    viewerReactionMap.set(Number(r.message_id), String(r.reaction || ""))
+  );
+
+  const replyIds = Array.from(
+    new Set(
+      metaRows.map((m) => Number(m.reply_to_id)).filter(Boolean)
+    )
+  );
+  const replyMap = new Map();
+  if (replyIds.length) {
+    const replyPlaceholders = replyIds.map(() => "?").join(",");
+    const [replies] = await db.query(
+      `
+      SELECT
+        m.id,
+        m.sender_id,
+        m.content,
+        u.username,
+        u.display_name
+      FROM vine_messages m
+      JOIN vine_users u ON u.id = m.sender_id
+      WHERE m.id IN (${replyPlaceholders})
+      `,
+      replyIds
+    );
+    replies.forEach((r) =>
+      replyMap.set(Number(r.id), {
+        id: Number(r.id),
+        sender_id: Number(r.sender_id),
+        username: r.username,
+        display_name: r.display_name || r.username,
+        content: String(r.content || "").slice(0, 220),
+      })
+    );
+  }
+
+  return messages.map((m) => {
+    const id = Number(m.id);
+    const meta = metaMap.get(id);
+    const replyToId = Number(meta?.reply_to_id || 0) || null;
+    return {
+      ...m,
+      media_url: meta?.media_url || null,
+      media_type: meta?.media_type || null,
+      reply_to_id: replyToId,
+      reply_to_message: replyToId ? replyMap.get(replyToId) || null : null,
+      reactions: reactionMap.get(id) || {},
+      viewer_reaction: viewerReactionMap.get(id) || null,
+    };
+  });
+};
 
 /* =========================
    HELPER: check following
@@ -24,8 +177,37 @@ async function isFollowing(followerId, followingId) {
 ========================= */
 router.get("/conversations", authenticate, async (req, res) => {
   const userId = req.user.id;
+  const q = String(req.query?.q || "").trim().toLowerCase();
 
   try {
+    await ensureDmSchema();
+    const qWhere = q
+      ? `
+        AND (
+          LOWER(u.username) LIKE ?
+          OR LOWER(COALESCE(u.display_name, '')) LIKE ?
+          OR LOWER(COALESCE((
+            SELECT content
+            FROM vine_messages
+            WHERE conversation_id = c.id
+            ORDER BY created_at DESC
+            LIMIT 1
+          ), '')) LIKE ?
+        )
+      `
+      : "";
+    const params = [
+      userId,
+      userId,
+      userId,
+      userId,
+      userId,
+      userId,
+      userId,
+      userId,
+      userId,
+      ...(q ? [`%${q}%`, `%${q}%`, `%${q}%`] : []),
+    ];
     const [rows] = await db.query(`
       SELECT 
         c.id AS conversation_id,
@@ -59,7 +241,20 @@ router.get("/conversations", authenticate, async (req, res) => {
           WHERE conversation_id = c.id
             AND is_read = 0
             AND sender_id != ?
-        ) AS unread_count
+        ) AS unread_count,
+        EXISTS (
+          SELECT 1
+          FROM vine_conversation_pins cp
+          WHERE cp.user_id = ?
+            AND cp.conversation_id = c.id
+        ) AS is_pinned,
+        (
+          SELECT cp.pinned_at
+          FROM vine_conversation_pins cp
+          WHERE cp.user_id = ?
+            AND cp.conversation_id = c.id
+          LIMIT 1
+        ) AS pinned_at
 
       FROM vine_conversations c
       JOIN vine_users u 
@@ -83,9 +278,10 @@ router.get("/conversations", authenticate, async (req, res) => {
           WHERE m.muter_id = ?
             AND m.muted_id = IF(c.user1_id = ?, c.user2_id, c.user1_id)
         )
+        ${qWhere}
 
-      ORDER BY last_message_time DESC
-    `, [userId, userId, userId, userId, userId, userId, userId]);
+      ORDER BY is_pinned DESC, COALESCE(pinned_at, '1970-01-01') DESC, last_message_time DESC
+    `, params);
 
     res.json(rows);
   } catch (err) {
@@ -150,7 +346,8 @@ router.get("/conversations/:id/messages", authenticate, async (req, res) => {
       [conversationId]
     );
 
-    res.json(messages);
+    const hydrated = await hydrateMessages(messages, userId);
+    res.json(hydrated);
   } catch (err) {
     console.error("Get messages error:", err);
     res.status(500).json({ error: "Failed to load messages" });
@@ -243,13 +440,18 @@ router.post("/start", authenticate, async (req, res) => {
 ========================= */
 router.post("/send", authenticate, async (req, res) => {
   const senderId = req.user.id;
-  const { conversationId, receiverId, content } = req.body;
+  const { conversationId, receiverId, content, media_url, media_type, reply_to_id } = req.body;
+  const safeContent = String(content || "").trim();
+  const safeMediaUrl = String(media_url || "").trim();
+  const safeMediaType = String(media_type || "").trim().toLowerCase();
+  const replyToId = Number(reply_to_id) || null;
 
-  if (!content?.trim()) {
+  if (!safeContent && !safeMediaUrl) {
     return res.status(400).json({ error: "Message empty" });
   }
 
   try {
+    await ensureDmSchema();
     let activeConversationId = conversationId;
     let user1_id;
     let user2_id;
@@ -349,17 +551,42 @@ router.post("/send", authenticate, async (req, res) => {
       user2_id = createConversationWithUserId;
     }
 
+    if (replyToId) {
+      const [[replyExists]] = await db.query(
+        "SELECT id FROM vine_messages WHERE id = ? AND conversation_id = ? LIMIT 1",
+        [replyToId, activeConversationId]
+      );
+      if (!replyExists) {
+        return res.status(400).json({ error: "Reply target not found in this chat" });
+      }
+    }
+
     // Insert message
     const [result] = await db.query(
       `
       INSERT INTO vine_messages (conversation_id, sender_id, content)
       VALUES (?, ?, ?)
       `,
-      [activeConversationId, senderId, content]
+      [activeConversationId, senderId, safeContent || (safeMediaType === "voice" ? "Voice note" : "Attachment")]
     );
 
+    if (replyToId || safeMediaUrl) {
+      await db.query(
+        `
+        INSERT INTO vine_message_meta (message_id, reply_to_id, media_url, media_type, created_at)
+        VALUES (?, ?, ?, ?, NOW())
+        `,
+        [
+          result.insertId,
+          replyToId || null,
+          safeMediaUrl || null,
+          safeMediaType || null,
+        ]
+      );
+    }
+
     // Fetch full message (with username + avatar)
-    const [[fullMessage]] = await db.query(
+    const [[fullMessageRaw]] = await db.query(
       `
       SELECT 
         m.id,
@@ -376,6 +603,8 @@ router.post("/send", authenticate, async (req, res) => {
       `,
       [result.insertId]
     );
+    const [hydrated] = await hydrateMessages([fullMessageRaw], senderId);
+    const fullMessage = hydrated || fullMessageRaw;
 
     // ✅ Send to open chat window
     io.to(`conversation-${activeConversationId}`).emit("dm_received", fullMessage);
@@ -390,6 +619,100 @@ router.post("/send", authenticate, async (req, res) => {
   } catch (err) {
     console.error("Send DM error:", err);
     res.status(500).json({ error: "Failed to send message" });
+  }
+});
+
+router.post("/upload-media", authenticate, uploadDmMedia.single("file"), async (req, res) => {
+  try {
+    const file = req.file;
+    if (!file) return res.status(400).json({ error: "No file uploaded" });
+    const mime = String(file.mimetype || "").toLowerCase();
+    const isImage = mime.startsWith("image/");
+    const isAudio = mime.startsWith("audio/");
+    if (!isImage && !isAudio) {
+      return res.status(400).json({ error: "Only image or audio allowed" });
+    }
+    const uploaded = await uploadBufferToCloudinary(file.buffer, {
+      folder: isImage ? "vine/dms/images" : "vine/dms/voice",
+      resource_type: isImage ? "image" : "video",
+    });
+    res.json({
+      url: uploaded?.secure_url || uploaded?.url || null,
+      media_type: isImage ? "image" : "voice",
+      mime_type: file.mimetype || null,
+    });
+  } catch (err) {
+    console.error("Upload DM media error:", err);
+    res.status(500).json({ error: "Failed to upload media" });
+  }
+});
+
+router.post("/messages/:id/reaction", authenticate, async (req, res) => {
+  const userId = Number(req.user.id);
+  const messageId = Number(req.params.id);
+  const reaction = String(req.body?.reaction || "").trim().slice(0, 16);
+  if (!messageId) return res.status(400).json({ error: "Invalid message id" });
+  const allowed = new Set(["👍", "❤️", "😂", "🔥", "😮", "😢"]);
+  if (reaction && !allowed.has(reaction)) {
+    return res.status(400).json({ error: "Unsupported reaction" });
+  }
+
+  try {
+    await ensureDmSchema();
+    const [[messageRow]] = await db.query(
+      `
+      SELECT m.id, m.conversation_id
+      FROM vine_messages m
+      JOIN vine_conversations c ON c.id = m.conversation_id
+      WHERE m.id = ?
+        AND (c.user1_id = ? OR c.user2_id = ?)
+      LIMIT 1
+      `,
+      [messageId, userId, userId]
+    );
+    if (!messageRow) return res.status(404).json({ error: "Message not found" });
+
+    if (!reaction) {
+      await db.query(
+        "DELETE FROM vine_message_reactions WHERE message_id = ? AND user_id = ?",
+        [messageId, userId]
+      );
+    } else {
+      await db.query(
+        `
+        INSERT INTO vine_message_reactions (message_id, user_id, reaction, created_at, updated_at)
+        VALUES (?, ?, ?, NOW(), NOW())
+        ON DUPLICATE KEY UPDATE reaction = VALUES(reaction), updated_at = NOW()
+        `,
+        [messageId, userId, reaction]
+      );
+    }
+
+    const [countsRows] = await db.query(
+      `
+      SELECT reaction, COUNT(*) AS total
+      FROM vine_message_reactions
+      WHERE message_id = ?
+      GROUP BY reaction
+      `,
+      [messageId]
+    );
+    const counts = {};
+    countsRows.forEach((r) => {
+      counts[String(r.reaction || "")] = Number(r.total || 0);
+    });
+
+    io.to(`conversation-${messageRow.conversation_id}`).emit("dm_reaction_updated", {
+      message_id: messageId,
+      reactions: counts,
+      viewer_reaction: reaction || null,
+      actor_id: userId,
+    });
+
+    res.json({ success: true, message_id: messageId, reactions: counts, viewer_reaction: reaction || null });
+  } catch (err) {
+    console.error("DM reaction error:", err);
+    res.status(500).json({ error: "Failed to update reaction" });
   }
 });
 /* =========================
@@ -482,6 +805,84 @@ router.delete("/conversations/:id", authenticate, async (req, res) => {
   }
 });
 
+router.post("/conversations/:id/pin", authenticate, async (req, res) => {
+  const userId = Number(req.user.id);
+  const conversationId = Number(req.params.id);
+  const pinned = Boolean(req.body?.pinned);
+  if (!conversationId) return res.status(400).json({ error: "Invalid conversation" });
+  try {
+    await ensureDmSchema();
+    const [[check]] = await db.query(
+      `
+      SELECT id
+      FROM vine_conversations
+      WHERE id = ? AND (user1_id = ? OR user2_id = ?)
+      LIMIT 1
+      `,
+      [conversationId, userId, userId]
+    );
+    if (!check) return res.status(403).json({ error: "Access denied" });
+
+    if (pinned) {
+      await db.query(
+        `
+        INSERT INTO vine_conversation_pins (user_id, conversation_id, pinned_at)
+        VALUES (?, ?, NOW())
+        ON DUPLICATE KEY UPDATE pinned_at = NOW()
+        `,
+        [userId, conversationId]
+      );
+    } else {
+      await db.query(
+        "DELETE FROM vine_conversation_pins WHERE user_id = ? AND conversation_id = ?",
+        [userId, conversationId]
+      );
+    }
+    io.to(`user-${userId}`).emit("inbox_updated");
+    res.json({ success: true, pinned });
+  } catch (err) {
+    console.error("Pin conversation error:", err);
+    res.status(500).json({ error: "Failed to pin conversation" });
+  }
+});
+
+router.delete("/messages/:id", authenticate, async (req, res) => {
+  const userId = Number(req.user.id);
+  const messageId = Number(req.params.id);
+  if (!messageId) return res.status(400).json({ error: "Invalid message id" });
+  try {
+    await ensureDmSchema();
+    const [[row]] = await db.query(
+      `
+      SELECT id, conversation_id, sender_id
+      FROM vine_messages
+      WHERE id = ?
+      LIMIT 1
+      `,
+      [messageId]
+    );
+    if (!row) return res.status(404).json({ error: "Message not found" });
+    if (Number(row.sender_id) !== userId) {
+      return res.status(403).json({ error: "You can only delete your own message" });
+    }
+
+    await db.query("DELETE FROM vine_message_reactions WHERE message_id = ?", [messageId]);
+    await db.query("DELETE FROM vine_message_meta WHERE message_id = ?", [messageId]);
+    await db.query("DELETE FROM vine_messages WHERE id = ? AND sender_id = ?", [messageId, userId]);
+
+    io.to(`conversation-${row.conversation_id}`).emit("dm_message_deleted", {
+      message_id: messageId,
+      conversation_id: row.conversation_id,
+    });
+    io.to(`user-${userId}`).emit("inbox_updated");
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Delete message error:", err);
+    res.status(500).json({ error: "Failed to delete message" });
+  }
+});
+
 /* =========================
    GET messages in conversation (SAFE)
 ========================= */
@@ -535,7 +936,8 @@ router.get("/conversations/:id/messages", authenticate, async (req, res) => {
       [conversationId]
     );
 
-    res.json(messages);
+    const hydrated = await hydrateMessages(messages, userId);
+    res.json(hydrated);
   } catch (err) {
     console.error("Get messages error:", err);
     res.status(500).json({ error: "Failed to load messages" });

@@ -85,6 +85,11 @@
   margin-top: 2px;
 }
 
+.chat-lastseen.typing {
+  color: #10b981;
+  font-weight: 800;
+}
+
 .messages-container {
   flex: 1;
   overflow-y: auto;

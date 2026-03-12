@@ -217,34 +217,9 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
           ).values()
         );
 
-        // Merge with admin feed so A-Level rows stay visible even when scoped endpoints drift.
-        const teacherId = Number(teacher?.id || 0);
-        const teacherName = String(teacher?.name || "").trim().toLowerCase();
-        const teacherEmail = String(teacher?.email || "").trim().toLowerCase();
-
-        const adminRes = await fetch(`${API_BASE}/api/alevel/admin/assignments`);
-        const adminRows = adminRes.ok ? await adminRes.json().catch(() => []) : [];
-        const adminList = Array.isArray(adminRows) ? adminRows : [];
-        const mine = adminList
-          .filter((r) => {
-            const rowTeacherId = Number(r?.teacher_id || 0);
-            const rowTeacherName = String(r?.teacher_name || "").trim().toLowerCase();
-            const rowTeacherEmail = String(r?.teacher_email || "").trim().toLowerCase();
-            if (teacherId && rowTeacherId && teacherId === rowTeacherId) return true;
-            if (teacherEmail && rowTeacherEmail && teacherEmail === rowTeacherEmail) return true;
-            if (teacherName && rowTeacherName && teacherName === rowTeacherName) return true;
-            return false;
-          })
-          .map((r) => ({
-            id: r.id,
-            stream: r.stream ?? "—",
-            subject: r.subject ?? "—",
-          }));
-        const merged = [...deduped, ...(mine.length > 0 ? mine : adminList.map((r) => ({
-          id: r.id,
-          stream: r.stream ?? "—",
-          subject: r.subject ?? "—",
-        })))];
+        // Never merge unscoped admin assignments into teacher view.
+        // Only keep rows from scoped teacher endpoints above.
+        const merged = deduped;
         const finalRows = Array.from(
           new Map(
             merged

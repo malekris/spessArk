@@ -58,6 +58,22 @@
   font-size: 1.4rem;
 }
 
+.dm-search-row {
+  width: 100%;
+  max-width: 800px;
+  margin-bottom: 12px;
+}
+
+.dm-search-input {
+  width: 100%;
+  border: 1px solid #d1d5db;
+  border-radius: 999px;
+  padding: 10px 14px;
+  font-size: 0.95rem;
+  outline: none;
+  background: #ffffff;
+}
+
 /* ───── Conversation Item (Card) ───── */
 .dm-item {
   width: 100%;
@@ -175,6 +191,19 @@
   cursor: pointer;
   opacity: 0.3;
   transition: opacity 0.2s;
+}
+
+.dm-pin {
+  background: transparent;
+  border: none;
+  font-size: 1rem;
+  cursor: pointer;
+  opacity: 0.55;
+  margin-right: 8px;
+}
+
+.dm-pin.active {
+  opacity: 1;
 }
 
 .dm-item:hover .dm-delete {

@@ -18,6 +18,29 @@
   flex-direction: column;
 }
 
+.dm-reply-preview {
+  border-left: 3px solid #10b981;
+  background: #eef6f1;
+  border-radius: 10px;
+  padding: 6px 8px;
+  margin-bottom: 6px;
+  display: grid;
+  gap: 2px;
+}
+
+.dm-reply-preview strong {
+  font-size: 0.75rem;
+  color: #065f46;
+}
+
+.dm-reply-preview span {
+  font-size: 0.78rem;
+  color: #334155;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .msg-bubble {
   position: relative;
   padding: 9px 12px;
@@ -27,6 +50,65 @@
   word-wrap: break-word;
   overflow-wrap: break-word;
   box-shadow: 0 1px 1px rgba(15, 23, 42, 0.08);
+}
+
+.dm-media-img {
+  width: 100%;
+  max-width: 220px;
+  border-radius: 10px;
+  display: block;
+  margin-bottom: 6px;
+}
+
+.dm-media-audio {
+  display: block;
+  width: 220px;
+  max-width: 100%;
+  margin-bottom: 6px;
+}
+
+.dm-message-actions {
+  margin-top: 4px;
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.dm-message-actions button {
+  border: 1px solid #d1d5db;
+  border-radius: 999px;
+  padding: 2px 7px;
+  font-size: 0.73rem;
+  background: #fff;
+  cursor: pointer;
+}
+
+.dm-message-actions button.active {
+  border-color: #10b981;
+  background: #ecfdf5;
+}
+
+.dm-message-actions button.delete {
+  border-color: #fecaca;
+  color: #b91c1c;
+  background: #fff5f5;
+}
+
+.dm-reactions-row {
+  margin-top: 4px;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.dm-reactions-row span {
+  border: 1px solid #d1d5db;
+  background: #ffffff;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #334155;
 }
 
 .mine .msg-bubble {

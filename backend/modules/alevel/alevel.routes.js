@@ -1,6 +1,7 @@
 import express from "express";
 import { db } from "../../server.js";
 import authTeacher from "../../middleware/authTeacher.js";
+import authAdmin from "../../middleware/authAdmin.js";
 import { pool } from "../../server.js";
 
 import {
@@ -37,7 +38,7 @@ router.get("/subjects", async (req, res) => {
 });
 
 // assignments (admin view)
-router.get("/admin/assignments", async (req, res) => {
+router.get("/admin/assignments", authAdmin, async (req, res) => {
   try {
     const [rows] = await db.query(`
       SELECT 
@@ -60,7 +61,7 @@ router.get("/admin/assignments", async (req, res) => {
   }
 });
 // create assignment
-router.post("/admin/assignments", async (req, res) => {
+router.post("/admin/assignments", authAdmin, async (req, res) => {
   const { teacherId, subjectId, stream } = req.body;
 
   if (!teacherId || !subjectId || !stream) {
@@ -82,7 +83,7 @@ router.post("/admin/assignments", async (req, res) => {
 });
 
 // delete assignment
-router.delete("/admin/assignments/:id", async (req, res) => {
+router.delete("/admin/assignments/:id", authAdmin, async (req, res) => {
   try {
     await db.query(
       `DELETE FROM alevel_teacher_subjects WHERE id = ?`,

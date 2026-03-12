@@ -53,10 +53,13 @@ export default function ChatWindow() {
 
   const [messages, setMessages] = useState([]);
   const [partner, setPartner] = useState(null);
+  const [replyTarget, setReplyTarget] = useState(null);
+  const [partnerTyping, setPartnerTyping] = useState(false);
   const [, setLastSeenTick] = useState(0);
 
   const scrollRef = useRef(null);
   const stickToBottomRef = useRef(true);
+  const typingRef = useRef({ active: false, timeout: null });
 
   const currentUser = JSON.parse(localStorage.getItem("vine_user"));
   const myId = currentUser?.id;
@@ -170,24 +173,52 @@ fetch(`${API}/api/dms/conversations/${conversationId}/read`, {
     loadMessages();
   }, [conversationId]);
   //Handle send messages// 
-  const handleSendMessage = async (content) => {
+  const uploadDmMedia = async (file) => {
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch(`${API}/api/dms/upload-media`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: fd,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "Upload failed");
+    return data;
+  };
+
+  const handleSendMessage = async (payload) => {
     if (!myId) return;
     if (!conversationId && !receiverId) return;
     stickToBottomRef.current = true;
+    const content = String(payload?.content || "").trim();
+    const mediaFile = payload?.mediaFile || null;
+    const mediaType = payload?.mediaType || null;
+    const replyToId = payload?.replyToId || null;
+    let uploaded = null;
+    if (!content && !mediaFile) return;
   
     const tempId = `temp-${Date.now()}`;
   
     const tempMessage = {
       id: tempId,
       sender_id: myId,
-      content,
+      content: content || (mediaType === "voice" ? "Voice note" : "Attachment"),
       created_at: new Date().toISOString(),
+      media_url: payload?.localPreview || null,
+      media_type: mediaType || null,
+      reply_to_id: replyToId || null,
+      reply_to_message: replyTarget || null,
+      reactions: {},
+      viewer_reaction: null,
     };
   
     // 🔥 optimistic UI
     setMessages(prev => [...prev, tempMessage]);
   
     try {
+      if (mediaFile) {
+        uploaded = await uploadDmMedia(mediaFile);
+      }
       const res = await fetch(`${API}/api/dms/send`, {
         method: "POST",
         headers: {
@@ -196,8 +227,20 @@ fetch(`${API}/api/dms/conversations/${conversationId}/read`, {
         },
         body: JSON.stringify(
           conversationId
-            ? { conversationId, content }
-            : { receiverId, content }
+            ? {
+                conversationId,
+                content,
+                media_url: uploaded?.url || null,
+                media_type: uploaded?.media_type || null,
+                reply_to_id: replyToId || null,
+              }
+            : {
+                receiverId,
+                content,
+                media_url: uploaded?.url || null,
+                media_type: uploaded?.media_type || null,
+                reply_to_id: replyToId || null,
+              }
         ),
       });
   
@@ -216,7 +259,8 @@ fetch(`${API}/api/dms/conversations/${conversationId}/read`, {
             ? { ...m, ...saved, sender_id: myId }
             : m
         )
-      );      
+      );
+      setReplyTarget(null);
     } catch (err) {
       console.error("Send message failed:", err);
       setMessages(prev => prev.filter(m => m.id !== tempId));
@@ -349,12 +393,111 @@ fetch(`${API}/api/dms/conversations/${conversationId}/read`, {
   
     socket.on("dm_received", handleNewMessage);
     socket.on("messages_seen", handleSeen);
+    socket.on("dm_message_deleted", ({ message_id, conversation_id }) => {
+      if (String(conversation_id) !== String(conversationId)) return;
+      setMessages((prev) => prev.filter((m) => Number(m.id) !== Number(message_id)));
+    });
+    socket.on("dm_typing_start", ({ conversationId: cid, userId }) => {
+      if (String(cid) !== String(conversationId)) return;
+      if (Number(userId) === Number(myId)) return;
+      setPartnerTyping(true);
+    });
+    socket.on("dm_typing_stop", ({ conversationId: cid, userId }) => {
+      if (String(cid) !== String(conversationId)) return;
+      if (Number(userId) === Number(myId)) return;
+      setPartnerTyping(false);
+    });
+    socket.on("dm_reaction_updated", ({ message_id, reactions, viewer_reaction, actor_id }) => {
+      setMessages((prev) =>
+        prev.map((m) =>
+          Number(m.id) === Number(message_id)
+            ? {
+                ...m,
+                reactions: reactions || {},
+                viewer_reaction:
+                  Number(actor_id) === Number(myId)
+                    ? viewer_reaction || null
+                    : m.viewer_reaction || null,
+              }
+            : m
+        )
+      );
+    });
   
     return () => {
       socket.off("dm_received", handleNewMessage);
       socket.off("messages_seen", handleSeen);
+      socket.off("dm_message_deleted");
+      socket.off("dm_typing_start");
+      socket.off("dm_typing_stop");
+      socket.off("dm_reaction_updated");
     };
-  }, [conversationId]);
+  }, [conversationId, myId]);
+
+  useEffect(() => {
+    return () => {
+      if (typingRef.current.timeout) clearTimeout(typingRef.current.timeout);
+    };
+  }, []);
+
+  const handleTyping = (value) => {
+    if (!conversationId || !myId) return;
+    const hasText = String(value || "").length > 0;
+    if (hasText && !typingRef.current.active) {
+      socket.emit("dm_typing_start", { conversationId, userId: myId });
+      typingRef.current.active = true;
+    }
+    if (typingRef.current.timeout) clearTimeout(typingRef.current.timeout);
+    typingRef.current.timeout = setTimeout(() => {
+      if (typingRef.current.active) {
+        socket.emit("dm_typing_stop", { conversationId, userId: myId });
+        typingRef.current.active = false;
+      }
+    }, 1200);
+    if (!hasText && typingRef.current.active) {
+      socket.emit("dm_typing_stop", { conversationId, userId: myId });
+      typingRef.current.active = false;
+    }
+  };
+
+  const handleReact = async (message, reaction) => {
+    try {
+      const res = await fetch(`${API}/api/dms/messages/${message.id}/reaction`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ reaction }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return;
+      setMessages((prev) =>
+        prev.map((m) =>
+          Number(m.id) === Number(message.id)
+            ? {
+                ...m,
+                reactions: data.reactions || {},
+                viewer_reaction: data.viewer_reaction || null,
+              }
+            : m
+        )
+      );
+    } catch {}
+  };
+
+  const handleDeleteMessage = async (message) => {
+    if (!message?.id || String(message.id).startsWith("temp-")) return;
+    if (!window.confirm("Delete this message?")) return;
+    try {
+      const res = await fetch(`${API}/api/dms/messages/${message.id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      setMessages((prev) => prev.filter((m) => Number(m.id) !== Number(message.id)));
+    } catch {}
+  };
  
   useEffect(() => {
     if (!conversationId) return;
@@ -423,7 +566,9 @@ fetch(`${API}/api/dms/conversations/${conversationId}/read`, {
                   </span>
                 )}
               </strong>
-              {partner.show_last_active !== 0 && partner.last_active_at && (
+              {partnerTyping ? (
+                <div className="chat-lastseen typing">typing…</div>
+              ) : partner.show_last_active !== 0 && partner.last_active_at && (
                 <div className="chat-lastseen">
                   Last seen {formatLastSeenAgo(partner.last_active_at)}
                 </div>
@@ -457,7 +602,12 @@ fetch(`${API}/api/dms/conversations/${conversationId}/read`, {
                     <span>{formatDayDivider(m.created_at)}</span>
                   </div>
                 )}
-                <MessageBubble message={m} />
+                <MessageBubble
+                  message={m}
+                  onReply={(msg) => setReplyTarget(msg)}
+                  onReact={handleReact}
+                  onDelete={handleDeleteMessage}
+                />
               </div>
             );
           })
@@ -468,7 +618,12 @@ fetch(`${API}/api/dms/conversations/${conversationId}/read`, {
 
       {/* INPUT */}
       <div className="chat-footer">
-      <MessageInput onSend={handleSendMessage} />
+      <MessageInput
+        onSend={handleSendMessage}
+        replyTarget={replyTarget}
+        onCancelReply={() => setReplyTarget(null)}
+        onTyping={handleTyping}
+      />
       </div>
     </div>
   );

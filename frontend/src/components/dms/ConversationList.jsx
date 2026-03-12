@@ -11,6 +11,7 @@ export default function ConversationList() {
      STATE & GLOBALS
   ---------------------------- */
   const [conversations, setConversations] = useState([]);
+  const [search, setSearch] = useState("");
   const navigate = useNavigate();
   const token = localStorage.getItem("vine_token");
 
@@ -19,7 +20,8 @@ export default function ConversationList() {
   ---------------------------- */
   const loadConversations = async () => {
     try {
-      const res = await fetch(`${API}/api/dms/conversations`, {
+      const qs = search.trim() ? `?q=${encodeURIComponent(search.trim())}` : "";
+      const res = await fetch(`${API}/api/dms/conversations${qs}`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -29,6 +31,22 @@ export default function ConversationList() {
       setConversations(data || []);
     } catch (err) {
       console.error("Failed to load conversations", err);
+    }
+  };
+
+  const togglePinConversation = async (id, pinned) => {
+    try {
+      await fetch(`${API}/api/dms/conversations/${id}/pin`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ pinned }),
+      });
+      loadConversations();
+    } catch (err) {
+      console.error("Pin failed", err);
     }
   };
 
@@ -77,7 +95,7 @@ export default function ConversationList() {
       socket.off("inbox_updated", refreshInbox);
       socket.off("messages_seen", refreshInbox);
     };
-  }, []);
+  }, [search]);
 
   /* ---------------------------
      UI
@@ -93,6 +111,14 @@ export default function ConversationList() {
 
   <span className="dm-title">💬 Messages</span>
 </div>
+      <div className="dm-search-row">
+        <input
+          className="dm-search-input"
+          placeholder="Search conversations..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+      </div>
 
       {/* EMPTY STATE */}
       {conversations.length === 0 && (
@@ -155,6 +181,17 @@ export default function ConversationList() {
                 {c.unread_count > 0 && (
                   <span className="dm-badge">{c.unread_count}</span>
                 )}
+
+                <button
+                  className={`dm-pin ${Number(c.is_pinned) === 1 ? "active" : ""}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    togglePinConversation(c.conversation_id, Number(c.is_pinned) !== 1);
+                  }}
+                  title={Number(c.is_pinned) === 1 ? "Unpin chat" : "Pin chat"}
+                >
+                  📌
+                </button>
 
                 {/* DELETE BUTTON */}
                 <button

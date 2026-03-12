@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { plainFetch } from "../../../lib/api";
+import { plainFetch, adminFetch } from "../../../lib/api";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { useNavigate } from "react-router-dom";
@@ -66,7 +66,7 @@ export default function ALevelAssignSubjects() {
       const [subs, tchs, assigns] = await Promise.all([
         plainFetch("/api/alevel/subjects"),
         plainFetch("/api/teachers"),
-        plainFetch("/api/alevel/admin/assignments"),
+        adminFetch("/api/alevel/admin/assignments"),
       ]);
 
       setSubjects(subs || []);
@@ -101,7 +101,7 @@ export default function ALevelAssignSubjects() {
     }
 
     try {
-      await plainFetch("/api/alevel/admin/assignments", {
+      await adminFetch("/api/alevel/admin/assignments", {
         method: "POST",
         body: {
           teacherId: form.teacherId,
@@ -125,7 +125,7 @@ export default function ALevelAssignSubjects() {
     if (!window.confirm("Delete this assignment?")) return;
 
     try {
-      await plainFetch(`/api/alevel/admin/assignments/${id}`, {
+      await adminFetch(`/api/alevel/admin/assignments/${id}`, {
         method: "DELETE",
       });
       setAssignments((p) => p.filter((a) => a.id !== id));

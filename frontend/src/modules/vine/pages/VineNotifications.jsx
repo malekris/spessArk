@@ -41,11 +41,25 @@ export default function VineNotifications() {
   const renderText = (n) => {
     const meta = getMeta(n);
     switch (n.type) {
-      case "like": return "liked your post";
+      case "like": {
+        const reaction = String(meta.reaction || "like").toLowerCase();
+        if (reaction === "love") return "loved your post";
+        if (reaction === "happy") return "reacted 😄 to your post";
+        if (reaction === "sad") return "reacted 😢 to your post";
+        if (reaction === "care") return "reacted 🤗 to your post";
+        return "liked your post";
+      }
       case "comment": return "commented on your post";
       case "reply": return "replied to your comment";
       case "follow": return "followed you";
-      case "like_comment": return "liked your comment";
+      case "like_comment": {
+        const reaction = String(meta.reaction || "like").toLowerCase();
+        if (reaction === "love") return "loved your comment";
+        if (reaction === "happy") return "reacted 😄 to your comment";
+        if (reaction === "sad") return "reacted 😢 to your comment";
+        if (reaction === "care") return "reacted 🤗 to your comment";
+        return "liked your comment";
+      }
       case "revine": return "revined your post";
       case "mention_post": return "mentioned you in a post";
       case "mention_comment": return "mentioned you in a comment";

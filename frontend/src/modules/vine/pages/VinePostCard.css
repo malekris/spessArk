@@ -14,7 +14,7 @@
   border-radius: 32px;            /* ← bigger radius = softer rounder edges */
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.04); /* gentler shadow */
   box-sizing: border-box;
-  overflow: hidden;               /* prevents inner content from poking out corners */
+  overflow: visible;              /* allow reaction popovers to fully display */
   transition: all 0.25s ease;
 }
 
@@ -758,6 +758,58 @@
   color: #10b981;
 }
 
+.reaction-action-wrap {
+  position: relative;
+}
+
+.reaction-picker-pop {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  background: #ffffff;
+  border: 1px solid #d1fae5;
+  border-radius: 999px;
+  box-shadow: 0 14px 30px rgba(2, 6, 23, 0.16);
+  padding: 8px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  z-index: 60;
+  white-space: nowrap;
+}
+
+.reaction-picker-floating {
+  position: fixed;
+  bottom: auto;
+  left: 0;
+  z-index: 2147483600;
+  max-width: calc(100vw - 16px);
+  overflow-x: auto;
+}
+
+.reaction-pill {
+  border: 1px solid transparent;
+  background: #f8fafc;
+  border-radius: 999px;
+  padding: 4px 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  color: #0f172a;
+  font-weight: 700;
+}
+
+.reaction-pill.active {
+  border-color: #86efac;
+  background: #ecfdf5;
+}
+
+.reaction-pill small {
+  font-size: 0.72rem;
+  color: #065f46;
+}
+
 .view-btn {
   cursor: default;
   pointer-events: none;
@@ -793,6 +845,10 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+
+.liked-by-reaction {
+  line-height: 1;
 }
 
 .liked-by-latest .verified.guardian {
@@ -964,6 +1020,23 @@
   margin-bottom: 10px;
 }
 
+.likes-reaction-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.likes-summary-chip {
+  border: 1px solid #bbf7d0;
+  background: #ecfdf5;
+  color: #065f46;
+  border-radius: 999px;
+  padding: 3px 9px;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
 .likes-modal-list {
   display: flex;
   flex-direction: column;
@@ -998,6 +1071,11 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+
+.likes-user-reaction {
+  font-size: 0.92rem;
+  line-height: 1;
 }
 
 .likes-user-username {
@@ -1409,6 +1487,12 @@
   .action-btn {
     font-size: 0.85rem;
     padding: 6px 10px;
+  }
+
+  .reaction-picker-pop {
+    left: -10px;
+    max-width: min(94vw, 420px);
+    overflow-x: auto;
   }
 
   .carousel-img,

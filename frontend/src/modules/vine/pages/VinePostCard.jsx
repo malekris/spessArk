@@ -14,6 +14,26 @@ const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const DEFAULT_AVATAR = "/default-avatar.png";
 const ORIGIN = API.replace(/\/api$/, "");
 const viewedPosts = new Set();
+const POST_REACTIONS = [
+  { key: "love", emoji: "❤️", label: "Love" },
+  { key: "happy", emoji: "😄", label: "Happy" },
+  { key: "sad", emoji: "😢", label: "Sad" },
+  { key: "care", emoji: "🤗", label: "Care" },
+];
+const REACTION_LABEL = {
+  like: "Liked",
+  love: "Loved",
+  happy: "Happy",
+  sad: "Sad",
+  care: "Care",
+};
+const REACTION_EMOJI = {
+  like: "❤️",
+  love: "❤️",
+  happy: "😄",
+  sad: "😢",
+  care: "🤗",
+};
 
 /**
  * Formats timestamp to relative time (just now, 5m, 2h, 3d, or date)
@@ -274,6 +294,12 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
   // ── State ───────────────────────────────────────
   const [postLikes, setPostLikes] = useState(post.likes || 0);
   const [postUserLiked, setPostUserLiked] = useState(post.user_liked || false);
+  const [postUserReaction, setPostUserReaction] = useState(
+    post.viewer_reaction || (post.user_liked ? "like" : null)
+  );
+  const [reactionCounts, setReactionCounts] = useState(
+    post.reaction_counts || { like: 0, love: 0, happy: 0, sad: 0, care: 0 }
+  );
   const [revines, setRevines] = useState(post.revines || 0);
   const [userRevined, setUserRevined] = useState(post.user_revined || false);
   const [views, setViews] = useState(post.views ?? post.view_count ?? 0);
@@ -286,6 +312,7 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
   const avatarRef = useRef(null);
   const [commentLikes, setCommentLikes] = useState({});
   const [commentUserLiked, setCommentUserLiked] = useState({});
+  const [commentUserReaction, setCommentUserReaction] = useState({});
   const [isDeleted, setIsDeleted] = useState(false);
   const [bookmarked, setBookmarked] = useState(post.user_bookmarked || false);
   const [mentionResults, setMentionResults] = useState([]);
@@ -302,6 +329,11 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
   const [showLikesModal, setShowLikesModal] = useState(false);
   const [likedUsers, setLikedUsers] = useState([]);
   const [latestLiker, setLatestLiker] = useState(null);
+  const [showReactionPicker, setShowReactionPicker] = useState(false);
+  const [reactionPickerPos, setReactionPickerPos] = useState({ left: 0, top: 0 });
+  const reactionPressTimer = useRef(null);
+  const reactionLongPressTriggered = useRef(false);
+  const likeButtonRef = useRef(null);
   const [poll, setPoll] = useState(post.poll || null);
   const [pollLoading, setPollLoading] = useState(false);
   const [pollVotingOptionId, setPollVotingOptionId] = useState(null);
@@ -417,6 +449,47 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
   }, [post.comments]);
 
   useEffect(() => {
+    if (post.viewer_reaction !== undefined) {
+      setPostUserReaction(post.viewer_reaction || null);
+    } else if (post.user_liked !== undefined) {
+      setPostUserReaction(post.user_liked ? "like" : null);
+    }
+  }, [post.viewer_reaction, post.user_liked]);
+
+  useEffect(() => {
+    const closePicker = () => setShowReactionPicker(false);
+    document.addEventListener("pointerdown", closePicker);
+    return () => {
+      clearTimeout(reactionPressTimer.current);
+      document.removeEventListener("pointerdown", closePicker);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!showReactionPicker) return;
+    const updatePosition = () => {
+      const btn = likeButtonRef.current;
+      if (!btn) return;
+      const rect = btn.getBoundingClientRect();
+      const pickerWidth = 340;
+      const margin = 8;
+      const left = Math.min(
+        Math.max(margin, rect.left),
+        Math.max(margin, window.innerWidth - pickerWidth - margin)
+      );
+      const top = Math.max(margin, rect.top - 64);
+      setReactionPickerPos({ left, top });
+    };
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [showReactionPicker]);
+
+  useEffect(() => {
     if (!canShowLikeCount || Number(postLikes || 0) <= 0) {
       setLatestLiker(null);
       return;
@@ -429,12 +502,43 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
         const data = await res.json().catch(() => ({}));
         if (!res.ok) return;
         setLatestLiker(data.latest || null);
+        if (data.viewer_reaction !== undefined) {
+          setPostUserReaction(data.viewer_reaction || null);
+          setPostUserLiked(Boolean(data.viewer_reaction));
+        }
+        if (data.reaction_counts) {
+          setReactionCounts((prev) => ({ ...prev, ...data.reaction_counts }));
+        }
       } catch {
         // no-op
       }
     };
     loadLikesPreview();
   }, [post.id, postLikes, canShowLikeCount, token]);
+
+  const loadLikesPreviewNow = async () => {
+    if (!canShowLikeCount || Number(postLikes || 0) <= 0) return;
+    const loadLikesPreview = async () => {
+      try {
+        const res = await fetch(`${API}/api/vine/posts/${post.id}/likes?limit=1`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return;
+      setLatestLiker(data.latest || null);
+      if (data.viewer_reaction !== undefined) {
+        setPostUserReaction(data.viewer_reaction || null);
+        setPostUserLiked(Boolean(data.viewer_reaction));
+      }
+      if (data.reaction_counts) {
+        setReactionCounts((prev) => ({ ...prev, ...data.reaction_counts }));
+      }
+      } catch {
+        // no-op
+      }
+    };
+    await loadLikesPreview();
+  };
 
   useEffect(() => {
     const q = mentionAnchor?.query;
@@ -474,6 +578,7 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
   useEffect(() => {
     const likes = { ...commentLikes };
     const liked = { ...commentUserLiked };
+    const reacted = { ...commentUserReaction };
   
     const hydrate = (node) => {
       if (likes[node.id] === undefined) {
@@ -481,6 +586,9 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
       }
       if (liked[node.id] === undefined) {
         liked[node.id] = node.user_liked || false;
+      }
+      if (reacted[node.id] === undefined) {
+        reacted[node.id] = node.user_reaction || (node.user_liked ? "like" : null);
       }
   
       if (node.replies?.length) {
@@ -492,6 +600,7 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
   
     setCommentLikes(likes);
     setCommentUserLiked(liked);
+    setCommentUserReaction(reacted);
   }, [comments]);
   
   // ── API Handlers ────────────────────────────────
@@ -568,10 +677,14 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
       console.error("Pin post failed", err);
     }
   };
-  const handleLike = async () => {
+  const handleLike = async (reaction = "like") => {
     const res = await fetch(`${API}/api/vine/posts/${post.id}/like`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ reaction }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -580,6 +693,14 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
     }
     setPostLikes(data.likes);
     setPostUserLiked(data.user_liked);
+    setPostUserReaction(data.viewer_reaction || null);
+    if (data.reaction_counts) {
+      setReactionCounts((prev) => ({ ...prev, ...data.reaction_counts }));
+    }
+    setShowReactionPicker(false);
+    setTimeout(() => {
+      loadLikesPreviewNow();
+    }, 0);
   };
 
   const handleBookmark = async () => {
@@ -605,10 +726,36 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
       if (!res.ok) return;
       setLikedUsers(Array.isArray(data.users) ? data.users : []);
       setLatestLiker(data.latest || null);
+      if (data.reaction_counts) {
+        setReactionCounts((prev) => ({ ...prev, ...data.reaction_counts }));
+      }
       setShowLikesModal(true);
     } catch {
       // no-op
     }
+  };
+
+  const startReactionPress = (e) => {
+    e.stopPropagation();
+    reactionLongPressTriggered.current = false;
+    clearTimeout(reactionPressTimer.current);
+    reactionPressTimer.current = setTimeout(() => {
+      reactionLongPressTriggered.current = true;
+      setShowReactionPicker(true);
+    }, 360);
+  };
+
+  const cancelReactionPress = () => {
+    clearTimeout(reactionPressTimer.current);
+  };
+
+  const handleLikeButtonClick = (e) => {
+    e.stopPropagation();
+    if (reactionLongPressTriggered.current) {
+      reactionLongPressTriggered.current = false;
+      return;
+    }
+    handleLike("like");
   };
   
 
@@ -1016,8 +1163,8 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
     onClick={() => {
       const now = Date.now();
       if (now - lastTapRef.current < 300) {
-        if (!post.user_liked) {
-          handleLike(); // ❤️ existing like handler
+        if (!postUserLiked) {
+          handleLike("like");
         }
       }
       lastTapRef.current = now;
@@ -1060,13 +1207,25 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
         </div>
       )}
       <div className="vine-post-footer">
-      <button
-  className={`action-btn ${postUserLiked ? "active-like" : ""}`}
-  onClick={handleLike}
->
-  {postUserLiked ? "❤️" : "🤍"}
-  {canShowLikeCount && ` ${postLikes}`}
-</button>    
+        <div
+          className="reaction-action-wrap"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            ref={likeButtonRef}
+            className={`action-btn ${postUserLiked ? "active-like" : ""}`}
+            onPointerDown={startReactionPress}
+            onPointerUp={cancelReactionPress}
+            onPointerCancel={cancelReactionPress}
+            onPointerLeave={cancelReactionPress}
+            onContextMenu={(e) => e.preventDefault()}
+            onClick={handleLikeButtonClick}
+          >
+            {postUserLiked ? (REACTION_EMOJI[postUserReaction] || "❤️") : "🤍"}
+            {canShowLikeCount && ` ${postLikes}`}
+          </button>
+        </div>
         <button className="action-btn" onClick={() => setOpen(!open)}>
           💬 {commentCount}
         </button>
@@ -1103,8 +1262,13 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
       </div>
       {canShowLikeCount && Number(postLikes || 0) > 0 && latestLiker && (
         <button className="liked-by-line" onClick={openLikesModal}>
-          Liked by{" "}
+          {String(latestLiker.reaction || "like").toLowerCase() === "like" ? "Liked by " : "Reacted by "}
           <strong className="liked-by-latest">
+            {String(latestLiker.reaction || "like").toLowerCase() !== "like" && (
+              <span className="liked-by-reaction">
+                {REACTION_EMOJI[String(latestLiker.reaction || "like").toLowerCase()] || "❤️"}
+              </span>
+            )}
             {latestLiker.display_name || latestLiker.username}
             {(Number(latestLiker.is_verified) === 1 ||
               ["vine guardian", "vine_guardian", "vine news", "vine_news"].includes(
@@ -1220,8 +1384,10 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
     comment={c}
     commentLikes={commentLikes}
     commentUserLiked={commentUserLiked}
+    commentUserReaction={commentUserReaction}
     setCommentLikes={setCommentLikes}
     setCommentUserLiked={setCommentUserLiked}
+    setCommentUserReaction={setCommentUserReaction}
     onReply={sendComment}
     onDelete={deleteComment}
     canReply={!isCommunityInteractionLocked}
@@ -1307,7 +1473,16 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
         createPortal(
           <div className="report-modal-backdrop" onClick={() => setShowLikesModal(false)}>
             <div className="likes-modal" onClick={(e) => e.stopPropagation()}>
-              <div className="likes-modal-title">Liked by</div>
+              <div className="likes-modal-title">Reactions</div>
+              <div className="likes-reaction-summary">
+                {Object.entries(reactionCounts || {})
+                  .filter(([, total]) => Number(total || 0) > 0)
+                  .map(([key, total]) => (
+                    <span key={`summary-${post.id}-${key}`} className="likes-summary-chip">
+                      {REACTION_EMOJI[key] || "❤️"} {total}
+                    </span>
+                  ))}
+              </div>
               <div className="likes-modal-list">
                 {likedUsers.map((u) => (
                   <button
@@ -1327,6 +1502,9 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
                     />
                     <div className="likes-user-meta">
                       <div className="likes-user-name">
+                        <span className="likes-user-reaction">
+                          {REACTION_EMOJI[String(u.reaction || "like").toLowerCase()] || "❤️"}
+                        </span>
                         {u.display_name || u.username}
                         {Number(u.is_verified) === 1 && (
                           <span className="likes-verified" title="Verified">
@@ -1334,7 +1512,9 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
                           </span>
                         )}
                       </div>
-                      <div className="likes-user-username">@{u.username}</div>
+                      <div className="likes-user-username">
+                        @{u.username} · {REACTION_LABEL[String(u.reaction || "like").toLowerCase()] || "Liked"}
+                      </div>
                     </div>
                   </button>
                 ))}
@@ -1346,6 +1526,29 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
           </div>,
           document.body
         )}
+      {showReactionPicker && typeof document !== "undefined" &&
+        createPortal(
+          <div
+            className="reaction-picker-pop reaction-picker-floating"
+            style={{ left: `${reactionPickerPos.left}px`, top: `${reactionPickerPos.top}px` }}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {POST_REACTIONS.map((item) => (
+              <button
+                key={`react-${post.id}-${item.key}`}
+                type="button"
+                className={`reaction-pill ${postUserReaction === item.key ? "active" : ""}`}
+                onClick={() => handleLike(item.key)}
+                title={item.label}
+              >
+                <span>{item.emoji}</span>
+                <small>{item.label}</small>
+              </button>
+            ))}
+          </div>,
+          document.body
+        )}
     </div>
   );
 }
@@ -1354,21 +1557,42 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
 //  NESTED COMMENT COMPONENT
 // ────────────────────────────────────────────────
 
-function Comment({ comment, commentLikes, commentUserLiked, setCommentLikes, setCommentUserLiked, onReply, onDelete, canReply = true, isPostOwner, currentUserId, isModerator, token, onReport }) {
+function Comment({
+  comment,
+  commentLikes,
+  commentUserLiked,
+  commentUserReaction,
+  setCommentLikes,
+  setCommentUserLiked,
+  setCommentUserReaction,
+  onReply,
+  onDelete,
+  canReply = true,
+  isPostOwner,
+  currentUserId,
+  isModerator,
+  token,
+  onReport,
+}) {
 
   const navigate = useNavigate();
   const [mentionResults, setMentionResults] = useState([]);
   const [mentionAnchor, setMentionAnchor] = useState(null);
 
-  const [likes, setLikes] = useState(comment.likes || 0);
-  const [userLiked, setUserLiked] = useState(comment.user_liked || false);
   const [replying, setReplying] = useState(false);
   const [replyText, setReplyText] = useState("");
   const [showReplies, setShowReplies] = useState(false);
   const [gifPickerReplyOpen, setGifPickerReplyOpen] = useState(false);
   const [replyGifUrl, setReplyGifUrl] = useState("");
+  const [showCommentReactionPicker, setShowCommentReactionPicker] = useState(false);
+  const [commentReactionPickerPos, setCommentReactionPickerPos] = useState({ left: 0, top: 0 });
+  const commentLikeBtnRef = useRef(null);
+  const commentReactionPressTimer = useRef(null);
+  const commentReactionLongPressTriggered = useRef(false);
 
   const addGifToReply = () => setGifPickerReplyOpen(true);
+  const currentCommentReaction =
+    commentUserReaction?.[comment.id] || (commentUserLiked?.[comment.id] ? "like" : null);
 
   const canDelete =
     isPostOwner ||
@@ -1396,14 +1620,89 @@ function Comment({ comment, commentLikes, commentUserLiked, setCommentLikes, set
     return () => clearTimeout(timeout);
   }, [mentionAnchor?.query, token]);
 
-  const handleLike = async () => {
+  useEffect(() => {
+    const closePicker = () => setShowCommentReactionPicker(false);
+    document.addEventListener("pointerdown", closePicker);
+    return () => {
+      clearTimeout(commentReactionPressTimer.current);
+      document.removeEventListener("pointerdown", closePicker);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!showCommentReactionPicker) return;
+    const updatePosition = () => {
+      const btn = commentLikeBtnRef.current;
+      if (!btn) return;
+      const rect = btn.getBoundingClientRect();
+      const pickerWidth = 340;
+      const margin = 8;
+      const left = Math.min(
+        Math.max(margin, rect.left),
+        Math.max(margin, window.innerWidth - pickerWidth - margin)
+      );
+      const top = Math.max(margin, rect.top - 64);
+      setCommentReactionPickerPos({ left, top });
+    };
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [showCommentReactionPicker]);
+
+  const handleCommentReaction = async (reaction = "like") => {
     const res = await fetch(`${API}/api/vine/comments/${comment.id}/like`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ reaction }),
     });
-    const data = await res.json();
-    setLikes(data.likes);
-    setUserLiked(data.user_liked);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert(data.message || "Action not allowed");
+      return;
+    }
+    setCommentLikes((prev) => ({
+      ...prev,
+      [comment.id]: Number(data.like_count || 0),
+    }));
+    setCommentUserLiked((prev) => ({
+      ...prev,
+      [comment.id]: Boolean(data.user_liked),
+    }));
+    setCommentUserReaction((prev) => ({
+      ...prev,
+      [comment.id]: data.user_reaction || null,
+    }));
+    setShowCommentReactionPicker(false);
+  };
+
+  const startCommentReactionPress = (e) => {
+    e.stopPropagation();
+    commentReactionLongPressTriggered.current = false;
+    clearTimeout(commentReactionPressTimer.current);
+    commentReactionPressTimer.current = setTimeout(() => {
+      commentReactionLongPressTriggered.current = true;
+      setShowCommentReactionPicker(true);
+    }, 360);
+  };
+
+  const cancelCommentReactionPress = () => {
+    clearTimeout(commentReactionPressTimer.current);
+  };
+
+  const handleCommentLikeClick = (e) => {
+    e.stopPropagation();
+    if (commentReactionLongPressTriggered.current) {
+      commentReactionLongPressTriggered.current = false;
+      return;
+    }
+    handleCommentReaction("like");
   };
 
   return (
@@ -1461,40 +1760,20 @@ function Comment({ comment, commentLikes, commentUserLiked, setCommentLikes, set
 
         <div className="comment-actions">
   <button
-className={`mini-btn ${
-  commentUserLiked?.[comment.id] ? "active-like" : ""
-}`}
-
-  onClick={async () => {
-      const res = await fetch(
-      `${API}/api/vine/comments/${comment.id}/like`,
-        {
-          method: "POST",
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        alert(data.message || "Action not allowed");
-        return;
-      }
-
-      setCommentLikes(prev => ({
-        ...prev,
-        [comment.id]: data.like_count,
-      }));
-      setCommentUserLiked(prev => ({
-        ...prev,
-        [comment.id]: data.user_liked,
-
-      }));
-    }}
+    ref={commentLikeBtnRef}
+    className={`mini-btn ${commentUserLiked?.[comment.id] ? "active-like" : ""}`}
+    onPointerDown={startCommentReactionPress}
+    onPointerUp={cancelCommentReactionPress}
+    onPointerCancel={cancelCommentReactionPress}
+    onPointerLeave={cancelCommentReactionPress}
+    onContextMenu={(e) => e.preventDefault()}
+    onClick={handleCommentLikeClick}
   >
-    {commentUserLiked?.[comment.id] ? "❤️" : "🤍"}{" "}
-
+    {commentUserLiked?.[comment.id]
+      ? (REACTION_EMOJI[currentCommentReaction] || "❤️")
+      : "🤍"}{" "}
     {commentLikes?.[comment.id] ?? comment.like_count ?? 0}
-
-    </button>
+  </button>
 
   <button className="mini-btn" onClick={() => setReplying(!replying)} disabled={!canReply}>
     Reply
@@ -1607,8 +1886,10 @@ className={`mini-btn ${
                   comment={r}
                   commentLikes={commentLikes}
                   commentUserLiked={commentUserLiked}
+                  commentUserReaction={commentUserReaction}
                   setCommentLikes={setCommentLikes}
                   setCommentUserLiked={setCommentUserLiked}
+                  setCommentUserReaction={setCommentUserReaction}
                   onReply={onReply}
                   onDelete={onDelete}
                   canReply={canReply}
@@ -1623,6 +1904,32 @@ className={`mini-btn ${
           )}
         </>
       )}
+      {showCommentReactionPicker && typeof document !== "undefined" &&
+        createPortal(
+          <div
+            className="reaction-picker-pop reaction-picker-floating"
+            style={{
+              left: `${commentReactionPickerPos.left}px`,
+              top: `${commentReactionPickerPos.top}px`,
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {POST_REACTIONS.map((item) => (
+              <button
+                key={`comment-react-${comment.id}-${item.key}`}
+                type="button"
+                className={`reaction-pill ${currentCommentReaction === item.key ? "active" : ""}`}
+                onClick={() => handleCommentReaction(item.key)}
+                title={item.label}
+              >
+                <span>{item.emoji}</span>
+                <small>{item.label}</small>
+              </button>
+            ))}
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

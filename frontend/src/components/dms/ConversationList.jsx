@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "./ConversationList.css";
 import { socket } from "../../socket";
@@ -12,15 +12,16 @@ export default function ConversationList() {
   ---------------------------- */
   const [conversations, setConversations] = useState([]);
   const [search, setSearch] = useState("");
+  const searchRef = useRef("");
   const navigate = useNavigate();
   const token = localStorage.getItem("vine_token");
 
   /* ---------------------------
      FETCH CONVERSATIONS
   ---------------------------- */
-  const loadConversations = async () => {
+  const loadConversations = async (query = "") => {
     try {
-      const qs = search.trim() ? `?q=${encodeURIComponent(search.trim())}` : "";
+      const qs = query.trim() ? `?q=${encodeURIComponent(query.trim())}` : "";
       const res = await fetch(`${API}/api/dms/conversations${qs}`, {
         headers: {
           Authorization: `Bearer ${token}`,
@@ -72,6 +73,11 @@ export default function ConversationList() {
      INITIAL LOAD + SOCKET UPDATES
   ---------------------------- */
   useEffect(() => {
+    searchRef.current = search;
+    loadConversations(search);
+  }, [search]);
+
+  useEffect(() => {
     const user = JSON.parse(localStorage.getItem("vine_user"));
     const registerUser = () => {
       if (user?.id) socket.emit("register", user.id);
@@ -81,9 +87,9 @@ export default function ConversationList() {
     registerUser();
     socket.on("connect", registerUser);
 
-    loadConversations();
+    loadConversations(searchRef.current);
     // Listen for realtime inbox updates
-    const refreshInbox = () => loadConversations();
+    const refreshInbox = () => loadConversations(searchRef.current);
 
     socket.on("dm_received", refreshInbox);
     socket.on("inbox_updated", refreshInbox);
@@ -95,7 +101,7 @@ export default function ConversationList() {
       socket.off("inbox_updated", refreshInbox);
       socket.off("messages_seen", refreshInbox);
     };
-  }, [search]);
+  }, []);
 
   /* ---------------------------
      UI

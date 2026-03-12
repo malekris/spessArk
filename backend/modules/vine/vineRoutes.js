@@ -1059,6 +1059,46 @@ const ensurePollSchema = async () => {
   pollSchemaReady = true;
 };
 
+let postReactionSchemaReady = false;
+const normalizePostReaction = (value) => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (["love", "happy", "sad", "care", "like"].includes(normalized)) return normalized;
+  return "like";
+};
+
+const ensurePostReactionSchema = async () => {
+  if (postReactionSchemaReady) return;
+  const dbName = await getDbName();
+  if (!dbName) return;
+  await ensureColumnExists(
+    dbName,
+    "vine_likes",
+    "reaction",
+    "VARCHAR(20) NOT NULL DEFAULT 'like'"
+  );
+  postReactionSchemaReady = true;
+};
+
+let commentReactionSchemaReady = false;
+const normalizeCommentReaction = (value) => {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (["love", "happy", "sad", "care", "like"].includes(normalized)) return normalized;
+  return "like";
+};
+
+const ensureCommentReactionSchema = async () => {
+  if (commentReactionSchemaReady) return;
+  const dbName = await getDbName();
+  if (!dbName) return;
+  await ensureColumnExists(
+    dbName,
+    "vine_comment_likes",
+    "reaction",
+    "VARCHAR(20) NOT NULL DEFAULT 'like'"
+  );
+  commentReactionSchemaReady = true;
+};
+
 let statusSchemaReady = false;
 const ensureStatusSchema = async () => {
   if (statusSchemaReady) return;
@@ -6652,7 +6692,9 @@ router.get("/users/:username", authOptional, async (req, res) => {
 // Get comments for post (threaded, enriched)
 router.get("/posts/:id/likes", authOptional, async (req, res) => {
   try {
+    await ensurePostReactionSchema();
     const postId = Number(req.params.id);
+    const viewerId = Number(req.user?.id || 0) || null;
     const limit = Math.min(200, Math.max(1, Number(req.query.limit || 50)));
     if (!postId) return res.status(400).json({ total: 0, latest: null, users: [] });
 
@@ -6672,6 +6714,7 @@ router.get("/posts/:id/likes", authOptional, async (req, res) => {
         u.display_name,
         COALESCE(u.avatar_url, '/default-avatar.png') AS avatar_url,
         u.is_verified,
+        COALESCE(NULLIF(LOWER(l.reaction), ''), 'like') AS reaction,
         l.created_at AS liked_at
       FROM vine_likes l
       JOIN vine_users u ON u.id = l.user_id
@@ -6682,10 +6725,44 @@ router.get("/posts/:id/likes", authOptional, async (req, res) => {
       [postId, limit]
     );
 
+    const [reactionRows] = await db.query(
+      `
+      SELECT
+        COALESCE(NULLIF(LOWER(reaction), ''), 'like') AS reaction,
+        COUNT(*) AS total
+      FROM vine_likes
+      WHERE post_id = ?
+      GROUP BY COALESCE(NULLIF(LOWER(reaction), ''), 'like')
+      `,
+      [postId]
+    );
+
+    const reactionCounts = { like: 0, love: 0, happy: 0, sad: 0, care: 0 };
+    for (const row of reactionRows) {
+      const key = normalizePostReaction(row.reaction);
+      reactionCounts[key] = Number(row.total || 0);
+    }
+
+    let viewerReaction = null;
+    if (viewerId) {
+      const [[viewerRow]] = await db.query(
+        `
+        SELECT COALESCE(NULLIF(LOWER(reaction), ''), 'like') AS reaction
+        FROM vine_likes
+        WHERE post_id = ? AND user_id = ?
+        LIMIT 1
+        `,
+        [postId, viewerId]
+      );
+      viewerReaction = viewerRow ? normalizePostReaction(viewerRow.reaction) : null;
+    }
+
     res.json({
       total: Number(count?.total || 0),
       latest: users[0] || null,
       users,
+      reaction_counts: reactionCounts,
+      viewer_reaction: viewerReaction,
     });
   } catch (err) {
     console.error("Fetch post likes failed:", err);
@@ -6696,6 +6773,7 @@ router.get("/posts/:id/likes", authOptional, async (req, res) => {
 // Get comments for post (threaded, enriched)
 router.get("/posts/:id/comments", authOptional, async (req, res) => {
   try {
+    await ensureCommentReactionSchema();
     const postId = req.params.id;
     const userId = req.user?.id || 0;
 
@@ -6715,7 +6793,8 @@ router.get("/posts/:id/comments", authOptional, async (req, res) => {
         COUNT(DISTINCT cl.id) AS like_count,
 
         /* ✅ FIXED USER_LIKED FLAG */
-        SUM(cl.user_id = ?) > 0 AS user_liked
+        SUM(cl.user_id = ?) > 0 AS user_liked,
+        COALESCE(MAX(CASE WHEN cl.user_id = ? THEN LOWER(cl.reaction) END), '') AS user_reaction
 
       FROM vine_comments c
       JOIN vine_users u ON u.id = c.user_id
@@ -6723,7 +6802,7 @@ router.get("/posts/:id/comments", authOptional, async (req, res) => {
       WHERE c.post_id = ?
       GROUP BY c.id
       ORDER BY c.created_at DESC
-    `, [userId, postId]);
+    `, [userId, userId, postId]);
 
     res.json(rows);
   } catch (err) {
@@ -7005,8 +7084,10 @@ router.post("/posts/:id/revine", authMiddleware, async (req, res) => {
 
 // ❤️ Toggle like
 router.post("/posts/:id/like", requireVineAuth, async (req, res) => {
+  await ensurePostReactionSchema();
   const postId = req.params.id;
   const userId = req.user.id;
+  const selectedReaction = normalizePostReaction(req.body?.reaction || "like");
   const activeSuspension = await getActiveInteractionSuspension(userId);
   if (activeSuspension) {
     return res.status(403).json({
@@ -7029,32 +7110,43 @@ router.post("/posts/:id/like", requireVineAuth, async (req, res) => {
   const postOwnerId = post.user_id;
 
   const [existing] = await db.query(
-    "SELECT 1 FROM vine_likes WHERE user_id = ? AND post_id = ?",
+    "SELECT COALESCE(NULLIF(LOWER(reaction), ''), 'like') AS reaction FROM vine_likes WHERE user_id = ? AND post_id = ?",
     [userId, postId]
   );
 
+  let viewerReaction = selectedReaction;
   if (existing.length) {
-    await db.query(
-      "DELETE FROM vine_likes WHERE user_id = ? AND post_id = ?",
-      [userId, postId]
-    );
+    const currentReaction = normalizePostReaction(existing[0].reaction);
+    if (currentReaction === selectedReaction) {
+      await db.query(
+        "DELETE FROM vine_likes WHERE user_id = ? AND post_id = ?",
+        [userId, postId]
+      );
+      viewerReaction = null;
+    } else {
+      await db.query(
+        "UPDATE vine_likes SET reaction = ? WHERE user_id = ? AND post_id = ?",
+        [selectedReaction, userId, postId]
+      );
+      viewerReaction = selectedReaction;
+    }
   } else {
     await db.query(
-      "INSERT INTO vine_likes (user_id, post_id) VALUES (?, ?)",
-      [userId, postId]
+      "INSERT INTO vine_likes (user_id, post_id, reaction) VALUES (?, ?, ?)",
+      [userId, postId, selectedReaction]
     );
 
     // ✅ Create notification (only if not liking own post)
     if (postOwnerId !== userId) {
       const muted = await isMutedBy(postOwnerId, userId);
       if (!muted) {
-      await db.query(`
-        INSERT INTO vine_notifications (user_id, actor_id, type, post_id)
-        VALUES (?, ?, 'like', ?)
-      `, [postOwnerId, userId, postId]);
-
-      // 🔥 REAL-TIME PUSH
-      io.to(`user-${postOwnerId}`).emit("notification");
+      await notifyUser({
+        userId: postOwnerId,
+        actorId: userId,
+        type: "like",
+        postId,
+        meta: { reaction: selectedReaction },
+      });
       }
     }
   }
@@ -7064,9 +7156,28 @@ router.post("/posts/:id/like", requireVineAuth, async (req, res) => {
     [postId]
   );
 
+  const [reactionRows] = await db.query(
+    `
+    SELECT
+      COALESCE(NULLIF(LOWER(reaction), ''), 'like') AS reaction,
+      COUNT(*) AS total
+    FROM vine_likes
+    WHERE post_id = ?
+    GROUP BY COALESCE(NULLIF(LOWER(reaction), ''), 'like')
+    `,
+    [postId]
+  );
+  const reactionCounts = { like: 0, love: 0, happy: 0, sad: 0, care: 0 };
+  for (const row of reactionRows) {
+    const key = normalizePostReaction(row.reaction);
+    reactionCounts[key] = Number(row.total || 0);
+  }
+
   res.json({
     likes: count.total,
-    user_liked: !existing.length
+    user_liked: Boolean(viewerReaction),
+    viewer_reaction: viewerReaction,
+    reaction_counts: reactionCounts,
   });
 });
 
@@ -7274,8 +7385,10 @@ router.post("/posts/:id/comments", authMiddleware, async (req, res) => {
 // ❤️ Like / Unlike a comment
 router.post("/comments/:id/like", requireVineAuth, async (req, res) => {
   try {
+    await ensureCommentReactionSchema();
     const commentId = req.params.id;
     const userId = req.user.id;
+    const selectedReaction = normalizeCommentReaction(req.body?.reaction || "like");
     const activeSuspension = await getActiveInteractionSuspension(userId);
     if (activeSuspension) {
       return res.status(403).json({
@@ -7295,33 +7408,46 @@ router.post("/comments/:id/like", requireVineAuth, async (req, res) => {
     }
 
     const [existing] = await db.query(
-      "SELECT 1 FROM vine_comment_likes WHERE user_id = ? AND comment_id = ?",
+      "SELECT COALESCE(NULLIF(LOWER(reaction), ''), 'like') AS reaction FROM vine_comment_likes WHERE user_id = ? AND comment_id = ?",
       [userId, commentId]
     );
 
+    let viewerReaction = selectedReaction;
     if (existing.length) {
-      // Unlike
-      await db.query(
-        "DELETE FROM vine_comment_likes WHERE user_id = ? AND comment_id = ?",
-        [userId, commentId]
-      );
+      const currentReaction = normalizeCommentReaction(existing[0].reaction);
+      if (currentReaction === selectedReaction) {
+        // Unlike
+        await db.query(
+          "DELETE FROM vine_comment_likes WHERE user_id = ? AND comment_id = ?",
+          [userId, commentId]
+        );
+        viewerReaction = null;
+      } else {
+        await db.query(
+          "UPDATE vine_comment_likes SET reaction = ? WHERE user_id = ? AND comment_id = ?",
+          [selectedReaction, userId, commentId]
+        );
+        viewerReaction = selectedReaction;
+      }
     } else {
       // Like
       await db.query(
-        "INSERT INTO vine_comment_likes (user_id, comment_id) VALUES (?, ?)",
-        [userId, commentId]
+        "INSERT INTO vine_comment_likes (user_id, comment_id, reaction) VALUES (?, ?, ?)",
+        [userId, commentId, selectedReaction]
       );
 
       // 🔔 Create notification (only if not your own comment)
       if (comment.user_id !== userId) {
         const muted = await isMutedBy(comment.user_id, userId);
         if (!muted) {
-        await db.query(
-          `INSERT INTO vine_notifications
-           (user_id, actor_id, type, post_id, comment_id)
-           VALUES (?, ?, 'like_comment', ?, ?)`,
-          [comment.user_id, userId, comment.post_id, commentId]
-        );
+        await notifyUser({
+          userId: comment.user_id,
+          actorId: userId,
+          type: "like_comment",
+          postId: comment.post_id,
+          commentId,
+          meta: { reaction: selectedReaction },
+        });
         }
       }
     }
@@ -7331,9 +7457,28 @@ router.post("/comments/:id/like", requireVineAuth, async (req, res) => {
       [commentId]
     );
 
+    const [reactionRows] = await db.query(
+      `
+      SELECT
+        COALESCE(NULLIF(LOWER(reaction), ''), 'like') AS reaction,
+        COUNT(*) AS total
+      FROM vine_comment_likes
+      WHERE comment_id = ?
+      GROUP BY COALESCE(NULLIF(LOWER(reaction), ''), 'like')
+      `,
+      [commentId]
+    );
+    const reactionCounts = { like: 0, love: 0, happy: 0, sad: 0, care: 0 };
+    for (const row of reactionRows) {
+      const key = normalizeCommentReaction(row.reaction);
+      reactionCounts[key] = Number(row.total || 0);
+    }
+
     res.json({
       like_count: count.total,
-      user_liked: !existing.length
+      user_liked: Boolean(viewerReaction),
+      user_reaction: viewerReaction,
+      reaction_counts: reactionCounts,
     });
 
   } catch (err) {

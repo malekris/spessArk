@@ -867,39 +867,60 @@
 
 .comment-input-row {
   display: flex;
-  gap: 10px;
-  margin-bottom: 20px;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  padding: 10px;
+  border: 1px solid #dbe5ee;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+}
+
+.comment-input-row:focus-within {
+  border-color: #a7f3d0;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.12);
+  background: linear-gradient(180deg, #f8fafc 0%, #ecfdf5 100%);
 }
 
 .comment-input-row textarea {
-  flex: 1;
+  flex: 1 1 100%;
   border: 1px solid #e2e8f0;
   border-radius: 12px;
-  padding: 10px 14px;
+  padding: 10px 12px;
   resize: vertical;
-  min-height: 54px;
+  min-height: 46px;
   font-family: inherit;
   outline: none;
+  background: #ffffff;
+  color: #0f172a;
 }
 
 .comment-input-row button {
-  background: #064e3b;
+  background: linear-gradient(145deg, #065f46, #064e3b);
   color: white;
   border: none;
-  padding: 0 20px;
+  height: 38px;
+  padding: 0 16px;
   border-radius: 50px;
   font-weight: 800;
   cursor: pointer;
   white-space: nowrap;
+  box-shadow: 0 4px 10px rgba(6, 95, 70, 0.24);
+}
+
+.comment-input-row button:hover {
+  background: linear-gradient(145deg, #047857, #065f46);
 }
 
 .gif-pick-btn {
   border: 1px solid #bbf7d0 !important;
-  background: linear-gradient(145deg, #ecfdf5, #d1fae5) !important;
+  background: #ffffff !important;
   color: #065f46 !important;
   border-radius: 999px !important;
   font-weight: 800 !important;
   padding: 0 14px !important;
+  box-shadow: none !important;
 }
 
 .comment-gif-preview {
@@ -1626,23 +1647,28 @@
 .comment-reply-box {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  align-items: center;
+  gap: 8px;
   margin-top: 10px;
+  padding: 10px;
+  border: 1px solid #dbe5ee;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
 }
 
 .comment-reply-box:focus-within {
-  border-color: transparent;
-  box-shadow: none;
-  background: transparent;
+  border-color: #a7f3d0;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.12);
+  background: linear-gradient(180deg, #f8fafc 0%, #ecfdf5 100%);
 }
 .comment-reply-box input,
 .comment-reply-box textarea {
-  flex: 1;
+  flex: 1 1 100%;
   border: 1px solid #e2e8f0;
   border-radius: 12px;
-  padding: 10px 14px;
+  padding: 10px 12px;
   resize: vertical;
-  min-height: 54px;
+  min-height: 44px;
   font-family: inherit;
   outline: none;
   background: #ffffff;
@@ -1654,36 +1680,75 @@
   color: #9ca3af;
 }
 .comment-reply-box button {
-  background: #064e3b;
+  background: linear-gradient(145deg, #065f46, #064e3b);
   color: white;
   border: none;
-  padding: 0 20px;
+  height: 38px;
+  padding: 0 16px;
   border-radius: 50px;
   font-weight: 800;
   cursor: pointer;
   white-space: nowrap;
+  box-shadow: 0 4px 10px rgba(6, 95, 70, 0.24);
 }
 
 .comment-reply-box button:hover {
-  background: #052e16;
+  background: linear-gradient(145deg, #047857, #065f46);
+}
+
+.comment-reply-box .gif-pick-btn {
+  background: #ffffff !important;
+  border: 1px solid #bbf7d0 !important;
+  color: #065f46 !important;
+  box-shadow: none !important;
 }
 
 .theme-dark .comment-reply-box {
-  background: transparent;
-  border: none;
+  background: linear-gradient(180deg, #0b1220 0%, #111827 100%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
   box-shadow: none;
 }
 
 .theme-dark .comment-reply-box:focus-within {
-  border-color: transparent;
-  background: transparent;
+  border-color: rgba(110, 231, 183, 0.52);
+  background: linear-gradient(180deg, #0f172a 0%, #0b1220 100%);
+  box-shadow: 0 0 0 3px rgba(110, 231, 183, 0.16);
 }
 
 .theme-dark .comment-reply-box input,
 .theme-dark .comment-reply-box textarea {
   color: #ffffff;
-  background: #0a0a0a;
+  background: rgba(15, 23, 42, 0.88);
   border-color: rgba(255, 255, 255, 0.2);
+}
+
+.theme-dark .comment-reply-box .gif-pick-btn {
+  background: rgba(15, 23, 42, 0.88) !important;
+  color: #6ee7b7 !important;
+  border-color: rgba(110, 231, 183, 0.45) !important;
+}
+
+.theme-dark .comment-input-row {
+  background: linear-gradient(180deg, #0b1220 0%, #111827 100%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.theme-dark .comment-input-row:focus-within {
+  border-color: rgba(110, 231, 183, 0.52);
+  background: linear-gradient(180deg, #0f172a 0%, #0b1220 100%);
+  box-shadow: 0 0 0 3px rgba(110, 231, 183, 0.16);
+}
+
+.theme-dark .comment-input-row textarea {
+  color: #ffffff;
+  background: rgba(15, 23, 42, 0.88);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.theme-dark .comment-input-row .gif-pick-btn {
+  background: rgba(15, 23, 42, 0.88) !important;
+  color: #6ee7b7 !important;
+  border-color: rgba(110, 231, 183, 0.45) !important;
 }
 
 .post-poll-box {

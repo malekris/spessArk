@@ -11,6 +11,8 @@ export default function GifPickerModal({ open, onClose, onSelect, token }) {
 
   useEffect(() => {
     if (!open) return;
+    const controller = new AbortController();
+    let mounted = true;
     const run = async () => {
       setLoading(true);
       try {
@@ -19,16 +21,25 @@ export default function GifPickerModal({ open, onClose, onSelect, token }) {
           : `${API}/api/vine/gifs/trending?limit=24`;
         const res = await fetch(endpoint, {
           headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
         });
         const data = await res.json().catch(() => ({}));
-        setItems(Array.isArray(data?.results) ? data.results : []);
+        if (mounted) {
+          setItems(Array.isArray(data?.results) ? data.results : []);
+        }
       } catch {
-        setItems([]);
+        if (mounted && !controller.signal.aborted) {
+          setItems([]);
+        }
       } finally {
-        setLoading(false);
+        if (mounted) setLoading(false);
       }
     };
     run();
+    return () => {
+      mounted = false;
+      controller.abort();
+    };
   }, [open, debouncedQuery, token]);
 
   useEffect(() => {
@@ -57,28 +68,33 @@ export default function GifPickerModal({ open, onClose, onSelect, token }) {
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search GIFs"
         />
-        {loading ? (
-          <div className="gif-loading">Loading GIFs...</div>
-        ) : items.length === 0 ? (
-          <div className="gif-loading">No GIFs found.</div>
-        ) : (
-          <div className="gif-grid">
-            {items.map((gif) => (
-              <button
-                key={gif.id}
-                type="button"
-                className="gif-tile"
-                onClick={() => {
-                  onSelect?.(gif.url);
-                  onClose?.();
-                }}
-                title={gif.title}
-              >
-                <img src={gif.preview_url || gif.url} alt={gif.title || "gif"} loading="lazy" />
-              </button>
-            ))}
-          </div>
-        )}
+        <div className="gif-grid-wrap">
+          {items.length === 0 && !loading ? (
+            <div className="gif-loading">No GIFs found.</div>
+          ) : (
+            <div className="gif-grid">
+              {items.map((gif) => (
+                <button
+                  key={gif.id}
+                  type="button"
+                  className="gif-tile"
+                  onClick={() => {
+                    onSelect?.(gif.url);
+                    onClose?.();
+                  }}
+                  title={gif.title}
+                >
+                  <img src={gif.preview_url || gif.url} alt={gif.title || "gif"} loading="lazy" />
+                </button>
+              ))}
+            </div>
+          )}
+          {loading && (
+            <div className="gif-grid-loading-overlay">
+              <span>Loading GIFs...</span>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -92,4 +108,3 @@ function useDebouncedValue(value, delay = 250) {
   }, [value, delay]);
   return debounced;
 }
-

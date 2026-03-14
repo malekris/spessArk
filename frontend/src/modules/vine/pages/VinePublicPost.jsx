@@ -47,7 +47,17 @@ const parseLinkPreview = (value) => {
   }
 };
 
+const hasSpecialVerifiedBadge = (username) =>
+  ["vine guardian", "vine_guardian", "vine news", "vine_news"].includes(
+    String(username || "").toLowerCase()
+  );
+
+const showsVerifiedBadge = (user) =>
+  Number(user?.is_verified) === 1 || hasSpecialVerifiedBadge(user?.username);
+
 function CommentTree({ comment, depth = 0 }) {
+  const specialBadge = hasSpecialVerifiedBadge(comment.username);
+
   return (
     <div className="public-comment" style={{ marginLeft: depth ? Math.min(depth * 18, 42) : 0 }}>
       <img
@@ -60,7 +70,12 @@ function CommentTree({ comment, depth = 0 }) {
       />
       <div className="public-comment-body">
         <div className="public-comment-top">
-          <span className="public-comment-name">{comment.display_name || comment.username}</span>
+          <span className="public-comment-name">
+            {comment.display_name || comment.username}
+            {showsVerifiedBadge(comment) && (
+              <span className={`vine-public-verified ${specialBadge ? "guardian" : ""}`}>✓</span>
+            )}
+          </span>
           <span className="public-comment-date">{formatPostDate(comment.created_at)}</span>
         </div>
         <div className="public-comment-text">{comment.content}</div>
@@ -140,6 +155,8 @@ export default function VinePublicPost() {
     setJoinPromptOpen(true);
   };
 
+  const specialBadge = hasSpecialVerifiedBadge(post?.username);
+
   return (
     <div className="vine-public-shell">
       <div className="vine-public-topbar">
@@ -168,7 +185,12 @@ export default function VinePublicPost() {
                   }}
                 />
                 <div className="vine-public-meta">
-                  <div className="vine-public-name">{post.display_name || post.username}</div>
+                  <div className="vine-public-name">
+                    {post.display_name || post.username}
+                    {showsVerifiedBadge(post) && (
+                      <span className={`vine-public-verified ${specialBadge ? "guardian" : ""}`}>✓</span>
+                    )}
+                  </div>
                   <div className="vine-public-handle">@{post.username} · {formatPostDate(post.created_at)}</div>
                 </div>
               </div>

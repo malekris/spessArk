@@ -95,12 +95,36 @@
   font-size: 1.12rem;
   font-weight: 900;
   color: #0f3d2b;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .vine-public-handle {
   margin-top: 2px;
   color: #64748b;
   font-size: 0.95rem;
+}
+
+.vine-public-verified {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #1d9bf0;
+  color: #ffffff;
+  font-size: 0.82rem;
+  font-weight: 900;
+  box-shadow: 0 10px 22px rgba(29, 155, 240, 0.26);
+  flex: 0 0 auto;
+}
+
+.vine-public-verified.guardian {
+  background: #ef4444;
+  box-shadow: 0 10px 22px rgba(239, 68, 68, 0.24);
 }
 
 .vine-public-content {
@@ -270,6 +294,16 @@
 .public-comment-name {
   font-weight: 800;
   color: #0f3d2b;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.public-comment-name .vine-public-verified {
+  width: 18px;
+  height: 18px;
+  font-size: 0.72rem;
 }
 
 .public-comment-date {

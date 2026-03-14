@@ -4,6 +4,99 @@ import { pool } from "../server.js";
 
 const router = express.Router();
 
+const REQUIRED_SUBJECT_LOAD = {
+  S1: 12,
+  S2: 12,
+  S3: 9,
+  S4: 9,
+};
+
+const normalizeClassLevel = (value) => String(value || "").trim().toUpperCase();
+const getExpectedSubjectLoad = (classLevel) =>
+  REQUIRED_SUBJECT_LOAD[normalizeClassLevel(classLevel)] || null;
+
+const buildEligibleRankMeta = (rows, valueKey, normalizeStream) => {
+  const byStudent = new Map();
+
+  rows.forEach((row) => {
+    if (!byStudent.has(row.student_id)) {
+      byStudent.set(row.student_id, {
+        student_id: row.student_id,
+        class_level: row.class_level,
+        stream: normalizeStream(row.stream),
+        values: [],
+        subjects: new Set(),
+      });
+    }
+
+    const bucket = byStudent.get(row.student_id);
+    bucket.subjects.add(String(row.subject || "").trim().toLowerCase());
+
+    if (row[valueKey] !== null && row[valueKey] !== undefined && row[valueKey] !== "") {
+      bucket.values.push(Number(row[valueKey]));
+    }
+  });
+
+  const eligibleSummaries = Array.from(byStudent.values())
+    .map((student) => {
+      const expectedLoad = getExpectedSubjectLoad(student.class_level);
+      const subjectCount = student.subjects.size;
+      const isEligible = expectedLoad ? subjectCount >= expectedLoad : student.values.length > 0;
+      const overall =
+        isEligible && student.values.length > 0
+          ? Number(
+              (
+                student.values.reduce((acc, value) => acc + value, 0) /
+                student.values.length
+              ).toFixed(3)
+            )
+          : null;
+
+      return {
+        student_id: student.student_id,
+        stream: student.stream,
+        isEligible,
+        overall,
+      };
+    })
+    .filter((student) => student.isEligible && student.overall !== null);
+
+  const classRanked = [...eligibleSummaries]
+    .sort((a, b) => b.overall - a.overall)
+    .map((student, index) => ({ ...student, class_position: index + 1 }));
+
+  const classPositionById = new Map(
+    classRanked.map((student) => [student.student_id, student.class_position])
+  );
+
+  const streamBuckets = new Map();
+  classRanked.forEach((student) => {
+    if (!streamBuckets.has(student.stream)) streamBuckets.set(student.stream, []);
+    streamBuckets.get(student.stream).push(student);
+  });
+
+  const streamRankMeta = new Map();
+  streamBuckets.forEach((bucket, streamKey) => {
+    const ranked = [...bucket]
+      .sort((a, b) => b.overall - a.overall)
+      .map((student, index) => ({
+        student_id: student.student_id,
+        stream_position: index + 1,
+      }));
+
+    streamRankMeta.set(streamKey, {
+      total: ranked.length,
+      posById: new Map(ranked.map((entry) => [entry.student_id, entry.stream_position])),
+    });
+  });
+
+  return {
+    classTotal: classRanked.length,
+    classPositionById,
+    streamRankMeta,
+  };
+};
+
 /*
   END OF TERM REPORT
   Term = 1 or 2
@@ -109,63 +202,11 @@ router.get("/term", authAdmin, async (req, res) => {
       };
     });
 
-    // Compute per-student overall average for ranking.
-    const byStudent = new Map();
-    processedAll.forEach((row) => {
-      if (!byStudent.has(row.student_id)) {
-        byStudent.set(row.student_id, {
-          student_id: row.student_id,
-          stream: normalizeStream(row.stream),
-          averages: [],
-        });
-      }
-      if (row.average !== null) {
-        byStudent.get(row.student_id).averages.push(Number(row.average));
-      }
-    });
-
-    const studentSummary = Array.from(byStudent.values()).map((s) => {
-      const overall =
-        s.averages.length > 0
-          ? Number(
-              (
-                s.averages.reduce((acc, v) => acc + v, 0) / s.averages.length
-              ).toFixed(3)
-            )
-          : -1; // keep missing marks at the bottom
-      return {
-        student_id: s.student_id,
-        stream: s.stream,
-        overall,
-      };
-    });
-
-    const classRanked = [...studentSummary]
-      .sort((a, b) => b.overall - a.overall)
-      .map((s, idx) => ({ ...s, class_position: idx + 1 }));
-
-    const classTotal = classRanked.length;
-    const classPositionById = new Map(
-      classRanked.map((s) => [s.student_id, s.class_position])
+    const { classTotal, classPositionById, streamRankMeta } = buildEligibleRankMeta(
+      processedAll,
+      "average",
+      normalizeStream
     );
-
-    const streamRankMeta = new Map();
-    const streamBuckets = new Map();
-    classRanked.forEach((s) => {
-      if (!streamBuckets.has(s.stream)) streamBuckets.set(s.stream, []);
-      streamBuckets.get(s.stream).push(s);
-    });
-
-    streamBuckets.forEach((bucket, streamKey) => {
-      const ranked = [...bucket]
-        .sort((a, b) => b.overall - a.overall)
-        .map((s, idx) => ({ student_id: s.student_id, stream_position: idx + 1 }));
-      const posMap = new Map(ranked.map((r) => [r.student_id, r.stream_position]));
-      streamRankMeta.set(streamKey, {
-        total: ranked.length,
-        posById: posMap,
-      });
-    });
 
     const withPositions = processedAll.map((row) => {
       const sKey = normalizeStream(row.stream);
@@ -309,59 +350,11 @@ router.get("/year", authAdmin, async (req, res) => {
       };
     });
 
-    // Rank by overall year score average (100% column across subjects)
-    const byStudent = new Map();
-    processedAll.forEach((row) => {
-      if (!byStudent.has(row.student_id)) {
-        byStudent.set(row.student_id, {
-          student_id: row.student_id,
-          stream: normalizeStream(row.stream),
-          totals: [],
-        });
-      }
-      if (row.percent100 !== null) {
-        byStudent.get(row.student_id).totals.push(Number(row.percent100));
-      }
-    });
-
-    const studentSummary = Array.from(byStudent.values()).map((s) => {
-      const overall =
-        s.totals.length > 0
-          ? Number((s.totals.reduce((acc, v) => acc + v, 0) / s.totals.length).toFixed(3))
-          : -1;
-      return {
-        student_id: s.student_id,
-        stream: s.stream,
-        overall,
-      };
-    });
-
-    const classRanked = [...studentSummary]
-      .sort((a, b) => b.overall - a.overall)
-      .map((s, idx) => ({ ...s, class_position: idx + 1 }));
-
-    const classTotal = classRanked.length;
-    const classPositionById = new Map(
-      classRanked.map((s) => [s.student_id, s.class_position])
+    const { classTotal, classPositionById, streamRankMeta } = buildEligibleRankMeta(
+      processedAll,
+      "percent100",
+      normalizeStream
     );
-
-    const streamRankMeta = new Map();
-    const streamBuckets = new Map();
-    classRanked.forEach((s) => {
-      if (!streamBuckets.has(s.stream)) streamBuckets.set(s.stream, []);
-      streamBuckets.get(s.stream).push(s);
-    });
-
-    streamBuckets.forEach((bucket, streamKey) => {
-      const ranked = [...bucket]
-        .sort((a, b) => b.overall - a.overall)
-        .map((s, idx) => ({ student_id: s.student_id, stream_position: idx + 1 }));
-      const posMap = new Map(ranked.map((r) => [r.student_id, r.stream_position]));
-      streamRankMeta.set(streamKey, {
-        total: ranked.length,
-        posById: posMap,
-      });
-    });
 
     const withPositions = processedAll.map((row) => {
       const sKey = normalizeStream(row.stream);

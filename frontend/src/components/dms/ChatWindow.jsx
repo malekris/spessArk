@@ -521,7 +521,25 @@ fetch(`${API}/api/dms/conversations/${conversationId}/read`, {
 
       {/* HEADER */}
       <div className="chat-header">
-        <button className="back-btn" onClick={() => navigate("/vine/dms")}>←</button>
+        <button
+          className="dm-chat-back"
+          onClick={() => navigate("/vine/dms")}
+          aria-label="Back to messages"
+          title="Back to messages"
+        >
+          <span className="dm-chat-back-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none">
+              <path
+                d="M14.5 6.5L9 12l5.5 5.5"
+                stroke="currentColor"
+                strokeWidth="2.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </span>
+          <span className="dm-chat-back-label">Messages</span>
+        </button>
 
         {partner ? (
           <div

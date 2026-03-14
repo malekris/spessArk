@@ -1928,8 +1928,10 @@ export default function VineCommunities() {
   return (
     <div className="vine-communities-page">
       <div className="communities-top">
-        <button className="communities-back" onClick={() => navigate("/vine/feed")}>← Feed</button>
-        <h2>Communities</h2>
+        <button className="communities-back" onClick={() => navigate("/vine/feed")}>
+          ← Feed
+        </button>
+        <h2>{activeCommunity?.name ? activeCommunity.name : "Communities"}</h2>
       </div>
 
       <div className="communities-layout">
@@ -3529,6 +3531,7 @@ export default function VineCommunities() {
           )}
         </main>
       </div>
+
     </div>
   );
 }

@@ -15,6 +15,7 @@ import sharp from "sharp";
 import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 
 const router = express.Router();
+const SESSION_IDLE_MS = 1 * 60 * 60 * 1000;
 const JWT_SECRET = process.env.JWT_SECRET || "vine_secret_key";
 const GIPHY_API_KEY = process.env.GIPHY_API_KEY || "";
 const USE_R2_UPLOADS = String(process.env.USE_R2_UPLOADS || "").toLowerCase() === "true";
@@ -1631,18 +1632,19 @@ const shouldRetryCloudinaryUpload = (err) => {
 
 const inferExtAndMime = (options = {}) => {
   const format = String(options?.format || "").trim().toLowerCase();
+  const providedMime = String(options?.content_type || options?.mime_type || "").trim().toLowerCase();
   const resourceType = String(options?.resource_type || "image").toLowerCase();
   if (format) {
-    if (format === "pdf") return { ext: "pdf", mime: "application/pdf" };
-    if (format === "webp") return { ext: "webp", mime: "image/webp" };
-    if (format === "png") return { ext: "png", mime: "image/png" };
+    if (format === "pdf") return { ext: "pdf", mime: providedMime || "application/pdf" };
+    if (format === "webp") return { ext: "webp", mime: providedMime || "image/webp" };
+    if (format === "png") return { ext: "png", mime: providedMime || "image/png" };
     if (format === "jpg" || format === "jpeg")
-      return { ext: "jpg", mime: "image/jpeg" };
-    return { ext: format, mime: "application/octet-stream" };
+      return { ext: "jpg", mime: providedMime || "image/jpeg" };
+    return { ext: format, mime: providedMime || "application/octet-stream" };
   }
-  if (resourceType === "video") return { ext: "mp4", mime: "video/mp4" };
-  if (resourceType === "raw") return { ext: "bin", mime: "application/octet-stream" };
-  return { ext: "jpg", mime: "image/jpeg" };
+  if (resourceType === "video") return { ext: "mp4", mime: providedMime || "video/mp4" };
+  if (resourceType === "raw") return { ext: "bin", mime: providedMime || "application/octet-stream" };
+  return { ext: "jpg", mime: providedMime || "image/jpeg" };
 };
 
 const buildR2ObjectKey = (options = {}) => {
@@ -1693,9 +1695,7 @@ const uploadBufferToCloudinaryOnce = (buffer, options = {}) =>
   });
 
 const uploadBufferToCloudinary = async (buffer, options = {}) => {
-  const resourceType = String(options?.resource_type || "image").toLowerCase();
-  const isRawDoc = resourceType === "raw";
-  if (USE_R2_UPLOADS && r2Ready && !isRawDoc) {
+  if (USE_R2_UPLOADS && r2Ready) {
     return uploadBufferToR2(buffer, options);
   }
   let attempt = 0;
@@ -2468,7 +2468,7 @@ router.post("/auth/login", async (req, res) => {
           jti: sessionJti,
         },
         process.env.JWT_SECRET,
-        { expiresIn: "7d" }
+        { expiresIn: "1h" }
       );
 
       // Optional analytics event: no-op if table does not exist
@@ -2509,6 +2509,47 @@ router.post("/auth/login", async (req, res) => {
       res.status(500).json({ message: "Login failed" });
     }
   });
+
+router.get("/auth/session", authenticate, async (req, res) => {
+  try {
+    const [[user]] = await db.query(
+      `
+      SELECT id, username, display_name, email, is_admin, role, badge_type,
+             delete_requested_at, deactivated_at
+      FROM vine_users
+      WHERE id = ?
+      LIMIT 1
+      `,
+      [req.user.id]
+    );
+
+    if (!user) {
+      return res.status(401).json({ message: "Session expired" });
+    }
+
+    res.setHeader("Cache-Control", "no-store");
+    res.json({
+      authenticated: true,
+      user: {
+        id: user.id,
+        username: user.username,
+        display_name: user.display_name,
+        email: user.email || null,
+        is_admin: user.is_admin,
+        role: user.role || "user",
+        badge_type: user.badge_type || null,
+        delete_requested_at: user.delete_requested_at || null,
+        deactivated_at: user.deactivated_at || null,
+        deletion_due_at: user.delete_requested_at
+          ? getAccountDeletionDueAt(user.delete_requested_at)?.toISOString() || null
+          : null,
+      },
+    });
+  } catch (err) {
+    console.error("Auth session check failed:", err);
+    res.status(500).json({ message: "Failed to validate session" });
+  }
+});
   
   function auth(req, res, next) {
     const header = req.headers.authorization;
@@ -2534,10 +2575,18 @@ async function requireVineAuth(req, res, next) {
     req.user = decoded;
     if (req.user?.jti) {
       const [[session]] = await db.query(
-        "SELECT revoked_at FROM vine_user_sessions WHERE user_id = ? AND session_jti = ? LIMIT 1",
+        "SELECT revoked_at, last_seen_at FROM vine_user_sessions WHERE user_id = ? AND session_jti = ? LIMIT 1",
         [req.user.id, req.user.jti]
       );
       if (!session || session.revoked_at) {
+        return res.status(401).json({ message: "Session expired" });
+      }
+      const lastSeenAt = new Date(session.last_seen_at || 0).getTime();
+      if (!lastSeenAt || Date.now() - lastSeenAt > SESSION_IDLE_MS) {
+        await db.query(
+          "UPDATE vine_user_sessions SET revoked_at = NOW() WHERE user_id = ? AND session_jti = ? AND revoked_at IS NULL",
+          [req.user.id, req.user.jti]
+        ).catch(() => {});
         return res.status(401).json({ message: "Session expired" });
       }
     }
@@ -3876,6 +3925,7 @@ router.post("/communities/:id/library", authenticate, uploadPostCloudinary.singl
       resource_type: "raw",
       public_id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
       format: "pdf",
+      content_type: req.file.mimetype || "application/pdf",
     });
     const pdfUrl = uploaded.secure_url || uploaded.url || null;
     if (!pdfUrl) {
@@ -3965,6 +4015,7 @@ router.post("/communities/:id/assignments", authenticate, uploadPostCloudinary.s
         resource_type: "raw",
         public_id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
         format: "pdf",
+        content_type: req.file.mimetype || "application/pdf",
       });
       attachmentUrl = uploaded.secure_url || uploaded.url || null;
       attachmentName = String(req.file.originalname || "").slice(0, 255) || "assignment.pdf";
@@ -4026,10 +4077,19 @@ router.delete("/communities/:id/assignments/:assignmentId", authenticate, async 
     if (!isCommunityModOrOwner(role)) return res.status(403).json({ message: "Not allowed" });
 
     const [[assignment]] = await db.query(
-      "SELECT id FROM vine_community_assignments WHERE id = ? AND community_id = ? LIMIT 1",
+      "SELECT id, attachment_url FROM vine_community_assignments WHERE id = ? AND community_id = ? LIMIT 1",
       [assignmentId, communityId]
     );
     if (!assignment) return res.status(404).json({ message: "Assignment not found" });
+
+    const [submissionFiles] = await db.query(
+      "SELECT file_url FROM vine_community_submission_files WHERE assignment_id = ? AND community_id = ?",
+      [assignmentId, communityId]
+    );
+    const urlsToDelete = [
+      assignment.attachment_url,
+      ...submissionFiles.map((row) => row.file_url),
+    ].filter(Boolean);
 
     await db.query(
       "DELETE FROM vine_community_submissions WHERE assignment_id = ? AND community_id = ?",
@@ -4047,6 +4107,7 @@ router.delete("/communities/:id/assignments/:assignmentId", authenticate, async 
       "DELETE FROM vine_community_assignments WHERE id = ? AND community_id = ?",
       [assignmentId, communityId]
     );
+    await Promise.all(urlsToDelete.map((url) => deleteCloudinaryByUrl(url)));
 
     res.json({ success: true });
   } catch (err) {
@@ -4242,6 +4303,7 @@ router.post("/communities/:id/assignments/:assignmentId/submissions", authentica
           resource_type: "raw",
           public_id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
           format: ext,
+          content_type: file.mimetype || "application/octet-stream",
         });
         uploadedFiles.push({
           url: uploaded.secure_url || uploaded.url || null,
@@ -5761,6 +5823,7 @@ router.get("/share/:id", async (req, res) => {
                 resource_type: "raw",
                 public_id: `${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 10)}`,
                 format: "pdf",
+                content_type: file.mimetype || "application/pdf",
               });
             }
             if (isVideoFile(file)) {

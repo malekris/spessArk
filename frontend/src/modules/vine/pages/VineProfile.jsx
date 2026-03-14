@@ -1132,7 +1132,25 @@ export default function VineProfile() {
     <div className="vine-profile-wrapper">
       {/* Top sticky bar */}
       <div className="vine-profile-topbar">
-        <button className="back-btn" onClick={() => navigate("/vine/feed")}>←</button>
+        <button
+          className="profile-topbar-back"
+          onClick={() => navigate("/vine/feed")}
+          aria-label="Back to feed"
+          title="Back to feed"
+        >
+          <span className="profile-topbar-back-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none">
+              <path
+                d="M14.5 6.5L9 12l5.5 5.5"
+                stroke="currentColor"
+                strokeWidth="2.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </span>
+          <span className="profile-topbar-back-label">Feed</span>
+        </button>
         <div className="topbar-info">
           <span className="profile-title">{displayName}</span>
           <span className="post-count-mini">{profile?.posts?.length || 0} Posts</span>

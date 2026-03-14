@@ -38,14 +38,26 @@ import VineGuardianModeration from "./modules/vine/pages/VineGuardianModeration"
 import VineHelpCenter from "./modules/vine/pages/VineHelpCenter";
 import VineCommunities from "./modules/vine/pages/VineCommunities";
 import VineLegalPage from "./modules/vine/pages/VineLegalPage";
+import VineProtectedRoute from "./modules/vine/components/VineProtectedRoute";
+import { clearVineAuth, getVineToken, isVineTokenExpired } from "./modules/vine/utils/vineAuth";
 
 
 
 function App() {
 
   useEffect(() => {
-    const user = JSON.parse(localStorage.getItem("vine_user"));
-    if (!user?.id) return;
+    let user = null;
+    try {
+      user = JSON.parse(localStorage.getItem("vine_user") || "null");
+    } catch {
+      user = null;
+    }
+    const token = getVineToken();
+    if (!token || isVineTokenExpired(token) || !user?.id) {
+      clearVineAuth();
+      socket.disconnect();
+      return;
+    }
   
     socket.connect();
   
@@ -137,27 +149,29 @@ function App() {
 {/* 🌱 SPESS VINE */}
 <Route path="/vine/login" element={<VineLogin />} />
 <Route path="/vine/register" element={<VineRegister />} />
-<Route path="/vine/feed" element={<VineFeed />} />
-<Route path="/vine/profile/:username" element={<VineProfile />} />
-<Route path="/vine/settings" element={<VineSettings />} />
 <Route path="/vine/forgot-password" element={<VineForgotPassword />} />
 <Route path="/vine/reset-password" element={<VineResetPassword />} />
-<Route path="/vine/:username/followers" element={<VineFollowers />} />
-<Route path="/vine/:username/following" element={<VineFollowing />} />
-<Route path="/vine/notifications" element={<VineNotifications />} />
-<Route path="/vine/dms" element={<ConversationList />} />
-<Route path="/vine/dms" element={<DmsPage />} />
-<Route path="/vine/dms/new/:userId" element={<ChatWindow />} />
-<Route path="/vine/dms/:conversationId" element={<ChatWindow />} />
-<Route path="/vine/suggestions" element={<VineSuggestions />} />
-<Route path="/vine/search" element={<VineSearch />} />
 <Route path="/vine/verify-email" element={<VineVerifyEmail />} />
-<Route path="/vine/guardian/analytics" element={<VineGuardianAnalytics />} />
-<Route path="/vine/guardian/moderation" element={<VineGuardianModeration />} />
-<Route path="/vine/help" element={<VineHelpCenter />} />
-<Route path="/vine/legal/:page" element={<VineLegalPage />} />
-<Route path="/vine/communities" element={<VineCommunities />} />
-<Route path="/vine/communities/:slug" element={<VineCommunities />} />
+<Route element={<VineProtectedRoute />}>
+  <Route path="/vine/feed" element={<VineFeed />} />
+  <Route path="/vine/profile/:username" element={<VineProfile />} />
+  <Route path="/vine/settings" element={<VineSettings />} />
+  <Route path="/vine/:username/followers" element={<VineFollowers />} />
+  <Route path="/vine/:username/following" element={<VineFollowing />} />
+  <Route path="/vine/notifications" element={<VineNotifications />} />
+  <Route path="/vine/dms" element={<ConversationList />} />
+  <Route path="/vine/dms" element={<DmsPage />} />
+  <Route path="/vine/dms/new/:userId" element={<ChatWindow />} />
+  <Route path="/vine/dms/:conversationId" element={<ChatWindow />} />
+  <Route path="/vine/suggestions" element={<VineSuggestions />} />
+  <Route path="/vine/search" element={<VineSearch />} />
+  <Route path="/vine/guardian/analytics" element={<VineGuardianAnalytics />} />
+  <Route path="/vine/guardian/moderation" element={<VineGuardianModeration />} />
+  <Route path="/vine/help" element={<VineHelpCenter />} />
+  <Route path="/vine/legal/:page" element={<VineLegalPage />} />
+  <Route path="/vine/communities" element={<VineCommunities />} />
+  <Route path="/vine/communities/:slug" element={<VineCommunities />} />
+</Route>
 
 
   </Routes>

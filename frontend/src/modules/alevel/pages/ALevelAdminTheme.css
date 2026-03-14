@@ -2,6 +2,25 @@
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif !important;
 }
 
+.alevel-admin-root:not(.alevel-dashboard-layout) {
+  display: block;
+  min-height: 100vh;
+  height: auto;
+  max-height: none;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+
+.alevel-admin-root:not(.alevel-dashboard-layout) .alevel-admin-main,
+.alevel-admin-root:not(.alevel-dashboard-layout) .panel,
+.alevel-admin-root:not(.alevel-dashboard-layout) .panel-card {
+  min-height: auto;
+  height: auto;
+  max-height: none;
+  overflow: visible;
+}
+
 .alevel-dashboard-layout {
   display: flex;
   flex-direction: row;

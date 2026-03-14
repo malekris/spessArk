@@ -218,13 +218,38 @@ const RIGHT_COL_X = pageWidth / 2 + 5;
 // Use a single-column flow for all report types (layout-only change).
 const SINGLE_COLUMN_MODE = true;
 const COLUMN_WIDTH = SINGLE_COLUMN_MODE ? pageWidth - 30 : pageWidth / 2 - 25;
-
-// ✅ ADD THIS
-const SAFE_TABLE_WIDTH = COLUMN_WIDTH;
+const TERM_MARKS_TABLE_WIDTH = COLUMN_WIDTH * 0.92;
+const ACTIVE_TABLE_WIDTH = isEndOfYear ? COLUMN_WIDTH : TERM_MARKS_TABLE_WIDTH;
+const TERM_SUBJECT_WIDTH = TERM_MARKS_TABLE_WIDTH * 0.2;
+const TERM_AOI_WIDTH = TERM_MARKS_TABLE_WIDTH * 0.085;
+const TERM_AV_WIDTH = TERM_MARKS_TABLE_WIDTH * 0.085;
+const TERM_REMARK_WIDTH = TERM_MARKS_TABLE_WIDTH * 0.27;
+const TERM_TEACHER_WIDTH = TERM_MARKS_TABLE_WIDTH * 0.19;
 
 // ===== VERTICAL RHYTHM =====
 const RHYTHM = 6;
 const CONTENT_START_Y = 64; // 🔒 single source of truth
+const TABLE_BORDER_COLOR = [0, 0, 0];
+const TABLE_BORDER_WIDTH = 0.45;
+const TABLE_HEADER_FILL = [245, 245, 245];
+const TABLE_TEXT_COLOR = [0, 0, 0];
+
+const buildTableStyles = (overrides = {}) => ({
+  font: "helvetica",
+  textColor: TABLE_TEXT_COLOR,
+  lineColor: TABLE_BORDER_COLOR,
+  lineWidth: TABLE_BORDER_WIDTH,
+  ...overrides,
+});
+
+const buildHeadStyles = (overrides = {}) => ({
+  fillColor: TABLE_HEADER_FILL,
+  textColor: TABLE_TEXT_COLOR,
+  fontStyle: "bold",
+  lineColor: TABLE_BORDER_COLOR,
+  lineWidth: TABLE_BORDER_WIDTH,
+  ...overrides,
+});
 
 const getColumnX = () => {
   if (SINGLE_COLUMN_MODE) return LEFT_COL_X;
@@ -448,28 +473,24 @@ autoTable(doc, {
     left: currentColumn === "left" ? LEFT_COL_X : RIGHT_COL_X,
   },
 
-  tableWidth: COLUMN_WIDTH,
+  tableWidth: ACTIVE_TABLE_WIDTH,
 
   head: tableHead,
 
   body: tableData,
 
-  styles: {
-    font: "helvetica",
+  styles: buildTableStyles({
     fontSize: 9,
     cellPadding: 2,
     overflow: "linebreak",
     wordBreak: "normal",
     valign: "middle",
-  },
+  }),
 
-  headStyles: {
-    fillColor: [227, 235, 243],
-    textColor: [31, 41, 55],
-    fontStyle: "bold",
+  headStyles: buildHeadStyles({
     fontSize: 9,
     cellPadding: 2,
-  },
+  }),
   columnStyles: isEndOfYear
     ? {
         0: { cellWidth: COLUMN_WIDTH * 0.17 },
@@ -495,13 +516,13 @@ autoTable(doc, {
         },
       }
     : {
-        0: { cellWidth: COLUMN_WIDTH * 0.18 },
-        1: { cellWidth: COLUMN_WIDTH * 0.08, halign: "center" },
-        2: { cellWidth: COLUMN_WIDTH * 0.08, halign: "center" },
-        3: { cellWidth: COLUMN_WIDTH * 0.08, halign: "center" },
-        4: { cellWidth: COLUMN_WIDTH * 0.08, halign: "center" },
+        0: { cellWidth: TERM_SUBJECT_WIDTH },
+        1: { cellWidth: TERM_AOI_WIDTH, halign: "center" },
+        2: { cellWidth: TERM_AOI_WIDTH, halign: "center" },
+        3: { cellWidth: TERM_AOI_WIDTH, halign: "center" },
+        4: { cellWidth: TERM_AV_WIDTH, halign: "center" },
         5: {
-          cellWidth: COLUMN_WIDTH * 0.24,
+          cellWidth: TERM_REMARK_WIDTH,
           overflow: "visible",
           wordBreak: "keep-all",
           whiteSpace: "nowrap",
@@ -509,7 +530,7 @@ autoTable(doc, {
           cellPadding: { left: 2, right: 2, top: 2, bottom: 2 },
         },
         6: {
-          cellWidth: COLUMN_WIDTH * 0.18,
+          cellWidth: TERM_TEACHER_WIDTH,
           overflow: "ellipsize",
           wordBreak: "keep-all",
           cellPadding: { left: 2, right: 2, top: 2, bottom: 2 },
@@ -604,14 +625,13 @@ if (isEndOfYear) {
       `Class Position: ${classPositionText}`,
       `Stream Position: ${streamPositionText}`,
     ]],
-    styles: {
-      font: "helvetica",
+    styles: buildTableStyles({
       fontSize: 8.8,
       fontStyle: "bold",
       halign: "center",
       cellPadding: 1.8,
       lineHeight: 1.0,
-    },
+    }),
     columnStyles: {
       0: { cellWidth: COLUMN_WIDTH / 3 },
       1: { cellWidth: COLUMN_WIDTH / 3 },
@@ -626,7 +646,7 @@ if (isEndOfYear) {
   autoTable(doc, {
     startY: currentY,
     margin: { left: getColumnX() },
-    tableWidth: COLUMN_WIDTH,
+    tableWidth: TERM_MARKS_TABLE_WIDTH,
 
     head: [[
       "Overall Average",
@@ -640,24 +660,19 @@ if (isEndOfYear) {
       streamPositionText,
     ]],
 
-    styles: {
-      font: "helvetica",
+    styles: buildTableStyles({
       fontSize: 9,
       halign: "center",
       cellPadding: 2,
       lineHeight: 1.0,
-    },
+    }),
 
-    headStyles: {
-      fillColor: [227, 235, 243],
-      textColor: [31, 41, 55],
-      fontStyle: "bold",
-    },
+    headStyles: buildHeadStyles(),
 
     columnStyles: {
-      0: { cellWidth: COLUMN_WIDTH / 3 },
-      1: { cellWidth: COLUMN_WIDTH / 3 },
-      2: { cellWidth: COLUMN_WIDTH / 3 },
+      0: { cellWidth: TERM_MARKS_TABLE_WIDTH / 3 },
+      1: { cellWidth: TERM_MARKS_TABLE_WIDTH / 3 },
+      2: { cellWidth: TERM_MARKS_TABLE_WIDTH / 3 },
     },
 
     theme: "grid",
@@ -673,24 +688,23 @@ ensureSpace(10);
 autoTable(doc, {
   startY: currentY,
   margin: { left: getColumnX() },
-  tableWidth: COLUMN_WIDTH,
+  tableWidth: isEndOfYear ? COLUMN_WIDTH : TERM_MARKS_TABLE_WIDTH,
   body: [[
     "BASIC: 0.9 - 1.4",
     "MODERATE: 1.5 - 2.4",
     "OUTSTANDING: 2.5 - 3.0",
   ]],
-  styles: {
-    font: "helvetica",
+  styles: buildTableStyles({
     fontSize: 8.6,
     fontStyle: "bold",
     halign: "center",
     cellPadding: 1.8,
     lineHeight: 1.0,
-  },
+  }),
   columnStyles: {
-    0: { cellWidth: COLUMN_WIDTH / 3 },
-    1: { cellWidth: COLUMN_WIDTH / 3 },
-    2: { cellWidth: COLUMN_WIDTH / 3 },
+    0: { cellWidth: (isEndOfYear ? COLUMN_WIDTH : TERM_MARKS_TABLE_WIDTH) / 3 },
+    1: { cellWidth: (isEndOfYear ? COLUMN_WIDTH : TERM_MARKS_TABLE_WIDTH) / 3 },
+    2: { cellWidth: (isEndOfYear ? COLUMN_WIDTH : TERM_MARKS_TABLE_WIDTH) / 3 },
   },
   theme: "grid",
 });
@@ -712,14 +726,13 @@ if (isEndOfYear) {
       "D: 50 - 59",
       "E: 00 - 49",
     ]],
-    styles: {
-      font: "helvetica",
+    styles: buildTableStyles({
       fontSize: 8.6,
       fontStyle: "bold",
       halign: "center",
       cellPadding: 1.8,
       lineHeight: 1.0,
-    },
+    }),
     columnStyles: {
       0: { cellWidth: COLUMN_WIDTH / 5 },
       1: { cellWidth: COLUMN_WIDTH / 5 },
@@ -740,7 +753,7 @@ ensureSpace(35);
 autoTable(doc, {
   startY: currentY,
   margin: { left: getColumnX() },
-  tableWidth: COLUMN_WIDTH,
+  tableWidth: isEndOfYear ? COLUMN_WIDTH : TERM_MARKS_TABLE_WIDTH,
 
   head: [["HEAD TEACHER", "CLASS TEACHER"]],
 
@@ -749,22 +762,17 @@ autoTable(doc, {
     ["Signature: ____________________", "Signature: ____________________"]
   ],
 
-  styles: {
-    font: "helvetica",
+  styles: buildTableStyles({
     fontSize: 11,
     lineHeight: 1.0,
     cellPadding: 2,
-  },
+  }),
 
-  headStyles: {
-    fillColor: [227, 235, 243],
-    textColor: [31, 41, 55],
-    fontStyle: "bold",
-  },
+  headStyles: buildHeadStyles(),
 
   columnStyles: {
-    0: { cellWidth: COLUMN_WIDTH / 2 },
-    1: { cellWidth: COLUMN_WIDTH / 2 },
+    0: { cellWidth: (isEndOfYear ? COLUMN_WIDTH : TERM_MARKS_TABLE_WIDTH) / 2 },
+    1: { cellWidth: (isEndOfYear ? COLUMN_WIDTH : TERM_MARKS_TABLE_WIDTH) / 2 },
   },
 
   theme: "grid",

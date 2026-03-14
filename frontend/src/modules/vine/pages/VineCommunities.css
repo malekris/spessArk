@@ -6,7 +6,7 @@
 
 .communities-top {
   max-width: 1150px;
-  margin: 0 auto 12px;
+  margin: 0 auto 14px;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -15,16 +15,64 @@
 .communities-top h2 {
   margin: 0;
   color: #064e3b;
+  font-weight: 900;
+  font-size: 1.45rem;
 }
 
 .communities-back {
-  border: 1px solid #a7f3d0;
-  background: #fff;
-  color: #064e3b;
+  border: 1px solid #99f6e4;
+  background: linear-gradient(145deg, #ffffff, #ecfdf5);
+  color: #065f46;
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 8px 18px rgba(16, 185, 129, 0.12);
+  transition:
+    transform 0.14s ease,
+    box-shadow 0.18s ease,
+    border-color 0.18s ease;
+}
+
+.communities-back:hover {
+  transform: translateY(-1px);
+  border-color: #34d399;
+  box-shadow: 0 12px 24px rgba(16, 185, 129, 0.16);
+}
+
+.communities-back:active {
+  transform: translateY(0);
+}
+
+.communities-top-spacer {
+  margin-left: auto;
+}
+
+.communities-jump-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.communities-jump-btn {
+  border: 1px solid #bbf7d0;
+  background: rgba(255, 255, 255, 0.82);
+  color: #065f46;
   border-radius: 999px;
   padding: 8px 12px;
   font-weight: 700;
   cursor: pointer;
+  transition:
+    transform 0.14s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.communities-jump-btn:hover {
+  transform: translateY(-1px);
+  border-color: #34d399;
+  box-shadow: 0 10px 20px rgba(16, 185, 129, 0.12);
 }
 
 .communities-layout {
@@ -2366,17 +2414,23 @@
 
 @media (max-width: 560px) {
   .communities-top {
-    gap: 8px;
-    margin-bottom: 8px;
+    align-items: flex-start;
+    flex-wrap: wrap;
   }
 
   .communities-top h2 {
-    font-size: 1.1rem;
+    font-size: 1.2rem;
   }
 
   .communities-back {
-    padding: 7px 10px;
-    font-size: 0.85rem;
+    padding: 8px 12px;
+  }
+
+  .communities-jump-actions {
+    width: 100%;
+    margin-left: 0;
+    justify-content: flex-start;
+    flex-wrap: wrap;
   }
 
   .community-banner {

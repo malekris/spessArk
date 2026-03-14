@@ -50,8 +50,24 @@ export default function VineSuggestions() {
     <div className="vine-suggestions">
       <div className="suggestions-content">
         
-        <button className="back-btn" onClick={() => navigate("/vine/feed")}>
-          ← Back to Feed
+        <button
+          className="suggestions-back"
+          onClick={() => navigate("/vine/feed")}
+          aria-label="Back to feed"
+          title="Back to feed"
+        >
+          <span className="suggestions-back-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none">
+              <path
+                d="M14.5 6.5L9 12l5.5 5.5"
+                stroke="currentColor"
+                strokeWidth="2.4"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </span>
+          <span className="suggestions-back-label">Feed</span>
         </button>
 
         <h3 className="suggestions-title">🌱 New Viners</h3>

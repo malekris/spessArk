@@ -5742,9 +5742,40 @@ router.get("/share/:id", async (req, res) => {
     const requestProto = String(req.get("x-forwarded-proto") || req.protocol || "https").split(",")[0].trim() || "https";
     const requestHost = String(req.get("x-forwarded-host") || req.get("host") || "").split(",")[0].trim();
 
-    const frontendBase =
-      String(process.env.VINE_PUBLIC_BASE_URL || "").trim() ||
-      `${requestProto}://${requestHost}`.replace(/\/+$/, "");
+    const resolveFrontendBase = () => {
+      const explicitBase = String(process.env.VINE_PUBLIC_BASE_URL || "")
+        .trim()
+        .replace(/\/+$/, "");
+      if (explicitBase) return explicitBase;
+
+      const hostName = String(requestHost || "")
+        .split(":")[0]
+        .trim()
+        .toLowerCase();
+
+      if (hostName === "localhost" || hostName === "127.0.0.1") {
+        return "http://localhost:5173";
+      }
+
+      if (hostName === "api.stphillipsequatorial.com") {
+        return "https://www.stphillipsequatorial.com";
+      }
+
+      if (hostName.startsWith("api.")) {
+        return `https://www.${hostName.slice(4)}`;
+      }
+
+      if (
+        hostName === "stphillipsequatorial.com" ||
+        hostName === "www.stphillipsequatorial.com"
+      ) {
+        return "https://www.stphillipsequatorial.com";
+      }
+
+      return `${requestProto}://${requestHost}`.replace(/\/+$/, "");
+    };
+
+    const frontendBase = resolveFrontendBase();
     const appTarget = `${frontendBase}/vine/post/${postId}`;
     const shareUrl = `${requestProto}://${requestHost}/api/vine/share/${postId}`;
 

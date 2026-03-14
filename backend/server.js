@@ -32,6 +32,46 @@ const app = express();
 const PORT = process.env.PORT || 5001;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+function getVineFrontendBase(req) {
+  const explicitBase = String(process.env.VINE_PUBLIC_BASE_URL || "")
+    .trim()
+    .replace(/\/+$/, "");
+  if (explicitBase) return explicitBase;
+
+  const requestProto =
+    String(req.get("x-forwarded-proto") || req.protocol || "https")
+      .split(",")[0]
+      .trim() || "https";
+  const requestHost = String(req.get("x-forwarded-host") || req.get("host") || "")
+    .split(",")[0]
+    .trim();
+  const hostName = String(requestHost || "")
+    .split(":")[0]
+    .trim()
+    .toLowerCase();
+
+  if (hostName === "localhost" || hostName === "127.0.0.1") {
+    return "http://localhost:5173";
+  }
+
+  if (hostName === "api.stphillipsequatorial.com") {
+    return "https://www.stphillipsequatorial.com";
+  }
+
+  if (hostName.startsWith("api.")) {
+    return `https://www.${hostName.slice(4)}`;
+  }
+
+  if (
+    hostName === "stphillipsequatorial.com" ||
+    hostName === "www.stphillipsequatorial.com"
+  ) {
+    return "https://www.stphillipsequatorial.com";
+  }
+
+  return `${requestProto}://${requestHost}`.replace(/\/+$/, "");
+}
 /* =======================
    MIDDLEWARE
 ======================= */
@@ -65,6 +105,11 @@ app.use("/api/vine", vineRoutes);
 app.use("/uploads", express.static("uploads"));
 app.use("/api/dms", dmRoutes);
 app.use("/uploads", express.static("uploads"));
+
+app.get(/^\/vine(?:\/.*)?$/, (req, res) => {
+  const frontendBase = getVineFrontendBase(req);
+  return res.redirect(302, `${frontendBase}${req.originalUrl}`);
+});
 
 /* =======================
    ROUTES

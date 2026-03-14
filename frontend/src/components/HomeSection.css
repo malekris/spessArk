@@ -84,7 +84,7 @@
 }
 
 .hero-content h1 span {
-  color: #fbbf24;
+  color: #ef4444;
 }
 
 .hero-content p {
@@ -95,6 +95,21 @@
   font-weight: 500;
   letter-spacing: 0.15em;
   text-transform: uppercase;
+}
+
+.hero-motto {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+}
+
+.hero-motto span {
+  font-style: italic;
+  font-variant: small-caps;
+  letter-spacing: 0.18em;
+  font-weight: 700;
 }
 
 .hero-divider {
@@ -219,6 +234,13 @@
   text-decoration: none;
   transition: all 0.2s ease;
   box-shadow: 0 4px 15px rgba(22, 163, 74, 0.35);
+}
+
+@media (min-width: 769px) {
+  .vine-btn-landing {
+    padding: 1.2rem 3.1rem;
+    font-size: 1.2rem;
+  }
 }
 
 .vine-btn-landing:hover {

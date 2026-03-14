@@ -1,9 +1,16 @@
 import React from "react";
+import badge from "../assets/badge.png";
+import "./Navbar.css";
 
 export default function Navbar() {
   return (
     <nav style={styles.nav}>
-      <div style={styles.logo}>SPESS</div>
+      <div style={styles.logoWrap}>
+        <img src={badge} alt="St. Phillip’s Equatorial Secondary School badge" style={styles.badge} />
+        <div style={styles.logo}>
+          <span className="brand-desktop">St. Phillip’s Equatorial SS</span>
+        </div>
+      </div>
 
       <div style={styles.links}>
         <a href="#home" style={styles.link}>Home</a>
@@ -32,6 +39,22 @@ const styles = {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
+  },
+
+  logoWrap: {
+    display: "flex",
+    alignItems: "center",
+    gap: "0.75rem",
+  },
+
+  badge: {
+    width: "42px",
+    height: "42px",
+    objectFit: "contain",
+    borderRadius: "50%",
+    background: "rgba(255,255,255,0.12)",
+    padding: "4px",
+    boxShadow: "0 8px 20px rgba(0,0,0,0.18)",
   },
 
   logo: {

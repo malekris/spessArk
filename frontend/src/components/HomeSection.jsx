@@ -28,7 +28,9 @@ export default function HomeSection() {
 
         <div className="hero-content">
           <h1>St. Phillip’s <span>Equatorial SS</span></h1>
-          <p>Excellence in Academics, Discipline and Character</p>
+          <p className="hero-motto">
+            Our motto <span>&ldquo;Work and Live by Faith&rdquo;</span>
+          </p>
           <div className="hero-divider" />
         </div>
       </div>
@@ -39,27 +41,28 @@ export default function HomeSection() {
           {/* Label Header */}
           <div className="profile-label">
             <span className="dot"></span>
-            INSTITUTIONAL PROFILE
+            WHO WE ARE
           </div>
           
-          <h2 className="welcome-title">Welcome to Our School</h2>
+          <h2 className="welcome-title">Welcome to St. Phillip’s</h2>
 
           <div className="profile-body">
             <p className="lead-text">
-              St. Phillip’s Equatorial Secondary School stands as a beacon of high-quality 
-              education, fostering an environment where young minds are nurtured into 
-              the leaders of tomorrow.
+              St. Phillip’s Equatorial Secondary School was founded in 1994 and stands as a
+              proud centre of learning in the Central Buganda Diocese under the Church of
+              Uganda foundation.
             </p>
 
             <div className="profile-details">
               <p>
-                Founded on the pillars of rigorous academic standards and moral integrity, 
-                our holistic approach combines cutting-edge technology with traditional values. 
-                We ensure every student is equipped for the complexities of the modern world.
+                The school serves a diverse population of learners from all walks of life,
+                creating a welcoming community where discipline, faith, and academic growth
+                go hand in hand.
               </p>
               <p>
-                Our campus provides a serene and disciplined atmosphere conducive to 
-                discovery, innovation, and personal growth.
+                We offer both O-Level and A-Level education, and as a government USE school,
+                we remain committed to making quality education accessible while preparing
+                learners for higher studies, service, and responsible citizenship.
               </p>
             </div>
           </div>

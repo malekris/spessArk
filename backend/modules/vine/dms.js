@@ -5,12 +5,29 @@ import multer from "multer";
 import cloudinary from "../../config/cloudinary.js";
 
 const router = express.Router();
+const DISAPPEARING_MODES = new Set(["after_read", "1h", "24h"]);
 const uploadDmMedia = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 25 * 1024 * 1024 },
 });
 
 let dmSchemaReady = false;
+const addColumnIfMissing = async (tableName, columnName, definitionSql) => {
+  const [rows] = await db.query(
+    `
+    SELECT 1
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = ?
+      AND COLUMN_NAME = ?
+    LIMIT 1
+    `,
+    [tableName, columnName]
+  );
+  if (rows.length) return;
+  await db.query(`ALTER TABLE ${tableName} ADD COLUMN ${definitionSql}`);
+};
+
 const ensureDmSchema = async () => {
   if (dmSchemaReady) return;
   await db.query(`
@@ -43,6 +60,28 @@ const ensureDmSchema = async () => {
       INDEX idx_dm_reaction_msg (message_id)
     )
   `);
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_conversation_settings (
+      conversation_id INT PRIMARY KEY,
+      disappearing_enabled TINYINT(1) NOT NULL DEFAULT 0,
+      disappear_mode VARCHAR(20) NOT NULL DEFAULT 'after_read',
+      updated_by INT NULL,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await addColumnIfMissing("vine_messages", "read_at", "read_at DATETIME NULL");
+  await addColumnIfMissing(
+    "vine_messages",
+    "is_disappearing",
+    "is_disappearing TINYINT(1) NOT NULL DEFAULT 0"
+  );
+  await addColumnIfMissing("vine_messages", "disappeared_at", "disappeared_at DATETIME NULL");
+  await addColumnIfMissing(
+    "vine_messages",
+    "disappear_mode",
+    "disappear_mode VARCHAR(20) NOT NULL DEFAULT 'after_read'"
+  );
+  await addColumnIfMissing("vine_messages", "expires_at", "expires_at DATETIME NULL");
   dmSchemaReady = true;
 };
 
@@ -57,6 +96,228 @@ const uploadBufferToCloudinary = (buffer, options = {}) =>
     );
     stream.end(buffer);
   });
+
+const extractCloudinaryPublicId = (rawUrl) => {
+  const asString = String(rawUrl || "").trim();
+  if (!asString) return null;
+  try {
+    const parsed = new URL(asString);
+    const pathParts = parsed.pathname.split("/").filter(Boolean);
+    const uploadIndex = pathParts.findIndex((p) => p === "upload");
+    if (uploadIndex < 0) return null;
+    const tail = pathParts.slice(uploadIndex + 1);
+    if (!tail.length) return null;
+    if (/^(image|video|raw)$/i.test(tail[0])) tail.shift();
+    if (/^(upload|private|authenticated)$/i.test(tail[0])) tail.shift();
+    if (tail[0] && /^v\d+$/i.test(tail[0])) tail.shift();
+    if (!tail.length) return null;
+    const last = tail[tail.length - 1] || "";
+    tail[tail.length - 1] = last.replace(/\.[^/.?#]+$/, "");
+    return tail.join("/") || null;
+  } catch {
+    return null;
+  }
+};
+
+const deleteCloudinaryByUrl = async (url, mediaType) => {
+  const publicId = extractCloudinaryPublicId(url);
+  if (!publicId) return;
+  const resourceTypes =
+    mediaType === "voice" ? ["video", "raw"] : mediaType === "image" ? ["image"] : ["image", "video", "raw"];
+  for (const resourceType of resourceTypes) {
+    try {
+      const result = await cloudinary.uploader.destroy(publicId, {
+        resource_type: resourceType,
+        invalidate: true,
+      });
+      if (result?.result === "ok" || result?.result === "deleted") return;
+    } catch {
+      // try next resource type
+    }
+  }
+};
+
+const getConversationForUser = async (conversationId, userId) => {
+  const [[row]] = await db.query(
+    `
+    SELECT id, user1_id, user2_id
+    FROM vine_conversations
+    WHERE id = ?
+      AND (user1_id = ? OR user2_id = ?)
+    LIMIT 1
+    `,
+    [conversationId, userId, userId]
+  );
+  return row || null;
+};
+
+const getConversationSettings = async (conversationId) => {
+  await ensureDmSchema();
+  const [[row]] = await db.query(
+    `
+    SELECT disappearing_enabled, disappear_mode, updated_by, updated_at
+    FROM vine_conversation_settings
+    WHERE conversation_id = ?
+    LIMIT 1
+    `,
+    [conversationId]
+  );
+  return {
+    disappearing_enabled: Number(row?.disappearing_enabled || 0) === 1,
+    disappear_mode: DISAPPEARING_MODES.has(String(row?.disappear_mode || ""))
+      ? row.disappear_mode
+      : "after_read",
+    updated_by: row?.updated_by || null,
+    updated_at: row?.updated_at || null,
+  };
+};
+
+const getDisappearingExpiryForMode = (mode) => {
+  if (mode === "1h") {
+    return new Date(Date.now() + 60 * 60 * 1000);
+  }
+  if (mode === "24h") {
+    return new Date(Date.now() + 24 * 60 * 60 * 1000);
+  }
+  return null;
+};
+
+const removeMessagesPermanently = async (conversationId, messageIds = []) => {
+  const ids = Array.from(new Set((messageIds || []).map((id) => Number(id)).filter(Boolean)));
+  if (!ids.length) return [];
+  const [[conversation]] = await db.query(
+    `
+    SELECT user1_id, user2_id
+    FROM vine_conversations
+    WHERE id = ?
+    LIMIT 1
+    `,
+    [conversationId]
+  );
+
+  const placeholders = ids.map(() => "?").join(",");
+  const [mediaRows] = await db.query(
+    `
+    SELECT message_id, media_url, media_type
+    FROM vine_message_meta
+    WHERE message_id IN (${placeholders})
+    `,
+    ids
+  );
+
+  for (const row of mediaRows) {
+    if (row?.media_url) {
+      await deleteCloudinaryByUrl(row.media_url, row.media_type).catch(() => {});
+    }
+  }
+
+  await db.query(
+    `DELETE FROM vine_message_reactions WHERE message_id IN (${placeholders})`,
+    ids
+  );
+  await db.query(
+    `DELETE FROM vine_message_meta WHERE message_id IN (${placeholders})`,
+    ids
+  );
+  await db.query(
+    `DELETE FROM vine_messages WHERE id IN (${placeholders})`,
+    ids
+  );
+
+  io.to(`conversation-${conversationId}`).emit("dm_messages_disappeared", {
+    conversation_id: conversationId,
+    message_ids: ids,
+  });
+  if (conversation?.user1_id) io.to(`user-${conversation.user1_id}`).emit("inbox_updated");
+  if (conversation?.user2_id) io.to(`user-${conversation.user2_id}`).emit("inbox_updated");
+
+  return ids;
+};
+
+const cleanupExpiredDisappearingMessages = async (conversationId = null) => {
+  await ensureDmSchema();
+  const params = [];
+  let whereConversation = "";
+  if (conversationId) {
+    whereConversation = "AND conversation_id = ?";
+    params.push(conversationId);
+  }
+
+  const [rows] = await db.query(
+    `
+    SELECT id, conversation_id
+    FROM vine_messages
+    WHERE is_disappearing = 1
+      AND disappear_mode IN ('1h', '24h')
+      AND expires_at IS NOT NULL
+      AND expires_at <= NOW()
+      ${whereConversation}
+    ORDER BY conversation_id ASC, id ASC
+    `,
+    params
+  );
+
+  if (!rows.length) return [];
+
+  const grouped = new Map();
+  rows.forEach((row) => {
+    const key = Number(row.conversation_id);
+    const cur = grouped.get(key) || [];
+    cur.push(Number(row.id));
+    grouped.set(key, cur);
+  });
+
+  const removed = [];
+  for (const [cid, ids] of grouped.entries()) {
+    const deleted = await removeMessagesPermanently(cid, ids);
+    removed.push(...deleted);
+  }
+  return removed;
+};
+
+const markConversationReadAndDisappear = async (conversationId, userId) => {
+  await ensureDmSchema();
+  const convo = await getConversationForUser(conversationId, userId);
+  if (!convo) return null;
+
+  const expiredIds = await cleanupExpiredDisappearingMessages(conversationId);
+
+  const [disappearingRows] = await db.query(
+    `
+    SELECT id
+    FROM vine_messages
+    WHERE conversation_id = ?
+      AND sender_id != ?
+      AND is_read = 0
+      AND is_disappearing = 1
+      AND COALESCE(disappear_mode, 'after_read') = 'after_read'
+    ORDER BY created_at ASC
+    `,
+    [conversationId, userId]
+  );
+
+  await db.query(
+    `
+    UPDATE vine_messages
+    SET is_read = 1,
+        read_at = NOW()
+    WHERE conversation_id = ?
+      AND sender_id != ?
+      AND is_read = 0
+    `,
+    [conversationId, userId]
+  );
+
+  const disappearedIds = await removeMessagesPermanently(
+    conversationId,
+    disappearingRows.map((row) => row.id)
+  );
+
+  return {
+    ...convo,
+    disappearedIds: [...expiredIds, ...disappearedIds],
+  };
+};
 
 const hydrateMessages = async (messages, viewerId) => {
   if (!Array.isArray(messages) || !messages.length) return messages || [];
@@ -181,6 +442,7 @@ router.get("/conversations", authenticate, async (req, res) => {
 
   try {
     await ensureDmSchema();
+    await cleanupExpiredDisappearingMessages();
     const qWhere = q
       ? `
         AND (
@@ -298,6 +560,7 @@ router.get("/conversations/:id/messages", authenticate, async (req, res) => {
   const conversationId = req.params.id;
 
   try {
+    await cleanupExpiredDisappearingMessages(conversationId);
     // 1. Verify user belongs to this conversation
     const [check] = await db.query(
       `
@@ -314,19 +577,9 @@ router.get("/conversations/:id/messages", authenticate, async (req, res) => {
       return res.status(403).json({ error: "Access denied" });
     }
 
-    // 2. Mark messages as read
-    await db.query(
-      `
-      UPDATE vine_messages
-      SET is_read = 1
-      WHERE conversation_id = ?
-        AND sender_id != ?
-        AND is_read = 0
-      `,
-      [conversationId, userId]
-    );
-
-    // 3. Fetch messages
+    // 2. Fetch messages without auto-marking read.
+    // Read state is advanced explicitly by the read endpoint so disappearing
+    // messages are not removed before the viewer can render them.
     const [messages] = await db.query(
       `
       SELECT 
@@ -335,6 +588,9 @@ router.get("/conversations/:id/messages", authenticate, async (req, res) => {
         m.content,
         m.created_at,
         m.is_read,
+        m.is_disappearing,
+        m.disappear_mode,
+        m.expires_at,
         u.username,
         u.avatar_url,
         u.is_verified
@@ -433,6 +689,63 @@ router.post("/start", authenticate, async (req, res) => {
   } catch (err) {
     console.error("Start conversation error:", err);
     res.status(500).json({ error: "Failed to start conversation" });
+  }
+});
+
+router.get("/conversations/:id/settings", authenticate, async (req, res) => {
+  const userId = Number(req.user.id);
+  const conversationId = Number(req.params.id);
+  if (!conversationId) return res.status(400).json({ error: "Invalid conversation" });
+  try {
+    const convo = await getConversationForUser(conversationId, userId);
+    if (!convo) return res.status(403).json({ error: "Access denied" });
+    const settings = await getConversationSettings(conversationId);
+    res.json({ conversation_id: conversationId, ...settings });
+  } catch (err) {
+    console.error("Get conversation settings error:", err);
+    res.status(500).json({ error: "Failed to load chat settings" });
+  }
+});
+
+router.patch("/conversations/:id/settings", authenticate, async (req, res) => {
+  const userId = Number(req.user.id);
+  const conversationId = Number(req.params.id);
+  if (!conversationId) return res.status(400).json({ error: "Invalid conversation" });
+
+  try {
+    await ensureDmSchema();
+    const convo = await getConversationForUser(conversationId, userId);
+    if (!convo) return res.status(403).json({ error: "Access denied" });
+
+    const disappearingEnabled = Boolean(req.body?.disappearing_enabled);
+    const requestedMode = String(req.body?.disappear_mode || "after_read").trim().toLowerCase();
+    const disappearMode = DISAPPEARING_MODES.has(requestedMode) ? requestedMode : "after_read";
+    await db.query(
+      `
+      INSERT INTO vine_conversation_settings
+        (conversation_id, disappearing_enabled, disappear_mode, updated_by, updated_at)
+      VALUES (?, ?, ?, ?, NOW())
+      ON DUPLICATE KEY UPDATE
+        disappearing_enabled = VALUES(disappearing_enabled),
+        disappear_mode = VALUES(disappear_mode),
+        updated_by = VALUES(updated_by),
+        updated_at = NOW()
+      `,
+      [conversationId, disappearingEnabled ? 1 : 0, disappearMode, userId]
+    );
+
+    const settings = await getConversationSettings(conversationId);
+    io.to(`conversation-${conversationId}`).emit("dm_settings_updated", {
+      conversation_id: conversationId,
+      ...settings,
+    });
+    io.to(`user-${convo.user1_id}`).emit("inbox_updated");
+    io.to(`user-${convo.user2_id}`).emit("inbox_updated");
+
+    res.json({ success: true, conversation_id: conversationId, ...settings });
+  } catch (err) {
+    console.error("Update conversation settings error:", err);
+    res.status(500).json({ error: "Failed to update chat settings" });
   }
 });
 /* =========================
@@ -561,13 +874,29 @@ router.post("/send", authenticate, async (req, res) => {
       }
     }
 
+    const conversationSettings = await getConversationSettings(activeConversationId);
+    const isDisappearing = conversationSettings.disappearing_enabled ? 1 : 0;
+    const disappearMode = conversationSettings.disappearing_enabled
+      ? conversationSettings.disappear_mode || "after_read"
+      : "after_read";
+    const expiresAt = isDisappearing ? getDisappearingExpiryForMode(disappearMode) : null;
+
     // Insert message
     const [result] = await db.query(
       `
-      INSERT INTO vine_messages (conversation_id, sender_id, content)
-      VALUES (?, ?, ?)
+      INSERT INTO vine_messages (
+        conversation_id, sender_id, content, is_disappearing, disappear_mode, expires_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?)
       `,
-      [activeConversationId, senderId, safeContent || (safeMediaType === "voice" ? "Voice note" : "Attachment")]
+      [
+        activeConversationId,
+        senderId,
+        safeContent || (safeMediaType === "voice" ? "Voice note" : "Attachment"),
+        isDisappearing,
+        disappearMode,
+        expiresAt,
+      ]
     );
 
     if (replyToId || safeMediaUrl) {
@@ -594,6 +923,9 @@ router.post("/send", authenticate, async (req, res) => {
         m.sender_id,
         m.content,
         m.created_at,
+        m.is_disappearing,
+        m.disappear_mode,
+        m.expires_at,
         u.username,
         u.avatar_url,
         u.is_verified
@@ -723,31 +1055,14 @@ router.post("/conversations/:id/read", authenticate, async (req, res) => {
   const conversationId = req.params.id;
 
   try {
-    // Get participants first
-    const [[convo]] = await db.query(`
-      SELECT user1_id, user2_id
-      FROM vine_conversations
-      WHERE id = ?
-    `, [conversationId]);
-
+    const convo = await markConversationReadAndDisappear(conversationId, userId);
     if (!convo) {
-      return res.status(404).json({ error: "Conversation not found" });
+      return res.status(403).json({ error: "Access denied" });
     }
 
-    const { user1_id, user2_id } = convo;
-
-    // Mark messages as read
-    await db.query(`
-      UPDATE vine_messages
-      SET is_read = 1
-      WHERE conversation_id = ?
-        AND sender_id != ?
-        AND is_read = 0
-    `, [conversationId, userId]);
-
     // 🔥 Notify BOTH users to refresh inbox immediately
-    io.to(`user-${user1_id}`).emit("inbox_updated");
-    io.to(`user-${user2_id}`).emit("inbox_updated");
+    io.to(`user-${convo.user1_id}`).emit("inbox_updated");
+    io.to(`user-${convo.user2_id}`).emit("inbox_updated");
 
     // 🔥 Optional: update open chat UI
     io.to(`conversation-${conversationId}`).emit("messages_seen", {
@@ -755,7 +1070,7 @@ router.post("/conversations/:id/read", authenticate, async (req, res) => {
       seenBy: userId
     });
 
-    res.json({ success: true });
+    res.json({ success: true, disappeared_message_ids: convo.disappearedIds || [] });
 
   } catch (err) {
     console.error("Read update error:", err);
@@ -866,14 +1181,7 @@ router.delete("/messages/:id", authenticate, async (req, res) => {
       return res.status(403).json({ error: "You can only delete your own message" });
     }
 
-    await db.query("DELETE FROM vine_message_reactions WHERE message_id = ?", [messageId]);
-    await db.query("DELETE FROM vine_message_meta WHERE message_id = ?", [messageId]);
-    await db.query("DELETE FROM vine_messages WHERE id = ? AND sender_id = ?", [messageId, userId]);
-
-    io.to(`conversation-${row.conversation_id}`).emit("dm_message_deleted", {
-      message_id: messageId,
-      conversation_id: row.conversation_id,
-    });
+    await removeMessagesPermanently(row.conversation_id, [messageId]);
     io.to(`user-${userId}`).emit("inbox_updated");
 
     res.json({ success: true });
@@ -891,6 +1199,7 @@ router.get("/conversations/:id/messages", authenticate, async (req, res) => {
   const conversationId = req.params.id;
 
   try {
+    await cleanupExpiredDisappearingMessages(conversationId);
     // 1. Must belong to conversation
     const [check] = await db.query(
       `
@@ -906,18 +1215,7 @@ router.get("/conversations/:id/messages", authenticate, async (req, res) => {
       return res.status(403).json({ error: "Access denied" });
     }
 
-    // 2. Mark messages as read
-    await db.query(
-      `
-      UPDATE vine_messages
-      SET is_read = 1
-      WHERE conversation_id = ?
-        AND sender_id != ?
-      `,
-      [conversationId, userId]
-    );
-
-    // 3. Fetch messages
+    // 2. Fetch messages without auto-marking read.
     const [messages] = await db.query(
       `
       SELECT 
@@ -926,6 +1224,9 @@ router.get("/conversations/:id/messages", authenticate, async (req, res) => {
         m.content,
         m.created_at,
         m.is_read,
+        m.is_disappearing,
+        m.disappear_mode,
+        m.expires_at,
         u.username,
         u.avatar_url
       FROM vine_messages m
@@ -951,6 +1252,7 @@ router.get("/unread-total", authenticate, async (req, res) => {
   const userId = req.user.id;
 
   try {
+    await cleanupExpiredDisappearingMessages();
     const [[row]] = await db.query(`
       SELECT COUNT(*) AS total
       FROM vine_messages m

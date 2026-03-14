@@ -7,6 +7,12 @@ import "./ChatWindow.css";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const DEFAULT_AVATAR = "/default-avatar.png";
+const DISAPPEARING_OPTIONS = [
+  { value: "after_read", label: "After read" },
+  { value: "1h", label: "1 hour" },
+  { value: "24h", label: "24 hours" },
+];
+
 const formatLastSeenAgo = (dateString) => {
   if (!dateString) return "";
   const ts = new Date(dateString).getTime();
@@ -43,6 +49,18 @@ const formatDayDivider = (dateString) => {
   return d.toLocaleDateString("en-US", opts);
 };
 
+const getDisappearingLabel = (mode) => {
+  if (mode === "1h") return "Disappears in 1 hour";
+  if (mode === "24h") return "Disappears in 24 hours";
+  return "Disappears after read";
+};
+
+const getTempExpiry = (mode) => {
+  if (mode === "1h") return new Date(Date.now() + 60 * 60 * 1000).toISOString();
+  if (mode === "24h") return new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  return null;
+};
+
 export default function ChatWindow() {
   const { conversationId: routeConversationId, userId: routeReceiverId } = useParams();
   const navigate = useNavigate();
@@ -55,6 +73,12 @@ export default function ChatWindow() {
   const [partner, setPartner] = useState(null);
   const [replyTarget, setReplyTarget] = useState(null);
   const [partnerTyping, setPartnerTyping] = useState(false);
+  const [profileSheetOpen, setProfileSheetOpen] = useState(false);
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [chatSettings, setChatSettings] = useState({
+    disappearing_enabled: false,
+    disappear_mode: "after_read",
+  });
   const [, setLastSeenTick] = useState(0);
 
   const scrollRef = useRef(null);
@@ -63,6 +87,29 @@ export default function ChatWindow() {
 
   const currentUser = JSON.parse(localStorage.getItem("vine_user"));
   const myId = currentUser?.id;
+
+  const removeMessagesByIds = (ids = []) => {
+    const idSet = new Set((ids || []).map((id) => Number(id)).filter(Boolean));
+    if (!idSet.size) return;
+    setMessages((prev) => prev.filter((m) => !idSet.has(Number(m.id))));
+  };
+
+  const markConversationRead = async () => {
+    if (!conversationId || !token) return;
+    try {
+      const res = await fetch(`${API}/api/dms/conversations/${conversationId}/read`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return;
+      if (Array.isArray(data?.disappeared_message_ids) && data.disappeared_message_ids.length) {
+        removeMessagesByIds(data.disappeared_message_ids);
+      }
+    } catch {}
+  };
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -87,32 +134,32 @@ export default function ChatWindow() {
     setConversationId(routeConversationId || null);
     stickToBottomRef.current = true;
   }, [routeConversationId]);
-// listen for incoming messages//
-const handleIncoming = (msg) => {
-  if (String(msg.conversation_id) !== String(conversationId)) return;
 
-  // ignore echo of my own message
-  if (Number(msg.sender_id) === Number(myId)) return;
+  useEffect(() => {
+    if (!conversationId) {
+      setChatSettings({
+        disappearing_enabled: false,
+        disappear_mode: "after_read",
+      });
+      return;
+    }
 
-  setMessages(prev => {
-    if (prev.some(m => m.id === msg.id)) return prev;
-    return [...prev, msg];
-  });
+    const loadChatSettings = async () => {
+      try {
+        const res = await fetch(`${API}/api/dms/conversations/${conversationId}/settings`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) return;
+        setChatSettings({
+          disappearing_enabled: Boolean(data?.disappearing_enabled),
+          disappear_mode: data?.disappear_mode || "after_read",
+        });
+      } catch {}
+    };
 
-  // 🔥 MARK AS READ IMMEDIATELY
-  // mark as read immediately when message arrives
-fetch(`${API}/api/dms/conversations/${conversationId}/read`, {
-  method: "POST",
-  headers: {
-    Authorization: `Bearer ${token}`,
-  },
-});
-  // 🔥 OPTIONAL: tell sender in realtime
-  socket.emit("dm:seen", {
-    conversationId,
-    messageId: msg.id,
-  });
-};
+    loadChatSettings();
+  }, [conversationId, token]);
 
   const isNearBottom = () => {
     const el = scrollRef.current;
@@ -129,6 +176,35 @@ fetch(`${API}/api/dms/conversations/${conversationId}/read`, {
     if (stickToBottomRef.current) {
       el.scrollTop = el.scrollHeight;
     }
+  }, [messages]);
+
+  useEffect(() => {
+    const expiredIds = messages
+      .filter((m) => Number(m.is_disappearing) === 1 && m.expires_at)
+      .filter((m) => {
+        const ts = new Date(m.expires_at).getTime();
+        return Number.isFinite(ts) && ts <= Date.now();
+      })
+      .map((m) => Number(m.id))
+      .filter(Boolean);
+    if (expiredIds.length) {
+      removeMessagesByIds(expiredIds);
+    }
+
+    const timers = messages
+      .filter((m) => Number(m.is_disappearing) === 1 && m.expires_at)
+      .map((m) => {
+        const ts = new Date(m.expires_at).getTime();
+        if (!Number.isFinite(ts) || ts <= Date.now()) return null;
+        return window.setTimeout(() => {
+          removeMessagesByIds([m.id]);
+        }, ts - Date.now() + 40);
+      })
+      .filter(Boolean);
+
+    return () => {
+      timers.forEach((timerId) => window.clearTimeout(timerId));
+    };
   }, [messages]);
 
   /* -----------------------------
@@ -163,6 +239,9 @@ fetch(`${API}/api/dms/conversations/${conversationId}/read`, {
           if (lastPrevId === lastNewId) return prev;
           return data;
         });
+        if (Array.isArray(data) && data.some((m) => Number(m.sender_id) !== Number(myId) && Number(m.is_read) !== 1)) {
+          markConversationRead();
+        }
         
       } catch (err) {
         console.error("Failed to load messages", err);
@@ -204,6 +283,11 @@ fetch(`${API}/api/dms/conversations/${conversationId}/read`, {
       sender_id: myId,
       content: content || (mediaType === "voice" ? "Voice note" : "Attachment"),
       created_at: new Date().toISOString(),
+      is_disappearing: chatSettings.disappearing_enabled ? 1 : 0,
+      disappear_mode: chatSettings.disappear_mode || "after_read",
+      expires_at: chatSettings.disappearing_enabled
+        ? getTempExpiry(chatSettings.disappear_mode || "after_read")
+        : null,
       media_url: payload?.localPreview || null,
       media_type: mediaType || null,
       reply_to_id: replyToId || null,
@@ -268,20 +352,6 @@ fetch(`${API}/api/dms/conversations/${conversationId}/read`, {
   };
   
   
-  /* -----------------------------
-     Mark as read when opened
-  ------------------------------ */
-  useEffect(() => {
-    if (!conversationId) return;
-
-    fetch(`${API}/api/dms/conversations/${conversationId}/read`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`
-      }
-    }).catch(() => {});
-  }, [conversationId]);
-  // newsish //
   useEffect(() => {
     if (!socket || !conversationId) return;
   
@@ -302,20 +372,6 @@ fetch(`${API}/api/dms/conversations/${conversationId}/read`, {
       socket.off("messages_seen", handleSeen);
     };
   }, [socket, conversationId, myId]);
-  useEffect(() => {
-    if (!conversationId || !messages.length) return;
-  
-    // if the last message is NOT mine, mark as read
-    const last = messages[messages.length - 1];
-    if (Number(last.sender_id) === Number(myId)) return;
-  
-    fetch(`${API}/api/dms/conversations/${conversationId}/read`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-  }, [messages, conversationId, myId]);
   
 
   /* -----------------------------
@@ -377,6 +433,11 @@ fetch(`${API}/api/dms/conversations/${conversationId}/read`, {
           if (prev.some(m => m.id === msg.id)) return prev;
           return [...prev, msg];
         });
+        if (Number(msg.sender_id) !== Number(myId)) {
+          setTimeout(() => {
+            markConversationRead();
+          }, 120);
+        }
       }
     };
   
@@ -396,6 +457,10 @@ fetch(`${API}/api/dms/conversations/${conversationId}/read`, {
     socket.on("dm_message_deleted", ({ message_id, conversation_id }) => {
       if (String(conversation_id) !== String(conversationId)) return;
       setMessages((prev) => prev.filter((m) => Number(m.id) !== Number(message_id)));
+    });
+    socket.on("dm_messages_disappeared", ({ conversation_id, message_ids }) => {
+      if (String(conversation_id) !== String(conversationId)) return;
+      removeMessagesByIds(message_ids);
     });
     socket.on("dm_typing_start", ({ conversationId: cid, userId }) => {
       if (String(cid) !== String(conversationId)) return;
@@ -423,14 +488,23 @@ fetch(`${API}/api/dms/conversations/${conversationId}/read`, {
         )
       );
     });
+    socket.on("dm_settings_updated", ({ conversation_id, disappearing_enabled, disappear_mode }) => {
+      if (String(conversation_id) !== String(conversationId)) return;
+      setChatSettings({
+        disappearing_enabled: Boolean(disappearing_enabled),
+        disappear_mode: disappear_mode || "after_read",
+      });
+    });
   
     return () => {
       socket.off("dm_received", handleNewMessage);
       socket.off("messages_seen", handleSeen);
       socket.off("dm_message_deleted");
+      socket.off("dm_messages_disappeared");
       socket.off("dm_typing_start");
       socket.off("dm_typing_stop");
       socket.off("dm_reaction_updated");
+      socket.off("dm_settings_updated");
     };
   }, [conversationId, myId]);
 
@@ -498,20 +572,50 @@ fetch(`${API}/api/dms/conversations/${conversationId}/read`, {
       setMessages((prev) => prev.filter((m) => Number(m.id) !== Number(message.id)));
     } catch {}
   };
- 
-  useEffect(() => {
-    if (!conversationId) return;
-  
-    const token = localStorage.getItem("vine_token");
-  
-    // Mark as read every time we open the chat
-    fetch(`${API}/api/dms/conversations/${conversationId}/read`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-  }, [conversationId]);
+
+  const saveDisappearingSettings = async (nextEnabled, nextMode = chatSettings.disappear_mode) => {
+    if (!conversationId || settingsSaving) return;
+    setSettingsSaving(true);
+    try {
+      const res = await fetch(`${API}/api/dms/conversations/${conversationId}/settings`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          disappearing_enabled: nextEnabled,
+          disappear_mode: nextMode,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.error || "Failed to update chat settings");
+        return;
+      }
+      setChatSettings({
+        disappearing_enabled: Boolean(data?.disappearing_enabled),
+        disappear_mode: data?.disappear_mode || "after_read",
+      });
+    } catch {
+      alert("Failed to update chat settings");
+    } finally {
+      setSettingsSaving(false);
+    }
+  };
+
+  const toggleDisappearingMessages = async () => {
+    await saveDisappearingSettings(
+      !chatSettings.disappearing_enabled,
+      chatSettings.disappear_mode || "after_read"
+    );
+  };
+
+  const selectDisappearingMode = async (mode) => {
+    if (!conversationId || settingsSaving) return;
+    if (mode === chatSettings.disappear_mode && chatSettings.disappearing_enabled) return;
+    await saveDisappearingSettings(true, mode);
+  };
   
   /* -----------------------------
      UI
@@ -544,7 +648,7 @@ fetch(`${API}/api/dms/conversations/${conversationId}/read`, {
         {partner ? (
           <div
             className="chat-user"
-            onClick={() => navigate(`/vine/profile/${partner.username}`)}
+            onClick={() => setProfileSheetOpen(true)}
           >
             <img
               src={
@@ -566,7 +670,7 @@ fetch(`${API}/api/dms/conversations/${conversationId}/read`, {
                 className="chat-name"
                 onClick={(e) => {
                   e.stopPropagation();
-                  navigate(`/vine/profile/${partner.username}`);
+                  setProfileSheetOpen(true);
                 }}
               >
                 <span>{partner.display_name || partner.username}</span>
@@ -584,19 +688,32 @@ fetch(`${API}/api/dms/conversations/${conversationId}/read`, {
                   </span>
                 )}
               </strong>
-              {partnerTyping ? (
-                <div className="chat-lastseen typing">typing…</div>
-              ) : partner.show_last_active !== 0 && partner.last_active_at && (
-                <div className="chat-lastseen">
-                  Last seen {formatLastSeenAgo(partner.last_active_at)}
-                </div>
-              )}
+              <div className="chat-status-stack">
+                {partner.show_last_active !== 0 && partner.last_active_at && (
+                  <div className="chat-lastseen">
+                    Last seen {formatLastSeenAgo(partner.last_active_at)}
+                  </div>
+                )}
+                {partnerTyping && (
+                  <div className="chat-lastseen typing">typing…</div>
+                )}
+                {chatSettings.disappearing_enabled && (
+                  <div className="chat-vanish-pill">{getDisappearingLabel(chatSettings.disappear_mode)}</div>
+                )}
+              </div>
             </div>
           </div>
         ) : (
           <div style={{ opacity: 0.6 }}>Loading chat…</div>
         )}
       </div>
+
+      {chatSettings.disappearing_enabled && (
+        <div className="chat-vanish-banner">
+          <strong>Vanish mode:</strong> {getDisappearingLabel(chatSettings.disappear_mode)}.
+          <span> Messages disappear for both people and screenshots can still be taken.</span>
+        </div>
+      )}
 
       {/* MESSAGES */}
             <div
@@ -643,6 +760,115 @@ fetch(`${API}/api/dms/conversations/${conversationId}/read`, {
         onTyping={handleTyping}
       />
       </div>
+
+      {profileSheetOpen && partner && (
+        <div className="dm-profile-sheet-backdrop" onClick={() => setProfileSheetOpen(false)}>
+          <div className="dm-profile-sheet" onClick={(e) => e.stopPropagation()}>
+            <button
+              className="dm-profile-sheet-close"
+              type="button"
+              onClick={() => setProfileSheetOpen(false)}
+            >
+              ✕
+            </button>
+
+            <div className="dm-profile-sheet-user">
+              <img
+                src={
+                  partner.avatar_url
+                    ? (partner.avatar_url.startsWith("http")
+                        ? partner.avatar_url
+                        : `${API}${partner.avatar_url}`)
+                    : DEFAULT_AVATAR
+                }
+                alt=""
+                className="dm-profile-sheet-avatar"
+                onError={(e) => {
+                  e.currentTarget.src = DEFAULT_AVATAR;
+                }}
+              />
+              <div className="dm-profile-sheet-meta">
+                <div className="dm-profile-sheet-name">
+                  <span>{partner.display_name || partner.username}</span>
+                  {(Number(partner.is_verified) === 1 || ["vine guardian","vine_guardian","vine news","vine_news"].includes(String(partner.username || "").toLowerCase())) && (
+                    <span className={`verified ${["vine guardian","vine_guardian","vine news","vine_news"].includes(String(partner.username || "").toLowerCase()) ? "guardian" : ""}`}>
+                      <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
+                        <path
+                          d="M20 6L9 17l-5-5"
+                          stroke="white"
+                          strokeWidth="3"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    </span>
+                  )}
+                </div>
+                <div className="dm-profile-sheet-username">@{partner.username}</div>
+                {partner.show_last_active !== 0 && partner.last_active_at && (
+                  <div className="dm-profile-sheet-status">
+                    Last seen {formatLastSeenAgo(partner.last_active_at)}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <button
+              type="button"
+              className="dm-profile-sheet-main-btn"
+              onClick={() => {
+                setProfileSheetOpen(false);
+                navigate(`/vine/profile/${partner.username}`);
+              }}
+            >
+              View full profile
+            </button>
+
+            <div className="dm-profile-setting-card">
+              <div>
+                <div className="dm-profile-setting-title">Disappearing messages</div>
+                <div className="dm-profile-setting-copy">
+                  New messages in this chat vanish for both people using the timer you choose below.
+                </div>
+              </div>
+              <button
+                type="button"
+                className={`dm-disappearing-toggle ${chatSettings.disappearing_enabled ? "on" : ""}`}
+                disabled={!conversationId || settingsSaving}
+                onClick={toggleDisappearingMessages}
+              >
+                <span className="dm-disappearing-toggle-knob" />
+              </button>
+            </div>
+
+            <div className="dm-disappearing-modes">
+              {DISAPPEARING_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={`dm-disappearing-mode-btn ${
+                    chatSettings.disappear_mode === option.value ? "active" : ""
+                  }`}
+                  disabled={!conversationId || settingsSaving || !chatSettings.disappearing_enabled}
+                  onClick={() => selectDisappearingMode(option.value)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="dm-profile-sheet-note">
+              Screenshots, copied text, or camera photos of the screen can still be saved by the other person.
+            </div>
+
+            {!conversationId && (
+              <div className="dm-profile-sheet-note dm-profile-sheet-note-secondary">
+                Send the first message in this chat to unlock disappearing mode.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

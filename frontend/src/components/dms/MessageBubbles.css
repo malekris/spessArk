@@ -72,6 +72,7 @@
   display: flex;
   gap: 4px;
   flex-wrap: wrap;
+  align-items: center;
 }
 
 .dm-message-actions button {
@@ -94,6 +95,99 @@
   background: #fff5f5;
 }
 
+.dm-message-actions .delete-icon {
+  min-width: 34px;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  font-size: 0.92rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-color: #fecaca;
+  color: #b91c1c;
+  background: linear-gradient(145deg, #fff5f5, #ffe4e6);
+}
+
+.dm-reaction-control {
+  position: relative;
+}
+
+.dm-react-trigger {
+  min-width: 40px;
+  height: 34px;
+  padding: 0 10px !important;
+  font-size: 0.94rem !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(145deg, #ffffff, #f8fafc) !important;
+}
+
+.dm-react-trigger.active {
+  border-color: #10b981 !important;
+  background: linear-gradient(145deg, #ecfdf5, #d1fae5) !important;
+}
+
+.dm-reaction-picker {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 999px;
+  border: 1px solid #dbe6df;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow:
+    0 18px 34px rgba(15, 23, 42, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88);
+  z-index: 12;
+  white-space: nowrap;
+  width: max-content;
+}
+
+.dm-reaction-picker-floating {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: auto;
+  z-index: 2147483600;
+  max-width: calc(100vw - 16px);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+
+.dm-reaction-picker-floating::-webkit-scrollbar {
+  display: none;
+}
+
+.dm-reaction-picker button {
+  width: 34px;
+  height: 34px;
+  padding: 0 !important;
+  font-size: 1rem !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #ffffff;
+  flex: 0 0 auto;
+  transition: transform 0.14s ease, border-color 0.14s ease, background 0.14s ease;
+}
+
+.dm-reaction-picker button:hover {
+  transform: translateY(-1px) scale(1.06);
+  border-color: #10b981;
+  background: #ecfdf5;
+}
+
+.dm-reaction-picker button.active {
+  border-color: #10b981;
+  background: #ecfdf5;
+}
+
 .dm-reactions-row {
   margin-top: 4px;
   display: flex;
@@ -109,6 +203,15 @@
   font-size: 0.72rem;
   font-weight: 700;
   color: #334155;
+}
+
+.dm-disappearing-label {
+  margin-top: 5px;
+  font-size: 0.7rem;
+  font-weight: 800;
+  color: #b45309;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .mine .msg-bubble {
@@ -161,6 +264,42 @@
 
 .theme-dark .theirs .msg-bubble::after {
   background: #18212d;
+}
+
+.theme-dark .dm-react-trigger {
+  background: linear-gradient(145deg, #111827, #1f2937) !important;
+  border-color: rgba(255, 255, 255, 0.14);
+  color: #e5e7eb;
+}
+
+.theme-dark .dm-react-trigger.active {
+  background: linear-gradient(145deg, rgba(16, 185, 129, 0.24), rgba(6, 95, 70, 0.34)) !important;
+  color: #d1fae5;
+}
+
+.theme-dark .dm-reaction-picker {
+  background: rgba(15, 23, 42, 0.98);
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow:
+    0 20px 40px rgba(2, 6, 23, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.theme-dark .dm-reaction-picker button {
+  background: rgba(17, 24, 39, 0.98);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.theme-dark .dm-reaction-picker button:hover,
+.theme-dark .dm-reaction-picker button.active {
+  background: rgba(16, 185, 129, 0.16);
+  border-color: rgba(16, 185, 129, 0.5);
+}
+
+.theme-dark .dm-message-actions .delete-icon {
+  background: linear-gradient(145deg, rgba(127, 29, 29, 0.46), rgba(69, 10, 10, 0.72));
+  border-color: rgba(248, 113, 113, 0.34);
+  color: #fecaca;
 }
 
 .msg-seen {

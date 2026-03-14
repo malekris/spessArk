@@ -1,32 +1,17 @@
-import { useEffect, useState } from "react";
 import "./HomeSection.css";
 import useScrollReveal from "../hooks/useScrollReveal";
 
-const images = ["/image1.jpg", "/image2.jpg", "/image3.jpg"];
-
 export default function HomeSection() {
-  const [index, setIndex] = useState(0);
-
   useScrollReveal(); 
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setIndex((prev) => (prev + 1) % images.length);
-    }, 6000);
-    return () => clearInterval(interval);
-  }, []);
 
   return (
     <section id="home" className="home-section">
       {/* HERO SECTION */}
       <div className="hero">
-        {images.map((img, i) => (
-          <div
-            key={img}
-            className={`hero-bg ${i === index ? "active" : ""}`}
-            style={{ backgroundImage: `url(${img})` }}
-          />
-        ))}
+        <div
+          className="hero-bg hero-bg-static"
+          style={{ backgroundImage: "url(/gravity.jpeg)" }}
+        />
 
         <div className="hero-overlay" />
 

@@ -17,6 +17,7 @@ import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client
 const router = express.Router();
 const SESSION_IDLE_MS = 1 * 60 * 60 * 1000;
 const JWT_SECRET = process.env.JWT_SECRET || "vine_secret_key";
+const VINE_JWT_EXPIRES_IN = process.env.VINE_JWT_EXPIRES_IN || "7d";
 const GIPHY_API_KEY = process.env.GIPHY_API_KEY || "";
 const USE_R2_UPLOADS = String(process.env.USE_R2_UPLOADS || "").toLowerCase() === "true";
 const R2_ACCOUNT_ID = String(process.env.R2_ACCOUNT_ID || "").trim();
@@ -324,6 +325,35 @@ const notifyUser = async ({ userId, actorId, type, postId = null, commentId = nu
 
   io.to(`user-${targetId}`).emit("notification");
 };
+
+const buildVineAuthUser = (user) => ({
+  id: user.id,
+  username: user.username,
+  display_name: user.display_name,
+  email: user.email || null,
+  is_admin: user.is_admin,
+  role: user.role || "user",
+  badge_type: user.badge_type || null,
+  delete_requested_at: user.delete_requested_at || null,
+  deactivated_at: user.deactivated_at || null,
+  deletion_due_at: user.delete_requested_at
+    ? getAccountDeletionDueAt(user.delete_requested_at)?.toISOString() || null
+    : null,
+});
+
+const signVineSessionToken = (user, sessionJti) =>
+  jwt.sign(
+    {
+      id: user.id,
+      username: user.username,
+      is_admin: user.is_admin,
+      role: user.role || "user",
+      badge_type: user.badge_type || null,
+      jti: sessionJti,
+    },
+    JWT_SECRET,
+    { expiresIn: VINE_JWT_EXPIRES_IN }
+  );
 
 const getActiveInteractionSuspension = async (userId) => {
   if (!userId) return null;
@@ -2458,18 +2488,7 @@ router.post("/auth/login", async (req, res) => {
       }
   
       const sessionJti = crypto.randomBytes(16).toString("hex");
-      const token = jwt.sign(
-        {
-          id: user.id,
-          username: user.username,
-          is_admin: user.is_admin,
-          role: user.role || "user",
-          badge_type: user.badge_type || null,
-          jti: sessionJti,
-        },
-        process.env.JWT_SECRET,
-        { expiresIn: "1h" }
-      );
+      const token = signVineSessionToken(user, sessionJti);
 
       // Optional analytics event: no-op if table does not exist
       try {
@@ -2490,18 +2509,7 @@ router.post("/auth/login", async (req, res) => {
   
       res.json({
         token,
-        user: {
-          id: user.id,
-          username: user.username,
-          display_name: user.display_name,
-          email: user.email || null,
-          is_admin: user.is_admin,
-          role: user.role || "user",
-          badge_type: user.badge_type || null,
-          delete_requested_at: user.delete_requested_at || null,
-          deactivated_at: user.deactivated_at || null,
-          deletion_due_at: user.delete_requested_at ? getAccountDeletionDueAt(user.delete_requested_at)?.toISOString() || null : null,
-        }
+        user: buildVineAuthUser(user),
       });
   
     } catch (err) {
@@ -2530,24 +2538,42 @@ router.get("/auth/session", authenticate, async (req, res) => {
     res.setHeader("Cache-Control", "no-store");
     res.json({
       authenticated: true,
-      user: {
-        id: user.id,
-        username: user.username,
-        display_name: user.display_name,
-        email: user.email || null,
-        is_admin: user.is_admin,
-        role: user.role || "user",
-        badge_type: user.badge_type || null,
-        delete_requested_at: user.delete_requested_at || null,
-        deactivated_at: user.deactivated_at || null,
-        deletion_due_at: user.delete_requested_at
-          ? getAccountDeletionDueAt(user.delete_requested_at)?.toISOString() || null
-          : null,
-      },
+      user: buildVineAuthUser(user),
     });
   } catch (err) {
     console.error("Auth session check failed:", err);
     res.status(500).json({ message: "Failed to validate session" });
+  }
+});
+
+router.post("/auth/renew", authenticate, async (req, res) => {
+  try {
+    const [[user]] = await db.query(
+      `
+      SELECT id, username, display_name, email, is_admin, role, badge_type,
+             delete_requested_at, deactivated_at
+      FROM vine_users
+      WHERE id = ?
+      LIMIT 1
+      `,
+      [req.user.id]
+    );
+
+    if (!user) {
+      return res.status(401).json({ message: "Session expired" });
+    }
+
+    const token = signVineSessionToken(user, req.user.jti);
+
+    res.setHeader("Cache-Control", "no-store");
+    res.json({
+      renewed: true,
+      token,
+      user: buildVineAuthUser(user),
+    });
+  } catch (err) {
+    console.error("Auth renew failed:", err);
+    res.status(500).json({ message: "Failed to renew session" });
   }
 });
   

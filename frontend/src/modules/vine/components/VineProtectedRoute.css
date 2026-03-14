@@ -1,0 +1,174 @@
+.vine-session-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 5000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(6, 20, 15, 0.52);
+  backdrop-filter: blur(8px);
+}
+
+.vine-session-modal {
+  position: relative;
+  width: min(100%, 440px);
+  padding: 22px 22px 20px;
+  border-radius: 28px;
+  border: 1px solid rgba(16, 185, 129, 0.22);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(241, 253, 247, 0.98));
+  box-shadow: 0 28px 70px rgba(2, 6, 23, 0.24);
+  color: #123524;
+}
+
+.vine-session-countdown-pill {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  min-width: 72px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #fff7ed, #fde68a);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  box-shadow: 0 10px 24px rgba(245, 158, 11, 0.18);
+  color: #92400e;
+  font-size: 0.9rem;
+  font-weight: 900;
+  line-height: 1;
+  text-align: center;
+}
+
+.vine-session-kicker {
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #059669;
+  margin-bottom: 8px;
+}
+
+.vine-session-modal h2 {
+  margin: 0 0 10px;
+  font-size: clamp(1.35rem, 2vw, 1.7rem);
+  color: #0f3f2e;
+}
+
+.vine-session-modal p {
+  margin: 0;
+  font-size: 0.98rem;
+  line-height: 1.6;
+  color: #35594a;
+}
+
+.vine-session-countdown {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(16, 185, 129, 0.18);
+  font-size: 1rem;
+  font-weight: 800;
+  color: #b45309;
+}
+
+.vine-session-error {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: rgba(254, 242, 242, 0.98);
+  border: 1px solid rgba(248, 113, 113, 0.28);
+  color: #b91c1c;
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.vine-session-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.vine-session-actions button {
+  flex: 1;
+  min-height: 48px;
+  border-radius: 999px;
+  border: none;
+  font-size: 0.98rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: transform 0.16s ease, box-shadow 0.16s ease, opacity 0.16s ease;
+}
+
+.vine-session-actions button:hover {
+  transform: translateY(-1px);
+}
+
+.vine-session-actions button:disabled {
+  opacity: 0.7;
+  cursor: wait;
+  transform: none;
+}
+
+.vine-session-logout {
+  background: linear-gradient(135deg, #fee2e2, #fecaca);
+  color: #991b1b;
+  box-shadow: 0 12px 26px rgba(239, 68, 68, 0.18);
+}
+
+.vine-session-renew {
+  background: linear-gradient(135deg, #065f46, #10b981);
+  color: #ffffff;
+  box-shadow: 0 14px 30px rgba(16, 185, 129, 0.24);
+}
+
+.theme-dark .vine-session-modal {
+  background: linear-gradient(180deg, rgba(9, 18, 16, 0.98), rgba(14, 30, 26, 0.98));
+  border-color: rgba(16, 185, 129, 0.18);
+  color: #e5f7ef;
+}
+
+.theme-dark .vine-session-countdown-pill {
+  background: linear-gradient(135deg, rgba(120, 53, 15, 0.95), rgba(146, 64, 14, 0.92));
+  border-color: rgba(251, 191, 36, 0.28);
+  box-shadow: 0 10px 24px rgba(245, 158, 11, 0.18);
+  color: #fef3c7;
+}
+
+.theme-dark .vine-session-modal h2 {
+  color: #f0fdf4;
+}
+
+.theme-dark .vine-session-modal p {
+  color: #b7d8cb;
+}
+
+.theme-dark .vine-session-countdown {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(16, 185, 129, 0.14);
+  color: #fbbf24;
+}
+
+.theme-dark .vine-session-error {
+  background: rgba(127, 29, 29, 0.3);
+  border-color: rgba(248, 113, 113, 0.3);
+  color: #fecaca;
+}
+
+@media (max-width: 640px) {
+  .vine-session-modal {
+    padding: 20px 16px 16px;
+    border-radius: 24px;
+  }
+
+  .vine-session-countdown-pill {
+    top: 14px;
+    right: 14px;
+    min-width: 66px;
+    padding: 7px 10px;
+    font-size: 0.82rem;
+  }
+
+  .vine-session-actions {
+    flex-direction: column;
+  }
+}

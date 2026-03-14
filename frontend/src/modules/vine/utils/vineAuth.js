@@ -1,5 +1,9 @@
 const TOKEN_KEY = "vine_token";
 const USER_KEY = "vine_user";
+const ACTIVITY_KEY = "vine_last_activity_at";
+
+export const VINE_SESSION_IDLE_MS = 60 * 60 * 1000;
+export const VINE_SESSION_WARNING_MS = 2 * 60 * 1000;
 
 export const getVineToken = () => localStorage.getItem(TOKEN_KEY) || "";
 
@@ -14,6 +18,25 @@ export const getVineUser = () => {
 export const clearVineAuth = () => {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
+  localStorage.removeItem(ACTIVITY_KEY);
+};
+
+export const getVineLastActivityAt = () => {
+  const raw = Number(localStorage.getItem(ACTIVITY_KEY) || 0);
+  return Number.isFinite(raw) && raw > 0 ? raw : 0;
+};
+
+export const setVineLastActivityAt = (value = Date.now()) => {
+  localStorage.setItem(ACTIVITY_KEY, String(value));
+  return value;
+};
+
+export const touchVineActivity = () => setVineLastActivityAt(Date.now());
+
+export const getRemainingVineSessionMs = (now = Date.now()) => {
+  const lastActivityAt = getVineLastActivityAt();
+  if (!lastActivityAt) return VINE_SESSION_IDLE_MS;
+  return Math.max(0, VINE_SESSION_IDLE_MS - (Number(now) - lastActivityAt));
 };
 
 const decodeBase64Url = (value) => {

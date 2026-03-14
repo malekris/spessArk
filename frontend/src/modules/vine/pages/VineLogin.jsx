@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
+import { touchVineActivity } from "../utils/vineAuth";
 import "./VineLogin.css"; // 🔥 Pointing to the new file
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 
@@ -52,6 +53,7 @@ export default function VineLogin() {
       // Save token + user
       localStorage.setItem("vine_token", data.token);
       localStorage.setItem("vine_user", JSON.stringify(data.user));
+      touchVineActivity();
 
       // Redirect
       if (data?.user?.delete_requested_at) {

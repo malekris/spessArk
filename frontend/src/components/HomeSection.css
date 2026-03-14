@@ -3,10 +3,10 @@
   overflow: hidden;
 }
 
-/* HERO SLIDESHOW */
+/* HERO COVER */
 .hero {
   position: relative;
-  height: 100vh;
+  height: 80vh;
   width: 100%;
   display: flex;
   align-items: center;
@@ -18,21 +18,26 @@
   position: absolute;
   inset: 0;
   background-size: cover;
-  background-position: center;
-  opacity: 0;
-  transition: opacity 1.5s ease-in-out;
+  background-position: center 18%;
   z-index: 1;
 }
 
-.hero-bg.active {
+.hero-bg-static {
   opacity: 1;
-  animation: kenBurns 10s ease-out forwards;
+  transform: scale(1);
+  animation: none;
 }
 
 .hero-overlay {
   position: absolute;
   inset: 0;
-  background: linear-gradient(to bottom, rgba(10, 12, 16, 0.3), #0a0c10);
+  background:
+    linear-gradient(
+      to bottom,
+      rgba(4, 10, 8, 0.62) 0%,
+      rgba(6, 14, 11, 0.46) 34%,
+      rgba(10, 12, 16, 0.94) 100%
+    );
   z-index: 2;
 }
 
@@ -53,7 +58,7 @@
 }
 
 .hero-content h1 span {
-  color: #a78bfa;
+  color: #fbbf24;
 }
 
 .hero-content p {
@@ -69,10 +74,10 @@
 .hero-divider {
   width: 60px;
   height: 3px;
-  background: #a78bfa;
+  background: #fbbf24;
   margin: 2.5rem auto 0;
   border-radius: 10px;
-  box-shadow: 0 0 15px rgba(167, 139, 250, 0.6);
+  box-shadow: 0 0 15px rgba(251, 191, 36, 0.55);
 }
 
 /* INSTITUTIONAL PROFILE CARD */
@@ -152,9 +157,16 @@
 
 /* MOBILE FIXES */
 @media (max-width: 768px) {
+  .hero {
+    height: 100vh;
+  }
+
   .welcome-container { margin-top: -60px; }
   .home-content { padding: 4rem 1.5rem; }
   .lead-text { font-size: 1.1rem; }
+  .hero-bg {
+    background-position: center top;
+  }
 }
 /* 🌱 SPESS VINE entry on landing page */
 

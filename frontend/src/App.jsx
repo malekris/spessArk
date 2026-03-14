@@ -39,21 +39,22 @@ import VineHelpCenter from "./modules/vine/pages/VineHelpCenter";
 import VineCommunities from "./modules/vine/pages/VineCommunities";
 import VineLegalPage from "./modules/vine/pages/VineLegalPage";
 import VineProtectedRoute from "./modules/vine/components/VineProtectedRoute";
-import { clearVineAuth, getVineToken, isVineTokenExpired } from "./modules/vine/utils/vineAuth";
+import {
+  clearVineAuth,
+  getRemainingVineSessionMs,
+  getVineToken,
+  getVineUser,
+  isVineTokenExpired,
+} from "./modules/vine/utils/vineAuth";
 
 
 
 function App() {
 
   useEffect(() => {
-    let user = null;
-    try {
-      user = JSON.parse(localStorage.getItem("vine_user") || "null");
-    } catch {
-      user = null;
-    }
+    const user = getVineUser();
     const token = getVineToken();
-    if (!token || isVineTokenExpired(token) || !user?.id) {
+    if (!token || isVineTokenExpired(token) || !user?.id || getRemainingVineSessionMs() <= 0) {
       clearVineAuth();
       socket.disconnect();
       return;

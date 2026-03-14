@@ -1,15 +1,21 @@
 import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { touchVineActivity } from "../utils/vineAuth";
 import "./VineLogin.css"; // 🔥 Pointing to the new file
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 
 export default function VineLogin() {
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [isDesktop, setIsDesktop] = useState(false);
   const [showDesktopForm, setShowDesktopForm] = useState(false);
+  const redirectParam = searchParams.get("redirect") || location.state?.from || "";
+  const safeRedirect = typeof redirectParam === "string" && redirectParam.startsWith("/")
+    ? redirectParam
+    : "";
 
   useEffect(() => {
     document.title = "Vine — Login";
@@ -58,6 +64,8 @@ export default function VineLogin() {
       // Redirect
       if (data?.user?.delete_requested_at) {
         window.location.href = "/vine/settings";
+      } else if (safeRedirect) {
+        window.location.href = safeRedirect;
       } else {
         window.location.href = "/vine/feed";
       }

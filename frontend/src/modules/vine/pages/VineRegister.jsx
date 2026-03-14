@@ -1,11 +1,16 @@
 import { useState, useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import "./VineRegister.css";  // ← this one line adds the styles
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 
 export default function VineRegister() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const redirectParam = searchParams.get("redirect") || "";
+  const safeRedirect = typeof redirectParam === "string" && redirectParam.startsWith("/")
+    ? redirectParam
+    : "";
 
   const [form, setForm] = useState({
     username: "",
@@ -104,7 +109,7 @@ if (name === "username") {
 
       // Success
       alert("Account created! Redirecting to login...");
-      setTimeout(() => navigate("/vine/login"), 1500);
+      setTimeout(() => navigate(safeRedirect ? `/vine/login?redirect=${encodeURIComponent(safeRedirect)}` : "/vine/login"), 1500);
 
     } catch (err) {
       console.error(err);
@@ -185,7 +190,7 @@ if (name === "username") {
         </button>
 
         <p className="switch-auth">
-          Already have an account? <Link to="/vine/login">Login</Link>
+          Already have an account? <Link to={safeRedirect ? `/vine/login?redirect=${encodeURIComponent(safeRedirect)}` : "/vine/login"}>Login</Link>
         </p>
       </form>
       {showEulaModal && (

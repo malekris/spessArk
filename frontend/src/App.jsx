@@ -38,6 +38,7 @@ import VineGuardianModeration from "./modules/vine/pages/VineGuardianModeration"
 import VineHelpCenter from "./modules/vine/pages/VineHelpCenter";
 import VineCommunities from "./modules/vine/pages/VineCommunities";
 import VineLegalPage from "./modules/vine/pages/VineLegalPage";
+import VinePublicPost from "./modules/vine/pages/VinePublicPost";
 import VineProtectedRoute from "./modules/vine/components/VineProtectedRoute";
 import {
   clearVineAuth,
@@ -153,6 +154,7 @@ function App() {
 <Route path="/vine/forgot-password" element={<VineForgotPassword />} />
 <Route path="/vine/reset-password" element={<VineResetPassword />} />
 <Route path="/vine/verify-email" element={<VineVerifyEmail />} />
+<Route path="/vine/post/:id" element={<VinePublicPost />} />
 <Route element={<VineProtectedRoute />}>
   <Route path="/vine/feed" element={<VineFeed />} />
   <Route path="/vine/profile/:username" element={<VineProfile />} />

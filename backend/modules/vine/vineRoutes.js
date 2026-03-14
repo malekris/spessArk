@@ -5724,6 +5724,9 @@ router.get("/share/:id", async (req, res) => {
         p.image_url,
         p.link_preview,
         p.created_at,
+        (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id) AS likes,
+        (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comments,
+        (SELECT COUNT(*) FROM vine_revines WHERE post_id = p.id) AS revines,
         u.username,
         u.display_name,
         u.avatar_url
@@ -5736,11 +5739,21 @@ router.get("/share/:id", async (req, res) => {
     );
     if (!post) return res.status(404).send("Post not found");
 
+    const requestProto = String(req.get("x-forwarded-proto") || req.protocol || "https").split(",")[0].trim() || "https";
+    const requestHost = String(req.get("x-forwarded-host") || req.get("host") || "").split(",")[0].trim();
+
     const frontendBase =
       String(process.env.VINE_PUBLIC_BASE_URL || "").trim() ||
-      `${req.protocol}://${req.get("host")}`.replace(/\/+$/, "");
-    const appTarget = `${frontendBase}/vine/feed?post=${postId}`;
-    const shareUrl = `${req.protocol}://${req.get("host")}/api/vine/share/${postId}`;
+      `${requestProto}://${requestHost}`.replace(/\/+$/, "");
+    const appTarget = `${frontendBase}/vine/post/${postId}`;
+    const shareUrl = `${requestProto}://${requestHost}/api/vine/share/${postId}`;
+
+    const absolutizeUrl = (value) => {
+      const raw = String(value || "").trim();
+      if (!raw) return "";
+      if (/^https?:\/\//i.test(raw)) return raw;
+      return `${frontendBase}${raw.startsWith("/") ? "" : "/"}${raw}`;
+    };
 
     const rawText = String(post.content || "")
       .replace(/^\s*\[\[feeling:[^\]]+\]\]\s*/i, "")
@@ -5768,15 +5781,25 @@ router.get("/share/:id", async (req, res) => {
         previewImage = "";
       }
     }
-    if (!previewImage && post.avatar_url) {
-      previewImage = String(post.avatar_url || "").trim();
-      if (previewImage && !/^https?:\/\//i.test(previewImage)) {
-        previewImage = `${frontendBase}${previewImage.startsWith("/") ? "" : "/"}${previewImage}`;
-      }
+    previewImage = absolutizeUrl(previewImage);
+    const hasVisualPreview = Boolean(previewImage);
+    if (!previewImage) {
+      previewImage = `${frontendBase}/vine-og-badge.png`;
+    }
+    if (!previewImage) {
+      previewImage = `${frontendBase}/og-image.png`;
     }
 
-    const title = `${post.display_name || post.username} on Vine`;
-    const description = (rawText || "View this Vine post").slice(0, 280);
+    const countsLine = `${Number(post.likes || 0)} likes · ${Number(post.comments || 0)} comments · ${Number(post.revines || 0)} revines`;
+    const title = `${post.display_name || post.username} on SPESS Vine`;
+    const description = (rawText || "See what’s happening on SPESS Vine.").slice(0, 220);
+    const longDescription = `${description}${description ? " · " : ""}${countsLine}`;
+    const publishedIso = new Date(post.created_at).toISOString();
+    const imageAlt = hasVisualPreview
+      ? rawText
+        ? `${post.display_name || post.username}'s post on SPESS Vine`
+        : `Post by ${post.display_name || post.username} on SPESS Vine`
+      : `SPESS Vine branded preview for ${post.display_name || post.username}'s post`;
     const esc = (v) =>
       String(v || "")
         .replace(/&/g, "&amp;")
@@ -5785,34 +5808,202 @@ router.get("/share/:id", async (req, res) => {
         .replace(/"/g, "&quot;");
 
     res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Cache-Control", "public, max-age=900, s-maxage=900");
     res.send(`<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>${esc(title)}</title>
-  <meta name="description" content="${esc(description)}" />
+  <meta name="title" content="${esc(title)}" />
+  <meta name="description" content="${esc(longDescription)}" />
+  <meta name="author" content="${esc(post.display_name || post.username)}" />
+  <meta name="application-name" content="SPESS Vine" />
+  <meta name="apple-mobile-web-app-title" content="SPESS Vine" />
+  <meta name="theme-color" content="#064e3b" />
+  <meta name="robots" content="index,follow,max-image-preview:large" />
   <meta property="og:type" content="article" />
-  <meta property="og:site_name" content="Vine" />
+  <meta property="og:site_name" content="SPESS Vine" />
   <meta property="og:title" content="${esc(title)}" />
-  <meta property="og:description" content="${esc(description)}" />
+  <meta property="og:description" content="${esc(longDescription)}" />
   <meta property="og:url" content="${esc(shareUrl)}" />
-  ${previewImage ? `<meta property="og:image" content="${esc(previewImage)}" />` : ""}
-  <meta name="twitter:card" content="${previewImage ? "summary_large_image" : "summary"}" />
+  <meta property="og:image" content="${esc(previewImage)}" />
+  <meta property="og:image:secure_url" content="${esc(previewImage)}" />
+  <meta property="og:image:alt" content="${esc(imageAlt)}" />
+  <meta property="article:published_time" content="${esc(publishedIso)}" />
+  <meta property="article:author" content="${esc(post.display_name || post.username)}" />
+  <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="${esc(title)}" />
-  <meta name="twitter:description" content="${esc(description)}" />
-  ${previewImage ? `<meta name="twitter:image" content="${esc(previewImage)}" />` : ""}
-  <meta http-equiv="refresh" content="0;url=${esc(appTarget)}" />
+  <meta name="twitter:description" content="${esc(longDescription)}" />
+  <meta name="twitter:image" content="${esc(previewImage)}" />
+  <meta name="twitter:image:alt" content="${esc(imageAlt)}" />
   <link rel="canonical" href="${esc(appTarget)}" />
+  <noscript><meta http-equiv="refresh" content="0;url=${esc(appTarget)}" /></noscript>
+  <style>
+    :root { color-scheme: light; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background:
+        radial-gradient(circle at top, rgba(16,185,129,0.16), transparent 34%),
+        linear-gradient(180deg, #eefbf2 0%, #f8fdf9 100%);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: #0f172a;
+    }
+    .share-card {
+      width: min(100%, 620px);
+      display: grid;
+      gap: 16px;
+      padding: 18px;
+      background: rgba(255,255,255,0.98);
+      border: 1px solid rgba(16,185,129,0.14);
+      border-radius: 30px;
+      box-shadow: 0 24px 60px rgba(15,23,42,0.12);
+    }
+    .share-image {
+      width: 100%;
+      aspect-ratio: 1200 / 630;
+      object-fit: cover;
+      border-radius: 22px;
+      background: #dff7ea;
+    }
+    .share-kicker {
+      font-size: 12px;
+      font-weight: 900;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #059669;
+    }
+    .share-title {
+      font-size: 28px;
+      line-height: 1.1;
+      font-weight: 900;
+      color: #0f3d2b;
+    }
+    .share-desc {
+      font-size: 16px;
+      line-height: 1.65;
+      color: #475569;
+    }
+    .share-counts {
+      font-size: 14px;
+      font-weight: 800;
+      color: #64748b;
+    }
+    .share-cta {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 48px;
+      padding: 0 18px;
+      border-radius: 999px;
+      background: linear-gradient(135deg, #065f46, #10b981);
+      color: #fff;
+      text-decoration: none;
+      font-weight: 900;
+      box-shadow: 0 16px 34px rgba(16,185,129,0.22);
+    }
+  </style>
 </head>
 <body>
   <script>window.location.replace(${JSON.stringify(appTarget)});</script>
-  <p>Redirecting to Vine post...</p>
+  <main class="share-card">
+    <img class="share-image" src="${esc(previewImage)}" alt="${esc(imageAlt)}" />
+    <div class="share-kicker">SPESS Vine</div>
+    <div class="share-title">${esc(title)}</div>
+    <div class="share-desc">${esc(longDescription)}</div>
+    <div class="share-counts">${esc(countsLine)}</div>
+    <a class="share-cta" href="${esc(appTarget)}">Open in SPESS Vine</a>
+  </main>
 </body>
 </html>`);
   } catch (err) {
     console.error("Share preview error:", err);
     res.status(500).send("Failed to load share preview");
+  }
+});
+
+router.get("/posts/:id/public", authOptional, async (req, res) => {
+  try {
+    await ensurePostReactionSchema();
+    const postId = Number(req.params.id);
+    const viewerId = Number(req.user?.id || 0) || null;
+
+    if (!postId) {
+      return res.status(400).json({ message: "Invalid post" });
+    }
+
+    const [[post]] = await db.query(
+      `
+      SELECT
+        p.id,
+        CONCAT('post-', p.id) AS feed_id,
+        p.user_id,
+        p.content,
+        p.image_url,
+        p.link_preview,
+        p.community_id,
+        p.created_at,
+        u.username,
+        u.display_name,
+        COALESCE(u.avatar_url, '/default-avatar.png') AS avatar_url,
+        u.is_verified,
+        u.hide_like_counts,
+        u.is_private,
+        (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id) AS likes,
+        (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comments,
+        (SELECT COUNT(*) FROM vine_revines WHERE post_id = p.id) AS revines,
+        (SELECT COUNT(*) FROM vine_post_views WHERE post_id = p.id) AS views,
+        (SELECT COUNT(*) > 0 FROM vine_likes WHERE post_id = p.id AND user_id = ?) AS user_liked,
+        (SELECT COUNT(*) > 0 FROM vine_revines WHERE post_id = p.id AND user_id = ?) AS user_revined,
+        (
+          SELECT COALESCE(NULLIF(LOWER(reaction), ''), 'like')
+          FROM vine_likes
+          WHERE post_id = p.id AND user_id = ?
+          LIMIT 1
+        ) AS viewer_reaction
+      FROM vine_posts p
+      JOIN vine_users u ON u.id = p.user_id
+      WHERE p.id = ?
+      LIMIT 1
+      `,
+      [viewerId || 0, viewerId || 0, viewerId || 0, postId]
+    );
+
+    if (!post) {
+      return res.status(404).json({ message: "Post not found" });
+    }
+
+    if (await isUserBlocked(post.user_id, viewerId) || (viewerId && await isUserBlocked(viewerId, post.user_id))) {
+      return res.status(404).json({ message: "Post unavailable" });
+    }
+
+    if (Number(post.is_private) === 1 && Number(post.user_id) !== Number(viewerId || 0)) {
+      if (!viewerId) {
+        return res.status(403).json({ message: "This post is private" });
+      }
+      const [follow] = await db.query(
+        "SELECT 1 FROM vine_follows WHERE follower_id = ? AND following_id = ? LIMIT 1",
+        [viewerId, post.user_id]
+      );
+      if (!follow.length) {
+        return res.status(403).json({ message: "This post is private" });
+      }
+    }
+
+    res.json({
+      ...post,
+      has_poll: 0,
+      user_bookmarked: false,
+      reaction_counts: { like: 0, love: 0, happy: 0, sad: 0, care: 0 },
+    });
+  } catch (err) {
+    console.error("Fetch public post failed:", err);
+    res.status(500).json({ message: "Failed to fetch post" });
   }
 });
   // Create new post(with image to TL)

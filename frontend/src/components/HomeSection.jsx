@@ -8,9 +8,20 @@ export default function HomeSection() {
     <section id="home" className="home-section">
       {/* HERO SECTION */}
       <div className="hero">
-        <div
-          className="hero-bg hero-bg-static"
-          style={{ backgroundImage: "url(/gravity.jpeg)" }}
+        <div className="hero-media" aria-hidden="true">
+          <img
+            src="/gravity.jpeg"
+            alt=""
+            className="hero-backdrop-image"
+          />
+          <div className="hero-backdrop-tint" />
+        </div>
+
+        <img
+          src="/gravity.jpeg"
+          alt="Students of St. Phillip’s Equatorial Secondary School"
+          className="hero-main-image"
+          loading="eager"
         />
 
         <div className="hero-overlay" />

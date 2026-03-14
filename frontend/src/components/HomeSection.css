@@ -6,26 +6,51 @@
 /* HERO COVER */
 .hero {
   position: relative;
-  height: 80vh;
+  height: 100vh;
   width: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
   text-align: center;
+  overflow: hidden;
 }
 
-.hero-bg {
+.hero-media {
   position: absolute;
   inset: 0;
-  background-size: cover;
-  background-position: center 18%;
+  background-color: #07110d;
   z-index: 1;
 }
 
-.hero-bg-static {
-  opacity: 1;
-  transform: scale(1);
-  animation: none;
+.hero-backdrop-image {
+  position: absolute;
+  inset: -6%;
+  width: 112%;
+  height: 112%;
+  object-fit: cover;
+  object-position: center center;
+  filter: blur(22px) saturate(0.95) brightness(0.58);
+  transform: scale(1.1);
+}
+
+.hero-backdrop-tint {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at center, rgba(8, 20, 16, 0.12) 0%, rgba(4, 10, 8, 0.52) 100%),
+    linear-gradient(to bottom, rgba(4, 10, 8, 0.4), rgba(4, 10, 8, 0.72));
+}
+
+.hero-main-image {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center center;
+  padding: 0;
+  filter: drop-shadow(0 24px 60px rgba(0, 0, 0, 0.36));
 }
 
 .hero-overlay {
@@ -34,18 +59,19 @@
   background:
     linear-gradient(
       to bottom,
-      rgba(4, 10, 8, 0.62) 0%,
-      rgba(6, 14, 11, 0.46) 34%,
+      rgba(4, 10, 8, 0.42) 0%,
+      rgba(6, 14, 11, 0.26) 34%,
       rgba(10, 12, 16, 0.94) 100%
     );
-  z-index: 2;
+  z-index: 3;
 }
 
 /* HERO TYPOGRAPHY */
 .hero-content {
   position: relative;
-  z-index: 3;
+  z-index: 4;
   padding: 0 2rem;
+  transform: translateY(72px);
 }
 
 .hero-content h1 {
@@ -161,12 +187,13 @@
     height: 100vh;
   }
 
+  .hero-content {
+    transform: translateY(36px);
+  }
+
   .welcome-container { margin-top: -60px; }
   .home-content { padding: 4rem 1.5rem; }
   .lead-text { font-size: 1.1rem; }
-  .hero-bg {
-    background-position: center top;
-  }
 }
 /* 🌱 SPESS VINE entry on landing page */
 

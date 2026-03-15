@@ -2190,6 +2190,17 @@ const ensureNewsSchema = async () => {
       INDEX idx_news_source (source, ingested_at)
     )
   `);
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_news_settings (
+      id TINYINT PRIMARY KEY,
+      timezone VARCHAR(80) NOT NULL,
+      daily_hour TINYINT NOT NULL DEFAULT 12,
+      daily_minute TINYINT NOT NULL DEFAULT 0,
+      allowed_weekdays VARCHAR(64) NULL,
+      updated_by INT NULL,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
   newsSchemaReady = true;
 };
 
@@ -2425,14 +2436,21 @@ const NEWS_WEEKDAY_INDEX = new Map([
   ["sat", 6],
   ["saturday", 6],
 ]);
-const NEWS_ALLOWED_WEEKDAYS = new Set(
-  String(process.env.NEWS_ALLOWED_WEEKDAYS || "")
-    .split(",")
-    .map((value) => String(value || "").trim().toLowerCase())
-    .map((value) =>
-      /^\d+$/.test(value) ? Number.parseInt(value, 10) : NEWS_WEEKDAY_INDEX.get(value)
+const parseNewsAllowedWeekdays = (value) =>
+  Array.from(
+    new Set(
+      String(value || "")
+        .split(",")
+        .map((entry) => String(entry || "").trim().toLowerCase())
+        .map((entry) =>
+          /^\d+$/.test(entry) ? Number.parseInt(entry, 10) : NEWS_WEEKDAY_INDEX.get(entry)
+        )
+        .filter((entry) => Number.isInteger(entry) && entry >= 0 && entry <= 6)
     )
-    .filter((value) => Number.isInteger(value) && value >= 0 && value <= 6)
+  ).sort((a, b) => a - b);
+
+const DEFAULT_NEWS_ALLOWED_WEEKDAYS = parseNewsAllowedWeekdays(
+  process.env.NEWS_ALLOWED_WEEKDAYS || ""
 );
 const NEWS_DAILY_HOUR = Math.min(
   23,
@@ -2445,10 +2463,89 @@ const NEWS_DAILY_MINUTE = Math.min(
 const NEWS_BACKGROUND_TICK_MS = 5 * 60 * 1000;
 const newsFeedRuntimeStats = new Map();
 let newsBootIngestScheduled = false;
+let newsSettingsCache = null;
+let newsSettingsLoadedAt = 0;
+const NEWS_SETTINGS_CACHE_MS = 60 * 1000;
 
-const getNewsZonedParts = () => {
+const normalizeNewsScheduleSettings = (value = {}) => {
+  const dailyHour = Math.min(
+    23,
+    Math.max(0, Number.parseInt(value.daily_hour ?? value.dailyHour ?? NEWS_DAILY_HOUR, 10) || NEWS_DAILY_HOUR)
+  );
+  const dailyMinute = Math.min(
+    59,
+    Math.max(
+      0,
+      Number.parseInt(value.daily_minute ?? value.dailyMinute ?? NEWS_DAILY_MINUTE, 10) || NEWS_DAILY_MINUTE
+    )
+  );
+  const timezone = String(value.timezone || NEWS_INGEST_TIMEZONE).trim() || NEWS_INGEST_TIMEZONE;
+  const allowedWeekdays = parseNewsAllowedWeekdays(
+    Array.isArray(value.allowed_weekdays ?? value.allowedWeekdays)
+      ? (value.allowed_weekdays ?? value.allowedWeekdays).join(",")
+      : value.allowed_weekdays ?? value.allowedWeekdays ?? DEFAULT_NEWS_ALLOWED_WEEKDAYS.join(",")
+  );
+  return {
+    timezone,
+    daily_hour: dailyHour,
+    daily_minute: dailyMinute,
+    allowed_weekdays: allowedWeekdays,
+  };
+};
+
+const getNewsScheduleSettings = async ({ force = false } = {}) => {
+  await ensureNewsSchema();
+  if (!force && newsSettingsCache && Date.now() - newsSettingsLoadedAt < NEWS_SETTINGS_CACHE_MS) {
+    return newsSettingsCache;
+  }
+  const [[row]] = await db.query(
+    `
+    SELECT timezone, daily_hour, daily_minute, allowed_weekdays
+    FROM vine_news_settings
+    WHERE id = 1
+    LIMIT 1
+    `
+  );
+  const next = normalizeNewsScheduleSettings(row || {});
+  newsSettingsCache = next;
+  newsSettingsLoadedAt = Date.now();
+  return next;
+};
+
+const saveNewsScheduleSettings = async (payload = {}, updatedBy = null) => {
+  await ensureNewsSchema();
+  const current = await getNewsScheduleSettings({ force: true });
+  const next = normalizeNewsScheduleSettings({ ...current, ...payload });
+  await db.query(
+    `
+    INSERT INTO vine_news_settings
+      (id, timezone, daily_hour, daily_minute, allowed_weekdays, updated_by, updated_at)
+    VALUES
+      (1, ?, ?, ?, ?, ?, NOW())
+    ON DUPLICATE KEY UPDATE
+      timezone = VALUES(timezone),
+      daily_hour = VALUES(daily_hour),
+      daily_minute = VALUES(daily_minute),
+      allowed_weekdays = VALUES(allowed_weekdays),
+      updated_by = VALUES(updated_by),
+      updated_at = NOW()
+    `,
+    [
+      next.timezone,
+      next.daily_hour,
+      next.daily_minute,
+      next.allowed_weekdays.join(","),
+      updatedBy ? Number(updatedBy) : null,
+    ]
+  );
+  newsSettingsCache = next;
+  newsSettingsLoadedAt = Date.now();
+  return next;
+};
+
+const getNewsZonedParts = (timeZone = NEWS_INGEST_TIMEZONE) => {
   const dtf = new Intl.DateTimeFormat("en-CA", {
-    timeZone: NEWS_INGEST_TIMEZONE,
+    timeZone,
     weekday: "short",
     year: "numeric",
     month: "2-digit",
@@ -2477,17 +2574,18 @@ const getNewsZonedParts = () => {
   };
 };
 
-const getNewsDueWindow = () => {
-  const now = getNewsZonedParts();
-  const targetMinutes = NEWS_DAILY_HOUR * 60 + NEWS_DAILY_MINUTE;
+const getNewsDueWindow = async () => {
+  const settings = await getNewsScheduleSettings();
+  const now = getNewsZonedParts(settings.timezone);
+  const targetMinutes = settings.daily_hour * 60 + settings.daily_minute;
   const dayAllowed =
-    NEWS_ALLOWED_WEEKDAYS.size === 0 ||
-    (Number.isInteger(now.weekdayIndex) && NEWS_ALLOWED_WEEKDAYS.has(now.weekdayIndex));
+    settings.allowed_weekdays.length === 0 ||
+    (Number.isInteger(now.weekdayIndex) && settings.allowed_weekdays.includes(now.weekdayIndex));
   const due =
     dayAllowed &&
     now.minutesOfDay >= targetMinutes &&
     lastNewsIngestDayKey !== now.dayKey;
-  return { ...now, targetMinutes, dayAllowed, due };
+  return { ...now, targetMinutes, dayAllowed, due, settings };
 };
 
 const updateNewsFeedStat = (feed, patch = {}) => {
@@ -2582,9 +2680,9 @@ const ingestExternalNews = async () => {
   }
 };
 
-const triggerNewsIngestIfDue = () => {
+const triggerNewsIngestIfDue = async () => {
   if (newsIngestInFlight) return;
-  const dueWindow = getNewsDueWindow();
+  const dueWindow = await getNewsDueWindow();
   if (!dueWindow.due) return;
   newsIngestInFlight = true;
   lastNewsIngestAt = Date.now();
@@ -2601,10 +2699,10 @@ const scheduleNewsIngestOnBoot = () => {
   if (newsBootIngestScheduled) return;
   newsBootIngestScheduled = true;
   setTimeout(() => {
-    triggerNewsIngestIfDue();
+    void triggerNewsIngestIfDue();
   }, 12_000);
   const ticker = setInterval(() => {
-    triggerNewsIngestIfDue();
+    void triggerNewsIngestIfDue();
   }, NEWS_BACKGROUND_TICK_MS);
   if (typeof ticker.unref === "function") ticker.unref();
 };
@@ -6759,11 +6857,50 @@ router.post("/news/refresh", authenticate, async (req, res) => {
     }
     await ingestExternalNews();
     lastNewsIngestAt = Date.now();
-    lastNewsIngestDayKey = getNewsZonedParts().dayKey;
+    const schedule = await getNewsScheduleSettings();
+    lastNewsIngestDayKey = getNewsZonedParts(schedule.timezone).dayKey;
     res.json({ success: true });
   } catch (err) {
     console.error("Manual news refresh error:", err);
     res.status(500).json({ message: "Failed to refresh news" });
+  }
+});
+
+router.get("/news/settings", authenticate, async (req, res) => {
+  try {
+    const user = req.user || {};
+    if (!isModeratorAccount(user)) {
+      return res.status(403).json({ message: "Only moderators can view news settings." });
+    }
+    const settings = await getNewsScheduleSettings();
+    res.json(settings);
+  } catch (err) {
+    console.error("News settings fetch error:", err);
+    res.status(500).json({ message: "Failed to load news settings" });
+  }
+});
+
+router.put("/news/settings", authenticate, async (req, res) => {
+  try {
+    const user = req.user || {};
+    if (!isModeratorAccount(user)) {
+      return res.status(403).json({ message: "Only moderators can update news settings." });
+    }
+
+    const payload = {
+      timezone: req.body?.timezone,
+      daily_hour: req.body?.daily_hour,
+      daily_minute: req.body?.daily_minute,
+      allowed_weekdays: Array.isArray(req.body?.allowed_weekdays)
+        ? req.body.allowed_weekdays
+        : req.body?.allowed_weekdays,
+    };
+
+    const settings = await saveNewsScheduleSettings(payload, user.id || null);
+    res.json({ success: true, settings });
+  } catch (err) {
+    console.error("News settings update error:", err);
+    res.status(500).json({ message: "Failed to save news settings" });
   }
 });
 
@@ -6773,6 +6910,7 @@ router.get("/news/health", authenticate, async (req, res) => {
     if (!isModeratorAccount(user)) {
       return res.status(403).json({ message: "Only moderators can view news health." });
     }
+    const scheduleSettings = await getNewsScheduleSettings();
     const rssFeeds = (process.env.NEWS_RSS_FEEDS || "").trim();
     const feeds = rssFeeds
       ? rssFeeds.split(",").map((s) => s.trim()).filter(Boolean)
@@ -6839,10 +6977,10 @@ router.get("/news/health", authenticate, async (req, res) => {
         in_flight: newsIngestInFlight,
         last_ingest_at: lastNewsIngestAt ? new Date(lastNewsIngestAt).toISOString() : null,
         mode: "daily",
-        timezone: NEWS_INGEST_TIMEZONE,
-        daily_hour: NEWS_DAILY_HOUR,
-        daily_minute: NEWS_DAILY_MINUTE,
-        allowed_weekdays: Array.from(NEWS_ALLOWED_WEEKDAYS.values()).sort((a, b) => a - b),
+        timezone: scheduleSettings.timezone,
+        daily_hour: scheduleSettings.daily_hour,
+        daily_minute: scheduleSettings.daily_minute,
+        allowed_weekdays: scheduleSettings.allowed_weekdays,
         last_ingest_day_key: lastNewsIngestDayKey || null,
         feeds: runtime_feeds,
       },

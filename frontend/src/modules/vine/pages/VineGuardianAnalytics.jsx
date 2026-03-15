@@ -3,6 +3,15 @@ import { useNavigate } from "react-router-dom";
 import "./VineGuardianAnalytics.css";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
+const NEWS_WEEKDAY_OPTIONS = [
+  { value: 0, label: "Sun" },
+  { value: 1, label: "Mon" },
+  { value: 2, label: "Tue" },
+  { value: 3, label: "Wed" },
+  { value: 4, label: "Thu" },
+  { value: 5, label: "Fri" },
+  { value: 6, label: "Sat" },
+];
 
 const isGuardianUser = (user) => {
   if (!user) return false;
@@ -59,6 +68,14 @@ export default function VineGuardianAnalytics() {
   const [activityLastFetchedAt, setActivityLastFetchedAt] = useState(null);
   const [activityFilter, setActivityFilter] = useState("all");
   const [warningUserIds, setWarningUserIds] = useState({});
+  const [newsForm, setNewsForm] = useState({
+    allowed_weekdays: [],
+    daily_hour: 12,
+    daily_minute: 0,
+    timezone: "Africa/Kampala",
+  });
+  const [newsSaving, setNewsSaving] = useState(false);
+  const [newsRefreshing, setNewsRefreshing] = useState(false);
   const [from, setFrom] = useState(() => {
     const d = new Date(Date.now() - 6 * 86400000);
     return d.toISOString().slice(0, 10);
@@ -88,7 +105,7 @@ export default function VineGuardianAnalytics() {
         setLoading(true);
         setError("");
         const q = new URLSearchParams({ from, to }).toString();
-        const [overviewResult, perfResult, activityResult] = await Promise.allSettled([
+        const [overviewResult, perfResult, activityResult, newsHealthResult, newsSettingsResult] = await Promise.allSettled([
           fetch(`${API}/api/vine/analytics/overview?${q}`, {
             headers: { Authorization: `Bearer ${token}` },
           }),
@@ -96,6 +113,12 @@ export default function VineGuardianAnalytics() {
             headers: { Authorization: `Bearer ${token}` },
           }),
           fetch(`${API}/api/vine/analytics/activity`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          fetch(`${API}/api/vine/news/health`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          fetch(`${API}/api/vine/news/settings`, {
             headers: { Authorization: `Bearer ${token}` },
           }),
         ]);
@@ -132,10 +155,30 @@ export default function VineGuardianAnalytics() {
           }
         }
 
+        let newsHealthBody = null;
+        if (newsHealthResult?.status === "fulfilled") {
+          const newsHealthRes = newsHealthResult.value;
+          const parsed = await newsHealthRes.json().catch(() => null);
+          if (newsHealthRes.ok) {
+            newsHealthBody = parsed;
+          }
+        }
+
+        let newsSettingsBody = null;
+        if (newsSettingsResult?.status === "fulfilled") {
+          const newsSettingsRes = newsSettingsResult.value;
+          const parsed = await newsSettingsRes.json().catch(() => null);
+          if (newsSettingsRes.ok) {
+            newsSettingsBody = parsed;
+          }
+        }
+
         setData({
           ...overviewBody,
           performance: perfBody,
           activity: activityBody,
+          newsHealth: newsHealthBody,
+          newsSettings: newsSettingsBody,
         });
       } catch (err) {
         setError("Failed to load analytics");
@@ -157,11 +200,14 @@ export default function VineGuardianAnalytics() {
     const refreshAnalyticsPanels = async () => {
       if (document.visibilityState !== "visible") return;
       try {
-        const [perfRes, activityRes] = await Promise.allSettled([
+        const [perfRes, activityRes, newsHealthRes] = await Promise.allSettled([
           fetch(`${API}/api/vine/analytics/performance`, {
             headers: { Authorization: `Bearer ${token}` },
           }),
           fetch(`${API}/api/vine/analytics/activity`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          fetch(`${API}/api/vine/news/health`, {
             headers: { Authorization: `Bearer ${token}` },
           }),
         ]);
@@ -181,6 +227,13 @@ export default function VineGuardianAnalytics() {
           if (activityRes.value.ok && parsed) {
             nextData.activity = parsed;
             setActivityLastFetchedAt(new Date().toISOString());
+          }
+        }
+
+        if (newsHealthRes.status === "fulfilled") {
+          const parsed = await newsHealthRes.value.json().catch(() => null);
+          if (newsHealthRes.value.ok && parsed) {
+            nextData.newsHealth = parsed;
           }
         }
 
@@ -224,6 +277,19 @@ export default function VineGuardianAnalytics() {
     };
   }, [token, currentUser]);
 
+  useEffect(() => {
+    const source = data?.newsSettings || data?.newsHealth?.runtime;
+    if (!source) return;
+    setNewsForm({
+      allowed_weekdays: Array.isArray(source.allowed_weekdays)
+        ? source.allowed_weekdays.map((value) => Number(value)).filter((value) => Number.isInteger(value))
+        : [],
+      daily_hour: Number(source.daily_hour ?? 12),
+      daily_minute: Number(source.daily_minute ?? 0),
+      timezone: String(source.timezone || "Africa/Kampala"),
+    });
+  }, [data?.newsSettings, data?.newsHealth]);
+
   const exportCsv = (filename, rows) => {
     if (!rows?.length) return;
     const keys = Object.keys(rows[0]);
@@ -263,6 +329,88 @@ export default function VineGuardianAnalytics() {
     if (hours < 24) return `${hours}h ago`;
     const days = Math.floor(hours / 24);
     return `${days}d ago`;
+  };
+
+  const formatTimeOfDay = (hour, minute) =>
+    `${String(Number(hour || 0)).padStart(2, "0")}:${String(Number(minute || 0)).padStart(2, "0")}`;
+
+  const toggleNewsWeekday = (weekday) => {
+    setNewsForm((prev) => {
+      const current = new Set((prev.allowed_weekdays || []).map((value) => Number(value)));
+      if (current.has(weekday)) current.delete(weekday);
+      else current.add(weekday);
+      return { ...prev, allowed_weekdays: Array.from(current).sort((a, b) => a - b) };
+    });
+  };
+
+  const saveNewsSchedule = async () => {
+    try {
+      setNewsSaving(true);
+      const res = await fetch(`${API}/api/vine/news/settings`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(newsForm),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(body?.message || "Failed to save Vine News schedule");
+        return;
+      }
+      setData((prev) =>
+        prev
+          ? {
+              ...prev,
+              newsSettings: body.settings,
+              newsHealth: prev.newsHealth
+                ? {
+                    ...prev.newsHealth,
+                    runtime: {
+                      ...(prev.newsHealth.runtime || {}),
+                      ...body.settings,
+                    },
+                  }
+                : prev.newsHealth,
+            }
+          : prev
+      );
+      alert("Vine News schedule updated");
+    } catch {
+      alert("Failed to save Vine News schedule");
+    } finally {
+      setNewsSaving(false);
+    }
+  };
+
+  const refreshNewsNow = async () => {
+    try {
+      setNewsRefreshing(true);
+      const res = await fetch(`${API}/api/vine/news/refresh`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(body?.message || "Failed to refresh Vine News");
+        return;
+      }
+      const healthRes = await fetch(`${API}/api/vine/news/health`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const healthBody = await healthRes.json().catch(() => null);
+      if (healthRes.ok && healthBody) {
+        setData((prev) => (prev ? { ...prev, newsHealth: healthBody } : prev));
+      }
+      alert("Vine News refreshed");
+    } catch {
+      alert("Failed to refresh Vine News");
+    } finally {
+      setNewsRefreshing(false);
+    }
   };
 
   const releaseNow = async (userId) => {
@@ -348,6 +496,8 @@ export default function VineGuardianAnalytics() {
   const vinePrison = data?.vinePrison || [];
   const perf = data?.performance || null;
   const activity = data?.activity || null;
+  const newsHealth = data?.newsHealth || null;
+  const newsRuntime = newsHealth?.runtime || {};
   const recentLogins = activity?.recent_logins || [];
   const recentActions = activity?.recent_actions || [];
   const suspiciousBursts = activity?.suspicious_bursts || [];
@@ -439,6 +589,108 @@ export default function VineGuardianAnalytics() {
       <button className="guardian-csv-btn" onClick={() => exportCsv("kpis.csv", [k])}>
         Export KPI CSV
       </button>
+
+      <div className="guardian-section">
+        <h3>Vine News Scheduler</h3>
+        <div className="guardian-news-grid">
+          <div className="guardian-news-card">
+            <span className="guardian-news-label">Posting Days</span>
+            <div className="guardian-news-weekdays">
+              {NEWS_WEEKDAY_OPTIONS.map((option) => {
+                const active = (newsForm.allowed_weekdays || []).includes(option.value);
+                return (
+                  <button
+                    key={`news-day-${option.value}`}
+                    type="button"
+                    className={`guardian-news-day ${active ? "active" : ""}`}
+                    onClick={() => toggleNewsWeekday(option.value)}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+            <small>
+              Leave all days off only if you want Vine News paused until you choose days again.
+            </small>
+          </div>
+
+          <div className="guardian-news-card">
+            <span className="guardian-news-label">Posting Time</span>
+            <div className="guardian-news-field-stack">
+              <input
+                type="time"
+                className="guardian-news-time"
+                value={formatTimeOfDay(newsForm.daily_hour, newsForm.daily_minute)}
+                onChange={(e) => {
+                  const [hour, minute] = String(e.target.value || "12:00").split(":");
+                  setNewsForm((prev) => ({
+                    ...prev,
+                    daily_hour: Number(hour || 0),
+                    daily_minute: Number(minute || 0),
+                  }));
+                }}
+              />
+              <input
+                type="text"
+                className="guardian-news-time guardian-news-timezone"
+                value={newsForm.timezone || "Africa/Kampala"}
+                onChange={(e) =>
+                  setNewsForm((prev) => ({
+                    ...prev,
+                    timezone: e.target.value || "Africa/Kampala",
+                  }))
+                }
+                placeholder="Timezone, e.g. Africa/Kampala"
+              />
+            </div>
+            <small>Example timezone: Africa/Kampala</small>
+          </div>
+
+          <div className="guardian-news-card">
+            <span className="guardian-news-label">Current Runtime</span>
+            <div className="guardian-news-runtime">
+              <span>
+                Last ingest: <strong>{formatAgo(newsRuntime.last_ingest_at)}</strong>
+              </span>
+              <span>
+                In flight: <strong>{newsRuntime.in_flight ? "Yes" : "No"}</strong>
+              </span>
+              <span>
+                Feeds tracked: <strong>{Array.isArray(newsRuntime.feeds) ? newsRuntime.feeds.length : 0}</strong>
+              </span>
+              <span>
+                Live schedule:{" "}
+                <strong>
+                  {(newsForm.allowed_weekdays || []).length
+                    ? `${(newsForm.allowed_weekdays || [])
+                        .map((value) => NEWS_WEEKDAY_OPTIONS.find((option) => option.value === value)?.label || value)
+                        .join(", ")} at ${formatTimeOfDay(newsForm.daily_hour, newsForm.daily_minute)}`
+                    : "Paused"}
+                </strong>
+              </span>
+            </div>
+            <div className="guardian-news-actions">
+              <button
+                type="button"
+                className="guardian-csv-btn guardian-news-save"
+                disabled={newsSaving}
+                onClick={saveNewsSchedule}
+              >
+                {newsSaving ? "Saving..." : "Save schedule"}
+              </button>
+              <button
+                type="button"
+                className="guardian-csv-btn guardian-news-refresh"
+                disabled={newsRefreshing}
+                onClick={refreshNewsNow}
+              >
+                {newsRefreshing ? "Refreshing..." : "Refresh now"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
 
       <div className="guardian-section">
         <h3>Live User Watch</h3>

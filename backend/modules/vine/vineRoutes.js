@@ -173,6 +173,8 @@ const isLikelyImageUrl = (url) => {
   );
 };
 
+const VINE_POST_MAX_LENGTH = 5000;
+
 const deleteCloudinaryByUrl = async (url) => {
   if (isR2Url(url) && r2Client && r2Ready) {
     const key = extractR2KeyFromUrl(url);
@@ -7237,6 +7239,9 @@ router.get("/posts/:id/public", authOptional, async (req, res) => {
         if ((!content || !content.trim()) && imageUrls.length === 0) {
           return res.status(400).json({ message: "Post cannot be empty" });
         }
+        if (String(content || "").trim().length > VINE_POST_MAX_LENGTH) {
+          return res.status(400).json({ message: "Post too long" });
+        }
         let pollOptions = [];
         let pollExpiresAt = null;
         if (pollQuestionRaw) {
@@ -9295,7 +9300,9 @@ router.patch("/posts/:id", requireVineAuth, async (req, res) => {
 
   if (!postId) return res.status(400).json({ message: "Invalid post id" });
   if (!content) return res.status(400).json({ message: "Post content is required" });
-  if (content.length > 2000) return res.status(400).json({ message: "Post too long" });
+  if (content.length > VINE_POST_MAX_LENGTH) {
+    return res.status(400).json({ message: "Post too long" });
+  }
 
   try {
     const [[post]] = await db.query(

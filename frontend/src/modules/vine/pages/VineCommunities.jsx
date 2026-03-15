@@ -5,6 +5,7 @@ import "./VineCommunities.css";
 import { loadPdfTools } from "../../../utils/loadPdfTools";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
+const POST_MAX_LENGTH = 5000;
 const parseAnswers = (value) => {
   try {
     const parsed = JSON.parse(value || "[]");
@@ -2130,10 +2131,10 @@ export default function VineCommunities() {
                             value={postText}
                             onChange={(e) => setPostText(e.target.value)}
                             placeholder={`Share something in ${activeCommunity.name}`}
-                            maxLength={2000}
+                            maxLength={POST_MAX_LENGTH}
                           />
                           <div className="community-create-actions">
-                            <span>{postText.length}/2000</span>
+                            <span>{postText.length}/{POST_MAX_LENGTH}</span>
                             <div className="schedule-controls">
                               <label className="community-file-picker">
                                 Attach files
@@ -3147,10 +3148,10 @@ export default function VineCommunities() {
                         placeholder="Write announcement for members..."
                         value={announcementText}
                         onChange={(e) => setAnnouncementText(e.target.value)}
-                        maxLength={2000}
+                        maxLength={POST_MAX_LENGTH}
                       />
                       <div className="community-announcement-create-actions">
-                        <span>{announcementText.length}/2000</span>
+                        <span>{announcementText.length}/{POST_MAX_LENGTH}</span>
                         <button
                           type="button"
                           onClick={createAnnouncement}
@@ -3192,7 +3193,7 @@ export default function VineCommunities() {
                                     onChange={(e) => setEditingAnnouncementText(e.target.value)}
                                     onClick={(e) => e.stopPropagation()}
                                     className="announcement-edit-box"
-                                    maxLength={2000}
+                                    maxLength={POST_MAX_LENGTH}
                                   />
                                 ) : (
                                   <span>{(post.content || "").trim().slice(0, 120) || "Pinned announcement"}</span>

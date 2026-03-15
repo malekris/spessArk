@@ -36,6 +36,7 @@ const POST_BG_COLORS = [
   "#92400e",
   "#0f172a",
 ];
+const POST_MAX_LENGTH = 5000;
 const STYLED_TEXT_WORD_LIMIT = 22;
 const FEED_MEDIA_UPLOADS_FROZEN = false;
 const STATUS_MEDIA_UPLOADS_FROZEN = false;
@@ -1362,7 +1363,7 @@ export default function VineFeed() {
                       ref={createInputRef}
                       placeholder="What's happening?"
                       value={content}
-                      maxLength={2000}
+                      maxLength={POST_MAX_LENGTH}
                       onChange={(e) => {
                         const value = e.target.value;
                         setContent(value);
@@ -1476,7 +1477,7 @@ export default function VineFeed() {
             </div>
 
             <div className="right-actions">
-              <span className="char-count">{content.length}/2000</span>
+              <span className="char-count">{content.length}/{POST_MAX_LENGTH}</span>
               <button className="gif-insert-btn" type="button" onClick={addGifToComposer}>
                 GIF
               </button>

@@ -13,6 +13,42 @@ const isGuardianUser = (user) => {
   );
 };
 
+const hasSpecialVerifiedBadge = (user) =>
+  ["vine guardian", "vine_guardian", "vine news", "vine_news"].includes(
+    String(user?.username || "").toLowerCase()
+  ) || ["guardian", "news"].includes(String(user?.badge_type || "").toLowerCase());
+
+const getActivityIcon = (type) =>
+  ({
+    post: "📝",
+    comment: "💬",
+    reply: "↩️",
+    like: "❤️",
+    revine: "🔁",
+    follow: "➕",
+    dm: "✉️",
+    community_join: "👥",
+    assignment_submit: "📚",
+    login: "🔐",
+  }[String(type || "").toLowerCase()] || "🌱");
+
+const getActivityStateLabel = (row) => {
+  if (row?.is_online_now) return "Online now";
+  if (String(row?.session_state || "").toLowerCase() === "active") return "Active";
+  if (String(row?.session_state || "").toLowerCase() === "ended") return "Ended";
+  return "Expired";
+};
+
+const getInitials = (value) => {
+  const text = String(value || "").trim();
+  if (!text) return "V";
+  const parts = text.split(/\s+/).filter(Boolean);
+  return parts
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() || "")
+    .join("") || text.slice(0, 2).toUpperCase();
+};
+
 export default function VineGuardianAnalytics() {
   const navigate = useNavigate();
   const token = localStorage.getItem("vine_token");
@@ -20,6 +56,9 @@ export default function VineGuardianAnalytics() {
   const [error, setError] = useState("");
   const [data, setData] = useState(null);
   const [perfLastFetchedAt, setPerfLastFetchedAt] = useState(null);
+  const [activityLastFetchedAt, setActivityLastFetchedAt] = useState(null);
+  const [activityFilter, setActivityFilter] = useState("all");
+  const [warningUserIds, setWarningUserIds] = useState({});
   const [from, setFrom] = useState(() => {
     const d = new Date(Date.now() - 6 * 86400000);
     return d.toISOString().slice(0, 10);
@@ -49,11 +88,14 @@ export default function VineGuardianAnalytics() {
         setLoading(true);
         setError("");
         const q = new URLSearchParams({ from, to }).toString();
-        const [overviewResult, perfResult] = await Promise.allSettled([
+        const [overviewResult, perfResult, activityResult] = await Promise.allSettled([
           fetch(`${API}/api/vine/analytics/overview?${q}`, {
             headers: { Authorization: `Bearer ${token}` },
           }),
           fetch(`${API}/api/vine/analytics/performance`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          fetch(`${API}/api/vine/analytics/activity`, {
             headers: { Authorization: `Bearer ${token}` },
           }),
         ]);
@@ -80,9 +122,20 @@ export default function VineGuardianAnalytics() {
           }
         }
 
+        let activityBody = null;
+        if (activityResult.status === "fulfilled") {
+          const activityRes = activityResult.value;
+          const parsed = await activityRes.json().catch(() => null);
+          if (activityRes.ok) {
+            activityBody = parsed;
+            setActivityLastFetchedAt(new Date().toISOString());
+          }
+        }
+
         setData({
           ...overviewBody,
           performance: perfBody,
+          activity: activityBody,
         });
       } catch (err) {
         setError("Failed to load analytics");
@@ -99,22 +152,76 @@ export default function VineGuardianAnalytics() {
       return undefined;
     }
 
-    const refreshPerformance = async () => {
+    let intervalId = null;
+
+    const refreshAnalyticsPanels = async () => {
+      if (document.visibilityState !== "visible") return;
       try {
-        const res = await fetch(`${API}/api/vine/analytics/performance`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const body = await res.json().catch(() => null);
-        if (!res.ok || !body) return;
-        setData((prev) => (prev ? { ...prev, performance: body } : prev));
-        setPerfLastFetchedAt(new Date().toISOString());
+        const [perfRes, activityRes] = await Promise.allSettled([
+          fetch(`${API}/api/vine/analytics/performance`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          fetch(`${API}/api/vine/analytics/activity`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+        ]);
+
+        const nextData = {};
+
+        if (perfRes.status === "fulfilled") {
+          const parsed = await perfRes.value.json().catch(() => null);
+          if (perfRes.value.ok && parsed) {
+            nextData.performance = parsed;
+            setPerfLastFetchedAt(new Date().toISOString());
+          }
+        }
+
+        if (activityRes.status === "fulfilled") {
+          const parsed = await activityRes.value.json().catch(() => null);
+          if (activityRes.value.ok && parsed) {
+            nextData.activity = parsed;
+            setActivityLastFetchedAt(new Date().toISOString());
+          }
+        }
+
+        if (Object.keys(nextData).length) {
+          setData((prev) => (prev ? { ...prev, ...nextData } : prev));
+        }
       } catch {
-        // Keep the last successful snapshot; perf auto-refresh should be quiet.
+        // Keep the last successful snapshot; auto-refresh should stay quiet.
       }
     };
 
-    const intervalId = window.setInterval(refreshPerformance, 25000);
-    return () => window.clearInterval(intervalId);
+    const startInterval = () => {
+      if (intervalId) return;
+      intervalId = window.setInterval(refreshAnalyticsPanels, 60000);
+    };
+
+    const stopInterval = () => {
+      if (!intervalId) return;
+      window.clearInterval(intervalId);
+      intervalId = null;
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        refreshAnalyticsPanels();
+        startInterval();
+      } else {
+        stopInterval();
+      }
+    };
+
+    if (document.visibilityState === "visible") {
+      startInterval();
+    }
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      stopInterval();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, [token, currentUser]);
 
   const exportCsv = (filename, rows) => {
@@ -186,13 +293,47 @@ export default function VineGuardianAnalytics() {
     }
   };
 
-  if (loading) {
-    return <div className="guardian-analytics-page">Loading analytics...</div>;
-  }
+  const warnBurstUser = async (row) => {
+    const userId = Number(row?.user_id || 0);
+    if (!userId) return;
+    try {
+      setWarningUserIds((prev) => ({ ...prev, [userId]: true }));
+      const reason = `Guardian automated watch noticed unusual activity: ${
+        Array.isArray(row?.reasons) && row.reasons.length
+          ? row.reasons.join(", ")
+          : `${row?.total_actions || 0} actions in 15 minutes`
+      }`;
+      const res = await fetch(`${API}/api/vine/moderation/warn`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          user_id: userId,
+          reason,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(body?.message || "Failed to warn user");
+        return;
+      }
+      alert("Warning sent");
+    } catch {
+      alert("Failed to warn user");
+    } finally {
+      setWarningUserIds((prev) => {
+        const next = { ...prev };
+        delete next[userId];
+        return next;
+      });
+    }
+  };
 
-  if (error) {
-    return <div className="guardian-analytics-page">{error}</div>;
-  }
+  const openUserModerationView = (row) => {
+    navigate(`/vine/guardian/moderation?type=users&userId=${row.user_id}&from=${from}&to=${to}`);
+  };
 
   const k = data?.kpis || {};
   const usage = data?.usageByDay || [];
@@ -206,6 +347,10 @@ export default function VineGuardianAnalytics() {
   const mostActiveUsers = data?.mostActiveUsers || [];
   const vinePrison = data?.vinePrison || [];
   const perf = data?.performance || null;
+  const activity = data?.activity || null;
+  const recentLogins = activity?.recent_logins || [];
+  const recentActions = activity?.recent_actions || [];
+  const suspiciousBursts = activity?.suspicious_bursts || [];
   const perfRuntime = perf?.runtime || {};
   const perfRoutes = perf?.top_routes || [];
   const perfQueries = perf?.top_queries || [];
@@ -215,6 +360,35 @@ export default function VineGuardianAnalytics() {
     1,
     ...usage.map((d) => d.posts + d.comments + d.likes + d.revines + d.follows + d.dms)
   );
+  const filteredRecentActions = useMemo(() => {
+    if (activityFilter === "all" || activityFilter === "logins") return recentActions;
+    if (activityFilter === "posts") {
+      return recentActions.filter((row) => ["post"].includes(String(row.action_type || "").toLowerCase()));
+    }
+    if (activityFilter === "comments") {
+      return recentActions.filter((row) => ["comment", "reply"].includes(String(row.action_type || "").toLowerCase()));
+    }
+    if (activityFilter === "dms") {
+      return recentActions.filter((row) => String(row.action_type || "").toLowerCase() === "dm");
+    }
+    if (activityFilter === "follows") {
+      return recentActions.filter((row) => String(row.action_type || "").toLowerCase() === "follow");
+    }
+    if (activityFilter === "communities") {
+      return recentActions.filter((row) =>
+        ["community_join", "assignment_submit"].includes(String(row.action_type || "").toLowerCase())
+      );
+    }
+    return recentActions;
+  }, [recentActions, activityFilter]);
+
+  if (loading) {
+    return <div className="guardian-analytics-page">Loading analytics...</div>;
+  }
+
+  if (error) {
+    return <div className="guardian-analytics-page">{error}</div>;
+  }
 
   return (
     <div className="guardian-analytics-page">
@@ -267,6 +441,237 @@ export default function VineGuardianAnalytics() {
       </button>
 
       <div className="guardian-section">
+        <h3>Live User Watch</h3>
+        <div className="guardian-actions">
+          <button
+            className="guardian-csv-btn"
+            onClick={() => exportCsv("guardian_recent_logins.csv", recentLogins)}
+          >
+            Export Logins CSV
+          </button>
+          <button
+            className="guardian-csv-btn"
+            onClick={() => exportCsv("guardian_recent_actions.csv", recentActions)}
+          >
+            Export Actions CSV
+          </button>
+        </div>
+        <div className="guardian-perf-refresh">
+          <span>Recent Vine logins and the actions users took after signing in</span>
+          <span>Last update: {formatAgo(activityLastFetchedAt)}</span>
+        </div>
+        <div className="guardian-filter-row">
+          {[
+            ["all", "Everything"],
+            ["logins", "Logins only"],
+            ["posts", "Posts only"],
+            ["comments", "Comments"],
+            ["dms", "DMs only"],
+            ["follows", "Follows"],
+            ["communities", "Communities"],
+          ].map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              className={`guardian-filter-chip ${activityFilter === value ? "active" : ""}`}
+              onClick={() => setActivityFilter(value)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="guardian-subsection">
+          <h4>Red Flags (Last 15 Minutes)</h4>
+          <div className="guardian-table">
+            {suspiciousBursts.length === 0 && (
+              <div className="guardian-empty">No suspicious bursts right now.</div>
+            )}
+            {suspiciousBursts.map((row) => {
+              const specialBadge = hasSpecialVerifiedBadge(row);
+              return (
+                <div
+                  key={`guardian-burst-${row.user_id}`}
+                  className="guardian-row guardian-row-activity guardian-row-burst"
+                >
+                  <button
+                    type="button"
+                    className="guardian-activity-user guardian-activity-link"
+                    onClick={() => navigate(row.navigate_path || `/vine/profile/${row.username}`)}
+                  >
+                    {row.avatar_url ? (
+                      <img
+                        className="guardian-activity-avatar"
+                        src={row.avatar_url}
+                        alt={row.display_name || row.username}
+                        loading="lazy"
+                      />
+                    ) : (
+                      <span className="guardian-activity-avatar guardian-activity-avatar-fallback">
+                        {getInitials(row.display_name || row.username)}
+                      </span>
+                    )}
+                    <span className="guardian-activity-user-copy">
+                      <strong>
+                        {row.display_name || row.username}
+                        {(Number(row.is_verified) === 1 || specialBadge) && (
+                          <span className={`guardian-verified ${specialBadge ? "guardian" : ""}`}>✓</span>
+                        )}
+                      </strong>
+                      <small>@{row.username}</small>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className="guardian-row-main guardian-activity-main guardian-activity-link"
+                    onClick={() => navigate(row.navigate_path || `/vine/profile/${row.username}`)}
+                  >
+                    <strong>{row.total_actions} actions in the last 15 minutes</strong>
+                    <small>
+                      Posts {row.posts_count} • Comments {row.comments_count} • DMs {row.dms_count} • Follows {row.follows_count}
+                    </small>
+                    <em className="guardian-activity-note">{row.reasons?.join(" • ") || "Check this account."}</em>
+                  </button>
+                  <div className="guardian-burst-actions">
+                    <span className={`guardian-activity-pill ${row.is_online_now ? "ended" : "expired"}`}>
+                      {row.is_online_now ? "Investigate" : "Review"}
+                    </span>
+                    <button
+                      type="button"
+                      className="guardian-mini-btn guardian-mini-btn-warn"
+                      disabled={Boolean(warningUserIds[row.user_id])}
+                      onClick={() => warnBurstUser(row)}
+                    >
+                      {warningUserIds[row.user_id] ? "Warning..." : "Warn user"}
+                    </button>
+                    <button
+                      type="button"
+                      className="guardian-mini-btn guardian-mini-btn-open"
+                      onClick={() => openUserModerationView(row)}
+                    >
+                      Open moderation
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        <div className="guardian-activity-split">
+          <div className="guardian-subsection">
+            <h4>Recent Logins</h4>
+            <div className="guardian-table">
+              {recentLogins.length === 0 && <div className="guardian-empty">No recent logins captured yet.</div>}
+              {recentLogins.map((row) => {
+                const specialBadge = hasSpecialVerifiedBadge(row);
+                return (
+                  <button
+                    key={`guardian-login-${row.session_id}`}
+                    className="guardian-row guardian-row-activity"
+                    onClick={() => navigate(row.navigate_path || `/vine/profile/${row.username}`)}
+                  >
+                    <span className="guardian-activity-user">
+                      {row.avatar_url ? (
+                        <img
+                          className="guardian-activity-avatar"
+                          src={row.avatar_url}
+                          alt={row.display_name || row.username}
+                          loading="lazy"
+                        />
+                      ) : (
+                        <span className="guardian-activity-avatar guardian-activity-avatar-fallback">
+                          {getInitials(row.display_name || row.username)}
+                        </span>
+                      )}
+                      <span className="guardian-activity-user-copy">
+                        <strong>
+                          {row.display_name || row.username}
+                          {(Number(row.is_verified) === 1 || specialBadge) && (
+                            <span className={`guardian-verified ${specialBadge ? "guardian" : ""}`}>✓</span>
+                          )}
+                        </strong>
+                        <small>@{row.username} • {row.device_label}</small>
+                      </span>
+                    </span>
+                    <span className="guardian-row-main guardian-activity-main">
+                      <strong>Logged in {formatAgo(row.login_at)}</strong>
+                      <small>
+                        {row.is_online_now ? "Online now" : `Seen ${formatAgo(row.last_seen_at)}`} • {row.actions_since_login || 0} action
+                        {Number(row.actions_since_login || 0) === 1 ? "" : "s"} since login
+                      </small>
+                      <em className="guardian-activity-note">
+                        {row.latest_action_label
+                          ? `${getActivityIcon(row.latest_action_type)} ${row.latest_action_label}${row.latest_target_label ? ` • ${row.latest_target_label}` : ""}`
+                          : "No action after login yet"}
+                      </em>
+                    </span>
+                    <span className={`guardian-activity-pill ${String(row.session_state || "").toLowerCase()}`}>
+                      {getActivityStateLabel(row)}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {activityFilter !== "logins" && (
+            <div className="guardian-subsection">
+              <h4>Recent Actions</h4>
+              <div className="guardian-table">
+                {filteredRecentActions.length === 0 && <div className="guardian-empty">No actions match this filter yet.</div>}
+                {filteredRecentActions.map((row) => {
+                  const specialBadge = hasSpecialVerifiedBadge(row);
+                  return (
+                    <button
+                      key={`guardian-action-${row.event_key}`}
+                      className="guardian-row guardian-row-activity"
+                      onClick={() => navigate(row.navigate_path || `/vine/profile/${row.username}`)}
+                    >
+                      <span className="guardian-activity-user">
+                        {row.avatar_url ? (
+                          <img
+                            className="guardian-activity-avatar"
+                            src={row.avatar_url}
+                            alt={row.display_name || row.username}
+                            loading="lazy"
+                          />
+                        ) : (
+                          <span className="guardian-activity-avatar guardian-activity-avatar-fallback">
+                            {getInitials(row.display_name || row.username)}
+                          </span>
+                        )}
+                        <span className="guardian-activity-user-copy">
+                          <strong>
+                            {row.display_name || row.username}
+                            {(Number(row.is_verified) === 1 || specialBadge) && (
+                              <span className={`guardian-verified ${specialBadge ? "guardian" : ""}`}>✓</span>
+                            )}
+                          </strong>
+                          <small>@{row.username}</small>
+                        </span>
+                      </span>
+                      <span className="guardian-row-main guardian-activity-main">
+                        <strong>{getActivityIcon(row.action_type)} {row.action_label}</strong>
+                        <small>
+                          {row.target_label || "Vine"} • {formatAgo(row.created_at)}
+                          {row.is_online_now ? " • online now" : ""}
+                        </small>
+                        <em className="guardian-activity-note">
+                          {row.detail || "Open to inspect the user or jump into the target context."}
+                        </em>
+                      </span>
+                      <span className={`guardian-activity-pill ${row.is_online_now ? "active" : "idle"}`}>
+                        {row.is_online_now ? "Live" : "Seen"}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="guardian-section">
         <h3>Performance Watch</h3>
         <div className="guardian-actions">
           <button
@@ -313,7 +718,7 @@ export default function VineGuardianAnalytics() {
               <span>DM query ≥ {perf?.thresholds?.dm_slow_query_ms ?? 0} ms</span>
             </div>
             <div className="guardian-perf-refresh">
-              <span>Auto-refreshing every 25s</span>
+              <span>Auto-refreshing every 60s while this tab is visible</span>
               <span>Last update: {formatAgo(perfLastFetchedAt)}</span>
             </div>
 

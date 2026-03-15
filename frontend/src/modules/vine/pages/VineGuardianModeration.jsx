@@ -28,6 +28,7 @@ export default function VineGuardianModeration() {
   const [type, setType] = useState(params.get("type") || "posts");
   const [from, setFrom] = useState(params.get("from") || new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10));
   const [to, setTo] = useState(params.get("to") || new Date().toISOString().slice(0, 10));
+  const [userFilter, setUserFilter] = useState(params.get("userId") || "");
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [suspendDurationByKey, setSuspendDurationByKey] = useState({});
@@ -57,7 +58,13 @@ export default function VineGuardianModeration() {
             ? `${API}/api/vine/moderation/reports`
             : type === "appeals"
             ? `${API}/api/vine/moderation/appeals`
-            : `${API}/api/vine/analytics/drilldown?${new URLSearchParams({ type, from, to, limit: "200" }).toString()}`;
+            : `${API}/api/vine/analytics/drilldown?${new URLSearchParams({
+                type,
+                from,
+                to,
+                limit: "200",
+                ...(userFilter ? { userId: String(userFilter) } : {}),
+              }).toString()}`;
         const res = await fetch(url, {
           headers: { Authorization: `Bearer ${token}` },
         });
@@ -77,7 +84,7 @@ export default function VineGuardianModeration() {
       }
     };
     load();
-  }, [token, currentUser, navigate, type, from, to]);
+  }, [token, currentUser, navigate, type, from, to, userFilter]);
 
   const removePost = async (id) => {
     const res = await fetch(`${API}/api/vine/posts/${id}`, {
@@ -241,6 +248,11 @@ export default function VineGuardianModeration() {
             <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
             <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
           </>
+        )}
+        {userFilter && (
+          <button type="button" className="guardian-user-filter" onClick={() => setUserFilter("")}>
+            User #{userFilter} ×
+          </button>
         )}
       </div>
 

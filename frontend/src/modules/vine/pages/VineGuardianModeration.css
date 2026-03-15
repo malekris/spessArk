@@ -41,6 +41,16 @@
   padding: 8px 10px;
 }
 
+.guardian-user-filter {
+  border: 1px solid #fcd34d;
+  background: linear-gradient(180deg, #fef3c7 0%, #fde68a 100%);
+  color: #92400e;
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
 .guardian-mod-list {
   display: flex;
   flex-direction: column;

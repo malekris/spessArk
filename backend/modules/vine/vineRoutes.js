@@ -296,6 +296,7 @@ const VINE_CACHE_TTLS = {
   blockedUsers: 20_000,
   notifications: 5_000,
   notificationCounts: 4_000,
+  guardianActivity: 10_000,
 };
 const vineReadCache = new Map();
 
@@ -386,6 +387,618 @@ const clearVineReadCache = (...prefixes) => {
       vineReadCache.delete(key);
     }
   }
+};
+
+const GUARDIAN_ACTIVITY_ONLINE_MS = 5 * 60 * 1000;
+const GUARDIAN_ACTIVITY_LOOKBACK_MS = 3 * 24 * 60 * 60 * 1000;
+
+const summarizeGuardianDevice = (rawValue) => {
+  const raw = String(rawValue || "").trim();
+  if (!raw) return "Unknown device";
+  const lower = raw.toLowerCase();
+  const browser =
+    lower.includes("edg/")
+      ? "Edge"
+      : lower.includes("opr/") || lower.includes("opera")
+      ? "Opera"
+      : lower.includes("chrome/")
+      ? "Chrome"
+      : lower.includes("firefox/")
+      ? "Firefox"
+      : lower.includes("safari/") && !lower.includes("chrome/")
+      ? "Safari"
+      : "Browser";
+  const platform =
+    lower.includes("iphone")
+      ? "iPhone"
+      : lower.includes("ipad")
+      ? "iPad"
+      : lower.includes("android")
+      ? "Android"
+      : lower.includes("mac os") || lower.includes("macintosh")
+      ? "Mac"
+      : lower.includes("windows")
+      ? "Windows"
+      : lower.includes("linux")
+      ? "Linux"
+      : lower.includes("mobile")
+      ? "Mobile"
+      : "Desktop";
+  return `${platform} • ${browser}`;
+};
+
+const buildGuardianActivityPath = (item = {}) => {
+  if (item.post_id) {
+    if (item.comment_id) {
+      return `/vine/feed?post=${item.post_id}&comment=${item.comment_id}`;
+    }
+    return `/vine/feed?post=${item.post_id}`;
+  }
+  if (item.community_slug) {
+    if (item.assignment_id) {
+      return `/vine/communities/${item.community_slug}?tab=assignments`;
+    }
+    return `/vine/communities/${item.community_slug}`;
+  }
+  if (item.target_username) {
+    return `/vine/profile/${item.target_username}`;
+  }
+  if (item.username) {
+    return `/vine/profile/${item.username}`;
+  }
+  return "/vine/feed";
+};
+
+const normalizeGuardianActivityRows = (rows = []) =>
+  rows.map((row) => ({
+    event_key: row.event_key,
+    user_id: Number(row.user_id || 0),
+    username: row.username || "",
+    display_name: row.display_name || row.username || "",
+    avatar_url: row.avatar_url || "",
+    is_verified: Number(row.is_verified || 0),
+    badge_type: row.badge_type || null,
+    role: row.role || "user",
+    action_type: row.action_type || "activity",
+    action_label: row.action_label || "Did something",
+    target_label: row.target_label || "",
+    detail: row.detail || "",
+    created_at: row.created_at || null,
+    post_id: row.post_id ? Number(row.post_id) : null,
+    comment_id: row.comment_id ? Number(row.comment_id) : null,
+    assignment_id: row.assignment_id ? Number(row.assignment_id) : null,
+    community_slug: row.community_slug || "",
+    target_username: row.target_username || "",
+    navigate_path: buildGuardianActivityPath(row),
+  }));
+
+const buildGuardianActivitySnapshot = async (perfCtx, dbName, { loginLimit = 12, actionLimit = 28 } = {}) => {
+  const safeLoginLimit = Math.max(5, Math.min(30, Number(loginLimit || 12)));
+  const safeActionLimit = Math.max(12, Math.min(60, Number(actionLimit || 28)));
+  const cacheKey = buildVineCacheKey("guardian-activity", safeLoginLimit, safeActionLimit);
+
+  return readThroughVineCache(cacheKey, VINE_CACHE_TTLS.guardianActivity, async () => {
+    const loginTableExists = await hasTable(dbName, "vine_user_sessions");
+    if (!loginTableExists) {
+      return { recent_logins: [], recent_actions: [] };
+    }
+
+    const [loginRows] = await timedVineQuery(
+      perfCtx,
+      "guardian-activity.recent-logins",
+      `
+      SELECT
+        s.id AS session_id,
+        s.user_id,
+        s.created_at AS login_at,
+        s.last_seen_at,
+        s.revoked_at,
+        s.device_info,
+        s.ip_address,
+        u.username,
+        u.display_name,
+        u.avatar_url,
+        u.is_verified,
+        u.badge_type,
+        u.role
+      FROM vine_user_sessions s
+      JOIN vine_users u ON u.id = s.user_id
+      ORDER BY s.created_at DESC
+      LIMIT ?
+      `,
+      [safeLoginLimit]
+    );
+
+    const recentLoginRows = Array.isArray(loginRows) ? loginRows : [];
+    const oldestLoginAtMs = recentLoginRows.reduce((min, row) => {
+      const ts = new Date(row.login_at || 0).getTime();
+      if (!Number.isFinite(ts)) return min;
+      return min === null ? ts : Math.min(min, ts);
+    }, null);
+    const actionSince = new Date(
+      oldestLoginAtMs && oldestLoginAtMs > 0
+        ? oldestLoginAtMs - 60 * 1000
+        : Date.now() - GUARDIAN_ACTIVITY_LOOKBACK_MS
+    );
+
+    const postsExists = await hasTable(dbName, "vine_posts");
+    const commentsExists = await hasTable(dbName, "vine_comments");
+    const likesExists = await hasTable(dbName, "vine_likes");
+    const revinesExists = await hasTable(dbName, "vine_revines");
+    const followsExists = await hasTable(dbName, "vine_follows");
+    const messagesExists = await hasTable(dbName, "vine_messages");
+    const communityMembersExists = await hasTable(dbName, "vine_community_members");
+    const submissionsExists = await hasTable(dbName, "vine_community_submissions");
+
+    const actionSelects = [];
+    const actionParams = [];
+
+    if (postsExists) {
+      actionSelects.push(`
+        SELECT
+          CONCAT('post-', p.id) AS event_key,
+          u.id AS user_id,
+          u.username,
+          u.display_name,
+          u.avatar_url,
+          u.is_verified,
+          u.badge_type,
+          u.role,
+          'post' AS action_type,
+          CASE WHEN p.community_id IS NULL THEN 'Posted on feed' ELSE 'Posted in community' END AS action_label,
+          COALESCE(c.name, '') AS target_label,
+          LEFT(TRIM(COALESCE(p.content, '')), 120) AS detail,
+          p.created_at,
+          p.id AS post_id,
+          NULL AS comment_id,
+          NULL AS assignment_id,
+          COALESCE(c.slug, '') AS community_slug,
+          '' AS target_username
+        FROM vine_posts p
+        JOIN vine_users u ON u.id = p.user_id
+        LEFT JOIN vine_communities c ON c.id = p.community_id
+        WHERE p.created_at >= ?
+      `);
+      actionParams.push(actionSince);
+    }
+
+    if (commentsExists) {
+      actionSelects.push(`
+        SELECT
+          CONCAT('comment-', cm.id) AS event_key,
+          u.id AS user_id,
+          u.username,
+          u.display_name,
+          u.avatar_url,
+          u.is_verified,
+          u.badge_type,
+          u.role,
+          CASE WHEN cm.parent_comment_id IS NULL THEN 'comment' ELSE 'reply' END AS action_type,
+          CASE WHEN cm.parent_comment_id IS NULL THEN 'Commented on a post' ELSE 'Replied in comments' END AS action_label,
+          COALESCE(c.name, '') AS target_label,
+          LEFT(TRIM(COALESCE(cm.content, '')), 120) AS detail,
+          cm.created_at,
+          cm.post_id AS post_id,
+          cm.id AS comment_id,
+          NULL AS assignment_id,
+          COALESCE(c.slug, '') AS community_slug,
+          '' AS target_username
+        FROM vine_comments cm
+        JOIN vine_users u ON u.id = cm.user_id
+        LEFT JOIN vine_posts p ON p.id = cm.post_id
+        LEFT JOIN vine_communities c ON c.id = p.community_id
+        WHERE cm.created_at >= ?
+      `);
+      actionParams.push(actionSince);
+    }
+
+    if (likesExists) {
+      actionSelects.push(`
+        SELECT
+          CONCAT('like-', l.id) AS event_key,
+          u.id AS user_id,
+          u.username,
+          u.display_name,
+          u.avatar_url,
+          u.is_verified,
+          u.badge_type,
+          u.role,
+          'like' AS action_type,
+          'Liked a post' AS action_label,
+          COALESCE(c.name, '') AS target_label,
+          '' AS detail,
+          l.created_at,
+          l.post_id AS post_id,
+          NULL AS comment_id,
+          NULL AS assignment_id,
+          COALESCE(c.slug, '') AS community_slug,
+          '' AS target_username
+        FROM vine_likes l
+        JOIN vine_users u ON u.id = l.user_id
+        LEFT JOIN vine_posts p ON p.id = l.post_id
+        LEFT JOIN vine_communities c ON c.id = p.community_id
+        WHERE l.created_at >= ?
+      `);
+      actionParams.push(actionSince);
+    }
+
+    if (revinesExists) {
+      actionSelects.push(`
+        SELECT
+          CONCAT('revine-', r.id) AS event_key,
+          u.id AS user_id,
+          u.username,
+          u.display_name,
+          u.avatar_url,
+          u.is_verified,
+          u.badge_type,
+          u.role,
+          'revine' AS action_type,
+          'Revined a post' AS action_label,
+          COALESCE(c.name, '') AS target_label,
+          '' AS detail,
+          r.created_at,
+          r.post_id AS post_id,
+          NULL AS comment_id,
+          NULL AS assignment_id,
+          COALESCE(c.slug, '') AS community_slug,
+          '' AS target_username
+        FROM vine_revines r
+        JOIN vine_users u ON u.id = r.user_id
+        LEFT JOIN vine_posts p ON p.id = r.post_id
+        LEFT JOIN vine_communities c ON c.id = p.community_id
+        WHERE r.created_at >= ?
+      `);
+      actionParams.push(actionSince);
+    }
+
+    if (followsExists) {
+      actionSelects.push(`
+        SELECT
+          CONCAT('follow-', f.id) AS event_key,
+          u.id AS user_id,
+          u.username,
+          u.display_name,
+          u.avatar_url,
+          u.is_verified,
+          u.badge_type,
+          u.role,
+          'follow' AS action_type,
+          'Started following' AS action_label,
+          COALESCE(target.display_name, target.username, '') AS target_label,
+          '' AS detail,
+          f.created_at,
+          NULL AS post_id,
+          NULL AS comment_id,
+          NULL AS assignment_id,
+          '' AS community_slug,
+          COALESCE(target.username, '') AS target_username
+        FROM vine_follows f
+        JOIN vine_users u ON u.id = f.follower_id
+        JOIN vine_users target ON target.id = f.following_id
+        WHERE f.created_at >= ?
+      `);
+      actionParams.push(actionSince);
+    }
+
+    if (messagesExists) {
+      actionSelects.push(`
+        SELECT
+          CONCAT('dm-', m.id) AS event_key,
+          u.id AS user_id,
+          u.username,
+          u.display_name,
+          u.avatar_url,
+          u.is_verified,
+          u.badge_type,
+          u.role,
+          'dm' AS action_type,
+          'Sent a DM' AS action_label,
+          COALESCE(target.display_name, target.username, '') AS target_label,
+          '' AS detail,
+          m.created_at,
+          NULL AS post_id,
+          NULL AS comment_id,
+          NULL AS assignment_id,
+          '' AS community_slug,
+          COALESCE(target.username, '') AS target_username
+        FROM vine_messages m
+        JOIN vine_users u ON u.id = m.sender_id
+        JOIN vine_conversations vc ON vc.id = m.conversation_id
+        JOIN vine_users target
+          ON target.id = CASE
+            WHEN vc.user1_id = m.sender_id THEN vc.user2_id
+            ELSE vc.user1_id
+          END
+        WHERE m.created_at >= ?
+      `);
+      actionParams.push(actionSince);
+    }
+
+    if (communityMembersExists) {
+      actionSelects.push(`
+        SELECT
+          CONCAT('community-member-', m.id) AS event_key,
+          u.id AS user_id,
+          u.username,
+          u.display_name,
+          u.avatar_url,
+          u.is_verified,
+          u.badge_type,
+          u.role,
+          'community_join' AS action_type,
+          'Joined a community' AS action_label,
+          COALESCE(c.name, '') AS target_label,
+          '' AS detail,
+          m.joined_at AS created_at,
+          NULL AS post_id,
+          NULL AS comment_id,
+          NULL AS assignment_id,
+          COALESCE(c.slug, '') AS community_slug,
+          '' AS target_username
+        FROM vine_community_members m
+        JOIN vine_users u ON u.id = m.user_id
+        JOIN vine_communities c ON c.id = m.community_id
+        WHERE m.joined_at >= ?
+      `);
+      actionParams.push(actionSince);
+    }
+
+    if (submissionsExists) {
+      actionSelects.push(`
+        SELECT
+          CONCAT('submission-', s.id) AS event_key,
+          u.id AS user_id,
+          u.username,
+          u.display_name,
+          u.avatar_url,
+          u.is_verified,
+          u.badge_type,
+          u.role,
+          'assignment_submit' AS action_type,
+          'Submitted an assignment' AS action_label,
+          COALESCE(a.title, '') AS target_label,
+          '' AS detail,
+          s.submitted_at AS created_at,
+          NULL AS post_id,
+          NULL AS comment_id,
+          a.id AS assignment_id,
+          COALESCE(c.slug, '') AS community_slug,
+          '' AS target_username
+        FROM vine_community_submissions s
+        JOIN vine_users u ON u.id = s.user_id
+        LEFT JOIN vine_community_assignments a ON a.id = s.assignment_id
+        LEFT JOIN vine_communities c ON c.id = s.community_id
+        WHERE s.submitted_at >= ?
+      `);
+      actionParams.push(actionSince);
+    }
+
+    let recentActionRows = [];
+    if (actionSelects.length) {
+      const [rows] = await timedVineQuery(
+        perfCtx,
+        "guardian-activity.recent-actions",
+        `
+        SELECT *
+        FROM (
+          ${actionSelects.join("\nUNION ALL\n")}
+        ) activity_feed
+        ORDER BY created_at DESC
+        LIMIT ?
+        `,
+        [...actionParams, safeActionLimit]
+      );
+      recentActionRows = normalizeGuardianActivityRows(Array.isArray(rows) ? rows : []);
+    }
+
+    const nowMs = Date.now();
+    const recentActions = recentActionRows.map((row) => ({
+      ...row,
+      is_online_now: Boolean(
+        row.user_id &&
+          recentLoginRows.some(
+            (sessionRow) =>
+              Number(sessionRow.user_id) === Number(row.user_id) &&
+              !sessionRow.revoked_at &&
+              nowMs - new Date(sessionRow.last_seen_at || 0).getTime() <= GUARDIAN_ACTIVITY_ONLINE_MS
+          )
+      ),
+    }));
+
+    const burstWindowStart = new Date(Date.now() - 15 * 60 * 1000);
+    const burstMap = new Map();
+    const ensureBurst = (userId) => {
+      const numericUserId = Number(userId || 0);
+      if (!numericUserId) return null;
+      if (!burstMap.has(numericUserId)) {
+        burstMap.set(numericUserId, {
+          user_id: numericUserId,
+          posts_count: 0,
+          comments_count: 0,
+          likes_count: 0,
+          follows_count: 0,
+          dms_count: 0,
+          total_actions: 0,
+          last_activity_at: null,
+        });
+      }
+      return burstMap.get(numericUserId);
+    };
+
+    const collectBurstCounts = async (tableName, actorColumn, dateColumn, countField, label) => {
+      const tableExists = await hasTable(dbName, tableName);
+      if (!tableExists) return;
+      const hasActor = await hasColumn(dbName, tableName, actorColumn);
+      const hasDate = await hasColumn(dbName, tableName, dateColumn);
+      if (!hasActor || !hasDate) return;
+      const [rows] = await timedVineQuery(
+        perfCtx,
+        `guardian-activity.${label}`,
+        `
+        SELECT ${actorColumn} AS actor_id, COUNT(*) AS total, MAX(${dateColumn}) AS last_activity_at
+        FROM ${tableName}
+        WHERE ${dateColumn} >= ?
+        GROUP BY ${actorColumn}
+        `,
+        [burstWindowStart]
+      );
+      for (const row of rows || []) {
+        const entry = ensureBurst(row.actor_id);
+        if (!entry) continue;
+        const total = Number(row.total || 0);
+        entry[countField] = total;
+        entry.total_actions += total;
+        const rowTs = new Date(row.last_activity_at || 0).getTime();
+        const entryTs = new Date(entry.last_activity_at || 0).getTime();
+        if (Number.isFinite(rowTs) && (!Number.isFinite(entryTs) || rowTs > entryTs)) {
+          entry.last_activity_at = row.last_activity_at;
+        }
+      }
+    };
+
+    await Promise.all([
+      collectBurstCounts("vine_posts", "user_id", "created_at", "posts_count", "burst-posts"),
+      collectBurstCounts("vine_comments", "user_id", "created_at", "comments_count", "burst-comments"),
+      collectBurstCounts("vine_likes", "user_id", "created_at", "likes_count", "burst-likes"),
+      collectBurstCounts("vine_follows", "follower_id", "created_at", "follows_count", "burst-follows"),
+      collectBurstCounts("vine_messages", "sender_id", "created_at", "dms_count", "burst-dms"),
+    ]);
+
+    const suspiciousCandidates = [...burstMap.values()].filter((entry) => {
+      if (!entry) return false;
+      return (
+        entry.total_actions >= 15 ||
+        entry.dms_count >= 8 ||
+        entry.follows_count >= 8 ||
+        entry.comments_count >= 10 ||
+        entry.posts_count >= 4 ||
+        entry.likes_count >= 18
+      );
+    });
+
+    let suspiciousBursts = [];
+    if (suspiciousCandidates.length) {
+      const userIds = suspiciousCandidates.map((entry) => Number(entry.user_id)).filter(Boolean);
+      const placeholders = userIds.map(() => "?").join(", ");
+      const [rows] = await timedVineQuery(
+        perfCtx,
+        "guardian-activity.burst-users",
+        `
+        SELECT id, username, display_name, avatar_url, is_verified, badge_type, role
+        FROM vine_users
+        WHERE id IN (${placeholders})
+        `,
+        userIds
+      );
+      const userMap = new Map((rows || []).map((row) => [Number(row.id), row]));
+      suspiciousBursts = suspiciousCandidates
+        .map((entry) => {
+          const user = userMap.get(Number(entry.user_id));
+          if (!user) return null;
+          const reasons = [];
+          if (entry.total_actions >= 15) reasons.push(`${entry.total_actions} actions in 15m`);
+          if (entry.dms_count >= 8) reasons.push(`${entry.dms_count} DMs in 15m`);
+          if (entry.follows_count >= 8) reasons.push(`${entry.follows_count} follows in 15m`);
+          if (entry.comments_count >= 10) reasons.push(`${entry.comments_count} comments/replies in 15m`);
+          if (entry.posts_count >= 4) reasons.push(`${entry.posts_count} posts in 15m`);
+          if (entry.likes_count >= 18) reasons.push(`${entry.likes_count} likes in 15m`);
+          const matchingSession = recentLoginRows.find((sessionRow) => Number(sessionRow.user_id) === Number(entry.user_id));
+          const lastSeenMs = new Date(matchingSession?.last_seen_at || 0).getTime();
+          return {
+            user_id: Number(entry.user_id),
+            username: user.username,
+            display_name: user.display_name || user.username,
+            avatar_url: user.avatar_url || "",
+            is_verified: Number(user.is_verified || 0),
+            badge_type: user.badge_type || null,
+            role: user.role || "user",
+            total_actions: Number(entry.total_actions || 0),
+            posts_count: Number(entry.posts_count || 0),
+            comments_count: Number(entry.comments_count || 0),
+            likes_count: Number(entry.likes_count || 0),
+            follows_count: Number(entry.follows_count || 0),
+            dms_count: Number(entry.dms_count || 0),
+            last_activity_at: entry.last_activity_at || null,
+            reasons,
+            is_online_now:
+              Number.isFinite(lastSeenMs) &&
+              nowMs - lastSeenMs <= GUARDIAN_ACTIVITY_ONLINE_MS,
+            navigate_path: `/vine/profile/${user.username}`,
+          };
+        })
+        .filter(Boolean)
+        .sort(
+          (a, b) =>
+            Number(b.total_actions || 0) - Number(a.total_actions || 0) ||
+            new Date(b.last_activity_at || 0).getTime() - new Date(a.last_activity_at || 0).getTime()
+        )
+        .slice(0, 8);
+    }
+
+    const groupedLoginRows = new Map();
+    for (const row of recentLoginRows) {
+      const userId = Number(row.user_id || 0);
+      if (!groupedLoginRows.has(userId)) groupedLoginRows.set(userId, []);
+      groupedLoginRows.get(userId).push(row);
+    }
+
+    const recentLogins = recentLoginRows.map((row) => {
+      const userId = Number(row.user_id || 0);
+      const loginAtMs = new Date(row.login_at || 0).getTime();
+      const lastSeenMs = new Date(row.last_seen_at || 0).getTime();
+      const userSessions = groupedLoginRows.get(userId) || [];
+      const currentSessionIndex = userSessions.findIndex((sessionRow) => Number(sessionRow.session_id) === Number(row.session_id));
+      const newerSession = currentSessionIndex > 0 ? userSessions[currentSessionIndex - 1] : null;
+      const windowEndMs = newerSession ? new Date(newerSession.login_at || 0).getTime() : Number.POSITIVE_INFINITY;
+      const actionsDuringSession = recentActions.filter((activity) => {
+        if (Number(activity.user_id) !== userId) return false;
+        const actionMs = new Date(activity.created_at || 0).getTime();
+        return Number.isFinite(actionMs) && actionMs >= loginAtMs && actionMs < windowEndMs;
+      });
+      const latestAction = actionsDuringSession[0] || null;
+      const isRevoked = Boolean(row.revoked_at);
+      const isSessionActive =
+        !isRevoked &&
+        Number.isFinite(lastSeenMs) &&
+        nowMs - lastSeenMs <= SESSION_IDLE_MS;
+      const isOnlineNow =
+        !isRevoked &&
+        Number.isFinite(lastSeenMs) &&
+        nowMs - lastSeenMs <= GUARDIAN_ACTIVITY_ONLINE_MS;
+
+      return {
+        session_id: Number(row.session_id || 0),
+        user_id: userId,
+        username: row.username || "",
+        display_name: row.display_name || row.username || "",
+        avatar_url: row.avatar_url || "",
+        is_verified: Number(row.is_verified || 0),
+        badge_type: row.badge_type || null,
+        role: row.role || "user",
+        login_at: row.login_at || null,
+        last_seen_at: row.last_seen_at || null,
+        revoked_at: row.revoked_at || null,
+        device_label: summarizeGuardianDevice(row.device_info),
+        ip_address: row.ip_address || "",
+        session_state: isRevoked ? "ended" : isSessionActive ? "active" : "expired",
+        is_online_now: isOnlineNow,
+        actions_since_login: actionsDuringSession.length,
+        latest_action_label: latestAction?.action_label || "",
+        latest_action_at: latestAction?.created_at || null,
+        latest_target_label: latestAction?.target_label || "",
+        latest_detail: latestAction?.detail || "",
+        latest_action_type: latestAction?.action_type || "",
+        navigate_path: latestAction?.navigate_path || `/vine/profile/${row.username}`,
+      };
+    });
+
+    return {
+      recent_logins: recentLogins,
+      recent_actions: recentActions,
+      suspicious_bursts: suspiciousBursts,
+    };
+  });
 };
 
 const VINE_PERF_LOGS_ENABLED = process.env.VINE_PERF_LOGS !== "0";
@@ -10312,6 +10925,37 @@ router.get("/analytics/overview", authenticate, async (req, res) => {
   }
 });
 
+router.get("/analytics/activity", authenticate, async (req, res) => {
+  try {
+    if (!isModeratorAccount(req.user)) {
+      return res.status(403).json({ message: "Moderator access required" });
+    }
+
+    const dbName = await getDbName();
+    if (!dbName) {
+      return res.status(500).json({ message: "Database not selected" });
+    }
+
+    const loginLimit = Math.max(6, Math.min(30, Number(req.query.loginLimit || 12)));
+    const actionLimit = Math.max(8, Math.min(40, Number(req.query.actionLimit || 20)));
+
+    const payload = await runVinePerfRoute(
+      "guardian-activity",
+      { viewer_id: Number(req.user?.id || 0) },
+      async (perfCtx) =>
+        buildGuardianActivitySnapshot(perfCtx, dbName, {
+          loginLimit,
+          actionLimit,
+        })
+    );
+
+    return res.json(payload);
+  } catch (err) {
+    console.error("Guardian activity analytics error:", err);
+    return res.status(500).json({ message: "Failed to load activity analytics" });
+  }
+});
+
 router.get("/analytics/performance", authenticate, async (req, res) => {
   try {
     if (!isModeratorAccount(req.user)) {
@@ -10363,6 +11007,7 @@ router.get("/analytics/drilldown", authenticate, async (req, res) => {
 
     const type = String(req.query.type || "posts").toLowerCase();
     const limit = Math.min(Math.max(Number(req.query.limit || 100), 1), 300);
+    const userId = Number(req.query.userId || 0);
 
     if (type === "posts") {
       const [rows] = await db.query(
@@ -10381,10 +11026,11 @@ router.get("/analytics/drilldown", authenticate, async (req, res) => {
         FROM vine_posts p
         JOIN vine_users u ON u.id = p.user_id
         WHERE p.created_at >= ? AND p.created_at <= ?
+          AND (? = 0 OR p.user_id = ?)
         ORDER BY p.created_at DESC
         LIMIT ?
         `,
-        [from, to, limit]
+        [from, to, userId, userId, limit]
       );
       return res.json({ type, items: rows });
     }
@@ -10404,10 +11050,11 @@ router.get("/analytics/drilldown", authenticate, async (req, res) => {
         FROM vine_comments c
         JOIN vine_users u ON u.id = c.user_id
         WHERE c.created_at >= ? AND c.created_at <= ?
+          AND (? = 0 OR c.user_id = ?)
         ORDER BY c.created_at DESC
         LIMIT ?
         `,
-        [from, to, limit]
+        [from, to, userId, userId, limit]
       );
       return res.json({ type, items: rows });
     }
@@ -10417,11 +11064,12 @@ router.get("/analytics/drilldown", authenticate, async (req, res) => {
         `
         SELECT id, username, display_name, created_at, last_active_at, role
         FROM vine_users
-        WHERE created_at >= ? AND created_at <= ?
-        ORDER BY created_at DESC
+        WHERE (? > 0 AND id = ?)
+           OR (? = 0 AND created_at >= ? AND created_at <= ?)
+        ORDER BY last_active_at DESC, created_at DESC
         LIMIT ?
         `,
-        [from, to, limit]
+        [userId, userId, userId, from, to, limit]
       );
       return res.json({ type, items: rows });
     }
@@ -10440,11 +11088,12 @@ router.get("/analytics/drilldown", authenticate, async (req, res) => {
         FROM vine_posts p
         JOIN vine_users u ON u.id = p.user_id
         WHERE p.created_at >= ? AND p.created_at <= ?
+          AND (? = 0 OR p.user_id = ?)
         GROUP BY p.user_id, u.username, u.display_name
         ORDER BY (likes + comments * 2 + revines * 3) DESC
         LIMIT ?
         `,
-        [from, to, Math.min(limit, 100)]
+        [from, to, userId, userId, Math.min(limit, 100)]
       );
       return res.json({ type, items: rows });
     }

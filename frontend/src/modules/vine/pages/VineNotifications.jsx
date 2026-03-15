@@ -2,13 +2,15 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "./VineNotifications.css";
 import useWindowedList from "../../../hooks/useWindowedList";
+import { getVineToken, isVineTokenExpired } from "../utils/vineAuth";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 
 export default function VineNotifications() {
   const [notifications, setNotifications] = useState([]);
   const navigate = useNavigate();
-  const token = localStorage.getItem("vine_token");
+  const token = getVineToken();
+  const hasLiveSession = Boolean(token) && !isVineTokenExpired(token);
   const listRef = useRef(null);
   const {
     visibleItems: visibleNotifications,
@@ -102,7 +104,9 @@ export default function VineNotifications() {
       return null;
     }
 
-    const postTarget = buildPostTarget(notification);
+    const postTarget = hasLiveSession
+      ? buildFeedTarget(notification)
+      : buildPostTarget(notification);
     if (postTarget) return postTarget;
     return null;
   };

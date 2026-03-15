@@ -14,6 +14,7 @@ import useNearScreen from "../../../hooks/useNearScreen";
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const DEFAULT_AVATAR = "/default-avatar.png";
 const ORIGIN = API.replace(/\/api$/, "");
+const SHARE_PREVIEW_VERSION = "20260315";
 const viewedPosts = new Set();
 const POST_REACTIONS = [
   { key: "love", emoji: "❤️", label: "Love" },
@@ -1268,7 +1269,7 @@ function VinePostCard({ post, onDeletePost, focusComments, isMe, communityIntera
           className="action-btn"
           onClick={() => {
             navigator.clipboard.writeText(
-              `${API}/api/vine/share/${post.id}`
+              `${API}/api/vine/share/${post.id}?preview=${SHARE_PREVIEW_VERSION}`
             );
             alert("Copied! 🌱");
           }}

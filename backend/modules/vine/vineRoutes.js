@@ -163,6 +163,16 @@ const isLikelyVideoUrl = (url) =>
 const isLikelyRawUrl = (url) =>
   /\/raw\/upload\//i.test(url) || /\.pdf(\?|$)/i.test(url);
 
+const isLikelyImageUrl = (url) => {
+  const value = String(url || "").trim();
+  if (!value) return false;
+  if (isLikelyVideoUrl(value) || isLikelyRawUrl(value)) return false;
+  return (
+    /\/image\/upload\//i.test(value) ||
+    /\.(avif|bmp|gif|ico|jpe?g|png|svg|webp)(\?|$)/i.test(value)
+  );
+};
+
 const deleteCloudinaryByUrl = async (url) => {
   if (isR2Url(url) && r2Client && r2Ready) {
     const key = extractR2KeyFromUrl(url);
@@ -6868,13 +6878,31 @@ router.get("/share/:id", async (req, res) => {
 
     const frontendBase = resolveFrontendBase();
     const appTarget = `${frontendBase}/vine/post/${postId}`;
-    const shareUrl = `${requestProto}://${requestHost}/api/vine/share/${postId}`;
+    const requestPath = String(req.originalUrl || `/api/vine/share/${postId}`);
+    const shareUrl = `${requestProto}://${requestHost}${
+      requestPath.startsWith("/") ? "" : "/"
+    }${requestPath}`;
+    const userAgent = String(req.get("user-agent") || "").toLowerCase();
+    const isSocialCrawler = /(facebookexternalhit|facebot|whatsapp|twitterbot|xbot|slackbot|discordbot|linkedinbot|telegrambot|skypeuripreview|embedly|pinterest|vkshare|googlebot|bingbot|crawler|bot)/i.test(
+      userAgent
+    );
 
     const absolutizeUrl = (value) => {
       const raw = String(value || "").trim();
       if (!raw) return "";
       if (/^https?:\/\//i.test(raw)) return raw;
       return `${frontendBase}${raw.startsWith("/") ? "" : "/"}${raw}`;
+    };
+
+    const resolveImageType = (value) => {
+      const raw = String(value || "").toLowerCase();
+      if (!raw) return "image/png";
+      if (/\.avif(\?|$)/i.test(raw)) return "image/avif";
+      if (/\.gif(\?|$)/i.test(raw)) return "image/gif";
+      if (/\.webp(\?|$)/i.test(raw)) return "image/webp";
+      if (/\.svg(\?|$)/i.test(raw)) return "image/svg+xml";
+      if (/\.jpe?g(\?|$)/i.test(raw)) return "image/jpeg";
+      return "image/png";
     };
 
     const rawText = String(post.content || "")
@@ -6888,7 +6916,7 @@ router.get("/share/:id", async (req, res) => {
       const arr = JSON.parse(post.image_url || "[]");
       if (Array.isArray(arr)) {
         previewImage =
-          arr.find((u) => typeof u === "string" && !/\.pdf(\?|$)/i.test(u)) || "";
+          arr.find((u) => typeof u === "string" && isLikelyImageUrl(u)) || "";
       }
     } catch {
       previewImage = "";
@@ -6898,7 +6926,8 @@ router.get("/share/:id", async (req, res) => {
         const link = typeof post.link_preview === "string"
           ? JSON.parse(post.link_preview)
           : post.link_preview;
-        previewImage = String(link?.image || "").trim();
+        const candidate = String(link?.image || "").trim();
+        previewImage = isLikelyImageUrl(candidate) ? candidate : "";
       } catch {
         previewImage = "";
       }
@@ -6911,11 +6940,17 @@ router.get("/share/:id", async (req, res) => {
     if (!previewImage) {
       previewImage = `${frontendBase}/og-image.png`;
     }
+    const previewImageType = resolveImageType(previewImage);
 
     const countsLine = `${Number(post.likes || 0)} likes · ${Number(post.comments || 0)} comments · ${Number(post.revines || 0)} revines`;
-    const title = `${post.display_name || post.username} on SPESS Vine`;
-    const description = (rawText || "See what’s happening on SPESS Vine.").slice(0, 220);
-    const longDescription = `${description}${description ? " · " : ""}${countsLine}`;
+    const displayName = String(post.display_name || "").trim();
+    const username = String(post.username || "").trim();
+    const authorLine =
+      displayName && username && displayName.toLowerCase() !== username.toLowerCase()
+        ? `${displayName} (@${username})`
+        : displayName || (username ? `@${username}` : "Someone");
+    const title = `${authorLine} on SPESS Vine`;
+    const previewDescription = (rawText || `Join SPESS Vine Today and see what ${post.display_name || post.username} posted.`).slice(0, 220);
     const publishedIso = new Date(post.created_at).toISOString();
     const imageAlt = hasVisualPreview
       ? rawText
@@ -6931,6 +6966,7 @@ router.get("/share/:id", async (req, res) => {
 
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.setHeader("Cache-Control", "public, max-age=900, s-maxage=900");
+    res.setHeader("Vary", "User-Agent");
     res.send(`<!doctype html>
 <html lang="en">
 <head>
@@ -6938,7 +6974,7 @@ router.get("/share/:id", async (req, res) => {
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>${esc(title)}</title>
   <meta name="title" content="${esc(title)}" />
-  <meta name="description" content="${esc(longDescription)}" />
+  <meta name="description" content="${esc(previewDescription)}" />
   <meta name="author" content="${esc(post.display_name || post.username)}" />
   <meta name="application-name" content="SPESS Vine" />
   <meta name="apple-mobile-web-app-title" content="SPESS Vine" />
@@ -6947,20 +6983,24 @@ router.get("/share/:id", async (req, res) => {
   <meta property="og:type" content="article" />
   <meta property="og:site_name" content="SPESS Vine" />
   <meta property="og:title" content="${esc(title)}" />
-  <meta property="og:description" content="${esc(longDescription)}" />
+  <meta property="og:description" content="${esc(previewDescription)}" />
   <meta property="og:url" content="${esc(shareUrl)}" />
   <meta property="og:image" content="${esc(previewImage)}" />
   <meta property="og:image:secure_url" content="${esc(previewImage)}" />
+  <meta property="og:image:type" content="${esc(previewImageType)}" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
   <meta property="og:image:alt" content="${esc(imageAlt)}" />
   <meta property="article:published_time" content="${esc(publishedIso)}" />
   <meta property="article:author" content="${esc(post.display_name || post.username)}" />
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="${esc(title)}" />
-  <meta name="twitter:description" content="${esc(longDescription)}" />
+  <meta name="twitter:description" content="${esc(previewDescription)}" />
   <meta name="twitter:image" content="${esc(previewImage)}" />
   <meta name="twitter:image:alt" content="${esc(imageAlt)}" />
-  <link rel="canonical" href="${esc(appTarget)}" />
-  <noscript><meta http-equiv="refresh" content="0;url=${esc(appTarget)}" /></noscript>
+  <meta name="image" content="${esc(previewImage)}" />
+  <meta itemprop="image" content="${esc(previewImage)}" />
+  <link rel="canonical" href="${esc(shareUrl)}" />
   <style>
     :root { color-scheme: light; }
     body {
@@ -7032,12 +7072,12 @@ router.get("/share/:id", async (req, res) => {
   </style>
 </head>
 <body>
-  <script>window.location.replace(${JSON.stringify(appTarget)});</script>
+  ${isSocialCrawler ? "" : `<script>window.location.replace(${JSON.stringify(appTarget)});</script>`}
   <main class="share-card">
     <img class="share-image" src="${esc(previewImage)}" alt="${esc(imageAlt)}" />
     <div class="share-kicker">SPESS Vine</div>
     <div class="share-title">${esc(title)}</div>
-    <div class="share-desc">${esc(longDescription)}</div>
+    <div class="share-desc">${esc(previewDescription)}</div>
     <div class="share-counts">${esc(countsLine)}</div>
     <a class="share-cta" href="${esc(appTarget)}">Open in SPESS Vine</a>
   </main>
@@ -8080,7 +8120,9 @@ const getProfileFeedRows = async (profileUserId, viewerId, { limit = null, offse
             safeViewerId
               ? `(SELECT COUNT(*) > 0 FROM vine_revines WHERE post_id = p.id AND user_id = ${safeViewerId})`
               : "0"
-          } AS user_revined
+          } AS user_revined,
+
+          (SELECT COUNT(*) > 0 FROM vine_polls vp WHERE vp.post_id = p.id) AS has_poll
 
         FROM vine_posts p
         JOIN vine_users u ON p.user_id = u.id
@@ -8123,7 +8165,9 @@ const getProfileFeedRows = async (profileUserId, viewerId, { limit = null, offse
             safeViewerId
               ? `(SELECT COUNT(*) > 0 FROM vine_revines WHERE post_id = p.id AND user_id = ${safeViewerId})`
               : "0"
-          } AS user_revined
+          } AS user_revined,
+
+          (SELECT COUNT(*) > 0 FROM vine_polls vp WHERE vp.post_id = p.id) AS has_poll
 
         FROM vine_revines r
         JOIN vine_posts p ON r.post_id = p.id

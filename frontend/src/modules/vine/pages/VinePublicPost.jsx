@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import ImageCarousel from "./ImageCarousel";
 import { getVineToken, isVineTokenExpired } from "../utils/vineAuth";
@@ -7,6 +7,7 @@ import "./VinePublicPost.css";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const DEFAULT_AVATAR = "/default-avatar.png";
+const GUEST_VIEWER_STORAGE_KEY = "vine_guest_viewer_key";
 
 const buildThreads = (comments) => {
   const map = {};
@@ -106,6 +107,22 @@ const hasSpecialVerifiedBadge = (username) =>
     String(username || "").toLowerCase()
   );
 
+const getGuestViewerKey = () => {
+  if (typeof window === "undefined") return "";
+  try {
+    const existing = window.localStorage.getItem(GUEST_VIEWER_STORAGE_KEY);
+    if (existing) return existing;
+    const generated =
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `guest-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    window.localStorage.setItem(GUEST_VIEWER_STORAGE_KEY, generated);
+    return generated;
+  } catch {
+    return `guest-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  }
+};
+
 const showsVerifiedBadge = (user) =>
   Number(user?.is_verified) === 1 || hasSpecialVerifiedBadge(user?.username);
 
@@ -169,6 +186,7 @@ export default function VinePublicPost() {
   const [error, setError] = useState("");
   const [joinPromptOpen, setJoinPromptOpen] = useState(false);
   const [joinAction, setJoinAction] = useState("comment");
+  const recordedViewRef = useRef("");
   const [mediaMountRef, shouldMountMedia] = useNearScreen({
     rootMargin: "720px 0px",
     once: true,
@@ -213,6 +231,35 @@ export default function VinePublicPost() {
       document.title = "SPESS Vine";
     }
   }, [post]);
+
+  useEffect(() => {
+    if (!post?.id) return;
+    const recordKey = `${post.id}:${loggedIn ? "auth" : "guest"}`;
+    if (recordedViewRef.current === recordKey) return;
+    recordedViewRef.current = recordKey;
+
+    const headers = {
+      "Content-Type": "application/json",
+    };
+    if (loggedIn && token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+
+    fetch(`${API}/api/vine/posts/${post.id}/view`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(loggedIn ? {} : { guest_key: getGuestViewerKey() }),
+    })
+      .then(async (res) => {
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) return null;
+        if (typeof body?.views === "number") {
+          setPost((prev) => (prev ? { ...prev, views: body.views } : prev));
+        }
+        return body;
+      })
+      .catch(() => null);
+  }, [post?.id, loggedIn, token]);
 
   const linkPreview = parseLinkPreview(post?.link_preview);
   const { feeling: postFeeling, postBg, content: publicPostContent } = extractPostMetaFromContent(

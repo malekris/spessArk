@@ -1219,6 +1219,53 @@ const ensureVinePerformanceSchema = async () => {
   return vinePerformanceSchemaPromise;
 };
 
+let postViewSchemaReady = false;
+let postViewSchemaPromise = null;
+const ensurePostViewSchema = async () => {
+  if (postViewSchemaReady) return;
+  if (postViewSchemaPromise) return postViewSchemaPromise;
+
+  postViewSchemaPromise = (async () => {
+    const dbName = await getDbName();
+    if (!dbName) return;
+
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS vine_post_views (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        post_id INT NOT NULL,
+        user_id INT NULL,
+        guest_key VARCHAR(64) NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await ensureColumnExists(dbName, "vine_post_views", "guest_key", "VARCHAR(64) NULL");
+    await db.query("ALTER TABLE vine_post_views MODIFY COLUMN user_id INT NULL").catch(() => {});
+
+    if (!(await hasIndexNamed(dbName, "vine_post_views", "uniq_vine_post_views_post_user"))) {
+      await db.query(
+        "CREATE UNIQUE INDEX uniq_vine_post_views_post_user ON vine_post_views (post_id, user_id)"
+      ).catch(() => {});
+    }
+    if (!(await hasIndexNamed(dbName, "vine_post_views", "uniq_vine_post_views_post_guest"))) {
+      await db.query(
+        "CREATE UNIQUE INDEX uniq_vine_post_views_post_guest ON vine_post_views (post_id, guest_key)"
+      ).catch(() => {});
+    }
+    if (!(await hasIndexNamed(dbName, "vine_post_views", "idx_vine_post_views_post_guest"))) {
+      await db.query(
+        "CREATE INDEX idx_vine_post_views_post_guest ON vine_post_views (post_id, guest_key)"
+      ).catch(() => {});
+    }
+
+    postViewSchemaReady = true;
+  })().finally(() => {
+    postViewSchemaPromise = null;
+  });
+
+  return postViewSchemaPromise;
+};
+
 const getGuardianRecipientIds = async () => {
   const [rows] = await db.query(
     `
@@ -9069,24 +9116,73 @@ router.post("/posts/:id/bookmark", requireVineAuth, async (req, res) => {
   res.json({ user_bookmarked: !existing.length });
 });
 
-// 👀 Record view (unique per user)
-router.post("/posts/:id/view", requireVineAuth, async (req, res) => {
-  const postId = req.params.id;
-  const userId = req.user.id;
+// 👀 Record view (unique per signed-in user or guest browser)
+router.post("/posts/:id/view", authOptional, async (req, res) => {
+  const postId = Number(req.params.id);
+  const userId = Number(req.user?.id || 0) || null;
+  const rawGuestKey = String(req.body?.guest_key || req.headers["x-vine-guest-key"] || "").trim();
+  const fallbackGuestKey = crypto
+    .createHash("sha256")
+    .update(
+      `${getClientIp(req)}|${String(req.headers["user-agent"] || "").slice(0, 240)}|${String(postId || 0)}`
+    )
+    .digest("hex")
+    .slice(0, 64);
+  const guestKey = userId ? null : (rawGuestKey || fallbackGuestKey).slice(0, 64);
+
+  if (!postId) {
+    return res.status(400).json({ message: "Invalid post id" });
+  }
 
   try {
-    await db.query(
-      "INSERT IGNORE INTO vine_post_views (post_id, user_id, created_at) VALUES (?, ?, NOW())",
-      [postId, userId]
+    await ensurePostViewSchema();
+
+    const [[post]] = await db.query(
+      "SELECT id, user_id, is_private FROM vine_posts WHERE id = ? LIMIT 1",
+      [postId]
     );
+    if (!post) {
+      return res.status(404).json({ message: "Post not found" });
+    }
+
+    if (userId) {
+      if (await isUserBlocked(post.user_id, userId) || await isUserBlocked(userId, post.user_id)) {
+        return res.status(403).json({ message: "Post unavailable" });
+      }
+    }
+
+    if (Number(post.is_private) === 1 && Number(post.user_id) !== Number(userId || 0)) {
+      if (!userId) {
+        return res.status(403).json({ message: "Post unavailable" });
+      }
+      const [[followRow]] = await db.query(
+        "SELECT 1 FROM vine_follows WHERE follower_id = ? AND following_id = ? LIMIT 1",
+        [userId, post.user_id]
+      );
+      if (!followRow) {
+        return res.status(403).json({ message: "Post unavailable" });
+      }
+    }
+
+    if (userId) {
+      await db.query(
+        "INSERT IGNORE INTO vine_post_views (post_id, user_id, guest_key, created_at) VALUES (?, ?, NULL, NOW())",
+        [postId, userId]
+      );
+    } else {
+      await db.query(
+        "INSERT IGNORE INTO vine_post_views (post_id, user_id, guest_key, created_at) VALUES (?, NULL, ?, NOW())",
+        [postId, guestKey]
+      );
+    }
 
     const [[count]] = await db.query(
       "SELECT COUNT(*) AS total FROM vine_post_views WHERE post_id = ?",
       [postId]
     );
 
-    clearVineReadCache();
-    res.json({ views: count.total || 0 });
+    clearVineReadCache("feed", "profile-posts", "public-post", "trending");
+    res.json({ views: Number(count?.total || 0) });
   } catch (err) {
     console.error("View record error:", err);
     res.status(500).json({ message: "Failed to record view" });

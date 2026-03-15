@@ -56,6 +56,78 @@ export default function VineNotifications() {
       return {};
     }
   };
+
+  const buildPostTarget = (notification) => {
+    const meta = getMeta(notification);
+    const postId = notification?.post_id || meta?.post_id || meta?.target_post_id || null;
+    const commentId =
+      notification?.comment_id || meta?.comment_id || meta?.target_comment_id || null;
+
+    if (!postId) return null;
+    const params = new URLSearchParams();
+    if (commentId) params.set("comment", String(commentId));
+    const suffix = params.toString() ? `?${params.toString()}` : "";
+    return `/vine/post/${postId}${suffix}`;
+  };
+
+  const resolveNotificationPath = (notification) => {
+    const meta = getMeta(notification);
+
+    if (notification.type === "follow" || notification.type === "follow_request_accepted") {
+      return `/vine/profile/${notification.username}`;
+    }
+    if (notification.type === "follow_request") {
+      return "/vine/settings";
+    }
+    if (notification.type === "report_post" || notification.type === "report_comment") {
+      return "/vine/guardian/moderation?type=reports";
+    }
+    if (notification.type === "appeal") {
+      return "/vine/guardian/moderation?type=appeals";
+    }
+    if (notification.type === "community_assignment_created" || notification.type === "community_assignment_graded") {
+      if (meta.community_slug) return `/vine/communities/${meta.community_slug}?tab=assignments`;
+      return null;
+    }
+    if (notification.type === "community_assignment_submission") {
+      if (meta.community_slug) return `/vine/communities/${meta.community_slug}?tab=assignments`;
+      return null;
+    }
+    if (notification.type === "community_join_request") {
+      if (meta.community_slug) return `/vine/communities/${meta.community_slug}?tab=settings`;
+      return null;
+    }
+    if (notification.type === "community_join_approved") {
+      if (meta.community_slug) return `/vine/communities/${meta.community_slug}`;
+      return null;
+    }
+
+    const postTarget = buildPostTarget(notification);
+    if (postTarget) return postTarget;
+    return null;
+  };
+
+  const buildFeedTarget = (notification) => {
+    const meta = getMeta(notification);
+    const postId = notification?.post_id || meta?.post_id || meta?.target_post_id || null;
+    const commentId =
+      notification?.comment_id || meta?.comment_id || meta?.target_comment_id || null;
+    if (!postId) return null;
+
+    const params = new URLSearchParams();
+    params.set("post", String(postId));
+    if (commentId) params.set("comment", String(commentId));
+    return `/vine/feed?${params.toString()}`;
+  };
+
+  const hasPostContext = (notification) => Boolean(
+    notification?.post_id ||
+      notification?.comment_id ||
+      getMeta(notification)?.post_id ||
+      getMeta(notification)?.comment_id ||
+      getMeta(notification)?.target_post_id ||
+      getMeta(notification)?.target_comment_id
+  );
   
   const renderText = (n) => {
     const meta = getMeta(n);
@@ -227,76 +299,10 @@ export default function VineNotifications() {
     tabIndex={0}
     onClick={async () => {
       await markRead(n.id);
-    
-      if (n.type === "follow" || n.type === "follow_request_accepted") {
-        navigate(`/vine/profile/${n.username}`);
-        return;
-      }
-      if (n.type === "follow_request") {
-        navigate("/vine/settings");
-        return;
-      }
 
-      if (n.type === "report_post" || n.type === "report_comment") {
-        navigate("/vine/guardian/moderation?type=reports");
-        return;
-      }
-      if (n.type === "appeal") {
-        navigate("/vine/guardian/moderation?type=appeals");
-        return;
-      }
-      if (n.type === "guardian_warning") {
-        if (n.comment_id) {
-          navigate(`/vine/feed?post=${n.post_id}&comment=${n.comment_id}`);
-          return;
-        }
-        if (n.post_id) {
-          navigate(`/vine/feed?post=${n.post_id}`);
-          return;
-        }
-      }
-
-      if (n.type === "community_assignment_created" || n.type === "community_assignment_graded") {
-        const meta = getMeta(n);
-        if (meta.community_slug) {
-          navigate(`/vine/communities/${meta.community_slug}?tab=assignments`);
-          return;
-        }
-      }
-
-      if (n.type === "community_assignment_submission") {
-        const meta = getMeta(n);
-        if (meta.community_slug) {
-          navigate(`/vine/communities/${meta.community_slug}?tab=assignments`);
-          return;
-        }
-      }
-
-      if (n.type === "community_join_request") {
-        const meta = getMeta(n);
-        if (meta.community_slug) {
-          navigate(`/vine/communities/${meta.community_slug}?tab=settings`);
-          return;
-        }
-      }
-
-      if (n.type === "community_join_approved") {
-        const meta = getMeta(n);
-        if (meta.community_slug) {
-          navigate(`/vine/communities/${meta.community_slug}`);
-          return;
-        }
-      }
-    
-      // comments & replies
-      if (n.comment_id) {
-        navigate(`/vine/feed?post=${n.post_id}&comment=${n.comment_id}`);
-        return;
-      }
-    
-      // likes, revines, etc (🔥 THIS IS THE FIX)
-      if (n.post_id) {
-        navigate(`/vine/feed?post=${n.post_id}`);
+      const target = resolveNotificationPath(n);
+      if (target) {
+        navigate(target);
       }
     }}
     
@@ -378,6 +384,20 @@ export default function VineNotifications() {
             onClick={() => respondFollowRequest(n, "reject")}
           >
             Rescind
+          </button>
+        </div>
+      )}
+      {hasPostContext(n) && (
+        <div className="notif-actions" onClick={(e) => e.stopPropagation()}>
+          <button
+            className="notif-action feed-jump"
+            onClick={async () => {
+              await markRead(n.id);
+              const target = buildFeedTarget(n);
+              if (target) navigate(target);
+            }}
+          >
+            View in feed
           </button>
         </div>
       )}

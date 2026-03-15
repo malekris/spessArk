@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import ImageCarousel from "./ImageCarousel";
 import { getVineToken, isVineTokenExpired } from "../utils/vineAuth";
 import useNearScreen from "../../../hooks/useNearScreen";
@@ -56,11 +56,16 @@ const hasSpecialVerifiedBadge = (username) =>
 const showsVerifiedBadge = (user) =>
   Number(user?.is_verified) === 1 || hasSpecialVerifiedBadge(user?.username);
 
-function CommentTree({ comment, depth = 0 }) {
+function CommentTree({ comment, depth = 0, targetCommentId = null }) {
   const specialBadge = hasSpecialVerifiedBadge(comment.username);
+  const isTargetComment = String(comment.id) === String(targetCommentId || "");
 
   return (
-    <div className="public-comment" style={{ marginLeft: depth ? Math.min(depth * 18, 42) : 0 }}>
+    <div
+      id={`public-comment-${comment.id}`}
+      className={`public-comment ${isTargetComment ? "highlight-comment" : ""}`}
+      style={{ marginLeft: depth ? Math.min(depth * 18, 42) : 0 }}
+    >
       <img
         src={comment.avatar_url || DEFAULT_AVATAR}
         alt={comment.username}
@@ -83,7 +88,12 @@ function CommentTree({ comment, depth = 0 }) {
         {comment.replies?.length > 0 && (
           <div className="public-comment-replies">
             {comment.replies.map((reply) => (
-              <CommentTree key={reply.id} comment={reply} depth={depth + 1} />
+              <CommentTree
+                key={reply.id}
+                comment={reply}
+                depth={depth + 1}
+                targetCommentId={targetCommentId}
+              />
             ))}
           </div>
         )}
@@ -95,6 +105,7 @@ function CommentTree({ comment, depth = 0 }) {
 export default function VinePublicPost() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const token = getVineToken();
   const loggedIn = Boolean(token) && !isVineTokenExpired(token);
   const [post, setPost] = useState(null);
@@ -107,14 +118,9 @@ export default function VinePublicPost() {
     rootMargin: "720px 0px",
     once: true,
   });
+  const targetCommentId = searchParams.get("comment");
 
   const redirectTarget = useMemo(() => `/vine/feed?post=${id}`, [id]);
-
-  useEffect(() => {
-    if (loggedIn && id) {
-      navigate(redirectTarget, { replace: true });
-    }
-  }, [loggedIn, id, navigate, redirectTarget]);
 
   useEffect(() => {
     const load = async () => {
@@ -156,9 +162,30 @@ export default function VinePublicPost() {
   const linkPreview = parseLinkPreview(post?.link_preview);
 
   const openJoinPrompt = (action) => {
+    if (loggedIn) {
+      navigate(
+        action === "comment" && targetCommentId
+          ? `${redirectTarget}&comment=${encodeURIComponent(targetCommentId)}`
+          : redirectTarget
+      );
+      return;
+    }
     setJoinAction(action || "comment");
     setJoinPromptOpen(true);
   };
+
+  useEffect(() => {
+    if (!targetCommentId || loading) return;
+    const timer = window.setTimeout(() => {
+      const commentEl = document.querySelector(`#public-comment-${targetCommentId}`);
+      if (!commentEl) return;
+      commentEl.scrollIntoView({ behavior: "smooth", block: "center" });
+      commentEl.classList.add("comment-pulse");
+      window.setTimeout(() => commentEl.classList.remove("comment-pulse"), 1800);
+    }, 180);
+
+    return () => window.clearTimeout(timer);
+  }, [targetCommentId, loading, comments]);
 
   const specialBadge = hasSpecialVerifiedBadge(post?.username);
 
@@ -167,9 +194,19 @@ export default function VinePublicPost() {
       <div className="vine-public-topbar">
         <Link to="/" className="vine-public-back">← Home</Link>
         <div className="vine-public-brand">🌱 Vine</div>
-        <Link to={`/vine/login?redirect=${encodeURIComponent(redirectTarget)}`} className="vine-public-login-top">
-          Log in
-        </Link>
+        {loggedIn ? (
+          <button
+            type="button"
+            className="vine-public-login-top"
+            onClick={() => navigate(redirectTarget)}
+          >
+            Open in feed
+          </button>
+        ) : (
+          <Link to={`/vine/login?redirect=${encodeURIComponent(redirectTarget)}`} className="vine-public-login-top">
+            Log in
+          </Link>
+        )}
       </div>
 
       <div className="vine-public-wrap">
@@ -280,7 +317,11 @@ export default function VinePublicPost() {
               <div className="vine-public-comments-title">Comments</div>
               {comments.length > 0 ? (
                 comments.map((comment) => (
-                  <CommentTree key={comment.id} comment={comment} />
+                  <CommentTree
+                    key={comment.id}
+                    comment={comment}
+                    targetCommentId={targetCommentId}
+                  />
                 ))
               ) : (
                 <div className="vine-public-empty">No comments yet.</div>

@@ -177,6 +177,22 @@ export default function ImageCarousel({
                       className="carousel-video-poster"
                       onClick={() => loadVideoSlide(i)}
                     >
+                      <video
+                        src={normalize(src)}
+                        className="carousel-video-preview"
+                        muted
+                        playsInline
+                        preload={isCarouselVisible && (i === currentIndex || isNearbySlide) ? "auto" : "metadata"}
+                        aria-hidden="true"
+                        onLoadedMetadata={(event) => {
+                          try {
+                            event.currentTarget.currentTime = 0.1;
+                          } catch {
+                            // ignore preview seek misses
+                          }
+                        }}
+                      />
+                      <span className="carousel-video-overlay" aria-hidden="true" />
                       <span className="carousel-video-play">▶</span>
                       <span className="carousel-video-note">Tap to load video</span>
                     </button>

@@ -1,8 +1,6 @@
 // src/pages/AdminDashboard.jsx
 import React, { useEffect, useState, useMemo, useRef } from "react";
 import "./AdminDashboard.css";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
 import AssignSubjectsPanel from "../components/AssignSubjectsPanel";
 import { plainFetch, adminFetch } from "../lib/api";
 import EditStudentModal from "../components/EditStudentModal";
@@ -14,6 +12,7 @@ import EnrollmentCharts from "../components/EnrollmentCharts";
 import AssessmentSubmissionTracker from "../components/AssessmentSubmissionTracker";
 import AuditLogsPanel from "../components/AuditLogsPanel";
 import PromotionPanel from "../components/PromotionPanel";
+import { loadPdfTools } from "../utils/loadPdfTools";
 
 // API base (fallback for local dev)
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5001";
@@ -500,12 +499,13 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleDownloadTeachersPdf = () => {
+  const handleDownloadTeachersPdf = async () => {
     if (!teachers.length) {
       setTeacherError("No teachers available to export.");
       return;
     }
 
+    const { jsPDF } = await loadPdfTools();
     const doc = new jsPDF("p", "mm", "a4");
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
@@ -621,7 +621,8 @@ export default function AdminDashboard() {
     preview.document.close();
   };
 
-  const handleDownloadEnrollmentSummaryPdf = () => {
+  const handleDownloadEnrollmentSummaryPdf = async () => {
+    const { jsPDF } = await loadPdfTools();
     const doc = new jsPDF("p", "mm", "a4");
     const pageW = doc.internal.pageSize.getWidth();
     const pageH = doc.internal.pageSize.getHeight();
@@ -1260,9 +1261,9 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleDownloadPdf = () => {
+  const handleDownloadPdf = async () => {
     if (!selectedAoi || marksDetail.length === 0) return;
-  
+    const { jsPDF } = await loadPdfTools();
     const doc = new jsPDF("p", "mm", "a4");
   
     const pageW = doc.internal.pageSize.getWidth();
@@ -1434,6 +1435,7 @@ export default function AdminDashboard() {
         ])
       );
 
+      const { jsPDF, autoTable } = await loadPdfTools();
       const subjectChunks = chunkBy(subjects, 4);
       const doc = new jsPDF("l", "mm", "a4");
       const pageW = doc.internal.pageSize.getWidth();
@@ -1558,7 +1560,7 @@ export default function AdminDashboard() {
     }
   };
   
-  const handleDownloadMarksheetPdf = () => {
+  const handleDownloadMarksheetPdf = async () => {
     setMarksheetError("");
   
     if (!marksheetClass) {
@@ -1579,6 +1581,7 @@ export default function AdminDashboard() {
       return;
     }
   
+    const { jsPDF } = await loadPdfTools();
     const doc = new jsPDF("p", "mm", "a4");
     const pageW = doc.internal.pageSize.getWidth();
     const pageH = doc.internal.pageSize.getHeight();

@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { socket } from "../../socket";
 import MessageBubble from "./MessageBubble";
@@ -534,7 +534,11 @@ export default function ChatWindow() {
     }
   };
 
-  const handleReact = async (message, reaction) => {
+  const handleReply = useCallback((message) => {
+    setReplyTarget(message);
+  }, []);
+
+  const handleReact = useCallback(async (message, reaction) => {
     try {
       const res = await fetch(`${API}/api/dms/messages/${message.id}/reaction`, {
         method: "POST",
@@ -558,9 +562,9 @@ export default function ChatWindow() {
         )
       );
     } catch {}
-  };
+  }, [token]);
 
-  const handleDeleteMessage = async (message) => {
+  const handleDeleteMessage = useCallback(async (message) => {
     if (!message?.id || String(message.id).startsWith("temp-")) return;
     if (!window.confirm("Delete this message?")) return;
     try {
@@ -571,7 +575,7 @@ export default function ChatWindow() {
       if (!res.ok) return;
       setMessages((prev) => prev.filter((m) => Number(m.id) !== Number(message.id)));
     } catch {}
-  };
+  }, [token]);
 
   const saveDisappearingSettings = async (nextEnabled, nextMode = chatSettings.disappear_mode) => {
     if (!conversationId || settingsSaving) return;
@@ -739,7 +743,7 @@ export default function ChatWindow() {
                 )}
                 <MessageBubble
                   message={m}
-                  onReply={(msg) => setReplyTarget(msg)}
+                  onReply={handleReply}
                   onReact={handleReact}
                   onDelete={handleDeleteMessage}
                 />

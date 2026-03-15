@@ -5,9 +5,8 @@ import useIdleLogout from "../../../hooks/useIdleLogout";
 import "../../../pages/AdminDashboard.css";
 import "./ALevelAdminTheme.css";
 
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
 import badge from "../../../assets/badge.png";
+import { loadPdfTools } from "../../../utils/loadPdfTools";
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 
 export default function AlevelReport() {
@@ -72,7 +71,7 @@ export default function AlevelReport() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Download failed");
 
-      generateAlevelPDF(data, { term, year, cls, stream });
+      await generateAlevelPDF(data, { term, year, cls, stream });
     } catch (err) {
       console.error(err);
       alert("Failed to download report");
@@ -281,7 +280,8 @@ export default function AlevelReport() {
 /* =============================
    PDF GENERATOR (same file)
 ============================= */
-function generateAlevelPDF(data, meta) {
+async function generateAlevelPDF(data, meta) {
+  const { jsPDF, autoTable } = await loadPdfTools();
   const doc = new jsPDF("p", "mm", "a4");
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();

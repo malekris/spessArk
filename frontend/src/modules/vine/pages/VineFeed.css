@@ -17,6 +17,42 @@
   box-sizing: border-box;
 }
 
+@keyframes vineSkeletonShimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.vine-skeleton-block,
+.vine-skeleton-avatar,
+.vine-skeleton-pill {
+  background: linear-gradient(
+    90deg,
+    rgba(226, 232, 240, 0.88) 0%,
+    rgba(255, 255, 255, 0.98) 50%,
+    rgba(226, 232, 240, 0.88) 100%
+  );
+  background-size: 220% 100%;
+  animation: vineSkeletonShimmer 1.35s linear infinite;
+}
+
+.vine-skeleton-avatar {
+  width: 46px;
+  height: 46px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+}
+
+.vine-skeleton-avatar.small {
+  width: 34px;
+  height: 34px;
+}
+
+.vine-skeleton-pill {
+  width: 74px;
+  height: 18px;
+  border-radius: 999px;
+}
+
 /* ── Top Navigation Bar (Edge-to-Edge Solid Green) ── */
 .vine-nav-top {
   width: 100%;
@@ -262,6 +298,16 @@
   font-size: 0.75rem;
 }
 
+.status-user-chip-skeleton {
+  cursor: default;
+}
+
+.status-chip-skeleton-line {
+  width: 68px;
+  height: 12px;
+  border-radius: 999px;
+}
+
 /* ── Status Modal / Viewer ── */
 .status-modal-backdrop,
 .status-viewer-backdrop {
@@ -336,6 +382,13 @@
   border-radius: 12px;
   object-fit: cover;
   background: #e2e8f0;
+}
+
+.status-video-poster {
+  width: 100%;
+  max-height: 220px;
+  min-height: 180px;
+  border-radius: 12px;
 }
 
 .status-media-remove {
@@ -727,6 +780,29 @@
   text-align: center;
 }
 
+.status-viewer-row-skeleton {
+  cursor: default;
+}
+
+.status-viewer-skeleton-meta {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.status-viewer-skeleton-name {
+  width: 130px;
+  height: 14px;
+  border-radius: 999px;
+}
+
+.status-viewer-skeleton-time {
+  width: 84px;
+  height: 10px;
+  border-radius: 999px;
+}
+
 @keyframes statusProgressFill {
   from { width: 0%; }
   to { width: 100%; }
@@ -1096,6 +1172,42 @@
   background: #000;
 }
 
+.preview-video-poster,
+.status-video-poster {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background:
+    radial-gradient(circle at center, rgba(255,255,255,0.76), transparent 56%),
+    linear-gradient(180deg, rgba(6, 95, 70, 0.16), rgba(16, 185, 129, 0.18));
+  color: #064e3b;
+}
+
+.preview-video-play,
+.status-video-play {
+  width: 48px;
+  height: 48px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.14);
+  font-size: 1.05rem;
+  font-weight: 900;
+}
+
+.preview-video-label,
+.status-video-label {
+  font-size: 0.84rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+}
+
 .remove-preview {
   position: absolute;
   top: 6px;
@@ -1355,6 +1467,148 @@
   width: 100%;
 }
 
+.vine-posts-list > div {
+  content-visibility: auto;
+  contain-intrinsic-size: 620px;
+}
+
+.vine-post-skeleton-card {
+  background: linear-gradient(180deg, rgba(255,255,255,0.98), rgba(240,253,244,0.96));
+  border: 1px solid rgba(16, 185, 129, 0.12);
+  border-radius: 28px;
+  padding: 18px;
+  box-shadow: 0 16px 34px rgba(5, 46, 22, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.vine-post-skeleton-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.vine-post-skeleton-header-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1;
+}
+
+.vine-post-skeleton-meta {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.vine-post-skeleton-name-row,
+.vine-post-skeleton-submeta,
+.vine-post-skeleton-tags {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.vine-post-skeleton-name {
+  width: 148px;
+  height: 16px;
+  border-radius: 999px;
+}
+
+.vine-post-skeleton-check,
+.vine-post-skeleton-dot,
+.vine-post-skeleton-menu {
+  border-radius: 999px;
+}
+
+.vine-post-skeleton-check {
+  width: 18px;
+  height: 18px;
+}
+
+.vine-post-skeleton-handle {
+  width: 104px;
+  height: 12px;
+  border-radius: 999px;
+}
+
+.vine-post-skeleton-dot {
+  width: 6px;
+  height: 6px;
+}
+
+.vine-post-skeleton-time {
+  width: 88px;
+  height: 12px;
+  border-radius: 999px;
+}
+
+.vine-post-skeleton-menu {
+  width: 26px;
+  height: 10px;
+  margin-top: 4px;
+}
+
+.vine-post-skeleton-context {
+  display: flex;
+  align-items: center;
+}
+
+.vine-post-skeleton-context-chip {
+  width: 164px;
+  height: 30px;
+  border-radius: 999px;
+}
+
+.vine-post-skeleton-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.vine-post-skeleton-line {
+  height: 13px;
+  border-radius: 999px;
+}
+
+.vine-post-skeleton-line.long { width: 94%; }
+.vine-post-skeleton-line.medium { width: 76%; }
+.vine-post-skeleton-line.short { width: 58%; }
+
+.vine-post-skeleton-media {
+  width: 100%;
+  min-height: 240px;
+  border-radius: 22px;
+}
+
+.vine-post-skeleton-tag {
+  width: 132px;
+  height: 20px;
+}
+
+.vine-post-skeleton-tag.short {
+  width: 88px;
+}
+
+.vine-post-skeleton-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+
+.vine-post-skeleton-action-pill {
+  width: 72px;
+  height: 18px;
+}
+
 .vine-feed-footer {
   width: 100%;
   text-align: center;
@@ -1414,6 +1668,10 @@
   cursor: pointer;
 }
 
+.trending-card-skeleton {
+  cursor: default;
+}
+
 .trending-top {
   display: flex;
   gap: 10px;
@@ -1433,6 +1691,93 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+
+.trending-skeleton-meta {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.trending-skeleton-name {
+  width: 124px;
+  height: 14px;
+  border-radius: 999px;
+}
+
+.trending-skeleton-handle {
+  width: 92px;
+  height: 11px;
+  border-radius: 999px;
+}
+
+.trending-skeleton-text {
+  height: 12px;
+  border-radius: 999px;
+  margin-top: 10px;
+}
+
+.trending-skeleton-text.long { width: 92%; }
+.trending-skeleton-text.short { width: 68%; }
+
+.trending-skeleton-stats {
+  width: 110px;
+  height: 12px;
+  border-radius: 999px;
+  margin-top: 16px;
+}
+
+.vine-suggest-carousel-skeleton {
+  pointer-events: none;
+  margin-bottom: 18px;
+}
+
+.vine-suggest-skeleton-heading {
+  width: 230px;
+  height: 14px;
+  border-radius: 999px;
+  margin-bottom: 12px;
+}
+
+.suggest-card-skeleton {
+  cursor: default;
+}
+
+.suggest-skeleton-name {
+  width: 110px;
+  height: 14px;
+  border-radius: 999px;
+}
+
+.suggest-skeleton-handle {
+  width: 86px;
+  height: 11px;
+  border-radius: 999px;
+}
+
+.suggest-skeleton-btn {
+  width: 96px;
+  height: 36px;
+  margin-top: 4px;
+}
+
+@media (max-width: 768px) {
+  .vine-post-skeleton-context-chip {
+    width: 132px;
+  }
+
+  .vine-post-skeleton-time {
+    width: 72px;
+  }
+
+  .vine-post-skeleton-actions {
+    justify-content: flex-start;
+  }
+
+  .vine-post-skeleton-action-pill {
+    width: 60px;
+  }
 }
 
 .trending-handle {

@@ -52,14 +52,20 @@
 .follow-list {
   width: 100%;
   max-width: 1200px;
+}
+
+.follow-list-window {
   display: grid;
-  /* On PC, keep it clean and consistent */
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 20px;
 }
 
+.follow-list-spacer {
+  grid-column: 1 / -1;
+}
+
 @media (max-width: 980px) and (min-width: 769px) {
-  .follow-list {
+  .follow-list-window {
     grid-template-columns: 1fr;
   }
 }
@@ -79,6 +85,8 @@
   box-shadow:
     0 10px 24px rgba(6, 78, 59, 0.08),
     inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  content-visibility: auto;
+  contain-intrinsic-size: 188px;
 }
 
 .user-row-left {
@@ -208,6 +216,10 @@
   }
 
   .follow-list {
+    max-width: none;
+  }
+
+  .follow-list-window {
     grid-template-columns: 1fr;
     gap: 0;
   }

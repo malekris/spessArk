@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "./VineNotifications.css";
+import useWindowedList from "../../../hooks/useWindowedList";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 
@@ -8,24 +9,42 @@ export default function VineNotifications() {
   const [notifications, setNotifications] = useState([]);
   const navigate = useNavigate();
   const token = localStorage.getItem("vine_token");
+  const listRef = useRef(null);
+  const {
+    visibleItems: visibleNotifications,
+    padTop,
+    padBottom,
+  } = useWindowedList(notifications, {
+    containerRef: listRef,
+    estimatedItemHeight: 118,
+    overscan: 5,
+    enabled: notifications.length > 28,
+  });
   useEffect(() => {
     document.title = "Vine — Notifications";
   }, []);
   useEffect(() => {
     if (!token) return;
-  
+
+    const controller = new AbortController();
     const loadNotifications = async () => {
       const res = await fetch(`${API}/api/vine/notifications`, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
+        signal: controller.signal,
       });
-  
+
       const data = await res.json();
-      setNotifications(data);
-  
-      
+      if (controller.signal.aborted) return;
+      setNotifications(Array.isArray(data) ? data : []);
     };
-  
-    loadNotifications();
+
+    loadNotifications().catch((err) => {
+      if (err?.name !== "AbortError") {
+        console.error("Failed to load notifications", err);
+      }
+    });
+
+    return () => controller.abort();
   }, [token]);
   
   const getMeta = (n) => {
@@ -180,7 +199,14 @@ export default function VineNotifications() {
 
       {/* Top bar */}
       <div className="vine-profile-topbar">
-        <button onClick={() => navigate(-1)}>←</button>
+        <button
+          className="notif-topbar-back"
+          onClick={() => navigate("/vine/feed")}
+          aria-label="Back to feed"
+        >
+          <span className="notif-topbar-back-icon">←</span>
+          <span className="notif-topbar-back-label">Feed</span>
+        </button>
         <h3>Notifications</h3>
       </div>
 
@@ -191,7 +217,9 @@ export default function VineNotifications() {
 
       {/* List */}
      
-      {notifications.map(n => (
+      <div className="notif-list-window" ref={listRef}>
+      {padTop > 0 && <div style={{ height: `${padTop}px` }} aria-hidden="true" />}
+      {visibleNotifications.map(n => (
   <div
     key={n.id}
     className={`notif-row ${!n.is_read ? "unread" : ""}`}
@@ -357,6 +385,8 @@ export default function VineNotifications() {
     </div>
   </div>
 ))}
+      {padBottom > 0 && <div style={{ height: `${padBottom}px` }} aria-hidden="true" />}
+      </div>
 
     </div>
   );

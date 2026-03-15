@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import "./VineFollowers.css";
+import useWindowedList from "../../../hooks/useWindowedList";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const DEFAULT_AVATAR = "/default-avatar.png";
@@ -11,22 +12,39 @@ export default function VineFollowers() {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const token = localStorage.getItem("vine_token");
+  const listRef = useRef(null);
+  const {
+    visibleItems,
+    padTop,
+    padBottom,
+  } = useWindowedList(users, {
+    containerRef: listRef,
+    estimatedItemHeight: 170,
+    overscan: 4,
+    enabled: users.length > 20,
+  });
 
   useEffect(() => {
     document.title = `Vine — ${username} Followers`;
   }, [username]);
 
   useEffect(() => {
+    const controller = new AbortController();
     setLoading(true);
     fetch(`${API}/api/vine/users/${username}/followers`, {
       headers: { Authorization: `Bearer ${token}` },
+      signal: controller.signal,
     })
       .then(res => res.json())
       .then(data => {
+        if (controller.signal.aborted) return;
         setUsers(Array.isArray(data) ? data : []);
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch((err) => {
+        if (err?.name !== "AbortError") setLoading(false);
+      });
+    return () => controller.abort();
   }, [username, token]);
 
   const toggleFollow = async (userId, isFollowing, isRequested) => {
@@ -71,7 +89,9 @@ export default function VineFollowers() {
             <p>No followers yet. 🌱</p>
           </div>
         ) : (
-          users.map(u => (
+          <div className="follow-list-window" ref={listRef}>
+            {padTop > 0 && <div className="follow-list-spacer" style={{ height: `${padTop}px` }} aria-hidden="true" />}
+            {visibleItems.map(u => (
             <div
               key={u.id}
               className="user-row"
@@ -137,7 +157,9 @@ export default function VineFollowers() {
                 {u.is_following ? "Unfollow" : u.is_follow_requested ? "Requested" : "Follow"}
               </button>
             </div>
-          ))
+            ))}
+            {padBottom > 0 && <div className="follow-list-spacer" style={{ height: `${padBottom}px` }} aria-hidden="true" />}
+          </div>
         )}
       </div>
     </div>

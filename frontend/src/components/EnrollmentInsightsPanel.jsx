@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect } from "react";
-import jsPDF from "jspdf";
+import { loadPdfTools } from "../utils/loadPdfTools";
 
 /* ================== HELPERS ================== */
 
@@ -118,9 +118,10 @@ export default function EnrollmentInsightsPanel({ students = [] }) {
   };
 
   /* ---------- SUMMARY PDF ---------- */
-  const downloadSummaryPdf = () => {
+  const downloadSummaryPdf = async () => {
     if (!summaryRows.length) return;
 
+    const { jsPDF } = await loadPdfTools();
     const doc = new jsPDF("p", "mm", "a4");
     const w = doc.internal.pageSize.getWidth();
     const h = doc.internal.pageSize.getHeight();
@@ -217,9 +218,10 @@ export default function EnrollmentInsightsPanel({ students = [] }) {
   };
 
   /* ---------- DETAILS PDF ---------- */
-  const downloadDetailsPdf = () => {
+  const downloadDetailsPdf = async () => {
     if (!detailRows.length) return;
 
+    const { jsPDF } = await loadPdfTools();
     const doc = new jsPDF("p", "mm", "a4");
     const w = doc.internal.pageSize.getWidth();
     const h = doc.internal.pageSize.getHeight();

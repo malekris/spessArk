@@ -12,7 +12,7 @@ export default function MiniProfileCard({ username, anchorRef, onClose }) {
 
   useEffect(() => {
     const fetchUser = async () => {
-      const res = await fetch(`${API}/api/vine/users/${username}`);
+      const res = await fetch(`${API}/api/vine/users/${username}/header`);
       const data = await res.json();
       setUser(data.user);
     };

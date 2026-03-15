@@ -8,8 +8,8 @@
 import { useEffect, useState } from "react";
 import { plainFetch } from "../../../lib/api";
 import { useNavigate } from "react-router-dom";
-import jsPDF from "jspdf";
 import useIdleLogout from "../../../hooks/useIdleLogout";
+import { loadPdfTools } from "../../../utils/loadPdfTools";
 import "../../../pages/AdminDashboard.css";
 import "./ALevelAdminTheme.css";
 
@@ -306,7 +306,7 @@ export default function ALevelLearners() {
     window.open(URL.createObjectURL(blob));
   };
 
-  const handleDownloadAlevelClasslistPdf = () => {
+  const handleDownloadAlevelClasslistPdf = async () => {
     if (!pdfClass || !pdfStream) {
       setError("Please select both class and stream for PDF export.");
       return;
@@ -317,6 +317,7 @@ export default function ALevelLearners() {
       return;
     }
     
+    const { jsPDF } = await loadPdfTools();
     const doc = new jsPDF("p", "mm", "a4");
     const pageW = doc.internal.pageSize.getWidth();
     const pageH = doc.internal.pageSize.getHeight();

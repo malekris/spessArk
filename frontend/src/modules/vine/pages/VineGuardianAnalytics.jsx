@@ -19,6 +19,7 @@ export default function VineGuardianAnalytics() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [data, setData] = useState(null);
+  const [perfLastFetchedAt, setPerfLastFetchedAt] = useState(null);
   const [from, setFrom] = useState(() => {
     const d = new Date(Date.now() - 6 * 86400000);
     return d.toISOString().slice(0, 10);
@@ -48,15 +49,41 @@ export default function VineGuardianAnalytics() {
         setLoading(true);
         setError("");
         const q = new URLSearchParams({ from, to }).toString();
-        const res = await fetch(`${API}/api/vine/analytics/overview?${q}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const body = await res.json();
-        if (!res.ok) {
-          setError(body?.message || "Failed to load analytics");
+        const [overviewResult, perfResult] = await Promise.allSettled([
+          fetch(`${API}/api/vine/analytics/overview?${q}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          fetch(`${API}/api/vine/analytics/performance`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+        ]);
+
+        if (overviewResult.status !== "fulfilled") {
+          setError("Failed to load analytics");
           return;
         }
-        setData(body);
+
+        const overviewRes = overviewResult.value;
+        const overviewBody = await overviewRes.json();
+        if (!overviewRes.ok) {
+          setError(overviewBody?.message || "Failed to load analytics");
+          return;
+        }
+
+        let perfBody = null;
+        if (perfResult.status === "fulfilled") {
+          const perfRes = perfResult.value;
+          const parsed = await perfRes.json().catch(() => null);
+          if (perfRes.ok) {
+            perfBody = parsed;
+            setPerfLastFetchedAt(new Date().toISOString());
+          }
+        }
+
+        setData({
+          ...overviewBody,
+          performance: perfBody,
+        });
       } catch (err) {
         setError("Failed to load analytics");
       } finally {
@@ -66,6 +93,29 @@ export default function VineGuardianAnalytics() {
 
     load();
   }, [token, currentUser, navigate, from, to]);
+
+  useEffect(() => {
+    if (!token || !isGuardianUser(currentUser)) {
+      return undefined;
+    }
+
+    const refreshPerformance = async () => {
+      try {
+        const res = await fetch(`${API}/api/vine/analytics/performance`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const body = await res.json().catch(() => null);
+        if (!res.ok || !body) return;
+        setData((prev) => (prev ? { ...prev, performance: body } : prev));
+        setPerfLastFetchedAt(new Date().toISOString());
+      } catch {
+        // Keep the last successful snapshot; perf auto-refresh should be quiet.
+      }
+    };
+
+    const intervalId = window.setInterval(refreshPerformance, 25000);
+    return () => window.clearInterval(intervalId);
+  }, [token, currentUser]);
 
   const exportCsv = (filename, rows) => {
     if (!rows?.length) return;
@@ -85,6 +135,27 @@ export default function VineGuardianAnalytics() {
     a.download = filename;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const formatMs = (value) => {
+    const numeric = Number(value || 0);
+    if (!Number.isFinite(numeric)) return "0 ms";
+    if (numeric >= 1000) return `${(numeric / 1000).toFixed(2)} s`;
+    return `${numeric.toFixed(1)} ms`;
+  };
+
+  const formatAgo = (value) => {
+    if (!value) return "—";
+    const ts = new Date(value).getTime();
+    if (!Number.isFinite(ts)) return "—";
+    const diffMs = Math.max(0, Date.now() - ts);
+    const minutes = Math.floor(diffMs / 60000);
+    if (minutes < 1) return "just now";
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    return `${days}d ago`;
   };
 
   const releaseNow = async (userId) => {
@@ -134,6 +205,12 @@ export default function VineGuardianAnalytics() {
   const creators = data?.creatorInsights || { topCreatorsWeek: [], risingCreators: [] };
   const mostActiveUsers = data?.mostActiveUsers || [];
   const vinePrison = data?.vinePrison || [];
+  const perf = data?.performance || null;
+  const perfRuntime = perf?.runtime || {};
+  const perfRoutes = perf?.top_routes || [];
+  const perfQueries = perf?.top_queries || [];
+  const perfRecentRoutes = perf?.recent_routes || [];
+  const perfRecentQueries = perf?.recent_queries || [];
   const maxVolume = Math.max(
     1,
     ...usage.map((d) => d.posts + d.comments + d.likes + d.revines + d.follows + d.dms)
@@ -188,6 +265,140 @@ export default function VineGuardianAnalytics() {
       <button className="guardian-csv-btn" onClick={() => exportCsv("kpis.csv", [k])}>
         Export KPI CSV
       </button>
+
+      <div className="guardian-section">
+        <h3>Performance Watch</h3>
+        <div className="guardian-actions">
+          <button
+            className="guardian-csv-btn"
+            onClick={() => exportCsv("perf_top_routes.csv", perfRoutes)}
+          >
+            Export Routes CSV
+          </button>
+          <button
+            className="guardian-csv-btn"
+            onClick={() => exportCsv("perf_top_queries.csv", perfQueries)}
+          >
+            Export Queries CSV
+          </button>
+        </div>
+        {!perf && <div className="guardian-empty">Performance samples have not been captured yet.</div>}
+        {perf && (
+          <>
+            <div className="guardian-compare-grid guardian-perf-grid">
+              <div className="guardian-compare-card">
+                Perf Logging: {perf.enabled ? "On" : "Off"}
+              </div>
+              <div className="guardian-compare-card">
+                Uptime: {Math.round(Number(perfRuntime.uptime_seconds || 0) / 60)} min
+              </div>
+              <div className="guardian-compare-card">
+                RSS Memory: {perfRuntime.rss_mb ?? 0} MB
+              </div>
+              <div className="guardian-compare-card">
+                Heap Used: {perfRuntime.heap_used_mb ?? 0} MB
+              </div>
+              <div className="guardian-compare-card">
+                Route Samples: {perfRuntime.route_event_count ?? 0}
+              </div>
+              <div className="guardian-compare-card">
+                Query Samples: {perfRuntime.query_event_count ?? 0}
+              </div>
+            </div>
+
+            <div className="guardian-perf-thresholds">
+              <span>Vine route ≥ {perf?.thresholds?.vine_slow_route_ms ?? 0} ms</span>
+              <span>Vine query ≥ {perf?.thresholds?.vine_slow_query_ms ?? 0} ms</span>
+              <span>DM route ≥ {perf?.thresholds?.dm_slow_route_ms ?? 0} ms</span>
+              <span>DM query ≥ {perf?.thresholds?.dm_slow_query_ms ?? 0} ms</span>
+            </div>
+            <div className="guardian-perf-refresh">
+              <span>Auto-refreshing every 25s</span>
+              <span>Last update: {formatAgo(perfLastFetchedAt)}</span>
+            </div>
+
+            <div className="guardian-subsection">
+              <h4>Slowest Routes In Memory</h4>
+              <div className="guardian-table">
+                {perfRoutes.length === 0 && <div className="guardian-empty">No slow routes captured yet.</div>}
+                {perfRoutes.map((row) => (
+                  <div key={`${row.scope}-${row.route}`} className="guardian-row guardian-row-perf">
+                    <span className="guardian-row-main guardian-perf-label">
+                      <strong>{row.route}</strong>
+                      <small>{row.scope.toUpperCase()}</small>
+                    </span>
+                    <span className="guardian-row-meta">
+                      Avg {formatMs(row.avg_ms)} • P95 {formatMs(row.p95_ms)} • Max {formatMs(row.max_ms)}
+                    </span>
+                    <span className="guardian-perf-side">
+                      {row.count} hits • last {formatAgo(row.last_seen_at)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="guardian-subsection">
+              <h4>Slowest Queries In Memory</h4>
+              <div className="guardian-table">
+                {perfQueries.length === 0 && <div className="guardian-empty">No slow queries captured yet.</div>}
+                {perfQueries.map((row) => (
+                  <div key={`${row.scope}-${row.route}-${row.label}`} className="guardian-row guardian-row-perf">
+                    <span className="guardian-row-main guardian-perf-label">
+                      <strong>{row.label}</strong>
+                      <small>{row.route}</small>
+                    </span>
+                    <span className="guardian-row-meta">
+                      Avg {formatMs(row.avg_ms)} • P95 {formatMs(row.p95_ms)} • Max {formatMs(row.max_ms)}
+                    </span>
+                    <span className="guardian-perf-side">
+                      {row.count} hits • ~{row.avg_rows} rows
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="guardian-subsection">
+              <h4>Recent Hot Samples</h4>
+              <div className="guardian-perf-split">
+                <div>
+                  <h5>Routes</h5>
+                  <div className="guardian-table">
+                    {perfRecentRoutes.length === 0 && <div className="guardian-empty">No recent route samples.</div>}
+                    {perfRecentRoutes.map((row, idx) => (
+                      <div key={`perf-route-${idx}-${row.route}-${row.at}`} className="guardian-row guardian-row-perf guardian-row-compact">
+                        <span className="guardian-row-main guardian-perf-label">
+                          <strong>{row.route}</strong>
+                          <small>{row.scope.toUpperCase()}</small>
+                        </span>
+                        <span className="guardian-row-meta">{formatMs(row.ms)}</span>
+                        <span className="guardian-perf-side">{formatAgo(row.at)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <h5>Queries</h5>
+                  <div className="guardian-table">
+                    {perfRecentQueries.length === 0 && <div className="guardian-empty">No recent query samples.</div>}
+                    {perfRecentQueries.map((row, idx) => (
+                      <div key={`perf-query-${idx}-${row.route}-${row.label}-${row.at}`} className="guardian-row guardian-row-perf guardian-row-compact">
+                        <span className="guardian-row-main guardian-perf-label">
+                          <strong>{row.label}</strong>
+                          <small>{row.route}</small>
+                        </span>
+                        <span className="guardian-row-meta">{formatMs(row.ms)}</span>
+                        <span className="guardian-perf-side">{formatAgo(row.at)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
 
       <div className="guardian-section">
         <h3>Most Active Users (Range)</h3>

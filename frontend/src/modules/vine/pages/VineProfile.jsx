@@ -1,13 +1,14 @@
-import { useEffect, useState, useRef } from "react";
-import heic2any from "heic2any";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import "./VineProfile.css";
 import VinePostCard from "./VinePostCard";
 import ImageCarousel from "./ImageCarousel";
+import { convertHeicFileToJpeg, isHeicLikeFile } from "../utils/heic";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const DEFAULT_AVATAR = "/default-avatar.png";
 const ORIGIN = API.replace(/\/api$/, "");
+const PROFILE_POST_PAGE_SIZE = 12;
 
 // ────────────────────────────────────────────────
 //  HELPERS
@@ -153,6 +154,91 @@ const applyMention = (value, anchor, username) => {
   return `${before}@${username} ${after}`;
 };
 
+const PROFILE_SKELETON_POSTS = [0, 1, 2];
+const COMMENT_SKELETON_ROWS = [0, 1, 2];
+
+function ProfileHeaderSkeleton() {
+  return (
+    <div className="vine-profile-skeleton-shell" aria-hidden="true">
+      <div className="vine-profile-topbar vine-profile-topbar-skeleton">
+        <div className="vine-profile-skeleton-pill wide" />
+        <div className="vine-profile-skeleton-topbar-meta">
+          <div className="vine-profile-skeleton-pill title" />
+          <div className="vine-profile-skeleton-pill subtitle" />
+        </div>
+      </div>
+      <div className="profile-banner-skeleton vine-profile-skeleton-block" />
+      <div className="profile-header-skeleton-card">
+        <div className="profile-avatar-skeleton vine-profile-skeleton-block" />
+        <div className="profile-header-skeleton-details">
+          <div className="profile-header-skeleton-meta">
+            <div className="profile-header-skeleton-name-row">
+              <div className="vine-profile-skeleton-pill title" />
+              <div className="vine-profile-skeleton-block profile-header-skeleton-check" />
+            </div>
+            <div className="vine-profile-skeleton-pill handle" />
+            <div className="vine-profile-skeleton-pill bio" />
+            <div className="vine-profile-skeleton-pill bio short" />
+          </div>
+          <div className="profile-header-skeleton-stats">
+            <div className="vine-profile-skeleton-pill stat" />
+            <div className="vine-profile-skeleton-pill stat" />
+            <div className="vine-profile-skeleton-pill stat" />
+          </div>
+        </div>
+      </div>
+      <div className="profile-tabs-skeleton">
+        <div className="vine-profile-skeleton-pill profile-tab-skeleton active" />
+        <div className="vine-profile-skeleton-pill profile-tab-skeleton" />
+        <div className="vine-profile-skeleton-pill profile-tab-skeleton" />
+      </div>
+    </div>
+  );
+}
+
+function ProfilePostSkeleton() {
+  return (
+    <div className="profile-post-skeleton-card" aria-hidden="true">
+      <div className="profile-post-skeleton-head">
+        <div className="vine-profile-skeleton-block profile-post-skeleton-avatar" />
+        <div className="profile-post-skeleton-meta">
+          <div className="profile-post-skeleton-name-row">
+            <div className="vine-profile-skeleton-pill title" />
+            <div className="vine-profile-skeleton-block profile-post-skeleton-check" />
+          </div>
+          <div className="profile-post-skeleton-submeta">
+            <div className="vine-profile-skeleton-pill handle" />
+            <div className="vine-profile-skeleton-block profile-post-skeleton-dot" />
+            <div className="vine-profile-skeleton-pill time" />
+          </div>
+        </div>
+        <div className="vine-profile-skeleton-block profile-post-skeleton-menu" />
+      </div>
+      <div className="profile-post-skeleton-context">
+        <div className="vine-profile-skeleton-pill context" />
+      </div>
+      <div className="profile-post-skeleton-body">
+        <div className="vine-profile-skeleton-pill body long" />
+        <div className="vine-profile-skeleton-pill body medium" />
+        <div className="vine-profile-skeleton-pill body short" />
+      </div>
+      <div className="vine-profile-skeleton-block profile-post-skeleton-media" />
+      <div className="profile-post-skeleton-tags">
+        <div className="vine-profile-skeleton-pill tag" />
+        <div className="vine-profile-skeleton-pill tag short" />
+      </div>
+      <div className="profile-post-skeleton-actions">
+        <div className="vine-profile-skeleton-pill action" />
+        <div className="vine-profile-skeleton-pill action" />
+        <div className="vine-profile-skeleton-pill action" />
+        <div className="vine-profile-skeleton-pill action" />
+        <div className="vine-profile-skeleton-pill action" />
+        <div className="vine-profile-skeleton-pill action" />
+      </div>
+    </div>
+  );
+}
+
 
 // ────────────────────────────────────────────────
 //  MAIN PROFILE COMPONENT
@@ -226,6 +312,11 @@ export default function VineProfile() {
   // Tabs content
   const [likedPosts, setLikedPosts] = useState([]);
   const [likesLoaded, setLikesLoaded] = useState(false);
+  const [profilePosts, setProfilePosts] = useState([]);
+  const [profilePostsOffset, setProfilePostsOffset] = useState(0);
+  const [profilePostsHasMore, setProfilePostsHasMore] = useState(false);
+  const [profilePostsLoading, setProfilePostsLoading] = useState(false);
+  const [profilePostsLoadingMore, setProfilePostsLoadingMore] = useState(false);
   const [photoPosts, setPhotoPosts] = useState([]);
   const [photosLoaded, setPhotosLoaded] = useState(false);
   const [savedPosts, setSavedPosts] = useState([]);
@@ -245,6 +336,7 @@ export default function VineProfile() {
   const [viewerLikeCount, setViewerLikeCount] = useState(0);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [viewerComments, setViewerComments] = useState([]);
+  const [viewerCommentsLoading, setViewerCommentsLoading] = useState(false);
   const [newComment, setNewComment] = useState("");
   const [replyTo, setReplyTo] = useState(null);
   const [openReplies, setOpenReplies] = useState({});
@@ -282,12 +374,15 @@ export default function VineProfile() {
   });
   const avatarCropRef = useRef(null);
   const avatarCropImgRef = useRef(null);
+  const profileHeaderAbortRef = useRef(null);
+  const profilePostsAbortRef = useRef(null);
 
   // Derived values
   const userObj = profile?.user || profile || {};
   const resolvedUsername = userObj.username || "user";
   const displayName = userObj.display_name || resolvedUsername;
   const avatarUrl = userObj.avatar_url;
+  const profilePostCount = Number(userObj?.post_count || 0);
   const isMe = profile && Number(currentUserId) === Number(userObj.id);
   const isModerator =
     Number(currentUser?.is_admin) === 1 ||
@@ -332,14 +427,39 @@ export default function VineProfile() {
 
   // ── Data Fetching ───────────────────────────────
 
-  const loadProfile = async () => {
+  const applyUserDataToForm = (userData) => {
+    setTempBio(userData?.bio || "");
+    setTempDisplayName(userData?.display_name || "");
+    setTempEmail(userData?.email || "");
+    setEmailTouched(false);
+    setTempLocation(userData?.location || "");
+    setTempWebsite(userData?.website || "");
+    setTempHobbies(userData?.hobbies || "");
+    setTempDateOfBirth(userData?.date_of_birth ? String(userData.date_of_birth).slice(0, 10) : "");
+    setTempFavoriteMovies(userData?.favorite_movies || "");
+    setTempFavoriteSongs(userData?.favorite_songs || "");
+    setTempFavoriteMusicians(userData?.favorite_musicians || "");
+    setTempFavoriteBooks(userData?.favorite_books || "");
+    setTempMovieGenres(userData?.movie_genres || "");
+    setTempGender(userData?.gender || "");
+    setTempContactEmail(userData?.contact_email || "");
+    setTempPhoneNumber(userData?.phone_number || "");
+    setTempTikTokUsername(userData?.tiktok_username || "");
+    setTempInstagramUsername(userData?.instagram_username || "");
+    setTempTwitterUsername(userData?.twitter_username || "");
+  };
+
+  const loadProfileHeader = async ({ signal } = {}) => {
     try {
       setIsLoadingProfile(true);
-      const res = await fetch(`${API}/api/vine/users/${encodeURIComponent(username)}`, {
+      setError(null);
+      const res = await fetch(`${API}/api/vine/users/${encodeURIComponent(username)}/header`, {
         headers: { Authorization: `Bearer ${token}` },
+        signal,
       });
       if (!res.ok) throw new Error("User not found");
       const data = await res.json();
+      if (signal?.aborted) return null;
       setProfile(data);
       setJustUpdated(true);
       if (updatedTimerRef.current) {
@@ -349,32 +469,84 @@ export default function VineProfile() {
         setJustUpdated(false);
       }, 2500);
       try {
-        localStorage.setItem(`vine_profile_cache_${username}`, JSON.stringify(data));
+        localStorage.setItem(`vine_profile_header_cache_${username}`, JSON.stringify(data));
       } catch {}
       const userData = data?.user || data || {};
-      setTempBio(userData?.bio || "");
-      setTempDisplayName(userData?.display_name || "");
-      setTempEmail(userData?.email || "");
-      setEmailTouched(false);
-      setTempLocation(userData?.location || "");
-      setTempWebsite(userData?.website || "");
-      setTempHobbies(userData?.hobbies || "");
-      setTempDateOfBirth(userData?.date_of_birth ? String(userData.date_of_birth).slice(0, 10) : "");
-      setTempFavoriteMovies(userData?.favorite_movies || "");
-      setTempFavoriteSongs(userData?.favorite_songs || "");
-      setTempFavoriteMusicians(userData?.favorite_musicians || "");
-      setTempFavoriteBooks(userData?.favorite_books || "");
-      setTempMovieGenres(userData?.movie_genres || "");
-      setTempGender(userData?.gender || "");
-      setTempContactEmail(userData?.contact_email || "");
-      setTempPhoneNumber(userData?.phone_number || "");
-      setTempTikTokUsername(userData?.tiktok_username || "");
-      setTempInstagramUsername(userData?.instagram_username || "");
-      setTempTwitterUsername(userData?.twitter_username || "");
+      applyUserDataToForm(userData);
+      return data;
     } catch (err) {
+      if (err?.name === "AbortError") return null;
       setError(err.message);
+      return null;
     } finally {
-      setIsLoadingProfile(false);
+      if (!signal?.aborted) {
+        setIsLoadingProfile(false);
+      }
+    }
+  };
+
+  const loadProfilePosts = async ({ reset = false, signal } = {}) => {
+    if (!username) return;
+    const nextOffset = reset ? 0 : profilePostsOffset;
+
+    try {
+      if (reset) {
+        setProfilePostsLoading(true);
+      } else {
+        setProfilePostsLoadingMore(true);
+      }
+
+      const res = await fetch(
+        `${API}/api/vine/users/${encodeURIComponent(username)}/posts?limit=${PROFILE_POST_PAGE_SIZE}&offset=${nextOffset}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          signal,
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.message || "Failed to load posts");
+      }
+      if (signal?.aborted) return;
+
+      const nextItems = Array.isArray(data?.items) ? data.items : [];
+      setProfilePosts((prev) => {
+        const merged = reset ? nextItems : [...prev, ...nextItems];
+        const deduped = [];
+        const seen = new Set();
+        for (const item of merged) {
+          const key = item?.feed_id || `post-${item?.id}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            deduped.push(item);
+          }
+        }
+        return deduped;
+      });
+      setProfilePostsOffset(Number(data?.nextOffset ?? nextOffset + nextItems.length));
+      setProfilePostsHasMore(Boolean(data?.hasMore));
+
+      if (reset) {
+        try {
+          localStorage.setItem(
+            `vine_profile_posts_cache_${username}`,
+            JSON.stringify({
+              items: nextItems,
+              nextOffset: Number(data?.nextOffset ?? nextItems.length),
+              hasMore: Boolean(data?.hasMore),
+            })
+          );
+        } catch {}
+      }
+    } catch (err) {
+      if (err?.name !== "AbortError") {
+        console.error("Fetch profile posts error:", err);
+      }
+    } finally {
+      if (!signal?.aborted) {
+        setProfilePostsLoading(false);
+        setProfilePostsLoadingMore(false);
+      }
     }
   };
 
@@ -507,70 +679,85 @@ export default function VineProfile() {
     }
   };
 
-  const fetchLikes = async () => {
+  const fetchLikes = async (signal) => {
     if (!username || likesLoaded) return;
     try {
       const res = await fetch(`${API}/api/vine/users/${encodeURIComponent(username)}/likes`, {
         headers: { Authorization: `Bearer ${token}` },
+        signal,
       });
       if (!res.ok) throw new Error("Failed to load likes");
       const data = await res.json();
+      if (signal?.aborted) return;
       setLikedPosts(data || []);
       setLikesLoaded(true);
     } catch (err) {
+      if (err?.name === "AbortError") return;
       console.error("Fetch likes error:", err);
     }
   };
 
-  const fetchPhotos = async () => {
+  const fetchPhotos = async (signal) => {
     if (!username || photosLoaded) return;
     try {
       const res = await fetch(`${API}/api/vine/users/${encodeURIComponent(username)}/photos`, {
         headers: { Authorization: `Bearer ${token}` },
+        signal,
       });
       if (!res.ok) throw new Error("Failed to load photos");
       const data = await res.json();
+      if (signal?.aborted) return;
       setPhotoPosts(data || []);
       setPhotosLoaded(true);
     } catch (err) {
+      if (err?.name === "AbortError") return;
       console.error("Fetch photos error:", err);
     }
   };
 
-  const fetchSaved = async () => {
+  const fetchSaved = async (signal) => {
     if (!username || savedLoaded) return;
     try {
       const res = await fetch(`${API}/api/vine/users/${encodeURIComponent(username)}/bookmarks`, {
         headers: { Authorization: `Bearer ${token}` },
+        signal,
       });
       if (!res.ok) throw new Error("Failed to load bookmarks");
       const data = await res.json();
+      if (signal?.aborted) return;
       setSavedPosts(data || []);
       setSavedLoaded(true);
     } catch (err) {
+      if (err?.name === "AbortError") return;
       console.error("Fetch bookmarks error:", err);
     }
   };
 
-  const fetchMutedUsers = async () => {
+  const fetchMutedUsers = async (signal) => {
     if (mutedLoaded) return;
     try {
       const res = await fetch(`${API}/api/vine/users/me/mutes`, {
         headers: { Authorization: `Bearer ${token}` },
+        signal,
       });
       const data = await res.json();
+      if (signal?.aborted) return;
       setMutedUsers(Array.isArray(data) ? data : []);
       setMutedLoaded(true);
     } catch (err) {
+      if (err?.name === "AbortError") return;
       console.error("Fetch mutes error:", err);
     }
   };
 
-  const handleDeletePost = (postId) => {
+  const handleDeletePost = useCallback((postId) => {
+    setProfilePosts((prev) => prev.filter((p) => p.id !== postId));
     setProfile((prev) => {
       if (!prev) return prev;
-      const nextPosts = (prev.posts || []).filter((p) => p.id !== postId);
-      return { ...prev, posts: nextPosts };
+      const nextUser = prev.user ? prev.user : prev;
+      const nextPostCount = Math.max(0, Number(nextUser.post_count || 0) - 1);
+      const updatedUser = { ...nextUser, post_count: nextPostCount };
+      return prev.user ? { ...prev, user: updatedUser } : updatedUser;
     });
     setLikedPosts((prev) => prev.filter((p) => p.id !== postId));
     setPhotoPosts((prev) => prev.filter((p) => p.id !== postId));
@@ -578,11 +765,21 @@ export default function VineProfile() {
       setPhotoViewerOpen(false);
       setViewerPostId(null);
     }
-  };
+  }, [viewerPostId]);
+
+  const handleTogglePinnedLocally = useCallback((postId, isPinned) => {
+    setProfilePosts((prev) =>
+      prev.map((p) =>
+        p.id === postId
+          ? { ...p, is_pinned: isPinned ? 0 : 1 }
+          : p
+      )
+    );
+  }, []);
 
   const clearPinnedPost = async () => {
     try {
-      const pinned = (profile?.posts || []).find((p) => Number(p.is_pinned) === 1);
+      const pinned = profilePosts.find((p) => Number(p.is_pinned) === 1);
       if (!pinned) {
         alert("No pinned post found.");
         return;
@@ -596,31 +793,33 @@ export default function VineProfile() {
         alert(data?.message || "Failed to remove pinned post");
         return;
       }
-      setProfile((prev) => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          posts: (prev.posts || []).map((p) =>
-            p.id === pinned.id ? { ...p, is_pinned: 0 } : p
-          ),
-        };
-      });
+      setProfilePosts((prev) =>
+        prev.map((p) => (p.id === pinned.id ? { ...p, is_pinned: 0 } : p))
+      );
     } catch (err) {
       console.error("Remove pinned post failed", err);
       alert("Failed to remove pinned post");
     }
   };
 
-  const fetchComments = async () => {
+  const fetchComments = async (signal) => {
     if (!viewerPostId) return;
     try {
+      setViewerCommentsLoading(true);
       const res = await fetch(`${API}/api/vine/posts/${viewerPostId}/comments`, {
         headers: { Authorization: `Bearer ${token}` },
+        signal,
       });
       const data = await res.json();
+      if (signal?.aborted) return;
       setViewerComments(data || []);
     } catch (err) {
+      if (err?.name === "AbortError") return;
       console.error("Fetch comments error:", err);
+    } finally {
+      if (!signal?.aborted) {
+        setViewerCommentsLoading(false);
+      }
     }
   };
 
@@ -628,15 +827,88 @@ export default function VineProfile() {
 
   useEffect(() => {
     if (!username) return;
+    setError(null);
+    setIsEditing(false);
+    setActiveTab("posts");
+    setLikesLoaded(false);
+    setLikedPosts([]);
+    setPhotosLoaded(false);
+    setPhotoPosts([]);
+    setSavedLoaded(false);
+    setSavedPosts([]);
+    setMoreOpen(false);
+    setCommentsOpen(false);
+    setViewerComments([]);
+    setViewerCommentsLoading(false);
+    setViewerPostId(null);
+    setPhotoViewerOpen(false);
+    setOpenReplies({});
+    setProfilePosts([]);
+    setProfilePostsOffset(0);
+    setProfilePostsHasMore(false);
+    setProfilePostsLoading(false);
+    setProfilePostsLoadingMore(false);
+
     try {
-      const cached = localStorage.getItem(`vine_profile_cache_${username}`);
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        setProfile(parsed);
+      const cachedHeader =
+        localStorage.getItem(`vine_profile_header_cache_${username}`) ||
+        localStorage.getItem(`vine_profile_cache_${username}`);
+      if (cachedHeader) {
+        const parsed = JSON.parse(cachedHeader);
+        const nextProfile = parsed?.user ? parsed : { user: parsed };
+        if (nextProfile?.user && nextProfile.user.post_count == null && Array.isArray(parsed?.posts)) {
+          nextProfile.user.post_count = parsed.posts.length;
+        }
+        setProfile(nextProfile);
+        applyUserDataToForm(nextProfile?.user || {});
+      } else {
+        setProfile(null);
       }
-    } catch {}
-    loadProfile();
+
+      const cachedPosts =
+        localStorage.getItem(`vine_profile_posts_cache_${username}`) ||
+        localStorage.getItem(`vine_profile_cache_${username}`);
+      if (cachedPosts) {
+        const parsedPosts = JSON.parse(cachedPosts);
+        const cachedItems = Array.isArray(parsedPosts?.items) ? parsedPosts.items : [];
+        const legacyItems =
+          cachedItems.length === 0 && Array.isArray(parsedPosts?.posts)
+            ? parsedPosts.posts.slice(0, PROFILE_POST_PAGE_SIZE)
+            : cachedItems;
+        setProfilePosts(legacyItems);
+        setProfilePostsOffset(Number(parsedPosts?.nextOffset ?? legacyItems.length));
+        setProfilePostsHasMore(
+          parsedPosts?.hasMore !== undefined
+            ? Boolean(parsedPosts.hasMore)
+            : Array.isArray(parsedPosts?.posts) && parsedPosts.posts.length > legacyItems.length
+        );
+      }
+    } catch {
+      setProfile(null);
+    }
+
+    profileHeaderAbortRef.current?.abort();
+    profilePostsAbortRef.current?.abort();
+    const headerController = new AbortController();
+    const postsController = new AbortController();
+    profileHeaderAbortRef.current = headerController;
+    profilePostsAbortRef.current = postsController;
+
+    (async () => {
+      const headerData = await loadProfileHeader({ signal: headerController.signal });
+      if (!headerData || headerController.signal.aborted) return;
+      if (headerData.blocked || headerData.privateLocked) {
+        setProfilePosts([]);
+        setProfilePostsOffset(0);
+        setProfilePostsHasMore(false);
+        return;
+      }
+      await loadProfilePosts({ reset: true, signal: postsController.signal });
+    })();
+
     return () => {
+      headerController.abort();
+      postsController.abort();
       if (updatedTimerRef.current) {
         clearTimeout(updatedTimerRef.current);
       }
@@ -649,19 +921,56 @@ export default function VineProfile() {
       setMentionResults([]);
       return;
     }
+    const controller = new AbortController();
     const timeout = setTimeout(async () => {
       try {
         const res = await fetch(`${API}/api/vine/users/mention?q=${encodeURIComponent(q)}`, {
           headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
         });
         const data = await res.json();
+        if (controller.signal.aborted) return;
         setMentionResults(Array.isArray(data) ? data : []);
-      } catch {
-        setMentionResults([]);
+      } catch (err) {
+        if (err?.name !== "AbortError") {
+          setMentionResults([]);
+        }
       }
     }, 120);
-    return () => clearTimeout(timeout);
+    return () => {
+      controller.abort();
+      clearTimeout(timeout);
+    };
   }, [mentionAnchor?.query, token]);
+
+  useEffect(() => {
+    if (activeTab !== "likes") return;
+    const controller = new AbortController();
+    fetchLikes(controller.signal);
+    return () => controller.abort();
+  }, [activeTab, username]);
+
+  useEffect(() => {
+    if (activeTab !== "photos") return;
+    const controller = new AbortController();
+    fetchPhotos(controller.signal);
+    return () => controller.abort();
+  }, [activeTab, username]);
+
+  useEffect(() => {
+    if (!moreOpen) return;
+    const controller = new AbortController();
+    fetchSaved(controller.signal);
+    fetchMutedUsers(controller.signal);
+    return () => controller.abort();
+  }, [moreOpen, username]);
+
+  useEffect(() => {
+    if (!commentsOpen || !viewerPostId) return;
+    const controller = new AbortController();
+    fetchComments(controller.signal);
+    return () => controller.abort();
+  }, [commentsOpen, viewerPostId]);
 
   useEffect(() => {
     const name = displayName || username || "Profile";
@@ -691,25 +1000,6 @@ export default function VineProfile() {
   useEffect(() => {
     if (userObj?.banner_url) setBannerUrl(userObj.banner_url);
   }, [userObj]);
-
-  useEffect(() => {
-    if (activeTab === "likes") fetchLikes();
-  }, [activeTab]);
-
-  useEffect(() => {
-    if (activeTab === "photos") fetchPhotos();
-  }, [activeTab]);
-
-  useEffect(() => {
-    if (moreOpen) {
-      fetchSaved();
-      fetchMutedUsers();
-    }
-  }, [moreOpen]);
-
-  useEffect(() => {
-    if (commentsOpen && viewerPostId) fetchComments();
-  }, [commentsOpen, viewerPostId]);
 
   useEffect(() => {
     if (bannerViewerOpen || avatarViewerOpen || photoViewerOpen || avatarCropOpen) {
@@ -822,30 +1112,20 @@ export default function VineProfile() {
       return;
     }
     setIsEditing(false);
-    loadProfile();
+    loadProfileHeader();
   };
 
   const handleAvatarUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
     let normalized = file;
-    const isHeic =
-      /heic|heif/i.test(file.type) ||
-      /\.heic$/i.test(file.name) ||
-      /\.heif$/i.test(file.name);
-    if (isHeic) {
+    if (isHeicLikeFile(file)) {
       try {
-        const blob = await heic2any({
-          blob: file,
-          toType: "image/jpeg",
-          quality: 0.9,
-        });
-        const outBlob = Array.isArray(blob) ? blob[0] : blob;
-        normalized = new File(
-          [outBlob],
-          file.name.replace(/\.(heic|heif)$/i, ".jpg"),
-          { type: "image/jpeg" }
-        );
+        normalized = await convertHeicFileToJpeg(file);
+        if (!normalized) {
+          alert("HEIC image could not be converted. Please use JPG/PNG/WebP.");
+          return;
+        }
       } catch (err) {
         console.warn("HEIC conversion failed", err);
         alert("HEIC image could not be converted. Please use JPG/PNG/WebP.");
@@ -998,7 +1278,7 @@ export default function VineProfile() {
       setAvatarCropOpen(false);
       setAvatarCropSrc(null);
       setAvatarCropFile(null);
-      loadProfile();
+      loadProfileHeader();
     } else {
       alert(result.data?.message || result.raw || "Avatar upload failed");
     }
@@ -1125,7 +1405,18 @@ export default function VineProfile() {
   }
 
   if (!profile) {
-    return <div className="skeleton-wrapper">...Loading...</div>;
+    return (
+      <div className="vine-profile-wrapper">
+        <ProfileHeaderSkeleton />
+        <div className="vine-profile-tab-content">
+          <div className="vine-profile-posts">
+            {PROFILE_SKELETON_POSTS.map((idx) => (
+              <ProfilePostSkeleton key={`profile-skeleton-${idx}`} />
+            ))}
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -1153,7 +1444,7 @@ export default function VineProfile() {
         </button>
         <div className="topbar-info">
           <span className="profile-title">{displayName}</span>
-          <span className="post-count-mini">{profile?.posts?.length || 0} Posts</span>
+          <span className="post-count-mini">{profilePostCount} Posts</span>
           {justUpdated && (
             <span className="profile-updated-badge">Updated</span>
           )}
@@ -1459,7 +1750,14 @@ export default function VineProfile() {
                                     setIsFollowing(Boolean(data?.following));
                                     setIsFollowRequested(Boolean(data?.pending));
                                   }
-                                  loadProfile();
+                                  const refreshed = await loadProfileHeader();
+                                  if (refreshed?.blocked || refreshed?.privateLocked) {
+                                    setProfilePosts([]);
+                                    setProfilePostsOffset(0);
+                                    setProfilePostsHasMore(false);
+                                  } else {
+                                    loadProfilePosts({ reset: true });
+                                  }
                                 }}
                               >
                                 {isFollowing ? "Unfollow" : isFollowRequested ? "Requested" : "Follow"}
@@ -1723,25 +2021,40 @@ export default function VineProfile() {
           <div className="vine-profile-posts">
             {isPrivateLocked ? (
               <div className="empty-state">This profile is private.</div>
-            ) : profile?.posts?.length > 0 ? (
-  profile.posts.map((post) => (
-    <VinePostCard
-      key={post.feed_id || `post-${post.id}`}
-      post={post}
-      isMe={isMe}
-      onDeletePost={handleDeletePost}
-      onTogglePin={(postId, isPinned) => {
-        setProfile(prev => ({
-          ...prev,
-          posts: prev.posts.map(p =>
-            p.id === postId
-              ? { ...p, is_pinned: isPinned ? 0 : 1 }
-              : p
-          )
-        }));
-      }}
-    />
-  ))
+            ) : profilePosts.length > 0 ? (
+              <>
+                {profilePosts.map((post) => (
+                  <VinePostCard
+                    key={post.feed_id || `post-${post.id}`}
+                    post={post}
+                    isMe={isMe}
+                    onDeletePost={handleDeletePost}
+                    onTogglePin={handleTogglePinnedLocally}
+                  />
+                ))}
+                {profilePostsHasMore && (
+                  <button
+                    className="profile-load-more-btn"
+                    onClick={() => loadProfilePosts({ reset: false })}
+                    disabled={profilePostsLoadingMore}
+                  >
+                    {profilePostsLoadingMore ? "Loading more..." : "Load more posts"}
+                  </button>
+                )}
+                {profilePostsLoadingMore && (
+                  <div className="profile-posts-skeleton-stack">
+                    {Array.from({ length: 2 }).map((_, idx) => (
+                      <ProfilePostSkeleton key={`profile-loading-more-${idx}`} />
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : profilePostsLoading ? (
+              <div className="profile-posts-skeleton-stack">
+                {PROFILE_SKELETON_POSTS.map((idx) => (
+                  <ProfilePostSkeleton key={`profile-posts-loading-${idx}`} />
+                ))}
+              </div>
 ) : (
   <div className="empty-state">No posts yet</div>
 )}
@@ -1796,7 +2109,13 @@ export default function VineProfile() {
                       setPhotoViewerOpen(true);
                     }}
                   >
-                    <img src={coverImage} alt="" />
+                    <img
+                      src={coverImage}
+                      alt=""
+                      loading="lazy"
+                      decoding="async"
+                      fetchPriority="low"
+                    />
                   </div>
                 );
               })
@@ -1952,7 +2271,20 @@ export default function VineProfile() {
               </div>
 
               <div className="comments-list">
-                {(commentsByParent[0] || []).length === 0 ? (
+                {viewerCommentsLoading ? (
+                  <div className="profile-comments-skeleton-stack" aria-hidden="true">
+                    {COMMENT_SKELETON_ROWS.map((idx) => (
+                      <div key={`comment-skeleton-${idx}`} className="profile-comment-skeleton-row">
+                        <div className="vine-profile-skeleton-block profile-comment-skeleton-avatar" />
+                        <div className="profile-comment-skeleton-body">
+                          <div className="vine-profile-skeleton-pill title" />
+                          <div className="vine-profile-skeleton-pill body long" />
+                          <div className="vine-profile-skeleton-pill body medium" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (commentsByParent[0] || []).length === 0 ? (
                   <div className="empty-state">No comments yet</div>
                 ) : (
                   (commentsByParent[0] || []).map((c) => {

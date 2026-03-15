@@ -1,7 +1,6 @@
- // src/components/ReportCardLayout.jsx
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
+// src/components/ReportCardLayout.jsx
 import badge from "../assets/badge.png";
+import { loadPdfTools } from "../utils/loadPdfTools";
 const RHYTHM = 6; // mm — base vertical unit
 const getMedal = (position) => {
   if (position === 1) return " (1st)";
@@ -202,6 +201,7 @@ export default async function generateReportCardPDF(data, meta) {
     return;
   }
 
+  const { jsPDF, autoTable } = await loadPdfTools();
   const isEndOfYear = meta?.reportType === "year";
   // Unified portrait layout for both term and end-of-year reports.
   const doc = new jsPDF("p", "mm", "a4");

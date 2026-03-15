@@ -1,5 +1,4 @@
-import { useEffect, useState, useRef } from "react";
-import heic2any from "heic2any";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import VinePostCard from "./VinePostCard";
 import GifPickerModal from "../components/GifPickerModal";
@@ -7,6 +6,7 @@ import "./VineFeed.css";
 import VineSuggestions from "./VineSuggestions";
 import { socket } from "../../../socket";
 import { useSearchParams } from "react-router-dom";
+import { convertHeicFileToJpeg, isHeicLikeFile } from "../utils/heic";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const STATUS_COLORS = [
@@ -46,6 +46,9 @@ const STATUS_REACTIONS = [
   { key: "sad", emoji: "😢" },
   { key: "fire", emoji: "🔥" },
 ];
+const FEED_REFRESH_FALLBACK_MS = 60 * 1000;
+const STATUS_RAIL_REFRESH_FALLBACK_MS = 60 * 1000;
+const FEED_EVENT_DEBOUNCE_MS = 350;
 
 // ────────────────────────────────────────────────
 //  HELPERS
@@ -119,6 +122,72 @@ const formatPresenceAgo = (value) => {
   return `${days}d ago`;
 };
 
+const FEED_SKELETON_ROWS = [0, 1, 2];
+const STATUS_SKELETON_ROWS = [0, 1, 2, 3];
+const TRENDING_SKELETON_ROWS = [0, 1, 2];
+
+function VineFeedPostSkeleton() {
+  return (
+    <div className="vine-post-skeleton-card" aria-hidden="true">
+      <div className="vine-post-skeleton-header">
+        <div className="vine-post-skeleton-header-main">
+          <div className="vine-skeleton-avatar" />
+          <div className="vine-post-skeleton-meta">
+            <div className="vine-post-skeleton-name-row">
+              <div className="vine-skeleton-block vine-post-skeleton-name" />
+              <div className="vine-skeleton-block vine-post-skeleton-check" />
+            </div>
+            <div className="vine-post-skeleton-submeta">
+              <div className="vine-skeleton-block vine-post-skeleton-handle" />
+              <div className="vine-skeleton-block vine-post-skeleton-dot" />
+              <div className="vine-skeleton-block vine-post-skeleton-time" />
+            </div>
+          </div>
+        </div>
+        <div className="vine-skeleton-block vine-post-skeleton-menu" />
+      </div>
+      <div className="vine-post-skeleton-context">
+        <div className="vine-skeleton-pill vine-post-skeleton-context-chip" />
+      </div>
+      <div className="vine-post-skeleton-body">
+        <div className="vine-skeleton-block vine-post-skeleton-line long" />
+        <div className="vine-skeleton-block vine-post-skeleton-line medium" />
+        <div className="vine-skeleton-block vine-post-skeleton-line short" />
+      </div>
+      <div className="vine-post-skeleton-media vine-skeleton-block" />
+      <div className="vine-post-skeleton-tags">
+        <div className="vine-skeleton-pill vine-post-skeleton-tag" />
+        <div className="vine-skeleton-pill vine-post-skeleton-tag short" />
+      </div>
+      <div className="vine-post-skeleton-actions">
+        <div className="vine-skeleton-pill vine-post-skeleton-action-pill" />
+        <div className="vine-skeleton-pill vine-post-skeleton-action-pill" />
+        <div className="vine-skeleton-pill vine-post-skeleton-action-pill" />
+        <div className="vine-skeleton-pill vine-post-skeleton-action-pill" />
+        <div className="vine-skeleton-pill vine-post-skeleton-action-pill" />
+        <div className="vine-skeleton-pill vine-post-skeleton-action-pill" />
+      </div>
+    </div>
+  );
+}
+
+function VineTrendingSkeleton() {
+  return (
+    <div className="trending-card trending-card-skeleton" aria-hidden="true">
+      <div className="trending-top">
+        <div className="vine-skeleton-avatar small" />
+        <div className="trending-skeleton-meta">
+          <div className="vine-skeleton-block trending-skeleton-name" />
+          <div className="vine-skeleton-block trending-skeleton-handle" />
+        </div>
+      </div>
+      <div className="vine-skeleton-block trending-skeleton-text long" />
+      <div className="vine-skeleton-block trending-skeleton-text short" />
+      <div className="vine-skeleton-block trending-skeleton-stats" />
+    </div>
+  );
+}
+
 // ────────────────────────────────────────────────
 //  MAIN FEED COMPONENT
 // ────────────────────────────────────────────────
@@ -148,6 +217,7 @@ export default function VineFeed() {
 
   // ── State ───────────────────────────────────────
   const [posts, setPosts] = useState([]);
+  const [feedLoading, setFeedLoading] = useState(true);
   const [content, setContent] = useState("");
   const [images, setImages] = useState([]);
   const [previews, setPreviews] = useState([]);
@@ -159,12 +229,15 @@ export default function VineFeed() {
   const targetPostId = params.get("post");
   const targetTag = (params.get("tag") || "").trim();
   const [suggestedUsers, setSuggestedUsers] = useState([]);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(true);
   const [suggestionSlots, setSuggestionSlots] = useState([]);
   const [trendingPosts, setTrendingPosts] = useState([]);
+  const [trendingLoading, setTrendingLoading] = useState(true);
   const [restriction, setRestriction] = useState(null);
   const [myCommunities, setMyCommunities] = useState([]);
   const [communityId, setCommunityId] = useState("");
   const [statusRail, setStatusRail] = useState([]);
+  const [statusRailLoading, setStatusRailLoading] = useState(true);
   const [statusComposerOpen, setStatusComposerOpen] = useState(false);
   const [statusText, setStatusText] = useState("");
   const [statusBgColor, setStatusBgColor] = useState(STATUS_COLORS[0]);
@@ -223,54 +296,12 @@ export default function VineFeed() {
     return items.filter((p) => p?.src);
   };
 
-  const convertHeicToJpeg = async (file) => {
-    try {
-      const blob = await heic2any({
-        blob: file,
-        toType: "image/jpeg",
-        quality: 0.9,
-      });
-      const outBlob = Array.isArray(blob) ? blob[0] : blob;
-      return new File(
-        [outBlob],
-        file.name.replace(/\.(heic|heif)$/i, ".jpg"),
-        { type: "image/jpeg" }
-      );
-    } catch (err) {
-      console.warn("heic2any conversion failed, trying canvas fallback", err);
-    }
-
-    try {
-      const bitmap = await createImageBitmap(file);
-      const canvas = document.createElement("canvas");
-      canvas.width = bitmap.width;
-      canvas.height = bitmap.height;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return null;
-      ctx.drawImage(bitmap, 0, 0);
-      const jpegBlob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.9));
-      if (!jpegBlob) return null;
-      return new File(
-        [jpegBlob],
-        file.name.replace(/\.(heic|heif)$/i, ".jpg"),
-        { type: "image/jpeg" }
-      );
-    } catch (err) {
-      console.warn("Canvas HEIC conversion fallback failed", err);
-      return null;
-    }
-  };
-
   const normalizeImageFiles = async (fileList) => {
     const files = Array.from(fileList || []);
     const converted = await Promise.all(
       files.map(async (file) => {
-        const isHeic =
-          /heic|heif/i.test(file.type) ||
-          /\.heic$/i.test(file.name) ||
-          /\.heif$/i.test(file.name);
-        if (!isHeic) return file;
-        const convertedFile = await convertHeicToJpeg(file);
+        if (!isHeicLikeFile(file)) return file;
+        const convertedFile = await convertHeicFileToJpeg(file);
         if (convertedFile) return convertedFile;
         console.warn("HEIC conversion failed; file skipped");
         alert("HEIC image could not be converted on this device. Please use JPG/PNG/WebP.");
@@ -322,16 +353,19 @@ export default function VineFeed() {
   }, [posts, handledDeepLink]);
 
   // ── Feed Loading + Polling ──────────────────────
-  const loadFeed = async () => {
+  const loadFeed = useCallback(async (signal) => {
     try {
       const res = await fetch(
         `${API}/api/vine/posts${targetTag ? `?tag=${encodeURIComponent(targetTag)}` : ""}`,
         {
-        headers: {
-          Authorization: `Bearer ${token}`,
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          signal,
         },
-      });
+      );
       const data = await res.json();
+      if (signal?.aborted) return;
       setPosts(data);
       // Build suggestion slots only once per session to avoid jumping
       if (suggestionSlotsRef.current.length === 0 && data.length > 0) {
@@ -346,105 +380,197 @@ export default function VineFeed() {
         setSuggestionSlots(nextSlots);
       }
     } catch (err) {
+      if (err?.name === "AbortError") return;
       console.error("Load feed error", err);
+    } finally {
+      if (!signal?.aborted) {
+        setFeedLoading(false);
+      }
     }
-  };
+  }, [targetTag, token]);
 
-  const loadSuggestions = async () => {
+  const loadSuggestions = useCallback(async (signal) => {
     try {
       const res = await fetch(`${API}/api/vine/users/new`, {
         headers: { Authorization: `Bearer ${token}` },
+        signal,
       });
       const data = await res.json();
+      if (signal?.aborted) return;
       if (Array.isArray(data)) setSuggestedUsers(data);
       else setSuggestedUsers([]);
-    } catch {
+    } catch (err) {
+      if (err?.name === "AbortError") return;
       setSuggestedUsers([]);
+    } finally {
+      if (!signal?.aborted) {
+        setSuggestionsLoading(false);
+      }
     }
-  };
+  }, [token]);
 
-  const loadTrending = async () => {
+  const loadTrending = useCallback(async (signal) => {
     try {
       const res = await fetch(`${API}/api/vine/posts/trending?limit=3`, {
         headers: { Authorization: `Bearer ${token}` },
+        signal,
       });
       const data = await res.json();
+      if (signal?.aborted) return;
       if (Array.isArray(data)) setTrendingPosts(data);
       else setTrendingPosts([]);
-    } catch {
+    } catch (err) {
+      if (err?.name === "AbortError") return;
       setTrendingPosts([]);
+    } finally {
+      if (!signal?.aborted) {
+        setTrendingLoading(false);
+      }
     }
-  };
+  }, [token]);
 
-  const loadRestrictions = async () => {
+  const loadRestrictions = useCallback(async (signal) => {
     try {
       const res = await fetch(`${API}/api/vine/users/me/restrictions`, {
         headers: { Authorization: `Bearer ${token}` },
+        signal,
       });
       const data = await res.json().catch(() => ({}));
+      if (signal?.aborted) return;
       if (res.ok && data.suspended) {
         setRestriction(data.suspension || { reason: "Moderation restriction active" });
       } else {
         setRestriction(null);
       }
-    } catch {
+    } catch (err) {
+      if (err?.name === "AbortError") return;
       setRestriction(null);
     }
-  };
+  }, [token]);
 
-  const loadMyCommunities = async () => {
+  const loadMyCommunities = useCallback(async (signal) => {
     try {
       const res = await fetch(`${API}/api/vine/communities/mine`, {
         headers: { Authorization: `Bearer ${token}` },
+        signal,
       });
       const data = await res.json();
+      if (signal?.aborted) return;
       setMyCommunities(Array.isArray(data) ? data : []);
-    } catch {
+    } catch (err) {
+      if (err?.name === "AbortError") return;
       setMyCommunities([]);
     }
-  };
+  }, [token]);
 
-  const loadStatusRail = async () => {
+  const loadStatusRail = useCallback(async (signal) => {
     try {
       const res = await fetch(`${API}/api/vine/statuses/rail`, {
         headers: { Authorization: `Bearer ${token}` },
+        signal,
       });
       const data = await res.json();
+      if (signal?.aborted) return;
       setStatusRail(Array.isArray(data) ? data : []);
-    } catch {
+    } catch (err) {
+      if (err?.name === "AbortError") return;
       setStatusRail([]);
+    } finally {
+      if (!signal?.aborted) {
+        setStatusRailLoading(false);
+      }
     }
-  };
+  }, [token]);
   
 
   useEffect(() => {
-    loadFeed(); // initial load
-    loadSuggestions();
-    loadTrending();
-    loadRestrictions();
-    loadMyCommunities();
-    loadStatusRail();
+    const controller = new AbortController();
+    setFeedLoading(true);
+    setSuggestionsLoading(true);
+    setTrendingLoading(true);
+    setStatusRailLoading(true);
+    loadFeed(controller.signal); // initial load
+    loadSuggestions(controller.signal);
+    loadTrending(controller.signal);
+    loadRestrictions(controller.signal);
+    loadMyCommunities(controller.signal);
+    loadStatusRail(controller.signal);
 
-    const interval = setInterval(loadFeed, 5000); // refresh every 5s
-    const statusInterval = setInterval(loadStatusRail, 20000);
+    const interval = setInterval(() => {
+      const refreshController = new AbortController();
+      loadFeed(refreshController.signal);
+      loadTrending(refreshController.signal);
+    }, FEED_REFRESH_FALLBACK_MS);
+    const statusInterval = setInterval(() => {
+      const statusController = new AbortController();
+      loadStatusRail(statusController.signal);
+    }, STATUS_RAIL_REFRESH_FALLBACK_MS);
 
     return () => {
+      controller.abort();
       clearInterval(interval);
       clearInterval(statusInterval);
     };
-  }, [targetTag]);
+  }, [loadFeed, loadSuggestions, loadTrending, loadRestrictions, loadMyCommunities, loadStatusRail]);
+
+  useEffect(() => {
+    if (!token) return undefined;
+
+    let refreshTimer = null;
+    const scheduleRefresh = ({ statuses = false, full = false } = {}) => {
+      if (refreshTimer) return;
+      refreshTimer = window.setTimeout(() => {
+        refreshTimer = null;
+        const controller = new AbortController();
+        loadFeed(controller.signal);
+        loadTrending(controller.signal);
+        if (full) {
+          loadSuggestions(controller.signal);
+          loadRestrictions(controller.signal);
+          loadMyCommunities(controller.signal);
+        }
+        if (statuses || full) {
+          loadStatusRail(controller.signal);
+        }
+      }, FEED_EVENT_DEBOUNCE_MS);
+    };
+
+    const handleFeedUpdate = () => scheduleRefresh();
+    const handleStatusUpdate = () => scheduleRefresh({ statuses: true });
+    const handleWakeRefresh = () => {
+      if (document.visibilityState === "visible") {
+        scheduleRefresh({ statuses: true, full: true });
+      }
+    };
+
+    socket.on("vine_feed_updated", handleFeedUpdate);
+    socket.on("vine_status_updated", handleStatusUpdate);
+    window.addEventListener("focus", handleWakeRefresh);
+    document.addEventListener("visibilitychange", handleWakeRefresh);
+
+    return () => {
+      if (refreshTimer) window.clearTimeout(refreshTimer);
+      socket.off("vine_feed_updated", handleFeedUpdate);
+      socket.off("vine_status_updated", handleStatusUpdate);
+      window.removeEventListener("focus", handleWakeRefresh);
+      document.removeEventListener("visibilitychange", handleWakeRefresh);
+    };
+  }, [token, loadFeed, loadTrending, loadSuggestions, loadRestrictions, loadMyCommunities, loadStatusRail]);
 
   useEffect(() => {
     if (!statusViewerOpen) return;
     const current = statusItems[statusIndex];
     if (!current || Number(current.seen_by_viewer) === 1) return;
+    const controller = new AbortController();
 
     const markSeen = async () => {
       try {
         await fetch(`${API}/api/vine/statuses/${current.id}/view`, {
           method: "POST",
           headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
         });
+        if (controller.signal.aborted) return;
         setStatusItems((prev) =>
           prev.map((s, idx) => (idx === statusIndex ? { ...s, seen_by_viewer: 1 } : s))
         );
@@ -455,10 +581,15 @@ export default function VineFeed() {
               : row
           )
         );
-      } catch {}
+      } catch (err) {
+        if (err?.name !== "AbortError") {
+          console.error("Mark status seen failed", err);
+        }
+      }
     };
 
     markSeen();
+    return () => controller.abort();
   }, [statusViewerOpen, statusItems, statusIndex, token]);
 
   useEffect(() => {
@@ -489,11 +620,12 @@ export default function VineFeed() {
     if (!statusViewerOpen || !statusItems[statusIndex]) return;
     const current = statusItems[statusIndex];
     const isMine = Number(current.user_id) === Number(me?.id || 0);
+    const controller = new AbortController();
     if (!isMine) {
       setStatusViewers([]);
       setStatusViewsOpen(false);
       setStatusViewsLoading(false);
-      return;
+      return () => controller.abort();
     }
 
     const loadViews = async () => {
@@ -501,17 +633,24 @@ export default function VineFeed() {
       try {
         const res = await fetch(`${API}/api/vine/statuses/${current.id}/views`, {
           headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
         });
         const data = await res.json();
+        if (controller.signal.aborted) return;
         setStatusViewers(Array.isArray(data) ? data : []);
-      } catch {
-        setStatusViewers([]);
+      } catch (err) {
+        if (err?.name !== "AbortError") {
+          setStatusViewers([]);
+        }
       } finally {
-        setStatusViewsLoading(false);
+        if (!controller.signal.aborted) {
+          setStatusViewsLoading(false);
+        }
       }
     };
 
     loadViews();
+    return () => controller.abort();
   }, [statusViewerOpen, statusIndex, statusItems, me?.id, token]);
 
   useEffect(() => {
@@ -526,19 +665,28 @@ export default function VineFeed() {
       setMentionResults([]);
       return;
     }
+    const controller = new AbortController();
     const timeout = setTimeout(async () => {
       try {
         const res = await fetch(`${API}/api/vine/users/mention?q=${encodeURIComponent(q)}`, {
           headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
         });
         const data = await res.json();
+        if (controller.signal.aborted) return;
         setMentionResults(Array.isArray(data) ? data : []);
-      } catch {
-        setMentionResults([]);
+      } catch (err) {
+        if (err?.name !== "AbortError") {
+          setMentionResults([]);
+        }
       }
     }, 120);
-    return () => clearTimeout(timeout);
+    return () => {
+      controller.abort();
+      clearTimeout(timeout);
+    };
   }, [mentionAnchor?.query, token]);
+
 
   const submitAppeal = async () => {
     const message = window.prompt("Appeal to Guardian: explain your case");
@@ -756,6 +904,8 @@ export default function VineFeed() {
   // ── Real-time Notifications & DMs ───────────────
   useEffect(() => {
     if (!token) return;
+    const notificationController = new AbortController();
+    const dmController = new AbortController();
 
     // Fetch bell badge count
     const fetchUnreadNotifications = async () => {
@@ -764,19 +914,26 @@ export default function VineFeed() {
         if (since) {
           const res = await fetch(
             `${API}/api/vine/notifications/unseen-count?since=${encodeURIComponent(since)}`,
-            { headers: { Authorization: `Bearer ${token}` } }
+            {
+              headers: { Authorization: `Bearer ${token}` },
+              signal: notificationController.signal,
+            }
           );
           const data = await res.json().catch(() => ({}));
+          if (notificationController.signal.aborted) return;
           setUnread(Number(data.count || 0));
           return;
         }
 
         const res = await fetch(`${API}/api/vine/notifications/unread-count`, {
           headers: { Authorization: `Bearer ${token}` },
+          signal: notificationController.signal,
         });
         const data = await res.json().catch(() => ({}));
+        if (notificationController.signal.aborted) return;
         setUnread(Number(data.count || 0));
       } catch (err) {
+        if (err?.name === "AbortError") return;
         console.error("Failed to fetch unread notifications");
       }
     };
@@ -786,10 +943,16 @@ export default function VineFeed() {
       try {
         const res = await fetch(`${API}/api/dms/unread-total`, {
           headers: { Authorization: `Bearer ${token}` },
+          signal: dmController.signal,
         });
         const data = await res.json();
+        if (dmController.signal.aborted) return;
         setUnreadDMs(data.total || 0);
-      } catch {}
+      } catch (err) {
+        if (err?.name !== "AbortError") {
+          setUnreadDMs(0);
+        }
+      }
     };
 
     fetchUnreadNotifications();
@@ -801,6 +964,8 @@ export default function VineFeed() {
     socket.on("messages_seen", fetchUnreadDMs);
 
     return () => {
+      notificationController.abort();
+      dmController.abort();
       socket.off("notification", fetchUnreadNotifications);
       socket.off("dm_received", fetchUnreadDMs);
       socket.off("messages_seen", fetchUnreadDMs);
@@ -809,15 +974,19 @@ export default function VineFeed() {
 
   useEffect(() => {
     if (!token) return;
+    const controller = new AbortController();
     const loadPresence = async () => {
       try {
         const res = await fetch(`${API}/api/dms/presence`, {
           headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
         });
         const data = await res.json().catch(() => ({}));
+        if (controller.signal.aborted) return;
         setActiveNowUsers(Array.isArray(data?.active_now) ? data.active_now : []);
         setRecentlyActiveUsers(Array.isArray(data?.recently_active) ? data.recently_active : []);
-      } catch {
+      } catch (err) {
+        if (err?.name === "AbortError") return;
         setActiveNowUsers([]);
         setRecentlyActiveUsers([]);
       }
@@ -827,6 +996,7 @@ export default function VineFeed() {
     socket.on("dm_received", loadPresence);
     socket.on("messages_seen", loadPresence);
     return () => {
+      controller.abort();
       clearInterval(interval);
       socket.off("dm_received", loadPresence);
       socket.off("messages_seen", loadPresence);
@@ -1122,7 +1292,14 @@ export default function VineFeed() {
             <span className="status-add-plus">+</span>
             <span>My Status</span>
           </button>
-          {statusRail.map((row) => {
+          {statusRailLoading && statusRail.length === 0
+            ? STATUS_SKELETON_ROWS.map((idx) => (
+                <div key={`status-skeleton-${idx}`} className="status-user-chip status-user-chip-skeleton" aria-hidden="true">
+                  <div className="vine-skeleton-avatar small" />
+                  <div className="vine-skeleton-block status-chip-skeleton-line" />
+                </div>
+              ))
+            : statusRail.map((row) => {
             const avatarSrc = row.avatar_url
               ? row.avatar_url.startsWith("http")
                 ? row.avatar_url
@@ -1357,7 +1534,10 @@ export default function VineFeed() {
                   {previews.map((preview, i) => (
                     <div key={i} className="preview-tile">
                       {preview.isVideo ? (
-                        <video src={preview.src} muted playsInline preload="metadata" />
+                        <div className="preview-video-poster" aria-hidden="true">
+                          <span className="preview-video-play">▶</span>
+                          <span className="preview-video-label">Video</span>
+                        </div>
                       ) : (
                         <img src={preview.src} alt="" />
                       )}
@@ -1426,11 +1606,13 @@ export default function VineFeed() {
           )}
         </div>
 
-        {trendingPosts.length > 0 && (
+        {(trendingLoading || trendingPosts.length > 0) && (
           <div className="vine-trending">
             <div className="trending-header">🔥 Trending on Vine</div>
             <div className="trending-track">
-              {trendingPosts.map((p) => {
+              {trendingLoading && trendingPosts.length === 0
+                ? TRENDING_SKELETON_ROWS.map((idx) => <VineTrendingSkeleton key={`trend-skeleton-${idx}`} />)
+                : trendingPosts.map((p) => {
                 const avatarSrc = p.avatar_url
                   ? (p.avatar_url.startsWith("http") ? p.avatar_url : `${API}${p.avatar_url}`)
                   : DEFAULT_AVATAR;
@@ -1496,7 +1678,28 @@ export default function VineFeed() {
 
         {/* Feed Posts */}
         <div className="vine-posts-list">
-          {posts.map((post, index) => (
+          {feedLoading && posts.length === 0 ? (
+            <>
+              {suggestionsLoading && (
+                <div className="vine-suggest-carousel vine-suggest-carousel-skeleton" aria-hidden="true">
+                  <div className="suggest-carousel-header vine-skeleton-block vine-suggest-skeleton-heading" />
+                  <div className="suggest-carousel-track">
+                    {Array.from({ length: 3 }).map((_, idx) => (
+                      <div key={`suggest-skeleton-${idx}`} className="suggest-card suggest-card-skeleton">
+                        <div className="vine-skeleton-avatar" />
+                        <div className="vine-skeleton-block suggest-skeleton-name" />
+                        <div className="vine-skeleton-block suggest-skeleton-handle" />
+                        <div className="vine-skeleton-pill suggest-skeleton-btn" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {FEED_SKELETON_ROWS.map((idx) => (
+                <VineFeedPostSkeleton key={`feed-skeleton-${idx}`} />
+              ))}
+            </>
+          ) : posts.map((post, index) => (
             <div key={post.feed_id || `post-${post.id}`}>
               {suggestionSlots.includes(index) && suggestedUsers.length > 0 && (
                 <div className="vine-suggest-carousel">
@@ -1581,7 +1784,7 @@ export default function VineFeed() {
           ))}
 
           {posts.length > 0 && <p className="no-more-posts">No more posts</p>}
-          {posts.length === 0 && <p className="no-posts-hint">No posts yet 🌱</p>}
+          {!feedLoading && posts.length === 0 && <p className="no-posts-hint">No posts yet 🌱</p>}
         </div>
         <footer className="vine-feed-footer">
           <div>© {new Date().getFullYear()} Vine. All rights reserved.</div>
@@ -1684,13 +1887,9 @@ export default function VineFeed() {
                   if (STATUS_MEDIA_UPLOADS_FROZEN) return;
                   const file = e.target.files?.[0];
                   if (!file) return;
-                  const isHeic =
-                    /heic|heif/i.test(file.type) ||
-                    /\.heic$/i.test(file.name) ||
-                    /\.heif$/i.test(file.name);
                   let picked = file;
-                  if (isHeic) {
-                    const convertedFile = await convertHeicToJpeg(file);
+                  if (isHeicLikeFile(file)) {
+                    const convertedFile = await convertHeicFileToJpeg(file);
                     if (!convertedFile) {
                       alert("HEIC image could not be converted on this device. Please use JPG/PNG/WebP.");
                       return;
@@ -1707,7 +1906,10 @@ export default function VineFeed() {
             {statusMediaPreview && (
               <div className="status-media-preview-wrap">
                 {statusMediaType === "video" ? (
-                  <video src={statusMediaPreview} controls />
+                  <div className="status-video-poster" aria-hidden="true">
+                    <span className="status-video-play">▶</span>
+                    <span className="status-video-label">Video ready to post</span>
+                  </div>
                 ) : (
                   <img src={statusMediaPreview} alt="Status preview" />
                 )}
@@ -1934,7 +2136,19 @@ export default function VineFeed() {
           <div className="status-modal status-views-modal" onClick={(e) => e.stopPropagation()}>
             <h3>Viewed by ({statusViewers.length})</h3>
             <div className="status-viewers-list">
-              {statusViewsLoading && <div className="status-viewer-empty">Loading...</div>}
+              {statusViewsLoading && (
+                <div className="status-viewer-skeleton-wrap" aria-hidden="true">
+                  {Array.from({ length: 4 }).map((_, idx) => (
+                    <div key={`status-viewer-skeleton-${idx}`} className="status-viewer-row status-viewer-row-skeleton">
+                      <div className="vine-skeleton-avatar small" />
+                      <div className="status-viewer-skeleton-meta">
+                        <div className="vine-skeleton-block status-viewer-skeleton-name" />
+                        <div className="vine-skeleton-block status-viewer-skeleton-time" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
               {!statusViewsLoading && statusViewers.length === 0 && (
                 <div className="status-viewer-empty">No views yet</div>
               )}

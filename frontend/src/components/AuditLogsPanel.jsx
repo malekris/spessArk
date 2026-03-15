@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
 import { adminFetch } from "../lib/api";
+import { loadPdfTools } from "../utils/loadPdfTools";
 
 const ACTION_OPTIONS = [
   "LOGIN",
@@ -79,9 +78,10 @@ export default function AuditLogsPanel() {
     fetchLogs();
   };
 
-  const handleExportPdf = () => {
+  const handleExportPdf = async () => {
     if (!logs.length) return;
 
+    const { jsPDF, autoTable } = await loadPdfTools();
     const doc = new jsPDF("l", "mm", "a4");
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();

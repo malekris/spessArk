@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "./ConversationList.css";
 import { socket } from "../../socket";
+import useWindowedList from "../../hooks/useWindowedList";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const DEFAULT_AVATAR = "/default-avatar.png";
@@ -13,24 +14,44 @@ export default function ConversationList() {
   const [conversations, setConversations] = useState([]);
   const [search, setSearch] = useState("");
   const searchRef = useRef("");
+  const listRef = useRef(null);
+  const activeRequestRef = useRef(null);
   const navigate = useNavigate();
   const token = localStorage.getItem("vine_token");
+  const {
+    visibleItems: visibleConversations,
+    padTop,
+    padBottom,
+  } = useWindowedList(conversations, {
+    containerRef: listRef,
+    estimatedItemHeight: 112,
+    overscan: 5,
+    enabled: conversations.length > 24,
+  });
 
   /* ---------------------------
      FETCH CONVERSATIONS
   ---------------------------- */
   const loadConversations = async (query = "") => {
     try {
+      if (activeRequestRef.current) {
+        activeRequestRef.current.abort();
+      }
+      const controller = new AbortController();
+      activeRequestRef.current = controller;
       const qs = query.trim() ? `?q=${encodeURIComponent(query.trim())}` : "";
       const res = await fetch(`${API}/api/dms/conversations${qs}`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
+        signal: controller.signal,
       });
 
       const data = await res.json();
-      setConversations(data || []);
+      if (controller.signal.aborted) return;
+      setConversations(Array.isArray(data) ? data : []);
     } catch (err) {
+      if (err?.name === "AbortError") return;
       console.error("Failed to load conversations", err);
     }
   };
@@ -75,6 +96,11 @@ export default function ConversationList() {
   useEffect(() => {
     searchRef.current = search;
     loadConversations(search);
+    return () => {
+      if (activeRequestRef.current) {
+        activeRequestRef.current.abort();
+      }
+    };
   }, [search]);
 
   useEffect(() => {
@@ -110,9 +136,14 @@ export default function ConversationList() {
     <div className="dm-list">
  {/* HEADER */}
 <div className="dm-header">
-  <button className="dm-mint-pill-btn" onClick={() => navigate("/vine/feed")}>
-    <span className="icon">←</span>
-    <span className="label">🌱 Vine Feed</span>
+  <button
+    className="dm-list-back"
+    onClick={() => navigate("/vine/feed")}
+    aria-label="Back to feed"
+    title="Back to feed"
+  >
+    <span className="dm-list-back-icon">←</span>
+    <span className="dm-list-back-label">Feed</span>
   </button>
 
   <span className="dm-title">💬 Messages</span>
@@ -132,7 +163,9 @@ export default function ConversationList() {
       )}
 
       {/* CONVERSATIONS */}
-      {conversations.map((c) => {
+      <div className="dm-list-window" ref={listRef}>
+      {padTop > 0 && <div style={{ height: `${padTop}px` }} aria-hidden="true" />}
+      {visibleConversations.map((c) => {
         const avatar = c.avatar_url
           ? (c.avatar_url.startsWith("http") ? c.avatar_url : `${API}${c.avatar_url}`)
           : DEFAULT_AVATAR;
@@ -218,6 +251,8 @@ export default function ConversationList() {
           </div>
         );
       })}
+      {padBottom > 0 && <div style={{ height: `${padBottom}px` }} aria-hidden="true" />}
+      </div>
     </div>
   );
 }

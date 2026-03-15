@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
 import VinePostCard from "./VinePostCard";
 import "./VineCommunities.css";
+import { loadPdfTools } from "../../../utils/loadPdfTools";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const parseAnswers = (value) => {
@@ -964,6 +963,7 @@ export default function VineCommunities() {
         return;
       }
       const rows = await res.json().catch(() => []);
+      const { jsPDF, autoTable } = await loadPdfTools();
       const doc = new jsPDF({ unit: "pt", format: "a4" });
       const safeRows = Array.isArray(rows) ? rows : [];
       const grouped = safeRows.reduce((acc, row) => {
@@ -1103,6 +1103,7 @@ export default function VineCommunities() {
       }
       const rows = await res.json().catch(() => []);
       const submissions = Array.isArray(rows) ? rows : [];
+      const { jsPDF, autoTable } = await loadPdfTools();
       const doc = new jsPDF({ unit: "pt", format: "a4" });
       const pageWidth = doc.internal.pageSize.getWidth();
       const drawSchoolHeader = () => {
@@ -1609,9 +1610,10 @@ export default function VineCommunities() {
     URL.revokeObjectURL(url);
   };
 
-  const exportAttendancePdf = () => {
+  const exportAttendancePdf = async () => {
     if (!selectedSessionId) return;
     const session = sessions.find((s) => Number(s.id) === Number(selectedSessionId));
+    const { jsPDF, autoTable } = await loadPdfTools();
     const doc = new jsPDF({ unit: "pt", format: "a4" });
     const normalizedRows = attendanceRows.filter(
       (row) => String(row.community_role || "").toLowerCase() !== "owner"
@@ -1928,8 +1930,13 @@ export default function VineCommunities() {
   return (
     <div className="vine-communities-page">
       <div className="communities-top">
-        <button className="communities-back" onClick={() => navigate("/vine/feed")}>
-          ← Feed
+        <button
+          className="communities-back"
+          onClick={() => navigate("/vine/feed")}
+          aria-label="Back to feed"
+        >
+          <span className="communities-back-icon">←</span>
+          <span className="communities-back-label">Feed</span>
         </button>
         <h2>{activeCommunity?.name ? activeCommunity.name : "Communities"}</h2>
       </div>

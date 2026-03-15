@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import jsPDF from "jspdf";
 import useIdleLogout from "../../../hooks/useIdleLogout";
+import { loadPdfTools } from "../../../utils/loadPdfTools";
 import "../../../pages/AdminDashboard.css";
 import "./ALevelAdminTheme.css";
 
@@ -132,8 +132,9 @@ export default function ALevelDownload() {
   }
 
   /* ---------------- PDF EXPORT ---------------- */
-  function exportPdf() {
+  async function exportPdf() {
     if (!selected || contents.rows.length === 0) return;
+    const { jsPDF } = await loadPdfTools();
   
     const doc = new jsPDF("p", "mm", "a4");
     const W = doc.internal.pageSize.getWidth();

@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import "./VineFollowing.css"; // Reuse the same CSS for consistency
+import useWindowedList from "../../../hooks/useWindowedList";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const DEFAULT_AVATAR = "/default-avatar.png";
@@ -11,25 +12,41 @@ export default function VineFollowing() {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const token = localStorage.getItem("vine_token");
+  const listRef = useRef(null);
+  const {
+    visibleItems,
+    padTop,
+    padBottom,
+  } = useWindowedList(users, {
+    containerRef: listRef,
+    estimatedItemHeight: 170,
+    overscan: 4,
+    enabled: users.length > 20,
+  });
 
   useEffect(() => {
     document.title = `Vine — ${username} Following`;
   }, [username]);
 
   useEffect(() => {
+    const controller = new AbortController();
     setLoading(true);
     fetch(`${API}/api/vine/users/${username}/following`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
+      signal: controller.signal,
     })
       .then(res => res.json())
       .then(data => {
+        if (controller.signal.aborted) return;
         setUsers(Array.isArray(data) ? data : []);
         setLoading(false);
       })
       .catch(err => {
+        if (err?.name === "AbortError") return;
         console.error(err);
         setLoading(false);
       });
+    return () => controller.abort();
   }, [username, token]);
 
   const handleUnfollow = async (userId) => {
@@ -64,7 +81,9 @@ export default function VineFollowing() {
             <p>Not following anyone yet. 🌱</p>
           </div>
         ) : (
-          users.map(u => {
+          <div className="follow-list-window" ref={listRef}>
+            {padTop > 0 && <div className="follow-list-spacer" style={{ height: `${padTop}px` }} aria-hidden="true" />}
+          {visibleItems.map(u => {
             // Defensive variables to prevent crashes
             const resolvedName = u.display_name || u.username || "User";
             const initial = (u.username || "U")[0].toUpperCase();
@@ -133,7 +152,9 @@ export default function VineFollowing() {
                 </button>
               </div>
             );
-          })
+          })}
+            {padBottom > 0 && <div className="follow-list-spacer" style={{ height: `${padBottom}px` }} aria-hidden="true" />}
+          </div>
         )}
       </div>
     </div>

@@ -1,45 +1,18 @@
 // src/App.jsx
-import { useEffect } from "react";
+import { Suspense, lazy, useEffect } from "react";
 import { socket } from "./socket";
 import { Routes, Route } from "react-router-dom";
 import LoginPage from "./pages/LoginPage";
 import TeacherLogin from "./pages/TeacherLogin";
 import TeacherForgotPassword from "./pages/TeacherForgotPassword";
-import TeacherDashboard from "./pages/TeacherDashboard";
-import AdminDashboard from "./pages/AdminDashboard";
 import TeacherSignup from "./pages/TeacherSignup";
 import LandingPage from "./components/LandingPage";
 import ArkLayout from "./components/ArkLayout";
-// A-Level pages (new imports)
-import ALevelDashboard from "./modules/alevel/pages/ALevelDashboard";
-import ALevelLearners from "./modules/alevel/pages/ALevelLearners";
-import ALevelAssignSubjects from "./modules/alevel/pages/ALevelAssignSubjects";
-import ALevelDownloads from "./modules/alevel/pages/ALevelDownloads";
-import ALevelReports from "./modules/alevel/pages/ALevelReports";
-// vine imports 
+// vine imports
 import VineLogin from "./modules/vine/pages/VineLogin";
 import VineRegister from "./modules/vine/pages/VineRegister";
-import VineFeed from "./modules/vine/pages/VineFeed";
-import VineProfile from "./modules/vine/pages/VineProfile";
-import VineSettings from "./modules/vine/pages/VineSettings";
-import VineForgotPassword from "./modules/vine/pages/VineForgotPassword";
-import VineResetPassword from "./modules/vine/pages/VineResetPassword";
-import VineFollowers from "./modules/vine/pages/VineFollowers";
-import VineFollowing from "./modules/vine/pages/VineFollowing";
-import VineNotifications from "./modules/vine/pages/VineNotifications";
-import ConversationList from "./components/dms/ConversationList";
-import ChatWindow from "./components/dms/ChatWindow";
-import DmsPage from "./components/dms/DmsPage";
-import VineSuggestions from "./modules/vine/pages/VineSuggestions";
-import VineSearch from "./modules/vine/pages/VineSearch";
-import VineVerifyEmail from "./modules/vine/pages/VineVerifyEmail";
-import VineGuardianAnalytics from "./modules/vine/pages/VineGuardianAnalytics";
-import VineGuardianModeration from "./modules/vine/pages/VineGuardianModeration";
-import VineHelpCenter from "./modules/vine/pages/VineHelpCenter";
-import VineCommunities from "./modules/vine/pages/VineCommunities";
-import VineLegalPage from "./modules/vine/pages/VineLegalPage";
-import VinePublicPost from "./modules/vine/pages/VinePublicPost";
 import VineProtectedRoute from "./modules/vine/components/VineProtectedRoute";
+import VineRouteErrorBoundary from "./modules/vine/components/VineRouteErrorBoundary";
 import {
   clearVineAuth,
   getRemainingVineSessionMs,
@@ -48,6 +21,65 @@ import {
   isVineTokenExpired,
 } from "./modules/vine/utils/vineAuth";
 
+const TeacherDashboard = lazy(() => import("./pages/TeacherDashboard"));
+const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
+const ALevelDashboard = lazy(() => import("./modules/alevel/pages/ALevelDashboard"));
+const ALevelLearners = lazy(() => import("./modules/alevel/pages/ALevelLearners"));
+const ALevelAssignSubjects = lazy(() => import("./modules/alevel/pages/ALevelAssignSubjects"));
+const ALevelDownloads = lazy(() => import("./modules/alevel/pages/ALevelDownloads"));
+const ALevelReports = lazy(() => import("./modules/alevel/pages/ALevelReports"));
+const VineFeed = lazy(() => import("./modules/vine/pages/VineFeed"));
+const VineProfile = lazy(() => import("./modules/vine/pages/VineProfile"));
+const VineSettings = lazy(() => import("./modules/vine/pages/VineSettings"));
+const VineForgotPassword = lazy(() => import("./modules/vine/pages/VineForgotPassword"));
+const VineResetPassword = lazy(() => import("./modules/vine/pages/VineResetPassword"));
+const VineFollowers = lazy(() => import("./modules/vine/pages/VineFollowers"));
+const VineFollowing = lazy(() => import("./modules/vine/pages/VineFollowing"));
+const VineNotifications = lazy(() => import("./modules/vine/pages/VineNotifications"));
+const ConversationList = lazy(() => import("./components/dms/ConversationList"));
+const ChatWindow = lazy(() => import("./components/dms/ChatWindow"));
+const DmsPage = lazy(() => import("./components/dms/DmsPage"));
+const VineSuggestions = lazy(() => import("./modules/vine/pages/VineSuggestions"));
+const VineSearch = lazy(() => import("./modules/vine/pages/VineSearch"));
+const VineVerifyEmail = lazy(() => import("./modules/vine/pages/VineVerifyEmail"));
+const VineGuardianAnalytics = lazy(() => import("./modules/vine/pages/VineGuardianAnalytics"));
+const VineGuardianModeration = lazy(() => import("./modules/vine/pages/VineGuardianModeration"));
+const VineHelpCenter = lazy(() => import("./modules/vine/pages/VineHelpCenter"));
+const VineCommunities = lazy(() => import("./modules/vine/pages/VineCommunities"));
+const VineLegalPage = lazy(() => import("./modules/vine/pages/VineLegalPage"));
+const VinePublicPost = lazy(() => import("./modules/vine/pages/VinePublicPost"));
+
+function RouteLoadingScreen() {
+  return (
+    <div
+      style={{
+        minHeight: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "24px",
+        background:
+          "radial-gradient(circle at top, rgba(16,185,129,0.12), transparent 34%), linear-gradient(180deg, #eefbf2 0%, #f8fdf9 100%)",
+      }}
+    >
+      <div
+        style={{
+          minWidth: "220px",
+          padding: "18px 22px",
+          borderRadius: "24px",
+          background: "rgba(255,255,255,0.96)",
+          border: "1px solid rgba(16,185,129,0.12)",
+          boxShadow: "0 20px 48px rgba(15,23,42,0.12)",
+          color: "#14532d",
+          fontWeight: 900,
+          textAlign: "center",
+        }}
+      >
+        Loading SPESS…
+      </div>
+    </div>
+  );
+}
 
 
 function App() {
@@ -84,6 +116,7 @@ function App() {
 
   
   return (
+    <Suspense fallback={<RouteLoadingScreen />}>
     <Routes>
     {/* 🌍 Public website */}
     <Route path="/" element={<LandingPage />} />
@@ -149,13 +182,13 @@ function App() {
 <Route path="/ark/admin/alevel/reports" element={<ArkLayout><ALevelReports /></ArkLayout>} />
 
 {/* 🌱 SPESS VINE */}
-<Route path="/vine/login" element={<VineLogin />} />
-<Route path="/vine/register" element={<VineRegister />} />
-<Route path="/vine/forgot-password" element={<VineForgotPassword />} />
-<Route path="/vine/reset-password" element={<VineResetPassword />} />
-<Route path="/vine/verify-email" element={<VineVerifyEmail />} />
-<Route path="/vine/post/:id" element={<VinePublicPost />} />
-<Route element={<VineProtectedRoute />}>
+<Route path="/vine/login" element={<VineRouteErrorBoundary><VineLogin /></VineRouteErrorBoundary>} />
+<Route path="/vine/register" element={<VineRouteErrorBoundary><VineRegister /></VineRouteErrorBoundary>} />
+<Route path="/vine/forgot-password" element={<VineRouteErrorBoundary><VineForgotPassword /></VineRouteErrorBoundary>} />
+<Route path="/vine/reset-password" element={<VineRouteErrorBoundary><VineResetPassword /></VineRouteErrorBoundary>} />
+<Route path="/vine/verify-email" element={<VineRouteErrorBoundary><VineVerifyEmail /></VineRouteErrorBoundary>} />
+<Route path="/vine/post/:id" element={<VineRouteErrorBoundary><VinePublicPost /></VineRouteErrorBoundary>} />
+<Route element={<VineRouteErrorBoundary><VineProtectedRoute /></VineRouteErrorBoundary>}>
   <Route path="/vine/feed" element={<VineFeed />} />
   <Route path="/vine/profile/:username" element={<VineProfile />} />
   <Route path="/vine/settings" element={<VineSettings />} />
@@ -178,6 +211,7 @@ function App() {
 
 
   </Routes>
+  </Suspense>
   
   );
 }

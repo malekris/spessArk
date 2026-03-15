@@ -3,6 +3,7 @@ import { db, io, getOnlineUserIds } from "../../server.js";
 import { authenticate } from "../auth.js";
 import multer from "multer";
 import cloudinary from "../../config/cloudinary.js";
+import { recordPerfQuery, recordPerfRoute } from "./perfStore.js";
 
 const router = express.Router();
 const DISAPPEARING_MODES = new Set(["after_read", "1h", "24h"]);
@@ -12,6 +13,252 @@ const uploadDmMedia = multer({
 });
 
 let dmSchemaReady = false;
+let dmDbName = null;
+let dmPerformanceReady = false;
+let dmPerformancePromise = null;
+
+const DM_CACHE_TTLS = {
+  conversations: 6_000,
+  messages: 4_000,
+  settings: 10_000,
+  unread: 4_000,
+  presence: 5_000,
+};
+const dmReadCache = new Map();
+const DM_READ_CACHE_MAX = 300;
+
+const getDmDbName = async () => {
+  if (dmDbName) return dmDbName;
+  const [[row]] = await db.query("SELECT DATABASE() AS dbName");
+  dmDbName = row?.dbName || null;
+  return dmDbName;
+};
+
+const buildDmCacheKey = (...parts) =>
+  parts
+    .map((part) => {
+      if (part === null || part === undefined) return "";
+      if (typeof part === "string") return part;
+      if (typeof part === "number" || typeof part === "boolean") return String(part);
+      return JSON.stringify(part);
+    })
+    .join("::");
+
+const cloneDmCachedValue = (value) => {
+  try {
+    if (typeof structuredClone === "function") return structuredClone(value);
+    return JSON.parse(JSON.stringify(value));
+  } catch {
+    return value;
+  }
+};
+
+const pruneDmReadCache = () => {
+  const now = Date.now();
+  for (const [key, entry] of dmReadCache.entries()) {
+    if (!entry || entry.expiresAt <= now) dmReadCache.delete(key);
+  }
+  if (dmReadCache.size <= DM_READ_CACHE_MAX) return;
+  const oldest = [...dmReadCache.entries()]
+    .sort((a, b) => (a[1]?.expiresAt || 0) - (b[1]?.expiresAt || 0))
+    .slice(0, dmReadCache.size - DM_READ_CACHE_MAX);
+  for (const [key] of oldest) dmReadCache.delete(key);
+};
+
+const getDmReadCache = (key) => {
+  const entry = dmReadCache.get(key);
+  if (!entry) return { hit: false, value: undefined };
+  if (entry.expiresAt <= Date.now()) {
+    dmReadCache.delete(key);
+    return { hit: false, value: undefined };
+  }
+  return { hit: true, value: cloneDmCachedValue(entry.value) };
+};
+
+const setDmReadCache = (key, value, ttlMs) => {
+  pruneDmReadCache();
+  dmReadCache.set(key, {
+    value: cloneDmCachedValue(value),
+    expiresAt: Date.now() + ttlMs,
+  });
+};
+
+const readThroughDmCache = async (key, ttlMs, loader) => {
+  const cached = getDmReadCache(key);
+  if (cached.hit) return cached.value;
+  const value = await loader();
+  if (value !== undefined) setDmReadCache(key, value, ttlMs);
+  return cloneDmCachedValue(value);
+};
+
+const clearDmReadCache = (...prefixes) => {
+  if (!prefixes.length) {
+    dmReadCache.clear();
+    return;
+  }
+  const normalized = prefixes
+    .flat()
+    .map((prefix) => String(prefix || "").trim())
+    .filter(Boolean);
+  if (!normalized.length) {
+    dmReadCache.clear();
+    return;
+  }
+  for (const key of dmReadCache.keys()) {
+    if (normalized.some((prefix) => key === prefix || key.startsWith(`${prefix}::`))) {
+      dmReadCache.delete(key);
+    }
+  }
+};
+
+const DM_PERF_LOGS_ENABLED = process.env.VINE_PERF_LOGS !== "0";
+const DM_SLOW_ROUTE_MS = Math.max(50, Number(process.env.DM_SLOW_ROUTE_MS || process.env.VINE_SLOW_ROUTE_MS || 500));
+const DM_SLOW_QUERY_MS = Math.max(25, Number(process.env.DM_SLOW_QUERY_MS || process.env.VINE_SLOW_QUERY_MS || 150));
+
+const createDmPerfContext = (routeKey, meta = {}) => ({
+  routeKey,
+  meta,
+  startedAt: Date.now(),
+  queries: [],
+});
+
+const getDmPerfRowCount = (rows) => {
+  if (Array.isArray(rows)) return rows.length;
+  if (rows && typeof rows === "object") {
+    if (Number.isFinite(Number(rows.affectedRows))) return Number(rows.affectedRows);
+    if (Number.isFinite(Number(rows.insertId)) && Number(rows.insertId) > 0) return 1;
+  }
+  return 0;
+};
+
+const timedDmQuery = async (perfCtx, label, sql, params = []) => {
+  const startedAt = Date.now();
+  const result = await db.query(sql, params);
+  const elapsedMs = Date.now() - startedAt;
+  const rows = Array.isArray(result) ? result[0] : undefined;
+  const rowCount = getDmPerfRowCount(rows);
+  if (perfCtx) perfCtx.queries.push({ label, ms: elapsedMs, rows: rowCount });
+  if (DM_PERF_LOGS_ENABLED && elapsedMs >= DM_SLOW_QUERY_MS) {
+    recordPerfQuery("dm", {
+      route: perfCtx?.routeKey || "unknown",
+      label,
+      ms: elapsedMs,
+      rows: rowCount,
+    });
+    console.info(
+      "[dm-perf][query]",
+      JSON.stringify({
+        route: perfCtx?.routeKey || "unknown",
+        label,
+        ms: elapsedMs,
+        rows: rowCount,
+      })
+    );
+  }
+  return result;
+};
+
+const finalizeDmPerfContext = (perfCtx, extra = {}) => {
+  if (!DM_PERF_LOGS_ENABLED || !perfCtx) return;
+  const durationMs = Date.now() - perfCtx.startedAt;
+  const totalQueryMs = perfCtx.queries.reduce((sum, query) => sum + Number(query.ms || 0), 0);
+  const topQueries = [...perfCtx.queries]
+    .sort((a, b) => Number(b.ms || 0) - Number(a.ms || 0))
+    .slice(0, 3);
+  const shouldLog =
+    durationMs >= DM_SLOW_ROUTE_MS ||
+    topQueries.some((query) => Number(query.ms || 0) >= DM_SLOW_QUERY_MS);
+  if (!shouldLog) return;
+  recordPerfRoute("dm", {
+    route: perfCtx.routeKey,
+    ms: durationMs,
+    query_count: perfCtx.queries.length,
+    query_ms: totalQueryMs,
+    top_queries: topQueries,
+    ...perfCtx.meta,
+    ...extra,
+  });
+  console.info(
+    "[dm-perf][route]",
+    JSON.stringify({
+      route: perfCtx.routeKey,
+      ms: durationMs,
+      query_count: perfCtx.queries.length,
+      query_ms: totalQueryMs,
+      top_queries: topQueries,
+      ...perfCtx.meta,
+      ...extra,
+    })
+  );
+};
+
+const runDmPerfRoute = async (routeKey, meta, work) => {
+  const perfCtx = createDmPerfContext(routeKey, meta);
+  try {
+    return await work(perfCtx);
+  } finally {
+    finalizeDmPerfContext(perfCtx);
+  }
+};
+
+const hasDmIndexNamed = async (dbName, tableName, indexName) => {
+  const [rows] = await db.query(
+    `
+    SELECT 1
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND INDEX_NAME = ?
+    LIMIT 1
+    `,
+    [dbName, tableName, indexName]
+  );
+  return rows.length > 0;
+};
+
+const hasDmTable = async (dbName, tableName) => {
+  const [rows] = await db.query(
+    `
+    SELECT 1
+    FROM information_schema.TABLES
+    WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
+    LIMIT 1
+    `,
+    [dbName, tableName]
+  );
+  return rows.length > 0;
+};
+
+const hasDmIndexWithColumns = async (dbName, tableName, columns = []) => {
+  const normalizedColumns = columns.map((col) => String(col).trim().toLowerCase());
+  if (!normalizedColumns.length) return false;
+  const [rows] = await db.query(
+    `
+    SELECT INDEX_NAME, SEQ_IN_INDEX, COLUMN_NAME
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
+    ORDER BY INDEX_NAME, SEQ_IN_INDEX
+    `,
+    [dbName, tableName]
+  );
+  const grouped = new Map();
+  for (const row of rows) {
+    const indexName = String(row.INDEX_NAME || "");
+    if (!grouped.has(indexName)) grouped.set(indexName, []);
+    grouped.get(indexName).push(String(row.COLUMN_NAME || "").trim().toLowerCase());
+  }
+  for (const cols of grouped.values()) {
+    if (cols.length !== normalizedColumns.length) continue;
+    if (cols.every((col, idx) => col === normalizedColumns[idx])) return true;
+  }
+  return false;
+};
+
+const ensureDmIndexExists = async (dbName, tableName, indexName, columns = []) => {
+  if (!dbName || !columns.length) return;
+  if (!(await hasDmTable(dbName, tableName))) return;
+  if (await hasDmIndexNamed(dbName, tableName, indexName)) return;
+  if (await hasDmIndexWithColumns(dbName, tableName, columns)) return;
+  await db.query(`CREATE INDEX ${indexName} ON ${tableName} (${columns.join(", ")})`);
+};
 const addColumnIfMissing = async (tableName, columnName, definitionSql) => {
   const [rows] = await db.query(
     `
@@ -85,6 +332,45 @@ const ensureDmSchema = async () => {
   dmSchemaReady = true;
 };
 
+const ensureDmPerformanceSchema = async () => {
+  if (dmPerformanceReady) return;
+  if (dmPerformancePromise) return dmPerformancePromise;
+
+  dmPerformancePromise = (async () => {
+    await ensureDmSchema();
+    const dbName = await getDmDbName();
+    if (!dbName) return;
+
+    const indexes = [
+      ["vine_conversations", "idx_vine_conversations_user1_user2", ["user1_id", "user2_id"]],
+      ["vine_conversations", "idx_vine_conversations_user2_user1", ["user2_id", "user1_id"]],
+      ["vine_messages", "idx_vine_messages_conversation_created", ["conversation_id", "created_at"]],
+      ["vine_messages", "idx_vine_messages_conversation_read_sender", ["conversation_id", "is_read", "sender_id"]],
+      ["vine_messages", "idx_vine_messages_disappearing_expiry", ["is_disappearing", "disappear_mode", "expires_at"]],
+      ["vine_messages", "idx_vine_messages_sender_created", ["sender_id", "created_at"]],
+      ["vine_conversation_deletes", "idx_vine_conv_deletes_user_conversation", ["user_id", "conversation_id"]],
+      ["vine_conversation_deletes", "idx_vine_conv_deletes_conversation_user", ["conversation_id", "user_id"]],
+      ["vine_message_meta", "idx_vine_message_meta_reply", ["reply_to_id"]],
+      ["vine_message_reactions", "idx_vine_message_reactions_user_message", ["user_id", "message_id"]],
+      ["vine_conversation_settings", "idx_vine_conv_settings_updated", ["updated_at"]],
+    ];
+
+    for (const [tableName, indexName, columns] of indexes) {
+      try {
+        await ensureDmIndexExists(dbName, tableName, indexName, columns);
+      } catch (err) {
+        console.warn(`DM index ensure skipped for ${tableName}.${indexName}:`, err?.message || err);
+      }
+    }
+
+    dmPerformanceReady = true;
+  })().finally(() => {
+    dmPerformancePromise = null;
+  });
+
+  return dmPerformancePromise;
+};
+
 const uploadBufferToCloudinary = (buffer, options = {}) =>
   new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
@@ -152,24 +438,27 @@ const getConversationForUser = async (conversationId, userId) => {
 };
 
 const getConversationSettings = async (conversationId) => {
-  await ensureDmSchema();
-  const [[row]] = await db.query(
-    `
-    SELECT disappearing_enabled, disappear_mode, updated_by, updated_at
-    FROM vine_conversation_settings
-    WHERE conversation_id = ?
-    LIMIT 1
-    `,
-    [conversationId]
-  );
-  return {
-    disappearing_enabled: Number(row?.disappearing_enabled || 0) === 1,
-    disappear_mode: DISAPPEARING_MODES.has(String(row?.disappear_mode || ""))
-      ? row.disappear_mode
-      : "after_read",
-    updated_by: row?.updated_by || null,
-    updated_at: row?.updated_at || null,
-  };
+  await ensureDmPerformanceSchema();
+  const cacheKey = buildDmCacheKey("dm-settings", Number(conversationId || 0));
+  return readThroughDmCache(cacheKey, DM_CACHE_TTLS.settings, async () => {
+    const [[row]] = await db.query(
+      `
+      SELECT disappearing_enabled, disappear_mode, updated_by, updated_at
+      FROM vine_conversation_settings
+      WHERE conversation_id = ?
+      LIMIT 1
+      `,
+      [conversationId]
+    );
+    return {
+      disappearing_enabled: Number(row?.disappearing_enabled || 0) === 1,
+      disappear_mode: DISAPPEARING_MODES.has(String(row?.disappear_mode || ""))
+        ? row.disappear_mode
+        : "after_read",
+      updated_by: row?.updated_by || null,
+      updated_at: row?.updated_at || null,
+    };
+  });
 };
 
 const getDisappearingExpiryForMode = (mode) => {
@@ -230,6 +519,7 @@ const removeMessagesPermanently = async (conversationId, messageIds = []) => {
   });
   if (conversation?.user1_id) io.to(`user-${conversation.user1_id}`).emit("inbox_updated");
   if (conversation?.user2_id) io.to(`user-${conversation.user2_id}`).emit("inbox_updated");
+  clearDmReadCache("dm-conversations", "dm-unread", "dm-messages", buildDmCacheKey("dm-settings", Number(conversationId || 0)));
 
   return ids;
 };
@@ -441,109 +731,124 @@ router.get("/conversations", authenticate, async (req, res) => {
   const q = String(req.query?.q || "").trim().toLowerCase();
 
   try {
-    await ensureDmSchema();
-    await cleanupExpiredDisappearingMessages();
-    const qWhere = q
-      ? `
-        AND (
-          LOWER(u.username) LIKE ?
-          OR LOWER(COALESCE(u.display_name, '')) LIKE ?
-          OR LOWER(COALESCE((
-            SELECT content
-            FROM vine_messages
-            WHERE conversation_id = c.id
-            ORDER BY created_at DESC
-            LIMIT 1
-          ), '')) LIKE ?
-        )
-      `
-      : "";
-    const params = [
-      userId,
-      userId,
-      userId,
-      userId,
-      userId,
-      userId,
-      userId,
-      userId,
-      userId,
-      ...(q ? [`%${q}%`, `%${q}%`, `%${q}%`] : []),
-    ];
-    const [rows] = await db.query(`
-      SELECT 
-        c.id AS conversation_id,
+    const rows = await runDmPerfRoute(
+      "dm-conversations",
+      { user_id: Number(userId), q: q || null },
+      async (perfCtx) => {
+        await ensureDmPerformanceSchema();
+        await cleanupExpiredDisappearingMessages();
+        const cacheKey = buildDmCacheKey("dm-conversations", Number(userId), q || "");
+        return readThroughDmCache(cacheKey, DM_CACHE_TTLS.conversations, async () => {
+          const qWhere = q
+            ? `
+              AND (
+                LOWER(u.username) LIKE ?
+                OR LOWER(COALESCE(u.display_name, '')) LIKE ?
+                OR LOWER(COALESCE((
+                  SELECT content
+                  FROM vine_messages
+                  WHERE conversation_id = c.id
+                  ORDER BY created_at DESC
+                  LIMIT 1
+                ), '')) LIKE ?
+              )
+            `
+            : "";
+          const params = [
+            userId,
+            userId,
+            userId,
+            userId,
+            userId,
+            userId,
+            userId,
+            userId,
+            userId,
+            ...(q ? [`%${q}%`, `%${q}%`, `%${q}%`] : []),
+          ];
+          const [conversationRows] = await timedDmQuery(
+            perfCtx,
+            "dm-conversations.rows",
+            `
+            SELECT 
+              c.id AS conversation_id,
 
-        u.id AS user_id,
-        u.username,
-        u.avatar_url,
-        u.last_active_at,
-        u.show_last_active,
-        u.is_verified,
+              u.id AS user_id,
+              u.username,
+              u.avatar_url,
+              u.last_active_at,
+              u.show_last_active,
+              u.is_verified,
 
-        (
-          SELECT content
-          FROM vine_messages
-          WHERE conversation_id = c.id
-          ORDER BY created_at DESC
-          LIMIT 1
-        ) AS last_message,
+              (
+                SELECT content
+                FROM vine_messages
+                WHERE conversation_id = c.id
+                ORDER BY created_at DESC
+                LIMIT 1
+              ) AS last_message,
 
-        (
-          SELECT created_at
-          FROM vine_messages
-          WHERE conversation_id = c.id
-          ORDER BY created_at DESC
-          LIMIT 1
-        ) AS last_message_time,
+              (
+                SELECT created_at
+                FROM vine_messages
+                WHERE conversation_id = c.id
+                ORDER BY created_at DESC
+                LIMIT 1
+              ) AS last_message_time,
 
-        (
-          SELECT COUNT(*)
-          FROM vine_messages
-          WHERE conversation_id = c.id
-            AND is_read = 0
-            AND sender_id != ?
-        ) AS unread_count,
-        EXISTS (
-          SELECT 1
-          FROM vine_conversation_pins cp
-          WHERE cp.user_id = ?
-            AND cp.conversation_id = c.id
-        ) AS is_pinned,
-        (
-          SELECT cp.pinned_at
-          FROM vine_conversation_pins cp
-          WHERE cp.user_id = ?
-            AND cp.conversation_id = c.id
-          LIMIT 1
-        ) AS pinned_at
+              (
+                SELECT COUNT(*)
+                FROM vine_messages
+                WHERE conversation_id = c.id
+                  AND is_read = 0
+                  AND sender_id != ?
+              ) AS unread_count,
+              EXISTS (
+                SELECT 1
+                FROM vine_conversation_pins cp
+                WHERE cp.user_id = ?
+                  AND cp.conversation_id = c.id
+              ) AS is_pinned,
+              (
+                SELECT cp.pinned_at
+                FROM vine_conversation_pins cp
+                WHERE cp.user_id = ?
+                  AND cp.conversation_id = c.id
+                LIMIT 1
+              ) AS pinned_at
 
-      FROM vine_conversations c
-      JOIN vine_users u 
-        ON u.id = IF(c.user1_id = ?, c.user2_id, c.user1_id)
+            FROM vine_conversations c
+            JOIN vine_users u 
+              ON u.id = IF(c.user1_id = ?, c.user2_id, c.user1_id)
 
-      WHERE (c.user1_id = ? OR c.user2_id = ?)
-        AND EXISTS (
-          SELECT 1
-          FROM vine_messages vm
-          WHERE vm.conversation_id = c.id
-        )
-        AND NOT EXISTS (
-          SELECT 1
-          FROM vine_conversation_deletes d
-          WHERE d.conversation_id = c.id
-            AND d.user_id = ?
-        )
-        AND NOT EXISTS (
-          SELECT 1
-          FROM vine_mutes m
-          WHERE m.muter_id = ?
-            AND m.muted_id = IF(c.user1_id = ?, c.user2_id, c.user1_id)
-        )
-        ${qWhere}
+            WHERE (c.user1_id = ? OR c.user2_id = ?)
+              AND EXISTS (
+                SELECT 1
+                FROM vine_messages vm
+                WHERE vm.conversation_id = c.id
+              )
+              AND NOT EXISTS (
+                SELECT 1
+                FROM vine_conversation_deletes d
+                WHERE d.conversation_id = c.id
+                  AND d.user_id = ?
+              )
+              AND NOT EXISTS (
+                SELECT 1
+                FROM vine_mutes m
+                WHERE m.muter_id = ?
+                  AND m.muted_id = IF(c.user1_id = ?, c.user2_id, c.user1_id)
+              )
+              ${qWhere}
 
-      ORDER BY is_pinned DESC, COALESCE(pinned_at, '1970-01-01') DESC, last_message_time DESC
-    `, params);
+            ORDER BY is_pinned DESC, COALESCE(pinned_at, '1970-01-01') DESC, last_message_time DESC
+          `,
+            params
+          );
+          return conversationRows;
+        });
+      }
+    );
 
     res.json(rows);
   } catch (err) {
@@ -560,50 +865,65 @@ router.get("/conversations/:id/messages", authenticate, async (req, res) => {
   const conversationId = req.params.id;
 
   try {
-    await cleanupExpiredDisappearingMessages(conversationId);
-    // 1. Verify user belongs to this conversation
-    const [check] = await db.query(
-      `
-      SELECT 1
-      FROM vine_conversations
-      WHERE id = ?
-        AND (user1_id = ? OR user2_id = ?)
-      LIMIT 1
-      `,
-      [conversationId, userId, userId]
-    );
+    const result = await runDmPerfRoute(
+      "dm-messages",
+      { conversation_id: Number(conversationId), user_id: Number(userId) },
+      async (perfCtx) => {
+        await ensureDmPerformanceSchema();
+        await cleanupExpiredDisappearingMessages(conversationId);
+        const [check] = await timedDmQuery(
+          perfCtx,
+          "dm-messages.check",
+          `
+          SELECT 1
+          FROM vine_conversations
+          WHERE id = ?
+            AND (user1_id = ? OR user2_id = ?)
+          LIMIT 1
+          `,
+          [conversationId, userId, userId]
+        );
 
-    if (!check.length) {
-      return res.status(403).json({ error: "Access denied" });
+        if (!check.length) {
+          return { status: 403, body: { error: "Access denied" } };
+        }
+
+        const cacheKey = buildDmCacheKey("dm-messages", Number(conversationId), Number(userId));
+        const hydrated = await readThroughDmCache(cacheKey, DM_CACHE_TTLS.messages, async () => {
+          const [messages] = await timedDmQuery(
+            perfCtx,
+            "dm-messages.rows",
+            `
+            SELECT 
+              m.id,
+              m.sender_id,
+              m.content,
+              m.created_at,
+              m.is_read,
+              m.is_disappearing,
+              m.disappear_mode,
+              m.expires_at,
+              u.username,
+              u.avatar_url,
+              u.is_verified
+            FROM vine_messages m
+            JOIN vine_users u ON m.sender_id = u.id
+            WHERE m.conversation_id = ?
+            ORDER BY m.created_at ASC
+            `,
+            [conversationId]
+          );
+
+          return hydrateMessages(messages, userId);
+        });
+
+        return { status: 200, body: hydrated };
+      }
+    );
+    if (result.status !== 200) {
+      return res.status(result.status).json(result.body);
     }
-
-    // 2. Fetch messages without auto-marking read.
-    // Read state is advanced explicitly by the read endpoint so disappearing
-    // messages are not removed before the viewer can render them.
-    const [messages] = await db.query(
-      `
-      SELECT 
-        m.id,
-        m.sender_id,
-        m.content,
-        m.created_at,
-        m.is_read,
-        m.is_disappearing,
-        m.disappear_mode,
-        m.expires_at,
-        u.username,
-        u.avatar_url,
-        u.is_verified
-      FROM vine_messages m
-      JOIN vine_users u ON m.sender_id = u.id
-      WHERE m.conversation_id = ?
-      ORDER BY m.created_at ASC
-      `,
-      [conversationId]
-    );
-
-    const hydrated = await hydrateMessages(messages, userId);
-    res.json(hydrated);
+    res.json(result.body);
   } catch (err) {
     console.error("Get messages error:", err);
     res.status(500).json({ error: "Failed to load messages" });
@@ -618,6 +938,7 @@ router.post("/start", authenticate, async (req, res) => {
   const { userId: receiverId } = req.body;
 
   try {
+    await ensureDmPerformanceSchema();
     if (!receiverId || Number(receiverId) === Number(senderId)) {
       return res.status(400).json({ error: "Invalid recipient" });
     }
@@ -680,6 +1001,7 @@ router.post("/start", authenticate, async (req, res) => {
         `,
         [existing[0].id, senderId]
       );
+      clearDmReadCache("dm-conversations", "dm-unread");
       return res.json({ conversationId: existing[0].id });
     }
 
@@ -697,6 +1019,7 @@ router.get("/conversations/:id/settings", authenticate, async (req, res) => {
   const conversationId = Number(req.params.id);
   if (!conversationId) return res.status(400).json({ error: "Invalid conversation" });
   try {
+    await ensureDmPerformanceSchema();
     const convo = await getConversationForUser(conversationId, userId);
     if (!convo) return res.status(403).json({ error: "Access denied" });
     const settings = await getConversationSettings(conversationId);
@@ -714,6 +1037,7 @@ router.patch("/conversations/:id/settings", authenticate, async (req, res) => {
 
   try {
     await ensureDmSchema();
+    await ensureDmPerformanceSchema();
     const convo = await getConversationForUser(conversationId, userId);
     if (!convo) return res.status(403).json({ error: "Access denied" });
 
@@ -741,6 +1065,7 @@ router.patch("/conversations/:id/settings", authenticate, async (req, res) => {
     });
     io.to(`user-${convo.user1_id}`).emit("inbox_updated");
     io.to(`user-${convo.user2_id}`).emit("inbox_updated");
+    clearDmReadCache("dm-conversations", "dm-unread", buildDmCacheKey("dm-settings", conversationId), buildDmCacheKey("dm-messages", conversationId));
 
     res.json({ success: true, conversation_id: conversationId, ...settings });
   } catch (err) {
@@ -764,7 +1089,7 @@ router.post("/send", authenticate, async (req, res) => {
   }
 
   try {
-    await ensureDmSchema();
+    await ensureDmPerformanceSchema();
     let activeConversationId = conversationId;
     let user1_id;
     let user2_id;
@@ -944,6 +1269,7 @@ router.post("/send", authenticate, async (req, res) => {
     // ✅ Send to both users inbox (conversation list realtime)
     io.to(`user-${user1_id}`).emit("dm_received", fullMessage);
     io.to(`user-${user2_id}`).emit("dm_received", fullMessage);
+    clearDmReadCache("dm-conversations", "dm-unread", buildDmCacheKey("dm-messages", Number(activeConversationId)));
 
     // Respond normally
     res.json({ message: fullMessage, conversationId: activeConversationId });
@@ -990,7 +1316,7 @@ router.post("/messages/:id/reaction", authenticate, async (req, res) => {
   }
 
   try {
-    await ensureDmSchema();
+    await ensureDmPerformanceSchema();
     const [[messageRow]] = await db.query(
       `
       SELECT m.id, m.conversation_id
@@ -1040,6 +1366,7 @@ router.post("/messages/:id/reaction", authenticate, async (req, res) => {
       viewer_reaction: reaction || null,
       actor_id: userId,
     });
+    clearDmReadCache(buildDmCacheKey("dm-messages", Number(messageRow.conversation_id)));
 
     res.json({ success: true, message_id: messageId, reactions: counts, viewer_reaction: reaction || null });
   } catch (err) {
@@ -1055,6 +1382,7 @@ router.post("/conversations/:id/read", authenticate, async (req, res) => {
   const conversationId = req.params.id;
 
   try {
+    await ensureDmPerformanceSchema();
     const convo = await markConversationReadAndDisappear(conversationId, userId);
     if (!convo) {
       return res.status(403).json({ error: "Access denied" });
@@ -1069,6 +1397,7 @@ router.post("/conversations/:id/read", authenticate, async (req, res) => {
       conversationId,
       seenBy: userId
     });
+    clearDmReadCache("dm-conversations", "dm-unread", buildDmCacheKey("dm-messages", Number(conversationId)));
 
     res.json({ success: true, disappeared_message_ids: convo.disappearedIds || [] });
 
@@ -1085,6 +1414,7 @@ router.delete("/conversations/:id", authenticate, async (req, res) => {
   const conversationId = req.params.id;
 
   try {
+    await ensureDmPerformanceSchema();
     // Ensure user belongs to this conversation
     const [check] = await db.query(
       `
@@ -1111,6 +1441,7 @@ router.delete("/conversations/:id", authenticate, async (req, res) => {
 
     // Notify frontend live
     io.to(`user-${userId}`).emit("inbox_updated");
+    clearDmReadCache("dm-conversations", "dm-unread", buildDmCacheKey("dm-messages", Number(conversationId)));
 
     res.json({ success: true });
 
@@ -1126,7 +1457,7 @@ router.post("/conversations/:id/pin", authenticate, async (req, res) => {
   const pinned = Boolean(req.body?.pinned);
   if (!conversationId) return res.status(400).json({ error: "Invalid conversation" });
   try {
-    await ensureDmSchema();
+    await ensureDmPerformanceSchema();
     const [[check]] = await db.query(
       `
       SELECT id
@@ -1154,6 +1485,7 @@ router.post("/conversations/:id/pin", authenticate, async (req, res) => {
       );
     }
     io.to(`user-${userId}`).emit("inbox_updated");
+    clearDmReadCache("dm-conversations", "dm-unread");
     res.json({ success: true, pinned });
   } catch (err) {
     console.error("Pin conversation error:", err);
@@ -1166,7 +1498,7 @@ router.delete("/messages/:id", authenticate, async (req, res) => {
   const messageId = Number(req.params.id);
   if (!messageId) return res.status(400).json({ error: "Invalid message id" });
   try {
-    await ensureDmSchema();
+    await ensureDmPerformanceSchema();
     const [[row]] = await db.query(
       `
       SELECT id, conversation_id, sender_id
@@ -1199,46 +1531,63 @@ router.get("/conversations/:id/messages", authenticate, async (req, res) => {
   const conversationId = req.params.id;
 
   try {
-    await cleanupExpiredDisappearingMessages(conversationId);
-    // 1. Must belong to conversation
-    const [check] = await db.query(
-      `
-      SELECT 1
-      FROM vine_conversations
-      WHERE id = ?
-        AND (user1_id = ? OR user2_id = ?)
-      `,
-      [conversationId, userId, userId]
-    );
+    const result = await runDmPerfRoute(
+      "dm-messages",
+      { conversation_id: Number(conversationId), user_id: Number(userId), variant: "safe" },
+      async (perfCtx) => {
+        await ensureDmPerformanceSchema();
+        await cleanupExpiredDisappearingMessages(conversationId);
+        const [check] = await timedDmQuery(
+          perfCtx,
+          "dm-messages.check",
+          `
+          SELECT 1
+          FROM vine_conversations
+          WHERE id = ?
+            AND (user1_id = ? OR user2_id = ?)
+          `,
+          [conversationId, userId, userId]
+        );
 
-    if (!check.length) {
-      return res.status(403).json({ error: "Access denied" });
+        if (!check.length) {
+          return { status: 403, body: { error: "Access denied" } };
+        }
+
+        const cacheKey = buildDmCacheKey("dm-messages", Number(conversationId), Number(userId));
+        const hydrated = await readThroughDmCache(cacheKey, DM_CACHE_TTLS.messages, async () => {
+          const [messages] = await timedDmQuery(
+            perfCtx,
+            "dm-messages.rows",
+            `
+            SELECT 
+              m.id,
+              m.sender_id,
+              m.content,
+              m.created_at,
+              m.is_read,
+              m.is_disappearing,
+              m.disappear_mode,
+              m.expires_at,
+              u.username,
+              u.avatar_url
+            FROM vine_messages m
+            JOIN vine_users u ON m.sender_id = u.id
+            WHERE m.conversation_id = ?
+            ORDER BY m.created_at ASC
+            `,
+            [conversationId]
+          );
+
+          return hydrateMessages(messages, userId);
+        });
+
+        return { status: 200, body: hydrated };
+      }
+    );
+    if (result.status !== 200) {
+      return res.status(result.status).json(result.body);
     }
-
-    // 2. Fetch messages without auto-marking read.
-    const [messages] = await db.query(
-      `
-      SELECT 
-        m.id,
-        m.sender_id,
-        m.content,
-        m.created_at,
-        m.is_read,
-        m.is_disappearing,
-        m.disappear_mode,
-        m.expires_at,
-        u.username,
-        u.avatar_url
-      FROM vine_messages m
-      JOIN vine_users u ON m.sender_id = u.id
-      WHERE m.conversation_id = ?
-      ORDER BY m.created_at ASC
-      `,
-      [conversationId]
-    );
-
-    const hydrated = await hydrateMessages(messages, userId);
-    res.json(hydrated);
+    res.json(result.body);
   } catch (err) {
     console.error("Get messages error:", err);
     res.status(500).json({ error: "Failed to load messages" });
@@ -1252,26 +1601,42 @@ router.get("/unread-total", authenticate, async (req, res) => {
   const userId = req.user.id;
 
   try {
-    await cleanupExpiredDisappearingMessages();
-    const [[row]] = await db.query(`
-      SELECT COUNT(*) AS total
-      FROM vine_messages m
-      JOIN vine_conversations c ON c.id = m.conversation_id
-      LEFT JOIN vine_conversation_deletes d
-        ON d.conversation_id = c.id AND d.user_id = ?
-      WHERE m.is_read = 0
-        AND m.sender_id != ?
-        AND (c.user1_id = ? OR c.user2_id = ?)
-        AND d.conversation_id IS NULL
-        AND NOT EXISTS (
-          SELECT 1
-          FROM vine_mutes m2
-          WHERE m2.muter_id = ?
-            AND m2.muted_id = m.sender_id
-        )
-    `, [userId, userId, userId, userId, userId]);
+    const row = await runDmPerfRoute(
+      "dm-unread-total",
+      { user_id: Number(userId) },
+      async (perfCtx) => {
+        await ensureDmPerformanceSchema();
+        await cleanupExpiredDisappearingMessages();
+        const cacheKey = buildDmCacheKey("dm-unread", Number(userId));
+        return readThroughDmCache(cacheKey, DM_CACHE_TTLS.unread, async () => {
+          const [[countRow]] = await timedDmQuery(
+            perfCtx,
+            "dm-unread-total.count",
+            `
+            SELECT COUNT(*) AS total
+            FROM vine_messages m
+            JOIN vine_conversations c ON c.id = m.conversation_id
+            LEFT JOIN vine_conversation_deletes d
+              ON d.conversation_id = c.id AND d.user_id = ?
+            WHERE m.is_read = 0
+              AND m.sender_id != ?
+              AND (c.user1_id = ? OR c.user2_id = ?)
+              AND d.conversation_id IS NULL
+              AND NOT EXISTS (
+                SELECT 1
+                FROM vine_mutes m2
+                WHERE m2.muter_id = ?
+                  AND m2.muted_id = m.sender_id
+              )
+          `,
+            [userId, userId, userId, userId, userId]
+          );
+          return countRow;
+        });
+      }
+    );
 
-    res.json({ total: row.total || 0 });
+    res.json({ total: Number(row?.total || 0) });
   } catch (err) {
     console.error("Unread total error:", err);
     res.status(500).json({ total: 0 });
@@ -1284,93 +1649,107 @@ router.get("/unread-total", authenticate, async (req, res) => {
 router.get("/presence", authenticate, async (req, res) => {
   const userId = Number(req.user.id);
   try {
-    const onlineUserIds = getOnlineUserIds()
-      .map((id) => Number(id))
-      .filter((id) => id && id !== userId);
+    const payload = await runDmPerfRoute(
+      "dm-presence",
+      { user_id: Number(userId) },
+      async (perfCtx) => {
+        await ensureDmPerformanceSchema();
+        const onlineUserIds = getOnlineUserIds()
+          .map((id) => Number(id))
+          .filter((id) => id && id !== userId);
+        const cacheKey = buildDmCacheKey("dm-presence", Number(userId), onlineUserIds.sort((a, b) => a - b).join(","));
+        return readThroughDmCache(cacheKey, DM_CACHE_TTLS.presence, async () => {
+          let activeNow = [];
+          if (onlineUserIds.length > 0) {
+            const [rows] = await timedDmQuery(
+              perfCtx,
+              "dm-presence.active",
+              `
+              SELECT
+                u.id,
+                u.username,
+                u.display_name,
+                u.avatar_url,
+                u.is_verified,
+                u.last_active_at
+              FROM vine_users u
+              WHERE u.id IN (?)
+                AND EXISTS (
+                  SELECT 1
+                  FROM vine_follows f
+                  WHERE f.follower_id = u.id
+                    AND f.following_id = ?
+                )
+                AND u.show_last_active = 1
+                AND NOT EXISTS (
+                  SELECT 1
+                  FROM vine_blocks b
+                  WHERE (b.blocker_id = ? AND b.blocked_id = u.id)
+                     OR (b.blocker_id = u.id AND b.blocked_id = ?)
+                )
+                AND NOT EXISTS (
+                  SELECT 1
+                  FROM vine_mutes m
+                  WHERE m.muter_id = ?
+                    AND m.muted_id = u.id
+                )
+              ORDER BY u.last_active_at DESC
+              LIMIT 20
+              `,
+              [onlineUserIds, userId, userId, userId, userId]
+            );
+            activeNow = Array.isArray(rows) ? rows : [];
+          }
 
-    let activeNow = [];
-    if (onlineUserIds.length > 0) {
-      const [rows] = await db.query(
-        `
-        SELECT
-          u.id,
-          u.username,
-          u.display_name,
-          u.avatar_url,
-          u.is_verified,
-          u.last_active_at
-        FROM vine_users u
-        WHERE u.id IN (?)
-          AND EXISTS (
-            SELECT 1
-            FROM vine_follows f
-            WHERE f.follower_id = u.id
-              AND f.following_id = ?
-          )
-          AND u.show_last_active = 1
-          AND NOT EXISTS (
-            SELECT 1
-            FROM vine_blocks b
-            WHERE (b.blocker_id = ? AND b.blocked_id = u.id)
-               OR (b.blocker_id = u.id AND b.blocked_id = ?)
-          )
-          AND NOT EXISTS (
-            SELECT 1
-            FROM vine_mutes m
-            WHERE m.muter_id = ?
-              AND m.muted_id = u.id
-          )
-        ORDER BY u.last_active_at DESC
-        LIMIT 20
-        `,
-        [onlineUserIds, userId, userId, userId, userId]
-      );
-      activeNow = Array.isArray(rows) ? rows : [];
-    }
+          const excludeIds = [userId, ...activeNow.map((u) => Number(u.id)).filter(Boolean)];
+          const [recentlyActive] = await timedDmQuery(
+            perfCtx,
+            "dm-presence.recent",
+            `
+            SELECT
+              u.id,
+              u.username,
+              u.display_name,
+              u.avatar_url,
+              u.is_verified,
+              u.last_active_at
+            FROM vine_users u
+            WHERE u.id NOT IN (?)
+              AND EXISTS (
+                SELECT 1
+                FROM vine_follows f
+                WHERE f.follower_id = u.id
+                  AND f.following_id = ?
+              )
+              AND u.show_last_active = 1
+              AND u.last_active_at IS NOT NULL
+              AND NOT EXISTS (
+                SELECT 1
+                FROM vine_blocks b
+                WHERE (b.blocker_id = ? AND b.blocked_id = u.id)
+                   OR (b.blocker_id = u.id AND b.blocked_id = ?)
+              )
+              AND NOT EXISTS (
+                SELECT 1
+                FROM vine_mutes m
+                WHERE m.muter_id = ?
+                  AND m.muted_id = u.id
+              )
+            ORDER BY u.last_active_at DESC
+            LIMIT 40
+            `,
+            [excludeIds, userId, userId, userId, userId]
+          );
 
-    const excludeIds = [userId, ...activeNow.map((u) => Number(u.id)).filter(Boolean)];
-
-    const [recentlyActive] = await db.query(
-      `
-      SELECT
-        u.id,
-        u.username,
-        u.display_name,
-        u.avatar_url,
-        u.is_verified,
-        u.last_active_at
-      FROM vine_users u
-      WHERE u.id NOT IN (?)
-        AND EXISTS (
-          SELECT 1
-          FROM vine_follows f
-          WHERE f.follower_id = u.id
-            AND f.following_id = ?
-        )
-        AND u.show_last_active = 1
-        AND u.last_active_at IS NOT NULL
-        AND NOT EXISTS (
-          SELECT 1
-          FROM vine_blocks b
-          WHERE (b.blocker_id = ? AND b.blocked_id = u.id)
-             OR (b.blocker_id = u.id AND b.blocked_id = ?)
-        )
-        AND NOT EXISTS (
-          SELECT 1
-          FROM vine_mutes m
-          WHERE m.muter_id = ?
-            AND m.muted_id = u.id
-        )
-      ORDER BY u.last_active_at DESC
-      LIMIT 40
-      `,
-      [excludeIds, userId, userId, userId, userId]
+          return {
+            active_now: activeNow,
+            recently_active: Array.isArray(recentlyActive) ? recentlyActive : [],
+          };
+        });
+      }
     );
 
-    res.json({
-      active_now: activeNow,
-      recently_active: Array.isArray(recentlyActive) ? recentlyActive : [],
-    });
+    res.json(payload);
   } catch (err) {
     console.error("Presence rail error:", err);
     res.status(500).json({ active_now: [], recently_active: [] });

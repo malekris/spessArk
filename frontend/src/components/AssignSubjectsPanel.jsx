@@ -1,8 +1,7 @@
 // src/components/AssignSubjectsPanel.jsx
 import React, { useEffect, useState } from "react";
 import { plainFetch } from "../lib/api";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
+import { loadPdfTools } from "../utils/loadPdfTools";
 
 
 // fallback master subjects
@@ -242,11 +241,12 @@ export default function AssignSubjectsPanel({ active }) {
     return d.toLocaleString();
   }
 
-  function handleExportAssignmentsPDF() {
+  async function handleExportAssignmentsPDF() {
     if (filteredAssignments.length === 0) {
       alert("No assignments to export.");
       return;
     }
+    const { jsPDF, autoTable } = await loadPdfTools();
     const doc = new jsPDF("p", "mm", "a4");
     const generatedAt = new Date().toLocaleString();
     const pageWidth = doc.internal.pageSize.getWidth();

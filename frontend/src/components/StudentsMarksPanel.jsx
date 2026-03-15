@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import jsPDF from "jspdf";
+import { loadPdfTools } from "../utils/loadPdfTools";
 
 /**
  * StudentsMarksPanel handles:
@@ -270,8 +270,9 @@ function StudentsMarksPanel({ apiBase, initialTab, onBack }) {
   };
 
   // PDF helpers (marks & marksheet) re-used from original
-  const handleDownloadPdf = () => {
+  const handleDownloadPdf = async () => {
     if (!selectedMarksSet || marksDetail.length === 0) return;
+    const { jsPDF } = await loadPdfTools();
     const doc = new jsPDF();
     const schoolName = "St. Phillip's Equatorial Secondary School (SPESS)";
     const aoiTitle = selectedMarksSet.aoi_label || "AOI";
@@ -354,7 +355,7 @@ function StudentsMarksPanel({ apiBase, initialTab, onBack }) {
     doc.save(filename);
   };
 
-  const handleDownloadMarksheetPdf = () => {
+  const handleDownloadMarksheetPdf = async () => {
     setMarksheetError("");
   
     if (!marksheetClass) {
@@ -375,6 +376,7 @@ function StudentsMarksPanel({ apiBase, initialTab, onBack }) {
       return;
     }
   
+    const { jsPDF } = await loadPdfTools();
     const doc = new jsPDF("p", "mm", "a4");
     const pageW = doc.internal.pageSize.getWidth();
     const pageH = doc.internal.pageSize.getHeight();

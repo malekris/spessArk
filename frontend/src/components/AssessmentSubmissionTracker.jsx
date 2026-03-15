@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect } from "react";
-import jsPDF from "jspdf";
+import { loadPdfTools } from "../utils/loadPdfTools";
 
 const OFFICIAL_SUBJECTS = [
   "ICT",
@@ -153,7 +153,8 @@ export default function AssessmentSubmissionTracker({
     });
   }, [filtered, expectedByGroup, officialSubjects, seedGroups]);
   // PDF 
-  const handleDownloadTrackerPdf = () => {
+  const handleDownloadTrackerPdf = async () => {
+    const { jsPDF } = await loadPdfTools();
     const doc = new jsPDF("p", "mm", "a4");
   
     const pageW = doc.internal.pageSize.getWidth();

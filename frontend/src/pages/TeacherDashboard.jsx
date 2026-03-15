@@ -1,12 +1,11 @@
 // src/pages/TeacherDashboard.jsx
 import React, { useEffect, useState, useCallback } from "react";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
 import "./AdminDashboard.css";
 import badge from "../assets/badge.png";
 import useIdleLogout from "../hooks/useIdleLogout";
 import { useNavigate } from "react-router-dom";
 import { plainFetch } from "../lib/api";
+import { loadPdfTools } from "../utils/loadPdfTools";
 
 // ============================
 // CONSTANTS / CONFIG
@@ -656,6 +655,7 @@ useEffect(() => {
       return;
     }
 
+    const { jsPDF, autoTable } = await loadPdfTools();
     const doc = new jsPDF("p", "mm", "a4");
     const img = new Image();
     img.src = badge;

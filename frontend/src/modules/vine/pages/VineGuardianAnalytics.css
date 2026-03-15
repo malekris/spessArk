@@ -123,6 +123,39 @@
   font-weight: 700;
 }
 
+.guardian-perf-grid .guardian-compare-card {
+  min-height: 74px;
+  display: flex;
+  align-items: center;
+}
+
+.guardian-perf-thresholds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 14px;
+}
+
+.guardian-perf-thresholds span {
+  background: linear-gradient(180deg, #f0fdf4 0%, #dcfce7 100%);
+  border: 1px solid #a7f3d0;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: #065f46;
+}
+
+.guardian-perf-refresh {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 14px;
+  color: #334155;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
 .guardian-bars {
   display: flex;
   align-items: flex-end;
@@ -173,6 +206,47 @@ button.guardian-row {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+}
+
+.guardian-row-perf {
+  grid-template-columns: minmax(220px, 1.2fr) minmax(200px, 1fr) auto;
+}
+
+.guardian-row-compact {
+  padding: 8px 10px;
+}
+
+.guardian-perf-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.guardian-perf-label strong {
+  font-size: 0.98rem;
+}
+
+.guardian-perf-label small {
+  color: #0f766e;
+  font-weight: 700;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+}
+
+.guardian-perf-side {
+  color: #334155;
+  font-weight: 800;
+  justify-self: end;
+}
+
+.guardian-perf-split {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 14px;
+}
+
+.guardian-perf-split h5 {
+  margin: 0 0 8px;
+  color: #065f46;
 }
 
 .guardian-release-btn {
@@ -260,5 +334,17 @@ button.guardian-row {
 @media (max-width: 768px) {
   .guardian-analytics-page {
     padding: 14px;
+  }
+
+  .guardian-row-perf {
+    grid-template-columns: 1fr;
+  }
+
+  .guardian-perf-side {
+    justify-self: start;
+  }
+
+  .guardian-perf-refresh {
+    flex-direction: column;
   }
 }

@@ -13,6 +13,7 @@ import { uploadPostCloudinary } from "../../middleware/upload.js";
 import cloudinary from "../../config/cloudinary.js";
 import sharp from "sharp";
 import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import { getGuardianPerfSnapshot, recordPerfQuery, recordPerfRoute } from "./perfStore.js";
 
 const router = express.Router();
 const SESSION_IDLE_MS = 1 * 60 * 60 * 1000;
@@ -138,6 +139,24 @@ const fetchGiphy = async (endpoint, params = {}) => {
   return { results };
 };
 
+const emitVineFeedUpdated = (payload = {}) => {
+  clearVineReadCache();
+  try {
+    io.emit("vine_feed_updated", payload);
+  } catch (err) {
+    console.warn("Failed to emit vine_feed_updated", err?.message || err);
+  }
+};
+
+const emitVineStatusUpdated = (payload = {}) => {
+  clearVineReadCache();
+  try {
+    io.emit("vine_status_updated", payload);
+  } catch (err) {
+    console.warn("Failed to emit vine_status_updated", err?.message || err);
+  }
+};
+
 const isLikelyVideoUrl = (url) =>
   /\/video\/upload\//i.test(url) || /\.(mp4|mov|webm|m4v|avi|mkv|ogv)(\?|$)/i.test(url);
 
@@ -253,6 +272,328 @@ const getDbName = async () => {
   return cachedDbName;
 };
 
+const VINE_READ_CACHE_MAX = 600;
+const VINE_CACHE_TTLS = {
+  feed: 8_000,
+  communityPosts: 8_000,
+  profileHeader: 20_000,
+  profilePosts: 12_000,
+  profileLikes: 12_000,
+  profilePhotos: 12_000,
+  profileBookmarks: 8_000,
+  publicPost: 20_000,
+  comments: 8_000,
+  trending: 15_000,
+  followers: 20_000,
+  following: 20_000,
+  communityAssignments: 10_000,
+  communityAssignmentSubmissions: 10_000,
+  communityGradebook: 12_000,
+  communityProgress: 10_000,
+  communityLibrary: 20_000,
+  communityAttendance: 8_000,
+  mutedUsers: 20_000,
+  blockedUsers: 20_000,
+  notifications: 5_000,
+  notificationCounts: 4_000,
+};
+const vineReadCache = new Map();
+
+const cloneCachedValue = (value) => {
+  try {
+    if (typeof structuredClone === "function") {
+      return structuredClone(value);
+    }
+    return JSON.parse(JSON.stringify(value));
+  } catch {
+    return value;
+  }
+};
+
+const buildVineCacheKey = (...parts) =>
+  parts
+    .map((part) => {
+      if (part === null || part === undefined) return "";
+      if (typeof part === "string") return part;
+      if (typeof part === "number" || typeof part === "boolean") return String(part);
+      return JSON.stringify(part);
+    })
+    .join("::");
+
+const pruneVineReadCache = () => {
+  const now = Date.now();
+  for (const [key, entry] of vineReadCache.entries()) {
+    if (!entry || entry.expiresAt <= now) {
+      vineReadCache.delete(key);
+    }
+  }
+  if (vineReadCache.size <= VINE_READ_CACHE_MAX) return;
+  const oldestEntries = [...vineReadCache.entries()]
+    .sort((a, b) => (a[1]?.expiresAt || 0) - (b[1]?.expiresAt || 0))
+    .slice(0, vineReadCache.size - VINE_READ_CACHE_MAX);
+  for (const [key] of oldestEntries) {
+    vineReadCache.delete(key);
+  }
+};
+
+const getVineReadCache = (key) => {
+  const entry = vineReadCache.get(key);
+  if (!entry) return { hit: false, value: undefined };
+  if (entry.expiresAt <= Date.now()) {
+    vineReadCache.delete(key);
+    return { hit: false, value: undefined };
+  }
+  return { hit: true, value: cloneCachedValue(entry.value) };
+};
+
+const setVineReadCache = (key, value, ttlMs) => {
+  pruneVineReadCache();
+  vineReadCache.set(key, {
+    value: cloneCachedValue(value),
+    expiresAt: Date.now() + ttlMs,
+  });
+};
+
+const readThroughVineCache = async (key, ttlMs, loader) => {
+  const cached = getVineReadCache(key);
+  if (cached.hit) return cached.value;
+  const value = await loader();
+  if (value !== undefined) {
+    setVineReadCache(key, value, ttlMs);
+  }
+  return cloneCachedValue(value);
+};
+
+const clearVineReadCache = (...prefixes) => {
+  if (!prefixes.length) {
+    vineReadCache.clear();
+    return;
+  }
+  const normalizedPrefixes = prefixes
+    .flat()
+    .map((prefix) => String(prefix || "").trim())
+    .filter(Boolean);
+  if (!normalizedPrefixes.length) {
+    vineReadCache.clear();
+    return;
+  }
+  for (const key of vineReadCache.keys()) {
+    if (
+      normalizedPrefixes.some(
+        (prefix) => key === prefix || key.startsWith(`${prefix}::`)
+      )
+    ) {
+      vineReadCache.delete(key);
+    }
+  }
+};
+
+const VINE_PERF_LOGS_ENABLED = process.env.VINE_PERF_LOGS !== "0";
+const VINE_SLOW_ROUTE_MS = Math.max(50, Number(process.env.VINE_SLOW_ROUTE_MS || 700));
+const VINE_SLOW_QUERY_MS = Math.max(25, Number(process.env.VINE_SLOW_QUERY_MS || 180));
+
+const createVinePerfContext = (routeKey, meta = {}) => ({
+  routeKey,
+  meta,
+  startedAt: Date.now(),
+  queries: [],
+});
+
+const getPerfRowCount = (rows) => {
+  if (Array.isArray(rows)) return rows.length;
+  if (rows && typeof rows === "object") {
+    if (Number.isFinite(Number(rows.affectedRows))) return Number(rows.affectedRows);
+    if (Number.isFinite(Number(rows.insertId)) && Number(rows.insertId) > 0) return 1;
+  }
+  return 0;
+};
+
+const timedVineQuery = async (perfCtx, label, sql, params = []) => {
+  const startedAt = Date.now();
+  const result = await db.query(sql, params);
+  const elapsedMs = Date.now() - startedAt;
+  const rows = Array.isArray(result) ? result[0] : undefined;
+  const rowCount = getPerfRowCount(rows);
+  if (perfCtx) {
+    perfCtx.queries.push({ label, ms: elapsedMs, rows: rowCount });
+  }
+  if (VINE_PERF_LOGS_ENABLED && elapsedMs >= VINE_SLOW_QUERY_MS) {
+    recordPerfQuery("vine", {
+      route: perfCtx?.routeKey || "unknown",
+      label,
+      ms: elapsedMs,
+      rows: rowCount,
+    });
+    console.info(
+      "[vine-perf][query]",
+      JSON.stringify({
+        route: perfCtx?.routeKey || "unknown",
+        label,
+        ms: elapsedMs,
+        rows: rowCount,
+      })
+    );
+  }
+  return result;
+};
+
+const finalizeVinePerfContext = (perfCtx, extra = {}) => {
+  if (!VINE_PERF_LOGS_ENABLED || !perfCtx) return;
+  const durationMs = Date.now() - perfCtx.startedAt;
+  const totalQueryMs = perfCtx.queries.reduce((sum, query) => sum + Number(query.ms || 0), 0);
+  const topQueries = [...perfCtx.queries]
+    .sort((a, b) => Number(b.ms || 0) - Number(a.ms || 0))
+    .slice(0, 3);
+  const shouldLog =
+    durationMs >= VINE_SLOW_ROUTE_MS ||
+    topQueries.some((query) => Number(query.ms || 0) >= VINE_SLOW_QUERY_MS);
+  if (!shouldLog) return;
+  recordPerfRoute("vine", {
+    route: perfCtx.routeKey,
+    ms: durationMs,
+    query_count: perfCtx.queries.length,
+    query_ms: totalQueryMs,
+    top_queries: topQueries,
+    ...perfCtx.meta,
+    ...extra,
+  });
+  console.info(
+    "[vine-perf][route]",
+    JSON.stringify({
+      route: perfCtx.routeKey,
+      ms: durationMs,
+      query_count: perfCtx.queries.length,
+      query_ms: totalQueryMs,
+      top_queries: topQueries,
+      ...perfCtx.meta,
+      ...extra,
+    })
+  );
+};
+
+const runVinePerfRoute = async (routeKey, meta, work) => {
+  const perfCtx = createVinePerfContext(routeKey, meta);
+  try {
+    return await work(perfCtx);
+  } finally {
+    finalizeVinePerfContext(perfCtx);
+  }
+};
+
+const hasIndexNamed = async (dbName, tableName, indexName) => {
+  const [rows] = await db.query(
+    `
+    SELECT 1
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND INDEX_NAME = ?
+    LIMIT 1
+    `,
+    [dbName, tableName, indexName]
+  );
+  return rows.length > 0;
+};
+
+const hasIndexWithColumns = async (dbName, tableName, columns = []) => {
+  const normalizedColumns = columns.map((col) => String(col).trim().toLowerCase());
+  if (!normalizedColumns.length) return false;
+
+  const [rows] = await db.query(
+    `
+    SELECT INDEX_NAME, SEQ_IN_INDEX, COLUMN_NAME
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
+    ORDER BY INDEX_NAME, SEQ_IN_INDEX
+    `,
+    [dbName, tableName]
+  );
+
+  const grouped = new Map();
+  for (const row of rows) {
+    const indexName = String(row.INDEX_NAME || "");
+    if (!grouped.has(indexName)) grouped.set(indexName, []);
+    grouped.get(indexName).push(String(row.COLUMN_NAME || "").trim().toLowerCase());
+  }
+
+  for (const cols of grouped.values()) {
+    if (cols.length !== normalizedColumns.length) continue;
+    if (cols.every((col, idx) => col === normalizedColumns[idx])) {
+      return true;
+    }
+  }
+
+  return false;
+};
+
+const ensureIndexExists = async (dbName, tableName, indexName, columns = []) => {
+  if (!dbName || !columns.length) return;
+  if (!(await hasTable(dbName, tableName))) return;
+  if (await hasIndexNamed(dbName, tableName, indexName)) return;
+  if (await hasIndexWithColumns(dbName, tableName, columns)) return;
+  await db.query(`CREATE INDEX ${indexName} ON ${tableName} (${columns.join(", ")})`);
+};
+
+let vinePerformanceSchemaReady = false;
+let vinePerformanceSchemaPromise = null;
+const ensureVinePerformanceSchema = async () => {
+  if (vinePerformanceSchemaReady) return;
+  if (vinePerformanceSchemaPromise) return vinePerformanceSchemaPromise;
+
+  vinePerformanceSchemaPromise = (async () => {
+    const dbName = await getDbName();
+    if (!dbName) return;
+
+    const indexes = [
+      ["vine_posts", "idx_vine_posts_user_created", ["user_id", "created_at"]],
+      ["vine_posts", "idx_vine_posts_community_created", ["community_id", "created_at"]],
+      ["vine_posts", "idx_vine_posts_topic_created", ["topic_tag", "created_at"]],
+      ["vine_revines", "idx_vine_revines_user_created", ["user_id", "created_at"]],
+      ["vine_revines", "idx_vine_revines_post_user", ["post_id", "user_id"]],
+      ["vine_comments", "idx_vine_comments_post_created", ["post_id", "created_at"]],
+      ["vine_comments", "idx_vine_comments_parent_created", ["parent_comment_id", "created_at"]],
+      ["vine_comments", "idx_vine_comments_user_created", ["user_id", "created_at"]],
+      ["vine_likes", "idx_vine_likes_post_user", ["post_id", "user_id"]],
+      ["vine_likes", "idx_vine_likes_user_post", ["user_id", "post_id"]],
+      ["vine_likes", "idx_vine_likes_post_created", ["post_id", "created_at"]],
+      ["vine_comment_likes", "idx_vine_comment_likes_comment_user", ["comment_id", "user_id"]],
+      ["vine_comment_likes", "idx_vine_comment_likes_user_comment", ["user_id", "comment_id"]],
+      ["vine_post_views", "idx_vine_post_views_post_user", ["post_id", "user_id"]],
+      ["vine_post_views", "idx_vine_post_views_user_post", ["user_id", "post_id"]],
+      ["vine_bookmarks", "idx_vine_bookmarks_user_post", ["user_id", "post_id"]],
+      ["vine_bookmarks", "idx_vine_bookmarks_post_user", ["post_id", "user_id"]],
+      ["vine_follows", "idx_vine_follows_follower_following", ["follower_id", "following_id"]],
+      ["vine_follows", "idx_vine_follows_following_follower", ["following_id", "follower_id"]],
+      ["vine_follow_requests", "idx_vine_follow_requests_requester_target_status", ["requester_id", "target_id", "status"]],
+      ["vine_follow_requests", "idx_vine_follow_requests_target_status_created", ["target_id", "status", "created_at"]],
+      ["vine_notifications", "idx_vine_notifications_user_read_created", ["user_id", "is_read", "created_at"]],
+      ["vine_notifications", "idx_vine_notifications_user_created", ["user_id", "created_at"]],
+      ["vine_notifications", "idx_vine_notifications_actor", ["actor_id"]],
+      ["vine_statuses", "idx_vine_statuses_user_expires_created", ["user_id", "expires_at", "created_at"]],
+      ["vine_statuses", "idx_vine_statuses_expires_created", ["expires_at", "created_at"]],
+      ["vine_blocks", "idx_vine_blocks_blocker_blocked", ["blocker_id", "blocked_id"]],
+      ["vine_blocks", "idx_vine_blocks_blocked_blocker", ["blocked_id", "blocker_id"]],
+      ["vine_mutes", "idx_vine_mutes_muter_muted", ["muter_id", "muted_id"]],
+      ["vine_community_members", "idx_vine_community_members_community_user", ["community_id", "user_id"]],
+      ["vine_community_members", "idx_vine_community_members_user_community", ["user_id", "community_id"]],
+      ["vine_community_join_requests", "idx_vine_comm_join_req_comm_status_created", ["community_id", "status", "created_at"]],
+      ["vine_community_join_requests", "idx_vine_comm_join_req_user_comm", ["user_id", "community_id"]],
+    ];
+
+    for (const [tableName, indexName, columns] of indexes) {
+      try {
+        await ensureIndexExists(dbName, tableName, indexName, columns);
+      } catch (err) {
+        console.warn(`Index ensure skipped for ${tableName}.${indexName}:`, err?.message || err);
+      }
+    }
+
+    vinePerformanceSchemaReady = true;
+  })().finally(() => {
+    vinePerformanceSchemaPromise = null;
+  });
+
+  return vinePerformanceSchemaPromise;
+};
+
 const getGuardianRecipientIds = async () => {
   const [rows] = await db.query(
     `
@@ -294,6 +635,7 @@ const notifyGuardians = async ({ actorId, type, postId = null, commentId = null,
     }
     io.to(`user-${guardianId}`).emit("notification");
   }
+  clearVineReadCache("notifications", "notifications-unread", "notifications-unseen");
 };
 
 const notifyUser = async ({ userId, actorId, type, postId = null, commentId = null, meta = null }) => {
@@ -324,6 +666,7 @@ const notifyUser = async ({ userId, actorId, type, postId = null, commentId = nu
   }
 
   io.to(`user-${targetId}`).emit("notification");
+  clearVineReadCache("notifications", "notifications-unread", "notifications-unseen");
 };
 
 const buildVineAuthUser = (user) => ({
@@ -955,6 +1298,28 @@ const ensureCommunitySchema = async () => {
   await ensureColumnExists(dbName, "vine_community_submissions", "attachment_url", "TEXT NULL");
   await ensureColumnExists(dbName, "vine_community_submissions", "attachment_name", "VARCHAR(255) NULL");
   await ensureColumnExists(dbName, "vine_community_submissions", "attachment_mime", "VARCHAR(120) NULL");
+
+  const communityIndexes = [
+    ["vine_community_members", "idx_comm_members_community_role_user", ["community_id", "role", "user_id"]],
+    ["vine_community_sessions", "idx_comm_sessions_community_start_end", ["community_id", "starts_at", "ends_at"]],
+    ["vine_community_attendance", "idx_comm_attendance_session_status", ["session_id", "status"]],
+    ["vine_community_attendance", "idx_comm_attendance_community_user_status", ["community_id", "user_id", "status"]],
+    ["vine_community_assignments", "idx_comm_assignments_community_created", ["community_id", "created_at"]],
+    ["vine_community_assignments", "idx_comm_assignments_community_type_due", ["community_id", "assignment_type", "due_at"]],
+    ["vine_community_submissions", "idx_comm_submissions_community_assignment_submitted", ["community_id", "assignment_id", "submitted_at"]],
+    ["vine_community_submissions", "idx_comm_submissions_user_assignment", ["user_id", "assignment_id"]],
+    ["vine_community_submissions", "idx_comm_submissions_community_graded", ["community_id", "graded_at"]],
+    ["vine_community_submission_drafts", "idx_comm_submission_drafts_community_assignment_user", ["community_id", "assignment_id", "user_id"]],
+    ["vine_community_submission_files", "idx_comm_submission_files_assignment_submission_created", ["assignment_id", "submission_id", "created_at"]],
+    ["vine_community_library", "idx_comm_library_community_created_id", ["community_id", "created_at", "id"]],
+  ];
+  for (const [tableName, indexName, columns] of communityIndexes) {
+    try {
+      await ensureIndexExists(dbName, tableName, indexName, columns);
+    } catch (err) {
+      console.warn(`Community index ensure skipped for ${tableName}.${indexName}:`, err?.message || err);
+    }
+  }
 
   communitySchemaReady = true;
 };
@@ -1793,6 +2158,7 @@ router.post("/statuses", requireVineAuth, uploadPostCloudinary.single("media"), 
       `,
       [result.insertId]
     );
+    emitVineStatusUpdated({ type: "created", statusId: result.insertId, userId });
     res.json(row);
   } catch (err) {
     console.error("Create status error:", err);
@@ -1804,6 +2170,7 @@ router.post("/statuses", requireVineAuth, uploadPostCloudinary.single("media"), 
 router.get("/statuses/rail", requireVineAuth, async (req, res) => {
   try {
     await ensureStatusSchema();
+    await ensureVinePerformanceSchema();
     const viewerId = req.user.id;
 
     const [rows] = await db.query(
@@ -1860,6 +2227,7 @@ router.get("/statuses/rail", requireVineAuth, async (req, res) => {
 router.get("/statuses/user/:userId", requireVineAuth, async (req, res) => {
   try {
     await ensureStatusSchema();
+    await ensureVinePerformanceSchema();
     const viewerId = req.user.id;
     const userId = Number(req.params.userId);
     if (!userId) return res.status(400).json([]);
@@ -1968,6 +2336,7 @@ router.delete("/statuses/:id", requireVineAuth, async (req, res) => {
       await deleteCloudinaryByUrl(statusRow.media_url);
     }
 
+    emitVineStatusUpdated({ type: "deleted", statusId, userId });
     res.json({ success: true });
   } catch (err) {
     console.error("Status delete error:", err);
@@ -1979,6 +2348,7 @@ router.delete("/statuses/:id", requireVineAuth, async (req, res) => {
 router.get("/statuses/:id/views", requireVineAuth, async (req, res) => {
   try {
     await ensureStatusSchema();
+    await ensureVinePerformanceSchema();
     const statusId = Number(req.params.id);
     const userId = Number(req.user.id);
     if (!statusId) return res.status(400).json([]);
@@ -3652,6 +4022,7 @@ router.post("/communities/:id/sessions", authenticate, async (req, res) => {
       `,
       [communityId, title.slice(0, 180), startsAt, endsAt || null, notes || null, userId]
     );
+    clearVineReadCache("community-sessions", "community-attendance", "community-progress");
     res.json({ success: true });
   } catch (err) {
     console.error("Create community session error:", err);
@@ -3662,36 +4033,41 @@ router.post("/communities/:id/sessions", authenticate, async (req, res) => {
 router.get("/communities/:id/sessions", authenticate, async (req, res) => {
   try {
     await ensureCommunitySchema();
+    await ensureVinePerformanceSchema();
     const userId = Number(req.user.id);
     const communityId = Number(req.params.id);
     if (!communityId) return res.status(400).json([]);
     const role = await getCommunityRole(communityId, userId);
     if (!role) return res.status(403).json([]);
-    const [rows] = await db.query(
-      `
-      SELECT
-        s.id,
-        s.community_id,
-        s.title,
-        s.starts_at,
-        s.ends_at,
-        s.notes,
-        s.created_by,
-        s.created_at,
-        u.username AS created_by_username,
-        u.display_name AS created_by_display_name,
-        (SELECT COUNT(*) FROM vine_community_attendance a WHERE a.session_id = s.id AND a.status = 'present') AS present_count,
-        (SELECT COUNT(*) FROM vine_community_attendance a WHERE a.session_id = s.id AND a.status = 'absent') AS absent_count,
-        (SELECT COUNT(*) FROM vine_community_attendance a WHERE a.session_id = s.id AND a.status = 'late') AS late_count,
-        (SELECT COUNT(*) FROM vine_community_attendance a WHERE a.session_id = s.id AND a.status = 'excused') AS excused_count
-      FROM vine_community_sessions s
-      JOIN vine_users u ON u.id = s.created_by
-      WHERE s.community_id = ?
-      ORDER BY s.starts_at DESC
-      LIMIT 300
-      `,
-      [communityId]
-    );
+    const cacheKey = buildVineCacheKey("community-sessions", communityId, userId);
+    const rows = await readThroughVineCache(cacheKey, VINE_CACHE_TTLS.communityAttendance, async () => {
+      const [sessionRows] = await db.query(
+        `
+        SELECT
+          s.id,
+          s.community_id,
+          s.title,
+          s.starts_at,
+          s.ends_at,
+          s.notes,
+          s.created_by,
+          s.created_at,
+          u.username AS created_by_username,
+          u.display_name AS created_by_display_name,
+          (SELECT COUNT(*) FROM vine_community_attendance a WHERE a.session_id = s.id AND a.status = 'present') AS present_count,
+          (SELECT COUNT(*) FROM vine_community_attendance a WHERE a.session_id = s.id AND a.status = 'absent') AS absent_count,
+          (SELECT COUNT(*) FROM vine_community_attendance a WHERE a.session_id = s.id AND a.status = 'late') AS late_count,
+          (SELECT COUNT(*) FROM vine_community_attendance a WHERE a.session_id = s.id AND a.status = 'excused') AS excused_count
+        FROM vine_community_sessions s
+        JOIN vine_users u ON u.id = s.created_by
+        WHERE s.community_id = ?
+        ORDER BY s.starts_at DESC
+        LIMIT 300
+        `,
+        [communityId]
+      );
+      return sessionRows;
+    });
     res.json(rows);
   } catch (err) {
     console.error("Get community sessions error:", err);
@@ -3702,6 +4078,7 @@ router.get("/communities/:id/sessions", authenticate, async (req, res) => {
 router.get("/communities/:id/sessions/:sessionId/attendance", authenticate, async (req, res) => {
   try {
     await ensureCommunitySchema();
+    await ensureVinePerformanceSchema();
     const userId = Number(req.user.id);
     const communityId = Number(req.params.id);
     const sessionId = Number(req.params.sessionId);
@@ -3709,31 +4086,35 @@ router.get("/communities/:id/sessions/:sessionId/attendance", authenticate, asyn
     const role = await getCommunityRole(communityId, userId);
     if (!role) return res.status(403).json([]);
 
-    const [members] = await db.query(
-      `
-      SELECT
-        u.id AS user_id,
-        u.username,
-        u.display_name,
-        u.avatar_url,
-        u.is_verified,
-        m.role AS community_role,
-        a.status,
-        a.marked_at,
-        a.marked_by
-      FROM vine_community_members m
-      JOIN vine_users u ON u.id = m.user_id
-      LEFT JOIN vine_community_attendance a
-        ON a.user_id = u.id
-       AND a.session_id = ?
-       AND a.community_id = ?
-      WHERE m.community_id = ?
-      ORDER BY
-        CASE m.role WHEN 'owner' THEN 0 WHEN 'moderator' THEN 1 ELSE 2 END,
-        u.username ASC
-      `,
-      [sessionId, communityId, communityId]
-    );
+    const cacheKey = buildVineCacheKey("community-attendance-session", communityId, sessionId, userId);
+    const members = await readThroughVineCache(cacheKey, VINE_CACHE_TTLS.communityAttendance, async () => {
+      const [rows] = await db.query(
+        `
+        SELECT
+          u.id AS user_id,
+          u.username,
+          u.display_name,
+          u.avatar_url,
+          u.is_verified,
+          m.role AS community_role,
+          a.status,
+          a.marked_at,
+          a.marked_by
+        FROM vine_community_members m
+        JOIN vine_users u ON u.id = m.user_id
+        LEFT JOIN vine_community_attendance a
+          ON a.user_id = u.id
+         AND a.session_id = ?
+         AND a.community_id = ?
+        WHERE m.community_id = ?
+        ORDER BY
+          CASE m.role WHEN 'owner' THEN 0 WHEN 'moderator' THEN 1 ELSE 2 END,
+          u.username ASC
+        `,
+        [sessionId, communityId, communityId]
+      );
+      return rows;
+    });
     res.json(members);
   } catch (err) {
     console.error("Get attendance error:", err);
@@ -3781,6 +4162,7 @@ router.post("/communities/:id/sessions/:sessionId/attendance/bulk", authenticate
       );
     }
 
+    clearVineReadCache("community-sessions", "community-attendance", "community-progress");
     res.json({ success: true });
   } catch (err) {
     console.error("Save attendance error:", err);
@@ -3791,23 +4173,28 @@ router.post("/communities/:id/sessions/:sessionId/attendance/bulk", authenticate
 router.get("/communities/:id/attendance/summary", authenticate, async (req, res) => {
   try {
     await ensureCommunitySchema();
+    await ensureVinePerformanceSchema();
     const userId = Number(req.user.id);
     const communityId = Number(req.params.id);
     if (!communityId) return res.status(400).json({ lessons_attended: 0 });
     const role = await getCommunityRole(communityId, userId);
     if (!role) return res.status(403).json({ lessons_attended: 0 });
 
-    const [[row]] = await db.query(
-      `
-      SELECT
-        (SELECT COUNT(*)
-         FROM vine_community_attendance a
-         WHERE a.community_id = ?
-           AND a.user_id = ?
-           AND a.status IN ('present', 'late')) AS lessons_attended
-      `,
-      [communityId, userId]
-    );
+    const cacheKey = buildVineCacheKey("community-attendance-summary", communityId, userId);
+    const row = await readThroughVineCache(cacheKey, VINE_CACHE_TTLS.communityAttendance, async () => {
+      const [[summaryRow]] = await db.query(
+        `
+        SELECT
+          (SELECT COUNT(*)
+           FROM vine_community_attendance a
+           WHERE a.community_id = ?
+             AND a.user_id = ?
+             AND a.status IN ('present', 'late')) AS lessons_attended
+        `,
+        [communityId, userId]
+      );
+      return summaryRow;
+    });
     res.json({ lessons_attended: Number(row?.lessons_attended || 0) });
   } catch (err) {
     console.error("Get attendance summary error:", err);
@@ -3818,48 +4205,54 @@ router.get("/communities/:id/attendance/summary", authenticate, async (req, res)
 router.get("/communities/:id/attendance/my-records", authenticate, async (req, res) => {
   try {
     await ensureCommunitySchema();
+    await ensureVinePerformanceSchema();
     const userId = Number(req.user.id);
     const communityId = Number(req.params.id);
     if (!communityId) return res.status(400).json({ lessons_attended: 0, lessons_missed: 0, rows: [] });
     const role = await getCommunityRole(communityId, userId);
     if (!role) return res.status(403).json({ lessons_attended: 0, lessons_missed: 0, rows: [] });
 
-    const [rows] = await db.query(
-      `
-      SELECT
-        s.id AS session_id,
-        s.title,
-        s.starts_at,
-        COALESCE(a.status, 'absent') AS status
-      FROM vine_community_sessions s
-      LEFT JOIN vine_community_attendance a
-        ON a.session_id = s.id
-       AND a.community_id = s.community_id
-       AND a.user_id = ?
-      WHERE s.community_id = ?
-        AND (
-          s.starts_at <= NOW()
-          OR a.status IS NOT NULL
-        )
-      ORDER BY s.starts_at DESC
-      LIMIT 500
-      `,
-      [userId, communityId]
-    );
+    const cacheKey = buildVineCacheKey("community-attendance-records", communityId, userId);
+    const payload = await readThroughVineCache(cacheKey, VINE_CACHE_TTLS.communityAttendance, async () => {
+      const [rows] = await db.query(
+        `
+        SELECT
+          s.id AS session_id,
+          s.title,
+          s.starts_at,
+          COALESCE(a.status, 'absent') AS status
+        FROM vine_community_sessions s
+        LEFT JOIN vine_community_attendance a
+          ON a.session_id = s.id
+         AND a.community_id = s.community_id
+         AND a.user_id = ?
+        WHERE s.community_id = ?
+          AND (
+            s.starts_at <= NOW()
+            OR a.status IS NOT NULL
+          )
+        ORDER BY s.starts_at DESC
+        LIMIT 500
+        `,
+        [userId, communityId]
+      );
 
-    let attended = 0;
-    let missed = 0;
-    for (const row of rows) {
-      const st = String(row.status || "").toLowerCase();
-      if (st === "present" || st === "late") attended += 1;
-      else if (st === "absent") missed += 1;
-    }
+      let attended = 0;
+      let missed = 0;
+      for (const row of rows) {
+        const st = String(row.status || "").toLowerCase();
+        if (st === "present" || st === "late") attended += 1;
+        else if (st === "absent") missed += 1;
+      }
 
-    res.json({
-      lessons_attended: attended,
-      lessons_missed: missed,
-      rows,
+      return {
+        lessons_attended: attended,
+        lessons_missed: missed,
+        rows,
+      };
     });
+
+    res.json(payload);
   } catch (err) {
     console.error("Get attendance records error:", err);
     res.status(500).json({ lessons_attended: 0, lessons_missed: 0, rows: [] });
@@ -3893,6 +4286,7 @@ router.get("/communities/:slug/media", authOptional, async (req, res) => {
 router.get("/communities/:slug/library", authenticate, async (req, res) => {
   try {
     await ensureCommunitySchema();
+    await ensureVinePerformanceSchema();
     const viewerId = Number(req.user.id);
     const [[community]] = await db.query(
       "SELECT id FROM vine_communities WHERE slug = ? LIMIT 1",
@@ -3902,24 +4296,28 @@ router.get("/communities/:slug/library", authenticate, async (req, res) => {
     const allowed = await canAccessCommunityByVisibilityPolicy(viewerId, community.id);
     if (!allowed) return res.status(403).json([]);
 
-    const [rows] = await db.query(
-      `
-      SELECT
-        l.id,
-        l.community_id,
-        l.uploader_id,
-        l.title,
-        l.pdf_url,
-        l.created_at,
-        u.username AS uploader_username,
-        u.display_name AS uploader_display_name
-      FROM vine_community_library l
-      JOIN vine_users u ON u.id = l.uploader_id
-      WHERE l.community_id = ?
-      ORDER BY l.created_at DESC, l.id DESC
-      `,
-      [community.id]
-    );
+    const cacheKey = buildVineCacheKey("community-library", req.params.slug.toLowerCase(), viewerId);
+    const rows = await readThroughVineCache(cacheKey, VINE_CACHE_TTLS.communityLibrary, async () => {
+      const [libraryRows] = await db.query(
+        `
+        SELECT
+          l.id,
+          l.community_id,
+          l.uploader_id,
+          l.title,
+          l.pdf_url,
+          l.created_at,
+          u.username AS uploader_username,
+          u.display_name AS uploader_display_name
+        FROM vine_community_library l
+        JOIN vine_users u ON u.id = l.uploader_id
+        WHERE l.community_id = ?
+        ORDER BY l.created_at DESC, l.id DESC
+        `,
+        [community.id]
+      );
+      return libraryRows;
+    });
 
     res.json(rows);
   } catch (err) {
@@ -3966,6 +4364,7 @@ router.post("/communities/:id/library", authenticate, uploadPostCloudinary.singl
       [communityId, userId, title.slice(0, 180), pdfUrl]
     );
 
+    clearVineReadCache("community-library");
     res.json({ success: true });
   } catch (err) {
     console.error("Upload community library PDF error:", err);
@@ -3999,6 +4398,7 @@ router.delete("/communities/:id/library/:itemId", authenticate, async (req, res)
     if (item.pdf_url) {
       await deleteCloudinaryByUrl(item.pdf_url);
     }
+    clearVineReadCache("community-library");
     res.json({ success: true });
   } catch (err) {
     console.error("Delete community library PDF error:", err);
@@ -4083,6 +4483,7 @@ router.post("/communities/:id/assignments", authenticate, uploadPostCloudinary.s
       });
     }
 
+    clearVineReadCache("community-assignments", "community-gradebook", "community-progress");
     res.json({ success: true });
   } catch (err) {
     console.error("Create community assignment error:", err);
@@ -4135,6 +4536,7 @@ router.delete("/communities/:id/assignments/:assignmentId", authenticate, async 
     );
     await Promise.all(urlsToDelete.map((url) => deleteCloudinaryByUrl(url)));
 
+    clearVineReadCache("community-assignments", "community-assignment-submissions", "community-gradebook", "community-progress");
     res.json({ success: true });
   } catch (err) {
     console.error("Delete assignment error:", err);
@@ -4184,6 +4586,7 @@ router.patch("/communities/:id/assignments/:assignmentId/deadline", authenticate
       [nextDue, assignmentId, communityId]
     );
 
+    clearVineReadCache("community-assignments", "community-gradebook", "community-progress");
     return res.json({ success: true, due_at: nextDue.toISOString() });
   } catch (err) {
     console.error("Extend assignment deadline error:", err);
@@ -4194,88 +4597,103 @@ router.patch("/communities/:id/assignments/:assignmentId/deadline", authenticate
 router.get("/communities/:slug/assignments", authenticate, async (req, res) => {
   try {
     await ensureCommunitySchema();
+    await ensureVinePerformanceSchema();
     const viewerId = Number(req.user.id);
     const [[community]] = await db.query("SELECT id FROM vine_communities WHERE slug = ? LIMIT 1", [req.params.slug]);
     if (!community) return res.status(404).json([]);
     const allowed = await canAccessCommunityByVisibilityPolicy(viewerId, community.id);
     if (!allowed) return res.status(403).json([]);
 
-    const [rows] = await db.query(
-      `
-      SELECT
-        a.id,
-        a.community_id,
-        a.creator_id,
-        a.title,
-        a.instructions,
-        a.assignment_type,
-        a.attachment_url,
-        a.attachment_name,
-        a.rubric,
-        a.due_at,
-        a.points,
-        a.created_at,
-        cu.username AS creator_username,
-        cu.display_name AS creator_display_name,
-        (SELECT COUNT(*) FROM vine_community_submissions s WHERE s.assignment_id = a.id) AS submission_count,
-        vs.id AS viewer_submission_id,
-        vs.status AS viewer_submission_status,
-        vs.graded_at AS viewer_submission_graded_at,
-        vs.attempt_count AS viewer_submission_attempts,
-        vs.score AS viewer_submission_score,
-        vs.submitted_at AS viewer_submitted_at,
-        vs.content AS viewer_submission_content,
-        vs.attachment_url AS viewer_submission_attachment_url,
-        vs.attachment_name AS viewer_submission_attachment_name,
-        vs.attachment_mime AS viewer_submission_attachment_mime,
-        vd.content AS viewer_draft_content,
-        vd.updated_at AS viewer_draft_updated_at
-      FROM vine_community_assignments a
-      JOIN vine_users cu ON cu.id = a.creator_id
-      LEFT JOIN vine_community_submissions vs
-        ON vs.assignment_id = a.id
-       AND vs.user_id = ?
-      LEFT JOIN vine_community_submission_drafts vd
-        ON vd.assignment_id = a.id
-       AND vd.user_id = ?
-      WHERE a.community_id = ?
-      ORDER BY (a.due_at IS NULL) ASC, a.due_at ASC, a.created_at DESC
-      `,
-      [viewerId, viewerId, community.id]
-    );
-    const submissionIds = rows
-      .map((r) => Number(r.viewer_submission_id))
-      .filter((id) => Number.isFinite(id) && id > 0);
-    if (submissionIds.length > 0) {
-      const placeholders = submissionIds.map(() => "?").join(", ");
-      const [fileRows] = await db.query(
-        `
-        SELECT id, submission_id, file_url, file_name, file_mime, created_at
-        FROM vine_community_submission_files
-        WHERE submission_id IN (${placeholders})
-        ORDER BY created_at ASC, id ASC
-        `,
-        submissionIds
-      );
-      const bySubmission = {};
-      for (const row of fileRows) {
-        const sid = Number(row.submission_id);
-        if (!bySubmission[sid]) bySubmission[sid] = [];
-        bySubmission[sid].push({
-          id: row.id,
-          file_url: row.file_url,
-          file_name: row.file_name,
-          file_mime: row.file_mime,
-          created_at: row.created_at,
+    const rows = await runVinePerfRoute(
+      "community-assignments",
+      { slug: req.params.slug, community_id: community.id, viewer_id: viewerId },
+      async (perfCtx) => {
+        const cacheKey = buildVineCacheKey("community-assignments", req.params.slug.toLowerCase(), viewerId);
+        return readThroughVineCache(cacheKey, VINE_CACHE_TTLS.communityAssignments, async () => {
+          const [assignmentRows] = await timedVineQuery(
+            perfCtx,
+            "community-assignments.rows",
+            `
+            SELECT
+              a.id,
+              a.community_id,
+              a.creator_id,
+              a.title,
+              a.instructions,
+              a.assignment_type,
+              a.attachment_url,
+              a.attachment_name,
+              a.rubric,
+              a.due_at,
+              a.points,
+              a.created_at,
+              cu.username AS creator_username,
+              cu.display_name AS creator_display_name,
+              (SELECT COUNT(*) FROM vine_community_submissions s WHERE s.assignment_id = a.id) AS submission_count,
+              vs.id AS viewer_submission_id,
+              vs.status AS viewer_submission_status,
+              vs.graded_at AS viewer_submission_graded_at,
+              vs.attempt_count AS viewer_submission_attempts,
+              vs.score AS viewer_submission_score,
+              vs.submitted_at AS viewer_submitted_at,
+              vs.content AS viewer_submission_content,
+              vs.attachment_url AS viewer_submission_attachment_url,
+              vs.attachment_name AS viewer_submission_attachment_name,
+              vs.attachment_mime AS viewer_submission_attachment_mime,
+              vd.content AS viewer_draft_content,
+              vd.updated_at AS viewer_draft_updated_at
+            FROM vine_community_assignments a
+            JOIN vine_users cu ON cu.id = a.creator_id
+            LEFT JOIN vine_community_submissions vs
+              ON vs.assignment_id = a.id
+             AND vs.user_id = ?
+            LEFT JOIN vine_community_submission_drafts vd
+              ON vd.assignment_id = a.id
+             AND vd.user_id = ?
+            WHERE a.community_id = ?
+            ORDER BY (a.due_at IS NULL) ASC, a.due_at ASC, a.created_at DESC
+            `,
+            [viewerId, viewerId, community.id]
+          );
+          const submissionIds = assignmentRows
+            .map((r) => Number(r.viewer_submission_id))
+            .filter((id) => Number.isFinite(id) && id > 0);
+          if (submissionIds.length > 0) {
+            const placeholders = submissionIds.map(() => "?").join(", ");
+            const [fileRows] = await timedVineQuery(
+              perfCtx,
+              "community-assignments.files",
+              `
+              SELECT id, submission_id, file_url, file_name, file_mime, created_at
+              FROM vine_community_submission_files
+              WHERE submission_id IN (${placeholders})
+              ORDER BY created_at ASC, id ASC
+              `,
+              submissionIds
+            );
+            const bySubmission = {};
+            for (const row of fileRows) {
+              const sid = Number(row.submission_id);
+              if (!bySubmission[sid]) bySubmission[sid] = [];
+              bySubmission[sid].push({
+                id: row.id,
+                file_url: row.file_url,
+                file_name: row.file_name,
+                file_mime: row.file_mime,
+                created_at: row.created_at,
+              });
+            }
+            for (const row of assignmentRows) {
+              const sid = Number(row.viewer_submission_id || 0);
+              row.viewer_submission_files = sid > 0 ? (bySubmission[sid] || []) : [];
+            }
+          } else {
+            for (const row of assignmentRows) row.viewer_submission_files = [];
+          }
+          return assignmentRows;
         });
       }
-      for (const row of rows) {
-        const sid = Number(row.viewer_submission_id || 0);
-        row.viewer_submission_files = sid > 0 ? (bySubmission[sid] || []) : [];
-      }
-    } else {
-      for (const row of rows) row.viewer_submission_files = [];
-    }
+    );
     res.json(rows);
   } catch (err) {
     console.error("Get community assignments error:", err);
@@ -4460,6 +4878,7 @@ router.post("/communities/:id/assignments/:assignmentId/submissions", authentica
       });
     }
 
+    clearVineReadCache("community-assignments", "community-assignment-submissions", "community-gradebook", "community-progress");
     res.json({ success: true });
   } catch (err) {
     console.error("Submit assignment error:", err);
@@ -4538,6 +4957,7 @@ router.delete("/communities/:id/assignments/:assignmentId/submission-files/:file
       [latest?.file_url || null, latest?.file_name || null, latest?.file_mime || null, row.submission_id]
     );
 
+    clearVineReadCache("community-assignments", "community-assignment-submissions", "community-gradebook", "community-progress");
     res.json({ success: true });
   } catch (err) {
     console.error("Delete practical submission file error:", err);
@@ -4572,6 +4992,7 @@ router.post("/communities/:id/assignments/:assignmentId/draft", authenticate, as
       `,
       [assignmentId, communityId, userId, content]
     );
+    clearVineReadCache("community-assignments");
     res.json({ success: true });
   } catch (err) {
     console.error("Save assignment draft error:", err);
@@ -4582,6 +5003,7 @@ router.post("/communities/:id/assignments/:assignmentId/draft", authenticate, as
 router.get("/communities/:id/assignments/:assignmentId/submissions", authenticate, async (req, res) => {
   try {
     await ensureCommunitySchema();
+    await ensureVinePerformanceSchema();
     const userId = Number(req.user.id);
     const communityId = Number(req.params.id);
     const assignmentId = Number(req.params.assignmentId);
@@ -4589,64 +5011,78 @@ router.get("/communities/:id/assignments/:assignmentId/submissions", authenticat
     const role = String(await getCommunityRole(communityId, userId) || "").toLowerCase();
     if (role !== "owner") return res.status(403).json([]);
 
-    const [rows] = await db.query(
-      `
-      SELECT
-        s.id,
-        s.assignment_id,
-        s.user_id,
-        s.content,
-        s.status,
-        s.score,
-        s.feedback,
-        s.attachment_url,
-        s.attachment_name,
-        s.attachment_mime,
-        s.submitted_at,
-        s.graded_at,
-        u.username,
-        u.display_name,
-        u.avatar_url,
-        u.is_verified
-      FROM vine_community_submissions s
-      JOIN vine_users u ON u.id = s.user_id
-      WHERE s.community_id = ?
-        AND s.assignment_id = ?
-      ORDER BY s.submitted_at DESC
-      `,
-      [communityId, assignmentId]
-    );
-    const submissionIds = rows.map((r) => Number(r.id)).filter((id) => Number.isFinite(id) && id > 0);
-    if (submissionIds.length > 0) {
-      const placeholders = submissionIds.map(() => "?").join(", ");
-      const [fileRows] = await db.query(
-        `
-        SELECT id, submission_id, file_url, file_name, file_mime, created_at
-        FROM vine_community_submission_files
-        WHERE submission_id IN (${placeholders})
-        ORDER BY created_at ASC, id ASC
-        `,
-        submissionIds
-      );
-      const bySubmission = {};
-      for (const row of fileRows) {
-        const sid = Number(row.submission_id);
-        if (!bySubmission[sid]) bySubmission[sid] = [];
-        bySubmission[sid].push({
-          id: row.id,
-          file_url: row.file_url,
-          file_name: row.file_name,
-          file_mime: row.file_mime,
-          created_at: row.created_at,
+    const rows = await runVinePerfRoute(
+      "community-assignment-submissions",
+      { community_id: communityId, assignment_id: assignmentId, viewer_id: userId },
+      async (perfCtx) => {
+        const cacheKey = buildVineCacheKey("community-assignment-submissions", communityId, assignmentId, userId);
+        return readThroughVineCache(cacheKey, VINE_CACHE_TTLS.communityAssignmentSubmissions, async () => {
+          const [submissionRows] = await timedVineQuery(
+            perfCtx,
+            "community-assignment-submissions.rows",
+            `
+            SELECT
+              s.id,
+              s.assignment_id,
+              s.user_id,
+              s.content,
+              s.status,
+              s.score,
+              s.feedback,
+              s.attachment_url,
+              s.attachment_name,
+              s.attachment_mime,
+              s.submitted_at,
+              s.graded_at,
+              u.username,
+              u.display_name,
+              u.avatar_url,
+              u.is_verified
+            FROM vine_community_submissions s
+            JOIN vine_users u ON u.id = s.user_id
+            WHERE s.community_id = ?
+              AND s.assignment_id = ?
+            ORDER BY s.submitted_at DESC
+            `,
+            [communityId, assignmentId]
+          );
+          const submissionIds = submissionRows.map((r) => Number(r.id)).filter((id) => Number.isFinite(id) && id > 0);
+          if (submissionIds.length > 0) {
+            const placeholders = submissionIds.map(() => "?").join(", ");
+            const [fileRows] = await timedVineQuery(
+              perfCtx,
+              "community-assignment-submissions.files",
+              `
+              SELECT id, submission_id, file_url, file_name, file_mime, created_at
+              FROM vine_community_submission_files
+              WHERE submission_id IN (${placeholders})
+              ORDER BY created_at ASC, id ASC
+              `,
+              submissionIds
+            );
+            const bySubmission = {};
+            for (const row of fileRows) {
+              const sid = Number(row.submission_id);
+              if (!bySubmission[sid]) bySubmission[sid] = [];
+              bySubmission[sid].push({
+                id: row.id,
+                file_url: row.file_url,
+                file_name: row.file_name,
+                file_mime: row.file_mime,
+                created_at: row.created_at,
+              });
+            }
+            for (const row of submissionRows) {
+              const sid = Number(row.id || 0);
+              row.submission_files = sid > 0 ? (bySubmission[sid] || []) : [];
+            }
+          } else {
+            for (const row of submissionRows) row.submission_files = [];
+          }
+          return submissionRows;
         });
       }
-      for (const row of rows) {
-        const sid = Number(row.id || 0);
-        row.submission_files = sid > 0 ? (bySubmission[sid] || []) : [];
-      }
-    } else {
-      for (const row of rows) row.submission_files = [];
-    }
+    );
     res.json(rows);
   } catch (err) {
     console.error("Get assignment submissions error:", err);
@@ -4727,6 +5163,7 @@ router.patch("/communities/:id/submissions/:submissionId/grade", authenticate, a
         },
       });
     }
+    clearVineReadCache("community-assignments", "community-assignment-submissions", "community-gradebook", "community-progress");
     res.json({ success: true });
   } catch (err) {
     console.error("Grade submission error:", err);
@@ -4737,39 +5174,44 @@ router.patch("/communities/:id/submissions/:submissionId/grade", authenticate, a
 router.get("/communities/:id/gradebook", authenticate, async (req, res) => {
   try {
     await ensureCommunitySchema();
+    await ensureVinePerformanceSchema();
     const userId = Number(req.user.id);
     const communityId = Number(req.params.id);
     if (!communityId) return res.status(400).json([]);
     const role = await getCommunityRole(communityId, userId);
     if (!isCommunityModOrOwner(role)) return res.status(403).json([]);
 
-    const [rows] = await db.query(
-      `
-      SELECT
-        a.id AS assignment_id,
-        a.title AS assignment_title,
-        a.points AS assignment_points,
-        a.due_at AS assignment_due_at,
-        u.id AS learner_id,
-        u.username AS learner_username,
-        u.display_name AS learner_display_name,
-        s.id AS submission_id,
-        s.status AS submission_status,
-        s.score AS submission_score,
-        s.submitted_at AS submitted_at,
-        s.graded_at AS graded_at
-      FROM vine_community_assignments a
-      JOIN vine_community_members m ON m.community_id = a.community_id
-      JOIN vine_users u ON u.id = m.user_id
-      LEFT JOIN vine_community_submissions s
-        ON s.assignment_id = a.id
-       AND s.user_id = u.id
-      WHERE a.community_id = ?
-        AND LOWER(COALESCE(m.role, 'member')) != 'owner'
-      ORDER BY a.created_at DESC, u.username ASC
-      `,
-      [communityId]
-    );
+    const cacheKey = buildVineCacheKey("community-gradebook", communityId, userId);
+    const rows = await readThroughVineCache(cacheKey, VINE_CACHE_TTLS.communityGradebook, async () => {
+      const [gradebookRows] = await db.query(
+        `
+        SELECT
+          a.id AS assignment_id,
+          a.title AS assignment_title,
+          a.points AS assignment_points,
+          a.due_at AS assignment_due_at,
+          u.id AS learner_id,
+          u.username AS learner_username,
+          u.display_name AS learner_display_name,
+          s.id AS submission_id,
+          s.status AS submission_status,
+          s.score AS submission_score,
+          s.submitted_at AS submitted_at,
+          s.graded_at AS graded_at
+        FROM vine_community_assignments a
+        JOIN vine_community_members m ON m.community_id = a.community_id
+        JOIN vine_users u ON u.id = m.user_id
+        LEFT JOIN vine_community_submissions s
+          ON s.assignment_id = a.id
+         AND s.user_id = u.id
+        WHERE a.community_id = ?
+          AND LOWER(COALESCE(m.role, 'member')) != 'owner'
+        ORDER BY a.created_at DESC, u.username ASC
+        `,
+        [communityId]
+      );
+      return gradebookRows;
+    });
 
     if (String(req.query.format || "").toLowerCase() === "csv") {
       const csvHeader = [
@@ -4822,97 +5264,113 @@ router.get("/communities/:id/gradebook", authenticate, async (req, res) => {
 
 router.get("/communities/:id/progress", authenticate, async (req, res) => {
   try {
-    await ensureCommunitySchema();
     const viewerId = Number(req.user.id);
     const communityId = Number(req.params.id);
     if (!communityId) return res.status(400).json([]);
 
+    await ensureCommunitySchema();
+    await ensureVinePerformanceSchema();
     const role = await getCommunityRole(communityId, viewerId);
     if (!isCommunityModOrOwner(role)) return res.status(403).json([]);
 
-    const [[assignmentTotals]] = await db.query(
-      `SELECT COUNT(*) AS total_assignments
-       FROM vine_community_assignments
-       WHERE community_id = ?`,
-      [communityId]
-    );
-    const totalAssignments = Number(assignmentTotals?.total_assignments || 0);
+    const payload = await runVinePerfRoute(
+      "community-progress",
+      { community_id: communityId, viewer_id: viewerId },
+      async (perfCtx) => {
+        const cacheKey = buildVineCacheKey("community-progress", communityId, viewerId);
+        return readThroughVineCache(cacheKey, VINE_CACHE_TTLS.communityProgress, async () => {
+          const [[assignmentTotals]] = await timedVineQuery(
+            perfCtx,
+            "community-progress.assignment-totals",
+            `SELECT COUNT(*) AS total_assignments
+             FROM vine_community_assignments
+             WHERE community_id = ?`,
+            [communityId]
+          );
+          const totalAssignments = Number(assignmentTotals?.total_assignments || 0);
 
-    const [[sessionTotals]] = await db.query(
-      `SELECT COUNT(*) AS total_sessions
-       FROM vine_community_sessions
-       WHERE community_id = ?
-         AND starts_at <= NOW()`,
-      [communityId]
-    );
-    const totalSessions = Number(sessionTotals?.total_sessions || 0);
+          const [[sessionTotals]] = await timedVineQuery(
+            perfCtx,
+            "community-progress.session-totals",
+            `SELECT COUNT(*) AS total_sessions
+             FROM vine_community_sessions
+             WHERE community_id = ?
+               AND starts_at <= NOW()`,
+            [communityId]
+          );
+          const totalSessions = Number(sessionTotals?.total_sessions || 0);
 
-    const [rows] = await db.query(
-      `
-      SELECT
-        u.id AS learner_id,
-        u.username AS learner_username,
-        u.display_name AS learner_display_name,
-        u.avatar_url AS learner_avatar_url,
-        u.is_verified AS learner_is_verified,
-        m.role AS community_role,
-        COALESCE(subq.submission_count, 0) AS submission_count,
-        COALESCE(subq.avg_score, NULL) AS avg_score,
-        COALESCE(attq.present_count, 0) AS present_count
-      FROM vine_community_members m
-      JOIN vine_users u ON u.id = m.user_id
-      LEFT JOIN (
-        SELECT
-          s.user_id,
-          COUNT(DISTINCT s.assignment_id) AS submission_count,
-          AVG(s.score) AS avg_score
-        FROM vine_community_submissions s
-        WHERE s.community_id = ?
-        GROUP BY s.user_id
-      ) subq ON subq.user_id = m.user_id
-      LEFT JOIN (
-        SELECT
-          a.user_id,
-          COUNT(*) AS present_count
-        FROM vine_community_attendance a
-        JOIN vine_community_sessions sess ON sess.id = a.session_id
-        WHERE a.community_id = ?
-          AND sess.starts_at <= NOW()
-          AND a.status = 'present'
-        GROUP BY a.user_id
-      ) attq ON attq.user_id = m.user_id
-      WHERE m.community_id = ?
-        AND LOWER(COALESCE(m.role, 'member')) != 'owner'
-      ORDER BY m.role = 'owner' DESC, m.role = 'moderator' DESC, u.username ASC
-      `,
-      [communityId, communityId, communityId]
-    );
+          const [rows] = await timedVineQuery(
+            perfCtx,
+            "community-progress.rows",
+            `
+            SELECT
+              u.id AS learner_id,
+              u.username AS learner_username,
+              u.display_name AS learner_display_name,
+              u.avatar_url AS learner_avatar_url,
+              u.is_verified AS learner_is_verified,
+              m.role AS community_role,
+              COALESCE(subq.submission_count, 0) AS submission_count,
+              COALESCE(subq.avg_score, NULL) AS avg_score,
+              COALESCE(attq.present_count, 0) AS present_count
+            FROM vine_community_members m
+            JOIN vine_users u ON u.id = m.user_id
+            LEFT JOIN (
+              SELECT
+                s.user_id,
+                COUNT(DISTINCT s.assignment_id) AS submission_count,
+                AVG(s.score) AS avg_score
+              FROM vine_community_submissions s
+              WHERE s.community_id = ?
+              GROUP BY s.user_id
+            ) subq ON subq.user_id = m.user_id
+            LEFT JOIN (
+              SELECT
+                a.user_id,
+                COUNT(*) AS present_count
+              FROM vine_community_attendance a
+              JOIN vine_community_sessions sess ON sess.id = a.session_id
+              WHERE a.community_id = ?
+                AND sess.starts_at <= NOW()
+                AND a.status = 'present'
+              GROUP BY a.user_id
+            ) attq ON attq.user_id = m.user_id
+            WHERE m.community_id = ?
+              AND LOWER(COALESCE(m.role, 'member')) != 'owner'
+            ORDER BY m.role = 'owner' DESC, m.role = 'moderator' DESC, u.username ASC
+            `,
+            [communityId, communityId, communityId]
+          );
 
-    const payload = rows.map((r) => {
-      const submissionRate = totalAssignments > 0
-        ? Math.round((Number(r.submission_count || 0) / totalAssignments) * 100)
-        : 0;
-      const attendanceRate = totalSessions > 0
-        ? Math.round((Number(r.present_count || 0) / totalSessions) * 100)
-        : 0;
-      const avgScoreNum = r.avg_score === null || r.avg_score === undefined ? null : Number(r.avg_score);
-      let riskFlag = "on_track";
-      if (attendanceRate < 60 || submissionRate < 50 || (avgScoreNum !== null && avgScoreNum < 40)) {
-        riskFlag = "at_risk";
-      } else if (attendanceRate < 75 || submissionRate < 75 || (avgScoreNum !== null && avgScoreNum < 60)) {
-        riskFlag = "watch";
+          return rows.map((r) => {
+            const submissionRate = totalAssignments > 0
+              ? Math.round((Number(r.submission_count || 0) / totalAssignments) * 100)
+              : 0;
+            const attendanceRate = totalSessions > 0
+              ? Math.round((Number(r.present_count || 0) / totalSessions) * 100)
+              : 0;
+            const avgScoreNum = r.avg_score === null || r.avg_score === undefined ? null : Number(r.avg_score);
+            let riskFlag = "on_track";
+            if (attendanceRate < 60 || submissionRate < 50 || (avgScoreNum !== null && avgScoreNum < 40)) {
+              riskFlag = "at_risk";
+            } else if (attendanceRate < 75 || submissionRate < 75 || (avgScoreNum !== null && avgScoreNum < 60)) {
+              riskFlag = "watch";
+            }
+
+            return {
+              ...r,
+              total_assignments: totalAssignments,
+              total_sessions: totalSessions,
+              submission_rate: submissionRate,
+              attendance_rate: attendanceRate,
+              avg_score: avgScoreNum,
+              risk_flag: riskFlag,
+            };
+          });
+        });
       }
-
-      return {
-        ...r,
-        total_assignments: totalAssignments,
-        total_sessions: totalSessions,
-        submission_rate: submissionRate,
-        attendance_rate: attendanceRate,
-        avg_score: avgScoreNum,
-        risk_flag: riskFlag,
-      };
-    });
+    );
 
     res.json(payload);
   } catch (err) {
@@ -5337,11 +5795,13 @@ router.post("/communities/:id/requests/:requestId/reject", authenticate, async (
 
 router.get("/communities/:slug/posts", authOptional, async (req, res) => {
   try {
+    await ensureVinePerformanceSchema();
     await ensureCommunitySchema();
     await ensurePollSchema();
     await publishDueScheduledPosts();
     const viewerId = Number(req.user?.id || 0) || null;
     const topic = String(req.query?.topic || "").trim().toLowerCase();
+    const cacheKey = buildVineCacheKey("community-posts", req.params.slug, viewerId || 0, topic || "all");
     const [[community]] = await db.query(
       "SELECT id, name, slug FROM vine_communities WHERE slug = ? LIMIT 1",
       [req.params.slug]
@@ -5352,46 +5812,49 @@ router.get("/communities/:slug/posts", authOptional, async (req, res) => {
       if (!allowed) return res.status(403).json([]);
     }
 
-    const [posts] = await db.query(
-      `
-      SELECT
-        CONCAT('post-', p.id) AS feed_id,
-        p.id,
-        p.user_id,
-        p.community_id,
-        p.topic_tag,
-        p.is_community_pinned,
-        c.name AS community_name,
-        c.slug AS community_slug,
-        p.content,
-        p.image_url,
-        p.link_preview,
-        p.created_at AS sort_time,
-        u.username,
-        u.display_name,
-        u.avatar_url,
-        u.is_verified,
-        u.hide_like_counts,
-        NULL AS revined_by,
-        NULL AS reviner_username,
-        (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id) AS likes,
-        (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comments,
-        (SELECT COUNT(*) FROM vine_revines WHERE post_id = p.id) AS revines,
-        (SELECT COUNT(*) FROM vine_post_views WHERE post_id = p.id) AS views,
-        ${viewerId ? `(SELECT COUNT(*) > 0 FROM vine_likes WHERE post_id = p.id AND user_id = ${viewerId})` : "0"} AS user_liked,
-        ${viewerId ? `(SELECT COUNT(*) > 0 FROM vine_revines WHERE post_id = p.id AND user_id = ${viewerId})` : "0"} AS user_revined,
-        ${viewerId ? `(SELECT COUNT(*) > 0 FROM vine_bookmarks WHERE post_id = p.id AND user_id = ${viewerId})` : "0"} AS user_bookmarked,
-        (SELECT COUNT(*) > 0 FROM vine_polls vp WHERE vp.post_id = p.id) AS has_poll
-      FROM vine_posts p
-      JOIN vine_users u ON u.id = p.user_id
-      LEFT JOIN vine_communities c ON c.id = p.community_id
-      WHERE p.community_id = ?
-      ${topic ? "AND p.topic_tag = ?" : ""}
-      ORDER BY p.is_community_pinned DESC, COALESCE(p.community_pinned_at, p.created_at) DESC, p.created_at DESC
-      LIMIT 100
-      `,
-      topic ? [community.id, topic] : [community.id]
-    );
+    const posts = await readThroughVineCache(cacheKey, VINE_CACHE_TTLS.communityPosts, async () => {
+      const [rows] = await db.query(
+        `
+        SELECT
+          CONCAT('post-', p.id) AS feed_id,
+          p.id,
+          p.user_id,
+          p.community_id,
+          p.topic_tag,
+          p.is_community_pinned,
+          c.name AS community_name,
+          c.slug AS community_slug,
+          p.content,
+          p.image_url,
+          p.link_preview,
+          p.created_at AS sort_time,
+          u.username,
+          u.display_name,
+          u.avatar_url,
+          u.is_verified,
+          u.hide_like_counts,
+          NULL AS revined_by,
+          NULL AS reviner_username,
+          (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id) AS likes,
+          (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comments,
+          (SELECT COUNT(*) FROM vine_revines WHERE post_id = p.id) AS revines,
+          (SELECT COUNT(*) FROM vine_post_views WHERE post_id = p.id) AS views,
+          ${viewerId ? `(SELECT COUNT(*) > 0 FROM vine_likes WHERE post_id = p.id AND user_id = ${viewerId})` : "0"} AS user_liked,
+          ${viewerId ? `(SELECT COUNT(*) > 0 FROM vine_revines WHERE post_id = p.id AND user_id = ${viewerId})` : "0"} AS user_revined,
+          ${viewerId ? `(SELECT COUNT(*) > 0 FROM vine_bookmarks WHERE post_id = p.id AND user_id = ${viewerId})` : "0"} AS user_bookmarked,
+          (SELECT COUNT(*) > 0 FROM vine_polls vp WHERE vp.post_id = p.id) AS has_poll
+        FROM vine_posts p
+        JOIN vine_users u ON u.id = p.user_id
+        LEFT JOIN vine_communities c ON c.id = p.community_id
+        WHERE p.community_id = ?
+        ${topic ? "AND p.topic_tag = ?" : ""}
+        ORDER BY p.is_community_pinned DESC, COALESCE(p.community_pinned_at, p.created_at) DESC, p.created_at DESC
+        LIMIT 100
+        `,
+        topic ? [community.id, topic] : [community.id]
+      );
+      return rows;
+    });
     res.json(posts);
   } catch (err) {
     console.error("Get community posts error:", err);
@@ -5402,17 +5865,27 @@ router.get("/communities/:slug/posts", authOptional, async (req, res) => {
   // create posts
 router.get("/posts", authOptional, async (req, res) => {
     try {
-      await ensureCommunitySchema();
-      await ensurePollSchema();
-      triggerNewsIngestIfDue();
-      await publishDueScheduledPosts();
       const viewerId = req.user?.id || null;
       const feedTag = String(req.query.tag || "").trim().replace(/^#/, "").toLowerCase();
-      const tagFilterSql = feedTag
-        ? ` AND (LOWER(COALESCE(p.content, '')) LIKE ${db.escape(`%#${feedTag}%`)} OR LOWER(COALESCE(p.topic_tag, '')) = ${db.escape(feedTag)})`
-        : "";
-  
-      const [rows] = await db.query(`
+      const rows = await runVinePerfRoute(
+        "feed",
+        { viewer_id: Number(viewerId || 0), tag: feedTag || null },
+        async (perfCtx) => {
+          await ensureVinePerformanceSchema();
+          await ensureCommunitySchema();
+          await ensurePollSchema();
+          triggerNewsIngestIfDue();
+          await publishDueScheduledPosts();
+          const cacheKey = buildVineCacheKey("feed", viewerId || 0, feedTag || "all");
+          const tagFilterSql = feedTag
+            ? ` AND (LOWER(COALESCE(p.content, '')) LIKE ${db.escape(`%#${feedTag}%`)} OR LOWER(COALESCE(p.topic_tag, '')) = ${db.escape(feedTag)})`
+            : "";
+
+          return readThroughVineCache(cacheKey, VINE_CACHE_TTLS.feed, async () => {
+            const [results] = await timedVineQuery(
+              perfCtx,
+              "feed.rows",
+              `
         SELECT *
         FROM (
           -- Normal posts
@@ -5601,7 +6074,12 @@ router.get("/posts", authOptional, async (req, res) => {
         ) feed
         ORDER BY sort_time DESC
         LIMIT 100
-      `);
+      `
+            );
+            return results;
+          });
+        }
+      );
   
       res.json(rows);
     } catch (err) {
@@ -5960,7 +6438,6 @@ router.get("/share/:id", async (req, res) => {
 
 router.get("/posts/:id/public", authOptional, async (req, res) => {
   try {
-    await ensurePostReactionSchema();
     const postId = Number(req.params.id);
     const viewerId = Number(req.user?.id || 0) || null;
 
@@ -5968,41 +6445,55 @@ router.get("/posts/:id/public", authOptional, async (req, res) => {
       return res.status(400).json({ message: "Invalid post" });
     }
 
-    const [[post]] = await db.query(
-      `
-      SELECT
-        p.id,
-        CONCAT('post-', p.id) AS feed_id,
-        p.user_id,
-        p.content,
-        p.image_url,
-        p.link_preview,
-        p.community_id,
-        p.created_at,
-        u.username,
-        u.display_name,
-        COALESCE(u.avatar_url, '/default-avatar.png') AS avatar_url,
-        u.is_verified,
-        u.hide_like_counts,
-        u.is_private,
-        (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id) AS likes,
-        (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comments,
-        (SELECT COUNT(*) FROM vine_revines WHERE post_id = p.id) AS revines,
-        (SELECT COUNT(*) FROM vine_post_views WHERE post_id = p.id) AS views,
-        (SELECT COUNT(*) > 0 FROM vine_likes WHERE post_id = p.id AND user_id = ?) AS user_liked,
-        (SELECT COUNT(*) > 0 FROM vine_revines WHERE post_id = p.id AND user_id = ?) AS user_revined,
-        (
-          SELECT COALESCE(NULLIF(LOWER(reaction), ''), 'like')
-          FROM vine_likes
-          WHERE post_id = p.id AND user_id = ?
-          LIMIT 1
-        ) AS viewer_reaction
-      FROM vine_posts p
-      JOIN vine_users u ON u.id = p.user_id
-      WHERE p.id = ?
-      LIMIT 1
-      `,
-      [viewerId || 0, viewerId || 0, viewerId || 0, postId]
+    const post = await runVinePerfRoute(
+      "public-post",
+      { post_id: postId, viewer_id: Number(viewerId || 0) },
+      async (perfCtx) => {
+        await ensureVinePerformanceSchema();
+        await ensurePostReactionSchema();
+        const cacheKey = buildVineCacheKey("public-post", postId, viewerId || 0);
+        return readThroughVineCache(cacheKey, VINE_CACHE_TTLS.publicPost, async () => {
+          const [[row]] = await timedVineQuery(
+            perfCtx,
+            "public-post.row",
+            `
+            SELECT
+              p.id,
+              CONCAT('post-', p.id) AS feed_id,
+              p.user_id,
+              p.content,
+              p.image_url,
+              p.link_preview,
+              p.community_id,
+              p.created_at,
+              u.username,
+              u.display_name,
+              COALESCE(u.avatar_url, '/default-avatar.png') AS avatar_url,
+              u.is_verified,
+              u.hide_like_counts,
+              u.is_private,
+              (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id) AS likes,
+              (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comments,
+              (SELECT COUNT(*) FROM vine_revines WHERE post_id = p.id) AS revines,
+              (SELECT COUNT(*) FROM vine_post_views WHERE post_id = p.id) AS views,
+              (SELECT COUNT(*) > 0 FROM vine_likes WHERE post_id = p.id AND user_id = ?) AS user_liked,
+              (SELECT COUNT(*) > 0 FROM vine_revines WHERE post_id = p.id AND user_id = ?) AS user_revined,
+              (
+                SELECT COALESCE(NULLIF(LOWER(reaction), ''), 'like')
+                FROM vine_likes
+                WHERE post_id = p.id AND user_id = ?
+                LIMIT 1
+              ) AS viewer_reaction
+            FROM vine_posts p
+            JOIN vine_users u ON u.id = p.user_id
+            WHERE p.id = ?
+            LIMIT 1
+            `,
+            [viewerId || 0, viewerId || 0, viewerId || 0, postId]
+          );
+          return row || null;
+        });
+      }
     );
 
     if (!post) {
@@ -6224,6 +6715,13 @@ router.get("/posts/:id/public", authOptional, async (req, res) => {
           LEFT JOIN vine_communities c ON c.id = p.community_id
           WHERE p.id = ?
         `, [result.insertId]);
+
+        emitVineFeedUpdated({
+          type: "post_created",
+          postId: result.insertId,
+          communityId,
+          authorId: userId,
+        });
   
         res.json(post);
       } catch (err) {
@@ -6767,24 +7265,30 @@ router.get("/users/new", authOptional, async (req, res) => {
   }
 });
 
-// user profile
-router.get("/users/:username", authOptional, async (req, res) => {
-  try {
-    await ensureProfileAboutSchema();
-    await ensureFollowRequestSchema();
-    const { username } = req.params;
-    const viewerId = req.user?.id || null;
+const getProfileUserPayload = async (username, viewerId, perfCtx = null) => {
+  await ensureVinePerformanceSchema();
+  await ensureProfileAboutSchema();
+  await ensureFollowRequestSchema();
 
-    // 1. Get user + counts + follow state
-    const [[user]] = await db.query(
+  const safeViewerId = Number(viewerId || 0);
+  const cacheKey = buildVineCacheKey(
+    "profile-header",
+    String(username || "").trim().toLowerCase(),
+    safeViewerId
+  );
+
+  return readThroughVineCache(cacheKey, VINE_CACHE_TTLS.profileHeader, async () => {
+    const [[user]] = await timedVineQuery(
+      perfCtx,
+      "profile-header.user",
       `
-      SELECT 
-        u.id, 
-        u.username, 
-        u.display_name, 
+      SELECT
+        u.id,
+        u.username,
+        u.display_name,
         u.email,
-        u.bio, 
-        u.avatar_url, 
+        u.bio,
+        u.avatar_url,
         u.banner_url,
         u.location,
         u.website,
@@ -6809,63 +7313,62 @@ router.get("/users/:username", authOptional, async (req, res) => {
         u.is_private,
         u.hide_like_counts,
         u.show_last_active,
-
+        (
+          (SELECT COUNT(*) FROM vine_posts WHERE user_id = u.id) +
+          (SELECT COUNT(*) FROM vine_revines WHERE user_id = u.id)
+        ) AS post_count,
         (SELECT COUNT(*) FROM vine_follows WHERE following_id = u.id) AS follower_count,
         (SELECT COUNT(*) FROM vine_follows WHERE follower_id = u.id) AS following_count,
-
         ${
-          viewerId
-            ? `(SELECT COUNT(*) > 0 
-                 FROM vine_follows 
-                 WHERE follower_id = ${viewerId} 
-                 AND following_id = u.id)`
+          safeViewerId
+            ? `(SELECT COUNT(*) > 0
+                 FROM vine_follows
+                 WHERE follower_id = ${safeViewerId}
+                   AND following_id = u.id)`
             : "0"
         } AS is_following,
         ${
-          viewerId
+          safeViewerId
             ? `(SELECT COUNT(*) > 0
                  FROM vine_follow_requests fr
-                 WHERE fr.requester_id = ${viewerId}
+                 WHERE fr.requester_id = ${safeViewerId}
                    AND fr.target_id = u.id
                    AND fr.status = 'pending')`
             : "0"
         } AS follow_request_pending,
-
         ${
-          viewerId
-            ? `(SELECT COUNT(*) > 0 
-                 FROM vine_follows 
-                 WHERE follower_id = u.id 
-                 AND following_id = ${viewerId})`
+          safeViewerId
+            ? `(SELECT COUNT(*) > 0
+                 FROM vine_follows
+                 WHERE follower_id = u.id
+                   AND following_id = ${safeViewerId})`
             : "0"
         } AS is_followed_by
-
       FROM vine_users u
       WHERE u.username = ?
+      LIMIT 1
       `,
       [username]
     );
 
-    if (!user) return res.status(404).json({ message: "Not found" });
+    if (!user) return null;
 
-    const isSelf = viewerId && Number(viewerId) === Number(user.id);
-    const isFollowing =
-      viewerId && Number(user.is_following) === 1;
-
+    const isSelf = safeViewerId && Number(safeViewerId) === Number(user.id);
+    const isFollowing = safeViewerId && Number(user.is_following) === 1;
     const canViewAbout =
       isSelf ||
       user.about_privacy === "everyone" ||
       (user.about_privacy === "followers" && isFollowing);
 
-    const blockedByUser = await isUserBlocked(user.id, viewerId);
-    const blockingUser = await isUserBlocked(viewerId, user.id);
+    const blockedByUser = await isUserBlocked(user.id, safeViewerId);
+    const blockingUser = await isUserBlocked(safeViewerId, user.id);
 
     if (!isSelf && blockedByUser) {
-      return res.json({ user, posts: [], blocked: true });
+      return { user, blocked: true, privateLocked: false, isSelf, isFollowing };
     }
 
     user.is_blocking = blockingUser ? 1 : 0;
-    user.is_muting = (await isUserMuted(viewerId, user.id)) ? 1 : 0;
+    user.is_muting = (await isUserMuted(safeViewerId, user.id)) ? 1 : 0;
 
     if (!isSelf && !user.show_last_active) {
       user.last_active_at = null;
@@ -6891,13 +7394,45 @@ router.get("/users/:username", authOptional, async (req, res) => {
       user.twitter_username = null;
     }
 
-    // 2. Posts + Revines (stable keys + correct ordering)
-    const [posts] = await db.query(
+    return {
+      user,
+      blocked: false,
+      privateLocked: Boolean(user.is_private) && !isSelf && !isFollowing,
+      isSelf,
+      isFollowing,
+    };
+  });
+};
+
+const getProfileFeedRows = async (profileUserId, viewerId, { limit = null, offset = 0 } = {}, perfCtx = null) => {
+  await ensureVinePerformanceSchema();
+  const safeViewerId = Number(viewerId || 0);
+  const safeLimit = Number.isFinite(Number(limit)) ? Number(limit) : null;
+  const safeOffset = Math.max(0, Number(offset || 0));
+  const params = [profileUserId, profileUserId];
+
+  let paginationSql = "";
+  if (safeLimit && safeLimit > 0) {
+    paginationSql = "LIMIT ? OFFSET ?";
+    params.push(safeLimit, safeOffset);
+  }
+
+  const cacheKey = buildVineCacheKey(
+    "profile-posts",
+    profileUserId,
+    safeViewerId,
+    safeLimit || "all",
+    safeOffset
+  );
+
+  return readThroughVineCache(cacheKey, VINE_CACHE_TTLS.profilePosts, async () => {
+    const [rows] = await timedVineQuery(
+      perfCtx,
+      "profile-posts.rows",
       `
       SELECT *
       FROM (
-        -- Normal posts
-        SELECT 
+        SELECT
           CONCAT('post-', p.id) AS feed_id,
           p.id,
           p.user_id,
@@ -6923,14 +7458,14 @@ router.get("/users/:username", authOptional, async (req, res) => {
           (SELECT COUNT(*) FROM vine_post_views WHERE post_id = p.id) AS views,
 
           ${
-            viewerId
-              ? `(SELECT COUNT(*) > 0 FROM vine_likes WHERE post_id = p.id AND user_id = ${viewerId})`
+            safeViewerId
+              ? `(SELECT COUNT(*) > 0 FROM vine_likes WHERE post_id = p.id AND user_id = ${safeViewerId})`
               : "0"
           } AS user_liked,
 
           ${
-            viewerId
-              ? `(SELECT COUNT(*) > 0 FROM vine_revines WHERE post_id = p.id AND user_id = ${viewerId})`
+            safeViewerId
+              ? `(SELECT COUNT(*) > 0 FROM vine_revines WHERE post_id = p.id AND user_id = ${safeViewerId})`
               : "0"
           } AS user_revined
 
@@ -6940,8 +7475,7 @@ router.get("/users/:username", authOptional, async (req, res) => {
 
         UNION ALL
 
-        -- Revines
-        SELECT 
+        SELECT
           CONCAT('revine-', r.id) AS feed_id,
           p.id,
           p.user_id,
@@ -6967,14 +7501,14 @@ router.get("/users/:username", authOptional, async (req, res) => {
           (SELECT COUNT(*) FROM vine_post_views WHERE post_id = p.id) AS views,
 
           ${
-            viewerId
-              ? `(SELECT COUNT(*) > 0 FROM vine_likes WHERE post_id = p.id AND user_id = ${viewerId})`
+            safeViewerId
+              ? `(SELECT COUNT(*) > 0 FROM vine_likes WHERE post_id = p.id AND user_id = ${safeViewerId})`
               : "0"
           } AS user_liked,
 
           ${
-            viewerId
-              ? `(SELECT COUNT(*) > 0 FROM vine_revines WHERE post_id = p.id AND user_id = ${viewerId})`
+            safeViewerId
+              ? `(SELECT COUNT(*) > 0 FROM vine_revines WHERE post_id = p.id AND user_id = ${safeViewerId})`
               : "0"
           } AS user_revined
 
@@ -6984,16 +7518,124 @@ router.get("/users/:username", authOptional, async (req, res) => {
         JOIN vine_users ru ON r.user_id = ru.id
         WHERE r.user_id = ?
       ) profile_feed
-      ORDER BY is_pinned DESC, sort_time DESC
+      ORDER BY is_pinned DESC, sort_time DESC, feed_id DESC
+      ${paginationSql}
       `,
-      [user.id, user.id]
+      params
     );
 
-    if (user.is_private && !isSelf && !isFollowing) {
-      return res.json({ user, posts: [], privateLocked: true });
-    }
+    return rows;
+  });
+};
 
-    res.json({ user, posts });
+router.get("/users/:username/header", authOptional, async (req, res) => {
+  try {
+    const viewerId = req.user?.id || null;
+    const result = await runVinePerfRoute(
+      "profile-header",
+      { username: req.params.username, viewer_id: Number(viewerId || 0) },
+      async (perfCtx) => {
+        const payload = await getProfileUserPayload(req.params.username, viewerId, perfCtx);
+        if (!payload) {
+          return { status: 404, body: { message: "Not found" } };
+        }
+        return { status: 200, body: payload };
+      }
+    );
+
+    return res.status(result.status).json(result.body);
+  } catch (err) {
+    console.error("Profile header fetch error:", err);
+    return res.status(500).json({ message: "Failed to load profile" });
+  }
+});
+
+router.get("/users/:username/posts", authOptional, async (req, res) => {
+  try {
+    const viewerId = req.user?.id || null;
+    const limit = Math.min(15, Math.max(1, Number(req.query.limit || 12)));
+    const offset = Math.max(0, Number(req.query.offset || 0));
+    const result = await runVinePerfRoute(
+      "profile-posts",
+      {
+        username: req.params.username,
+        viewer_id: Number(viewerId || 0),
+        limit,
+        offset,
+      },
+      async (perfCtx) => {
+        const payload = await getProfileUserPayload(req.params.username, viewerId, perfCtx);
+
+        if (!payload) {
+          return { status: 404, body: { message: "Not found" } };
+        }
+
+        if (payload.blocked || payload.privateLocked) {
+          return {
+            status: 200,
+            body: {
+              items: [],
+              hasMore: false,
+              nextOffset: offset,
+              blocked: payload.blocked,
+              privateLocked: payload.privateLocked,
+            },
+          };
+        }
+
+        const rows = await getProfileFeedRows(
+          payload.user.id,
+          viewerId,
+          {
+            limit: limit + 1,
+            offset,
+          },
+          perfCtx
+        );
+        const items = rows.slice(0, limit);
+
+        return {
+          status: 200,
+          body: {
+            items,
+            hasMore: rows.length > limit,
+            nextOffset: offset + items.length,
+          },
+        };
+      }
+    );
+
+    return res.status(result.status).json(result.body);
+  } catch (err) {
+    console.error("Profile posts fetch error:", err);
+    return res.status(500).json({ message: "Failed to load posts" });
+  }
+});
+
+// user profile
+router.get("/users/:username", authOptional, async (req, res) => {
+  try {
+    const { username } = req.params;
+    const viewerId = req.user?.id || null;
+    const result = await runVinePerfRoute(
+      "profile-full",
+      { username, viewer_id: Number(viewerId || 0) },
+      async (perfCtx) => {
+        const payload = await getProfileUserPayload(username, viewerId, perfCtx);
+        if (!payload) return { status: 404, body: { message: "Not found" } };
+        if (payload.blocked) {
+          return { status: 200, body: { user: payload.user, posts: [], blocked: true } };
+        }
+
+        if (payload.privateLocked) {
+          return { status: 200, body: { user: payload.user, posts: [], privateLocked: true } };
+        }
+
+        const posts = await getProfileFeedRows(payload.user.id, viewerId, {}, perfCtx);
+        return { status: 200, body: { user: payload.user, posts } };
+      }
+    );
+    res.status(result.status).json(result.body);
 
   } catch (err) {
     console.error("Profile fetch error:", err);
@@ -7084,36 +7726,48 @@ router.get("/posts/:id/likes", authOptional, async (req, res) => {
 // Get comments for post (threaded, enriched)
 router.get("/posts/:id/comments", authOptional, async (req, res) => {
   try {
-    await ensureCommentReactionSchema();
     const postId = req.params.id;
     const userId = req.user?.id || 0;
+    const rows = await runVinePerfRoute(
+      "post-comments",
+      { post_id: Number(postId), viewer_id: Number(userId || 0) },
+      async (perfCtx) => {
+        await ensureVinePerformanceSchema();
+        await ensureCommentReactionSchema();
+        const cacheKey = buildVineCacheKey("post-comments", postId, userId || 0);
+        return readThroughVineCache(cacheKey, VINE_CACHE_TTLS.comments, async () => {
+          const [results] = await timedVineQuery(
+            perfCtx,
+            "post-comments.rows",
+            `
+        SELECT 
+          c.id,
+          c.user_id,
+          c.content,
+          c.created_at,
+          c.parent_comment_id,
+          u.username,
+          u.display_name,
+          u.is_verified,
+          COALESCE(u.avatar_url, '/default-avatar.png') AS avatar_url,
 
-    const [rows] = await db.query(`
-      SELECT 
-        c.id,
-        c.user_id,
-        c.content,
-        c.created_at,
-        c.parent_comment_id,
-        u.username,
-        u.display_name,
-        u.is_verified,
-        COALESCE(u.avatar_url, '/default-avatar.png') AS avatar_url,
+          COUNT(DISTINCT cl.id) AS like_count,
+          SUM(cl.user_id = ?) > 0 AS user_liked,
+          COALESCE(MAX(CASE WHEN cl.user_id = ? THEN LOWER(cl.reaction) END), '') AS user_reaction
 
-        /* ✅ FIXED LIKE COUNT */
-        COUNT(DISTINCT cl.id) AS like_count,
-
-        /* ✅ FIXED USER_LIKED FLAG */
-        SUM(cl.user_id = ?) > 0 AS user_liked,
-        COALESCE(MAX(CASE WHEN cl.user_id = ? THEN LOWER(cl.reaction) END), '') AS user_reaction
-
-      FROM vine_comments c
-      JOIN vine_users u ON u.id = c.user_id
-      LEFT JOIN vine_comment_likes cl ON cl.comment_id = c.id
-      WHERE c.post_id = ?
-      GROUP BY c.id
-      ORDER BY c.created_at DESC
-    `, [userId, userId, postId]);
+        FROM vine_comments c
+        JOIN vine_users u ON u.id = c.user_id
+        LEFT JOIN vine_comment_likes cl ON cl.comment_id = c.id
+        WHERE c.post_id = ?
+        GROUP BY c.id
+        ORDER BY c.created_at DESC
+      `,
+            [userId, userId, postId]
+          );
+          return results;
+        });
+      }
+    );
 
     res.json(rows);
   } catch (err) {
@@ -7125,36 +7779,38 @@ router.get("/posts/:id/comments", authOptional, async (req, res) => {
 // 🔥 Trending posts (last 24h)
 router.get("/posts/trending", authOptional, async (req, res) => {
   try {
+    await ensureVinePerformanceSchema();
     const viewerId = req.user?.id || null;
     const limit = Math.min(Number(req.query.limit || 8), 20);
+    const cacheKey = buildVineCacheKey("trending", viewerId || 0, limit);
+    const rows = await readThroughVineCache(cacheKey, VINE_CACHE_TTLS.trending, async () => {
+      const [results] = await db.query(
+        `
+        SELECT 
+          p.id,
+          p.user_id,
+          p.content,
+          p.image_url,
+          p.link_preview,
+          p.created_at AS created_at,
+          p.created_at AS sort_time,
 
-    const [rows] = await db.query(
-      `
-      SELECT 
-        p.id,
-        p.user_id,
-        p.content,
-        p.image_url,
-        p.link_preview,
-        p.created_at AS created_at,
-        p.created_at AS sort_time,
+          u.username,
+          u.display_name,
+          u.avatar_url,
+          u.is_verified,
+          u.hide_like_counts,
 
-        u.username,
-        u.display_name,
-        u.avatar_url,
-        u.is_verified,
-        u.hide_like_counts,
+          (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id)    AS like_count,
+          (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comment_count,
+          (SELECT COUNT(*) FROM vine_revines WHERE post_id = p.id)  AS revine_count,
+          (SELECT COUNT(*) FROM vine_post_views WHERE post_id = p.id) AS view_count,
 
-        (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id)    AS like_count,
-        (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comment_count,
-        (SELECT COUNT(*) FROM vine_revines WHERE post_id = p.id)  AS revine_count,
-        (SELECT COUNT(*) FROM vine_post_views WHERE post_id = p.id) AS view_count,
+          ${viewerId ? "(SELECT COUNT(*) > 0 FROM vine_likes WHERE post_id = p.id AND user_id = " + viewerId + ") AS user_liked," : "0 AS user_liked,"}
+          ${viewerId ? "(SELECT COUNT(*) > 0 FROM vine_revines WHERE post_id = p.id AND user_id = " + viewerId + ") AS user_revined," : "0 AS user_revined,"}
+          ${viewerId ? "(SELECT COUNT(*) > 0 FROM vine_bookmarks WHERE post_id = p.id AND user_id = " + viewerId + ") AS user_bookmarked" : "0 AS user_bookmarked"}
 
-        ${viewerId ? "(SELECT COUNT(*) > 0 FROM vine_likes WHERE post_id = p.id AND user_id = " + viewerId + ") AS user_liked," : "0 AS user_liked,"}
-        ${viewerId ? "(SELECT COUNT(*) > 0 FROM vine_revines WHERE post_id = p.id AND user_id = " + viewerId + ") AS user_revined," : "0 AS user_revined,"}
-        ${viewerId ? "(SELECT COUNT(*) > 0 FROM vine_bookmarks WHERE post_id = p.id AND user_id = " + viewerId + ") AS user_bookmarked" : "0 AS user_bookmarked"}
-
-      FROM vine_posts p
+        FROM vine_posts p
       JOIN vine_users u ON p.user_id = u.id
       WHERE p.created_at >= NOW() - INTERVAL 1 DAY
         ${
@@ -7191,10 +7847,12 @@ router.get("/posts/trending", authOptional, async (req, res) => {
             : "AND u.is_private = 0"
         }
       ORDER BY like_count DESC, comment_count DESC, p.created_at DESC
-      LIMIT ?
-      `,
-      [limit]
-    );
+        LIMIT ?
+        `,
+        [limit]
+      );
+      return results;
+    });
 
     res.json(rows);
   } catch (err) {
@@ -7382,9 +8040,15 @@ router.post("/posts/:id/revine", authMiddleware, async (req, res) => {
       [postId]
     );
 
+    clearVineReadCache();
     res.json({
       revines: count.total,
       user_revined: !existing.length
+    });
+    emitVineFeedUpdated({
+      type: existing.length ? "revine_removed" : "revine_added",
+      postId,
+      actorId: userId,
     });
 
   } catch (err) {
@@ -7490,6 +8154,7 @@ router.post("/posts/:id/like", requireVineAuth, async (req, res) => {
     viewer_reaction: viewerReaction,
     reaction_counts: reactionCounts,
   });
+  clearVineReadCache();
 });
 
 // 🔒 Change password
@@ -7561,6 +8226,7 @@ router.post("/posts/:id/bookmark", requireVineAuth, async (req, res) => {
     );
   }
 
+  clearVineReadCache();
   res.json({ user_bookmarked: !existing.length });
 });
 
@@ -7580,6 +8246,7 @@ router.post("/posts/:id/view", requireVineAuth, async (req, res) => {
       [postId]
     );
 
+    clearVineReadCache();
     res.json({ views: count.total || 0 });
   } catch (err) {
     console.error("View record error:", err);
@@ -7686,6 +8353,12 @@ router.post("/posts/:id/comments", authMiddleware, async (req, res) => {
       type: "mention_comment",
     });
 
+    emitVineFeedUpdated({
+      type: parent_comment_id ? "reply_created" : "comment_created",
+      postId,
+      commentId,
+      actorId: userId,
+    });
     res.json({ success: true });
 
   } catch (err) {
@@ -7791,6 +8464,7 @@ router.post("/comments/:id/like", requireVineAuth, async (req, res) => {
       user_reaction: viewerReaction,
       reaction_counts: reactionCounts,
     });
+    clearVineReadCache();
 
   } catch (err) {
     console.error("Failed to like comment:", err);
@@ -7895,6 +8569,11 @@ router.delete("/comments/:id", requireVineAuth, async (req, res) => {
     await db.query("DELETE FROM vine_comments WHERE parent_comment_id = ?", [commentId]);
     await db.query("DELETE FROM vine_comments WHERE id = ?", [commentId]);
 
+    emitVineFeedUpdated({
+      type: "comment_deleted",
+      commentId: Number(commentId),
+      actorId: requesterId,
+    });
     res.json({ success: true, message: "Comment deleted successfully" });
   } catch (err) {
     console.error("Delete Error:", err);
@@ -7939,6 +8618,11 @@ router.delete("/posts/:id", requireVineAuth, async (req, res) => {
     // 3️⃣ Delete post from DB
     await db.query("DELETE FROM vine_posts WHERE id = ?", [postId]);
 
+    emitVineFeedUpdated({
+      type: "post_deleted",
+      postId: Number(postId),
+      actorId: userId,
+    });
     res.json({ success: true, message: "Post deleted" });
   } catch (err) {
     console.error("Delete Post Error:", err);
@@ -7973,6 +8657,7 @@ router.patch("/posts/:id", requireVineAuth, async (req, res) => {
       [content, postId]
     );
 
+    clearVineReadCache();
     return res.json({ success: true });
   } catch (err) {
     console.error("Edit post error:", err);
@@ -8040,6 +8725,7 @@ router.post("/users/avatar", authenticate, uploadAvatarMiddleware, async (req, r
       [avatarUrl, req.user.id]
     );
 
+    clearVineReadCache();
     res.json({ avatar_url: avatarUrl });
   } catch (err) {
     console.error("Avatar upload error:", err);
@@ -8080,6 +8766,7 @@ router.post(
         [bannerUrl, req.user.id]
       );
 
+      clearVineReadCache();
       res.json({ banner_url: bannerUrl });
 
     } catch (err) {
@@ -8171,6 +8858,7 @@ router.post("/users/update-profile", authenticate, async (req, res) => {
       ]
     );
 
+    clearVineReadCache();
     res.json({ success: true });
   } catch (err) {
     console.error("Update profile error:", err);
@@ -8346,6 +9034,7 @@ router.patch("/users/me/settings", authenticate, async (req, res) => {
       [req.user.id]
     );
 
+    clearVineReadCache();
     res.json({ success: true, user });
   } catch (err) {
     console.error("Update settings error:", err);
@@ -8598,6 +9287,7 @@ router.post("/users/:id/follow", authenticate, async (req, res) => {
         );
         io.to(`user-${targetId}`).emit("notification");
       }
+      clearVineReadCache();
       return res.json({ success: true, following: false, pending: true });
     }
 
@@ -8622,6 +9312,7 @@ router.post("/users/:id/follow", authenticate, async (req, res) => {
       }
     }
 
+    clearVineReadCache();
     res.json({ success: true, following: true, pending: false });
 
   } catch (err) {
@@ -8641,6 +9332,7 @@ router.delete("/users/:id/follow", authenticate, async (req, res) => {
     "DELETE FROM vine_follow_requests WHERE requester_id = ? AND target_id = ?",
     [req.user.id, req.params.id]
   );
+  clearVineReadCache();
   res.json({ success: true });
 });
 
@@ -8723,6 +9415,7 @@ router.post("/users/follow-requests/:id/respond", authenticate, async (req, res)
         );
         io.to(`user-${requestRow.requester_id}`).emit("notification");
       }
+      clearVineReadCache();
       return res.json({ success: true, status: "accepted" });
     }
 
@@ -8734,6 +9427,7 @@ router.post("/users/follow-requests/:id/respond", authenticate, async (req, res)
       `,
       [userId, requestId]
     );
+    clearVineReadCache();
     res.json({ success: true, status: "rejected" });
   } catch (err) {
     console.error("Follow request respond error:", err);
@@ -8760,6 +9454,7 @@ router.post("/users/:id/block", authenticate, async (req, res) => {
       "DELETE FROM vine_follows WHERE (follower_id = ? AND following_id = ?) OR (follower_id = ? AND following_id = ?)",
       [blockerId, blockedId, blockedId, blockerId]
     );
+    clearVineReadCache();
     res.json({ success: true });
   } catch (err) {
     console.error("Block error:", err);
@@ -8781,6 +9476,7 @@ router.post("/users/:id/mute", authenticate, async (req, res) => {
       "INSERT IGNORE INTO vine_mutes (muter_id, muted_id, created_at) VALUES (?, ?, NOW())",
       [muterId, mutedId]
     );
+    clearVineReadCache();
     res.json({ success: true });
   } catch (err) {
     console.error("Mute error:", err);
@@ -8800,6 +9496,7 @@ router.delete("/users/:id/mute", authenticate, async (req, res) => {
       "DELETE FROM vine_mutes WHERE muter_id = ? AND muted_id = ?",
       [muterId, mutedId]
     );
+    clearVineReadCache();
     res.json({ success: true });
   } catch (err) {
     console.error("Unmute error:", err);
@@ -8817,6 +9514,7 @@ router.delete("/users/:id/block", authenticate, async (req, res) => {
       "DELETE FROM vine_blocks WHERE blocker_id = ? AND blocked_id = ?",
       [blockerId, blockedId]
     );
+    clearVineReadCache();
     res.json({ success: true });
   } catch (err) {
     console.error("Unblock error:", err);
@@ -8826,8 +9524,10 @@ router.delete("/users/:id/block", authenticate, async (req, res) => {
 // Get followers of a user
 router.get("/users/:username/followers", authOptional, async (req, res) => {
   try {
+    await ensureVinePerformanceSchema();
     const { username } = req.params;
     const viewerId = req.user?.id || null;
+    const cacheKey = buildVineCacheKey("followers", username.toLowerCase(), viewerId || 0);
 
     const [[user]] = await db.query(
       "SELECT id FROM vine_users WHERE username = ?",
@@ -8835,41 +9535,44 @@ router.get("/users/:username/followers", authOptional, async (req, res) => {
     );
     if (!user) return res.status(404).json({ message: "Not found" });
 
-    const [rows] = await db.query(`
-      SELECT 
-        u.id,
-        u.username,
-        u.display_name,
-        u.avatar_url,
-        u.is_verified,
-        u.bio,
-        ${
-          viewerId
-            ? `(SELECT COUNT(*) > 0 FROM vine_follows 
-                WHERE follower_id = ${viewerId} AND following_id = u.id)`
-            : "0"
-        } AS is_following,
-        ${
-          viewerId
-            ? `(SELECT COUNT(*) > 0 FROM vine_follow_requests fr
-                WHERE fr.requester_id = ${viewerId}
-                  AND fr.target_id = u.id
-                  AND fr.status = 'pending')`
-            : "0"
-        } AS is_follow_requested
-      FROM vine_follows f
-      JOIN vine_users u ON f.follower_id = u.id
-      WHERE f.following_id = ?
-        ${
-          viewerId
-            ? `AND NOT EXISTS (
-                SELECT 1 FROM vine_blocks b
-                WHERE (b.blocker_id = u.id AND b.blocked_id = ${viewerId})
-                   OR (b.blocker_id = ${viewerId} AND b.blocked_id = u.id)
-              )`
-            : ""
-        }
-    `, [user.id]);
+    const rows = await readThroughVineCache(cacheKey, VINE_CACHE_TTLS.followers, async () => {
+      const [results] = await db.query(`
+        SELECT 
+          u.id,
+          u.username,
+          u.display_name,
+          u.avatar_url,
+          u.is_verified,
+          u.bio,
+          ${
+            viewerId
+              ? `(SELECT COUNT(*) > 0 FROM vine_follows 
+                  WHERE follower_id = ${viewerId} AND following_id = u.id)`
+              : "0"
+          } AS is_following,
+          ${
+            viewerId
+              ? `(SELECT COUNT(*) > 0 FROM vine_follow_requests fr
+                  WHERE fr.requester_id = ${viewerId}
+                    AND fr.target_id = u.id
+                    AND fr.status = 'pending')`
+              : "0"
+          } AS is_follow_requested
+        FROM vine_follows f
+        JOIN vine_users u ON f.follower_id = u.id
+        WHERE f.following_id = ?
+          ${
+            viewerId
+              ? `AND NOT EXISTS (
+                  SELECT 1 FROM vine_blocks b
+                  WHERE (b.blocker_id = u.id AND b.blocked_id = ${viewerId})
+                     OR (b.blocker_id = ${viewerId} AND b.blocked_id = u.id)
+                )`
+              : ""
+          }
+      `, [user.id]);
+      return results;
+    });
 
     res.json(rows);
   } catch (err) {
@@ -8879,8 +9582,10 @@ router.get("/users/:username/followers", authOptional, async (req, res) => {
 // Get users someone is following
 router.get("/users/:username/following", authOptional, async (req, res) => {
   try {
+    await ensureVinePerformanceSchema();
     const { username } = req.params;
     const viewerId = req.user?.id || null;
+    const cacheKey = buildVineCacheKey("following", username.toLowerCase(), viewerId || 0);
 
     const [[user]] = await db.query(
       "SELECT id FROM vine_users WHERE username = ?",
@@ -8888,41 +9593,44 @@ router.get("/users/:username/following", authOptional, async (req, res) => {
     );
     if (!user) return res.status(404).json({ message: "Not found" });
 
-    const [rows] = await db.query(`
-      SELECT 
-        u.id,
-        u.username,
-        u.display_name,
-        u.avatar_url,
-        u.is_verified,
-        u.bio,
-        ${
-          viewerId
-            ? `(SELECT COUNT(*) > 0 FROM vine_follows 
-                WHERE follower_id = ${viewerId} AND following_id = u.id)`
-            : "0"
-        } AS is_following,
-        ${
-          viewerId
-            ? `(SELECT COUNT(*) > 0 FROM vine_follow_requests fr
-                WHERE fr.requester_id = ${viewerId}
-                  AND fr.target_id = u.id
-                  AND fr.status = 'pending')`
-            : "0"
-        } AS is_follow_requested
-      FROM vine_follows f
-      JOIN vine_users u ON f.following_id = u.id
-      WHERE f.follower_id = ?
-        ${
-          viewerId
-            ? `AND NOT EXISTS (
-                SELECT 1 FROM vine_blocks b
-                WHERE (b.blocker_id = u.id AND b.blocked_id = ${viewerId})
-                   OR (b.blocker_id = ${viewerId} AND b.blocked_id = u.id)
-              )`
-            : ""
-        }
-    `, [user.id]);
+    const rows = await readThroughVineCache(cacheKey, VINE_CACHE_TTLS.following, async () => {
+      const [results] = await db.query(`
+        SELECT 
+          u.id,
+          u.username,
+          u.display_name,
+          u.avatar_url,
+          u.is_verified,
+          u.bio,
+          ${
+            viewerId
+              ? `(SELECT COUNT(*) > 0 FROM vine_follows 
+                  WHERE follower_id = ${viewerId} AND following_id = u.id)`
+              : "0"
+          } AS is_following,
+          ${
+            viewerId
+              ? `(SELECT COUNT(*) > 0 FROM vine_follow_requests fr
+                  WHERE fr.requester_id = ${viewerId}
+                    AND fr.target_id = u.id
+                    AND fr.status = 'pending')`
+              : "0"
+          } AS is_follow_requested
+        FROM vine_follows f
+        JOIN vine_users u ON f.following_id = u.id
+        WHERE f.follower_id = ?
+          ${
+            viewerId
+              ? `AND NOT EXISTS (
+                  SELECT 1 FROM vine_blocks b
+                  WHERE (b.blocker_id = u.id AND b.blocked_id = ${viewerId})
+                     OR (b.blocker_id = ${viewerId} AND b.blocked_id = u.id)
+                )`
+              : ""
+          }
+      `, [user.id]);
+      return results;
+    });
 
     res.json(rows);
   } catch (err) {
@@ -9604,6 +10312,32 @@ router.get("/analytics/overview", authenticate, async (req, res) => {
   }
 });
 
+router.get("/analytics/performance", authenticate, async (req, res) => {
+  try {
+    if (!isModeratorAccount(req.user)) {
+      return res.status(403).json({ message: "Moderator access required" });
+    }
+
+    return res.json({
+      enabled: VINE_PERF_LOGS_ENABLED,
+      thresholds: {
+        vine_slow_route_ms: VINE_SLOW_ROUTE_MS,
+        vine_slow_query_ms: VINE_SLOW_QUERY_MS,
+        dm_slow_route_ms: Number(process.env.DM_SLOW_ROUTE_MS || process.env.VINE_SLOW_ROUTE_MS || 500),
+        dm_slow_query_ms: Number(process.env.DM_SLOW_QUERY_MS || process.env.VINE_SLOW_QUERY_MS || 150),
+      },
+      ...getGuardianPerfSnapshot({
+        routeLimit: 10,
+        queryLimit: 12,
+        sampleLimit: 12,
+      }),
+    });
+  } catch (err) {
+    console.error("Guardian performance analytics error:", err);
+    return res.status(500).json({ message: "Failed to load performance analytics" });
+  }
+});
+
 // Guardian-only drilldown for moderation view
 router.get("/analytics/drilldown", authenticate, async (req, res) => {
   try {
@@ -10133,61 +10867,92 @@ router.post("/moderation/appeals", authenticate, async (req, res) => {
 
 // Get notifications
 router.get("/notifications", authenticate, async (req, res) => {
-  const dbName = await getDbName();
-  const includeMeta = dbName
-    ? await hasColumn(dbName, "vine_notifications", "meta_json")
-    : false;
-  const [rows] = await db.query(
-    `
-    SELECT 
-      n.id,
-      n.type,
-      n.post_id,
-      n.comment_id,
-      n.is_read,
-      n.created_at,
-      ${includeMeta ? "n.meta_json," : "NULL AS meta_json,"}
-      u.username,
-      u.display_name,
-      u.avatar_url,
-      u.is_verified
-    FROM vine_notifications n
-    JOIN vine_users u ON n.actor_id = u.id
-    WHERE n.user_id = ?
-      AND NOT EXISTS (
-        SELECT 1 FROM vine_mutes m
-        WHERE m.muter_id = n.user_id AND m.muted_id = n.actor_id
-      )
-    ORDER BY n.created_at DESC
-    LIMIT 80
-  `,
-    [req.user.id]
-  );
+  try {
+    const viewerId = Number(req.user.id);
+    const rows = await runVinePerfRoute(
+      "notifications",
+      { viewer_id: viewerId },
+      async (perfCtx) => {
+        await ensureVinePerformanceSchema();
+        const dbName = await getDbName();
+        const includeMeta = dbName
+          ? await hasColumn(dbName, "vine_notifications", "meta_json")
+          : false;
+        const cacheKey = buildVineCacheKey("notifications", viewerId);
+        return readThroughVineCache(cacheKey, VINE_CACHE_TTLS.notifications, async () => {
+          const [notificationRows] = await timedVineQuery(
+            perfCtx,
+            "notifications.rows",
+            `
+            SELECT 
+              n.id,
+              n.type,
+              n.post_id,
+              n.comment_id,
+              n.is_read,
+              n.created_at,
+              ${includeMeta ? "n.meta_json," : "NULL AS meta_json,"}
+              u.username,
+              u.display_name,
+              u.avatar_url,
+              u.is_verified
+            FROM vine_notifications n
+            JOIN vine_users u ON n.actor_id = u.id
+            WHERE n.user_id = ?
+              AND NOT EXISTS (
+                SELECT 1 FROM vine_mutes m
+                WHERE m.muter_id = n.user_id AND m.muted_id = n.actor_id
+              )
+            ORDER BY n.created_at DESC
+            LIMIT 80
+          `,
+            [viewerId]
+          );
+          return notificationRows;
+        });
+      }
+    );
 
-  res.json(rows);
+    res.json(rows);
+  } catch (err) {
+    console.error("Get notifications error:", err);
+    res.status(500).json([]);
+  }
 });
 // Get unread count
 router.get("/notifications/unread-count", authenticate, async (req, res) => {
-  const [[row]] = await db.query(
-    "SELECT COUNT(*) AS total FROM vine_notifications WHERE user_id = ? AND is_read = 0",
-    [req.user.id]
-  );
+  await ensureVinePerformanceSchema();
+  const viewerId = Number(req.user.id);
+  const cacheKey = buildVineCacheKey("notifications-unread", viewerId);
+  const row = await readThroughVineCache(cacheKey, VINE_CACHE_TTLS.notificationCounts, async () => {
+    const [[countRow]] = await db.query(
+      "SELECT COUNT(*) AS total FROM vine_notifications WHERE user_id = ? AND is_read = 0",
+      [viewerId]
+    );
+    return countRow;
+  });
 
-  res.json({ count: row.total });
+  res.json({ count: Number(row?.total || 0) });
 });
 
 // Count notifications received since a given timestamp (ignores is_read)
 router.get("/notifications/unseen-count", authenticate, async (req, res) => {
+  await ensureVinePerformanceSchema();
   const sinceRaw = String(req.query.since || "").trim();
   const since = new Date(sinceRaw);
   if (!sinceRaw || Number.isNaN(since.getTime())) {
     return res.json({ count: 0 });
   }
 
-  const [[row]] = await db.query(
-    "SELECT COUNT(*) AS total FROM vine_notifications WHERE user_id = ? AND created_at > ?",
-    [req.user.id, since]
-  );
+  const viewerId = Number(req.user.id);
+  const cacheKey = buildVineCacheKey("notifications-unseen", viewerId, since.toISOString());
+  const row = await readThroughVineCache(cacheKey, VINE_CACHE_TTLS.notificationCounts, async () => {
+    const [[countRow]] = await db.query(
+      "SELECT COUNT(*) AS total FROM vine_notifications WHERE user_id = ? AND created_at > ?",
+      [viewerId, since]
+    );
+    return countRow;
+  });
 
   res.json({ count: Number(row?.total || 0) });
 });
@@ -10198,6 +10963,7 @@ router.post("/notifications/mark-read", authenticate, async (req, res) => {
     [req.user.id]
   );
 
+  clearVineReadCache("notifications", "notifications-unread", "notifications-unseen");
   res.json({ success: true });
 });
 // Mark single notification as read
@@ -10207,6 +10973,7 @@ router.post("/notifications/:id/read", authenticate, async (req, res) => {
     [req.params.id, req.user.id]
   );
 
+  clearVineReadCache("notifications", "notifications-unread", "notifications-unseen");
   res.json({ success: true });
 });
 
@@ -10220,6 +10987,7 @@ router.post("/users/banner-position", requireVineAuth, async (req, res) => {
     [offsetY, userId]
   );
 
+  clearVineReadCache();
   res.json({ success: true });
 });
 // ❤️ GET liked posts by a user (Profile Likes tab)
@@ -10228,6 +10996,7 @@ router.get("/users/:username/likes", authOptional, async (req, res) => {
   const viewerId = req.user?.id || null;
 
   try {
+    await ensureVinePerformanceSchema();
     // 1️⃣ Resolve user ID from username
     const [[user]] = await db.query(
       "SELECT id, is_private FROM vine_users WHERE username = ?",
@@ -10251,44 +11020,52 @@ router.get("/users/:username/likes", authOptional, async (req, res) => {
     }
 
     // 2️⃣ Fetch liked posts (feed-compatible)
-    const [rows] = await db.query(
-      `
-      SELECT DISTINCT
-        p.id,
-        CONCAT('post-', p.id) AS feed_id,
-        p.user_id,
-        p.content,
-        p.image_url,
-        p.link_preview,
-        p.created_at,
-        l.created_at AS sort_time,
-        u.username,
-        u.display_name,
-        u.avatar_url,
-        u.is_verified,
-        u.hide_like_counts,
-        (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id) AS likes,
-        (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comments,
-        (SELECT COUNT(*) FROM vine_revines WHERE post_id = p.id) AS revines,
-        (SELECT COUNT(*) FROM vine_post_views WHERE post_id = p.id) AS views,
-        ${
-          viewerId
-            ? `(SELECT COUNT(*) > 0 FROM vine_likes WHERE post_id = p.id AND user_id = ${viewerId})`
-            : "0"
-        } AS user_liked,
-        ${
-          viewerId
-            ? `(SELECT COUNT(*) > 0 FROM vine_revines WHERE post_id = p.id AND user_id = ${viewerId})`
-            : "0"
-        } AS user_revined
-      FROM vine_likes l
-      JOIN vine_posts p ON l.post_id = p.id
-      JOIN vine_users u ON p.user_id = u.id
-      WHERE l.user_id = ?
-      ORDER BY sort_time DESC
-      `,
-      [user.id]
+    const cacheKey = buildVineCacheKey(
+      "profile-likes",
+      username.toLowerCase(),
+      Number(viewerId || 0)
     );
+    const rows = await readThroughVineCache(cacheKey, VINE_CACHE_TTLS.profileLikes, async () => {
+      const [likedRows] = await db.query(
+        `
+        SELECT DISTINCT
+          p.id,
+          CONCAT('post-', p.id) AS feed_id,
+          p.user_id,
+          p.content,
+          p.image_url,
+          p.link_preview,
+          p.created_at,
+          l.created_at AS sort_time,
+          u.username,
+          u.display_name,
+          u.avatar_url,
+          u.is_verified,
+          u.hide_like_counts,
+          (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id) AS likes,
+          (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comments,
+          (SELECT COUNT(*) FROM vine_revines WHERE post_id = p.id) AS revines,
+          (SELECT COUNT(*) FROM vine_post_views WHERE post_id = p.id) AS views,
+          ${
+            viewerId
+              ? `(SELECT COUNT(*) > 0 FROM vine_likes WHERE post_id = p.id AND user_id = ${viewerId})`
+              : "0"
+          } AS user_liked,
+          ${
+            viewerId
+              ? `(SELECT COUNT(*) > 0 FROM vine_revines WHERE post_id = p.id AND user_id = ${viewerId})`
+              : "0"
+          } AS user_revined
+        FROM vine_likes l
+        JOIN vine_posts p ON l.post_id = p.id
+        JOIN vine_users u ON p.user_id = u.id
+        WHERE l.user_id = ?
+        ORDER BY sort_time DESC
+        `,
+        [user.id]
+      );
+      return likedRows;
+    });
 
     // 3️⃣ Return feed-ready rows
     res.status(200).json(rows);
@@ -10303,6 +11080,7 @@ router.get("/users/:username/photos", authOptional, async (req, res) => {
   const viewerId = req.user?.id || null;
 
   try {
+    await ensureVinePerformanceSchema();
     // 1️⃣ Resolve user
     const [[user]] = await db.query(
       "SELECT id, is_private FROM vine_users WHERE username = ?",
@@ -10326,33 +11104,41 @@ router.get("/users/:username/photos", authOptional, async (req, res) => {
     }
 
     // 2️⃣ Fetch posts with images only
-    const [rows] = await db.query(
-      `
-      SELECT
-        p.id,
-        CONCAT('post-', p.id) AS feed_id,
-        p.user_id,
-        p.content,
-        p.image_url,
-        p.link_preview,
-        p.created_at AS sort_time,
-        u.username,
-        u.display_name,
-        u.avatar_url,
-        u.is_verified,
-        u.hide_like_counts,
-        (SELECT COUNT(*) FROM vine_post_views WHERE post_id = p.id) AS views,
-        (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id) AS like_count,
-        (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comment_count,
-        (SELECT COUNT(*) > 0 FROM vine_likes WHERE post_id = p.id AND user_id = ?) AS user_liked
-      FROM vine_posts p
-      JOIN vine_users u ON p.user_id = u.id
-      WHERE p.user_id = ?
-        AND p.image_url IS NOT NULL
-      ORDER BY sort_time DESC
-      `,
-      [viewerId || 0, user.id]
+    const cacheKey = buildVineCacheKey(
+      "profile-photos",
+      username.toLowerCase(),
+      Number(viewerId || 0)
     );
+    const rows = await readThroughVineCache(cacheKey, VINE_CACHE_TTLS.profilePhotos, async () => {
+      const [photoRows] = await db.query(
+        `
+        SELECT
+          p.id,
+          CONCAT('post-', p.id) AS feed_id,
+          p.user_id,
+          p.content,
+          p.image_url,
+          p.link_preview,
+          p.created_at AS sort_time,
+          u.username,
+          u.display_name,
+          u.avatar_url,
+          u.is_verified,
+          u.hide_like_counts,
+          (SELECT COUNT(*) FROM vine_post_views WHERE post_id = p.id) AS views,
+          (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id) AS like_count,
+          (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comment_count,
+          (SELECT COUNT(*) > 0 FROM vine_likes WHERE post_id = p.id AND user_id = ?) AS user_liked
+        FROM vine_posts p
+        JOIN vine_users u ON p.user_id = u.id
+        WHERE p.user_id = ?
+          AND p.image_url IS NOT NULL
+        ORDER BY sort_time DESC
+        `,
+        [viewerId || 0, user.id]
+      );
+      return photoRows;
+    });
 
     res.status(200).json(rows);
   } catch (err) {
@@ -10364,6 +11150,7 @@ router.get("/users/:username/photos", authOptional, async (req, res) => {
 // 🔖 Saved posts (bookmarks) — only for self
 router.get("/users/:username/bookmarks", authOptional, async (req, res) => {
   try {
+    await ensureVinePerformanceSchema();
     const { username } = req.params;
     const viewerId = req.user?.id || null;
 
@@ -10376,36 +11163,40 @@ router.get("/users/:username/bookmarks", authOptional, async (req, res) => {
       return res.json([]);
     }
 
-    const [rows] = await db.query(
-      `
-      SELECT 
-        p.id,
-        CONCAT('post-', p.id) AS feed_id,
-        p.user_id,
-        p.content,
-        p.image_url,
-        p.link_preview,
-        p.created_at AS sort_time,
-        u.username,
-        u.display_name,
-        u.avatar_url,
-        u.is_verified,
-        u.hide_like_counts,
-        (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id) AS likes,
-        (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comments,
-        (SELECT COUNT(*) FROM vine_revines WHERE post_id = p.id) AS revines,
-        (SELECT COUNT(*) FROM vine_post_views WHERE post_id = p.id) AS views,
-        (SELECT COUNT(*) > 0 FROM vine_likes WHERE post_id = p.id AND user_id = ?) AS user_liked,
-        (SELECT COUNT(*) > 0 FROM vine_revines WHERE post_id = p.id AND user_id = ?) AS user_revined,
-        1 AS user_bookmarked
-      FROM vine_bookmarks b
-      JOIN vine_posts p ON b.post_id = p.id
-      JOIN vine_users u ON p.user_id = u.id
-      WHERE b.user_id = ?
-      ORDER BY b.created_at DESC
-      `,
-      [viewerId, viewerId, viewerId]
-    );
+    const cacheKey = buildVineCacheKey("profile-bookmarks", viewerId);
+    const rows = await readThroughVineCache(cacheKey, VINE_CACHE_TTLS.profileBookmarks, async () => {
+      const [bookmarkRows] = await db.query(
+        `
+        SELECT 
+          p.id,
+          CONCAT('post-', p.id) AS feed_id,
+          p.user_id,
+          p.content,
+          p.image_url,
+          p.link_preview,
+          p.created_at AS sort_time,
+          u.username,
+          u.display_name,
+          u.avatar_url,
+          u.is_verified,
+          u.hide_like_counts,
+          (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id) AS likes,
+          (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comments,
+          (SELECT COUNT(*) FROM vine_revines WHERE post_id = p.id) AS revines,
+          (SELECT COUNT(*) FROM vine_post_views WHERE post_id = p.id) AS views,
+          (SELECT COUNT(*) > 0 FROM vine_likes WHERE post_id = p.id AND user_id = ?) AS user_liked,
+          (SELECT COUNT(*) > 0 FROM vine_revines WHERE post_id = p.id AND user_id = ?) AS user_revined,
+          1 AS user_bookmarked
+        FROM vine_bookmarks b
+        JOIN vine_posts p ON b.post_id = p.id
+        JOIN vine_users u ON p.user_id = u.id
+        WHERE b.user_id = ?
+        ORDER BY b.created_at DESC
+        `,
+        [viewerId, viewerId, viewerId]
+      );
+      return bookmarkRows;
+    });
 
     res.json(rows);
   } catch (err) {
@@ -10418,16 +11209,21 @@ router.get("/users/:username/bookmarks", authOptional, async (req, res) => {
 router.get("/users/me/mutes", authenticate, async (req, res) => {
   try {
     const userId = req.user.id;
-    const [rows] = await db.query(
-      `
-      SELECT u.id, u.username, u.display_name, u.avatar_url, u.is_verified
-      FROM vine_mutes m
-      JOIN vine_users u ON u.id = m.muted_id
-      WHERE m.muter_id = ?
-      ORDER BY m.created_at DESC
-      `,
-      [userId]
-    );
+    await ensureVinePerformanceSchema();
+    const cacheKey = buildVineCacheKey("muted-users", Number(userId));
+    const rows = await readThroughVineCache(cacheKey, VINE_CACHE_TTLS.mutedUsers, async () => {
+      const [muteRows] = await db.query(
+        `
+        SELECT u.id, u.username, u.display_name, u.avatar_url, u.is_verified
+        FROM vine_mutes m
+        JOIN vine_users u ON u.id = m.muted_id
+        WHERE m.muter_id = ?
+        ORDER BY m.created_at DESC
+        `,
+        [userId]
+      );
+      return muteRows;
+    });
     res.json(rows);
   } catch (err) {
     console.error("Muted list error:", err);
@@ -10439,16 +11235,21 @@ router.get("/users/me/mutes", authenticate, async (req, res) => {
 router.get("/users/me/blocks", authenticate, async (req, res) => {
   try {
     const userId = req.user.id;
-    const [rows] = await db.query(
-      `
-      SELECT u.id, u.username, u.display_name, u.avatar_url, u.is_verified
-      FROM vine_blocks b
-      JOIN vine_users u ON u.id = b.blocked_id
-      WHERE b.blocker_id = ?
-      ORDER BY b.created_at DESC
-      `,
-      [userId]
-    );
+    await ensureVinePerformanceSchema();
+    const cacheKey = buildVineCacheKey("blocked-users", Number(userId));
+    const rows = await readThroughVineCache(cacheKey, VINE_CACHE_TTLS.blockedUsers, async () => {
+      const [blockRows] = await db.query(
+        `
+        SELECT u.id, u.username, u.display_name, u.avatar_url, u.is_verified
+        FROM vine_blocks b
+        JOIN vine_users u ON u.id = b.blocked_id
+        WHERE b.blocker_id = ?
+        ORDER BY b.created_at DESC
+        `,
+        [userId]
+      );
+      return blockRows;
+    });
     res.json(rows);
   } catch (err) {
     console.error("Blocked list error:", err);

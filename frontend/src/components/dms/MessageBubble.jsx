@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import "./MessageBubbles.css"; // Import the new styles
 
@@ -11,7 +11,7 @@ const getMessageDisappearingLabel = (mode) => {
   return "Disappears after read";
 };
 
-export default function MessageBubble({ message, onReply, onReact, onDelete }) {
+function MessageBubble({ message, onReply, onReact, onDelete }) {
   const currentUser = JSON.parse(localStorage.getItem("vine_user"));
   const myId = currentUser?.id;
   const isMine = Number(message.sender_id) === Number(myId);
@@ -208,3 +208,7 @@ export default function MessageBubble({ message, onReply, onReact, onDelete }) {
     </div>
   );
 }
+
+const areMessageBubblePropsEqual = (prevProps, nextProps) => prevProps.message === nextProps.message;
+
+export default memo(MessageBubble, areMessageBubblePropsEqual);

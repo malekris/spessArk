@@ -1,9 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { plainFetch, adminFetch } from "../../../lib/api";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
 import { useNavigate } from "react-router-dom";
 import useIdleLogout from "../../../hooks/useIdleLogout";
+import { loadPdfTools } from "../../../utils/loadPdfTools";
 import "../../../pages/AdminDashboard.css";
 import "./ALevelAdminTheme.css";
 
@@ -137,8 +136,9 @@ export default function ALevelAssignSubjects() {
   /* ======================================================
      7. PDF EXPORT
   ====================================================== */
-  function exportPDF() {
+  async function exportPDF() {
     if (filteredAssignments.length === 0) return;
+    const { jsPDF, autoTable } = await loadPdfTools();
   
     const doc = new jsPDF("p", "mm", "a4");
     const W = doc.internal.pageSize.getWidth();

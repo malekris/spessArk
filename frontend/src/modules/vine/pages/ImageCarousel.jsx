@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import useNearScreen from "../../../hooks/useNearScreen";
 
 const ORIGIN = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 
@@ -26,19 +27,27 @@ export default function ImageCarousel({
     const s = String(src || "");
     return /\/video\/upload\//i.test(s) || /\.(mp4|mov|webm|m4v|avi|mkv|ogv)(\?|$)/i.test(s);
   };
-  // ── Parse images (support both array and single string) ──
-  let media = [];
-  try {
-    media = JSON.parse(imageUrl);
-  } catch {
-    media = [imageUrl]; // backward compatibility for old single-image posts
-  }
-  if (!Array.isArray(media)) media = [media];
+  const media = useMemo(() => {
+    let parsedMedia = [];
+    try {
+      parsedMedia = JSON.parse(imageUrl);
+    } catch {
+      parsedMedia = [imageUrl];
+    }
+    if (!Array.isArray(parsedMedia)) parsedMedia = [parsedMedia];
+    return parsedMedia.filter(Boolean);
+  }, [imageUrl]);
 
   // ── State & Refs ─────────────────────────────────
   const containerRef = useRef(null);
   const viewerRef = useRef(null);
+  const videoRefs = useRef([]);
+  const [viewportRef, isCarouselVisible] = useNearScreen({
+    rootMargin: "240px 0px",
+    once: false,
+  });
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [loadedVideoIndexes, setLoadedVideoIndexes] = useState({});
   const [viewerOpen, setViewerOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [pseudoFullscreen, setPseudoFullscreen] = useState(false);
@@ -63,6 +72,10 @@ export default function ImageCarousel({
   };
   const normalize = (src) =>
     src.startsWith("http") ? src : `${ORIGIN}${src}`;
+
+  const loadVideoSlide = (index) => {
+    setLoadedVideoIndexes((prev) => (prev[index] ? prev : { ...prev, [index]: true }));
+  };
 
   useEffect(() => {
     if (!viewerOpen) return;
@@ -109,41 +122,84 @@ export default function ImageCarousel({
     }
     setPseudoFullscreen((v) => !v);
   };
+
+  useEffect(() => {
+    videoRefs.current.forEach((video, index) => {
+      if (!video) return;
+      const keepActive = viewerOpen || (isCarouselVisible && index === currentIndex);
+      if (!keepActive) {
+        try {
+          video.pause();
+        } catch {
+          // noop
+        }
+      }
+    });
+  }, [currentIndex, isCarouselVisible, viewerOpen]);
   
   // ── Render ───────────────────────────────────────
   const isSingle = media.length === 1;
 
   return (
-    <div className={`carousel-wrapper ${isSingle ? "single" : ""}`}>
+    <div className={`carousel-wrapper ${isSingle ? "single" : ""}`} ref={viewportRef}>
       {/* Horizontal scrollable track */}
       <div
         className="carousel"
         ref={containerRef}
         onScroll={handleScroll}
       >
-        {media.map((src, i) => (
-          isVideoUrl(src) ? (
-            <video
-              key={i}
-              src={normalize(src)}
-              className="carousel-img"
-              controls
-              controlsList="nofullscreen noremoteplayback nodownload"
-              disablePictureInPicture
-              playsInline
-              preload="metadata"
-              onClick={() => setViewerOpen(true)}
-            />
-          ) : (
-            <img
-              key={i}
-              src={normalize(src)}
-              alt=""
-              className="carousel-img"
-              onClick={() => setViewerOpen(true)}
-            />
-          )
-        ))}
+        {media.map((src, i) => {
+          const isVideo = isVideoUrl(src);
+          const isNearbySlide = Math.abs(i - currentIndex) <= 1;
+          const shouldRenderMedia = viewerOpen || isNearbySlide || (!isVideo && i === 0);
+
+          return (
+            <div key={i} className="carousel-slide">
+              {shouldRenderMedia ? (
+                isVideo ? (
+                  loadedVideoIndexes[i] ? (
+                    <video
+                      ref={(node) => {
+                        videoRefs.current[i] = node;
+                      }}
+                      src={normalize(src)}
+                      className="carousel-img"
+                      controls
+                      controlsList="nofullscreen noremoteplayback nodownload"
+                      disablePictureInPicture
+                      playsInline
+                      preload={isCarouselVisible && i === currentIndex ? "metadata" : "none"}
+                      onClick={() => setViewerOpen(true)}
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      className="carousel-video-poster"
+                      onClick={() => loadVideoSlide(i)}
+                    >
+                      <span className="carousel-video-play">▶</span>
+                      <span className="carousel-video-note">Tap to load video</span>
+                    </button>
+                  )
+                ) : (
+                  <img
+                    src={normalize(src)}
+                    alt=""
+                    className="carousel-img"
+                    loading={i === 0 ? "eager" : "lazy"}
+                    decoding="async"
+                    fetchPriority={i === 0 ? "high" : "low"}
+                    onClick={() => setViewerOpen(true)}
+                  />
+                )
+              ) : (
+                <div className={`carousel-placeholder ${isVideo ? "video" : "image"}`} aria-hidden="true">
+                  <span>{isVideo ? "Video" : "Image"}</span>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {/* Counter – only shown when multiple images */}

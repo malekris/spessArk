@@ -1,0 +1,105 @@
+.vine-route-error-shell {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background:
+    radial-gradient(circle at top, rgba(16, 185, 129, 0.14), transparent 34%),
+    linear-gradient(180deg, #eefbf2 0%, #f8fdf9 100%);
+}
+
+.vine-route-error-card {
+  width: min(100%, 520px);
+  padding: 26px 24px;
+  border-radius: 30px;
+  background: rgba(255, 255, 255, 0.98);
+  border: 1px solid rgba(16, 185, 129, 0.14);
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.14);
+  color: #0f172a;
+}
+
+.vine-route-error-kicker {
+  font-size: 0.75rem;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #059669;
+}
+
+.vine-route-error-card h1 {
+  margin: 10px 0 12px;
+  font-size: clamp(1.8rem, 3vw, 2.3rem);
+  line-height: 1.05;
+  color: #0f3d2b;
+}
+
+.vine-route-error-card p {
+  margin: 0;
+  color: #475569;
+  line-height: 1.65;
+}
+
+.vine-route-error-message {
+  margin-top: 16px;
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: #fff7ed;
+  border: 1px solid rgba(249, 115, 22, 0.15);
+  color: #9a3412;
+  font-weight: 700;
+}
+
+.vine-route-error-actions {
+  margin-top: 18px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.vine-route-error-actions button {
+  min-height: 46px;
+  padding: 0 18px;
+  border-radius: 999px;
+  border: none;
+  cursor: pointer;
+  font-weight: 900;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease;
+}
+
+.vine-route-error-actions button:hover {
+  transform: translateY(-1px);
+}
+
+.vine-route-error-actions button:first-child {
+  background: linear-gradient(135deg, #065f46, #10b981);
+  color: #ffffff;
+  box-shadow: 0 14px 30px rgba(16, 185, 129, 0.2);
+}
+
+.vine-route-error-actions button.secondary {
+  background: linear-gradient(135deg, #f59e0b, #fbbf24);
+  color: #6b2f00;
+  box-shadow: 0 12px 24px rgba(245, 158, 11, 0.18);
+}
+
+.vine-route-error-actions button.ghost {
+  background: #ffffff;
+  color: #14532d;
+  box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.16);
+}
+
+@media (max-width: 640px) {
+  .vine-route-error-card {
+    padding: 22px 18px;
+    border-radius: 24px;
+  }
+
+  .vine-route-error-actions {
+    flex-direction: column;
+  }
+
+  .vine-route-error-actions button {
+    width: 100%;
+  }
+}

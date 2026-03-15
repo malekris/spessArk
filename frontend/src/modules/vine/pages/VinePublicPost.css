@@ -75,6 +75,37 @@
   margin-top: 20px;
 }
 
+.vine-public-media-shell {
+  width: 100%;
+}
+
+.vine-public-media-placeholder {
+  width: 100%;
+  margin: 12px 0;
+  border-radius: 20px;
+  aspect-ratio: 4 / 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    linear-gradient(110deg, rgba(16, 185, 129, 0.12) 8%, rgba(255, 255, 255, 0.9) 18%, rgba(245, 158, 11, 0.12) 33%),
+    #e6fbf3;
+  background-size: 220% 100%;
+  animation: vinePublicMediaShimmer 1.8s linear infinite;
+  color: #0f766e;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+}
+
+@keyframes vinePublicMediaShimmer {
+  0% {
+    background-position: 120% 0;
+  }
+  100% {
+    background-position: -120% 0;
+  }
+}
+
 .vine-public-header {
   display: flex;
   align-items: center;

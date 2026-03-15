@@ -1,10 +1,11 @@
-import { useState, useEffect, useRef } from "react";
+import { memo, useState, useEffect, useRef } from "react";
 import "./VinePostCard.css";
 import { useNavigate } from "react-router-dom";
 import ImageCarousel from "./ImageCarousel";
 import MiniProfileCard from "../components/MiniProfileCard";
 import GifPickerModal from "../components/GifPickerModal";
 import { createPortal } from "react-dom";
+import useNearScreen from "../../../hooks/useNearScreen";
 
 // ────────────────────────────────────────────────
 //  CONFIG & HELPERS
@@ -259,7 +260,7 @@ const applyMention = (value, anchor, username) => {
 //  MAIN COMPONENT: VinePostCard
 // ────────────────────────────────────────────────
 
-export default function VinePostCard({ post, onDeletePost, focusComments, isMe, communityInteractionLocked = false }) {
+function VinePostCard({ post, onDeletePost, focusComments, isMe, communityInteractionLocked = false }) {
 
   const navigate = useNavigate();
   const token = localStorage.getItem("vine_token");
@@ -922,6 +923,10 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
   const carouselMediaPayload = visualMediaUrls.length
     ? JSON.stringify(visualMediaUrls)
     : null;
+  const [mediaMountRef, shouldMountCarousel] = useNearScreen({
+    rootMargin: "720px 0px",
+    once: true,
+  });
 
   // ── Render ──────────────────────────────────────
   return (
@@ -1116,6 +1121,9 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
               src={linkPreview.image}
               alt={linkPreview.title || "Link preview"}
               className="link-preview-img"
+              loading="lazy"
+              decoding="async"
+              fetchPriority="low"
               onError={(e) => {
                 e.currentTarget.style.display = "none";
               }}
@@ -1160,6 +1168,8 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
       {/* Images carousel */}
       {carouselMediaPayload && (
   <div
+    ref={mediaMountRef}
+    className="carousel-shell"
     onClick={() => {
       const now = Date.now();
       if (now - lastTapRef.current < 300) {
@@ -1170,21 +1180,27 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
       lastTapRef.current = now;
     }}
   >
-    <ImageCarousel
-      imageUrl={carouselMediaPayload}
-      onLike={handleLike}
-      onRevine={handleRevine}
-      onComments={() => setOpen(true)}
-      likeCount={canShowLikeCount ? postLikes : null}
-      revineCount={revines}
-      commentCount={commentCount}
-      userLiked={postUserLiked}
-      userRevined={userRevined}
-      displayName={post.display_name}
-      username={post.username}
-      timeLabel={formatPostDate(post.created_at)}
-      caption={post.content}
-    />
+    {shouldMountCarousel ? (
+      <ImageCarousel
+        imageUrl={carouselMediaPayload}
+        onLike={handleLike}
+        onRevine={handleRevine}
+        onComments={() => setOpen(true)}
+        likeCount={canShowLikeCount ? postLikes : null}
+        revineCount={revines}
+        commentCount={commentCount}
+        userLiked={postUserLiked}
+        userRevined={userRevined}
+        displayName={post.display_name}
+        username={post.username}
+        timeLabel={formatPostDate(post.created_at)}
+        caption={post.content}
+      />
+    ) : (
+      <div className="carousel-deferred-placeholder" aria-hidden="true">
+        <span>Preparing media…</span>
+      </div>
+    )}
   </div>
         )}
       {/* Action footer */}
@@ -1552,6 +1568,13 @@ export default function VinePostCard({ post, onDeletePost, focusComments, isMe, 
     </div>
   );
 }
+
+const areVinePostCardPropsEqual = (prevProps, nextProps) => (
+  prevProps.post === nextProps.post &&
+  prevProps.focusComments === nextProps.focusComments &&
+  prevProps.isMe === nextProps.isMe &&
+  prevProps.communityInteractionLocked === nextProps.communityInteractionLocked
+);
 
 // ────────────────────────────────────────────────
 //  NESTED COMMENT COMPONENT
@@ -1956,3 +1979,5 @@ function buildThreads(comments) {
 
   return roots;
 }
+
+export default memo(VinePostCard, areVinePostCardPropsEqual);

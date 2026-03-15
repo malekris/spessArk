@@ -48,6 +48,7 @@ const VineHelpCenter = lazy(() => import("./modules/vine/pages/VineHelpCenter"))
 const VineCommunities = lazy(() => import("./modules/vine/pages/VineCommunities"));
 const VineLegalPage = lazy(() => import("./modules/vine/pages/VineLegalPage"));
 const VinePublicPost = lazy(() => import("./modules/vine/pages/VinePublicPost"));
+const VinePublicProfile = lazy(() => import("./modules/vine/pages/VinePublicProfile"));
 
 function RouteLoadingScreen() {
   return (
@@ -188,6 +189,7 @@ function App() {
 <Route path="/vine/reset-password" element={<VineRouteErrorBoundary><VineResetPassword /></VineRouteErrorBoundary>} />
 <Route path="/vine/verify-email" element={<VineRouteErrorBoundary><VineVerifyEmail /></VineRouteErrorBoundary>} />
 <Route path="/vine/post/:id" element={<VineRouteErrorBoundary><VinePublicPost /></VineRouteErrorBoundary>} />
+<Route path="/vine/u/:username" element={<VineRouteErrorBoundary><VinePublicProfile /></VineRouteErrorBoundary>} />
 <Route element={<VineRouteErrorBoundary><VineProtectedRoute /></VineRouteErrorBoundary>}>
   <Route path="/vine/feed" element={<VineFeed />} />
   <Route path="/vine/profile/:username" element={<VineProfile />} />

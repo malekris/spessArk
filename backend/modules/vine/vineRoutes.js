@@ -2406,6 +2406,34 @@ let lastNewsIngestDayKey = "";
 const NEWS_INGEST_TIMEZONE =
   String(process.env.NEWS_INGEST_TIMEZONE || "Africa/Kampala").trim() ||
   "Africa/Kampala";
+const NEWS_WEEKDAY_INDEX = new Map([
+  ["sun", 0],
+  ["sunday", 0],
+  ["mon", 1],
+  ["monday", 1],
+  ["tue", 2],
+  ["tues", 2],
+  ["tuesday", 2],
+  ["wed", 3],
+  ["wednesday", 3],
+  ["thu", 4],
+  ["thur", 4],
+  ["thurs", 4],
+  ["thursday", 4],
+  ["fri", 5],
+  ["friday", 5],
+  ["sat", 6],
+  ["saturday", 6],
+]);
+const NEWS_ALLOWED_WEEKDAYS = new Set(
+  String(process.env.NEWS_ALLOWED_WEEKDAYS || "")
+    .split(",")
+    .map((value) => String(value || "").trim().toLowerCase())
+    .map((value) =>
+      /^\d+$/.test(value) ? Number.parseInt(value, 10) : NEWS_WEEKDAY_INDEX.get(value)
+    )
+    .filter((value) => Number.isInteger(value) && value >= 0 && value <= 6)
+);
 const NEWS_DAILY_HOUR = Math.min(
   23,
   Math.max(0, Number.parseInt(process.env.NEWS_DAILY_HOUR || "12", 10) || 12)
@@ -2421,6 +2449,7 @@ let newsBootIngestScheduled = false;
 const getNewsZonedParts = () => {
   const dtf = new Intl.DateTimeFormat("en-CA", {
     timeZone: NEWS_INGEST_TIMEZONE,
+    weekday: "short",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -2435,21 +2464,30 @@ const getNewsZonedParts = () => {
   const day = Number(map.day || 0);
   const hour = Number(map.hour || 0);
   const minute = Number(map.minute || 0);
+  const weekdayLabel = String(map.weekday || "").trim().toLowerCase();
+  const weekdayIndex = NEWS_WEEKDAY_INDEX.get(weekdayLabel);
   return {
     dayKey: `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(
       2,
       "0"
     )}`,
     minutesOfDay: hour * 60 + minute,
+    weekdayIndex: Number.isInteger(weekdayIndex) ? weekdayIndex : null,
+    weekdayLabel,
   };
 };
 
 const getNewsDueWindow = () => {
   const now = getNewsZonedParts();
   const targetMinutes = NEWS_DAILY_HOUR * 60 + NEWS_DAILY_MINUTE;
+  const dayAllowed =
+    NEWS_ALLOWED_WEEKDAYS.size === 0 ||
+    (Number.isInteger(now.weekdayIndex) && NEWS_ALLOWED_WEEKDAYS.has(now.weekdayIndex));
   const due =
-    now.minutesOfDay >= targetMinutes && lastNewsIngestDayKey !== now.dayKey;
-  return { ...now, targetMinutes, due };
+    dayAllowed &&
+    now.minutesOfDay >= targetMinutes &&
+    lastNewsIngestDayKey !== now.dayKey;
+  return { ...now, targetMinutes, dayAllowed, due };
 };
 
 const updateNewsFeedStat = (feed, patch = {}) => {
@@ -6804,6 +6842,7 @@ router.get("/news/health", authenticate, async (req, res) => {
         timezone: NEWS_INGEST_TIMEZONE,
         daily_hour: NEWS_DAILY_HOUR,
         daily_minute: NEWS_DAILY_MINUTE,
+        allowed_weekdays: Array.from(NEWS_ALLOWED_WEEKDAYS.values()).sort((a, b) => a - b),
         last_ingest_day_key: lastNewsIngestDayKey || null,
         feeds: runtime_feeds,
       },

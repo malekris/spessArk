@@ -1,0 +1,164 @@
+.vine-public-profile-wrap {
+  width: min(100%, 760px);
+}
+
+.vine-public-profile-card {
+  margin-bottom: 18px;
+}
+
+.vine-public-profile-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.vine-public-profile-avatar {
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 3px solid #10b981;
+  background: #f8fafc;
+  flex-shrink: 0;
+}
+
+.vine-public-profile-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.vine-public-profile-bio {
+  color: #334155;
+  line-height: 1.65;
+}
+
+.vine-public-profile-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  color: #475569;
+  font-weight: 700;
+}
+
+.vine-public-profile-stats strong {
+  color: #0f3d2b;
+}
+
+.vine-public-profile-extras {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  color: #64748b;
+  font-size: 0.95rem;
+}
+
+.vine-public-profile-extras a {
+  color: #0f7adf;
+  text-decoration: none;
+  font-weight: 700;
+}
+
+.vine-public-profile-posts {
+  display: grid;
+  gap: 18px;
+}
+
+.vine-public-post-row {
+  display: grid;
+  gap: 14px;
+}
+
+.vine-public-post-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.vine-public-post-date {
+  color: #64748b;
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.vine-public-revine-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.14), rgba(255, 215, 0, 0.08));
+  color: #047857;
+  font-size: 0.88rem;
+  font-weight: 900;
+}
+
+.vine-public-profile-post-footer {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  color: #64748b;
+  font-size: 0.94rem;
+  font-weight: 700;
+}
+
+.vine-public-open-post {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #065f46, #10b981);
+  color: #ffffff;
+  text-decoration: none;
+  font-weight: 900;
+  box-shadow: 0 12px 24px rgba(16, 185, 129, 0.18);
+}
+
+.vine-public-load-more {
+  justify-self: center;
+  border: none;
+  border-radius: 999px;
+  min-height: 46px;
+  padding: 0 18px;
+  background: linear-gradient(135deg, #f59e0b, #fbbf24);
+  color: #6b2f00;
+  font-weight: 900;
+  cursor: pointer;
+  box-shadow: 0 12px 24px rgba(245, 158, 11, 0.18);
+}
+
+.vine-public-load-more:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+@media (max-width: 720px) {
+  .vine-public-profile-head {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+
+  .vine-public-profile-meta {
+    align-items: center;
+  }
+
+  .vine-public-profile-stats,
+  .vine-public-profile-extras,
+  .vine-public-profile-post-footer {
+    justify-content: center;
+  }
+
+  .vine-public-open-post {
+    margin-left: 0;
+  }
+}

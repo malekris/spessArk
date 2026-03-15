@@ -48,6 +48,59 @@ const parseLinkPreview = (value) => {
   }
 };
 
+const extractPostMetaFromContent = (text) => {
+  const raw = String(text || "");
+  let out = raw;
+  let feeling = "";
+  let postBg = "";
+  while (true) {
+    const match = out.match(/^\s*\[\[(feeling|postbg):([^\]]+)\]\]\s*/i);
+    if (!match) break;
+    const key = String(match[1] || "").toLowerCase();
+    const value = String(match[2] || "").trim();
+    if (key === "feeling" && !feeling) feeling = value.toLowerCase();
+    if (key === "postbg" && !postBg && /^#[0-9a-f]{6}$/i.test(value)) postBg = value;
+    out = out.slice(match[0].length);
+  }
+  return { feeling, postBg, content: out };
+};
+
+const formatFeelingLabel = (value) =>
+  String(value || "")
+    .split("_")
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+
+const getContrastTextColor = (hex) => {
+  const clean = String(hex || "").replace("#", "");
+  if (clean.length !== 6) return "#ffffff";
+  const r = Number.parseInt(clean.slice(0, 2), 16);
+  const g = Number.parseInt(clean.slice(2, 4), 16);
+  const b = Number.parseInt(clean.slice(4, 6), 16);
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.62 ? "#052e16" : "#ffffff";
+};
+
+const renderPublicMentions = (text) => {
+  const source = String(text || "");
+  const parts = source.split(/(@[a-zA-Z0-9._]{1,30})/g);
+  return parts.map((part, index) => {
+    if (!/^@[a-zA-Z0-9._]{1,30}$/.test(part)) {
+      return <span key={`public-text-${index}`}>{part}</span>;
+    }
+    const username = part.slice(1);
+    if (username.toLowerCase() === "all") {
+      return <span key={`public-text-${index}`}>{part}</span>;
+    }
+    return (
+      <Link key={`public-mention-${index}-${username}`} className="public-mention" to={`/vine/u/${username}`}>
+        {part}
+      </Link>
+    );
+  });
+};
+
 const hasSpecialVerifiedBadge = (username) =>
   ["vine guardian", "vine_guardian", "vine news", "vine_news"].includes(
     String(username || "").toLowerCase()
@@ -66,25 +119,27 @@ function CommentTree({ comment, depth = 0, targetCommentId = null }) {
       className={`public-comment ${isTargetComment ? "highlight-comment" : ""}`}
       style={{ marginLeft: depth ? Math.min(depth * 18, 42) : 0 }}
     >
-      <img
-        src={comment.avatar_url || DEFAULT_AVATAR}
-        alt={comment.username}
-        className="public-comment-avatar"
-        onError={(e) => {
-          e.currentTarget.src = DEFAULT_AVATAR;
-        }}
-      />
+      <Link to={`/vine/u/${comment.username}`} className="public-comment-avatar-link">
+        <img
+          src={comment.avatar_url || DEFAULT_AVATAR}
+          alt={comment.username}
+          className="public-comment-avatar"
+          onError={(e) => {
+            e.currentTarget.src = DEFAULT_AVATAR;
+          }}
+        />
+      </Link>
       <div className="public-comment-body">
         <div className="public-comment-top">
-          <span className="public-comment-name">
+          <Link to={`/vine/u/${comment.username}`} className="public-comment-name">
             {comment.display_name || comment.username}
             {showsVerifiedBadge(comment) && (
               <span className={`vine-public-verified ${specialBadge ? "guardian" : ""}`}>✓</span>
             )}
-          </span>
+          </Link>
           <span className="public-comment-date">{formatPostDate(comment.created_at)}</span>
         </div>
-        <div className="public-comment-text">{comment.content}</div>
+        <div className="public-comment-text">{renderPublicMentions(comment.content)}</div>
         {comment.replies?.length > 0 && (
           <div className="public-comment-replies">
             {comment.replies.map((reply) => (
@@ -160,6 +215,25 @@ export default function VinePublicPost() {
   }, [post]);
 
   const linkPreview = parseLinkPreview(post?.link_preview);
+  const { feeling: postFeeling, postBg, content: publicPostContent } = extractPostMetaFromContent(
+    post?.content || ""
+  );
+  const contentWordCount = publicPostContent
+    ? publicPostContent.split(/\s+/).filter(Boolean).length
+    : 0;
+  const useStyledTextCard =
+    Boolean(postBg) &&
+    contentWordCount > 0 &&
+    contentWordCount <= 22 &&
+    !post?.image_url &&
+    !post?.link_preview &&
+    !post?.has_poll;
+  const publicContentStyle = useStyledTextCard
+    ? {
+        background: postBg,
+        color: getContrastTextColor(postBg),
+      }
+    : undefined;
 
   const openJoinPrompt = (action) => {
     if (loggedIn) {
@@ -218,26 +292,44 @@ export default function VinePublicPost() {
           <>
             <div className="vine-public-card">
               <div className="vine-public-header">
-                <img
-                  src={post.avatar_url || DEFAULT_AVATAR}
-                  alt={post.username}
-                  className="vine-public-avatar"
-                  onError={(e) => {
-                    e.currentTarget.src = DEFAULT_AVATAR;
-                  }}
-                />
+                <Link to={`/vine/u/${post.username}`} className="vine-public-avatar-link">
+                  <img
+                    src={post.avatar_url || DEFAULT_AVATAR}
+                    alt={post.username}
+                    className="vine-public-avatar"
+                    onError={(e) => {
+                      e.currentTarget.src = DEFAULT_AVATAR;
+                    }}
+                  />
+                </Link>
                 <div className="vine-public-meta">
-                  <div className="vine-public-name">
-                    {post.display_name || post.username}
-                    {showsVerifiedBadge(post) && (
-                      <span className={`vine-public-verified ${specialBadge ? "guardian" : ""}`}>✓</span>
-                    )}
+                  <div className="vine-public-name-row">
+                    <Link to={`/vine/u/${post.username}`} className="vine-public-name">
+                      {post.display_name || post.username}
+                      {showsVerifiedBadge(post) && (
+                        <span className={`vine-public-verified ${specialBadge ? "guardian" : ""}`}>✓</span>
+                      )}
+                    </Link>
+                    {postFeeling ? (
+                      <span className="vine-public-feeling">
+                        is feeling {formatFeelingLabel(postFeeling)}
+                      </span>
+                    ) : null}
                   </div>
                   <div className="vine-public-handle">@{post.username} · {formatPostDate(post.created_at)}</div>
                 </div>
               </div>
 
-              {post.content ? <div className="vine-public-content">{post.content}</div> : null}
+              {publicPostContent ? (
+                <div
+                  className={`vine-public-content ${useStyledTextCard ? "styled-card-text" : ""} ${
+                    publicPostContent.length < 120 && !post.image_url ? "big-text" : ""
+                  }`}
+                  style={publicContentStyle}
+                >
+                  {renderPublicMentions(publicPostContent)}
+                </div>
+              ) : null}
 
               {post.image_url ? (
                 <div ref={mediaMountRef} className="vine-public-media-shell">

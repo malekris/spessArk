@@ -398,6 +398,15 @@ function VinePostCard({ post, onDeletePost, focusComments, isMe, communityIntera
     }
   }, [post.views, post.view_count]);
 
+  const recordViewOnce = () => {
+    if (!token) return false;
+    if (!post?.id) return false;
+    if (viewedPosts.has(post.id)) return false;
+    viewedPosts.add(post.id);
+    recordView();
+    return true;
+  };
+
   useEffect(() => {
     if (!token) return;
     if (!post?.id) return;
@@ -409,12 +418,14 @@ function VinePostCard({ post, onDeletePost, focusComments, isMe, communityIntera
       (entries) => {
         entries.forEach((entry) => {
           if (!entry.isIntersecting) return;
-          viewedPosts.add(post.id);
-          recordView();
+          recordViewOnce();
           observer.disconnect();
         });
       },
-      { threshold: 0.6 }
+      {
+        threshold: 0.35,
+        rootMargin: "0px 0px -12% 0px",
+      }
     );
 
     observer.observe(el);
@@ -570,6 +581,7 @@ function VinePostCard({ post, onDeletePost, focusComments, isMe, communityIntera
 
   useEffect(() => {
     if (focusComments) {
+      recordViewOnce();
       setOpen(true);
       setTimeout(() => {
         const input = document.querySelector(`#post-${post.id} textarea`);
@@ -680,6 +692,7 @@ function VinePostCard({ post, onDeletePost, focusComments, isMe, communityIntera
     }
   };
   const handleLike = async (reaction = "like") => {
+    recordViewOnce();
     const res = await fetch(`${API}/api/vine/posts/${post.id}/like`, {
       method: "POST",
       headers: {
@@ -706,6 +719,7 @@ function VinePostCard({ post, onDeletePost, focusComments, isMe, communityIntera
   };
 
   const handleBookmark = async () => {
+    recordViewOnce();
     try {
       const res = await fetch(`${API}/api/vine/posts/${post.id}/bookmark`, {
         method: "POST",
@@ -762,6 +776,7 @@ function VinePostCard({ post, onDeletePost, focusComments, isMe, communityIntera
   
 
   const handleRevine = async () => {
+    recordViewOnce();
     if (isCommunityInteractionLocked) {
       alert("Join this community to comment or revine.");
       return;
@@ -1172,6 +1187,7 @@ function VinePostCard({ post, onDeletePost, focusComments, isMe, communityIntera
     ref={mediaMountRef}
     className="carousel-shell"
     onClick={() => {
+      recordViewOnce();
       const now = Date.now();
       if (now - lastTapRef.current < 300) {
         if (!postUserLiked) {
@@ -1186,7 +1202,10 @@ function VinePostCard({ post, onDeletePost, focusComments, isMe, communityIntera
         imageUrl={carouselMediaPayload}
         onLike={handleLike}
         onRevine={handleRevine}
-        onComments={() => setOpen(true)}
+        onComments={() => {
+          recordViewOnce();
+          setOpen(true);
+        }}
         likeCount={canShowLikeCount ? postLikes : null}
         revineCount={revines}
         commentCount={commentCount}
@@ -1243,7 +1262,13 @@ function VinePostCard({ post, onDeletePost, focusComments, isMe, communityIntera
             {canShowLikeCount && ` ${postLikes}`}
           </button>
         </div>
-        <button className="action-btn" onClick={() => setOpen(!open)}>
+        <button
+          className="action-btn"
+          onClick={() => {
+            recordViewOnce();
+            setOpen(!open);
+          }}
+        >
           💬 {commentCount}
         </button>
 

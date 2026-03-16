@@ -10,6 +10,24 @@
   backdrop-filter: blur(8px);
 }
 
+.vine-session-toast {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 4200;
+  max-width: min(86vw, 240px);
+  padding: 10px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(16, 185, 129, 0.16);
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 18px 34px rgba(15, 23, 42, 0.16);
+  color: #0f5132;
+  font-size: 0.9rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+}
+
 .vine-session-modal {
   position: relative;
   width: min(100%, 440px);
@@ -127,6 +145,13 @@
   color: #e5f7ef;
 }
 
+.theme-dark .vine-session-toast {
+  background: rgba(10, 24, 20, 0.84);
+  border-color: rgba(16, 185, 129, 0.2);
+  color: #d1fae5;
+  box-shadow: 0 18px 34px rgba(2, 6, 23, 0.34);
+}
+
 .theme-dark .vine-session-countdown-pill {
   background: linear-gradient(135deg, rgba(120, 53, 15, 0.95), rgba(146, 64, 14, 0.92));
   border-color: rgba(251, 191, 36, 0.28);
@@ -158,6 +183,13 @@
   .vine-session-modal {
     padding: 20px 16px 16px;
     border-radius: 24px;
+  }
+
+  .vine-session-toast {
+    right: 12px;
+    bottom: 12px;
+    max-width: calc(100vw - 24px);
+    font-size: 0.84rem;
   }
 
   .vine-session-countdown-pill {

@@ -525,26 +525,26 @@ const buildGuardianActivitySnapshot = async (perfCtx, dbName, { loginLimit = 12,
     );
 
     const recentLoginRows = Array.isArray(loginRows) ? loginRows : [];
-    const oldestLoginAtMs = recentLoginRows.reduce((min, row) => {
-      const ts = new Date(row.login_at || 0).getTime();
-      if (!Number.isFinite(ts)) return min;
-      return min === null ? ts : Math.min(min, ts);
-    }, null);
-    const actionSince = new Date(
-      oldestLoginAtMs && oldestLoginAtMs > 0
-        ? oldestLoginAtMs - 60 * 1000
-        : Date.now() - GUARDIAN_ACTIVITY_LOOKBACK_MS
-    );
+    const actionSince = new Date(Date.now() - GUARDIAN_ACTIVITY_LOOKBACK_MS);
+    const hasActivityColumns = async (tableName, columns = []) => {
+      if (!(await hasTable(dbName, tableName))) return false;
+      const checks = await Promise.all(columns.map((column) => hasColumn(dbName, tableName, column)));
+      return checks.every(Boolean);
+    };
 
-    const postsExists = await hasTable(dbName, "vine_posts");
-    const commentsExists = await hasTable(dbName, "vine_comments");
-    const likesExists = await hasTable(dbName, "vine_likes");
-    const revinesExists = await hasTable(dbName, "vine_revines");
-    const postViewsExists = await hasTable(dbName, "vine_post_views");
-    const followsExists = await hasTable(dbName, "vine_follows");
-    const messagesExists = await hasTable(dbName, "vine_messages");
-    const communityMembersExists = await hasTable(dbName, "vine_community_members");
-    const submissionsExists = await hasTable(dbName, "vine_community_submissions");
+    const postsExists = await hasActivityColumns("vine_posts", ["id", "user_id", "created_at"]);
+    const commentsExists = await hasActivityColumns("vine_comments", ["id", "user_id", "post_id", "created_at"]);
+    const likesExists = await hasActivityColumns("vine_likes", ["id", "user_id", "post_id", "created_at"]);
+    const revinesExists = await hasActivityColumns("vine_revines", ["id", "user_id", "post_id", "created_at"]);
+    const postViewsExists = await hasActivityColumns("vine_post_views", ["id", "user_id", "post_id", "created_at"]);
+    const followsExists = await hasActivityColumns("vine_follows", ["id", "follower_id", "following_id", "created_at"]);
+    const messagesExists =
+      (await hasActivityColumns("vine_messages", ["id", "sender_id", "conversation_id", "created_at"])) &&
+      (await hasTable(dbName, "vine_conversations"));
+    const communityMembersExists = await hasActivityColumns("vine_community_members", ["id", "user_id", "community_id", "joined_at"]);
+    const submissionsExists =
+      (await hasActivityColumns("vine_community_submissions", ["id", "user_id", "community_id", "submitted_at"])) &&
+      (await hasTable(dbName, "vine_community_assignments"));
 
     const actionSelects = [];
     const actionParams = [];
@@ -3809,6 +3809,19 @@ router.post("/auth/renew", authenticate, async (req, res) => {
   } catch (err) {
     console.error("Auth renew failed:", err);
     res.status(500).json({ message: "Failed to renew session" });
+  }
+});
+
+router.post("/auth/activity", authenticate, async (req, res) => {
+  try {
+    res.setHeader("Cache-Control", "no-store");
+    res.json({
+      ok: true,
+      activity_touched_at: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error("Auth activity touch failed:", err);
+    res.status(500).json({ message: "Failed to keep session active" });
   }
 });
   

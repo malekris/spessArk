@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { loadPdfTools } from "../../../utils/loadPdfTools";
 import "./VineGuardianAnalytics.css";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
@@ -11,6 +12,15 @@ const NEWS_WEEKDAY_OPTIONS = [
   { value: 4, label: "Thu" },
   { value: 5, label: "Fri" },
   { value: 6, label: "Sat" },
+];
+const ACTIVITY_FILTER_OPTIONS = [
+  ["all", "Everything"],
+  ["logins", "Logins only"],
+  ["posts", "Posts only"],
+  ["comments", "Comments"],
+  ["dms", "DMs only"],
+  ["follows", "Follows"],
+  ["communities", "Communities"],
 ];
 
 const isGuardianUser = (user) => {
@@ -311,6 +321,156 @@ export default function VineGuardianAnalytics() {
     URL.revokeObjectURL(url);
   };
 
+  const exportActivityPdf = async ({
+    mode = "current",
+    recentLogins = [],
+    filteredRecentActions = [],
+    activityFilter = "all",
+  } = {}) => {
+    const activeFilterLabel =
+      ACTIVITY_FILTER_OPTIONS.find(([value]) => value === activityFilter)?.[1] || "Everything";
+    const exportingLogins = mode === "logins" || activityFilter === "logins";
+    const rows = exportingLogins ? recentLogins : filteredRecentActions;
+
+    if (!rows?.length) {
+      alert(`No ${exportingLogins ? "login" : "activity"} rows to export right now.`);
+      return;
+    }
+
+    try {
+      const { jsPDF, autoTable } = await loadPdfTools();
+      const doc = new jsPDF("l", "mm", "a4");
+      const title = exportingLogins
+        ? "SPESS Vine - Guardian Login Log"
+        : `SPESS Vine - Guardian Activity Log (${activeFilterLabel})`;
+      const generatedAt = new Date().toLocaleString("en-UG", {
+        dateStyle: "medium",
+        timeStyle: "short",
+      });
+
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(6, 78, 59);
+      doc.setFontSize(18);
+      doc.text(title, 14, 16);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(71, 85, 105);
+      doc.setFontSize(10);
+      doc.text(`Generated ${generatedAt}`, 14, 23);
+      doc.text("Guardian network watch export", 14, 29);
+
+      if (exportingLogins) {
+        autoTable(doc, {
+          startY: 34,
+          head: [[
+            "Display Name",
+            "Username",
+            "Login Time",
+            "Last Seen",
+            "Device",
+            "Actions Since Login",
+            "Last 3 Actions",
+            "State",
+          ]],
+          body: rows.map((row) => [
+            row.display_name || row.username || "",
+            `@${row.username || ""}`,
+            row.login_at ? formatAgo(row.login_at) : "—",
+            row.last_seen_at ? (row.is_online_now ? "Online now" : formatAgo(row.last_seen_at)) : "—",
+            row.device_label || "Unknown device",
+            String(row.actions_since_login || 0),
+            Array.isArray(row.recent_actions_preview) && row.recent_actions_preview.length
+              ? row.recent_actions_preview
+                  .map((activity) =>
+                    `${getActivityIcon(activity.action_type)} ${activity.action_label}${activity.target_label ? ` • ${activity.target_label}` : ""}`
+                  )
+                  .join(" | ")
+              : "No action after login yet",
+            getActivityStateLabel(row),
+          ]),
+          styles: {
+            fontSize: 8.4,
+            cellPadding: 2.5,
+            valign: "top",
+            lineColor: [220, 252, 231],
+          },
+          headStyles: {
+            fillColor: [6, 78, 59],
+            textColor: [255, 255, 255],
+            fontStyle: "bold",
+          },
+          alternateRowStyles: {
+            fillColor: [240, 253, 244],
+          },
+          columnStyles: {
+            0: { cellWidth: 36 },
+            1: { cellWidth: 28 },
+            2: { cellWidth: 24 },
+            3: { cellWidth: 24 },
+            4: { cellWidth: 34 },
+            5: { cellWidth: 18, halign: "center" },
+            6: { cellWidth: 95 },
+            7: { cellWidth: 18, halign: "center" },
+          },
+          margin: { left: 10, right: 10 },
+        });
+      } else {
+        autoTable(doc, {
+          startY: 34,
+          head: [[
+            "Display Name",
+            "Username",
+            "Action",
+            "Target",
+            "Detail",
+            "When",
+            "State",
+          ]],
+          body: rows.map((row) => [
+            row.display_name || row.username || "",
+            `@${row.username || ""}`,
+            `${getActivityIcon(row.action_type)} ${row.action_label || ""}`,
+            row.target_label || "Vine",
+            row.detail || "—",
+            row.created_at ? formatAgo(row.created_at) : "—",
+            row.is_online_now ? "Live" : "Seen",
+          ]),
+          styles: {
+            fontSize: 8.6,
+            cellPadding: 2.6,
+            valign: "top",
+            lineColor: [220, 252, 231],
+          },
+          headStyles: {
+            fillColor: [6, 78, 59],
+            textColor: [255, 255, 255],
+            fontStyle: "bold",
+          },
+          alternateRowStyles: {
+            fillColor: [240, 253, 244],
+          },
+          columnStyles: {
+            0: { cellWidth: 34 },
+            1: { cellWidth: 28 },
+            2: { cellWidth: 46 },
+            3: { cellWidth: 40 },
+            4: { cellWidth: 86 },
+            5: { cellWidth: 22, halign: "center" },
+            6: { cellWidth: 20, halign: "center" },
+          },
+          margin: { left: 10, right: 10 },
+        });
+      }
+
+      const filename = exportingLogins
+        ? "guardian_recent_logins.pdf"
+        : `guardian_${String(activityFilter || "all").replace(/[^a-z0-9_-]/gi, "_")}_activity.pdf`;
+      doc.save(filename);
+    } catch (err) {
+      console.error("Guardian activity PDF export failed", err);
+      alert("Failed to export PDF");
+    }
+  };
+
   const formatMs = (value) => {
     const numeric = Number(value || 0);
     if (!Number.isFinite(numeric)) return "0 ms";
@@ -531,6 +691,8 @@ export default function VineGuardianAnalytics() {
     }
     return recentActions;
   }, [recentActions, activityFilter]);
+  const activeFilterLabel =
+    ACTIVITY_FILTER_OPTIONS.find(([value]) => value === activityFilter)?.[1] || "Everything";
 
   if (loading) {
     return <div className="guardian-analytics-page">Loading analytics...</div>;
@@ -707,21 +869,39 @@ export default function VineGuardianAnalytics() {
           >
             Export Actions CSV
           </button>
+          <button
+            className="guardian-csv-btn"
+            onClick={() =>
+              exportActivityPdf({
+                mode: "logins",
+                recentLogins,
+                filteredRecentActions,
+                activityFilter,
+              })
+            }
+          >
+            Export Logins PDF
+          </button>
+          <button
+            className="guardian-csv-btn"
+            onClick={() =>
+              exportActivityPdf({
+                mode: "current",
+                recentLogins,
+                filteredRecentActions,
+                activityFilter,
+              })
+            }
+          >
+            Export {activityFilter === "logins" ? "Logins" : activeFilterLabel} PDF
+          </button>
         </div>
         <div className="guardian-perf-refresh">
           <span>Recent Vine logins and live action logs across the network. Guardian is excluded from this view.</span>
           <span>Last update: {formatAgo(activityLastFetchedAt)}</span>
         </div>
         <div className="guardian-filter-row">
-          {[
-            ["all", "Everything"],
-            ["logins", "Logins only"],
-            ["posts", "Posts only"],
-            ["comments", "Comments"],
-            ["dms", "DMs only"],
-            ["follows", "Follows"],
-            ["communities", "Communities"],
-          ].map(([value, label]) => (
+          {ACTIVITY_FILTER_OPTIONS.map(([value, label]) => (
             <button
               key={value}
               type="button"

@@ -3,6 +3,7 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import VinePostCard from "./VinePostCard";
 import "./VineCommunities.css";
 import { loadPdfTools } from "../../../utils/loadPdfTools";
+import { touchVineActivity } from "../utils/vineAuth";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const POST_MAX_LENGTH = 5000;
@@ -2789,9 +2790,10 @@ export default function VineCommunities() {
                                         <textarea
                                           placeholder="Write your answer/submission"
                                           value={draftValue || persistedDraft}
-                                          onChange={(e) =>
-                                            setSubmissionDrafts((prev) => ({ ...prev, [a.id]: e.target.value }))
-                                          }
+                                          onChange={(e) => {
+                                            touchVineActivity();
+                                            setSubmissionDrafts((prev) => ({ ...prev, [a.id]: e.target.value }));
+                                          }}
                                           disabled={pastDue}
                                         />
                                       )}
@@ -2806,12 +2808,13 @@ export default function VineCommunities() {
                                             type="file"
                                             accept=".ppt,.pptx,.xls,.xlsx,.doc,.docx,.mdb,.accdb,.pub,.pdf,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/x-msaccess,application/vnd.ms-access,application/vnd.ms-publisher,application/pdf"
                                             multiple
-                                            onChange={(e) =>
+                                            onChange={(e) => {
+                                              touchVineActivity();
                                               setSubmissionFiles((prev) => ({
                                                 ...prev,
                                                 [a.id]: Array.from(e.target.files || []),
-                                              }))
-                                            }
+                                              }));
+                                            }}
                                             disabled={pastDue}
                                           />
                                         </label>

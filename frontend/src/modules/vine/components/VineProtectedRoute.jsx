@@ -17,6 +17,9 @@ import "./VineProtectedRoute.css";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const ACTIVITY_EVENTS = ["mousemove", "mousedown", "keydown", "scroll", "touchstart", "input", "change"];
+const SERVER_KEEPALIVE_MS = 4 * 60 * 1000;
+const ACTIVE_KEEPALIVE_WINDOW_MS = 45 * 1000;
+const KEEPALIVE_RETRY_MS = 60 * 1000;
 
 const formatSessionCountdown = (totalSeconds) => {
   const safeSeconds = Math.max(0, Number(totalSeconds) || 0);
@@ -32,15 +35,35 @@ export default function VineProtectedRoute() {
   const [secondsRemaining, setSecondsRemaining] = useState(Math.ceil(VINE_SESSION_IDLE_MS / 1000));
   const [renewing, setRenewing] = useState(false);
   const [renewError, setRenewError] = useState("");
+  const [keepaliveNotice, setKeepaliveNotice] = useState("");
   const lastActivityRef = useRef(getVineLastActivityAt() || Date.now());
   const lastPersistRef = useRef(0);
+  const lastServerTouchRef = useRef(Date.now());
+  const lastKeepaliveAttemptRef = useRef(0);
+  const keepalivePendingRef = useRef(false);
+  const keepaliveNoticeTimerRef = useRef(null);
 
   const forceLogout = useCallback(() => {
     clearVineAuth();
     socket.disconnect();
     setWarningVisible(false);
     setRenewError("");
+    setKeepaliveNotice("");
     setStatus("denied");
+  }, []);
+
+  const showKeepaliveNotice = useCallback((message, duration = 1500) => {
+    if (keepaliveNoticeTimerRef.current) {
+      window.clearTimeout(keepaliveNoticeTimerRef.current);
+      keepaliveNoticeTimerRef.current = null;
+    }
+    setKeepaliveNotice(message);
+    if (duration > 0) {
+      keepaliveNoticeTimerRef.current = window.setTimeout(() => {
+        setKeepaliveNotice("");
+        keepaliveNoticeTimerRef.current = null;
+      }, duration);
+    }
   }, []);
 
   const validateSession = useCallback(async () => {
@@ -78,6 +101,7 @@ export default function VineProtectedRoute() {
         lastActivityRef.current = rememberedActivity;
         lastPersistRef.current = rememberedActivity;
       }
+      lastServerTouchRef.current = now;
 
       setStatus("allowed");
     } catch {
@@ -86,9 +110,46 @@ export default function VineProtectedRoute() {
     }
   }, [forceLogout]);
 
+  const sendActivityKeepalive = useCallback(async () => {
+    const token = getVineToken();
+    if (!token || keepalivePendingRef.current) return;
+
+    keepalivePendingRef.current = true;
+    lastKeepaliveAttemptRef.current = Date.now();
+    showKeepaliveNotice("Saving session…", 0);
+    try {
+      const res = await fetch(`${API}/api/vine/auth/activity`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!res.ok) {
+        if (res.status === 401 || res.status === 403) {
+          forceLogout();
+        }
+        return;
+      }
+
+      lastServerTouchRef.current = Date.now();
+      lastKeepaliveAttemptRef.current = lastServerTouchRef.current;
+      showKeepaliveNotice("Session kept alive");
+    } catch {
+      showKeepaliveNotice("");
+      // Let the next active heartbeat retry instead of booting the user mid-work.
+    } finally {
+      keepalivePendingRef.current = false;
+    }
+  }, [forceLogout, showKeepaliveNotice]);
+
   useEffect(() => {
     validateSession();
   }, [validateSession]);
+
+  useEffect(() => () => {
+    if (keepaliveNoticeTimerRef.current) {
+      window.clearTimeout(keepaliveNoticeTimerRef.current);
+    }
+  }, []);
 
   useEffect(() => {
     if (status !== "allowed") return undefined;
@@ -108,7 +169,8 @@ export default function VineProtectedRoute() {
     });
 
     const interval = window.setInterval(() => {
-      const remainingMs = Math.max(0, VINE_SESSION_IDLE_MS - (Date.now() - lastActivityRef.current));
+      const now = Date.now();
+      const remainingMs = Math.max(0, VINE_SESSION_IDLE_MS - (now - lastActivityRef.current));
       setSecondsRemaining(Math.ceil(remainingMs / 1000));
 
       if (remainingMs <= 0) {
@@ -122,6 +184,13 @@ export default function VineProtectedRoute() {
         setWarningVisible(false);
         setRenewError("");
       }
+
+      const hasRecentActivity = now - lastActivityRef.current <= ACTIVE_KEEPALIVE_WINDOW_MS;
+      const serverTouchIsStale = now - lastServerTouchRef.current >= SERVER_KEEPALIVE_MS;
+      const canRetryKeepalive = now - lastKeepaliveAttemptRef.current >= KEEPALIVE_RETRY_MS;
+      if (!warningVisible && hasRecentActivity && serverTouchIsStale && canRetryKeepalive) {
+        sendActivityKeepalive();
+      }
     }, 1000);
 
     return () => {
@@ -130,7 +199,7 @@ export default function VineProtectedRoute() {
         window.removeEventListener(eventName, recordActivity, true);
       });
     };
-  }, [forceLogout, status, warningVisible]);
+  }, [forceLogout, sendActivityKeepalive, status, warningVisible]);
 
   const handleRenewSession = useCallback(async () => {
     const token = getVineToken();
@@ -167,6 +236,8 @@ export default function VineProtectedRoute() {
       const now = touchVineActivity();
       lastActivityRef.current = now;
       lastPersistRef.current = now;
+      lastServerTouchRef.current = now;
+      lastKeepaliveAttemptRef.current = now;
       setSecondsRemaining(Math.ceil(VINE_SESSION_IDLE_MS / 1000));
       setWarningVisible(false);
     } catch {
@@ -193,6 +264,11 @@ export default function VineProtectedRoute() {
   return (
     <>
       <Outlet />
+      {keepaliveNotice && !warningVisible ? (
+        <div className="vine-session-toast" role="status" aria-live="polite">
+          {keepaliveNotice}
+        </div>
+      ) : null}
       {warningVisible && (
         <div className="vine-session-backdrop" role="presentation">
           <div className="vine-session-modal" role="dialog" aria-modal="true" aria-labelledby="vine-session-title">

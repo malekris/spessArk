@@ -931,6 +931,11 @@ function VinePostCard({ post, onDeletePost, focusComments, isMe, communityIntera
     if (res.ok) fetchComments();
   };
 
+  const [mediaMountRef, shouldMountCarousel] = useNearScreen({
+    rootMargin: "720px 0px",
+    once: true,
+  });
+
   if (isDeleted) return null;
 
   let postMedia = [];
@@ -946,10 +951,6 @@ function VinePostCard({ post, onDeletePost, focusComments, isMe, communityIntera
   const carouselMediaPayload = visualMediaUrls.length
     ? JSON.stringify(visualMediaUrls)
     : null;
-  const [mediaMountRef, shouldMountCarousel] = useNearScreen({
-    rootMargin: "720px 0px",
-    once: true,
-  });
 
   // ── Render ──────────────────────────────────────
   return (

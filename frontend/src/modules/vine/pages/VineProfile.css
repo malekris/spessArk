@@ -766,6 +766,7 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+  object-position: center center;
   display: block;
 }
 
@@ -1796,12 +1797,14 @@
 /* ── Media Queries ── */
 @media (max-width: 768px) {
   .vine-profile-banner          { height: 200px; }
-  .vine-profile-header          { margin-top: -50px; padding: 0 15px; }
+  .vine-profile-header          { margin-top: -58px; padding: 0 15px; }
   .vine-profile-topbar          { padding: 10px 15px; }
   .profile-topbar-back          { width: 44px; min-width: 44px; padding: 0; justify-content: center; }
   .profile-topbar-back-label    { display: none; }
   .profile-title                { font-size: 1.1rem; }
-  .avatar-circle                { width: 110px; height: 110px; border-radius: 30px; margin-top: -55px; }
+  .header-top-row               { align-items: flex-start; padding: 0 10px; }
+  .avatar-wrapper               { margin-top: 0; }
+  .avatar-circle                { width: 112px; height: 112px; border-radius: 28px; margin-top: 0; }
   .profile-name                 { font-size: 1.6rem; }
   .bio                          { font-size: 1rem; }
   .profile-meta                 { padding: 15px; }

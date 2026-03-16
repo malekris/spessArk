@@ -32,6 +32,7 @@ const getActivityIcon = (type) =>
     post: "📝",
     comment: "💬",
     reply: "↩️",
+    view: "👁️",
     like: "❤️",
     revine: "🔁",
     follow: "➕",

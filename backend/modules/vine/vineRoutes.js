@@ -537,6 +537,7 @@ const buildGuardianActivitySnapshot = async (perfCtx, dbName, { loginLimit = 12,
     const commentsExists = await hasTable(dbName, "vine_comments");
     const likesExists = await hasTable(dbName, "vine_likes");
     const revinesExists = await hasTable(dbName, "vine_revines");
+    const postViewsExists = await hasTable(dbName, "vine_post_views");
     const followsExists = await hasTable(dbName, "vine_follows");
     const messagesExists = await hasTable(dbName, "vine_messages");
     const communityMembersExists = await hasTable(dbName, "vine_community_members");
@@ -664,6 +665,37 @@ const buildGuardianActivitySnapshot = async (perfCtx, dbName, { loginLimit = 12,
       actionParams.push(actionSince);
     }
 
+    if (postViewsExists) {
+      actionSelects.push(`
+        SELECT
+          CONCAT('view-', pv.id) AS event_key,
+          u.id AS user_id,
+          u.username,
+          u.display_name,
+          u.avatar_url,
+          u.is_verified,
+          u.badge_type,
+          u.role,
+          'view' AS action_type,
+          'Viewed a post' AS action_label,
+          COALESCE(c.name, '') AS target_label,
+          '' AS detail,
+          pv.created_at,
+          pv.post_id AS post_id,
+          NULL AS comment_id,
+          NULL AS assignment_id,
+          COALESCE(c.slug, '') AS community_slug,
+          '' AS target_username
+        FROM vine_post_views pv
+        JOIN vine_users u ON u.id = pv.user_id
+        LEFT JOIN vine_posts p ON p.id = pv.post_id
+        LEFT JOIN vine_communities c ON c.id = p.community_id
+        WHERE pv.created_at >= ?
+          AND pv.user_id IS NOT NULL
+      `);
+      actionParams.push(actionSince);
+    }
+
     if (followsExists) {
       actionSelects.push(`
         SELECT
@@ -786,7 +818,8 @@ const buildGuardianActivitySnapshot = async (perfCtx, dbName, { loginLimit = 12,
       actionParams.push(actionSince);
     }
 
-    let recentActionRows = [];
+    const sessionActionLimit = Math.max(160, safeActionLimit * 12);
+    let allRecentActionRows = [];
     if (actionSelects.length) {
       const [rows] = await timedVineQuery(
         perfCtx,
@@ -799,13 +832,13 @@ const buildGuardianActivitySnapshot = async (perfCtx, dbName, { loginLimit = 12,
         ORDER BY created_at DESC
         LIMIT ?
         `,
-        [...actionParams, safeActionLimit]
+        [...actionParams, sessionActionLimit]
       );
-      recentActionRows = normalizeGuardianActivityRows(Array.isArray(rows) ? rows : []);
+      allRecentActionRows = normalizeGuardianActivityRows(Array.isArray(rows) ? rows : []);
     }
 
     const nowMs = Date.now();
-    const recentActions = recentActionRows.map((row) => ({
+    const allRecentActions = allRecentActionRows.map((row) => ({
       ...row,
       is_online_now: Boolean(
         row.user_id &&
@@ -817,6 +850,7 @@ const buildGuardianActivitySnapshot = async (perfCtx, dbName, { loginLimit = 12,
           )
       ),
     }));
+    const recentActions = allRecentActions.slice(0, safeActionLimit);
 
     const burstWindowStart = new Date(Date.now() - 15 * 60 * 1000);
     const burstMap = new Map();
@@ -963,7 +997,7 @@ const buildGuardianActivitySnapshot = async (perfCtx, dbName, { loginLimit = 12,
       const currentSessionIndex = userSessions.findIndex((sessionRow) => Number(sessionRow.session_id) === Number(row.session_id));
       const newerSession = currentSessionIndex > 0 ? userSessions[currentSessionIndex - 1] : null;
       const windowEndMs = newerSession ? new Date(newerSession.login_at || 0).getTime() : Number.POSITIVE_INFINITY;
-      const actionsDuringSession = recentActions.filter((activity) => {
+      const actionsDuringSession = allRecentActions.filter((activity) => {
         if (Number(activity.user_id) !== userId) return false;
         const actionMs = new Date(activity.created_at || 0).getTime();
         return Number.isFinite(actionMs) && actionMs >= loginAtMs && actionMs < windowEndMs;
@@ -1183,6 +1217,7 @@ const ensureVinePerformanceSchema = async () => {
       ["vine_comment_likes", "idx_vine_comment_likes_user_comment", ["user_id", "comment_id"]],
       ["vine_post_views", "idx_vine_post_views_post_user", ["post_id", "user_id"]],
       ["vine_post_views", "idx_vine_post_views_user_post", ["user_id", "post_id"]],
+      ["vine_post_views", "idx_vine_post_views_user_created", ["user_id", "created_at"]],
       ["vine_bookmarks", "idx_vine_bookmarks_user_post", ["user_id", "post_id"]],
       ["vine_bookmarks", "idx_vine_bookmarks_post_user", ["post_id", "user_id"]],
       ["vine_follows", "idx_vine_follows_follower_following", ["follower_id", "following_id"]],

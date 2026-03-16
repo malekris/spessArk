@@ -4,6 +4,7 @@ import VinePostCard from "./VinePostCard";
 import "./VineCommunities.css";
 import { loadPdfTools } from "../../../utils/loadPdfTools";
 import { touchVineActivity } from "../utils/vineAuth";
+import { createClientRequestId } from "../../../utils/requestId";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const POST_MAX_LENGTH = 5000;
@@ -40,6 +41,7 @@ export default function VineCommunities() {
   const [pendingRequests, setPendingRequests] = useState([]);
   const [postText, setPostText] = useState("");
   const [communityFiles, setCommunityFiles] = useState([]);
+  const [isSubmittingCommunityPost, setIsSubmittingCommunityPost] = useState(false);
   const [scheduledAt, setScheduledAt] = useState("");
   const [scheduledPosts, setScheduledPosts] = useState([]);
   const [rules, setRules] = useState([]);
@@ -103,6 +105,8 @@ export default function VineCommunities() {
   const communityBannerDragStart = useRef(0);
   const communityBannerOffsetStart = useRef(0);
   const communityPostRef = useRef(null);
+  const communityPostRequestIdRef = useRef("");
+  const communityPostFingerprintRef = useRef("");
   const assignmentFileInputRef = useRef(null);
   const libraryFileInputRef = useRef(null);
   const [nowMs, setNowMs] = useState(Date.now());
@@ -123,6 +127,22 @@ export default function VineCommunities() {
     }
     document.title = "Vine — Communities";
   }, [activeCommunity?.name]);
+
+  const communityPostFingerprint = [
+    postText.trim(),
+    communityFiles.map((file) => `${file?.name || ""}:${file?.size || 0}:${file?.lastModified || 0}`).join("|"),
+    String(activeCommunity?.id || ""),
+  ].join("::");
+
+  useEffect(() => {
+    if (
+      communityPostFingerprintRef.current &&
+      communityPostFingerprintRef.current !== communityPostFingerprint
+    ) {
+      communityPostRequestIdRef.current = "";
+    }
+    communityPostFingerprintRef.current = communityPostFingerprint;
+  }, [communityPostFingerprint]);
 
   const loadCommunities = async () => {
     try {
@@ -696,11 +716,17 @@ export default function VineCommunities() {
   };
 
   const submitCommunityPost = async () => {
+    if (isSubmittingCommunityPost) return;
     if ((!postText.trim() && communityFiles.length === 0) || !activeCommunity?.id) return;
     try {
+      setIsSubmittingCommunityPost(true);
       const formData = new FormData();
       if (postText.trim()) formData.append("content", postText.trim());
       formData.append("community_id", String(activeCommunity.id));
+      const clientRequestId =
+        communityPostRequestIdRef.current || createClientRequestId("community-post");
+      communityPostRequestIdRef.current = clientRequestId;
+      formData.append("client_request_id", clientRequestId);
       communityFiles.forEach((file) => formData.append("images", file));
 
       const res = await fetch(`${API}/api/vine/posts`, {
@@ -715,9 +741,19 @@ export default function VineCommunities() {
       }
       setPostText("");
       setCommunityFiles([]);
-      setPosts((prev) => [data, ...prev]);
+      setPosts((prev) => {
+        const alreadyThere = prev.some((row) => Number(row?.id) === Number(data?.id));
+        if (alreadyThere) {
+          return prev.map((row) => (Number(row?.id) === Number(data?.id) ? { ...row, ...data } : row));
+        }
+        return [data, ...prev];
+      });
+      communityPostRequestIdRef.current = "";
+      communityPostFingerprintRef.current = "";
     } catch {
       alert("Failed to post");
+    } finally {
+      setIsSubmittingCommunityPost(false);
     }
   };
 
@@ -2152,7 +2188,9 @@ export default function VineCommunities() {
                                 onChange={(e) => setScheduledAt(e.target.value)}
                               />
                               <button onClick={scheduleCommunityPost}>Schedule</button>
-                              <button onClick={submitCommunityPost}>Post</button>
+                              <button onClick={submitCommunityPost} disabled={isSubmittingCommunityPost}>
+                                {isSubmittingCommunityPost ? "Posting..." : "Post"}
+                              </button>
                             </div>
                           </div>
                           {communityFiles.length > 0 && (

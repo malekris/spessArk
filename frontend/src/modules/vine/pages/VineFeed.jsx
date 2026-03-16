@@ -7,6 +7,7 @@ import VineSuggestions from "./VineSuggestions";
 import { socket } from "../../../socket";
 import { useSearchParams } from "react-router-dom";
 import { convertHeicFileToJpeg, isHeicLikeFile } from "../utils/heic";
+import { createClientRequestId } from "../../../utils/requestId";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const STATUS_COLORS = [
@@ -235,6 +236,7 @@ export default function VineFeed() {
   const [images, setImages] = useState([]);
   const [previews, setPreviews] = useState([]);
   const [feeling, setFeeling] = useState("");
+  const [isSubmittingPost, setIsSubmittingPost] = useState(false);
   const [unread, setUnread] = useState(0);           // notifications
   const [unreadDMs, setUnreadDMs] = useState(0);     // DMs
   const [handledDeepLink, setHandledDeepLink] = useState(false);
@@ -284,6 +286,8 @@ export default function VineFeed() {
   const suggestionSlotsRef = useRef([]);
   const createInputRef = useRef(null);
   const checkedNewsTargetRef = useRef("");
+  const draftPostRequestIdRef = useRef("");
+  const draftPostFingerprintRef = useRef("");
 
   const revokePreviewUrls = (items) => {
     for (const item of items || []) {
@@ -327,6 +331,25 @@ export default function VineFeed() {
     );
     return converted.filter(Boolean);
   };
+
+  const composerFingerprint = [
+    content.trim(),
+    feeling,
+    composeGifUrl,
+    postBgColor,
+    pollOpen ? "poll-on" : "poll-off",
+    String(pollDurationHours),
+    pollOptions.map((option) => String(option || "").trim()).join("|"),
+    String(communityId || ""),
+    images.map((file) => `${file?.name || ""}:${file?.size || 0}:${file?.lastModified || 0}`).join("|"),
+  ].join("::");
+
+  useEffect(() => {
+    if (draftPostFingerprintRef.current && draftPostFingerprintRef.current !== composerFingerprint) {
+      draftPostRequestIdRef.current = "";
+    }
+    draftPostFingerprintRef.current = composerFingerprint;
+  }, [composerFingerprint]);
   useEffect(() => {
     setHandledDeepLink(false);
   }, [targetPostId, targetCommentId]);
@@ -1121,6 +1144,7 @@ export default function VineFeed() {
 
   // ── Post Creation ───────────────────────────────
   const submitPost = async () => {
+    if (isSubmittingPost) return;
     if (FEED_MEDIA_UPLOADS_FROZEN && images.length > 0) {
       alert("Photo/video uploads are temporarily disabled on feed.");
       return;
@@ -1132,6 +1156,7 @@ export default function VineFeed() {
     }
 
     try {
+      setIsSubmittingPost(true);
       const formData = new FormData();
       const normalizedContent = content.trim();
       const wordCount = normalizedContent ? normalizedContent.split(/\s+/).filter(Boolean).length : 0;
@@ -1154,6 +1179,9 @@ export default function VineFeed() {
         ? `${outgoingContent}${outgoingContent ? "\n" : ""}${composeGifUrl}`
         : outgoingContent;
       if (contentWithGif) formData.append("content", contentWithGif);
+      const clientRequestId = draftPostRequestIdRef.current || createClientRequestId("vine-post");
+      draftPostRequestIdRef.current = clientRequestId;
+      formData.append("client_request_id", clientRequestId);
       if (communityId) formData.append("community_id", String(communityId));
       images.forEach((img) => formData.append("images", img));
       const cleanedPollOptions = pollOptions.map((o) => String(o || "").trim()).filter(Boolean).slice(0, 4);
@@ -1173,8 +1201,18 @@ export default function VineFeed() {
         body: formData,
       });
 
-      const newPost = await res.json();
-      setPosts((prev) => [newPost, ...prev]);
+      const newPost = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(newPost?.message || "Failed to create post");
+        return;
+      }
+      setPosts((prev) => {
+        const alreadyThere = prev.some((row) => Number(row?.id) === Number(newPost?.id));
+        if (alreadyThere) {
+          return prev.map((row) => (Number(row?.id) === Number(newPost?.id) ? { ...row, ...newPost } : row));
+        }
+        return [newPost, ...prev];
+      });
       setContent("");
       setFeeling("");
       setImages([]);
@@ -1188,8 +1226,13 @@ export default function VineFeed() {
       setPollOptions(["", ""]);
       setPollDurationHours(24);
       setPostBgColor("");
+      draftPostRequestIdRef.current = "";
+      draftPostFingerprintRef.current = "";
     } catch (err) {
       console.error("Post creation error", err);
+      alert("Failed to create post");
+    } finally {
+      setIsSubmittingPost(false);
     }
   };
 
@@ -1665,8 +1708,8 @@ export default function VineFeed() {
                 </div>
               )}
 
-              <button className="post-submit-btn" onClick={submitPost}>
-                Post
+              <button className="post-submit-btn" onClick={submitPost} disabled={isSubmittingPost}>
+                {isSubmittingPost ? "Posting..." : "Post"}
               </button>
             </div>
           </div>

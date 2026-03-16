@@ -259,6 +259,19 @@ const ensureDmIndexExists = async (dbName, tableName, indexName, columns = []) =
   if (await hasDmIndexWithColumns(dbName, tableName, columns)) return;
   await db.query(`CREATE INDEX ${indexName} ON ${tableName} (${columns.join(", ")})`);
 };
+
+const ensureDmUniqueIndexExists = async (dbName, tableName, indexName, columns = []) => {
+  if (!dbName || !columns.length) return;
+  if (!(await hasDmTable(dbName, tableName))) return;
+  if (await hasDmIndexNamed(dbName, tableName, indexName)) return;
+  await db.query(`CREATE UNIQUE INDEX ${indexName} ON ${tableName} (${columns.join(", ")})`);
+};
+
+const normalizeDmClientRequestId = (value) => {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) return "";
+  return trimmed.slice(0, 80);
+};
 const addColumnIfMissing = async (tableName, columnName, definitionSql) => {
   const [rows] = await db.query(
     `
@@ -329,6 +342,16 @@ const ensureDmSchema = async () => {
     "disappear_mode VARCHAR(20) NOT NULL DEFAULT 'after_read'"
   );
   await addColumnIfMissing("vine_messages", "expires_at", "expires_at DATETIME NULL");
+  await addColumnIfMissing("vine_messages", "client_request_id", "client_request_id VARCHAR(80) NULL");
+  const dbName = await getDmDbName();
+  if (dbName) {
+    await ensureDmUniqueIndexExists(
+      dbName,
+      "vine_messages",
+      "uniq_vine_messages_sender_request",
+      ["sender_id", "client_request_id"]
+    );
+  }
   dmSchemaReady = true;
 };
 
@@ -708,6 +731,38 @@ const hydrateMessages = async (messages, viewerId) => {
   });
 };
 
+const getHydratedMessageById = async (messageId, viewerId) => {
+  const numericMessageId = Number(messageId || 0);
+  if (!numericMessageId) return null;
+  const [[rawMessage]] = await db.query(
+    `
+    SELECT 
+      m.id,
+      m.conversation_id,
+      m.sender_id,
+      m.content,
+      m.created_at,
+      m.is_read,
+      m.read_at,
+      m.is_disappearing,
+      m.disappear_mode,
+      m.expires_at,
+      m.client_request_id,
+      u.username,
+      u.avatar_url,
+      u.is_verified
+    FROM vine_messages m
+    JOIN vine_users u ON m.sender_id = u.id
+    WHERE m.id = ?
+    LIMIT 1
+    `,
+    [numericMessageId]
+  );
+  if (!rawMessage) return null;
+  const [hydrated] = await hydrateMessages([rawMessage], viewerId);
+  return hydrated || rawMessage;
+};
+
 /* =========================
    HELPER: check following
 ========================= */
@@ -1079,6 +1134,7 @@ router.patch("/conversations/:id/settings", authenticate, async (req, res) => {
 router.post("/send", authenticate, async (req, res) => {
   const senderId = req.user.id;
   const { conversationId, receiverId, content, media_url, media_type, reply_to_id } = req.body;
+  const clientRequestId = normalizeDmClientRequestId(req.body?.client_request_id);
   const safeContent = String(content || "").trim();
   const safeMediaUrl = String(media_url || "").trim();
   const safeMediaType = String(media_type || "").trim().toLowerCase();
@@ -1189,6 +1245,22 @@ router.post("/send", authenticate, async (req, res) => {
       user2_id = createConversationWithUserId;
     }
 
+    if (clientRequestId) {
+      const [[existingMessage]] = await db.query(
+        `
+        SELECT id
+        FROM vine_messages
+        WHERE sender_id = ? AND client_request_id = ?
+        LIMIT 1
+        `,
+        [senderId, clientRequestId]
+      );
+      if (existingMessage?.id) {
+        const fullMessage = await getHydratedMessageById(existingMessage.id, senderId);
+        return res.json({ message: fullMessage, conversationId: fullMessage?.conversation_id || activeConversationId });
+      }
+    }
+
     if (replyToId) {
       const [[replyExists]] = await db.query(
         "SELECT id FROM vine_messages WHERE id = ? AND conversation_id = ? LIMIT 1",
@@ -1207,22 +1279,42 @@ router.post("/send", authenticate, async (req, res) => {
     const expiresAt = isDisappearing ? getDisappearingExpiryForMode(disappearMode) : null;
 
     // Insert message
-    const [result] = await db.query(
-      `
-      INSERT INTO vine_messages (
-        conversation_id, sender_id, content, is_disappearing, disappear_mode, expires_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?)
-      `,
-      [
-        activeConversationId,
-        senderId,
-        safeContent || (safeMediaType === "voice" ? "Voice note" : "Attachment"),
-        isDisappearing,
-        disappearMode,
-        expiresAt,
-      ]
-    );
+    let result;
+    try {
+      [result] = await db.query(
+        `
+        INSERT INTO vine_messages (
+          conversation_id, sender_id, content, is_disappearing, disappear_mode, expires_at, client_request_id
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        `,
+        [
+          activeConversationId,
+          senderId,
+          safeContent || (safeMediaType === "voice" ? "Voice note" : "Attachment"),
+          isDisappearing,
+          disappearMode,
+          expiresAt,
+          clientRequestId || null,
+        ]
+      );
+    } catch (insertErr) {
+      if (insertErr?.code !== "ER_DUP_ENTRY" || !clientRequestId) {
+        throw insertErr;
+      }
+      const [[existingMessage]] = await db.query(
+        `
+        SELECT id
+        FROM vine_messages
+        WHERE sender_id = ? AND client_request_id = ?
+        LIMIT 1
+        `,
+        [senderId, clientRequestId]
+      );
+      if (!existingMessage?.id) throw insertErr;
+      const fullMessage = await getHydratedMessageById(existingMessage.id, senderId);
+      return res.json({ message: fullMessage, conversationId: fullMessage?.conversation_id || activeConversationId });
+    }
 
     if (replyToId || safeMediaUrl) {
       await db.query(
@@ -1240,28 +1332,7 @@ router.post("/send", authenticate, async (req, res) => {
     }
 
     // Fetch full message (with username + avatar)
-    const [[fullMessageRaw]] = await db.query(
-      `
-      SELECT 
-        m.id,
-        m.conversation_id,
-        m.sender_id,
-        m.content,
-        m.created_at,
-        m.is_disappearing,
-        m.disappear_mode,
-        m.expires_at,
-        u.username,
-        u.avatar_url,
-        u.is_verified
-      FROM vine_messages m
-      JOIN vine_users u ON m.sender_id = u.id
-      WHERE m.id = ?
-      `,
-      [result.insertId]
-    );
-    const [hydrated] = await hydrateMessages([fullMessageRaw], senderId);
-    const fullMessage = hydrated || fullMessageRaw;
+    const fullMessage = await getHydratedMessageById(result.insertId, senderId);
 
     // ✅ Send to open chat window
     io.to(`conversation-${activeConversationId}`).emit("dm_received", fullMessage);

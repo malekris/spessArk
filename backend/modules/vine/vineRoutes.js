@@ -276,6 +276,12 @@ const hasColumn = async (dbName, tableName, columnName) => {
   return rows.length > 0;
 };
 
+const normalizeClientRequestId = (value) => {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) return "";
+  return trimmed.slice(0, 80);
+};
+
 let cachedDbName = null;
 const getDbName = async () => {
   if (cachedDbName) return cachedDbName;
@@ -1213,6 +1219,13 @@ const ensureIndexExists = async (dbName, tableName, indexName, columns = []) => 
   await db.query(`CREATE INDEX ${indexName} ON ${tableName} (${columns.join(", ")})`);
 };
 
+const ensureUniqueIndexExists = async (dbName, tableName, indexName, columns = []) => {
+  if (!dbName || !columns.length) return;
+  if (!(await hasTable(dbName, tableName))) return;
+  if (await hasIndexNamed(dbName, tableName, indexName)) return;
+  await db.query(`CREATE UNIQUE INDEX ${indexName} ON ${tableName} (${columns.join(", ")})`);
+};
+
 let vinePerformanceSchemaReady = false;
 let vinePerformanceSchemaPromise = null;
 const ensureVinePerformanceSchema = async () => {
@@ -1274,6 +1287,82 @@ const ensureVinePerformanceSchema = async () => {
   });
 
   return vinePerformanceSchemaPromise;
+};
+
+let vineRequestDedupSchemaReady = false;
+const ensureVineRequestDedupSchema = async () => {
+  if (vineRequestDedupSchemaReady) return;
+  const dbName = await getDbName();
+  if (!dbName) return;
+  if (await hasTable(dbName, "vine_posts")) {
+    if (!(await hasColumn(dbName, "vine_posts", "client_request_id"))) {
+      await db.query("ALTER TABLE vine_posts ADD COLUMN client_request_id VARCHAR(80) NULL");
+    }
+    await ensureUniqueIndexExists(
+      dbName,
+      "vine_posts",
+      "uniq_vine_posts_user_request",
+      ["user_id", "client_request_id"]
+    );
+  }
+  vineRequestDedupSchemaReady = true;
+};
+
+const getVinePostRowById = async (postId, viewerId) => {
+  const safeViewerId = Number(viewerId || 0);
+  const [rows] = await db.query(
+    `
+    SELECT
+      CONCAT('post-', p.id) AS feed_id,
+      p.id,
+      p.user_id,
+      p.community_id,
+      p.topic_tag,
+      p.is_community_pinned,
+      c.name AS community_name,
+      c.slug AS community_slug,
+      p.content,
+      p.image_url,
+      p.link_preview,
+      p.created_at,
+      p.created_at AS sort_time,
+      u.username,
+      u.display_name,
+      u.avatar_url,
+      u.is_verified,
+      u.badge_type,
+      u.hide_like_counts,
+      NULL AS revined_by,
+      NULL AS reviner_username,
+      (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id) AS likes,
+      (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comments,
+      (SELECT COUNT(*) FROM vine_revines WHERE post_id = p.id) AS revines,
+      (SELECT COUNT(*) FROM vine_post_views WHERE post_id = p.id) AS views,
+      ${
+        safeViewerId
+          ? `(SELECT COUNT(*) > 0 FROM vine_likes WHERE post_id = p.id AND user_id = ${safeViewerId})`
+          : "0"
+      } AS user_liked,
+      ${
+        safeViewerId
+          ? `(SELECT COUNT(*) > 0 FROM vine_revines WHERE post_id = p.id AND user_id = ${safeViewerId})`
+          : "0"
+      } AS user_revined,
+      ${
+        safeViewerId
+          ? `(SELECT COUNT(*) > 0 FROM vine_bookmarks WHERE post_id = p.id AND user_id = ${safeViewerId})`
+          : "0"
+      } AS user_bookmarked,
+      (SELECT COUNT(*) > 0 FROM vine_polls vp WHERE vp.post_id = p.id) AS has_poll
+    FROM vine_posts p
+    JOIN vine_users u ON p.user_id = u.id
+    LEFT JOIN vine_communities c ON c.id = p.community_id
+    WHERE p.id = ?
+    LIMIT 1
+    `,
+    [postId]
+  );
+  return rows[0] || null;
 };
 
 let postViewSchemaReady = false;
@@ -7499,8 +7588,10 @@ router.get("/posts/:id/public", authOptional, async (req, res) => {
       try {
         await ensureCommunitySchema();
         await ensurePollSchema();
+        await ensureVineRequestDedupSchema();
         const userId = req.user.id;
         const { content } = req.body;
+        const clientRequestId = normalizeClientRequestId(req.body?.client_request_id);
         const pollQuestionRaw = String(req.body?.poll_question || "").trim();
         let pollOptionsRaw = req.body?.poll_options || "[]";
         const pollDurationRaw = Number(req.body?.poll_duration_hours);
@@ -7512,6 +7603,22 @@ router.get("/posts/:id/public", authOptional, async (req, res) => {
             : null;
   
         let imageUrls = [];
+
+        if (clientRequestId) {
+          const [[existingPost]] = await db.query(
+            `
+            SELECT id
+            FROM vine_posts
+            WHERE user_id = ? AND client_request_id = ?
+            LIMIT 1
+            `,
+            [userId, clientRequestId]
+          );
+          if (existingPost?.id) {
+            const existingRow = await getVinePostRowById(existingPost.id, userId);
+            return res.json(existingRow || { id: existingPost.id });
+          }
+        }
   
         if (req.files?.length) {
           if (!communityId && req.files.some((f) => isPdfFile(f))) {
@@ -7606,18 +7713,39 @@ router.get("/posts/:id/public", authOptional, async (req, res) => {
         }
 
         const topicTag = extractTopicTag(content?.trim() || "");
-        const [result] = await db.query(
-          `INSERT INTO vine_posts (user_id, community_id, content, image_url, link_preview, topic_tag)
-           VALUES (?, ?, ?, ?, ?, ?)`,
-          [
-            userId,
-            communityId,
-            content?.trim() || null,
-            image_url,
-            linkPreview ? JSON.stringify(linkPreview) : null,
-            topicTag,
-          ]
-        );
+        let createdPostId = null;
+        try {
+          const [result] = await db.query(
+            `INSERT INTO vine_posts (user_id, community_id, content, image_url, link_preview, topic_tag, client_request_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [
+              userId,
+              communityId,
+              content?.trim() || null,
+              image_url,
+              linkPreview ? JSON.stringify(linkPreview) : null,
+              topicTag,
+              clientRequestId || null,
+            ]
+          );
+          createdPostId = Number(result.insertId);
+        } catch (insertErr) {
+          if (insertErr?.code !== "ER_DUP_ENTRY" || !clientRequestId) {
+            throw insertErr;
+          }
+          const [[existingPost]] = await db.query(
+            `
+            SELECT id
+            FROM vine_posts
+            WHERE user_id = ? AND client_request_id = ?
+            LIMIT 1
+            `,
+            [userId, clientRequestId]
+          );
+          if (!existingPost?.id) throw insertErr;
+          const existingRow = await getVinePostRowById(existingPost.id, userId);
+          return res.json(existingRow || { id: existingPost.id });
+        }
 
         if (pollQuestionRaw && pollOptions.length >= 2) {
           const [pollInsert] = await db.query(
@@ -7625,7 +7753,7 @@ router.get("/posts/:id/public", authOptional, async (req, res) => {
             INSERT INTO vine_polls (post_id, question, expires_at, created_at)
             VALUES (?, ?, ?, NOW())
             `,
-            [result.insertId, pollQuestionRaw.slice(0, 240), pollExpiresAt]
+            [createdPostId, pollQuestionRaw.slice(0, 240), pollExpiresAt]
           );
           const pollId = Number(pollInsert.insertId);
           for (let i = 0; i < pollOptions.length; i += 1) {
@@ -7643,47 +7771,16 @@ router.get("/posts/:id/public", authOptional, async (req, res) => {
         await notifyMentions({
           mentions,
           actorId: userId,
-          postId: result.insertId,
+          postId: createdPostId,
           commentId: null,
           type: "mention_post",
         });
-  
-        const [[post]] = await db.query(`
-          SELECT 
-            CONCAT('post-', p.id) AS feed_id,
-            p.id,
-            p.user_id,
-            p.community_id,
-            p.topic_tag,
-            p.is_community_pinned,
-            c.name AS community_name,
-            c.slug AS community_slug,
-            p.content,
-            p.image_url,
-            p.link_preview,
-            p.created_at AS sort_time,
-            u.username,
-            u.display_name,
-            u.avatar_url,
-            NULL AS revined_by,
-            NULL AS reviner_username,
-            0 AS likes,
-            0 AS comments,
-            0 AS revines,
-            0 AS views,
-            0 AS user_liked,
-            0 AS user_revined,
-            0 AS user_bookmarked,
-            (SELECT COUNT(*) > 0 FROM vine_polls vp WHERE vp.post_id = p.id) AS has_poll
-          FROM vine_posts p
-          JOIN vine_users u ON p.user_id = u.id
-          LEFT JOIN vine_communities c ON c.id = p.community_id
-          WHERE p.id = ?
-        `, [result.insertId]);
+ 
+        const post = await getVinePostRowById(createdPostId, userId);
 
         emitVineFeedUpdated({
           type: "post_created",
-          postId: result.insertId,
+          postId: createdPostId,
           communityId,
           authorId: userId,
         });

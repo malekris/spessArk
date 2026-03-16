@@ -4,6 +4,7 @@ import { socket } from "../../socket";
 import MessageBubble from "./MessageBubble";
 import MessageInput from "./MessageInput";
 import "./ChatWindow.css";
+import { createClientRequestId } from "../../utils/requestId";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const DEFAULT_AVATAR = "/default-avatar.png";
@@ -61,6 +62,17 @@ const getTempExpiry = (mode) => {
   return null;
 };
 
+const buildPendingMessageKey = ({ conversationId, receiverId, content, mediaFile, mediaType, replyToId }) => [
+  String(conversationId || "new"),
+  String(receiverId || "0"),
+  String(content || "").trim(),
+  String(mediaType || ""),
+  String(replyToId || ""),
+  mediaFile
+    ? `${mediaFile.name || ""}:${mediaFile.size || 0}:${mediaFile.lastModified || 0}`
+    : "no-media",
+].join("::");
+
 export default function ChatWindow() {
   const { conversationId: routeConversationId, userId: routeReceiverId } = useParams();
   const navigate = useNavigate();
@@ -84,6 +96,8 @@ export default function ChatWindow() {
   const scrollRef = useRef(null);
   const stickToBottomRef = useRef(true);
   const typingRef = useRef({ active: false, timeout: null });
+  const inFlightMessageKeysRef = useRef(new Set());
+  const inFlightRequestIdsRef = useRef(new Map());
 
   const currentUser = JSON.parse(localStorage.getItem("vine_user"));
   const myId = currentUser?.id;
@@ -275,6 +289,19 @@ export default function ChatWindow() {
     const replyToId = payload?.replyToId || null;
     let uploaded = null;
     if (!content && !mediaFile) return;
+    const pendingKey = buildPendingMessageKey({
+      conversationId,
+      receiverId,
+      content,
+      mediaFile,
+      mediaType,
+      replyToId,
+    });
+    if (inFlightMessageKeysRef.current.has(pendingKey)) return;
+    const clientRequestId =
+      inFlightRequestIdsRef.current.get(pendingKey) || createClientRequestId("vine-dm");
+    inFlightRequestIdsRef.current.set(pendingKey, clientRequestId);
+    inFlightMessageKeysRef.current.add(pendingKey);
   
     const tempId = `temp-${Date.now()}`;
   
@@ -294,6 +321,7 @@ export default function ChatWindow() {
       reply_to_message: replyTarget || null,
       reactions: {},
       viewer_reaction: null,
+      client_request_id: clientRequestId,
     };
   
     // 🔥 optimistic UI
@@ -317,6 +345,7 @@ export default function ChatWindow() {
                 media_url: uploaded?.url || null,
                 media_type: uploaded?.media_type || null,
                 reply_to_id: replyToId || null,
+                client_request_id: clientRequestId,
               }
             : {
                 receiverId,
@@ -324,6 +353,7 @@ export default function ChatWindow() {
                 media_url: uploaded?.url || null,
                 media_type: uploaded?.media_type || null,
                 reply_to_id: replyToId || null,
+                client_request_id: clientRequestId,
               }
         ),
       });
@@ -344,10 +374,14 @@ export default function ChatWindow() {
             : m
         )
       );
+      inFlightMessageKeysRef.current.delete(pendingKey);
+      inFlightRequestIdsRef.current.delete(pendingKey);
       setReplyTarget(null);
     } catch (err) {
       console.error("Send message failed:", err);
       setMessages(prev => prev.filter(m => m.id !== tempId));
+      inFlightMessageKeysRef.current.delete(pendingKey);
+      inFlightRequestIdsRef.current.delete(pendingKey);
     }
   };
   

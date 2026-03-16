@@ -262,7 +262,14 @@ const applyMention = (value, anchor, username) => {
 //  MAIN COMPONENT: VinePostCard
 // ────────────────────────────────────────────────
 
-function VinePostCard({ post, onDeletePost, focusComments, isMe, communityInteractionLocked = false }) {
+function VinePostCard({
+  post,
+  onDeletePost,
+  focusComments,
+  targetCommentId = null,
+  isMe,
+  communityInteractionLocked = false,
+}) {
 
   const navigate = useNavigate();
   const token = localStorage.getItem("vine_token");
@@ -581,7 +588,7 @@ function VinePostCard({ post, onDeletePost, focusComments, isMe, communityIntera
   }, [post.user_bookmarked]);
 
   useEffect(() => {
-    if (focusComments) {
+    if (focusComments || targetCommentId) {
       recordViewOnce();
       setOpen(true);
       setTimeout(() => {
@@ -589,7 +596,7 @@ function VinePostCard({ post, onDeletePost, focusComments, isMe, communityIntera
         input?.focus();
       }, 0);
     }
-  }, [focusComments, post.id]);
+  }, [focusComments, targetCommentId, post.id]);
   useEffect(() => {
     const likes = { ...commentLikes };
     const liked = { ...commentUserLiked };
@@ -1432,6 +1439,7 @@ function VinePostCard({ post, onDeletePost, focusComments, isMe, communityIntera
   <Comment
     key={c.id}
     comment={c}
+    targetCommentId={targetCommentId}
     commentLikes={commentLikes}
     commentUserLiked={commentUserLiked}
     commentUserReaction={commentUserReaction}
@@ -1606,9 +1614,16 @@ function VinePostCard({ post, onDeletePost, focusComments, isMe, communityIntera
 const areVinePostCardPropsEqual = (prevProps, nextProps) => (
   prevProps.post === nextProps.post &&
   prevProps.focusComments === nextProps.focusComments &&
+  prevProps.targetCommentId === nextProps.targetCommentId &&
   prevProps.isMe === nextProps.isMe &&
   prevProps.communityInteractionLocked === nextProps.communityInteractionLocked
 );
+
+const commentContainsTarget = (node, targetId) => {
+  if (!node || !targetId) return false;
+  if (String(node.id) === String(targetId)) return true;
+  return Array.isArray(node.replies) && node.replies.some((reply) => commentContainsTarget(reply, targetId));
+};
 
 // ────────────────────────────────────────────────
 //  NESTED COMMENT COMPONENT
@@ -1616,6 +1631,7 @@ const areVinePostCardPropsEqual = (prevProps, nextProps) => (
 
 function Comment({
   comment,
+  targetCommentId = null,
   commentLikes,
   commentUserLiked,
   commentUserReaction,
@@ -1656,6 +1672,10 @@ function Comment({
     Number(currentUserId) === Number(comment.user_id) ||
     isModerator;
   const isGuardianComment = ["vine guardian","vine_guardian","vine news","vine_news"].includes(String(comment.username || "").toLowerCase());
+  const isTargetComment = String(targetCommentId || "") === String(comment.id);
+  const targetExistsInReplies = Boolean(targetCommentId) && (comment.replies || []).some((reply) =>
+    commentContainsTarget(reply, targetCommentId)
+  );
 
   useEffect(() => {
     const q = mentionAnchor?.query;
@@ -1685,6 +1705,25 @@ function Comment({
       document.removeEventListener("pointerdown", closePicker);
     };
   }, []);
+
+  useEffect(() => {
+    if (targetExistsInReplies) {
+      setShowReplies(true);
+    }
+  }, [targetExistsInReplies]);
+
+  useEffect(() => {
+    if (!isTargetComment) return;
+    const timer = window.setTimeout(() => {
+      const commentEl = document.querySelector(`#comment-${comment.id}`);
+      if (!commentEl) return;
+      commentEl.scrollIntoView({ behavior: "smooth", block: "center" });
+      commentEl.classList.add("highlight-comment");
+      window.setTimeout(() => commentEl.classList.remove("highlight-comment"), 2000);
+    }, 160);
+
+    return () => window.clearTimeout(timer);
+  }, [comment.id, isTargetComment, showReplies]);
 
   useEffect(() => {
     if (!showCommentReactionPicker) return;
@@ -1763,7 +1802,10 @@ function Comment({
   };
 
   return (
-    <div className="vine-comment-node" id={`comment-${comment.id}`}>
+    <div
+      className={`vine-comment-node ${isTargetComment ? "target-comment-node" : ""}`}
+      id={`comment-${comment.id}`}
+    >
       <GifPickerModal
         open={gifPickerReplyOpen}
         token={token}
@@ -1941,6 +1983,7 @@ function Comment({
                 <Comment
                   key={r.id}
                   comment={r}
+                  targetCommentId={targetCommentId}
                   commentLikes={commentLikes}
                   commentUserLiked={commentUserLiked}
                   commentUserReaction={commentUserReaction}

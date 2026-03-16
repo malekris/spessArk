@@ -969,6 +969,35 @@
   position: relative;
 }
 
+.vine-comment-node.highlight-comment .comment-main,
+.vine-comment-node.target-comment-node .comment-main {
+  background: linear-gradient(180deg, #fffdf2 0%, #f0fdf4 100%);
+  border: 1px solid rgba(250, 204, 21, 0.42);
+  border-radius: 14px;
+  box-shadow: 0 12px 28px rgba(250, 204, 21, 0.12);
+  padding: 10px 12px;
+  margin-left: -2px;
+}
+
+.vine-comment-node.highlight-comment .comment-main {
+  animation: vineCommentHighlightPulse 1.8s ease;
+}
+
+@keyframes vineCommentHighlightPulse {
+  0% {
+    transform: translateY(0);
+    box-shadow: 0 0 0 rgba(250, 204, 21, 0);
+  }
+  30% {
+    transform: translateY(-1px);
+    box-shadow: 0 0 0 4px rgba(250, 204, 21, 0.12);
+  }
+  100% {
+    transform: translateY(0);
+    box-shadow: 0 12px 28px rgba(250, 204, 21, 0.12);
+  }
+}
+
 .comment-main {
   padding-left: 10px;
 }

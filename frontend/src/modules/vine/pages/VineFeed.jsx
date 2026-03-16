@@ -226,9 +226,12 @@ export default function VineFeed() {
   const [unread, setUnread] = useState(0);           // notifications
   const [unreadDMs, setUnreadDMs] = useState(0);     // DMs
   const [handledDeepLink, setHandledDeepLink] = useState(false);
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const targetPostId = params.get("post");
+  const targetCommentId = params.get("comment");
   const targetTag = (params.get("tag") || "").trim();
+  const activeFeedTab = String(params.get("tab") || "").toLowerCase() === "news" ? "news" : "for-you";
+  const isNewsTab = activeFeedTab === "news";
   const [suggestedUsers, setSuggestedUsers] = useState([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(true);
   const [suggestionSlots, setSuggestionSlots] = useState([]);
@@ -311,6 +314,10 @@ export default function VineFeed() {
     );
     return converted.filter(Boolean);
   };
+  useEffect(() => {
+    setHandledDeepLink(false);
+  }, [targetPostId, targetCommentId]);
+
   // ── Deep Link Handling (post & comment highlight) ──
   useEffect(() => {
     if (handledDeepLink) return;
@@ -331,20 +338,7 @@ export default function VineFeed() {
         return;
       }
 
-      // Auto-open comments
-      const openBtn = postEl.querySelector(".action-btn:nth-child(2)");
-      openBtn?.click();
-
-      if (commentId) {
-        setTimeout(() => {
-          const commentEl = document.querySelector(`#comment-${commentId}`);
-          if (commentEl) {
-            commentEl.scrollIntoView({ behavior: "smooth", block: "center" });
-            commentEl.classList.add("highlight-comment");
-            setTimeout(() => commentEl.classList.remove("highlight-comment"), 2000);
-          }
-        }, 400);
-      }
+      postEl.scrollIntoView({ behavior: "smooth", block: "start" });
 
       setHandledDeepLink(true);
       clearInterval(interval);
@@ -356,8 +350,11 @@ export default function VineFeed() {
   // ── Feed Loading + Polling ──────────────────────
   const loadFeed = useCallback(async (signal) => {
     try {
+      const query = new URLSearchParams();
+      if (targetTag) query.set("tag", targetTag);
+      if (activeFeedTab === "news") query.set("tab", "news");
       const res = await fetch(
-        `${API}/api/vine/posts${targetTag ? `?tag=${encodeURIComponent(targetTag)}` : ""}`,
+        `${API}/api/vine/posts${query.toString() ? `?${query.toString()}` : ""}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -388,7 +385,7 @@ export default function VineFeed() {
         setFeedLoading(false);
       }
     }
-  }, [targetTag, token]);
+  }, [targetTag, activeFeedTab, token]);
 
   const loadSuggestions = useCallback(async (signal) => {
     try {
@@ -429,6 +426,21 @@ export default function VineFeed() {
       }
     }
   }, [token]);
+
+  const switchFeedTab = useCallback(
+    (nextTab) => {
+      setParams((prev) => {
+        const next = new URLSearchParams(prev);
+        if (nextTab === "news") next.set("tab", "news");
+        else next.delete("tab");
+        next.delete("post");
+        next.delete("comment");
+        return next;
+      });
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    },
+    [setParams]
+  );
 
   const loadRestrictions = useCallback(async (signal) => {
     try {
@@ -487,12 +499,19 @@ export default function VineFeed() {
   useEffect(() => {
     const controller = new AbortController();
     setFeedLoading(true);
-    setSuggestionsLoading(true);
-    setTrendingLoading(true);
+    setSuggestionsLoading(!isNewsTab);
+    setTrendingLoading(!isNewsTab);
     setStatusRailLoading(true);
     loadFeed(controller.signal); // initial load
-    loadSuggestions(controller.signal);
-    loadTrending(controller.signal);
+    if (isNewsTab) {
+      suggestionSlotsRef.current = [];
+      setSuggestionSlots([]);
+      setSuggestedUsers([]);
+      setTrendingPosts([]);
+    } else {
+      loadSuggestions(controller.signal);
+      loadTrending(controller.signal);
+    }
     loadRestrictions(controller.signal);
     loadMyCommunities(controller.signal);
     loadStatusRail(controller.signal);
@@ -500,7 +519,9 @@ export default function VineFeed() {
     const interval = setInterval(() => {
       const refreshController = new AbortController();
       loadFeed(refreshController.signal);
-      loadTrending(refreshController.signal);
+      if (!isNewsTab) {
+        loadTrending(refreshController.signal);
+      }
     }, FEED_REFRESH_FALLBACK_MS);
     const statusInterval = setInterval(() => {
       const statusController = new AbortController();
@@ -512,7 +533,7 @@ export default function VineFeed() {
       clearInterval(interval);
       clearInterval(statusInterval);
     };
-  }, [loadFeed, loadSuggestions, loadTrending, loadRestrictions, loadMyCommunities, loadStatusRail]);
+  }, [isNewsTab, loadFeed, loadSuggestions, loadTrending, loadRestrictions, loadMyCommunities, loadStatusRail]);
 
   useEffect(() => {
     if (!token) return undefined;
@@ -524,9 +545,13 @@ export default function VineFeed() {
         refreshTimer = null;
         const controller = new AbortController();
         loadFeed(controller.signal);
-        loadTrending(controller.signal);
+        if (!isNewsTab) {
+          loadTrending(controller.signal);
+        }
         if (full) {
-          loadSuggestions(controller.signal);
+          if (!isNewsTab) {
+            loadSuggestions(controller.signal);
+          }
           loadRestrictions(controller.signal);
           loadMyCommunities(controller.signal);
         }
@@ -556,7 +581,7 @@ export default function VineFeed() {
       window.removeEventListener("focus", handleWakeRefresh);
       document.removeEventListener("visibilitychange", handleWakeRefresh);
     };
-  }, [token, loadFeed, loadTrending, loadSuggestions, loadRestrictions, loadMyCommunities, loadStatusRail]);
+  }, [token, isNewsTab, loadFeed, loadTrending, loadSuggestions, loadRestrictions, loadMyCommunities, loadStatusRail]);
 
   useEffect(() => {
     if (!statusViewerOpen) return;
@@ -1277,6 +1302,36 @@ export default function VineFeed() {
             <button onClick={submitAppeal}>Appeal to Guardian</button>
           </div>
         )}
+        <div className="vine-feed-switcher" role="tablist" aria-label="Feed tabs">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={!isNewsTab}
+            className={`vine-feed-tab ${!isNewsTab ? "active" : ""}`}
+            onClick={() => switchFeedTab("for-you")}
+          >
+            <span className="vine-feed-tab-label">For You</span>
+            <span className="vine-feed-tab-subtitle">Everyone on Vine</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={isNewsTab}
+            className={`vine-feed-tab ${isNewsTab ? "active" : ""}`}
+            onClick={() => switchFeedTab("news")}
+          >
+            <span className="vine-feed-tab-label">Vine News</span>
+            <span className="vine-feed-tab-subtitle">News desk only</span>
+          </button>
+        </div>
+        {isNewsTab && (
+          <div className="vine-news-banner">
+            <div className="vine-news-banner-kicker">Vine News</div>
+            <div className="vine-news-banner-copy">
+              This lane is just for updates from Vine News. Guardian scheduling still controls which days and times news lands here.
+            </div>
+          </div>
+        )}
         <div className="vine-statuses-rail">
           <button
             className="status-add-card"
@@ -1325,6 +1380,8 @@ export default function VineFeed() {
           })}
         </div>
 
+        {!isNewsTab && (
+        <>
         {/* Create Post Box */}
         <div
           className={`vine-create-box ${showLiveStyledComposer ? "styled-live" : ""}`}
@@ -1606,8 +1663,10 @@ export default function VineFeed() {
             </div>
           )}
         </div>
+        </>
+        )}
 
-        {(trendingLoading || trendingPosts.length > 0) && (
+        {!isNewsTab && (trendingLoading || trendingPosts.length > 0) && (
           <div className="vine-trending">
             <div className="trending-header">🔥 Trending on Vine</div>
             <div className="trending-track">
@@ -1681,7 +1740,7 @@ export default function VineFeed() {
         <div className="vine-posts-list">
           {feedLoading && posts.length === 0 ? (
             <>
-              {suggestionsLoading && (
+              {!isNewsTab && suggestionsLoading && (
                 <div className="vine-suggest-carousel vine-suggest-carousel-skeleton" aria-hidden="true">
                   <div className="suggest-carousel-header vine-skeleton-block vine-suggest-skeleton-heading" />
                   <div className="suggest-carousel-track">
@@ -1702,7 +1761,7 @@ export default function VineFeed() {
             </>
           ) : posts.map((post, index) => (
             <div key={post.feed_id || `post-${post.id}`}>
-              {suggestionSlots.includes(index) && suggestedUsers.length > 0 && (
+              {!isNewsTab && suggestionSlots.includes(index) && suggestedUsers.length > 0 && (
                 <div className="vine-suggest-carousel">
                   <div className="suggest-carousel-header">
                     Viners you may want to follow
@@ -1776,6 +1835,8 @@ export default function VineFeed() {
               )}
               <VinePostCard
                 post={post}
+                focusComments={String(targetPostId || "") === String(post.id) && Boolean(targetCommentId)}
+                targetCommentId={String(targetPostId || "") === String(post.id) ? targetCommentId : null}
                 communityInteractionLocked={
                   Number(post.community_id) > 0 &&
                   Number(post.viewer_community_member) !== 1
@@ -1784,8 +1845,16 @@ export default function VineFeed() {
             </div>
           ))}
 
-          {posts.length > 0 && <p className="no-more-posts">No more posts</p>}
-          {!feedLoading && posts.length === 0 && <p className="no-posts-hint">No posts yet 🌱</p>}
+          {posts.length > 0 && (
+            <p className="no-more-posts">
+              {isNewsTab ? "No more Vine News updates" : "No more posts"}
+            </p>
+          )}
+          {!feedLoading && posts.length === 0 && (
+            <p className="no-posts-hint">
+              {isNewsTab ? "No Vine News updates yet" : "No posts yet 🌱"}
+            </p>
+          )}
         </div>
         <footer className="vine-feed-footer">
           <div>© {new Date().getFullYear()} Vine. All rights reserved.</div>

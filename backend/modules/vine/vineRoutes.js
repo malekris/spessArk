@@ -6675,19 +6675,30 @@ router.get("/posts", authOptional, async (req, res) => {
     try {
       const viewerId = req.user?.id || null;
       const feedTag = String(req.query.tag || "").trim().replace(/^#/, "").toLowerCase();
+      const feedTab = String(req.query.tab || "for-you").trim().toLowerCase() === "news" ? "news" : "for-you";
       const rows = await runVinePerfRoute(
         "feed",
-        { viewer_id: Number(viewerId || 0), tag: feedTag || null },
+        { viewer_id: Number(viewerId || 0), tag: feedTag || null, tab: feedTab },
         async (perfCtx) => {
           await ensureVinePerformanceSchema();
           await ensureCommunitySchema();
           await ensurePollSchema();
           triggerNewsIngestIfDue();
           await publishDueScheduledPosts();
-          const cacheKey = buildVineCacheKey("feed", viewerId || 0, feedTag || "all");
+          const cacheKey = buildVineCacheKey("feed", viewerId || 0, feedTab, feedTag || "all");
           const tagFilterSql = feedTag
             ? ` AND (LOWER(COALESCE(p.content, '')) LIKE ${db.escape(`%#${feedTag}%`)} OR LOWER(COALESCE(p.topic_tag, '')) = ${db.escape(feedTag)})`
             : "";
+          const newsAuthorSql =
+            `(LOWER(COALESCE(u.username, '')) IN ('vine_news', 'vine news') OR LOWER(COALESCE(u.display_name, '')) = 'vine news' OR LOWER(COALESCE(u.badge_type, '')) = 'news')`;
+          const newsPostFilterSql =
+            feedTab === "news"
+              ? ` AND ${newsAuthorSql}`
+              : "";
+          const newsRevineFilterSql =
+            feedTab === "news"
+              ? " AND 1 = 0"
+              : "";
 
           return readThroughVineCache(cacheKey, VINE_CACHE_TTLS.feed, async () => {
             const [results] = await timedVineQuery(
@@ -6784,6 +6795,7 @@ router.get("/posts", authOptional, async (req, res) => {
                   )`
               : ""
           }
+          ${newsPostFilterSql}
           ${tagFilterSql}
   
           UNION ALL
@@ -6878,6 +6890,7 @@ router.get("/posts", authOptional, async (req, res) => {
                   )`
               : ""
           }
+          ${newsRevineFilterSql}
           ${tagFilterSql}
         ) feed
         ORDER BY sort_time DESC

@@ -1539,33 +1539,6 @@
   opacity: 0.82;
 }
 
-.vine-news-banner {
-  width: 100%;
-  margin-bottom: 14px;
-  padding: 14px 16px;
-  border-radius: 18px;
-  border: 1px solid rgba(251, 191, 36, 0.28);
-  background:
-    linear-gradient(135deg, rgba(255, 251, 235, 0.98), rgba(255, 247, 237, 0.96));
-  box-shadow: 0 14px 28px rgba(120, 53, 15, 0.08);
-}
-
-.vine-news-banner-kicker {
-  font-size: 0.8rem;
-  font-weight: 900;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: #b45309;
-  margin-bottom: 6px;
-}
-
-.vine-news-banner-copy {
-  color: #7c2d12;
-  font-size: 0.95rem;
-  line-height: 1.5;
-  font-weight: 700;
-}
-
 .vine-posts-list {
   width: 100%;
 }
@@ -2055,16 +2028,6 @@
   color: #ffffff;
 }
 
-.theme-dark .vine-news-banner {
-  background: linear-gradient(135deg, rgba(69, 26, 3, 0.9), rgba(120, 53, 15, 0.72));
-  border-color: rgba(251, 191, 36, 0.3);
-}
-
-.theme-dark .vine-news-banner-kicker,
-.theme-dark .vine-news-banner-copy {
-  color: #fef3c7;
-}
-
 /* ── Mobile Adjustments ── */
 @media (max-width: 768px) {
   .vine-content-wrapper {
@@ -2144,11 +2107,6 @@
 
   .vine-feed-tab-label {
     font-size: 0.96rem;
-  }
-
-  .vine-news-banner {
-    padding: 12px 14px;
-    border-radius: 16px;
   }
 
   .vine-posts-list {

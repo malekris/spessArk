@@ -6694,11 +6694,11 @@ router.get("/posts", authOptional, async (req, res) => {
           const newsPostFilterSql =
             feedTab === "news"
               ? ` AND ${newsAuthorSql}`
-              : "";
+              : ` AND NOT ${newsAuthorSql}`;
           const newsRevineFilterSql =
             feedTab === "news"
               ? " AND 1 = 0"
-              : "";
+              : ` AND NOT ${newsAuthorSql}`;
 
           return readThroughVineCache(cacheKey, VINE_CACHE_TTLS.feed, async () => {
             const [results] = await timedVineQuery(

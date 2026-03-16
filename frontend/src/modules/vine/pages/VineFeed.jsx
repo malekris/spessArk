@@ -123,6 +123,18 @@ const formatPresenceAgo = (value) => {
   return `${days}d ago`;
 };
 
+const isVineNewsIdentity = (row) => {
+  const username = String(row?.username || "").trim().toLowerCase();
+  const displayName = String(row?.display_name || "").trim().toLowerCase();
+  const badgeType = String(row?.badge_type || "").trim().toLowerCase();
+  return (
+    username === "vine_news" ||
+    username === "vine news" ||
+    displayName === "vine news" ||
+    badgeType === "news"
+  );
+};
+
 const FEED_SKELETON_ROWS = [0, 1, 2];
 const STATUS_SKELETON_ROWS = [0, 1, 2, 3];
 const TRENDING_SKELETON_ROWS = [0, 1, 2];
@@ -271,6 +283,7 @@ export default function VineFeed() {
   const [presenceModalOpen, setPresenceModalOpen] = useState(false);
   const suggestionSlotsRef = useRef([]);
   const createInputRef = useRef(null);
+  const checkedNewsTargetRef = useRef("");
 
   const revokePreviewUrls = (items) => {
     for (const item of items || []) {
@@ -318,6 +331,10 @@ export default function VineFeed() {
     setHandledDeepLink(false);
   }, [targetPostId, targetCommentId]);
 
+  useEffect(() => {
+    checkedNewsTargetRef.current = "";
+  }, [targetPostId, targetCommentId, activeFeedTab]);
+
   // ── Deep Link Handling (post & comment highlight) ──
   useEffect(() => {
     if (handledDeepLink) return;
@@ -346,6 +363,45 @@ export default function VineFeed() {
 
     return () => clearInterval(interval);
   }, [posts, handledDeepLink]);
+
+  useEffect(() => {
+    if (!targetPostId || isNewsTab || feedLoading) return;
+    if (posts.some((row) => String(row?.id) === String(targetPostId))) return;
+
+    const targetKey = `${targetPostId}:${targetCommentId || ""}`;
+    if (checkedNewsTargetRef.current === targetKey) return;
+    checkedNewsTargetRef.current = targetKey;
+
+    const controller = new AbortController();
+
+    const resolveNewsLane = async () => {
+      try {
+        const res = await fetch(`${API}/api/vine/posts/${targetPostId}/public`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          signal: controller.signal,
+          cache: "no-store",
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || controller.signal.aborted) return;
+        if (!isVineNewsIdentity(data)) return;
+
+        setParams((prev) => {
+          const next = new URLSearchParams(prev);
+          next.set("tab", "news");
+          next.set("post", String(targetPostId));
+          if (targetCommentId) next.set("comment", String(targetCommentId));
+          return next;
+        }, { replace: true });
+      } catch (err) {
+        if (err?.name !== "AbortError") {
+          console.error("Failed to resolve Vine News lane", err);
+        }
+      }
+    };
+
+    resolveNewsLane();
+    return () => controller.abort();
+  }, [feedLoading, isNewsTab, posts, setParams, targetCommentId, targetPostId, token]);
 
   // ── Feed Loading + Polling ──────────────────────
   const loadFeed = useCallback(async (signal) => {
@@ -1324,14 +1380,6 @@ export default function VineFeed() {
             <span className="vine-feed-tab-subtitle">News desk only</span>
           </button>
         </div>
-        {isNewsTab && (
-          <div className="vine-news-banner">
-            <div className="vine-news-banner-kicker">Vine News</div>
-            <div className="vine-news-banner-copy">
-              This lane is just for updates from Vine News. Guardian scheduling still controls which days and times news lands here.
-            </div>
-          </div>
-        )}
         <div className="vine-statuses-rail">
           <button
             className="status-add-card"

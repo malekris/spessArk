@@ -66,6 +66,18 @@ const extractPostMetaFromContent = (text) => {
   return { feeling, postBg, content: out };
 };
 
+const isVineNewsIdentity = (row) => {
+  const username = String(row?.username || "").trim().toLowerCase();
+  const displayName = String(row?.display_name || "").trim().toLowerCase();
+  const badgeType = String(row?.badge_type || "").trim().toLowerCase();
+  return (
+    username === "vine_news" ||
+    username === "vine news" ||
+    displayName === "vine news" ||
+    badgeType === "news"
+  );
+};
+
 const formatFeelingLabel = (value) =>
   String(value || "")
     .split("_")
@@ -193,7 +205,14 @@ export default function VinePublicPost() {
   });
   const targetCommentId = searchParams.get("comment");
 
-  const redirectTarget = useMemo(() => `/vine/feed?post=${id}`, [id]);
+  const redirectTarget = useMemo(() => {
+    const params = new URLSearchParams();
+    params.set("post", String(id));
+    if (isVineNewsIdentity(post)) {
+      params.set("tab", "news");
+    }
+    return `/vine/feed?${params.toString()}`;
+  }, [id, post]);
 
   useEffect(() => {
     const load = async () => {

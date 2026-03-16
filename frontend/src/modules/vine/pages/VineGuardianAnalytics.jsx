@@ -501,7 +501,6 @@ export default function VineGuardianAnalytics() {
   const newsRuntime = newsHealth?.runtime || {};
   const recentLogins = activity?.recent_logins || [];
   const recentActions = activity?.recent_actions || [];
-  const suspiciousBursts = activity?.suspicious_bursts || [];
   const perfRuntime = perf?.runtime || {};
   const perfRoutes = perf?.top_routes || [];
   const perfQueries = perf?.top_queries || [];
@@ -694,7 +693,7 @@ export default function VineGuardianAnalytics() {
       </div>
 
       <div className="guardian-section">
-        <h3>Live User Watch</h3>
+        <h3>Network Activity Log</h3>
         <div className="guardian-actions">
           <button
             className="guardian-csv-btn"
@@ -710,7 +709,7 @@ export default function VineGuardianAnalytics() {
           </button>
         </div>
         <div className="guardian-perf-refresh">
-          <span>Recent Vine logins and the actions users took after signing in</span>
+          <span>Recent Vine logins and live action logs across the network. Guardian is excluded from this view.</span>
           <span>Last update: {formatAgo(activityLastFetchedAt)}</span>
         </div>
         <div className="guardian-filter-row">
@@ -733,144 +732,12 @@ export default function VineGuardianAnalytics() {
             </button>
           ))}
         </div>
-        <div className="guardian-subsection">
-          <h4>Red Flags (Last 15 Minutes)</h4>
-          <div className="guardian-table">
-            {suspiciousBursts.length === 0 && (
-              <div className="guardian-empty">No suspicious bursts right now.</div>
-            )}
-            {suspiciousBursts.map((row) => {
-              const specialBadge = hasSpecialVerifiedBadge(row);
-              return (
-                <div
-                  key={`guardian-burst-${row.user_id}`}
-                  className="guardian-row guardian-row-activity guardian-row-burst"
-                >
-                  <button
-                    type="button"
-                    className="guardian-activity-user guardian-activity-link"
-                    onClick={() => navigate(row.navigate_path || `/vine/profile/${row.username}`)}
-                  >
-                    {row.avatar_url ? (
-                      <img
-                        className="guardian-activity-avatar"
-                        src={row.avatar_url}
-                        alt={row.display_name || row.username}
-                        loading="lazy"
-                      />
-                    ) : (
-                      <span className="guardian-activity-avatar guardian-activity-avatar-fallback">
-                        {getInitials(row.display_name || row.username)}
-                      </span>
-                    )}
-                    <span className="guardian-activity-user-copy">
-                      <strong>
-                        {row.display_name || row.username}
-                        {(Number(row.is_verified) === 1 || specialBadge) && (
-                          <span className={`guardian-verified ${specialBadge ? "guardian" : ""}`}>✓</span>
-                        )}
-                      </strong>
-                      <small>@{row.username}</small>
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    className="guardian-row-main guardian-activity-main guardian-activity-link"
-                    onClick={() => navigate(row.navigate_path || `/vine/profile/${row.username}`)}
-                  >
-                    <strong>{row.total_actions} actions in the last 15 minutes</strong>
-                    <small>
-                      Posts {row.posts_count} • Comments {row.comments_count} • DMs {row.dms_count} • Follows {row.follows_count}
-                    </small>
-                    <em className="guardian-activity-note">{row.reasons?.join(" • ") || "Check this account."}</em>
-                  </button>
-                  <div className="guardian-burst-actions">
-                    <span className={`guardian-activity-pill ${row.is_online_now ? "ended" : "expired"}`}>
-                      {row.is_online_now ? "Investigate" : "Review"}
-                    </span>
-                    <button
-                      type="button"
-                      className="guardian-mini-btn guardian-mini-btn-warn"
-                      disabled={Boolean(warningUserIds[row.user_id])}
-                      onClick={() => warnBurstUser(row)}
-                    >
-                      {warningUserIds[row.user_id] ? "Warning..." : "Warn user"}
-                    </button>
-                    <button
-                      type="button"
-                      className="guardian-mini-btn guardian-mini-btn-open"
-                      onClick={() => openUserModerationView(row)}
-                    >
-                      Open moderation
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
         <div className="guardian-activity-split">
-          <div className="guardian-subsection">
-            <h4>Recent Logins</h4>
-            <div className="guardian-table">
-              {recentLogins.length === 0 && <div className="guardian-empty">No recent logins captured yet.</div>}
-              {recentLogins.map((row) => {
-                const specialBadge = hasSpecialVerifiedBadge(row);
-                return (
-                  <button
-                    key={`guardian-login-${row.session_id}`}
-                    className="guardian-row guardian-row-activity"
-                    onClick={() => navigate(row.navigate_path || `/vine/profile/${row.username}`)}
-                  >
-                    <span className="guardian-activity-user">
-                      {row.avatar_url ? (
-                        <img
-                          className="guardian-activity-avatar"
-                          src={row.avatar_url}
-                          alt={row.display_name || row.username}
-                          loading="lazy"
-                        />
-                      ) : (
-                        <span className="guardian-activity-avatar guardian-activity-avatar-fallback">
-                          {getInitials(row.display_name || row.username)}
-                        </span>
-                      )}
-                      <span className="guardian-activity-user-copy">
-                        <strong>
-                          {row.display_name || row.username}
-                          {(Number(row.is_verified) === 1 || specialBadge) && (
-                            <span className={`guardian-verified ${specialBadge ? "guardian" : ""}`}>✓</span>
-                          )}
-                        </strong>
-                        <small>@{row.username} • {row.device_label}</small>
-                      </span>
-                    </span>
-                    <span className="guardian-row-main guardian-activity-main">
-                      <strong>Logged in {formatAgo(row.login_at)}</strong>
-                      <small>
-                        {row.is_online_now ? "Online now" : `Seen ${formatAgo(row.last_seen_at)}`} • {row.actions_since_login || 0} action
-                        {Number(row.actions_since_login || 0) === 1 ? "" : "s"} since login
-                      </small>
-                      <em className="guardian-activity-note">
-                        {row.latest_action_label
-                          ? `${getActivityIcon(row.latest_action_type)} ${row.latest_action_label}${row.latest_target_label ? ` • ${row.latest_target_label}` : ""}`
-                          : "No action after login yet"}
-                      </em>
-                    </span>
-                    <span className={`guardian-activity-pill ${String(row.session_state || "").toLowerCase()}`}>
-                      {getActivityStateLabel(row)}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
           {activityFilter !== "logins" && (
             <div className="guardian-subsection">
               <h4>Recent Actions</h4>
               <div className="guardian-table">
-                {filteredRecentActions.length === 0 && <div className="guardian-empty">No actions match this filter yet.</div>}
+                {filteredRecentActions.length === 0 && <div className="guardian-empty">No actions captured yet.</div>}
                 {filteredRecentActions.map((row) => {
                   const specialBadge = hasSpecialVerifiedBadge(row);
                   return (
@@ -921,6 +788,78 @@ export default function VineGuardianAnalytics() {
               </div>
             </div>
           )}
+
+          <div className="guardian-subsection">
+            <h4>Recent Logins</h4>
+            <div className="guardian-table">
+              {recentLogins.length === 0 && <div className="guardian-empty">No recent logins captured yet.</div>}
+              {recentLogins.map((row) => {
+                const specialBadge = hasSpecialVerifiedBadge(row);
+                return (
+                  <button
+                    key={`guardian-login-${row.session_id}`}
+                    className="guardian-row guardian-row-activity"
+                    onClick={() => navigate(row.navigate_path || `/vine/profile/${row.username}`)}
+                  >
+                    <span className="guardian-activity-user">
+                      {row.avatar_url ? (
+                        <img
+                          className="guardian-activity-avatar"
+                          src={row.avatar_url}
+                          alt={row.display_name || row.username}
+                          loading="lazy"
+                        />
+                      ) : (
+                        <span className="guardian-activity-avatar guardian-activity-avatar-fallback">
+                          {getInitials(row.display_name || row.username)}
+                        </span>
+                      )}
+                      <span className="guardian-activity-user-copy">
+                        <strong>
+                          {row.display_name || row.username}
+                          {(Number(row.is_verified) === 1 || specialBadge) && (
+                            <span className={`guardian-verified ${specialBadge ? "guardian" : ""}`}>✓</span>
+                          )}
+                        </strong>
+                        <small>@{row.username} • {row.device_label}</small>
+                      </span>
+                    </span>
+                    <span className="guardian-row-main guardian-activity-main">
+                      <strong>Logged in {formatAgo(row.login_at)}</strong>
+                      <small>
+                        {row.is_online_now ? "Online now" : `Seen ${formatAgo(row.last_seen_at)}`} • {row.actions_since_login || 0} action
+                        {Number(row.actions_since_login || 0) === 1 ? "" : "s"} since login
+                      </small>
+                      {Array.isArray(row.recent_actions_preview) && row.recent_actions_preview.length > 0 ? (
+                        <div className="guardian-activity-preview-list">
+                          {row.recent_actions_preview.map((activity) => (
+                            <div
+                              key={`${row.session_id}-${activity.event_key}`}
+                              className="guardian-activity-preview-item"
+                            >
+                              <span className="guardian-activity-preview-icon">
+                                {getActivityIcon(activity.action_type)}
+                              </span>
+                              <span className="guardian-activity-preview-copy">
+                                {activity.action_label}
+                                {activity.target_label ? ` • ${activity.target_label}` : ""}
+                                {activity.created_at ? ` • ${formatAgo(activity.created_at)}` : ""}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <em className="guardian-activity-note">No action after login yet</em>
+                      )}
+                    </span>
+                    <span className={`guardian-activity-pill ${String(row.session_state || "").toLowerCase()}`}>
+                      {getActivityStateLabel(row)}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
       </div>
 

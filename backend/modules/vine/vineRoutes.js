@@ -485,9 +485,11 @@ const normalizeGuardianActivityRows = (rows = []) =>
   }));
 
 const buildGuardianActivitySnapshot = async (perfCtx, dbName, { loginLimit = 12, actionLimit = 28 } = {}) => {
-  const safeLoginLimit = Math.max(5, Math.min(30, Number(loginLimit || 12)));
-  const safeActionLimit = Math.max(12, Math.min(60, Number(actionLimit || 28)));
+  const safeLoginLimit = Math.max(10, Math.min(120, Number(loginLimit || 60)));
+  const safeActionLimit = Math.max(30, Math.min(200, Number(actionLimit || 120)));
   const cacheKey = buildVineCacheKey("guardian-activity", safeLoginLimit, safeActionLimit);
+  const nonGuardianActorSql =
+    `LOWER(COALESCE(u.username, '')) NOT IN ('vine guardian', 'vine_guardian') AND LOWER(COALESCE(u.badge_type, '')) <> 'guardian'`;
 
   return readThroughVineCache(cacheKey, VINE_CACHE_TTLS.guardianActivity, async () => {
     const loginTableExists = await hasTable(dbName, "vine_user_sessions");
@@ -515,6 +517,7 @@ const buildGuardianActivitySnapshot = async (perfCtx, dbName, { loginLimit = 12,
         u.role
       FROM vine_user_sessions s
       JOIN vine_users u ON u.id = s.user_id
+      WHERE ${nonGuardianActorSql}
       ORDER BY s.created_at DESC
       LIMIT ?
       `,
@@ -571,6 +574,7 @@ const buildGuardianActivitySnapshot = async (perfCtx, dbName, { loginLimit = 12,
         JOIN vine_users u ON u.id = p.user_id
         LEFT JOIN vine_communities c ON c.id = p.community_id
         WHERE p.created_at >= ?
+          AND ${nonGuardianActorSql}
       `);
       actionParams.push(actionSince);
     }
@@ -601,6 +605,7 @@ const buildGuardianActivitySnapshot = async (perfCtx, dbName, { loginLimit = 12,
         LEFT JOIN vine_posts p ON p.id = cm.post_id
         LEFT JOIN vine_communities c ON c.id = p.community_id
         WHERE cm.created_at >= ?
+          AND ${nonGuardianActorSql}
       `);
       actionParams.push(actionSince);
     }
@@ -631,6 +636,7 @@ const buildGuardianActivitySnapshot = async (perfCtx, dbName, { loginLimit = 12,
         LEFT JOIN vine_posts p ON p.id = l.post_id
         LEFT JOIN vine_communities c ON c.id = p.community_id
         WHERE l.created_at >= ?
+          AND ${nonGuardianActorSql}
       `);
       actionParams.push(actionSince);
     }
@@ -661,6 +667,7 @@ const buildGuardianActivitySnapshot = async (perfCtx, dbName, { loginLimit = 12,
         LEFT JOIN vine_posts p ON p.id = r.post_id
         LEFT JOIN vine_communities c ON c.id = p.community_id
         WHERE r.created_at >= ?
+          AND ${nonGuardianActorSql}
       `);
       actionParams.push(actionSince);
     }
@@ -692,6 +699,7 @@ const buildGuardianActivitySnapshot = async (perfCtx, dbName, { loginLimit = 12,
         LEFT JOIN vine_communities c ON c.id = p.community_id
         WHERE pv.created_at >= ?
           AND pv.user_id IS NOT NULL
+          AND ${nonGuardianActorSql}
       `);
       actionParams.push(actionSince);
     }
@@ -721,6 +729,7 @@ const buildGuardianActivitySnapshot = async (perfCtx, dbName, { loginLimit = 12,
         JOIN vine_users u ON u.id = f.follower_id
         JOIN vine_users target ON target.id = f.following_id
         WHERE f.created_at >= ?
+          AND ${nonGuardianActorSql}
       `);
       actionParams.push(actionSince);
     }
@@ -755,6 +764,7 @@ const buildGuardianActivitySnapshot = async (perfCtx, dbName, { loginLimit = 12,
             ELSE vc.user1_id
           END
         WHERE m.created_at >= ?
+          AND ${nonGuardianActorSql}
       `);
       actionParams.push(actionSince);
     }
@@ -784,6 +794,7 @@ const buildGuardianActivitySnapshot = async (perfCtx, dbName, { loginLimit = 12,
         JOIN vine_users u ON u.id = m.user_id
         JOIN vine_communities c ON c.id = m.community_id
         WHERE m.joined_at >= ?
+          AND ${nonGuardianActorSql}
       `);
       actionParams.push(actionSince);
     }
@@ -814,6 +825,7 @@ const buildGuardianActivitySnapshot = async (perfCtx, dbName, { loginLimit = 12,
         LEFT JOIN vine_community_assignments a ON a.id = s.assignment_id
         LEFT JOIN vine_communities c ON c.id = s.community_id
         WHERE s.submitted_at >= ?
+          AND ${nonGuardianActorSql}
       `);
       actionParams.push(actionSince);
     }
@@ -1003,6 +1015,15 @@ const buildGuardianActivitySnapshot = async (perfCtx, dbName, { loginLimit = 12,
         return Number.isFinite(actionMs) && actionMs >= loginAtMs && actionMs < windowEndMs;
       });
       const latestAction = actionsDuringSession[0] || null;
+      const recentActionPreview = actionsDuringSession.slice(0, 3).map((activity) => ({
+        event_key: activity.event_key,
+        action_type: activity.action_type || "activity",
+        action_label: activity.action_label || "Did something",
+        target_label: activity.target_label || "",
+        detail: activity.detail || "",
+        created_at: activity.created_at || null,
+        navigate_path: activity.navigate_path || buildGuardianActivityPath(activity),
+      }));
       const isRevoked = Boolean(row.revoked_at);
       const isSessionActive =
         !isRevoked &&
@@ -1030,6 +1051,7 @@ const buildGuardianActivitySnapshot = async (perfCtx, dbName, { loginLimit = 12,
         session_state: isRevoked ? "ended" : isSessionActive ? "active" : "expired",
         is_online_now: isOnlineNow,
         actions_since_login: actionsDuringSession.length,
+        recent_actions_preview: recentActionPreview,
         latest_action_label: latestAction?.action_label || "",
         latest_action_at: latestAction?.created_at || null,
         latest_target_label: latestAction?.target_label || "",
@@ -11317,8 +11339,8 @@ router.get("/analytics/activity", authenticate, async (req, res) => {
       return res.status(500).json({ message: "Database not selected" });
     }
 
-    const loginLimit = Math.max(6, Math.min(30, Number(req.query.loginLimit || 12)));
-    const actionLimit = Math.max(8, Math.min(40, Number(req.query.actionLimit || 20)));
+    const loginLimit = Math.max(10, Math.min(120, Number(req.query.loginLimit || 60)));
+    const actionLimit = Math.max(30, Math.min(200, Number(req.query.actionLimit || 120)));
 
     const payload = await runVinePerfRoute(
       "guardian-activity",

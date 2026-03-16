@@ -551,6 +551,35 @@ button.guardian-row {
   font-style: normal;
 }
 
+.guardian-activity-preview-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.guardian-activity-preview-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  color: #0f766e;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.guardian-activity-preview-icon {
+  flex: 0 0 auto;
+  line-height: 1.1;
+}
+
+.guardian-activity-preview-copy {
+  min-width: 0;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .guardian-activity-pill {
   justify-self: end;
   align-self: center;

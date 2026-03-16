@@ -16,6 +16,7 @@ const DEFAULT_AVATAR = "/default-avatar.png";
 const ORIGIN = API.replace(/\/api$/, "");
 const SHARE_PREVIEW_VERSION = "20260315";
 const viewedPosts = new Set();
+const pendingViewedPosts = new Set();
 const POST_REACTIONS = [
   { key: "love", emoji: "❤️", label: "Love" },
   { key: "happy", emoji: "😄", label: "Happy" },
@@ -286,6 +287,7 @@ function VinePostCard({ post, onDeletePost, focusComments, isMe, communityIntera
   }
 
   const isPostAuthor = Number(current_user_id) === Number(post.user_id);
+  const viewTrackingKey = `${current_user_id || currentUser?.id || "viewer"}:${post.id}`;
   const isModerator =
     Number(currentUser?.is_admin) === 1 ||
     String(currentUser?.role || "").toLowerCase() === "moderator" ||
@@ -401,16 +403,15 @@ function VinePostCard({ post, onDeletePost, focusComments, isMe, communityIntera
   const recordViewOnce = () => {
     if (!token) return false;
     if (!post?.id) return false;
-    if (viewedPosts.has(post.id)) return false;
-    viewedPosts.add(post.id);
-    recordView();
+    if (viewedPosts.has(viewTrackingKey) || pendingViewedPosts.has(viewTrackingKey)) return false;
+    recordView(viewTrackingKey);
     return true;
   };
 
   useEffect(() => {
     if (!token) return;
     if (!post?.id) return;
-    if (viewedPosts.has(post.id)) return;
+    if (viewedPosts.has(viewTrackingKey) || pendingViewedPosts.has(viewTrackingKey)) return;
     const el = postRef.current;
     if (!el) return;
 
@@ -430,7 +431,7 @@ function VinePostCard({ post, onDeletePost, focusComments, isMe, communityIntera
 
     observer.observe(el);
     return () => observer.disconnect();
-  }, [post.id, token]);
+  }, [post.id, token, viewTrackingKey]);
 
   useEffect(() => {
     if (!post?.has_poll) {
@@ -794,7 +795,8 @@ function VinePostCard({ post, onDeletePost, focusComments, isMe, communityIntera
     setUserRevined(data.user_revined);
   };
 
-  const recordView = async () => {
+  const recordView = async (trackingKey = viewTrackingKey) => {
+    pendingViewedPosts.add(trackingKey);
     try {
       const res = await fetch(`${API}/api/vine/posts/${post.id}/view`, {
         method: "POST",
@@ -802,9 +804,14 @@ function VinePostCard({ post, onDeletePost, focusComments, isMe, communityIntera
       });
       const data = await res.json();
       if (res.ok && typeof data.views === "number") {
+        pendingViewedPosts.delete(trackingKey);
+        viewedPosts.add(trackingKey);
         setViews(data.views);
+      } else {
+        pendingViewedPosts.delete(trackingKey);
       }
     } catch (err) {
+      pendingViewedPosts.delete(trackingKey);
       console.error("View record error", err);
     }
   };

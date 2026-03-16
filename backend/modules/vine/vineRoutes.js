@@ -9138,7 +9138,16 @@ router.post("/posts/:id/view", authOptional, async (req, res) => {
     await ensurePostViewSchema();
 
     const [[post]] = await db.query(
-      "SELECT id, user_id, is_private FROM vine_posts WHERE id = ? LIMIT 1",
+      `
+      SELECT
+        p.id,
+        p.user_id,
+        COALESCE(u.is_private, 0) AS is_private
+      FROM vine_posts p
+      JOIN vine_users u ON u.id = p.user_id
+      WHERE p.id = ?
+      LIMIT 1
+      `,
       [postId]
     );
     if (!post) {

@@ -110,6 +110,13 @@
   color: white;
   cursor: pointer;
   padding: 8px;
+  min-width: 42px;
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  overflow: visible;
   border-radius: 50%;
   transition: background 0.2s;
 }
@@ -2046,13 +2053,34 @@
     align-items: stretch;
   }
 
+  .vine-nav-row {
+    display: grid;
+    grid-template-columns: auto auto minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+  }
+
   .vine-nav-top h2 {
     font-size: 1.2rem;
   }
 
   .notif-bell {
     font-size: 1.1rem;
-    margin: 0 10px;
+    margin: 0;
+    width: 42px;
+    height: 42px;
+    padding: 0;
+  }
+
+  .notif-badge {
+    top: -2px;
+    right: -2px;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 5px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .nav-btn {
@@ -2062,6 +2090,9 @@
 
   .nav-right {
     flex-direction: row;
+    justify-content: flex-end;
+    min-width: 0;
+    gap: 6px;
   }
 
   .desktop-only {

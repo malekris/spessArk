@@ -1568,6 +1568,47 @@ const notifyUser = async ({ userId, actorId, type, postId = null, commentId = nu
   clearVineReadCache("notifications", "notifications-unread", "notifications-unseen");
 };
 
+const notifyUsersBulk = async ({ userIds = [], actorId, type, postId = null, commentId = null, meta = null }) => {
+  const recipients = Array.from(
+    new Set(
+      (Array.isArray(userIds) ? userIds : [])
+        .map((value) => Number(value))
+        .filter(Boolean)
+    )
+  );
+  const sourceId = Number(actorId || 0);
+  if (!recipients.length || !type) return 0;
+
+  const dbName = await getDbName();
+  const canStoreMeta = dbName
+    ? await hasColumn(dbName, "vine_notifications", "meta_json")
+    : false;
+
+  for (const targetId of recipients) {
+    if (canStoreMeta) {
+      await db.query(
+        `
+        INSERT INTO vine_notifications (user_id, actor_id, type, post_id, comment_id, meta_json)
+        VALUES (?, ?, ?, ?, ?, ?)
+        `,
+        [targetId, sourceId || null, type, postId, commentId, meta ? JSON.stringify(meta) : null]
+      );
+    } else {
+      await db.query(
+        `
+        INSERT INTO vine_notifications (user_id, actor_id, type, post_id, comment_id)
+        VALUES (?, ?, ?, ?, ?)
+        `,
+        [targetId, sourceId || null, type, postId, commentId]
+      );
+    }
+    io.to(`user-${targetId}`).emit("notification");
+  }
+
+  clearVineReadCache("notifications", "notifications-unread", "notifications-unseen");
+  return recipients.length;
+};
+
 const buildVineAuthUser = (user) => ({
   id: user.id,
   username: user.username,
@@ -2478,6 +2519,23 @@ const ensureNewsSchema = async () => {
   newsSchemaReady = true;
 };
 
+let birthdayBroadcastSchemaReady = false;
+const ensureBirthdayBroadcastSchema = async () => {
+  if (birthdayBroadcastSchemaReady) return;
+  await ensureProfileAboutSchema();
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_birthday_notices (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      birthday_user_id INT NOT NULL,
+      day_key VARCHAR(10) NOT NULL,
+      notified_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_vine_birthday_notice_user_day (birthday_user_id, day_key),
+      INDEX idx_vine_birthday_notice_day (day_key, notified_at)
+    )
+  `);
+  birthdayBroadcastSchemaReady = true;
+};
+
 const toDateOrNull = (value) => {
   if (!value) return null;
   const dt = new Date(value);
@@ -2735,6 +2793,10 @@ const NEWS_DAILY_MINUTE = Math.min(
   Math.max(0, Number.parseInt(process.env.NEWS_DAILY_MINUTE || "0", 10) || 0)
 );
 const NEWS_BACKGROUND_TICK_MS = 5 * 60 * 1000;
+const BIRTHDAY_NOTIFICATION_TIMEZONE =
+  String(process.env.VINE_BIRTHDAY_TIMEZONE || NEWS_INGEST_TIMEZONE).trim() ||
+  NEWS_INGEST_TIMEZONE;
+const BIRTHDAY_BACKGROUND_TICK_MS = 15 * 60 * 1000;
 const newsFeedRuntimeStats = new Map();
 let newsBootIngestScheduled = false;
 let newsSettingsCache = null;
@@ -2838,6 +2900,9 @@ const getNewsZonedParts = (timeZone = NEWS_INGEST_TIMEZONE) => {
   const weekdayLabel = String(map.weekday || "").trim().toLowerCase();
   const weekdayIndex = NEWS_WEEKDAY_INDEX.get(weekdayLabel);
   return {
+    year,
+    month,
+    day,
     dayKey: `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(
       2,
       "0"
@@ -2860,6 +2925,19 @@ const getNewsDueWindow = async () => {
     now.minutesOfDay >= targetMinutes &&
     lastNewsIngestDayKey !== now.dayKey;
   return { ...now, targetMinutes, dayAllowed, due, settings };
+};
+
+const isBirthdayTodayForZonedParts = (dateOfBirth, zonedParts) => {
+  const monthDay = extractBirthdayMonthDay(dateOfBirth);
+  if (!monthDay || !zonedParts?.year || !zonedParts?.month || !zonedParts?.day) {
+    return false;
+  }
+  const normalizedDate = buildBirthdayDateForYear(zonedParts.year, monthDay.month, monthDay.day);
+  if (!normalizedDate) return false;
+  return (
+    normalizedDate.getMonth() + 1 === Number(zonedParts.month) &&
+    normalizedDate.getDate() === Number(zonedParts.day)
+  );
 };
 
 const updateNewsFeedStat = (feed, patch = {}) => {
@@ -2969,6 +3047,76 @@ const triggerNewsIngestIfDue = async () => {
     });
 };
 
+let birthdayBroadcastInFlight = false;
+const triggerBirthdayNotificationsIfDue = async () => {
+  if (birthdayBroadcastInFlight) return;
+  birthdayBroadcastInFlight = true;
+
+  try {
+    await ensureBirthdayBroadcastSchema();
+    const todayParts = getNewsZonedParts(BIRTHDAY_NOTIFICATION_TIMEZONE);
+    const [birthdayUsers] = await db.query(
+      `
+      SELECT id, username, display_name, badge_type, date_of_birth
+      FROM vine_users
+      WHERE date_of_birth IS NOT NULL
+        AND deactivated_at IS NULL
+        AND LOWER(COALESCE(username, '')) NOT IN ('vine news', 'vine_news')
+        AND LOWER(COALESCE(badge_type, '')) <> 'news'
+      `
+    );
+
+    const todaysCelebrants = (Array.isArray(birthdayUsers) ? birthdayUsers : []).filter((row) =>
+      isBirthdayTodayForZonedParts(row.date_of_birth, todayParts)
+    );
+
+    for (const celebrant of todaysCelebrants) {
+      const birthdayUserId = Number(celebrant.id || 0);
+      if (!birthdayUserId) continue;
+
+      const [claim] = await db.query(
+        `
+        INSERT IGNORE INTO vine_birthday_notices (birthday_user_id, day_key, notified_at)
+        VALUES (?, ?, NOW())
+        `,
+        [birthdayUserId, todayParts.dayKey]
+      );
+      if (!Number(claim?.affectedRows || 0)) continue;
+
+      const [recipientRows] = await db.query(
+        `
+        SELECT id
+        FROM vine_users
+        WHERE id != ?
+          AND deactivated_at IS NULL
+          AND LOWER(COALESCE(username, '')) NOT IN ('vine news', 'vine_news')
+          AND LOWER(COALESCE(badge_type, '')) <> 'news'
+        `,
+        [birthdayUserId]
+      );
+      const recipientIds = (Array.isArray(recipientRows) ? recipientRows : [])
+        .map((row) => Number(row.id || 0))
+        .filter(Boolean);
+      if (!recipientIds.length) continue;
+
+      await notifyUsersBulk({
+        userIds: recipientIds,
+        actorId: birthdayUserId,
+        type: "birthday",
+        meta: {
+          birthday_user_id: birthdayUserId,
+          birthday_day_key: todayParts.dayKey,
+          birthday_prompt: "Send them a birthday message",
+        },
+      });
+    }
+  } catch (err) {
+    console.error("Birthday notification sweep error:", err?.message || err);
+  } finally {
+    birthdayBroadcastInFlight = false;
+  }
+};
+
 const scheduleNewsIngestOnBoot = () => {
   if (newsBootIngestScheduled) return;
   newsBootIngestScheduled = true;
@@ -2982,6 +3130,14 @@ const scheduleNewsIngestOnBoot = () => {
 };
 
 scheduleNewsIngestOnBoot();
+
+setTimeout(() => {
+  void triggerBirthdayNotificationsIfDue();
+}, 20_000);
+const birthdayTicker = setInterval(() => {
+  void triggerBirthdayNotificationsIfDue();
+}, BIRTHDAY_BACKGROUND_TICK_MS);
+if (typeof birthdayTicker.unref === "function") birthdayTicker.unref();
 
 setTimeout(() => {
   sweepExpiredAccountDeletions().catch((err) =>
@@ -12317,6 +12473,7 @@ router.get("/notifications", authenticate, async (req, res) => {
             `
             SELECT 
               n.id,
+              n.actor_id,
               n.type,
               n.post_id,
               n.comment_id,

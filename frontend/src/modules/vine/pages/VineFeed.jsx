@@ -51,6 +51,7 @@ const STATUS_REACTIONS = [
 const FEED_REFRESH_FALLBACK_MS = 60 * 1000;
 const STATUS_RAIL_REFRESH_FALLBACK_MS = 60 * 1000;
 const FEED_EVENT_DEBOUNCE_MS = 350;
+const MAX_VISIBLE_BIRTHDAYS = 5;
 
 // ────────────────────────────────────────────────
 //  HELPERS
@@ -288,6 +289,7 @@ export default function VineFeed() {
   const [trendingLoading, setTrendingLoading] = useState(true);
   const [birthdayRows, setBirthdayRows] = useState({ today: [], upcoming: [] });
   const [birthdaysLoading, setBirthdaysLoading] = useState(true);
+  const [birthdaysExpanded, setBirthdaysExpanded] = useState(false);
   const [restriction, setRestriction] = useState(null);
   const [myCommunities, setMyCommunities] = useState([]);
   const [communityId, setCommunityId] = useState("");
@@ -1336,6 +1338,20 @@ export default function VineFeed() {
     !pollOpen;
   const showLiveStyledComposer = Boolean(postBgColor) && canUseStyledText;
   const composerTextColor = getContrastTextColor(postBgColor);
+  const totalBirthdayCount = birthdayRows.today.length + birthdayRows.upcoming.length;
+  const birthdayVisibleLimit = birthdaysExpanded ? totalBirthdayCount : MAX_VISIBLE_BIRTHDAYS;
+  const visibleTodayBirthdays = birthdayRows.today.slice(0, birthdayVisibleLimit);
+  const visibleUpcomingBirthdays = birthdayRows.upcoming.slice(
+    0,
+    Math.max(0, birthdayVisibleLimit - visibleTodayBirthdays.length)
+  );
+  const hasMoreBirthdays = totalBirthdayCount > MAX_VISIBLE_BIRTHDAYS;
+
+  useEffect(() => {
+    if (totalBirthdayCount <= MAX_VISIBLE_BIRTHDAYS && birthdaysExpanded) {
+      setBirthdaysExpanded(false);
+    }
+  }, [birthdaysExpanded, totalBirthdayCount]);
   
 
   // ── Render ──────────────────────────────────────
@@ -1828,14 +1844,13 @@ export default function VineFeed() {
         </>
         )}
 
-        {!isNewsTab && (birthdaysLoading || birthdayRows.today.length > 0 || birthdayRows.upcoming.length > 0) && (
+        {!isNewsTab && (
           <section className="vine-birthdays-card" aria-labelledby="vine-birthdays-title">
             <div className="vine-birthdays-head">
               <div>
                 <div className="vine-birthdays-kicker">Upcoming birthdays</div>
-                <h3 id="vine-birthdays-title">People worth celebrating</h3>
+                <h3 id="vine-birthdays-title">🎉 🎂 People worth celebrating</h3>
               </div>
-              <span className="vine-birthdays-note">Month and day only</span>
             </div>
 
             {birthdaysLoading && birthdayRows.today.length === 0 && birthdayRows.upcoming.length === 0 ? (
@@ -1851,12 +1866,16 @@ export default function VineFeed() {
                   </div>
                 ))}
               </div>
+            ) : birthdayRows.today.length === 0 && birthdayRows.upcoming.length === 0 ? (
+              <div className="vine-birthdays-empty">
+                No upcoming birthdays in the next 14 days yet.
+              </div>
             ) : (
               <div className="vine-birthdays-grid">
-                {birthdayRows.today.length > 0 && (
+                {visibleTodayBirthdays.length > 0 && (
                   <div className="vine-birthday-section">
                     <div className="vine-birthday-section-title">Today</div>
-                    {birthdayRows.today.map((person) => {
+                    {visibleTodayBirthdays.map((person) => {
                       const avatarSrc = person.avatar_url
                         ? (person.avatar_url.startsWith("http") ? person.avatar_url : `${API}${person.avatar_url}`)
                         : DEFAULT_AVATAR;
@@ -1884,6 +1903,7 @@ export default function VineFeed() {
                           <div className="vine-birthday-row-meta">
                             <div className="vine-birthday-row-name">
                               <span>{person.display_name || person.username}</span>
+                              <span className="vine-birthday-celebrate" aria-hidden="true">🎂 🎉</span>
                               {showsVerifiedBadge(person) && (
                                 <span className={`verified ${hasSpecialVerifiedBadge(person.username) ? "guardian" : ""}`}>
                                   <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
@@ -1906,7 +1926,7 @@ export default function VineFeed() {
                             className="vine-birthday-action"
                             onClick={(event) => openBirthdayDm(person, event)}
                           >
-                            Wish happy birthday
+                            🎂 Wish happy birthday
                           </button>
                         </div>
                       );
@@ -1914,10 +1934,10 @@ export default function VineFeed() {
                   </div>
                 )}
 
-                {birthdayRows.upcoming.length > 0 && (
+                {visibleUpcomingBirthdays.length > 0 && (
                   <div className="vine-birthday-section">
                     <div className="vine-birthday-section-title">Next up</div>
-                    {birthdayRows.upcoming.map((person) => {
+                    {visibleUpcomingBirthdays.map((person) => {
                       const avatarSrc = person.avatar_url
                         ? (person.avatar_url.startsWith("http") ? person.avatar_url : `${API}${person.avatar_url}`)
                         : DEFAULT_AVATAR;
@@ -1945,6 +1965,7 @@ export default function VineFeed() {
                           <div className="vine-birthday-row-meta">
                             <div className="vine-birthday-row-name">
                               <span>{person.display_name || person.username}</span>
+                              <span className="vine-birthday-celebrate" aria-hidden="true">🎂 🎉</span>
                               {showsVerifiedBadge(person) && (
                                 <span className={`verified ${hasSpecialVerifiedBadge(person.username) ? "guardian" : ""}`}>
                                   <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
@@ -1969,7 +1990,7 @@ export default function VineFeed() {
                             className="vine-birthday-action"
                             onClick={(event) => openBirthdayDm(person, event)}
                           >
-                            Wish happy birthday
+                            🎂 Wish happy birthday
                           </button>
                         </div>
                       );
@@ -1977,6 +1998,18 @@ export default function VineFeed() {
                   </div>
                 )}
               </div>
+            )}
+
+            {hasMoreBirthdays && (
+              <button
+                type="button"
+                className="vine-birthdays-toggle"
+                onClick={() => setBirthdaysExpanded((prev) => !prev)}
+              >
+                {birthdaysExpanded
+                  ? "Show less"
+                  : `Show all birthdays (${totalBirthdayCount})`}
+              </button>
             )}
           </section>
         )}

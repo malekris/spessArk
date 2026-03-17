@@ -78,6 +78,9 @@ export default function VineNotifications() {
     if (notification.type === "follow" || notification.type === "follow_request_accepted") {
       return `/vine/profile/${notification.username}`;
     }
+    if (notification.type === "birthday") {
+      return `/vine/profile/${notification.username}`;
+    }
     if (notification.type === "follow_request") {
       return "/vine/settings";
     }
@@ -191,6 +194,8 @@ export default function VineNotifications() {
         const title = meta.assignment_title ? ` (${meta.assignment_title})` : "";
         return `${base}${title}`;
       }
+      case "birthday":
+        return "is celebrating a birthday today — send them a birthday message";
       default: return "interacted with you";
     }
   };
@@ -266,6 +271,39 @@ export default function VineNotifications() {
       setNotifications((prev) => prev.filter((n) => n.id !== notification.id));
     } catch (err) {
       console.error("Follow request response failed", err);
+    }
+  };
+
+  const startBirthdayDm = async (notification) => {
+    const userId = Number(notification?.actor_id || getMeta(notification)?.birthday_user_id || 0);
+    if (!userId) return;
+    try {
+      const res = await fetch(`${API}/api/dms/start`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ userId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.error || "Cannot start conversation");
+        return;
+      }
+      await markRead(notification.id);
+      if (data.conversationId) {
+        navigate(`/vine/dms/${data.conversationId}`);
+        return;
+      }
+      const p = new URLSearchParams({
+        username: notification.username || "",
+        displayName: notification.display_name || notification.username || "",
+      });
+      navigate(`/vine/dms/new/${userId}?${p.toString()}`);
+    } catch (err) {
+      console.error("Failed to start birthday DM", err);
+      alert("Cannot start conversation");
     }
   };
   
@@ -372,6 +410,11 @@ export default function VineNotifications() {
       <div className="notif-time">
         {timeAgo(n.created_at)}
          </div>
+      {n.type === "birthday" && (
+        <div className="notif-meta-row">
+          <span className="notif-birthday-badge">🎉 Birthday today</span>
+        </div>
+      )}
       {n.type === "follow_request" && (
         <div
           className="notif-actions"
@@ -402,6 +445,16 @@ export default function VineNotifications() {
             }}
           >
             View in feed
+          </button>
+        </div>
+      )}
+      {n.type === "birthday" && (
+        <div className="notif-actions" onClick={(e) => e.stopPropagation()}>
+          <button
+            className="notif-action birthday-wish"
+            onClick={() => startBirthdayDm(n)}
+          >
+            🎂 Send birthday wish
           </button>
         </div>
       )}

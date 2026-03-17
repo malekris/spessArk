@@ -124,6 +124,41 @@ const formatPresenceAgo = (value) => {
   return `${days}d ago`;
 };
 
+const formatBirthdayDate = (row) => {
+  if (row?.next_birthday_at) {
+    const nextBirthday = new Date(row.next_birthday_at);
+    if (!Number.isNaN(nextBirthday.getTime())) {
+      return nextBirthday.toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+      });
+    }
+  }
+  const month = Number(row?.birth_month || 0);
+  const day = Number(row?.birth_day || 0);
+  if (!month || !day) return "";
+  const fallback = new Date(2000, month - 1, day);
+  return fallback.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+};
+
+const formatBirthdayCountdown = (daysUntil) => {
+  const safeDays = Number(daysUntil || 0);
+  if (safeDays <= 0) return "Today";
+  if (safeDays === 1) return "Tomorrow";
+  return `In ${safeDays} days`;
+};
+
+const hasSpecialVerifiedBadge = (username) =>
+  ["vine guardian", "vine_guardian", "vine news", "vine_news"].includes(
+    String(username || "").toLowerCase()
+  );
+
+const showsVerifiedBadge = (user) =>
+  Number(user?.is_verified) === 1 || hasSpecialVerifiedBadge(user?.username);
+
 const isVineNewsIdentity = (row) => {
   const username = String(row?.username || "").trim().toLowerCase();
   const displayName = String(row?.display_name || "").trim().toLowerCase();
@@ -251,6 +286,8 @@ export default function VineFeed() {
   const [suggestionSlots, setSuggestionSlots] = useState([]);
   const [trendingPosts, setTrendingPosts] = useState([]);
   const [trendingLoading, setTrendingLoading] = useState(true);
+  const [birthdayRows, setBirthdayRows] = useState({ today: [], upcoming: [] });
+  const [birthdaysLoading, setBirthdaysLoading] = useState(true);
   const [restriction, setRestriction] = useState(null);
   const [myCommunities, setMyCommunities] = useState([]);
   const [communityId, setCommunityId] = useState("");
@@ -506,6 +543,28 @@ export default function VineFeed() {
     }
   }, [token]);
 
+  const loadBirthdays = useCallback(async (signal) => {
+    try {
+      const res = await fetch(`${API}/api/vine/birthdays/upcoming?days=14`, {
+        headers: { Authorization: `Bearer ${token}` },
+        signal,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (signal?.aborted) return;
+      setBirthdayRows({
+        today: Array.isArray(data?.today) ? data.today : [],
+        upcoming: Array.isArray(data?.upcoming) ? data.upcoming : [],
+      });
+    } catch (err) {
+      if (err?.name === "AbortError") return;
+      setBirthdayRows({ today: [], upcoming: [] });
+    } finally {
+      if (!signal?.aborted) {
+        setBirthdaysLoading(false);
+      }
+    }
+  }, [token]);
+
   const switchFeedTab = useCallback(
     (nextTab) => {
       setParams((prev) => {
@@ -580,6 +639,7 @@ export default function VineFeed() {
     setFeedLoading(true);
     setSuggestionsLoading(!isNewsTab);
     setTrendingLoading(!isNewsTab);
+    setBirthdaysLoading(!isNewsTab);
     setStatusRailLoading(true);
     loadFeed(controller.signal); // initial load
     if (isNewsTab) {
@@ -587,9 +647,11 @@ export default function VineFeed() {
       setSuggestionSlots([]);
       setSuggestedUsers([]);
       setTrendingPosts([]);
+      setBirthdayRows({ today: [], upcoming: [] });
     } else {
       loadSuggestions(controller.signal);
       loadTrending(controller.signal);
+      loadBirthdays(controller.signal);
     }
     loadRestrictions(controller.signal);
     loadMyCommunities(controller.signal);
@@ -612,7 +674,7 @@ export default function VineFeed() {
       clearInterval(interval);
       clearInterval(statusInterval);
     };
-  }, [isNewsTab, loadFeed, loadSuggestions, loadTrending, loadRestrictions, loadMyCommunities, loadStatusRail]);
+  }, [isNewsTab, loadBirthdays, loadFeed, loadSuggestions, loadTrending, loadRestrictions, loadMyCommunities, loadStatusRail]);
 
   useEffect(() => {
     if (!token) return undefined;
@@ -1137,6 +1199,15 @@ export default function VineFeed() {
       alert("Cannot start conversation");
     }
   };
+
+  const openBirthdayDm = useCallback(
+    (person, event) => {
+      event?.stopPropagation?.();
+      if (!person?.id) return;
+      openDmFromPresence(person);
+    },
+    [openDmFromPresence]
+  );
 
   useEffect(() => {
     document.title = "Vine — Feed";
@@ -1755,6 +1826,159 @@ export default function VineFeed() {
           )}
         </div>
         </>
+        )}
+
+        {!isNewsTab && (birthdaysLoading || birthdayRows.today.length > 0 || birthdayRows.upcoming.length > 0) && (
+          <section className="vine-birthdays-card" aria-labelledby="vine-birthdays-title">
+            <div className="vine-birthdays-head">
+              <div>
+                <div className="vine-birthdays-kicker">Upcoming birthdays</div>
+                <h3 id="vine-birthdays-title">People worth celebrating</h3>
+              </div>
+              <span className="vine-birthdays-note">Month and day only</span>
+            </div>
+
+            {birthdaysLoading && birthdayRows.today.length === 0 && birthdayRows.upcoming.length === 0 ? (
+              <div className="vine-birthdays-grid birthdays-loading" aria-hidden="true">
+                {Array.from({ length: 3 }).map((_, idx) => (
+                  <div key={`birthday-skeleton-${idx}`} className="vine-birthday-row vine-birthday-row-skeleton">
+                    <div className="vine-skeleton-avatar" />
+                    <div className="vine-birthday-row-meta">
+                      <div className="vine-skeleton-block vine-birthday-skeleton-name" />
+                      <div className="vine-skeleton-block vine-birthday-skeleton-date" />
+                    </div>
+                    <div className="vine-skeleton-pill vine-birthday-skeleton-pill" />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="vine-birthdays-grid">
+                {birthdayRows.today.length > 0 && (
+                  <div className="vine-birthday-section">
+                    <div className="vine-birthday-section-title">Today</div>
+                    {birthdayRows.today.map((person) => {
+                      const avatarSrc = person.avatar_url
+                        ? (person.avatar_url.startsWith("http") ? person.avatar_url : `${API}${person.avatar_url}`)
+                        : DEFAULT_AVATAR;
+                      return (
+                        <div
+                          key={`birthday-today-${person.id}`}
+                          className="vine-birthday-row"
+                          onClick={() => navigate(`/vine/profile/${person.username}`)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              navigate(`/vine/profile/${person.username}`);
+                            }
+                          }}
+                          role="button"
+                          tabIndex={0}
+                        >
+                          <img
+                            src={avatarSrc}
+                            alt={person.username}
+                            onError={(e) => {
+                              e.currentTarget.src = DEFAULT_AVATAR;
+                            }}
+                          />
+                          <div className="vine-birthday-row-meta">
+                            <div className="vine-birthday-row-name">
+                              <span>{person.display_name || person.username}</span>
+                              {showsVerifiedBadge(person) && (
+                                <span className={`verified ${hasSpecialVerifiedBadge(person.username) ? "guardian" : ""}`}>
+                                  <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
+                                    <path
+                                      d="M20 6L9 17l-5-5"
+                                      stroke="white"
+                                      strokeWidth="3"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                    />
+                                  </svg>
+                                </span>
+                              )}
+                            </div>
+                            <div className="vine-birthday-row-subtitle">@{person.username}</div>
+                          </div>
+                          <div className="vine-birthday-row-date">{formatBirthdayDate(person)}</div>
+                          <button
+                            type="button"
+                            className="vine-birthday-action"
+                            onClick={(event) => openBirthdayDm(person, event)}
+                          >
+                            Wish happy birthday
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {birthdayRows.upcoming.length > 0 && (
+                  <div className="vine-birthday-section">
+                    <div className="vine-birthday-section-title">Next up</div>
+                    {birthdayRows.upcoming.map((person) => {
+                      const avatarSrc = person.avatar_url
+                        ? (person.avatar_url.startsWith("http") ? person.avatar_url : `${API}${person.avatar_url}`)
+                        : DEFAULT_AVATAR;
+                      return (
+                        <div
+                          key={`birthday-upcoming-${person.id}`}
+                          className="vine-birthday-row"
+                          onClick={() => navigate(`/vine/profile/${person.username}`)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              navigate(`/vine/profile/${person.username}`);
+                            }
+                          }}
+                          role="button"
+                          tabIndex={0}
+                        >
+                          <img
+                            src={avatarSrc}
+                            alt={person.username}
+                            onError={(e) => {
+                              e.currentTarget.src = DEFAULT_AVATAR;
+                            }}
+                          />
+                          <div className="vine-birthday-row-meta">
+                            <div className="vine-birthday-row-name">
+                              <span>{person.display_name || person.username}</span>
+                              {showsVerifiedBadge(person) && (
+                                <span className={`verified ${hasSpecialVerifiedBadge(person.username) ? "guardian" : ""}`}>
+                                  <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
+                                    <path
+                                      d="M20 6L9 17l-5-5"
+                                      stroke="white"
+                                      strokeWidth="3"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                    />
+                                  </svg>
+                                </span>
+                              )}
+                            </div>
+                            <div className="vine-birthday-row-subtitle">
+                              @{person.username} • {formatBirthdayDate(person)}
+                            </div>
+                          </div>
+                          <div className="vine-birthday-chip">{formatBirthdayCountdown(person.days_until)}</div>
+                          <button
+                            type="button"
+                            className="vine-birthday-action"
+                            onClick={(event) => openBirthdayDm(person, event)}
+                          >
+                            Wish happy birthday
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
         )}
 
         {!isNewsTab && (trendingLoading || trendingPosts.length > 0) && (

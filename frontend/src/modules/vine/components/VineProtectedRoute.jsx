@@ -31,6 +31,8 @@ const formatSessionCountdown = (totalSeconds) => {
 export default function VineProtectedRoute() {
   const location = useLocation();
   const [status, setStatus] = useState("checking");
+  const [birthdayChecked, setBirthdayChecked] = useState(false);
+  const [birthdayMissing, setBirthdayMissing] = useState(false);
   const [warningVisible, setWarningVisible] = useState(false);
   const [secondsRemaining, setSecondsRemaining] = useState(Math.ceil(VINE_SESSION_IDLE_MS / 1000));
   const [renewing, setRenewing] = useState(false);
@@ -49,6 +51,8 @@ export default function VineProtectedRoute() {
     setWarningVisible(false);
     setRenewError("");
     setKeepaliveNotice("");
+    setBirthdayChecked(false);
+    setBirthdayMissing(false);
     setStatus("denied");
   }, []);
 
@@ -110,6 +114,38 @@ export default function VineProtectedRoute() {
     }
   }, [forceLogout]);
 
+  const loadBirthdayRequirement = useCallback(async () => {
+    const token = getVineToken();
+    if (!token) {
+      setBirthdayChecked(true);
+      setBirthdayMissing(false);
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API}/api/vine/users/me/preferences`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+      });
+
+      if (!res.ok) {
+        if (res.status === 401 || res.status === 403) {
+          forceLogout();
+          return;
+        }
+        throw new Error("Failed to load preferences");
+      }
+
+      const prefs = await res.json().catch(() => ({}));
+      setBirthdayMissing(!String(prefs?.date_of_birth || "").trim());
+    } catch (err) {
+      console.warn("Birthday requirement check failed:", err?.message || err);
+      setBirthdayMissing(false);
+    } finally {
+      setBirthdayChecked(true);
+    }
+  }, [forceLogout]);
+
   const sendActivityKeepalive = useCallback(async () => {
     const token = getVineToken();
     if (!token || keepalivePendingRef.current) return;
@@ -145,10 +181,26 @@ export default function VineProtectedRoute() {
     validateSession();
   }, [validateSession]);
 
+  useEffect(() => {
+    if (status !== "allowed") return undefined;
+    if (birthdayChecked) return undefined;
+    loadBirthdayRequirement();
+    return undefined;
+  }, [birthdayChecked, loadBirthdayRequirement, status]);
+
   useEffect(() => () => {
     if (keepaliveNoticeTimerRef.current) {
       window.clearTimeout(keepaliveNoticeTimerRef.current);
     }
+  }, []);
+
+  useEffect(() => {
+    const handleBirthdaySaved = () => {
+      setBirthdayChecked(true);
+      setBirthdayMissing(false);
+    };
+    window.addEventListener("vine:birthday-updated", handleBirthdaySaved);
+    return () => window.removeEventListener("vine:birthday-updated", handleBirthdaySaved);
   }, []);
 
   useEffect(() => {
@@ -259,6 +311,33 @@ export default function VineProtectedRoute() {
         state={{ from: `${location.pathname}${location.search}${location.hash}` }}
       />
     );
+  }
+
+  if (!birthdayChecked) {
+    return <div className="vine-auth-checking">Loading your Vine space...</div>;
+  }
+
+  const isBirthdayRoute = location.pathname === "/vine/birthday-required";
+  const redirectTarget = `${location.pathname}${location.search}${location.hash}`;
+  const safeBirthdayReturn =
+    typeof location.state?.from === "string" &&
+    location.state.from.startsWith("/vine/") &&
+    location.state.from !== "/vine/birthday-required"
+      ? location.state.from
+      : "/vine/feed";
+
+  if (birthdayMissing && !isBirthdayRoute) {
+    return (
+      <Navigate
+        to="/vine/birthday-required"
+        replace
+        state={{ from: redirectTarget }}
+      />
+    );
+  }
+
+  if (!birthdayMissing && isBirthdayRoute) {
+    return <Navigate to={safeBirthdayReturn} replace />;
   }
 
   return (

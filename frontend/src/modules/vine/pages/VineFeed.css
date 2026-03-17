@@ -1546,6 +1546,200 @@
   opacity: 0.82;
 }
 
+.vine-birthdays-card {
+  width: 100%;
+  margin: 0 0 16px;
+  padding: 18px;
+  border-radius: 24px;
+  border: 1px solid rgba(16, 185, 129, 0.16);
+  background:
+    radial-gradient(circle at top right, rgba(250, 204, 21, 0.12), transparent 32%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(240, 253, 244, 0.96));
+  box-shadow: 0 18px 36px rgba(5, 46, 22, 0.08);
+  display: grid;
+  gap: 16px;
+}
+
+.vine-birthdays-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.vine-birthdays-kicker {
+  color: #0f766e;
+  font-size: 0.76rem;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.vine-birthdays-head h3 {
+  margin: 4px 0 0;
+  color: #064e3b;
+  font-size: 1.15rem;
+  font-weight: 900;
+}
+
+.vine-birthdays-note {
+  align-self: center;
+  padding: 7px 11px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(16, 185, 129, 0.14);
+  color: #475569;
+  font-size: 0.76rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.vine-birthdays-grid {
+  display: grid;
+  gap: 14px;
+}
+
+.vine-birthday-section {
+  display: grid;
+  gap: 10px;
+}
+
+.vine-birthday-section-title {
+  color: #065f46;
+  font-size: 0.82rem;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.vine-birthday-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(16, 185, 129, 0.14);
+  background: rgba(255, 255, 255, 0.9);
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82);
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.vine-birthday-row:hover {
+  transform: translateY(-1px);
+  border-color: rgba(16, 185, 129, 0.28);
+  box-shadow: 0 12px 24px rgba(5, 46, 22, 0.08);
+}
+
+.vine-birthday-row:focus-visible {
+  outline: none;
+  border-color: rgba(16, 185, 129, 0.42);
+  box-shadow:
+    0 0 0 4px rgba(16, 185, 129, 0.12),
+    0 12px 24px rgba(5, 46, 22, 0.08);
+}
+
+.vine-birthday-row img {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid #a7f3d0;
+  flex-shrink: 0;
+}
+
+.vine-birthday-row-meta {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  flex: 1 1 auto;
+}
+
+.vine-birthday-row-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: #064e3b;
+  font-size: 0.98rem;
+  font-weight: 900;
+}
+
+.vine-birthday-row-name span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vine-birthday-row-subtitle {
+  color: #64748b;
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.vine-birthday-row-date {
+  color: #92400e;
+  font-size: 0.86rem;
+  font-weight: 900;
+  flex-shrink: 0;
+}
+
+.vine-birthday-chip {
+  flex-shrink: 0;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(250, 204, 21, 0.2), rgba(16, 185, 129, 0.16));
+  color: #7c2d12;
+  font-size: 0.8rem;
+  font-weight: 900;
+}
+
+.vine-birthday-action {
+  margin-left: auto;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid rgba(234, 179, 8, 0.42);
+  border-radius: 999px;
+  background: linear-gradient(135deg, #f59e0b, #fbbf24);
+  color: #6b2f00;
+  font-size: 0.82rem;
+  font-weight: 900;
+  cursor: pointer;
+  box-shadow: 0 12px 22px rgba(245, 158, 11, 0.18);
+  transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
+}
+
+.vine-birthday-action:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 16px 28px rgba(245, 158, 11, 0.22);
+  filter: saturate(1.04);
+}
+
+.vine-birthday-row-skeleton {
+  cursor: default;
+}
+
+.vine-birthday-skeleton-name {
+  width: 150px;
+  height: 14px;
+  border-radius: 999px;
+}
+
+.vine-birthday-skeleton-date {
+  width: 96px;
+  height: 11px;
+  border-radius: 999px;
+}
+
+.vine-birthday-skeleton-pill {
+  width: 88px;
+}
+
 .vine-posts-list {
   width: 100%;
 }
@@ -2035,6 +2229,44 @@
   color: #ffffff;
 }
 
+.theme-dark .vine-birthdays-card {
+  background:
+    radial-gradient(circle at top right, rgba(250, 204, 21, 0.1), transparent 32%),
+    linear-gradient(180deg, rgba(17, 24, 39, 0.94), rgba(15, 23, 42, 0.9));
+  border-color: rgba(16, 185, 129, 0.24);
+}
+
+.theme-dark .vine-birthdays-head h3,
+.theme-dark .vine-birthday-row-name,
+.theme-dark .vine-birthday-section-title {
+  color: #ecfdf5;
+}
+
+.theme-dark .vine-birthdays-note,
+.theme-dark .vine-birthday-row {
+  background: rgba(15, 23, 42, 0.82);
+  border-color: rgba(148, 163, 184, 0.2);
+}
+
+.theme-dark .vine-birthday-row-subtitle {
+  color: #94a3b8;
+}
+
+.theme-dark .vine-birthday-row-date {
+  color: #fbbf24;
+}
+
+.theme-dark .vine-birthday-chip {
+  background: linear-gradient(135deg, rgba(250, 204, 21, 0.16), rgba(16, 185, 129, 0.18));
+  color: #fde68a;
+}
+
+.theme-dark .vine-birthday-action {
+  border-color: rgba(250, 204, 21, 0.34);
+  background: linear-gradient(135deg, #b45309, #f59e0b);
+  color: #fff7ed;
+}
+
 /* ── Mobile Adjustments ── */
 @media (max-width: 768px) {
   .vine-content-wrapper {
@@ -2140,6 +2372,34 @@
 
   .vine-feed-tab-label {
     font-size: 0.96rem;
+  }
+
+  .vine-birthdays-card {
+    padding: 16px 14px;
+    border-radius: 20px;
+  }
+
+  .vine-birthdays-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .vine-birthdays-note {
+    align-self: flex-start;
+  }
+
+  .vine-birthday-row {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .vine-birthday-row-date,
+  .vine-birthday-chip {
+    margin-left: 58px;
+  }
+
+  .vine-birthday-action {
+    margin-left: 58px;
   }
 
   .vine-posts-list {

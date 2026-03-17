@@ -33,6 +33,7 @@ const VineProfile = lazy(() => import("./modules/vine/pages/VineProfile"));
 const VineSettings = lazy(() => import("./modules/vine/pages/VineSettings"));
 const VineForgotPassword = lazy(() => import("./modules/vine/pages/VineForgotPassword"));
 const VineResetPassword = lazy(() => import("./modules/vine/pages/VineResetPassword"));
+const VineBirthdayRequired = lazy(() => import("./modules/vine/pages/VineBirthdayRequired"));
 const VineFollowers = lazy(() => import("./modules/vine/pages/VineFollowers"));
 const VineFollowing = lazy(() => import("./modules/vine/pages/VineFollowing"));
 const VineNotifications = lazy(() => import("./modules/vine/pages/VineNotifications"));
@@ -191,6 +192,7 @@ function App() {
 <Route path="/vine/post/:id" element={<VineRouteErrorBoundary><VinePublicPost /></VineRouteErrorBoundary>} />
 <Route path="/vine/u/:username" element={<VineRouteErrorBoundary><VinePublicProfile /></VineRouteErrorBoundary>} />
 <Route element={<VineRouteErrorBoundary><VineProtectedRoute /></VineRouteErrorBoundary>}>
+  <Route path="/vine/birthday-required" element={<VineBirthdayRequired />} />
   <Route path="/vine/feed" element={<VineFeed />} />
   <Route path="/vine/profile/:username" element={<VineProfile />} />
   <Route path="/vine/settings" element={<VineSettings />} />

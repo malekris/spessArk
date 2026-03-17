@@ -250,6 +250,86 @@ const getClientIp = (req) => {
   return String(req.socket?.remoteAddress || "").slice(0, 64);
 };
 
+const extractBirthdayMonthDay = (value) => {
+  const raw = String(value || "").trim();
+  const directMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (directMatch) {
+    return {
+      month: Number(directMatch[2]),
+      day: Number(directMatch[3]),
+    };
+  }
+
+  const dt = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(dt.getTime())) return null;
+  return {
+    month: Number(dt.getUTCMonth()) + 1,
+    day: Number(dt.getUTCDate()),
+  };
+};
+
+const isLeapYear = (year) =>
+  year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+
+const buildBirthdayDateForYear = (year, month, day) => {
+  const normalizedMonth = Number(month || 0);
+  const normalizedDay = Number(day || 0);
+  if (!normalizedMonth || !normalizedDay) return null;
+  if (normalizedMonth === 2 && normalizedDay === 29 && !isLeapYear(year)) {
+    return new Date(year, 1, 28, 12, 0, 0, 0);
+  }
+  return new Date(year, normalizedMonth - 1, normalizedDay, 12, 0, 0, 0);
+};
+
+const getUpcomingBirthdayData = (value, reference = new Date()) => {
+  const monthDay = extractBirthdayMonthDay(value);
+  if (!monthDay) return null;
+
+  const today = new Date(
+    reference.getFullYear(),
+    reference.getMonth(),
+    reference.getDate(),
+    0,
+    0,
+    0,
+    0
+  );
+  let nextBirthday = buildBirthdayDateForYear(today.getFullYear(), monthDay.month, monthDay.day);
+  if (!nextBirthday) return null;
+
+  let birthdayStart = new Date(
+    nextBirthday.getFullYear(),
+    nextBirthday.getMonth(),
+    nextBirthday.getDate(),
+    0,
+    0,
+    0,
+    0
+  );
+
+  if (birthdayStart < today) {
+    nextBirthday = buildBirthdayDateForYear(today.getFullYear() + 1, monthDay.month, monthDay.day);
+    if (!nextBirthday) return null;
+    birthdayStart = new Date(
+      nextBirthday.getFullYear(),
+      nextBirthday.getMonth(),
+      nextBirthday.getDate(),
+      0,
+      0,
+      0,
+      0
+    );
+  }
+
+  const daysUntil = Math.round((birthdayStart.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
+  return {
+    birthMonth: monthDay.month,
+    birthDay: monthDay.day,
+    daysUntil,
+    nextBirthdayAt: birthdayStart.toISOString(),
+  };
+};
+
 const hasTable = async (dbName, tableName) => {
   const [rows] = await db.query(
     `
@@ -312,6 +392,7 @@ const VINE_CACHE_TTLS = {
   communityAttendance: 8_000,
   mutedUsers: 20_000,
   blockedUsers: 20_000,
+  birthdays: 20_000,
   notifications: 5_000,
   notificationCounts: 4_000,
   guardianActivity: 10_000,
@@ -10045,6 +10126,42 @@ router.post("/users/update-profile", authenticate, async (req, res) => {
   }
 });
 
+router.patch("/users/me/birthday", authenticate, async (req, res) => {
+  try {
+    await ensureProfileAboutSchema();
+    const rawDate = String(req.body?.date_of_birth || "").trim();
+    const match = rawDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) {
+      return res.status(400).json({ message: "Please enter a valid birthday" });
+    }
+
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const parsed = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+    if (
+      Number.isNaN(parsed.getTime()) ||
+      Number(parsed.getUTCFullYear()) !== year ||
+      Number(parsed.getUTCMonth()) !== month - 1 ||
+      Number(parsed.getUTCDate()) !== day
+    ) {
+      return res.status(400).json({ message: "Please enter a valid birthday" });
+    }
+
+    const today = new Date();
+    if (parsed > today) {
+      return res.status(400).json({ message: "Birthday cannot be in the future" });
+    }
+
+    await db.query("UPDATE vine_users SET date_of_birth = ? WHERE id = ?", [rawDate, req.user.id]);
+    clearVineReadCache("birthdays", "profile-header");
+    res.json({ success: true, date_of_birth: rawDate });
+  } catch (err) {
+    console.error("Update birthday error:", err);
+    res.status(500).json({ message: "Failed to save birthday" });
+  }
+});
+
 // update privacy/settings
 router.patch("/users/me/settings", authenticate, async (req, res) => {
   try {
@@ -10227,7 +10344,7 @@ router.get("/users/me/preferences", authenticate, async (req, res) => {
     await ensureAdvancedSettingsSchema();
     const [[prefs]] = await db.query(
       `
-      SELECT dm_privacy, is_private, hide_like_counts, show_last_active, about_privacy,
+      SELECT dm_privacy, is_private, hide_like_counts, show_last_active, about_privacy, date_of_birth,
              two_factor_email, mentions_privacy, tags_privacy, hide_from_search,
              notif_inapp_likes, notif_inapp_comments, notif_inapp_mentions, notif_inapp_messages, notif_inapp_reports,
              notif_email_likes, notif_email_comments, notif_email_mentions, notif_email_messages, notif_email_reports,
@@ -10244,6 +10361,105 @@ router.get("/users/me/preferences", authenticate, async (req, res) => {
   } catch (err) {
     console.error("Get preferences error:", err);
     res.status(500).json({ message: "Failed to load preferences" });
+  }
+});
+
+router.get("/birthdays/upcoming", authenticate, async (req, res) => {
+  try {
+    await ensureProfileAboutSchema();
+    const viewerId = Number(req.user.id || 0);
+    const safeDays = Math.max(1, Math.min(60, Number(req.query.days || 14)));
+    const cacheKey = buildVineCacheKey("birthdays", viewerId, safeDays);
+
+    const payload = await readThroughVineCache(cacheKey, VINE_CACHE_TTLS.birthdays, async () => {
+      const [rows] = await timedVineQuery(
+        null,
+        "birthdays-upcoming.users",
+        `
+        SELECT
+          u.id,
+          u.username,
+          u.display_name,
+          u.avatar_url,
+          u.is_verified,
+          u.badge_type,
+          u.date_of_birth,
+          u.about_privacy,
+          (
+            SELECT COUNT(*) > 0
+            FROM vine_follows f
+            WHERE f.follower_id = ? AND f.following_id = u.id
+          ) AS is_following,
+          (
+            SELECT COUNT(*) > 0
+            FROM vine_follows f
+            WHERE f.follower_id = u.id AND f.following_id = ?
+          ) AS is_followed_by
+        FROM vine_users u
+        WHERE u.id != ?
+          AND u.date_of_birth IS NOT NULL
+          AND LOWER(COALESCE(u.username, '')) NOT IN ('vine guardian', 'vine_guardian', 'vine news', 'vine_news')
+          AND LOWER(COALESCE(u.badge_type, '')) NOT IN ('guardian', 'news')
+          AND NOT EXISTS (
+            SELECT 1
+            FROM vine_blocks b
+            WHERE (b.blocker_id = u.id AND b.blocked_id = ?)
+               OR (b.blocker_id = ? AND b.blocked_id = u.id)
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM vine_mutes m
+            WHERE m.muter_id = ? AND m.muted_id = u.id
+          )
+        `,
+        [viewerId, viewerId, viewerId, viewerId, viewerId, viewerId]
+      );
+
+      const visibleRows = (Array.isArray(rows) ? rows : []).filter((row) => {
+        const privacy = String(row.about_privacy || "everyone").toLowerCase();
+        if (privacy === "everyone") return true;
+        if (privacy === "followers") return Number(row.is_following) === 1;
+        return false;
+      });
+
+      const rankedBirthdays = visibleRows
+        .map((row) => {
+          const birthdayData = getUpcomingBirthdayData(row.date_of_birth);
+          if (!birthdayData || birthdayData.daysUntil > safeDays) return null;
+          return {
+            id: Number(row.id || 0),
+            username: row.username || "",
+            display_name: row.display_name || row.username || "",
+            avatar_url: row.avatar_url || "",
+            is_verified: Number(row.is_verified || 0),
+            badge_type: row.badge_type || null,
+            next_birthday_at: birthdayData.nextBirthdayAt,
+            days_until: birthdayData.daysUntil,
+            birth_month: birthdayData.birthMonth,
+            birth_day: birthdayData.birthDay,
+            is_following: Number(row.is_following || 0),
+            is_followed_by: Number(row.is_followed_by || 0),
+          };
+        })
+        .filter(Boolean)
+        .sort((a, b) => {
+          if (a.days_until !== b.days_until) return a.days_until - b.days_until;
+          if (a.birth_month !== b.birth_month) return a.birth_month - b.birth_month;
+          if (a.birth_day !== b.birth_day) return a.birth_day - b.birth_day;
+          return String(a.display_name || a.username).localeCompare(String(b.display_name || b.username));
+        });
+
+      return {
+        today: rankedBirthdays.filter((row) => row.days_until === 0).slice(0, 8),
+        upcoming: rankedBirthdays.filter((row) => row.days_until > 0).slice(0, 12),
+        window_days: safeDays,
+      };
+    });
+
+    res.json(payload);
+  } catch (err) {
+    console.error("Upcoming birthdays error:", err);
+    res.status(500).json({ message: "Failed to load birthdays" });
   }
 });
 
@@ -12119,7 +12335,6 @@ router.get("/notifications", authenticate, async (req, res) => {
                 WHERE m.muter_id = n.user_id AND m.muted_id = n.actor_id
               )
             ORDER BY n.created_at DESC
-            LIMIT 80
           `,
             [viewerId]
           );

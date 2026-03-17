@@ -5503,7 +5503,13 @@ router.delete("/communities/:id/assignments/:assignmentId", authenticate, async 
     );
     await Promise.all(urlsToDelete.map((url) => deleteCloudinaryByUrl(url)));
 
-    clearVineReadCache("community-assignments", "community-assignment-submissions", "community-gradebook", "community-progress");
+    clearVineReadCache(
+      "community-assignments",
+      "community-assignment-submissions",
+      "community-gradebook",
+      "community-progress",
+      "profile-header"
+    );
     res.json({ success: true });
   } catch (err) {
     console.error("Delete assignment error:", err);
@@ -5553,7 +5559,7 @@ router.patch("/communities/:id/assignments/:assignmentId/deadline", authenticate
       [nextDue, assignmentId, communityId]
     );
 
-    clearVineReadCache("community-assignments", "community-gradebook", "community-progress");
+    clearVineReadCache("community-assignments", "community-gradebook", "community-progress", "profile-header");
     return res.json({ success: true, due_at: nextDue.toISOString() });
   } catch (err) {
     console.error("Extend assignment deadline error:", err);
@@ -5845,7 +5851,13 @@ router.post("/communities/:id/assignments/:assignmentId/submissions", authentica
       });
     }
 
-    clearVineReadCache("community-assignments", "community-assignment-submissions", "community-gradebook", "community-progress");
+    clearVineReadCache(
+      "community-assignments",
+      "community-assignment-submissions",
+      "community-gradebook",
+      "community-progress",
+      "profile-header"
+    );
     res.json({ success: true });
   } catch (err) {
     console.error("Submit assignment error:", err);
@@ -5924,7 +5936,13 @@ router.delete("/communities/:id/assignments/:assignmentId/submission-files/:file
       [latest?.file_url || null, latest?.file_name || null, latest?.file_mime || null, row.submission_id]
     );
 
-    clearVineReadCache("community-assignments", "community-assignment-submissions", "community-gradebook", "community-progress");
+    clearVineReadCache(
+      "community-assignments",
+      "community-assignment-submissions",
+      "community-gradebook",
+      "community-progress",
+      "profile-header"
+    );
     res.json({ success: true });
   } catch (err) {
     console.error("Delete practical submission file error:", err);
@@ -6130,7 +6148,13 @@ router.patch("/communities/:id/submissions/:submissionId/grade", authenticate, a
         },
       });
     }
-    clearVineReadCache("community-assignments", "community-assignment-submissions", "community-gradebook", "community-progress");
+    clearVineReadCache(
+      "community-assignments",
+      "community-assignment-submissions",
+      "community-gradebook",
+      "community-progress",
+      "profile-header"
+    );
     res.json({ success: true });
   } catch (err) {
     console.error("Grade submission error:", err);
@@ -6346,6 +6370,85 @@ router.get("/communities/:id/progress", authenticate, async (req, res) => {
   }
 });
 
+const summarizeLearnerBadges = (submissionRows = []) => {
+  const submissions = Array.isArray(submissionRows) ? submissionRows : [];
+  let totalOnTime = 0;
+  let perfectCount = 0;
+  let gradedCount = 0;
+  let gradedTotal = 0;
+  let normalizedCount = 0;
+  let normalizedTotal = 0;
+
+  for (const row of submissions) {
+    const dueAt = row?.due_at ? new Date(row.due_at) : null;
+    const submittedAt = row?.submitted_at ? new Date(row.submitted_at) : null;
+    const score = Number(row?.score);
+    const points = Number(row?.points);
+
+    if (dueAt && submittedAt && submittedAt.getTime() <= dueAt.getTime()) {
+      totalOnTime += 1;
+    }
+    if (
+      row?.score !== null &&
+      row?.score !== undefined &&
+      Number.isFinite(score) &&
+      Number.isFinite(points) &&
+      points > 0 &&
+      score >= points
+    ) {
+      perfectCount += 1;
+    }
+    if (row?.score !== null && row?.score !== undefined && Number.isFinite(score)) {
+      gradedCount += 1;
+      gradedTotal += score;
+      if (Number.isFinite(points) && points > 0) {
+        normalizedCount += 1;
+        normalizedTotal += score / points;
+      }
+    }
+  }
+
+  const dueMap = new Map();
+  for (const row of submissions) {
+    if (!row?.due_at) continue;
+    const assignmentId = Number(row.assignment_id);
+    const dueAt = new Date(row.due_at).getTime();
+    const submittedAt = row.submitted_at ? new Date(row.submitted_at).getTime() : null;
+    const onTime = submittedAt !== null && submittedAt <= dueAt;
+    if (!dueMap.has(assignmentId)) {
+      dueMap.set(assignmentId, { dueAt, onTime });
+    } else if (onTime) {
+      const previous = dueMap.get(assignmentId);
+      dueMap.set(assignmentId, { dueAt: previous.dueAt, onTime: true });
+    }
+  }
+
+  const dueEntries = [...dueMap.values()].sort((a, b) => b.dueAt - a.dueAt);
+  let currentStreak = 0;
+  for (const entry of dueEntries) {
+    if (entry.onTime) currentStreak += 1;
+    else break;
+  }
+
+  const avgScore = gradedCount > 0 ? Number((gradedTotal / gradedCount).toFixed(2)) : null;
+  const avgPercent =
+    normalizedCount > 0 ? Number(((normalizedTotal / normalizedCount) * 100).toFixed(1)) : null;
+  const badges = [];
+  if (currentStreak >= 3) badges.push("🔥 On-Time Streak");
+  if (perfectCount >= 1) badges.push("🎯 Perfect Score");
+  if (submissions.length >= 5) badges.push("📚 Consistent Learner");
+  if (avgPercent !== null && avgPercent >= 85 && gradedCount >= 3) badges.push("🏅 High Achiever");
+
+  return {
+    submission_count: submissions.length,
+    total_on_time: totalOnTime,
+    current_streak: currentStreak,
+    avg_score: avgScore,
+    avg_percent: avgPercent,
+    badges,
+  };
+};
+
 router.get("/communities/:id/badges-streaks", authenticate, async (req, res) => {
   try {
     await ensureCommunitySchema();
@@ -6391,78 +6494,9 @@ router.get("/communities/:id/badges-streaks", authenticate, async (req, res) => 
 
     const result = members.map((m) => {
       const submissions = byUser.get(Number(m.id)) || [];
-      let totalOnTime = 0;
-      let perfectCount = 0;
-      let gradedCount = 0;
-      let gradedTotal = 0;
-      let normalizedCount = 0;
-      let normalizedTotal = 0;
-
-      for (const s of submissions) {
-        const dueAt = s.due_at ? new Date(s.due_at) : null;
-        const submittedAt = s.submitted_at ? new Date(s.submitted_at) : null;
-        if (dueAt && submittedAt && submittedAt.getTime() <= dueAt.getTime()) {
-          totalOnTime += 1;
-        }
-        if (
-          s.score !== null &&
-          s.score !== undefined &&
-          Number.isFinite(Number(s.score)) &&
-          Number.isFinite(Number(s.points)) &&
-          Number(s.points) > 0 &&
-          Number(s.score) >= Number(s.points)
-        ) {
-          perfectCount += 1;
-        }
-        if (s.score !== null && s.score !== undefined && Number.isFinite(Number(s.score))) {
-          gradedCount += 1;
-          gradedTotal += Number(s.score);
-          if (Number.isFinite(Number(s.points)) && Number(s.points) > 0) {
-            normalizedCount += 1;
-            normalizedTotal += Number(s.score) / Number(s.points);
-          }
-        }
-      }
-
-      // Current streak: walk recent due assignments until first late/missing submission.
-      const dueMap = new Map();
-      for (const s of submissions) {
-        if (!s.due_at) continue;
-        const aid = Number(s.assignment_id);
-        const dueAt = new Date(s.due_at).getTime();
-        const submittedAt = s.submitted_at ? new Date(s.submitted_at).getTime() : null;
-        const onTime = submittedAt !== null && submittedAt <= dueAt;
-        if (!dueMap.has(aid)) {
-          dueMap.set(aid, { dueAt, onTime });
-        } else if (onTime) {
-          // if any attempt for this assignment was on-time, count it as on-time
-          const prev = dueMap.get(aid);
-          dueMap.set(aid, { dueAt: prev.dueAt, onTime: true });
-        }
-      }
-      const dueEntries = [...dueMap.values()].sort((a, b) => b.dueAt - a.dueAt);
-      let currentStreak = 0;
-      for (const e of dueEntries) {
-        if (e.onTime) currentStreak += 1;
-        else break;
-      }
-
-      const avgScore = gradedCount > 0 ? Number((gradedTotal / gradedCount).toFixed(2)) : null;
-      const avgPercent = normalizedCount > 0 ? Number(((normalizedTotal / normalizedCount) * 100).toFixed(1)) : null;
-      const badges = [];
-      if (currentStreak >= 3) badges.push("🔥 On-Time Streak");
-      if (perfectCount >= 1) badges.push("🎯 Perfect Score");
-      if (submissions.length >= 5) badges.push("📚 Consistent Learner");
-      if (avgPercent !== null && avgPercent >= 85 && gradedCount >= 3) badges.push("🏅 High Achiever");
-
       return {
         ...m,
-        submission_count: submissions.length,
-        total_on_time: totalOnTime,
-        current_streak: currentStreak,
-        avg_score: avgScore,
-        avg_percent: avgPercent,
-        badges,
+        ...summarizeLearnerBadges(submissions),
       };
     });
 
@@ -8331,6 +8365,7 @@ const getProfileUserPayload = async (username, viewerId, perfCtx = null) => {
   await ensureVinePerformanceSchema();
   await ensureProfileAboutSchema();
   await ensureFollowRequestSchema();
+  await ensureCommunitySchema();
 
   const safeViewerId = Number(viewerId || 0);
   const cacheKey = buildVineCacheKey(
@@ -8455,6 +8490,24 @@ const getProfileUserPayload = async (username, viewerId, perfCtx = null) => {
       user.instagram_username = null;
       user.twitter_username = null;
     }
+
+    const [badgeRows] = await timedVineQuery(
+      perfCtx,
+      "profile-header.learning-badges",
+      `
+      SELECT
+        s.assignment_id,
+        s.submitted_at,
+        s.score,
+        a.points,
+        a.due_at
+      FROM vine_community_submissions s
+      JOIN vine_community_assignments a ON a.id = s.assignment_id
+      WHERE s.user_id = ?
+      `,
+      [user.id]
+    );
+    user.learning_badges = summarizeLearnerBadges(badgeRows).badges;
 
     return {
       user,

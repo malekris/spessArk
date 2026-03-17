@@ -78,6 +78,30 @@ const hasSpecialVerifiedBadge = (username) =>
 const showsVerifiedBadge = (user) =>
   Number(user?.is_verified) === 1 || hasSpecialVerifiedBadge(user?.username);
 
+const getLearningBadgeTone = (badge) => {
+  const value = String(badge || "").toLowerCase();
+  if (value.includes("on-time")) return "streak";
+  if (value.includes("perfect")) return "perfect";
+  if (value.includes("consistent")) return "consistent";
+  if (value.includes("achiever")) return "achiever";
+  return "default";
+};
+
+const LEARNING_BADGE_ORDER = {
+  "🎯 Perfect Score": 0,
+  "🏅 High Achiever": 1,
+  "🔥 On-Time Streak": 2,
+  "📚 Consistent Learner": 3,
+};
+
+const sortLearningBadges = (badges) =>
+  [...(Array.isArray(badges) ? badges : [])].sort((a, b) => {
+    const aRank = LEARNING_BADGE_ORDER[a] ?? 99;
+    const bRank = LEARNING_BADGE_ORDER[b] ?? 99;
+    if (aRank !== bRank) return aRank - bRank;
+    return String(a).localeCompare(String(b));
+  });
+
 const formatPostDate = (value) => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
@@ -217,6 +241,21 @@ export default function VinePublicProfile() {
                     </div>
                   </div>
                   <div className="vine-public-handle">@{profile.user.username}</div>
+                  {Array.isArray(profile.user.learning_badges) && profile.user.learning_badges.length > 0 ? (
+                    <div className="vine-public-learning-badge-block" aria-label="Learner badges">
+                      <div className="vine-public-learning-badge-label">Learner badges</div>
+                      <div className="vine-public-learning-badges">
+                        {sortLearningBadges(profile.user.learning_badges).map((badge) => (
+                          <span
+                            key={`public-profile-learning-badge-${badge}`}
+                            className={`vine-public-learning-badge ${getLearningBadgeTone(badge)}`}
+                          >
+                            {badge}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                   {profile.user.bio ? <div className="vine-public-profile-bio">{profile.user.bio}</div> : null}
                   <div className="vine-public-profile-stats">
                     <span><strong>{profile.user.post_count || 0}</strong> posts</span>

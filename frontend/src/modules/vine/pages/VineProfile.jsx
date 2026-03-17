@@ -154,6 +154,30 @@ const applyMention = (value, anchor, username) => {
   return `${before}@${username} ${after}`;
 };
 
+const getLearningBadgeTone = (badge) => {
+  const value = String(badge || "").toLowerCase();
+  if (value.includes("on-time")) return "streak";
+  if (value.includes("perfect")) return "perfect";
+  if (value.includes("consistent")) return "consistent";
+  if (value.includes("achiever")) return "achiever";
+  return "default";
+};
+
+const LEARNING_BADGE_ORDER = {
+  "🎯 Perfect Score": 0,
+  "🏅 High Achiever": 1,
+  "🔥 On-Time Streak": 2,
+  "📚 Consistent Learner": 3,
+};
+
+const sortLearningBadges = (badges) =>
+  [...(Array.isArray(badges) ? badges : [])].sort((a, b) => {
+    const aRank = LEARNING_BADGE_ORDER[a] ?? 99;
+    const bRank = LEARNING_BADGE_ORDER[b] ?? 99;
+    if (aRank !== bRank) return aRank - bRank;
+    return String(a).localeCompare(String(b));
+  });
+
 const PROFILE_SKELETON_POSTS = [0, 1, 2];
 const COMMENT_SKELETON_ROWS = [0, 1, 2];
 
@@ -171,15 +195,19 @@ function ProfileHeaderSkeleton() {
       <div className="profile-header-skeleton-card">
         <div className="profile-avatar-skeleton vine-profile-skeleton-block" />
         <div className="profile-header-skeleton-details">
-          <div className="profile-header-skeleton-meta">
-            <div className="profile-header-skeleton-name-row">
-              <div className="vine-profile-skeleton-pill title" />
-              <div className="vine-profile-skeleton-block profile-header-skeleton-check" />
+            <div className="profile-header-skeleton-meta">
+              <div className="profile-header-skeleton-name-row">
+                <div className="vine-profile-skeleton-pill title" />
+                <div className="vine-profile-skeleton-block profile-header-skeleton-check" />
+              </div>
+              <div className="vine-profile-skeleton-pill handle" />
+              <div className="profile-header-skeleton-badges">
+                <div className="vine-profile-skeleton-pill badge" />
+                <div className="vine-profile-skeleton-pill badge short" />
+              </div>
+              <div className="vine-profile-skeleton-pill bio" />
+              <div className="vine-profile-skeleton-pill bio short" />
             </div>
-            <div className="vine-profile-skeleton-pill handle" />
-            <div className="vine-profile-skeleton-pill bio" />
-            <div className="vine-profile-skeleton-pill bio short" />
-          </div>
           <div className="profile-header-skeleton-stats">
             <div className="vine-profile-skeleton-pill stat" />
             <div className="vine-profile-skeleton-pill stat" />
@@ -396,6 +424,7 @@ export default function VineProfile() {
   const canShowLastActive = userObj.show_last_active !== 0 || isMe;
   const canMessage =
     !isMe;
+  const learningBadges = sortLearningBadges(userObj?.learning_badges);
   const aboutFields = [
     { label: "Hobbies", value: userObj?.hobbies },
     { label: "Date of Birth", value: userObj?.date_of_birth ? new Date(userObj.date_of_birth).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "" },
@@ -1946,6 +1975,22 @@ export default function VineProfile() {
             </h2>
 
             <p className="handle">@{resolvedUsername}</p>
+
+            {learningBadges.length > 0 && (
+              <div className="profile-learning-badge-block" aria-label="Learner badges">
+                <div className="profile-learning-badge-label">Learner badges</div>
+                <div className="profile-learning-badges">
+                  {learningBadges.map((badge) => (
+                    <span
+                      key={`profile-learning-badge-${badge}`}
+                      className={`profile-learning-badge ${getLearningBadgeTone(badge)}`}
+                    >
+                      {badge}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <p className="bio">{userObj?.bio || "No bio yet 🌱"}</p>
 

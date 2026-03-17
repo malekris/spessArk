@@ -1917,12 +1917,24 @@
   .profile-topbar-back          { width: 44px; min-width: 44px; padding: 0; justify-content: center; }
   .profile-topbar-back-label    { display: none; }
   .profile-title                { font-size: 1.1rem; }
-  .header-top-row               { align-items: flex-start; padding: 0 10px; gap: 12px; flex-wrap: wrap; }
+  .header-top-row               { align-items: flex-end; padding: 0 10px; gap: 12px; flex-wrap: nowrap; }
   .avatar-wrapper               { margin-top: 0; flex: 0 0 auto; min-width: 112px; }
   .avatar-circle                { width: 112px; height: 112px; border-radius: 28px; margin-top: 0; }
   .profile-action-buttons       { flex: 1 1 180px; min-width: 0; justify-content: flex-end; flex-wrap: wrap; }
   .profile-action-buttons > button,
   .profile-action-buttons > div { flex: 1 1 136px; min-width: 0; max-width: 100%; }
+  .profile-action-buttons.self-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+    align-self: end;
+    width: min(100%, 240px);
+    margin-left: auto;
+    padding-bottom: 4px;
+  }
+  .profile-action-buttons.self-actions > button {
+    width: 100%;
+  }
   .profile-name                 { font-size: 1.6rem; }
   .profile-learning-badge-block { gap: 7px; margin-bottom: 12px; }
   .profile-learning-badges      { gap: 8px; }

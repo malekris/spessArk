@@ -1723,7 +1723,7 @@ export default function VineProfile() {
             />
           )}
         </div>
-        <div className="profile-action-buttons">
+        <div className={`profile-action-buttons ${isMe ? "self-actions" : "visitor-actions"}`}>
                       {isMe ? (
                         <>
                           <button

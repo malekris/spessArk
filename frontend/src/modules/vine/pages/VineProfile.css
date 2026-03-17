@@ -1917,9 +1917,12 @@
   .profile-topbar-back          { width: 44px; min-width: 44px; padding: 0; justify-content: center; }
   .profile-topbar-back-label    { display: none; }
   .profile-title                { font-size: 1.1rem; }
-  .header-top-row               { align-items: flex-start; padding: 0 10px; }
-  .avatar-wrapper               { margin-top: 0; }
+  .header-top-row               { align-items: flex-start; padding: 0 10px; gap: 12px; flex-wrap: wrap; }
+  .avatar-wrapper               { margin-top: 0; flex: 0 0 auto; min-width: 112px; }
   .avatar-circle                { width: 112px; height: 112px; border-radius: 28px; margin-top: 0; }
+  .profile-action-buttons       { flex: 1 1 180px; min-width: 0; justify-content: flex-end; flex-wrap: wrap; }
+  .profile-action-buttons > button,
+  .profile-action-buttons > div { flex: 1 1 136px; min-width: 0; max-width: 100%; }
   .profile-name                 { font-size: 1.6rem; }
   .profile-learning-badge-block { gap: 7px; margin-bottom: 12px; }
   .profile-learning-badges      { gap: 8px; }
@@ -1929,7 +1932,7 @@
   .profile-meta                 { padding: 15px; }
   .profile-extra                { gap: 8px; }
   .profile-field, .profile-link, .join-date { font-size: 0.8rem; padding: 6px 10px; }
-  .edit-profile-btn, .follow-btn, .message-btn {
+  .edit-profile-btn, .follow-btn, .message-btn, .profile-settings-btn {
     height: 40px;
     padding: 0 18px;
     font-size: 0.85rem;
@@ -1978,7 +1981,7 @@
   box-shadow: 0 6px 20px rgba(47,111,100,.12);
 }
 .profile-settings-btn {
-  margin-left: 8px;
+  margin-left: 0;
   height: 48px;
   padding: 0 28px;
   border-radius: 16px;

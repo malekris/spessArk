@@ -2036,6 +2036,8 @@
 
   .vine-feed-container {
     padding: 0 10px 80px;
+    background: linear-gradient(180deg, #f0fdf4 0%, #dcfce7 100%);
+    background-attachment: scroll;
   }
 
   .vine-nav-top {
@@ -2113,6 +2115,13 @@
     display: flex;
     flex-direction: column;
     gap: 16px;
+    content-visibility: visible;
+    contain: none;
+  }
+
+  .vine-posts-list > div {
+    content-visibility: visible;
+    contain-intrinsic-size: auto;
   }
 
   .vine-posts-list .vine-post {

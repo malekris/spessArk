@@ -8,6 +8,21 @@ import { createClientRequestId } from "../../../utils/requestId";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const POST_MAX_LENGTH = 5000;
+const LEARNING_BADGE_ORDER = {
+  "🎯 Perfect Score": 0,
+  "🏅 High Achiever": 1,
+  "🔥 On-Time Streak": 2,
+  "📚 Consistent Learner": 3,
+};
+
+const sortLearningBadges = (badges) =>
+  [...(Array.isArray(badges) ? badges : [])].sort((a, b) => {
+    const aRank = LEARNING_BADGE_ORDER[a] ?? 99;
+    const bRank = LEARNING_BADGE_ORDER[b] ?? 99;
+    if (aRank !== bRank) return aRank - bRank;
+    return String(a).localeCompare(String(b));
+  });
+
 const parseAnswers = (value) => {
   try {
     const parsed = JSON.parse(value || "[]");
@@ -114,6 +129,10 @@ export default function VineCommunities() {
     String(activeCommunity?.viewer_role || "").toLowerCase()
   );
   const pendingRequestCount = pendingRequests.length;
+  const memberBadgesById = badgesStreaks.reduce((acc, row) => {
+    acc[Number(row.id)] = sortLearningBadges(row.badges);
+    return acc;
+  }, {});
 
   useEffect(() => {
     const timer = setInterval(() => setNowMs(Date.now()), 60 * 1000);
@@ -512,7 +531,7 @@ export default function VineCommunities() {
   }, [activeCommunity?.id, canManageCommunitySettings]);
 
   useEffect(() => {
-    if (activeTab === "assignments" && activeCommunity?.id) loadBadgesStreaks();
+    if ((activeTab === "assignments" || activeTab === "members") && activeCommunity?.id) loadBadgesStreaks();
     if (activeTab === "announcements" && activeCommunity?.id) loadProgress();
     if (activeTab === "attendance" && activeCommunity?.id) {
       const role = String(activeCommunity.viewer_role || "").toLowerCase();
@@ -2295,6 +2314,16 @@ export default function VineCommunities() {
                           <div className="member-main">
                             <div className="member-name">{m.display_name || m.username}</div>
                             <div className="member-meta">@{m.username} • {m.role}</div>
+                            {(memberBadgesById[Number(m.id)] || []).length > 0 && (
+                              <div className="member-learning-badges">
+                                <span
+                                  className="member-learning-badge"
+                                  title={memberBadgesById[Number(m.id)].join(" • ")}
+                                >
+                                  {memberBadgesById[Number(m.id)][0]}
+                                </span>
+                              </div>
+                            )}
                           </div>
                           <div className="member-actions" onClick={(e) => e.stopPropagation()}>
                             {String(activeCommunity.viewer_role || "").toLowerCase() === "owner" && Number(m.id) !== Number(activeCommunity.creator_id) && (

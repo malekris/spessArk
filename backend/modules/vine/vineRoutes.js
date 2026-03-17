@@ -330,6 +330,89 @@ const getUpcomingBirthdayData = (value, reference = new Date()) => {
   };
 };
 
+const BIRTHDAY_EDIT_WINDOW_DAYS = 365;
+const BIRTHDAY_EDIT_LIMIT = 2;
+
+const normalizeBirthdayDateValue = (value) => {
+  const raw = String(value || "").trim();
+  const directMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (directMatch) {
+    return `${directMatch[1]}-${directMatch[2]}-${directMatch[3]}`;
+  }
+  const dt = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(dt.getTime())) return "";
+  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, "0")}-${String(
+    dt.getUTCDate()
+  ).padStart(2, "0")}`;
+};
+
+const validateBirthdayInput = (rawValue) => {
+  const rawDate = String(rawValue || "").trim();
+  const match = rawDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) {
+    return { ok: false, message: "Please enter a valid birthday" };
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const parsed = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  if (
+    Number.isNaN(parsed.getTime()) ||
+    Number(parsed.getUTCFullYear()) !== year ||
+    Number(parsed.getUTCMonth()) !== month - 1 ||
+    Number(parsed.getUTCDate()) !== day
+  ) {
+    return { ok: false, message: "Please enter a valid birthday" };
+  }
+
+  if (parsed > new Date()) {
+    return { ok: false, message: "Birthday cannot be in the future" };
+  }
+
+  return { ok: true, rawDate, parsed };
+};
+
+const buildBirthdayEditState = (rows = []) => {
+  const recentRows = Array.isArray(rows) ? rows : [];
+  const count = recentRows.length;
+  const remaining = Math.max(0, BIRTHDAY_EDIT_LIMIT - count);
+  const newest = recentRows[0] || null;
+  const oldest = recentRows[count - 1] || null;
+  const nextAvailableAt =
+    count >= BIRTHDAY_EDIT_LIMIT && oldest?.edited_at
+      ? new Date(new Date(oldest.edited_at).getTime() + BIRTHDAY_EDIT_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString()
+      : null;
+  return {
+    birthday_edits_used_last_365_days: count,
+    birthday_edits_remaining: remaining,
+    birthday_last_edited_at: newest?.edited_at ? new Date(newest.edited_at).toISOString() : null,
+    birthday_next_edit_available_at: nextAvailableAt,
+  };
+};
+
+const buildDisplayNameEditState = (rows = []) => {
+  const recentRows = Array.isArray(rows) ? rows : [];
+  const count = recentRows.length;
+  const remaining = Math.max(0, BIRTHDAY_EDIT_LIMIT - count);
+  const newest = recentRows[0] || null;
+  const oldest = recentRows[count - 1] || null;
+  const nextAvailableAt =
+    count >= BIRTHDAY_EDIT_LIMIT && oldest?.edited_at
+      ? new Date(new Date(oldest.edited_at).getTime() + BIRTHDAY_EDIT_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString()
+      : null;
+  return {
+    display_name_edits_used_last_365_days: count,
+    display_name_edits_remaining: remaining,
+    display_name_last_edited_at: newest?.edited_at ? new Date(newest.edited_at).toISOString() : null,
+    display_name_next_edit_available_at: nextAvailableAt,
+  };
+};
+
+const normalizeDisplayNameInput = (value) => {
+  return String(value || "").trim().replace(/\s+/g, " ").slice(0, 100);
+};
+
 const hasTable = async (dbName, tableName) => {
   const [rows] = await db.query(
     `
@@ -1696,6 +1779,8 @@ const ensureProfileAboutSchema = async () => {
 
   await addIfMissing("hobbies", "TEXT NULL");
   await addIfMissing("date_of_birth", "DATE NULL");
+  await addIfMissing("birthday_on_profile", "TINYINT(1) NOT NULL DEFAULT 0");
+  await addIfMissing("birthday_on_profile_mode", "VARCHAR(20) NOT NULL DEFAULT 'month_day'");
   await addIfMissing("favorite_movies", "TEXT NULL");
   await addIfMissing("favorite_songs", "TEXT NULL");
   await addIfMissing("favorite_musicians", "TEXT NULL");
@@ -2534,6 +2619,219 @@ const ensureBirthdayBroadcastSchema = async () => {
     )
   `);
   birthdayBroadcastSchemaReady = true;
+};
+
+let birthdayEditSchemaReady = false;
+const ensureBirthdayEditSchema = async () => {
+  if (birthdayEditSchemaReady) return;
+  await ensureProfileAboutSchema();
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_birthday_edit_log (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      user_id INT NOT NULL,
+      old_date_of_birth DATE NULL,
+      new_date_of_birth DATE NOT NULL,
+      edited_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_vine_birthday_edit_user_recent (user_id, edited_at)
+    )
+  `);
+  birthdayEditSchemaReady = true;
+};
+
+let displayNameEditSchemaReady = false;
+const ensureDisplayNameEditSchema = async () => {
+  if (displayNameEditSchemaReady) return;
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_display_name_edit_log (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      user_id INT NOT NULL,
+      old_display_name VARCHAR(100) NULL,
+      new_display_name VARCHAR(100) NOT NULL,
+      edited_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_vine_display_name_edit_user_recent (user_id, edited_at)
+    )
+  `);
+  displayNameEditSchemaReady = true;
+};
+
+const getBirthdayEditState = async (executor, userId) => {
+  await ensureBirthdayEditSchema();
+  const [rows] = await executor.query(
+    `
+    SELECT edited_at
+    FROM vine_birthday_edit_log
+    WHERE user_id = ?
+      AND edited_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ${BIRTHDAY_EDIT_WINDOW_DAYS} DAY)
+    ORDER BY edited_at DESC
+    `,
+    [userId]
+  );
+  return buildBirthdayEditState(rows);
+};
+
+const getDisplayNameEditState = async (executor, userId) => {
+  await ensureDisplayNameEditSchema();
+  const [rows] = await executor.query(
+    `
+    SELECT edited_at
+    FROM vine_display_name_edit_log
+    WHERE user_id = ?
+      AND edited_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL ${BIRTHDAY_EDIT_WINDOW_DAYS} DAY)
+    ORDER BY edited_at DESC
+    `,
+    [userId]
+  );
+  return buildDisplayNameEditState(rows);
+};
+
+const updateUserBirthday = async (executor, userId, rawValue) => {
+  await ensureBirthdayEditSchema();
+  const validation = validateBirthdayInput(rawValue);
+  if (!validation.ok) {
+    const err = new Error(validation.message);
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const [[user]] = await executor.query(
+    "SELECT date_of_birth FROM vine_users WHERE id = ? LIMIT 1",
+    [userId]
+  );
+
+  if (!user) {
+    const err = new Error("User not found");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const currentDate = normalizeBirthdayDateValue(user.date_of_birth);
+  if (currentDate === validation.rawDate) {
+    return {
+      success: true,
+      date_of_birth: validation.rawDate,
+      changed: false,
+      is_initial_set: !currentDate,
+      ...await getBirthdayEditState(executor, userId),
+    };
+  }
+
+  const isInitialSet = !currentDate;
+  const currentState = await getBirthdayEditState(executor, userId);
+  const isSecondEditAttempt =
+    !isInitialSet && Number(currentState.birthday_edits_remaining || 0) === 1;
+
+  if (!isInitialSet && Number(currentState.birthday_edits_remaining || 0) <= 0) {
+    const err = new Error(
+      currentState.birthday_next_edit_available_at
+        ? `You can only change your birthday twice every 365 days. Your next edit opens on ${new Date(
+            currentState.birthday_next_edit_available_at
+          ).toLocaleDateString()}.`
+        : "You can only change your birthday twice every 365 days."
+    );
+    err.statusCode = 400;
+    err.code = "birthday_edit_limit";
+    err.details = currentState;
+    throw err;
+  }
+
+  await executor.query("UPDATE vine_users SET date_of_birth = ? WHERE id = ?", [
+    validation.rawDate,
+    userId,
+  ]);
+
+  if (!isInitialSet) {
+    await executor.query(
+      `
+      INSERT INTO vine_birthday_edit_log (user_id, old_date_of_birth, new_date_of_birth, edited_at)
+      VALUES (?, ?, ?, UTC_TIMESTAMP())
+      `,
+      [userId, currentDate, validation.rawDate]
+    );
+  }
+
+  return {
+    success: true,
+    date_of_birth: validation.rawDate,
+    changed: true,
+    is_initial_set: isInitialSet,
+    used_final_birthday_edit: isSecondEditAttempt,
+    ...await getBirthdayEditState(executor, userId),
+  };
+};
+
+const updateUserDisplayName = async (executor, userId, rawValue) => {
+  await ensureDisplayNameEditSchema();
+  const nextDisplayName = normalizeDisplayNameInput(rawValue);
+  if (!nextDisplayName) {
+    const err = new Error("Display name cannot be empty");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const [[user]] = await executor.query(
+    "SELECT display_name, username FROM vine_users WHERE id = ? LIMIT 1",
+    [userId]
+  );
+
+  if (!user) {
+    const err = new Error("User not found");
+    err.statusCode = 404;
+    throw err;
+  }
+
+  const currentDisplayName = normalizeDisplayNameInput(user.display_name || "");
+  if (currentDisplayName === nextDisplayName) {
+    return {
+      success: true,
+      display_name: nextDisplayName,
+      changed: false,
+      is_initial_set: !currentDisplayName,
+      ...await getDisplayNameEditState(executor, userId),
+    };
+  }
+
+  const isInitialSet = !currentDisplayName;
+  const currentState = await getDisplayNameEditState(executor, userId);
+  const isSecondEditAttempt =
+    !isInitialSet && Number(currentState.display_name_edits_remaining || 0) === 1;
+
+  if (!isInitialSet && Number(currentState.display_name_edits_remaining || 0) <= 0) {
+    const err = new Error(
+      currentState.display_name_next_edit_available_at
+        ? `You can only change your display name twice every 365 days. Your next edit opens on ${new Date(
+            currentState.display_name_next_edit_available_at
+          ).toLocaleDateString()}.`
+        : "You can only change your display name twice every 365 days."
+    );
+    err.statusCode = 400;
+    err.code = "display_name_edit_limit";
+    err.details = currentState;
+    throw err;
+  }
+
+  await executor.query("UPDATE vine_users SET display_name = ? WHERE id = ?", [
+    nextDisplayName,
+    userId,
+  ]);
+
+  if (!isInitialSet) {
+    await executor.query(
+      `
+      INSERT INTO vine_display_name_edit_log (user_id, old_display_name, new_display_name, edited_at)
+      VALUES (?, ?, ?, UTC_TIMESTAMP())
+      `,
+      [userId, currentDisplayName || null, nextDisplayName]
+    );
+  }
+
+  return {
+    success: true,
+    display_name: nextDisplayName,
+    changed: true,
+    is_initial_set: isInitialSet,
+    used_final_display_name_edit: isSecondEditAttempt,
+    ...await getDisplayNameEditState(executor, userId),
+  };
 };
 
 const toDateOrNull = (value) => {
@@ -8628,6 +8926,8 @@ const getProfileUserPayload = async (username, viewerId, perfCtx = null) => {
         u.website,
         u.hobbies,
         u.date_of_birth,
+        u.birthday_on_profile,
+        u.birthday_on_profile_mode,
         u.favorite_movies,
         u.favorite_songs,
         u.favorite_musicians,
@@ -8726,6 +9026,10 @@ const getProfileUserPayload = async (username, viewerId, perfCtx = null) => {
       user.tiktok_username = null;
       user.instagram_username = null;
       user.twitter_username = null;
+    }
+
+    if (!Number(user.birthday_on_profile)) {
+      user.date_of_birth = null;
     }
 
     const [badgeRows] = await timedVineQuery(
@@ -10193,6 +10497,7 @@ router.post(
 );
 //update profile
 router.post("/users/update-profile", authenticate, async (req, res) => {
+  let conn;
   try {
     await ensureProfileAboutSchema();
     const {
@@ -10227,17 +10532,18 @@ router.post("/users/update-profile", authenticate, async (req, res) => {
       }
     }
 
-    await db.query(
+    conn = await db.getConnection();
+    await conn.beginTransaction();
+
+    await conn.query(
       `
       UPDATE vine_users
       SET 
         email = COALESCE(?, email),
-        display_name = ?,
         bio = ?,
         location = ?,
         website = ?,
         hobbies = ?,
-        date_of_birth = ?,
         favorite_movies = ?,
         favorite_songs = ?,
         favorite_musicians = ?,
@@ -10253,12 +10559,10 @@ router.post("/users/update-profile", authenticate, async (req, res) => {
       `,
       [
         normalizedEmail || null,
-        display_name || null,
         bio || null,
         location || null,
         website || null,
         hobbies || null,
-        date_of_birth || null,
         favorite_movies || null,
         favorite_songs || null,
         favorite_musicians || null,
@@ -10274,47 +10578,99 @@ router.post("/users/update-profile", authenticate, async (req, res) => {
       ]
     );
 
+    let displayNameResult = null;
+    const normalizedDisplayName = normalizeDisplayNameInput(display_name);
+    if (normalizedDisplayName) {
+      displayNameResult = await updateUserDisplayName(conn, req.user.id, normalizedDisplayName);
+    }
+
+    let birthdayResult = null;
+    const normalizedBirthday = String(date_of_birth || "").trim();
+    if (normalizedBirthday) {
+      birthdayResult = await updateUserBirthday(conn, req.user.id, normalizedBirthday);
+    }
+
+    await conn.commit();
+    conn.release();
+    conn = null;
+
     clearVineReadCache();
-    res.json({ success: true });
+    res.json({
+      success: true,
+      ...(displayNameResult ? { display_name: displayNameResult } : {}),
+      ...(birthdayResult ? { birthday: birthdayResult } : {}),
+    });
   } catch (err) {
+    if (conn) {
+      try {
+        await conn.rollback();
+      } catch {
+        // ignore rollback failures
+      }
+      conn.release();
+    }
     console.error("Update profile error:", err);
-    res.status(500).json({ message: "Failed to update profile" });
+    res.status(err?.statusCode || 500).json({
+      message: err?.message || "Failed to update profile",
+      ...(err?.details || {}),
+    });
   }
 });
 
 router.patch("/users/me/birthday", authenticate, async (req, res) => {
+  let conn;
   try {
     await ensureProfileAboutSchema();
-    const rawDate = String(req.body?.date_of_birth || "").trim();
-    const match = rawDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (!match) {
-      return res.status(400).json({ message: "Please enter a valid birthday" });
-    }
-
-    const year = Number(match[1]);
-    const month = Number(match[2]);
-    const day = Number(match[3]);
-    const parsed = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
-    if (
-      Number.isNaN(parsed.getTime()) ||
-      Number(parsed.getUTCFullYear()) !== year ||
-      Number(parsed.getUTCMonth()) !== month - 1 ||
-      Number(parsed.getUTCDate()) !== day
-    ) {
-      return res.status(400).json({ message: "Please enter a valid birthday" });
-    }
-
-    const today = new Date();
-    if (parsed > today) {
-      return res.status(400).json({ message: "Birthday cannot be in the future" });
-    }
-
-    await db.query("UPDATE vine_users SET date_of_birth = ? WHERE id = ?", [rawDate, req.user.id]);
-    clearVineReadCache("birthdays", "profile-header");
-    res.json({ success: true, date_of_birth: rawDate });
+    conn = await db.getConnection();
+    await conn.beginTransaction();
+    const result = await updateUserBirthday(conn, req.user.id, req.body?.date_of_birth);
+    await conn.commit();
+    conn.release();
+    conn = null;
+    clearVineReadCache();
+    res.json(result);
   } catch (err) {
+    if (conn) {
+      try {
+        await conn.rollback();
+      } catch {
+        // ignore rollback failures
+      }
+      conn.release();
+    }
     console.error("Update birthday error:", err);
-    res.status(500).json({ message: "Failed to save birthday" });
+    res.status(err?.statusCode || 500).json({
+      message: err?.message || "Failed to save birthday",
+      ...(err?.details || {}),
+    });
+  }
+});
+
+router.patch("/users/me/display-name", authenticate, async (req, res) => {
+  let conn;
+  try {
+    conn = await db.getConnection();
+    await conn.beginTransaction();
+    const result = await updateUserDisplayName(conn, req.user.id, req.body?.display_name);
+    await conn.commit();
+    conn.release();
+    conn = null;
+    clearVineReadCache();
+    res.json(result);
+  } catch (err) {
+    if (conn) {
+      try {
+        await conn.rollback();
+      } catch {
+        // ignore rollback failures
+      }
+      conn.release();
+    }
+    console.error("Update display name error:", err);
+    res.status(err?.statusCode || 500).json({
+      message: err?.message || "Failed to save display name",
+      ...(err?.details || {}),
+    });
   }
 });
 
@@ -10350,6 +10706,8 @@ router.patch("/users/me/settings", authenticate, async (req, res) => {
       muted_words,
       autoplay_media,
       blur_sensitive_media,
+      birthday_on_profile,
+      birthday_on_profile_mode,
     } = req.body || {};
 
     const allowedDm = new Set(["everyone", "followers", "no_one"]);
@@ -10357,6 +10715,7 @@ router.patch("/users/me/settings", authenticate, async (req, res) => {
     const allowedMentions = new Set(["everyone", "followers", "no_one"]);
     const allowedTags = new Set(["everyone", "followers", "no_one"]);
     const allowedDigest = new Set(["instant", "hourly", "daily"]);
+    const allowedBirthdayModes = new Set(["month_day", "full_year"]);
     const updates = [];
     const params = [];
 
@@ -10459,6 +10818,19 @@ router.patch("/users/me/settings", authenticate, async (req, res) => {
       params.push(String(muted_words || "").slice(0, 5000) || null);
     }
 
+    if (birthday_on_profile !== undefined) {
+      updates.push("birthday_on_profile = ?");
+      params.push(birthday_on_profile ? 1 : 0);
+    }
+
+    if (birthday_on_profile_mode !== undefined) {
+      if (!allowedBirthdayModes.has(String(birthday_on_profile_mode))) {
+        return res.status(400).json({ message: "Invalid birthday_on_profile_mode" });
+      }
+      updates.push("birthday_on_profile_mode = ?");
+      params.push(String(birthday_on_profile_mode));
+    }
+
     if (!updates.length) {
       return res.json({ success: true });
     }
@@ -10479,7 +10851,8 @@ router.patch("/users/me/settings", authenticate, async (req, res) => {
              notif_inapp_likes, notif_inapp_comments, notif_inapp_mentions, notif_inapp_messages, notif_inapp_reports,
              notif_email_likes, notif_email_comments, notif_email_mentions, notif_email_messages, notif_email_reports,
              quiet_hours_enabled, quiet_hours_start, quiet_hours_end, notif_digest,
-             muted_words, autoplay_media, blur_sensitive_media
+             muted_words, autoplay_media, blur_sensitive_media,
+             birthday_on_profile, birthday_on_profile_mode
       FROM vine_users
       WHERE id = ?
       `,
@@ -10498,9 +10871,12 @@ router.get("/users/me/preferences", authenticate, async (req, res) => {
   try {
     await ensureProfileAboutSchema();
     await ensureAdvancedSettingsSchema();
+    const birthdayEditState = await getBirthdayEditState(db, req.user.id);
+    const displayNameEditState = await getDisplayNameEditState(db, req.user.id);
     const [[prefs]] = await db.query(
       `
-      SELECT dm_privacy, is_private, hide_like_counts, show_last_active, about_privacy, date_of_birth,
+      SELECT display_name, dm_privacy, is_private, hide_like_counts, show_last_active, about_privacy, date_of_birth,
+             birthday_on_profile, birthday_on_profile_mode,
              two_factor_email, mentions_privacy, tags_privacy, hide_from_search,
              notif_inapp_likes, notif_inapp_comments, notif_inapp_mentions, notif_inapp_messages, notif_inapp_reports,
              notif_email_likes, notif_email_comments, notif_email_mentions, notif_email_messages, notif_email_reports,
@@ -10513,7 +10889,7 @@ router.get("/users/me/preferences", authenticate, async (req, res) => {
       `,
       [req.user.id]
     );
-    res.json(prefs || {});
+    res.json({ ...(prefs || {}), ...birthdayEditState, ...displayNameEditState });
   } catch (err) {
     console.error("Get preferences error:", err);
     res.status(500).json({ message: "Failed to load preferences" });

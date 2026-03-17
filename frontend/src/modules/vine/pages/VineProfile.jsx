@@ -47,6 +47,17 @@ const formatPostDate = (date) => {
   });
 };
 
+const formatProfileBirthday = (date, mode = "month_day") => {
+  if (!date) return "";
+  const parsed = new Date(String(date).replace(" ", "T"));
+  if (Number.isNaN(parsed.getTime())) return "";
+  const options =
+    mode === "full_year"
+      ? { month: "short", day: "numeric", year: "numeric" }
+      : { month: "short", day: "numeric" };
+  return parsed.toLocaleDateString("en-US", options);
+};
+
 const renderMentions = (text, navigate) => {
   if (!text) return text;
   const isGifUrl = (url) => {
@@ -309,7 +320,6 @@ export default function VineProfile() {
   const [tempLocation, setTempLocation] = useState("");
   const [tempWebsite, setTempWebsite] = useState("");
   const [tempHobbies, setTempHobbies] = useState("");
-  const [tempDateOfBirth, setTempDateOfBirth] = useState("");
   const [tempFavoriteMovies, setTempFavoriteMovies] = useState("");
   const [tempFavoriteSongs, setTempFavoriteSongs] = useState("");
   const [tempFavoriteMusicians, setTempFavoriteMusicians] = useState("");
@@ -427,7 +437,7 @@ export default function VineProfile() {
   const learningBadges = sortLearningBadges(userObj?.learning_badges);
   const aboutFields = [
     { label: "Hobbies", value: userObj?.hobbies },
-    { label: "Date of Birth", value: userObj?.date_of_birth ? new Date(userObj.date_of_birth).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "" },
+    { label: "Date of Birth", value: formatProfileBirthday(userObj?.date_of_birth, userObj?.birthday_on_profile_mode) },
     { label: "Movies", value: userObj?.favorite_movies },
     { label: "Songs", value: userObj?.favorite_songs },
     { label: "Musicians", value: userObj?.favorite_musicians },
@@ -464,7 +474,6 @@ export default function VineProfile() {
     setTempLocation(userData?.location || "");
     setTempWebsite(userData?.website || "");
     setTempHobbies(userData?.hobbies || "");
-    setTempDateOfBirth(userData?.date_of_birth ? String(userData.date_of_birth).slice(0, 10) : "");
     setTempFavoriteMovies(userData?.favorite_movies || "");
     setTempFavoriteSongs(userData?.favorite_songs || "");
     setTempFavoriteMusicians(userData?.favorite_musicians || "");
@@ -1110,7 +1119,6 @@ export default function VineProfile() {
       location: tempLocation,
       website: tempWebsite,
       hobbies: tempHobbies,
-      date_of_birth: tempDateOfBirth || null,
       favorite_movies: tempFavoriteMovies,
       favorite_songs: tempFavoriteSongs,
       favorite_musicians: tempFavoriteMusicians,
@@ -1828,6 +1836,9 @@ export default function VineProfile() {
               value={tempDisplayName}
               onChange={(e) => setTempDisplayName(e.target.value)}
             />
+            <div className="edit-form-hint">
+              Display names can be changed twice every 365 days. Use Settings to see how many edits are left.
+            </div>
 
             <input
               className="edit-input"
@@ -1874,14 +1885,8 @@ export default function VineProfile() {
                 value={tempHobbies}
                 onChange={(e) => setTempHobbies(e.target.value)}
               />
-              <input
-                className="edit-input"
-                type="date"
-                placeholder="Date of Birth"
-                value={tempDateOfBirth}
-                onChange={(e) => setTempDateOfBirth(e.target.value)}
-              />
             </div>
+            <div className="edit-form-hint">Birthday is now managed in Settings.</div>
 
             <div className="edit-row">
               <input

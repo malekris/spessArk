@@ -215,6 +215,91 @@
   margin: 10px 0;
 }
 
+.settings-birthday-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.settings-birthday-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #dcfce7, #f0fdf4);
+  border: 1px solid rgba(16, 185, 129, 0.28);
+  color: #065f46;
+  font-size: 0.82rem;
+  font-weight: 800;
+  box-shadow: 0 8px 18px rgba(6, 78, 59, 0.08);
+}
+
+.settings-birthday-pill.subtle {
+  background: linear-gradient(135deg, #fffbeb, #fef3c7);
+  border-color: rgba(245, 158, 11, 0.25);
+  color: #92400e;
+}
+
+.settings-birthday-pill.locked {
+  background: linear-gradient(135deg, #ecfccb, #dcfce7);
+  border-color: rgba(6, 95, 70, 0.22);
+  color: #14532d;
+}
+
+.settings-birthday-warning,
+.settings-birthday-error,
+.settings-birthday-success {
+  border-radius: 14px;
+  padding: 10px 12px;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.settings-birthday-warning {
+  border: 1px solid rgba(245, 158, 11, 0.28);
+  background: linear-gradient(135deg, #fff7ed, #fffbeb);
+  color: #9a3412;
+}
+
+.settings-birthday-error {
+  border: 1px solid rgba(239, 68, 68, 0.22);
+  background: linear-gradient(135deg, #fff1f2, #ffe4e6);
+  color: #9f1239;
+}
+
+.settings-birthday-success {
+  border: 1px solid rgba(16, 185, 129, 0.24);
+  background: linear-gradient(135deg, #ecfdf5, #d1fae5);
+  color: #065f46;
+}
+
+.settings-birthday-visibility-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.settings-inline-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  color: #0f3d2e;
+}
+
+.settings-inline-toggle input[type="checkbox"] {
+  width: 18px;
+  min-width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: #10b981;
+}
+
+.settings-birthday-visibility-row select {
+  flex: 1 1 220px;
+}
+
 .settings-textarea {
   width: 100%;
   min-height: 90px;
@@ -391,6 +476,46 @@
   border-color: rgba(255, 255, 255, 0.1);
 }
 
+.theme-dark .settings-birthday-pill {
+  background: linear-gradient(135deg, rgba(6, 78, 59, 0.55), rgba(15, 118, 110, 0.28));
+  border-color: rgba(52, 211, 153, 0.22);
+  color: #d1fae5;
+}
+
+.theme-dark .settings-birthday-pill.subtle {
+  background: linear-gradient(135deg, rgba(120, 53, 15, 0.4), rgba(113, 63, 18, 0.28));
+  border-color: rgba(251, 191, 36, 0.2);
+  color: #fde68a;
+}
+
+.theme-dark .settings-birthday-pill.locked {
+  background: linear-gradient(135deg, rgba(6, 78, 59, 0.5), rgba(4, 120, 87, 0.3));
+  border-color: rgba(110, 231, 183, 0.22);
+  color: #bbf7d0;
+}
+
+.theme-dark .settings-birthday-warning {
+  background: linear-gradient(135deg, rgba(120, 53, 15, 0.32), rgba(113, 63, 18, 0.24));
+  border-color: rgba(251, 191, 36, 0.2);
+  color: #fdba74;
+}
+
+.theme-dark .settings-birthday-error {
+  background: linear-gradient(135deg, rgba(136, 19, 55, 0.3), rgba(159, 18, 57, 0.22));
+  border-color: rgba(244, 114, 182, 0.22);
+  color: #fda4af;
+}
+
+.theme-dark .settings-birthday-success {
+  background: linear-gradient(135deg, rgba(6, 78, 59, 0.36), rgba(5, 150, 105, 0.24));
+  border-color: rgba(16, 185, 129, 0.24);
+  color: #a7f3d0;
+}
+
+.theme-dark .settings-inline-toggle {
+  color: #d1fae5;
+}
+
 .theme-dark .settings-user-row {
   background: #081411;
   border-color: rgba(255, 255, 255, 0.1);
@@ -447,5 +572,10 @@
   .settings-primary-btn {
     width: 100%;
     text-align: center;
+  }
+
+  .settings-birthday-visibility-row {
+    flex-direction: column;
+    align-items: stretch;
   }
 }

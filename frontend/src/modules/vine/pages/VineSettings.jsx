@@ -21,6 +21,30 @@ export default function VineSettings() {
   const [saveMsg, setSaveMsg] = useState("");
   const [blockedUsers, setBlockedUsers] = useState([]);
   const [followRequests, setFollowRequests] = useState([]);
+  const [settingsDisplayName, setSettingsDisplayName] = useState("");
+  const [savedDisplayName, setSavedDisplayName] = useState("");
+  const [displayNameSaving, setDisplayNameSaving] = useState(false);
+  const [displayNameMsg, setDisplayNameMsg] = useState("");
+  const [displayNameError, setDisplayNameError] = useState("");
+  const [displayNameStats, setDisplayNameStats] = useState({
+    display_name_edits_used_last_365_days: 0,
+    display_name_edits_remaining: 2,
+    display_name_last_edited_at: null,
+    display_name_next_edit_available_at: null,
+  });
+  const [birthday, setBirthday] = useState("");
+  const [savedBirthday, setSavedBirthday] = useState("");
+  const [birthdaySaving, setBirthdaySaving] = useState(false);
+  const [birthdayMsg, setBirthdayMsg] = useState("");
+  const [birthdayError, setBirthdayError] = useState("");
+  const [birthdayOnProfile, setBirthdayOnProfile] = useState(false);
+  const [birthdayOnProfileMode, setBirthdayOnProfileMode] = useState("month_day");
+  const [birthdayStats, setBirthdayStats] = useState({
+    birthday_edits_used_last_365_days: 0,
+    birthday_edits_remaining: 2,
+    birthday_last_edited_at: null,
+    birthday_next_edit_available_at: null,
+  });
 
   const [privateProfile, setPrivateProfile] = useState(false);
   const [hideLikeCounts, setHideLikeCounts] = useState(false);
@@ -69,6 +93,36 @@ export default function VineSettings() {
     document.documentElement.classList.toggle("theme-dark", darkMode);
     localStorage.setItem("vine_theme", darkMode ? "dark" : "light");
   }, [darkMode]);
+
+  const applyBirthdayPreferences = (prefs = {}) => {
+    const nextBirthday = prefs?.date_of_birth ? String(prefs.date_of_birth).slice(0, 10) : "";
+    setBirthday(nextBirthday);
+    setSavedBirthday(nextBirthday);
+    setBirthdayOnProfile(Boolean(prefs?.birthday_on_profile));
+    setBirthdayOnProfileMode(
+      prefs?.birthday_on_profile_mode === "full_year" ? "full_year" : "month_day"
+    );
+    setBirthdayStats({
+      birthday_edits_used_last_365_days: Number(prefs?.birthday_edits_used_last_365_days || 0),
+      birthday_edits_remaining: Math.max(0, Number(prefs?.birthday_edits_remaining ?? 2)),
+      birthday_last_edited_at: prefs?.birthday_last_edited_at || null,
+      birthday_next_edit_available_at: prefs?.birthday_next_edit_available_at || null,
+    });
+  };
+
+  const applyDisplayNamePreferences = (prefs = {}, fallbackDisplayName = "") => {
+    const nextDisplayName = String(
+      prefs?.display_name ?? fallbackDisplayName ?? ""
+    ).trim();
+    setSettingsDisplayName(nextDisplayName);
+    setSavedDisplayName(nextDisplayName);
+    setDisplayNameStats({
+      display_name_edits_used_last_365_days: Number(prefs?.display_name_edits_used_last_365_days || 0),
+      display_name_edits_remaining: Math.max(0, Number(prefs?.display_name_edits_remaining ?? 2)),
+      display_name_last_edited_at: prefs?.display_name_last_edited_at || null,
+      display_name_next_edit_available_at: prefs?.display_name_next_edit_available_at || null,
+    });
+  };
 
   const loadSessions = async () => {
     try {
@@ -154,6 +208,8 @@ export default function VineSettings() {
         setAutoplayMedia(prefData.autoplay_media !== 0);
         setBlurSensitiveMedia(Boolean(prefData.blur_sensitive_media));
         setDeleteRequestedAt(prefData.delete_requested_at || null);
+        applyBirthdayPreferences(prefData);
+        applyDisplayNamePreferences(prefData, user?.display_name || "");
 
         await Promise.all([loadSessions(), loadBlockedUsers(), loadFollowRequests()]);
       } finally {
@@ -431,9 +487,175 @@ export default function VineSettings() {
     }
   };
 
+  const saveBirthday = async () => {
+    setBirthdayMsg("");
+    setBirthdayError("");
+    if (!birthday) {
+      setBirthdayError("Please enter your birthday.");
+      return;
+    }
+    if (birthday === savedBirthday) {
+      setBirthdayMsg("Birthday already saved.");
+      return;
+    }
+
+    const finalEditWarning = Boolean(savedBirthday) && Number(birthdayStats.birthday_edits_remaining || 0) === 1;
+    if (
+      finalEditWarning &&
+      !window.confirm(
+        "This is your second and final birthday edit for the next 365 days. Continue?"
+      )
+    ) {
+      return;
+    }
+
+    try {
+      setBirthdaySaving(true);
+      const res = await fetch(`${API}/api/vine/users/me/birthday`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ date_of_birth: birthday }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setBirthdayStats((prev) => ({
+          birthday_edits_used_last_365_days: Number(
+            data?.birthday_edits_used_last_365_days ?? prev.birthday_edits_used_last_365_days ?? 0
+          ),
+          birthday_edits_remaining: Math.max(
+            0,
+            Number(data?.birthday_edits_remaining ?? prev.birthday_edits_remaining ?? 2)
+          ),
+          birthday_last_edited_at: data?.birthday_last_edited_at ?? prev.birthday_last_edited_at ?? null,
+          birthday_next_edit_available_at:
+            data?.birthday_next_edit_available_at ?? prev.birthday_next_edit_available_at ?? null,
+        }));
+        setBirthdayError(data?.message || "We could not save your birthday right now.");
+        return;
+      }
+
+      applyBirthdayPreferences(data);
+      setBirthdayMsg(
+        data?.used_final_birthday_edit
+          ? "Birthday updated. That was your final birthday change for the next 365 days."
+          : data?.is_initial_set
+            ? "Birthday saved."
+            : "Birthday updated."
+      );
+      window.dispatchEvent(
+        new CustomEvent("vine:birthday-updated", {
+          detail: { date_of_birth: data?.date_of_birth || birthday },
+        })
+      );
+    } catch {
+      setBirthdayError("We could not save your birthday right now.");
+    } finally {
+      setBirthdaySaving(false);
+    }
+  };
+
+  const saveDisplayName = async () => {
+    setDisplayNameMsg("");
+    setDisplayNameError("");
+    const trimmedDisplayName = String(settingsDisplayName || "").trim();
+    if (!trimmedDisplayName) {
+      setDisplayNameError("Please enter a display name.");
+      return;
+    }
+    if (trimmedDisplayName === savedDisplayName) {
+      setDisplayNameMsg("Display name already saved.");
+      return;
+    }
+
+    const finalEditWarning =
+      Boolean(savedDisplayName) && Number(displayNameStats.display_name_edits_remaining || 0) === 1;
+    if (
+      finalEditWarning &&
+      !window.confirm(
+        "This is your second and final display name edit for the next 365 days. Continue?"
+      )
+    ) {
+      return;
+    }
+
+    try {
+      setDisplayNameSaving(true);
+      const res = await fetch(`${API}/api/vine/users/me/display-name`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ display_name: trimmedDisplayName }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setDisplayNameStats((prev) => ({
+          display_name_edits_used_last_365_days: Number(
+            data?.display_name_edits_used_last_365_days ?? prev.display_name_edits_used_last_365_days ?? 0
+          ),
+          display_name_edits_remaining: Math.max(
+            0,
+            Number(data?.display_name_edits_remaining ?? prev.display_name_edits_remaining ?? 2)
+          ),
+          display_name_last_edited_at:
+            data?.display_name_last_edited_at ?? prev.display_name_last_edited_at ?? null,
+          display_name_next_edit_available_at:
+            data?.display_name_next_edit_available_at ?? prev.display_name_next_edit_available_at ?? null,
+        }));
+        setDisplayNameError(data?.message || "We could not save your display name right now.");
+        return;
+      }
+
+      applyDisplayNamePreferences(data, data?.display_name || trimmedDisplayName);
+      setDisplayNameMsg(
+        data?.used_final_display_name_edit
+          ? "Display name updated. That was your final display name change for the next 365 days."
+          : data?.is_initial_set
+            ? "Display name saved."
+            : "Display name updated."
+      );
+
+      const currentUserRaw = localStorage.getItem("vine_user");
+      if (currentUserRaw) {
+        try {
+          const parsed = JSON.parse(currentUserRaw);
+          parsed.display_name = data?.display_name || trimmedDisplayName;
+          localStorage.setItem("vine_user", JSON.stringify(parsed));
+        } catch {
+          // ignore storage parse errors
+        }
+      }
+    } catch {
+      setDisplayNameError("We could not save your display name right now.");
+    } finally {
+      setDisplayNameSaving(false);
+    }
+  };
+
   if (loading) {
     return <div className="vine-settings-page">Loading settings...</div>;
   }
+
+  const birthdayChanged = birthday !== savedBirthday;
+  const birthdayEditsRemaining = Math.max(0, Number(birthdayStats.birthday_edits_remaining || 0));
+  const birthdayFinalEditWarning = birthdayChanged && Boolean(savedBirthday) && birthdayEditsRemaining === 1;
+  const birthdayEditLocked = birthdayChanged && Boolean(savedBirthday) && birthdayEditsRemaining <= 0;
+  const birthdayNextEditLabel = birthdayStats.birthday_next_edit_available_at
+    ? new Date(birthdayStats.birthday_next_edit_available_at).toLocaleDateString()
+    : "";
+  const displayNameChanged = String(settingsDisplayName || "").trim() !== savedDisplayName;
+  const displayNameEditsRemaining = Math.max(0, Number(displayNameStats.display_name_edits_remaining || 0));
+  const displayNameFinalEditWarning =
+    displayNameChanged && Boolean(savedDisplayName) && displayNameEditsRemaining === 1;
+  const displayNameEditLocked =
+    displayNameChanged && Boolean(savedDisplayName) && displayNameEditsRemaining <= 0;
+  const displayNameNextEditLabel = displayNameStats.display_name_next_edit_available_at
+    ? new Date(displayNameStats.display_name_next_edit_available_at).toLocaleDateString()
+    : "";
 
   return (
     <div className="vine-settings-page">
@@ -612,6 +834,145 @@ export default function VineSettings() {
               <option value="no_one">No one</option>
             </select>
           </div>
+
+          <h3 className="settings-section-title">Identity</h3>
+          <div className="settings-item stack">
+            <label>Display name</label>
+            <div className="settings-birthday-pills">
+              <span className="settings-birthday-pill">
+                {savedDisplayName ? "Display name on file" : "Display name missing"}
+              </span>
+              <span className="settings-birthday-pill subtle">
+                {savedDisplayName
+                  ? `${displayNameEditsRemaining} edit${displayNameEditsRemaining === 1 ? "" : "s"} left this year`
+                  : "Your first save will not use an edit"}
+              </span>
+              {savedDisplayName && displayNameEditsRemaining === 1 && (
+                <span className="settings-birthday-pill locked">🔒 Final edit left</span>
+              )}
+            </div>
+            <input
+              className="settings-input"
+              type="text"
+              maxLength={100}
+              value={settingsDisplayName}
+              onChange={(e) => {
+                setSettingsDisplayName(e.target.value);
+                setDisplayNameMsg("");
+                setDisplayNameError("");
+              }}
+              placeholder="How your name shows on Vine"
+            />
+            <div className="settings-hint">
+              Display names can be changed twice every 365 days.
+            </div>
+            {displayNameFinalEditWarning && (
+              <div className="settings-birthday-warning">
+                This will be your second and final display name edit for the next 365 days.
+              </div>
+            )}
+            {displayNameEditLocked && (
+              <div className="settings-birthday-error">
+                You have already used both display name edits. {displayNameNextEditLabel ? `Next edit opens on ${displayNameNextEditLabel}.` : ""}
+              </div>
+            )}
+            {!displayNameEditLocked && displayNameStats.display_name_last_edited_at && (
+              <div className="settings-hint">
+                Last changed {new Date(displayNameStats.display_name_last_edited_at).toLocaleDateString()}.
+              </div>
+            )}
+            {displayNameError ? <div className="settings-birthday-error">{displayNameError}</div> : null}
+            {displayNameMsg ? <div className="settings-birthday-success">{displayNameMsg}</div> : null}
+            <button
+              className="settings-primary-btn"
+              onClick={saveDisplayName}
+              disabled={!String(settingsDisplayName || "").trim() || !displayNameChanged || displayNameSaving || displayNameEditLocked}
+            >
+              {displayNameSaving ? "Saving..." : savedDisplayName ? "Update display name" : "Save display name"}
+            </button>
+          </div>
+
+          <h3 className="settings-section-title">Birthday</h3>
+          <div className="settings-item stack">
+            <label>Date of birth</label>
+            <div className="settings-birthday-pills">
+              <span className="settings-birthday-pill">
+                {savedBirthday ? "Birthday on file" : "Birthday missing"}
+              </span>
+              <span className="settings-birthday-pill subtle">
+                {savedBirthday
+                  ? `${birthdayEditsRemaining} edit${birthdayEditsRemaining === 1 ? "" : "s"} left this year`
+                  : "Your first save will not use an edit"}
+              </span>
+              {savedBirthday && birthdayEditsRemaining === 1 && (
+                <span className="settings-birthday-pill locked">🔒 Final edit left</span>
+              )}
+            </div>
+            <input
+              className="settings-input"
+              type="date"
+              value={birthday}
+              onChange={(e) => {
+                setBirthday(e.target.value);
+                setBirthdayMsg("");
+                setBirthdayError("");
+              }}
+            />
+            <div className="settings-birthday-visibility-row">
+              <label className="settings-inline-toggle">
+                <input
+                  type="checkbox"
+                  checked={birthdayOnProfile}
+                  onChange={(e) => {
+                    const nextValue = e.target.checked;
+                    setBirthdayOnProfile(nextValue);
+                    saveSettings({ birthday_on_profile: nextValue });
+                  }}
+                />
+                Show birthday on profile
+              </label>
+              <select
+                value={birthdayOnProfileMode}
+                disabled={!birthdayOnProfile}
+                onChange={(e) => {
+                  const nextMode = e.target.value;
+                  setBirthdayOnProfileMode(nextMode);
+                  saveSettings({ birthday_on_profile_mode: nextMode });
+                }}
+              >
+                <option value="month_day">Day and month only</option>
+                <option value="full_year">Full year</option>
+              </select>
+            </div>
+            <div className="settings-hint">
+              You can change your birthday twice every 365 days. Birthday display is off on profiles by default.
+            </div>
+            {birthdayFinalEditWarning && (
+              <div className="settings-birthday-warning">
+                This will be your second and final birthday edit for the next 365 days.
+              </div>
+            )}
+            {birthdayEditLocked && (
+              <div className="settings-birthday-error">
+                You have already used both birthday edits. {birthdayNextEditLabel ? `Next edit opens on ${birthdayNextEditLabel}.` : ""}
+              </div>
+            )}
+            {!birthdayEditLocked && birthdayStats.birthday_last_edited_at && (
+              <div className="settings-hint">
+                Last changed {new Date(birthdayStats.birthday_last_edited_at).toLocaleDateString()}.
+              </div>
+            )}
+            {birthdayError ? <div className="settings-birthday-error">{birthdayError}</div> : null}
+            {birthdayMsg ? <div className="settings-birthday-success">{birthdayMsg}</div> : null}
+            <button
+              className="settings-primary-btn"
+              onClick={saveBirthday}
+              disabled={!birthday || !birthdayChanged || birthdaySaving || birthdayEditLocked}
+            >
+              {birthdaySaving ? "Saving..." : savedBirthday ? "Update birthday" : "Save birthday"}
+            </button>
+          </div>
+
           <h3 className="settings-section-title">Notifications</h3>
           <div className="settings-grid">
             <label><input type="checkbox" checked={notifInappLikes} onChange={(e) => { const v = e.target.checked; setNotifInappLikes(v); saveSettings({ notif_inapp_likes: v }); }} /> In-app Likes</label>

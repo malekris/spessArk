@@ -1330,6 +1330,17 @@
   color: #9ca3af;
 }
 
+.edit-form-hint {
+  margin-top: -4px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #ecfdf5, #d1fae5);
+  border: 1px solid rgba(16, 185, 129, 0.24);
+  color: #065f46;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
 /* ── Tabs ── */
 .vine-profile-tabs {
   width: 100%;
@@ -2111,6 +2122,12 @@
   background: #0a0a0a;
   border-color: rgba(255, 255, 255, 0.2);
   color: #ffffff;
+}
+
+.theme-dark .edit-form-hint {
+  background: linear-gradient(135deg, rgba(6, 78, 59, 0.34), rgba(5, 150, 105, 0.2));
+  border-color: rgba(52, 211, 153, 0.2);
+  color: #a7f3d0;
 }
 
 @media (max-width: 768px) {

@@ -1401,10 +1401,13 @@ const ensureVinePerformanceSchema = async () => {
     if (!dbName) return;
 
     const indexes = [
+      ["vine_posts", "idx_vine_posts_created_id", ["created_at", "id"]],
       ["vine_posts", "idx_vine_posts_user_created", ["user_id", "created_at"]],
       ["vine_posts", "idx_vine_posts_community_created", ["community_id", "created_at"]],
       ["vine_posts", "idx_vine_posts_topic_created", ["topic_tag", "created_at"]],
+      ["vine_revines", "idx_vine_revines_created_id", ["created_at", "id"]],
       ["vine_revines", "idx_vine_revines_user_created", ["user_id", "created_at"]],
+      ["vine_revines", "idx_vine_revines_user_post", ["user_id", "post_id"]],
       ["vine_revines", "idx_vine_revines_post_user", ["post_id", "user_id"]],
       ["vine_comments", "idx_vine_comments_post_created", ["post_id", "created_at"]],
       ["vine_comments", "idx_vine_comments_parent_created", ["parent_comment_id", "created_at"]],
@@ -1472,9 +1475,167 @@ const ensureVineRequestDedupSchema = async () => {
   vineRequestDedupSchemaReady = true;
 };
 
-const getVinePostRowById = async (postId, viewerId) => {
+const buildPostIdPlaceholders = (rows = []) => {
+  const postIds = [...new Set((rows || []).map((row) => Number(row?.id)).filter((id) => id > 0))];
+  if (!postIds.length) {
+    return { postIds: [], placeholders: "" };
+  }
+  return {
+    postIds,
+    placeholders: postIds.map(() => "?").join(", "),
+  };
+};
+
+const buildCountMap = (rows = []) => {
+  const map = new Map();
+  for (const row of rows || []) {
+    map.set(Number(row.post_id), Number(row.total || 0));
+  }
+  return map;
+};
+
+const enrichVinePostRows = async (rows, viewerId, perfCtx = null) => {
+  const inputRows = Array.isArray(rows) ? rows.filter(Boolean) : [];
+  if (!inputRows.length) return [];
+
+  await ensurePollSchema();
+
   const safeViewerId = Number(viewerId || 0);
-  const [rows] = await db.query(
+  const { postIds, placeholders } = buildPostIdPlaceholders(inputRows);
+  if (!postIds.length) {
+    return inputRows;
+  }
+
+  const uniqueCommunityIds = [
+    ...new Set(
+      inputRows
+        .map((row) => Number(row?.community_id || 0))
+        .filter((communityId) => communityId > 0)
+    ),
+  ];
+  const communityPlaceholders = uniqueCommunityIds.map(() => "?").join(", ");
+
+  const [
+    [likeCountRows],
+    [commentCountRows],
+    [revineCountRows],
+    [viewCountRows],
+    [pollRows],
+    [likedRows],
+    [revinedRows],
+    [bookmarkRows],
+    [communityRows],
+  ] = await Promise.all([
+    timedVineQuery(
+      perfCtx,
+      "post-metrics.likes",
+      `SELECT post_id, COUNT(*) AS total FROM vine_likes WHERE post_id IN (${placeholders}) GROUP BY post_id`,
+      postIds
+    ),
+    timedVineQuery(
+      perfCtx,
+      "post-metrics.comments",
+      `SELECT post_id, COUNT(*) AS total FROM vine_comments WHERE post_id IN (${placeholders}) GROUP BY post_id`,
+      postIds
+    ),
+    timedVineQuery(
+      perfCtx,
+      "post-metrics.revines",
+      `SELECT post_id, COUNT(*) AS total FROM vine_revines WHERE post_id IN (${placeholders}) GROUP BY post_id`,
+      postIds
+    ),
+    timedVineQuery(
+      perfCtx,
+      "post-metrics.views",
+      `SELECT post_id, COUNT(*) AS total FROM vine_post_views WHERE post_id IN (${placeholders}) GROUP BY post_id`,
+      postIds
+    ),
+    timedVineQuery(
+      perfCtx,
+      "post-metrics.polls",
+      `SELECT post_id FROM vine_polls WHERE post_id IN (${placeholders})`,
+      postIds
+    ),
+    safeViewerId
+      ? timedVineQuery(
+          perfCtx,
+          "post-metrics.viewer-likes",
+          `
+          SELECT
+            post_id,
+            COALESCE(NULLIF(LOWER(reaction), ''), 'like') AS reaction
+          FROM vine_likes
+          WHERE user_id = ? AND post_id IN (${placeholders})
+          `,
+          [safeViewerId, ...postIds]
+        )
+      : Promise.resolve([[]]),
+    safeViewerId
+      ? timedVineQuery(
+          perfCtx,
+          "post-metrics.viewer-revines",
+          `SELECT post_id FROM vine_revines WHERE user_id = ? AND post_id IN (${placeholders})`,
+          [safeViewerId, ...postIds]
+        )
+      : Promise.resolve([[]]),
+    safeViewerId
+      ? timedVineQuery(
+          perfCtx,
+          "post-metrics.viewer-bookmarks",
+          `SELECT post_id FROM vine_bookmarks WHERE user_id = ? AND post_id IN (${placeholders})`,
+          [safeViewerId, ...postIds]
+        )
+      : Promise.resolve([[]]),
+    safeViewerId && uniqueCommunityIds.length
+      ? timedVineQuery(
+          perfCtx,
+          "post-metrics.viewer-communities",
+          `
+          SELECT community_id
+          FROM vine_community_members
+          WHERE user_id = ? AND community_id IN (${communityPlaceholders})
+          `,
+          [safeViewerId, ...uniqueCommunityIds]
+        )
+      : Promise.resolve([[]]),
+  ]);
+
+  const likeCountMap = buildCountMap(likeCountRows);
+  const commentCountMap = buildCountMap(commentCountRows);
+  const revineCountMap = buildCountMap(revineCountRows);
+  const viewCountMap = buildCountMap(viewCountRows);
+  const pollPostIds = new Set((pollRows || []).map((row) => Number(row.post_id)));
+  const viewerReactionMap = new Map(
+    (likedRows || []).map((row) => [Number(row.post_id), normalizePostReaction(row.reaction)])
+  );
+  const viewerRevinedPostIds = new Set((revinedRows || []).map((row) => Number(row.post_id)));
+  const viewerBookmarkedPostIds = new Set((bookmarkRows || []).map((row) => Number(row.post_id)));
+  const viewerCommunityIds = new Set((communityRows || []).map((row) => Number(row.community_id)));
+
+  return inputRows.map((row) => {
+    const postId = Number(row.id);
+    const communityId = Number(row.community_id || 0);
+    const viewerReaction = viewerReactionMap.get(postId) || null;
+    return {
+      ...row,
+      likes: likeCountMap.get(postId) || 0,
+      comments: commentCountMap.get(postId) || 0,
+      revines: revineCountMap.get(postId) || 0,
+      views: viewCountMap.get(postId) || 0,
+      user_liked: viewerReaction ? 1 : 0,
+      user_revined: viewerRevinedPostIds.has(postId) ? 1 : 0,
+      user_bookmarked: viewerBookmarkedPostIds.has(postId) ? 1 : 0,
+      viewer_reaction: viewerReaction,
+      has_poll: pollPostIds.has(postId) ? 1 : 0,
+      viewer_community_member: communityId > 0 ? (viewerCommunityIds.has(communityId) ? 1 : 0) : 1,
+    };
+  });
+};
+
+const getVinePostRowById = async (postId, viewerId, perfCtx = null) => {
+  const [rows] = await timedVineQuery(
+    perfCtx,
+    "post.row-by-id",
     `
     SELECT
       CONCAT('post-', p.id) AS feed_id,
@@ -1494,30 +1655,11 @@ const getVinePostRowById = async (postId, viewerId) => {
       u.display_name,
       u.avatar_url,
       u.is_verified,
+      u.is_private,
       u.badge_type,
       u.hide_like_counts,
       NULL AS revined_by,
-      NULL AS reviner_username,
-      (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id) AS likes,
-      (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comments,
-      (SELECT COUNT(*) FROM vine_revines WHERE post_id = p.id) AS revines,
-      (SELECT COUNT(*) FROM vine_post_views WHERE post_id = p.id) AS views,
-      ${
-        safeViewerId
-          ? `(SELECT COUNT(*) > 0 FROM vine_likes WHERE post_id = p.id AND user_id = ${safeViewerId})`
-          : "0"
-      } AS user_liked,
-      ${
-        safeViewerId
-          ? `(SELECT COUNT(*) > 0 FROM vine_revines WHERE post_id = p.id AND user_id = ${safeViewerId})`
-          : "0"
-      } AS user_revined,
-      ${
-        safeViewerId
-          ? `(SELECT COUNT(*) > 0 FROM vine_bookmarks WHERE post_id = p.id AND user_id = ${safeViewerId})`
-          : "0"
-      } AS user_bookmarked,
-      (SELECT COUNT(*) > 0 FROM vine_polls vp WHERE vp.post_id = p.id) AS has_poll
+      NULL AS reviner_username
     FROM vine_posts p
     JOIN vine_users u ON p.user_id = u.id
     LEFT JOIN vine_communities c ON c.id = p.community_id
@@ -1526,7 +1668,9 @@ const getVinePostRowById = async (postId, viewerId) => {
     `,
     [postId]
   );
-  return rows[0] || null;
+  if (!rows[0]) return null;
+  const [enriched] = await enrichVinePostRows(rows, viewerId);
+  return enriched || null;
 };
 
 let postViewSchemaReady = false;
@@ -7349,7 +7493,7 @@ router.get("/communities/:slug/posts", authOptional, async (req, res) => {
     }
 
     const posts = await readThroughVineCache(cacheKey, VINE_CACHE_TTLS.communityPosts, async () => {
-      const [rows] = await db.query(
+      const [baseRows] = await db.query(
         `
         SELECT
           CONCAT('post-', p.id) AS feed_id,
@@ -7363,33 +7507,27 @@ router.get("/communities/:slug/posts", authOptional, async (req, res) => {
           p.content,
           p.image_url,
           p.link_preview,
+          p.created_at,
           p.created_at AS sort_time,
           u.username,
           u.display_name,
           u.avatar_url,
           u.is_verified,
+          u.badge_type,
           u.hide_like_counts,
           NULL AS revined_by,
-          NULL AS reviner_username,
-          (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id) AS likes,
-          (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comments,
-          (SELECT COUNT(*) FROM vine_revines WHERE post_id = p.id) AS revines,
-          (SELECT COUNT(*) FROM vine_post_views WHERE post_id = p.id) AS views,
-          ${viewerId ? `(SELECT COUNT(*) > 0 FROM vine_likes WHERE post_id = p.id AND user_id = ${viewerId})` : "0"} AS user_liked,
-          ${viewerId ? `(SELECT COUNT(*) > 0 FROM vine_revines WHERE post_id = p.id AND user_id = ${viewerId})` : "0"} AS user_revined,
-          ${viewerId ? `(SELECT COUNT(*) > 0 FROM vine_bookmarks WHERE post_id = p.id AND user_id = ${viewerId})` : "0"} AS user_bookmarked,
-          (SELECT COUNT(*) > 0 FROM vine_polls vp WHERE vp.post_id = p.id) AS has_poll
+          NULL AS reviner_username
         FROM vine_posts p
         JOIN vine_users u ON u.id = p.user_id
         LEFT JOIN vine_communities c ON c.id = p.community_id
         WHERE p.community_id = ?
         ${topic ? "AND p.topic_tag = ?" : ""}
-        ORDER BY p.is_community_pinned DESC, COALESCE(p.community_pinned_at, p.created_at) DESC, p.created_at DESC
+        ORDER BY p.is_community_pinned DESC, p.community_pinned_at DESC, p.created_at DESC, p.id DESC
         LIMIT 100
         `,
         topic ? [community.id, topic] : [community.id]
       );
-      return rows;
+      return enrichVinePostRows(baseRows, viewerId);
     });
     res.json(posts);
   } catch (err) {
@@ -7427,15 +7565,14 @@ router.get("/posts", authOptional, async (req, res) => {
             feedTab === "news"
               ? " AND 1 = 0"
               : ` AND NOT ${newsAuthorSql}`;
+          const feedBranchLimit = 100;
 
           return readThroughVineCache(cacheKey, VINE_CACHE_TTLS.feed, async () => {
-            const [results] = await timedVineQuery(
+            const [baseRows] = await timedVineQuery(
               perfCtx,
               "feed.rows",
               `
-        SELECT *
-        FROM (
-          -- Normal posts
+        (
           SELECT 
             CONCAT('post-', p.id) AS feed_id,
             p.id,
@@ -7445,55 +7582,19 @@ router.get("/posts", authOptional, async (req, res) => {
             p.is_community_pinned,
             c.name AS community_name,
             c.slug AS community_slug,
-            ${
-              viewerId
-                ? `CASE
-                    WHEN p.community_id IS NULL THEN 1
-                    WHEN EXISTS (
-                      SELECT 1
-                      FROM vine_community_members cm
-                      WHERE cm.community_id = p.community_id
-                        AND cm.user_id = ${viewerId}
-                    ) THEN 1
-                    ELSE 0
-                  END`
-                : "CASE WHEN p.community_id IS NULL THEN 1 ELSE 0 END"
-            } AS viewer_community_member,
             p.content,
             p.image_url,
             p.link_preview,
+            p.created_at,
             p.created_at AS sort_time,
             u.username,
             u.display_name,
             u.avatar_url,
             u.is_verified,
+            u.badge_type,
             u.hide_like_counts,
             NULL AS revined_by,
-            NULL AS reviner_username,
-  
-            (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id) AS likes,
-            (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comments,
-            (SELECT COUNT(*) FROM vine_revines WHERE post_id = p.id) AS revines,
-            (SELECT COUNT(*) FROM vine_post_views WHERE post_id = p.id) AS views,
-  
-            ${
-              viewerId
-                ? `(SELECT COUNT(*) > 0 FROM vine_likes WHERE post_id = p.id AND user_id = ${viewerId})`
-                : "0"
-            } AS user_liked,
-  
-            ${
-              viewerId
-                ? `(SELECT COUNT(*) > 0 FROM vine_revines WHERE post_id = p.id AND user_id = ${viewerId})`
-                : "0"
-            } AS user_revined,
-
-            ${
-              viewerId
-                ? `(SELECT COUNT(*) > 0 FROM vine_bookmarks WHERE post_id = p.id AND user_id = ${viewerId})`
-                : "0"
-            } AS user_bookmarked,
-            (SELECT COUNT(*) > 0 FROM vine_polls vp WHERE vp.post_id = p.id) AS has_poll
+            NULL AS reviner_username
   
           FROM vine_posts p
           JOIN vine_users u ON p.user_id = u.id
@@ -7525,10 +7626,11 @@ router.get("/posts", authOptional, async (req, res) => {
           }
           ${newsPostFilterSql}
           ${tagFilterSql}
-  
-          UNION ALL
-  
-          -- Revines
+          ORDER BY p.created_at DESC, p.id DESC
+          LIMIT ?
+        )
+        UNION ALL
+        (
           SELECT 
             CONCAT('revine-', r.id) AS feed_id,
             p.id,
@@ -7538,55 +7640,19 @@ router.get("/posts", authOptional, async (req, res) => {
             p.is_community_pinned,
             c.name AS community_name,
             c.slug AS community_slug,
-            ${
-              viewerId
-                ? `CASE
-                    WHEN p.community_id IS NULL THEN 1
-                    WHEN EXISTS (
-                      SELECT 1
-                      FROM vine_community_members cm
-                      WHERE cm.community_id = p.community_id
-                        AND cm.user_id = ${viewerId}
-                    ) THEN 1
-                    ELSE 0
-                  END`
-                : "CASE WHEN p.community_id IS NULL THEN 1 ELSE 0 END"
-            } AS viewer_community_member,
             p.content,
             p.image_url,
             p.link_preview,
+            p.created_at,
             r.created_at AS sort_time,
             u.username,
             u.display_name,
             u.avatar_url,
             u.is_verified,
+            u.badge_type,
             u.hide_like_counts,
             r.user_id AS revined_by,
-            ru.username AS reviner_username,
-  
-            (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id) AS likes,
-            (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comments,
-            (SELECT COUNT(*) FROM vine_revines WHERE post_id = p.id) AS revines,
-            (SELECT COUNT(*) FROM vine_post_views WHERE post_id = p.id) AS views,
-  
-            ${
-              viewerId
-                ? `(SELECT COUNT(*) > 0 FROM vine_likes WHERE post_id = p.id AND user_id = ${viewerId})`
-                : "0"
-            } AS user_liked,
-  
-            ${
-              viewerId
-                ? `(SELECT COUNT(*) > 0 FROM vine_revines WHERE post_id = p.id AND user_id = ${viewerId})`
-                : "0"
-            } AS user_revined,
-
-            ${
-              viewerId
-                ? `(SELECT COUNT(*) > 0 FROM vine_bookmarks WHERE post_id = p.id AND user_id = ${viewerId})`
-                : "0"
-            } AS user_bookmarked,
-            (SELECT COUNT(*) > 0 FROM vine_polls vp WHERE vp.post_id = p.id) AS has_poll
+            ru.username AS reviner_username
   
           FROM vine_revines r
           JOIN vine_posts p ON r.post_id = p.id
@@ -7620,12 +7686,15 @@ router.get("/posts", authOptional, async (req, res) => {
           }
           ${newsRevineFilterSql}
           ${tagFilterSql}
-        ) feed
-        ORDER BY sort_time DESC
+          ORDER BY r.created_at DESC, r.id DESC
+          LIMIT ?
+        )
+        ORDER BY sort_time DESC, feed_id DESC
         LIMIT 100
-      `
+      `,
+              [feedBranchLimit, feedBranchLimit]
             );
-            return results;
+            return enrichVinePostRows(baseRows, viewerId, perfCtx);
           });
         }
       );
@@ -8073,44 +8142,7 @@ router.get("/posts/:id/public", authOptional, async (req, res) => {
         await ensurePostReactionSchema();
         const cacheKey = buildVineCacheKey("public-post", postId, viewerId || 0);
         return readThroughVineCache(cacheKey, VINE_CACHE_TTLS.publicPost, async () => {
-          const [[row]] = await timedVineQuery(
-            perfCtx,
-            "public-post.row",
-            `
-            SELECT
-              p.id,
-              CONCAT('post-', p.id) AS feed_id,
-              p.user_id,
-              p.content,
-              p.image_url,
-              p.link_preview,
-              p.community_id,
-              p.created_at,
-              u.username,
-              u.display_name,
-              COALESCE(u.avatar_url, '/default-avatar.png') AS avatar_url,
-              u.is_verified,
-              u.hide_like_counts,
-              u.is_private,
-              (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id) AS likes,
-              (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comments,
-              (SELECT COUNT(*) FROM vine_revines WHERE post_id = p.id) AS revines,
-              (SELECT COUNT(*) FROM vine_post_views WHERE post_id = p.id) AS views,
-              (SELECT COUNT(*) > 0 FROM vine_likes WHERE post_id = p.id AND user_id = ?) AS user_liked,
-              (SELECT COUNT(*) > 0 FROM vine_revines WHERE post_id = p.id AND user_id = ?) AS user_revined,
-              (
-                SELECT COALESCE(NULLIF(LOWER(reaction), ''), 'like')
-                FROM vine_likes
-                WHERE post_id = p.id AND user_id = ?
-                LIMIT 1
-              ) AS viewer_reaction
-            FROM vine_posts p
-            JOIN vine_users u ON u.id = p.user_id
-            WHERE p.id = ?
-            LIMIT 1
-            `,
-            [viewerId || 0, viewerId || 0, viewerId || 0, postId]
-          );
+          const row = await getVinePostRowById(postId, viewerId, perfCtx);
           return row || null;
         });
       }
@@ -8139,8 +8171,6 @@ router.get("/posts/:id/public", authOptional, async (req, res) => {
 
     res.json({
       ...post,
-      has_poll: 0,
-      user_bookmarked: false,
       reaction_counts: { like: 0, love: 0, happy: 0, sad: 0, care: 0 },
     });
   } catch (err) {
@@ -9065,13 +9095,6 @@ const getProfileFeedRows = async (profileUserId, viewerId, { limit = null, offse
   const safeViewerId = Number(viewerId || 0);
   const safeLimit = Number.isFinite(Number(limit)) ? Number(limit) : null;
   const safeOffset = Math.max(0, Number(offset || 0));
-  const params = [profileUserId, profileUserId];
-
-  let paginationSql = "";
-  if (safeLimit && safeLimit > 0) {
-    paginationSql = "LIMIT ? OFFSET ?";
-    params.push(safeLimit, safeOffset);
-  }
 
   const cacheKey = buildVineCacheKey(
     "profile-posts",
@@ -9082,16 +9105,30 @@ const getProfileFeedRows = async (profileUserId, viewerId, { limit = null, offse
   );
 
   return readThroughVineCache(cacheKey, VINE_CACHE_TTLS.profilePosts, async () => {
-    const [rows] = await timedVineQuery(
+    const branchLimit = safeLimit && safeLimit > 0 ? safeLimit + safeOffset : null;
+    const profileParams = [];
+    const postBranchLimitSql = branchLimit ? "LIMIT ?" : "";
+    const revineBranchLimitSql = branchLimit ? "LIMIT ?" : "";
+    const outerLimitSql = safeLimit && safeLimit > 0 ? "LIMIT ? OFFSET ?" : "";
+    profileParams.push(profileUserId);
+    if (branchLimit) profileParams.push(branchLimit);
+    profileParams.push(profileUserId);
+    if (branchLimit) profileParams.push(branchLimit);
+    if (safeLimit && safeLimit > 0) {
+      profileParams.push(safeLimit, safeOffset);
+    }
+
+    const [baseRows] = await timedVineQuery(
       perfCtx,
       "profile-posts.rows",
       `
-      SELECT *
-      FROM (
+      (
         SELECT
           CONCAT('post-', p.id) AS feed_id,
           p.id,
           p.user_id,
+          p.community_id,
+          p.topic_tag,
           p.content,
           p.image_url,
           p.link_preview,
@@ -9102,41 +9139,27 @@ const getProfileFeedRows = async (profileUserId, viewerId, { limit = null, offse
           u.username,
           u.display_name,
           u.avatar_url,
+          u.badge_type,
           u.is_verified,
           u.hide_like_counts,
-
           NULL AS reviner_username,
-          0 AS revined_by,
-
-          (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id) AS likes,
-          (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comments,
-          (SELECT COUNT(*) FROM vine_revines WHERE post_id = p.id) AS revines,
-          (SELECT COUNT(*) FROM vine_post_views WHERE post_id = p.id) AS views,
-
-          ${
-            safeViewerId
-              ? `(SELECT COUNT(*) > 0 FROM vine_likes WHERE post_id = p.id AND user_id = ${safeViewerId})`
-              : "0"
-          } AS user_liked,
-
-          ${
-            safeViewerId
-              ? `(SELECT COUNT(*) > 0 FROM vine_revines WHERE post_id = p.id AND user_id = ${safeViewerId})`
-              : "0"
-          } AS user_revined,
-
-          (SELECT COUNT(*) > 0 FROM vine_polls vp WHERE vp.post_id = p.id) AS has_poll
+          0 AS revined_by
 
         FROM vine_posts p
         JOIN vine_users u ON p.user_id = u.id
         WHERE p.user_id = ?
+        ORDER BY p.is_pinned DESC, p.created_at DESC, p.id DESC
+        ${postBranchLimitSql}
+      )
+      UNION ALL
 
-        UNION ALL
-
+      (
         SELECT
           CONCAT('revine-', r.id) AS feed_id,
           p.id,
           p.user_id,
+          p.community_id,
+          p.topic_tag,
           p.content,
           p.image_url,
           p.link_preview,
@@ -9147,44 +9170,27 @@ const getProfileFeedRows = async (profileUserId, viewerId, { limit = null, offse
           u.username,
           u.display_name,
           u.avatar_url,
+          u.badge_type,
           u.is_verified,
           u.hide_like_counts,
-
           ru.username AS reviner_username,
-          1 AS revined_by,
-
-          (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id) AS likes,
-          (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comments,
-          (SELECT COUNT(*) FROM vine_revines WHERE post_id = p.id) AS revines,
-          (SELECT COUNT(*) FROM vine_post_views WHERE post_id = p.id) AS views,
-
-          ${
-            safeViewerId
-              ? `(SELECT COUNT(*) > 0 FROM vine_likes WHERE post_id = p.id AND user_id = ${safeViewerId})`
-              : "0"
-          } AS user_liked,
-
-          ${
-            safeViewerId
-              ? `(SELECT COUNT(*) > 0 FROM vine_revines WHERE post_id = p.id AND user_id = ${safeViewerId})`
-              : "0"
-          } AS user_revined,
-
-          (SELECT COUNT(*) > 0 FROM vine_polls vp WHERE vp.post_id = p.id) AS has_poll
+          1 AS revined_by
 
         FROM vine_revines r
         JOIN vine_posts p ON r.post_id = p.id
         JOIN vine_users u ON p.user_id = u.id
         JOIN vine_users ru ON r.user_id = ru.id
         WHERE r.user_id = ?
-      ) profile_feed
+        ORDER BY r.created_at DESC, r.id DESC
+        ${revineBranchLimitSql}
+      )
       ORDER BY is_pinned DESC, sort_time DESC, feed_id DESC
-      ${paginationSql}
+      ${outerLimitSql}
       `,
-      params
+      profileParams
     );
 
-    return rows;
+    return enrichVinePostRows(baseRows, viewerId, perfCtx);
   });
 };
 
@@ -12989,12 +12995,14 @@ router.get("/users/:username/likes", authOptional, async (req, res) => {
       Number(viewerId || 0)
     );
     const rows = await readThroughVineCache(cacheKey, VINE_CACHE_TTLS.profileLikes, async () => {
-      const [likedRows] = await db.query(
+      const [baseRows] = await db.query(
         `
         SELECT DISTINCT
           p.id,
           CONCAT('post-', p.id) AS feed_id,
           p.user_id,
+          p.community_id,
+          p.topic_tag,
           p.content,
           p.image_url,
           p.link_preview,
@@ -13004,30 +13012,19 @@ router.get("/users/:username/likes", authOptional, async (req, res) => {
           u.display_name,
           u.avatar_url,
           u.is_verified,
+          u.badge_type,
           u.hide_like_counts,
-          (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id) AS likes,
-          (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comments,
-          (SELECT COUNT(*) FROM vine_revines WHERE post_id = p.id) AS revines,
-          (SELECT COUNT(*) FROM vine_post_views WHERE post_id = p.id) AS views,
-          ${
-            viewerId
-              ? `(SELECT COUNT(*) > 0 FROM vine_likes WHERE post_id = p.id AND user_id = ${viewerId})`
-              : "0"
-          } AS user_liked,
-          ${
-            viewerId
-              ? `(SELECT COUNT(*) > 0 FROM vine_revines WHERE post_id = p.id AND user_id = ${viewerId})`
-              : "0"
-          } AS user_revined
+          NULL AS reviner_username,
+          0 AS revined_by
         FROM vine_likes l
         JOIN vine_posts p ON l.post_id = p.id
         JOIN vine_users u ON p.user_id = u.id
         WHERE l.user_id = ?
-        ORDER BY sort_time DESC
+        ORDER BY l.created_at DESC, l.post_id DESC
         `,
         [user.id]
       );
-      return likedRows;
+      return enrichVinePostRows(baseRows, viewerId);
     });
 
     // 3️⃣ Return feed-ready rows
@@ -13073,34 +13070,42 @@ router.get("/users/:username/photos", authOptional, async (req, res) => {
       Number(viewerId || 0)
     );
     const rows = await readThroughVineCache(cacheKey, VINE_CACHE_TTLS.profilePhotos, async () => {
-      const [photoRows] = await db.query(
+      const [baseRows] = await db.query(
         `
         SELECT
           p.id,
           CONCAT('post-', p.id) AS feed_id,
           p.user_id,
+          p.community_id,
+          p.topic_tag,
           p.content,
           p.image_url,
           p.link_preview,
+          p.created_at,
           p.created_at AS sort_time,
           u.username,
           u.display_name,
           u.avatar_url,
           u.is_verified,
+          u.badge_type,
           u.hide_like_counts,
-          (SELECT COUNT(*) FROM vine_post_views WHERE post_id = p.id) AS views,
-          (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id) AS like_count,
-          (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comment_count,
-          (SELECT COUNT(*) > 0 FROM vine_likes WHERE post_id = p.id AND user_id = ?) AS user_liked
+          NULL AS reviner_username,
+          0 AS revined_by
         FROM vine_posts p
         JOIN vine_users u ON p.user_id = u.id
         WHERE p.user_id = ?
           AND p.image_url IS NOT NULL
-        ORDER BY sort_time DESC
+        ORDER BY p.created_at DESC, p.id DESC
         `,
-        [viewerId || 0, user.id]
+        [user.id]
       );
-      return photoRows;
+      const enrichedRows = await enrichVinePostRows(baseRows, viewerId);
+      return enrichedRows.map((row) => ({
+        ...row,
+        like_count: Number(row.likes || 0),
+        comment_count: Number(row.comments || 0),
+        view_count: Number(row.views || 0),
+      }));
     });
 
     res.status(200).json(rows);
@@ -13128,37 +13133,37 @@ router.get("/users/:username/bookmarks", authOptional, async (req, res) => {
 
     const cacheKey = buildVineCacheKey("profile-bookmarks", viewerId);
     const rows = await readThroughVineCache(cacheKey, VINE_CACHE_TTLS.profileBookmarks, async () => {
-      const [bookmarkRows] = await db.query(
+      const [baseRows] = await db.query(
         `
         SELECT 
           p.id,
           CONCAT('post-', p.id) AS feed_id,
           p.user_id,
+          p.community_id,
+          p.topic_tag,
           p.content,
           p.image_url,
           p.link_preview,
+          p.created_at,
           p.created_at AS sort_time,
           u.username,
           u.display_name,
           u.avatar_url,
           u.is_verified,
+          u.badge_type,
           u.hide_like_counts,
-          (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id) AS likes,
-          (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comments,
-          (SELECT COUNT(*) FROM vine_revines WHERE post_id = p.id) AS revines,
-          (SELECT COUNT(*) FROM vine_post_views WHERE post_id = p.id) AS views,
-          (SELECT COUNT(*) > 0 FROM vine_likes WHERE post_id = p.id AND user_id = ?) AS user_liked,
-          (SELECT COUNT(*) > 0 FROM vine_revines WHERE post_id = p.id AND user_id = ?) AS user_revined,
-          1 AS user_bookmarked
+          NULL AS reviner_username,
+          0 AS revined_by
         FROM vine_bookmarks b
         JOIN vine_posts p ON b.post_id = p.id
         JOIN vine_users u ON p.user_id = u.id
         WHERE b.user_id = ?
-        ORDER BY b.created_at DESC
+        ORDER BY b.created_at DESC, b.post_id DESC
         `,
-        [viewerId, viewerId, viewerId]
+        [viewerId]
       );
-      return bookmarkRows;
+      const enrichedRows = await enrichVinePostRows(baseRows, viewerId);
+      return enrichedRows.map((row) => ({ ...row, user_bookmarked: 1 }));
     });
 
     res.json(rows);

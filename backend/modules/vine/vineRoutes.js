@@ -706,7 +706,6 @@ const buildGuardianActivitySnapshot = async (perfCtx, dbName, { loginLimit = 12,
     const commentsExists = await hasActivityColumns("vine_comments", ["id", "user_id", "post_id", "created_at"]);
     const likesExists = await hasActivityColumns("vine_likes", ["id", "user_id", "post_id", "created_at"]);
     const revinesExists = await hasActivityColumns("vine_revines", ["id", "user_id", "post_id", "created_at"]);
-    const postViewsExists = await hasActivityColumns("vine_post_views", ["user_id", "post_id", "created_at"]);
     const followsExists = await hasActivityColumns("vine_follows", ["id", "follower_id", "following_id", "created_at"]);
     const messagesExists =
       (await hasActivityColumns("vine_messages", ["id", "sender_id", "conversation_id", "created_at"])) &&
@@ -837,38 +836,6 @@ const buildGuardianActivitySnapshot = async (perfCtx, dbName, { loginLimit = 12,
         LEFT JOIN vine_posts p ON p.id = r.post_id
         LEFT JOIN vine_communities c ON c.id = p.community_id
         WHERE r.created_at >= ?
-          AND ${nonGuardianActorSql}
-      `);
-      actionParams.push(actionSince);
-    }
-
-    if (postViewsExists) {
-      actionSelects.push(`
-        SELECT
-          CONCAT('view-', pv.post_id, '-', pv.user_id, '-', UNIX_TIMESTAMP(pv.created_at)) AS event_key,
-          u.id AS user_id,
-          u.username,
-          u.display_name,
-          u.avatar_url,
-          u.is_verified,
-          u.badge_type,
-          u.role,
-          'view' AS action_type,
-          'Viewed a post' AS action_label,
-          COALESCE(c.name, '') AS target_label,
-          '' AS detail,
-          pv.created_at,
-          pv.post_id AS post_id,
-          NULL AS comment_id,
-          NULL AS assignment_id,
-          COALESCE(c.slug, '') AS community_slug,
-          '' AS target_username
-        FROM vine_post_views pv
-        JOIN vine_users u ON u.id = pv.user_id
-        LEFT JOIN vine_posts p ON p.id = pv.post_id
-        LEFT JOIN vine_communities c ON c.id = p.community_id
-        WHERE pv.created_at >= ?
-          AND pv.user_id IS NOT NULL
           AND ${nonGuardianActorSql}
       `);
       actionParams.push(actionSince);
@@ -1392,45 +1359,6 @@ const ensureUniqueIndexExists = async (dbName, tableName, indexName, columns = [
 
 let vinePerformanceSchemaReady = false;
 let vinePerformanceSchemaPromise = null;
-let vinePostCounterSchemaReady = false;
-let vinePostCounterSchemaPromise = null;
-
-const ensureVinePostCounterSchema = async () => {
-  if (vinePostCounterSchemaReady) return;
-  if (vinePostCounterSchemaPromise) return vinePostCounterSchemaPromise;
-
-  vinePostCounterSchemaPromise = (async () => {
-    const dbName = await getDbName();
-    if (!dbName) return;
-    if (!(await hasTable(dbName, "vine_posts"))) return;
-
-    const hasViewCount = await hasColumn(dbName, "vine_posts", "view_count");
-    if (!hasViewCount) {
-      await db.query("ALTER TABLE vine_posts ADD COLUMN view_count INT NOT NULL DEFAULT 0");
-      if (await hasTable(dbName, "vine_post_views")) {
-        try {
-          await db.query(`
-            UPDATE vine_posts p
-            LEFT JOIN (
-              SELECT post_id, COUNT(*) AS total
-              FROM vine_post_views
-              GROUP BY post_id
-            ) pv ON pv.post_id = p.id
-            SET p.view_count = COALESCE(pv.total, 0)
-          `);
-        } catch (err) {
-          console.warn("Post view_count backfill skipped:", err?.message || err);
-        }
-      }
-    }
-
-    vinePostCounterSchemaReady = true;
-  })().finally(() => {
-    vinePostCounterSchemaPromise = null;
-  });
-
-  return vinePostCounterSchemaPromise;
-};
 
 const ensureVinePerformanceSchema = async () => {
   if (vinePerformanceSchemaReady) return;
@@ -1485,7 +1413,6 @@ const ensureVinePerformanceSchema = async () => {
       }
     }
 
-    await ensureVinePostCounterSchema();
     vinePerformanceSchemaReady = true;
   })().finally(() => {
     vinePerformanceSchemaPromise = null;
@@ -1651,7 +1578,6 @@ const enrichVinePostRows = async (rows, viewerId, perfCtx = null) => {
       likes: likeCountMap.get(postId) || 0,
       comments: commentCountMap.get(postId) || 0,
       revines: revineCountMap.get(postId) || 0,
-      views: Number(row.views ?? row.view_count ?? 0),
       user_liked: viewerReaction ? 1 : 0,
       user_revined: viewerRevinedPostIds.has(postId) ? 1 : 0,
       user_bookmarked: viewerBookmarkedPostIds.has(postId) ? 1 : 0,
@@ -1679,7 +1605,6 @@ const getVinePostRowById = async (postId, viewerId, perfCtx = null) => {
       p.content,
       p.image_url,
       p.link_preview,
-      COALESCE(p.view_count, 0) AS views,
       p.created_at,
       p.created_at AS sort_time,
       u.username,
@@ -2091,7 +2016,6 @@ const getFeedPageData = async ({ viewerId, feedTag = "", feedTab = "for-you", cu
       p.content,
       p.image_url,
       p.link_preview,
-      COALESCE(p.view_count, 0) AS views,
       p.created_at,
       u.username,
       u.display_name,
@@ -2137,37 +2061,6 @@ const getFeedPageData = async ({ viewerId, feedTag = "", feedTab = "for-you", cu
 
   const enrichedItems = await enrichVinePostRows(orderedRows, viewerId, perfCtx);
   return { items: enrichedItems, nextCursor };
-};
-
-let postViewSchemaReady = false;
-let postViewSchemaPromise = null;
-const ensurePostViewSchema = async () => {
-  if (postViewSchemaReady) return;
-  if (postViewSchemaPromise) return postViewSchemaPromise;
-
-  postViewSchemaPromise = (async () => {
-    const dbName = await getDbName();
-    if (!dbName) return;
-
-    await db.query(`
-      CREATE TABLE IF NOT EXISTS vine_post_views (
-        post_id INT NOT NULL,
-        user_id INT NOT NULL,
-        guest_key VARCHAR(64) NULL,
-        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (post_id, user_id),
-        KEY user_id (user_id)
-      )
-    `);
-
-    await ensureColumnExists(dbName, "vine_post_views", "guest_key", "VARCHAR(64) NULL");
-
-    postViewSchemaReady = true;
-  })().finally(() => {
-    postViewSchemaPromise = null;
-  });
-
-  return postViewSchemaPromise;
 };
 
 const getGuardianRecipientIds = async () => {
@@ -2566,7 +2459,6 @@ const purgeUserAccount = async (userId) => {
   await db.query("DELETE FROM vine_statuses WHERE user_id = ?", [numericUserId]).catch(() => {});
   await db.query("DELETE FROM vine_comment_likes WHERE user_id = ?", [numericUserId]).catch(() => {});
   await db.query("DELETE FROM vine_comments WHERE user_id = ?", [numericUserId]).catch(() => {});
-  await db.query("DELETE FROM vine_post_views WHERE user_id = ?", [numericUserId]).catch(() => {});
   await db.query("DELETE FROM vine_bookmarks WHERE user_id = ?", [numericUserId]).catch(() => {});
   await db.query("DELETE FROM vine_likes WHERE user_id = ?", [numericUserId]).catch(() => {});
   await db.query("DELETE FROM vine_revines WHERE user_id = ?", [numericUserId]).catch(() => {});
@@ -7957,7 +7849,6 @@ router.get("/communities/:slug/posts", authOptional, async (req, res) => {
           p.content,
           p.image_url,
           p.link_preview,
-          COALESCE(p.view_count, 0) AS views,
           p.created_at,
           p.created_at AS sort_time,
           u.username,
@@ -8980,8 +8871,7 @@ router.get("/search", authenticate, async (req, res) => {
         u.is_verified,
         (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id) AS likes,
         (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comments,
-        (SELECT COUNT(*) FROM vine_revines WHERE post_id = p.id) AS revines,
-        COALESCE(p.view_count, 0) AS views
+        (SELECT COUNT(*) FROM vine_revines WHERE post_id = p.id) AS revines
       FROM vine_posts p
       JOIN vine_users u ON u.id = p.user_id
       WHERE p.content LIKE ?
@@ -9474,7 +9364,6 @@ const getProfileFeedRows = async (profileUserId, viewerId, { limit = null, offse
           p.content,
           p.image_url,
           p.link_preview,
-          COALESCE(p.view_count, 0) AS views,
           p.created_at,
           p.is_pinned,
           p.created_at AS sort_time,
@@ -9506,7 +9395,6 @@ const getProfileFeedRows = async (profileUserId, viewerId, { limit = null, offse
           p.content,
           p.image_url,
           p.link_preview,
-          COALESCE(p.view_count, 0) AS views,
           p.created_at,
           p.is_pinned,
           r.created_at AS sort_time,
@@ -9814,7 +9702,6 @@ router.get("/posts/trending", authOptional, async (req, res) => {
           (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id)    AS like_count,
           (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comment_count,
           (SELECT COUNT(*) FROM vine_revines WHERE post_id = p.id)  AS revine_count,
-          COALESCE(p.view_count, 0) AS view_count,
 
           ${viewerId ? "(SELECT COUNT(*) > 0 FROM vine_likes WHERE post_id = p.id AND user_id = " + viewerId + ") AS user_liked," : "0 AS user_liked,"}
           ${viewerId ? "(SELECT COUNT(*) > 0 FROM vine_revines WHERE post_id = p.id AND user_id = " + viewerId + ") AS user_revined," : "0 AS user_revined,"}
@@ -9896,7 +9783,6 @@ router.get("/posts/_legacy-ranked-debug", authOptional, async (req, res) => {
           (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id)    AS like_count,
           (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comment_count,
           (SELECT COUNT(*) FROM vine_revines WHERE post_id = p.id)  AS revine_count,
-          COALESCE(p.view_count, 0) AS view_count,
 
 
           0 AS user_liked,
@@ -9938,7 +9824,6 @@ router.get("/posts/_legacy-ranked-debug", authOptional, async (req, res) => {
         (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id)    AS like_count,
         (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comment_count,
         (SELECT COUNT(*) FROM vine_revines WHERE post_id = p.id)  AS revine_count,
-        COALESCE(p.view_count, 0) AS view_count,
 
         (SELECT COUNT(*) > 0 
           FROM vine_likes 
@@ -10027,7 +9912,6 @@ router.post("/posts/:id/revine", authMiddleware, async (req, res) => {
         "INSERT INTO vine_revines (user_id, post_id) VALUES (?, ?)",
         [userId, postId]
       );
-
       // ✅ Create notification only if not revining own post
       if (postOwnerId !== userId) {
         const muted = await isMutedBy(postOwnerId, userId);
@@ -10240,83 +10124,9 @@ router.post("/posts/:id/bookmark", requireVineAuth, async (req, res) => {
   res.json({ user_bookmarked: !existing.length });
 });
 
-// 👀 Record view (unique per signed-in user or guest browser)
+// Post-view tracking is intentionally disabled in the budget-first path.
 router.post("/posts/:id/view", authOptional, async (req, res) => {
-  const postId = Number(req.params.id);
-  const userId = Number(req.user?.id || 0) || null;
-
-  if (!postId) {
-    return res.status(400).json({ message: "Invalid post id" });
-  }
-
-  try {
-    await ensurePostViewSchema();
-    await ensureVinePostCounterSchema();
-
-    const [[post]] = await db.query(
-      `
-      SELECT
-        p.id,
-        p.user_id,
-        COALESCE(u.is_private, 0) AS is_private
-      FROM vine_posts p
-      JOIN vine_users u ON u.id = p.user_id
-      WHERE p.id = ?
-      LIMIT 1
-      `,
-      [postId]
-    );
-    if (!post) {
-      return res.status(404).json({ message: "Post not found" });
-    }
-
-    if (userId) {
-      if (await isUserBlocked(post.user_id, userId) || await isUserBlocked(userId, post.user_id)) {
-        return res.status(403).json({ message: "Post unavailable" });
-      }
-    }
-
-    if (Number(post.is_private) === 1 && Number(post.user_id) !== Number(userId || 0)) {
-      if (!userId) {
-        return res.status(403).json({ message: "Post unavailable" });
-      }
-      const [[followRow]] = await db.query(
-        "SELECT 1 FROM vine_follows WHERE follower_id = ? AND following_id = ? LIMIT 1",
-        [userId, post.user_id]
-      );
-      if (!followRow) {
-        return res.status(403).json({ message: "Post unavailable" });
-      }
-    }
-
-    if (userId) {
-      const [insertResult] = await db.query(
-        "INSERT IGNORE INTO vine_post_views (post_id, user_id, created_at) VALUES (?, ?, NOW())",
-        [postId, userId]
-      );
-      if (Number(insertResult?.affectedRows || 0) > 0) {
-        await db.query(
-          "UPDATE vine_posts SET view_count = view_count + 1 WHERE id = ?",
-          [postId]
-        );
-      }
-    } else {
-      await db.query(
-        "UPDATE vine_posts SET view_count = view_count + 1 WHERE id = ?",
-        [postId]
-      );
-    }
-
-    const [[count]] = await db.query(
-      "SELECT view_count AS total FROM vine_posts WHERE id = ? LIMIT 1",
-      [postId]
-    );
-
-    res.json({ views: Number(count?.total || 0) });
-  } catch (err) {
-    console.error("View record error:", err);
-    res.status(500).json({ message: "Failed to record view" });
-  }
+  res.status(204).end();
 });
 
 // Add comment or reply
@@ -10417,7 +10227,6 @@ router.post("/posts/:id/comments", authMiddleware, async (req, res) => {
       commentId,
       type: "mention_comment",
     });
-
     emitVineFeedUpdated({
       type: parent_comment_id ? "reply_created" : "comment_created",
       postId,
@@ -10573,7 +10382,6 @@ router.post("/posts/:id/revine", authMiddleware, async (req, res) => {
         "INSERT INTO vine_revines (user_id, post_id) VALUES (?, ?)",
         [userId, postId]
       );
-
       // 🔔 Create notification (only if not own post)
       if (postOwnerId !== userId) {
         await db.query(`
@@ -12199,8 +12007,7 @@ router.get("/analytics/overview", authenticate, async (req, res) => {
           u.is_verified,
           (SELECT COUNT(*) FROM vine_likes l WHERE l.post_id = p.id) AS likes,
           (SELECT COUNT(*) FROM vine_comments c WHERE c.post_id = p.id) AS comments,
-          (SELECT COUNT(*) FROM vine_revines r WHERE r.post_id = p.id) AS revines,
-          COALESCE(p.view_count, 0) AS views
+          (SELECT COUNT(*) FROM vine_revines r WHERE r.post_id = p.id) AS revines
         FROM vine_posts p
         JOIN vine_users u ON u.id = p.user_id
         WHERE p.created_at >= ? AND p.created_at <= ?
@@ -12222,8 +12029,7 @@ router.get("/analytics/overview", authenticate, async (req, res) => {
           u.is_verified,
           (SELECT COUNT(*) FROM vine_likes l WHERE l.post_id = p.id) AS likes,
           (SELECT COUNT(*) FROM vine_comments c WHERE c.post_id = p.id) AS comments,
-          (SELECT COUNT(*) FROM vine_revines r WHERE r.post_id = p.id) AS revines,
-          COALESCE(p.view_count, 0) AS views
+          (SELECT COUNT(*) FROM vine_revines r WHERE r.post_id = p.id) AS revines
         FROM vine_posts p
         JOIN vine_users u ON u.id = p.user_id
         WHERE DATE(p.created_at) = DATE(?)
@@ -12237,8 +12043,7 @@ router.get("/analytics/overview", authenticate, async (req, res) => {
             const score =
               Number(row.likes || 0) * 1 +
               Number(row.comments || 0) * 2 +
-              Number(row.revines || 0) * 3 +
-              Number(row.views || 0) * 0.25;
+              Number(row.revines || 0) * 3;
             return { ...row, score: Number(score.toFixed(2)) };
           })
           .sort((a, b) => b.score - a.score)
@@ -12682,8 +12487,7 @@ router.get("/analytics/drilldown", authenticate, async (req, res) => {
           u.display_name,
           (SELECT COUNT(*) FROM vine_likes l WHERE l.post_id = p.id) AS likes,
           (SELECT COUNT(*) FROM vine_comments c WHERE c.post_id = p.id) AS comments,
-          (SELECT COUNT(*) FROM vine_revines r WHERE r.post_id = p.id) AS revines,
-          COALESCE(p.view_count, 0) AS views
+          (SELECT COUNT(*) FROM vine_revines r WHERE r.post_id = p.id) AS revines
         FROM vine_posts p
         JOIN vine_users u ON u.id = p.user_id
         WHERE p.created_at >= ? AND p.created_at <= ?
@@ -13347,7 +13151,6 @@ router.get("/users/:username/likes", authOptional, async (req, res) => {
           p.content,
           p.image_url,
           p.link_preview,
-          COALESCE(p.view_count, 0) AS views,
           p.created_at,
           l.created_at AS sort_time,
           u.username,
@@ -13423,7 +13226,6 @@ router.get("/users/:username/photos", authOptional, async (req, res) => {
           p.content,
           p.image_url,
           p.link_preview,
-          COALESCE(p.view_count, 0) AS views,
           p.created_at,
           p.created_at AS sort_time,
           u.username,
@@ -13447,7 +13249,6 @@ router.get("/users/:username/photos", authOptional, async (req, res) => {
         ...row,
         like_count: Number(row.likes || 0),
         comment_count: Number(row.comments || 0),
-        view_count: Number(row.views || 0),
       }));
     });
 
@@ -13487,7 +13288,6 @@ router.get("/users/:username/bookmarks", authOptional, async (req, res) => {
           p.content,
           p.image_url,
           p.link_preview,
-          COALESCE(p.view_count, 0) AS views,
           p.created_at,
           p.created_at AS sort_time,
           u.username,

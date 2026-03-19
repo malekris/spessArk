@@ -810,11 +810,6 @@
   color: #065f46;
 }
 
-.view-btn {
-  cursor: default;
-  pointer-events: none;
-}
-
 .bookmark-btn {
   padding: 8px 10px;
 }

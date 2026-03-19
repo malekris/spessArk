@@ -15,8 +15,6 @@ const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const DEFAULT_AVATAR = "/default-avatar.png";
 const ORIGIN = API.replace(/\/api$/, "");
 const SHARE_PREVIEW_VERSION = "20260315";
-const viewedPosts = new Set();
-const pendingViewedPosts = new Set();
 const POST_REACTIONS = [
   { key: "love", emoji: "❤️", label: "Love" },
   { key: "happy", emoji: "😄", label: "Happy" },
@@ -281,7 +279,6 @@ function VinePostCard({
     }
   })();
   const lastTapRef = useRef(0);
-  const postRef = useRef(null);
   // Current user ID from JWT
   let current_user_id = null;
   if (token) {
@@ -294,7 +291,6 @@ function VinePostCard({
   }
 
   const isPostAuthor = Number(current_user_id) === Number(post.user_id);
-  const viewTrackingKey = `${current_user_id || currentUser?.id || "viewer"}:${post.id}`;
   const isModerator =
     Number(currentUser?.is_admin) === 1 ||
     String(currentUser?.role || "").toLowerCase() === "moderator" ||
@@ -313,7 +309,6 @@ function VinePostCard({
   );
   const [revines, setRevines] = useState(post.revines || 0);
   const [userRevined, setUserRevined] = useState(post.user_revined || false);
-  const [views, setViews] = useState(post.views ?? post.view_count ?? 0);
   const [open, setOpen] = useState(false);
   const [comments, setComments] = useState([]);
   const [text, setText] = useState("");
@@ -400,20 +395,6 @@ function VinePostCard({
   useEffect(() => {
     if (open) fetchComments();
   }, [open]);
-
-  useEffect(() => {
-    if (post.views !== undefined || post.view_count !== undefined) {
-      setViews(post.views ?? post.view_count ?? 0);
-    }
-  }, [post.views, post.view_count]);
-
-  const recordViewOnce = () => {
-    if (!token) return false;
-    if (!post?.id) return false;
-    if (viewedPosts.has(viewTrackingKey) || pendingViewedPosts.has(viewTrackingKey)) return false;
-    recordView(viewTrackingKey);
-    return true;
-  };
 
   useEffect(() => {
     if (!post?.has_poll) {
@@ -564,7 +545,6 @@ function VinePostCard({
 
   useEffect(() => {
     if (focusComments || targetCommentId) {
-      recordViewOnce();
       setOpen(true);
       setTimeout(() => {
         const input = document.querySelector(`#post-${post.id} textarea`);
@@ -675,7 +655,6 @@ function VinePostCard({
     }
   };
   const handleLike = async (reaction = "like") => {
-    recordViewOnce();
     const res = await fetch(`${API}/api/vine/posts/${post.id}/like`, {
       method: "POST",
       headers: {
@@ -702,7 +681,6 @@ function VinePostCard({
   };
 
   const handleBookmark = async () => {
-    recordViewOnce();
     try {
       const res = await fetch(`${API}/api/vine/posts/${post.id}/bookmark`, {
         method: "POST",
@@ -759,7 +737,6 @@ function VinePostCard({
   
 
   const handleRevine = async () => {
-    recordViewOnce();
     if (isCommunityInteractionLocked) {
       alert("Join this community to comment or revine.");
       return;
@@ -775,27 +752,6 @@ function VinePostCard({
     }
     setRevines(data.revines);
     setUserRevined(data.user_revined);
-  };
-
-  const recordView = async (trackingKey = viewTrackingKey) => {
-    pendingViewedPosts.add(trackingKey);
-    try {
-      const res = await fetch(`${API}/api/vine/posts/${post.id}/view`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      if (res.ok && typeof data.views === "number") {
-        pendingViewedPosts.delete(trackingKey);
-        viewedPosts.add(trackingKey);
-        setViews(data.views);
-      } else {
-        pendingViewedPosts.delete(trackingKey);
-      }
-    } catch (err) {
-      pendingViewedPosts.delete(trackingKey);
-      console.error("View record error", err);
-    }
   };
  
   const deleteMainPost = async () => {
@@ -936,7 +892,7 @@ function VinePostCard({
 
   // ── Render ──────────────────────────────────────
   return (
-    <div className="vine-post light-green-theme" id={`post-${post.id}`} ref={postRef}>
+    <div className="vine-post light-green-theme" id={`post-${post.id}`}>
       <GifPickerModal
         open={gifPickerCommentOpen}
         token={token}
@@ -1177,7 +1133,6 @@ function VinePostCard({
     ref={mediaMountRef}
     className="carousel-shell"
     onClick={() => {
-      recordViewOnce();
       const now = Date.now();
       if (now - lastTapRef.current < 300) {
         if (!postUserLiked) {
@@ -1193,7 +1148,6 @@ function VinePostCard({
         onLike={handleLike}
         onRevine={handleRevine}
         onComments={() => {
-          recordViewOnce();
           setOpen(true);
         }}
         likeCount={canShowLikeCount ? postLikes : null}
@@ -1255,7 +1209,6 @@ function VinePostCard({
         <button
           className="action-btn"
           onClick={() => {
-            recordViewOnce();
             setOpen(!open);
           }}
         >
@@ -1277,9 +1230,6 @@ function VinePostCard({
         >
           🔖
         </button>
-
-        <span className="action-btn view-btn">👁️ {views}</span>
-
         <button
           className="action-btn"
           onClick={() => {

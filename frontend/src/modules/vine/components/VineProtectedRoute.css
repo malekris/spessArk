@@ -39,6 +39,35 @@
   color: #123524;
 }
 
+.vine-notice-modal {
+  position: relative;
+  width: min(100%, 460px);
+  padding: 24px 22px 22px;
+  border-radius: 30px;
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  background:
+    radial-gradient(circle at top right, rgba(16, 185, 129, 0.12), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(237, 253, 245, 0.98));
+  box-shadow: 0 30px 78px rgba(2, 6, 23, 0.26);
+  color: #123524;
+}
+
+.vine-notice-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(245, 158, 11, 0.24);
+  background: linear-gradient(135deg, rgba(255, 247, 237, 0.98), rgba(254, 240, 138, 0.86));
+  color: #92400e;
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .vine-session-countdown-pill {
   position: absolute;
   top: 18px;
@@ -78,6 +107,13 @@
   color: #35594a;
 }
 
+.vine-notice-copy {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.7;
+  color: #35594a;
+}
+
 .vine-session-countdown {
   margin-top: 16px;
   padding: 12px 14px;
@@ -106,6 +142,11 @@
   margin-top: 18px;
 }
 
+.vine-notice-actions {
+  display: flex;
+  margin-top: 18px;
+}
+
 .vine-session-actions button {
   flex: 1;
   min-height: 48px;
@@ -117,11 +158,32 @@
   transition: transform 0.16s ease, box-shadow 0.16s ease, opacity 0.16s ease;
 }
 
+.vine-notice-actions button {
+  width: 100%;
+  min-height: 50px;
+  border: none;
+  border-radius: 999px;
+  font-size: 1rem;
+  font-weight: 900;
+  cursor: pointer;
+  transition: transform 0.16s ease, box-shadow 0.16s ease, opacity 0.16s ease;
+}
+
 .vine-session-actions button:hover {
   transform: translateY(-1px);
 }
 
+.vine-notice-actions button:hover {
+  transform: translateY(-1px);
+}
+
 .vine-session-actions button:disabled {
+  opacity: 0.7;
+  cursor: wait;
+  transform: none;
+}
+
+.vine-notice-actions button:disabled {
   opacity: 0.7;
   cursor: wait;
   transform: none;
@@ -139,8 +201,22 @@
   box-shadow: 0 14px 30px rgba(16, 185, 129, 0.24);
 }
 
+.vine-notice-ok {
+  background: linear-gradient(135deg, #065f46, #10b981);
+  color: #ffffff;
+  box-shadow: 0 18px 34px rgba(16, 185, 129, 0.24);
+}
+
 .theme-dark .vine-session-modal {
   background: linear-gradient(180deg, rgba(9, 18, 16, 0.98), rgba(14, 30, 26, 0.98));
+  border-color: rgba(16, 185, 129, 0.18);
+  color: #e5f7ef;
+}
+
+.theme-dark .vine-notice-modal {
+  background:
+    radial-gradient(circle at top right, rgba(16, 185, 129, 0.14), transparent 38%),
+    linear-gradient(180deg, rgba(9, 18, 16, 0.98), rgba(14, 30, 26, 0.98));
   border-color: rgba(16, 185, 129, 0.18);
   color: #e5f7ef;
 }
@@ -167,6 +243,10 @@
   color: #b7d8cb;
 }
 
+.theme-dark .vine-notice-copy {
+  color: #b7d8cb;
+}
+
 .theme-dark .vine-session-countdown {
   background: rgba(255, 255, 255, 0.05);
   border-color: rgba(16, 185, 129, 0.14);
@@ -179,10 +259,21 @@
   color: #fecaca;
 }
 
+.theme-dark .vine-notice-pill {
+  background: linear-gradient(135deg, rgba(120, 53, 15, 0.92), rgba(146, 64, 14, 0.9));
+  border-color: rgba(251, 191, 36, 0.24);
+  color: #fde68a;
+}
+
 @media (max-width: 640px) {
   .vine-session-modal {
     padding: 20px 16px 16px;
     border-radius: 24px;
+  }
+
+  .vine-notice-modal {
+    padding: 20px 16px 18px;
+    border-radius: 26px;
   }
 
   .vine-session-toast {

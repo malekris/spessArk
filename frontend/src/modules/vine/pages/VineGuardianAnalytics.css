@@ -186,6 +186,31 @@
   font-size: 0.95rem;
 }
 
+.guardian-notice-input {
+  font-size: 1rem;
+}
+
+.guardian-notice-message {
+  min-height: 160px;
+  resize: vertical;
+  font-family: inherit;
+  line-height: 1.55;
+}
+
+.guardian-notice-toggle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #0f5132;
+  font-weight: 800;
+}
+
+.guardian-notice-toggle input {
+  width: 18px;
+  height: 18px;
+  accent-color: #059669;
+}
+
 .guardian-news-runtime {
   display: flex;
   flex-direction: column;

@@ -31,8 +31,11 @@ const formatSessionCountdown = (totalSeconds) => {
 export default function VineProtectedRoute() {
   const location = useLocation();
   const [status, setStatus] = useState("checking");
-  const [birthdayChecked, setBirthdayChecked] = useState(false);
+  const [requirementsChecked, setRequirementsChecked] = useState(false);
   const [birthdayMissing, setBirthdayMissing] = useState(false);
+  const [activeNotice, setActiveNotice] = useState(null);
+  const [acknowledgingNotice, setAcknowledgingNotice] = useState(false);
+  const [noticeError, setNoticeError] = useState("");
   const [warningVisible, setWarningVisible] = useState(false);
   const [secondsRemaining, setSecondsRemaining] = useState(Math.ceil(VINE_SESSION_IDLE_MS / 1000));
   const [renewing, setRenewing] = useState(false);
@@ -51,8 +54,11 @@ export default function VineProtectedRoute() {
     setWarningVisible(false);
     setRenewError("");
     setKeepaliveNotice("");
-    setBirthdayChecked(false);
+    setRequirementsChecked(false);
     setBirthdayMissing(false);
+    setActiveNotice(null);
+    setAcknowledgingNotice(false);
+    setNoticeError("");
     setStatus("denied");
   }, []);
 
@@ -114,11 +120,12 @@ export default function VineProtectedRoute() {
     }
   }, [forceLogout]);
 
-  const loadBirthdayRequirement = useCallback(async () => {
+  const loadEntryRequirements = useCallback(async () => {
     const token = getVineToken();
     if (!token) {
-      setBirthdayChecked(true);
+      setRequirementsChecked(true);
       setBirthdayMissing(false);
+      setActiveNotice(null);
       return;
     }
 
@@ -137,12 +144,17 @@ export default function VineProtectedRoute() {
       }
 
       const prefs = await res.json().catch(() => ({}));
-      setBirthdayMissing(!String(prefs?.date_of_birth || "").trim());
+      const missingBirthday = !String(prefs?.date_of_birth || "").trim();
+      const notice = prefs?.system_notice && prefs.system_notice.enabled !== false ? prefs.system_notice : null;
+      setBirthdayMissing(missingBirthday);
+      setActiveNotice(!missingBirthday && notice?.needs_ack ? notice : null);
+      setNoticeError("");
     } catch (err) {
-      console.warn("Birthday requirement check failed:", err?.message || err);
+      console.warn("Vine entry requirement check failed:", err?.message || err);
       setBirthdayMissing(false);
+      setActiveNotice(null);
     } finally {
-      setBirthdayChecked(true);
+      setRequirementsChecked(true);
     }
   }, [forceLogout]);
 
@@ -183,10 +195,10 @@ export default function VineProtectedRoute() {
 
   useEffect(() => {
     if (status !== "allowed") return undefined;
-    if (birthdayChecked) return undefined;
-    loadBirthdayRequirement();
+    if (requirementsChecked) return undefined;
+    loadEntryRequirements();
     return undefined;
-  }, [birthdayChecked, loadBirthdayRequirement, status]);
+  }, [loadEntryRequirements, requirementsChecked, status]);
 
   useEffect(() => () => {
     if (keepaliveNoticeTimerRef.current) {
@@ -196,12 +208,46 @@ export default function VineProtectedRoute() {
 
   useEffect(() => {
     const handleBirthdaySaved = () => {
-      setBirthdayChecked(true);
       setBirthdayMissing(false);
+      setRequirementsChecked(false);
     };
     window.addEventListener("vine:birthday-updated", handleBirthdaySaved);
     return () => window.removeEventListener("vine:birthday-updated", handleBirthdaySaved);
   }, []);
+
+  const handleAcknowledgeNotice = useCallback(async () => {
+    const token = getVineToken();
+    if (!token) {
+      forceLogout();
+      return;
+    }
+
+    try {
+      setAcknowledgingNotice(true);
+      setNoticeError("");
+      const res = await fetch(`${API}/api/vine/system-notice/ack`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!res.ok) {
+        if (res.status === 401 || res.status === 403) {
+          forceLogout();
+          return;
+        }
+        throw new Error("Failed to save system notice");
+      }
+
+      const now = touchVineActivity();
+      lastActivityRef.current = now;
+      lastPersistRef.current = now;
+      setActiveNotice(null);
+    } catch {
+      setNoticeError("We could not save that yet. Please try again.");
+    } finally {
+      setAcknowledgingNotice(false);
+    }
+  }, [forceLogout]);
 
   useEffect(() => {
     if (status !== "allowed") return undefined;
@@ -313,7 +359,7 @@ export default function VineProtectedRoute() {
     );
   }
 
-  if (!birthdayChecked) {
+  if (!requirementsChecked) {
     return <div className="vine-auth-checking">Loading your Vine space...</div>;
   }
 
@@ -343,12 +389,35 @@ export default function VineProtectedRoute() {
   return (
     <>
       <Outlet />
-      {keepaliveNotice && !warningVisible ? (
+      {keepaliveNotice && !warningVisible && !activeNotice ? (
         <div className="vine-session-toast" role="status" aria-live="polite">
           {keepaliveNotice}
         </div>
       ) : null}
-      {warningVisible && (
+      {activeNotice ? (
+        <div className="vine-session-backdrop" role="presentation">
+          <div className="vine-notice-modal" role="dialog" aria-modal="true" aria-labelledby="vine-notice-title">
+            <div className="vine-notice-pill">New in Vine</div>
+            <div className="vine-session-kicker">Heads up</div>
+            <h2 id="vine-notice-title">{activeNotice.title || "A quick Vine update"}</h2>
+            <p className="vine-notice-copy">
+              {activeNotice.message || "We have made a few improvements across Vine. Tap okay to continue."}
+            </p>
+            {noticeError ? <div className="vine-session-error">{noticeError}</div> : null}
+            <div className="vine-notice-actions">
+              <button
+                type="button"
+                className="vine-notice-ok"
+                onClick={handleAcknowledgeNotice}
+                disabled={acknowledgingNotice}
+              >
+                {acknowledgingNotice ? "Saving..." : "Okay"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {warningVisible && !activeNotice && (
         <div className="vine-session-backdrop" role="presentation">
           <div className="vine-session-modal" role="dialog" aria-modal="true" aria-labelledby="vine-session-title">
             <div className="vine-session-countdown-pill" aria-live="polite">

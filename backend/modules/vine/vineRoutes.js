@@ -174,6 +174,19 @@ const isLikelyImageUrl = (url) => {
 };
 
 const VINE_POST_MAX_LENGTH = 5000;
+const VINE_SYSTEM_NOTICE_VERSION = String(
+  process.env.VINE_SYSTEM_NOTICE_VERSION || "2026-03-vine-refresh"
+).trim();
+const VINE_SYSTEM_NOTICE_TITLE = String(
+  process.env.VINE_SYSTEM_NOTICE_TITLE || "A quick Vine update"
+).trim();
+const VINE_SYSTEM_NOTICE_MESSAGE = String(
+  process.env.VINE_SYSTEM_NOTICE_MESSAGE ||
+    "We have polished a few things across Vine to keep it lighter, cleaner, and easier to use. Tap okay to continue."
+).trim();
+const VINE_SYSTEM_NOTICE_ENABLED = !["0", "false", "off"].includes(
+  String(process.env.VINE_SYSTEM_NOTICE_ENABLED || "true").trim().toLowerCase()
+);
 
 const deleteCloudinaryByUrl = async (url) => {
   if (isR2Url(url) && r2Client && r2Ready) {
@@ -2318,6 +2331,7 @@ const ensureAdvancedSettingsSchema = async () => {
   await addIfMissing("muted_words", "TEXT NULL");
   await addIfMissing("autoplay_media", "TINYINT(1) NOT NULL DEFAULT 1");
   await addIfMissing("blur_sensitive_media", "TINYINT(1) NOT NULL DEFAULT 0");
+  await addIfMissing("last_seen_notice_version", "VARCHAR(80) NULL");
   await addIfMissing("deactivated_at", "DATETIME NULL");
   await addIfMissing("delete_requested_at", "DATETIME NULL");
 
@@ -2337,6 +2351,142 @@ const ensureAdvancedSettingsSchema = async () => {
   `);
 
   advancedSettingsSchemaReady = true;
+};
+
+let systemNoticeSchemaReady = false;
+let systemNoticeCache = null;
+let systemNoticeLoadedAt = 0;
+const SYSTEM_NOTICE_CACHE_MS = 60 * 1000;
+
+const normalizeSystemNoticeSettings = (value = {}) => {
+  const enabled =
+    value.enabled === undefined || value.enabled === null
+      ? VINE_SYSTEM_NOTICE_ENABLED
+      : Number(value.enabled) === 1 || value.enabled === true;
+  const version = String(value.version || VINE_SYSTEM_NOTICE_VERSION || "").trim();
+  const title = String(
+    value.title || VINE_SYSTEM_NOTICE_TITLE || "A quick Vine update"
+  )
+    .trim()
+    .slice(0, 140);
+  const message = String(
+    value.message ||
+      VINE_SYSTEM_NOTICE_MESSAGE ||
+      "We have polished a few things across Vine to keep it lighter, cleaner, and easier to use. Tap okay to continue."
+  )
+    .trim()
+    .slice(0, 4000);
+
+  return {
+    enabled,
+    version,
+    title: title || "A quick Vine update",
+    message:
+      message ||
+      "We have polished a few things across Vine to keep it lighter, cleaner, and easier to use. Tap okay to continue.",
+    updated_by: value.updated_by ? Number(value.updated_by) : null,
+    updated_at: value.updated_at || null,
+  };
+};
+
+const buildSystemNoticeVersion = () => `notice-${Date.now()}`;
+
+const ensureSystemNoticeSchema = async () => {
+  if (systemNoticeSchemaReady) return;
+  await ensureAdvancedSettingsSchema();
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_system_notice_settings (
+      id TINYINT PRIMARY KEY,
+      enabled TINYINT(1) NOT NULL DEFAULT 1,
+      version VARCHAR(80) NOT NULL,
+      title VARCHAR(140) NOT NULL,
+      message TEXT NOT NULL,
+      updated_by INT NULL,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  systemNoticeSchemaReady = true;
+};
+
+const getCurrentVineSystemNotice = async ({ force = false, includeDisabled = false } = {}) => {
+  await ensureSystemNoticeSchema();
+  if (!force && systemNoticeCache && Date.now() - systemNoticeLoadedAt < SYSTEM_NOTICE_CACHE_MS) {
+    return includeDisabled || systemNoticeCache.enabled ? systemNoticeCache : null;
+  }
+
+  const [[row]] = await db.query(
+    `
+    SELECT enabled, version, title, message, updated_by, updated_at
+    FROM vine_system_notice_settings
+    WHERE id = 1
+    LIMIT 1
+    `
+  );
+
+  const next = normalizeSystemNoticeSettings(row || {});
+  systemNoticeCache = next;
+  systemNoticeLoadedAt = Date.now();
+  return includeDisabled || next.enabled ? next : null;
+};
+
+const saveSystemNoticeSettings = async (payload = {}, updatedBy = null) => {
+  await ensureSystemNoticeSchema();
+  const current = await getCurrentVineSystemNotice({ force: true, includeDisabled: true });
+  const merged = normalizeSystemNoticeSettings({
+    ...current,
+    enabled: payload.enabled,
+    title: payload.title,
+    message: payload.message,
+  });
+
+  if (!String(merged.message || "").trim()) {
+    const err = new Error("Notice message cannot be empty");
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const currentVersion = String(current?.version || VINE_SYSTEM_NOTICE_VERSION || "").trim();
+  const changed =
+    !current ||
+    Boolean(current.enabled) !== Boolean(merged.enabled) ||
+    String(current.title || "") !== String(merged.title || "") ||
+    String(current.message || "") !== String(merged.message || "");
+
+  const next = {
+    ...merged,
+    version: changed ? buildSystemNoticeVersion() : currentVersion || buildSystemNoticeVersion(),
+    updated_by: updatedBy ? Number(updatedBy) : null,
+  };
+
+  await db.query(
+    `
+    INSERT INTO vine_system_notice_settings
+      (id, enabled, version, title, message, updated_by, updated_at)
+    VALUES
+      (1, ?, ?, ?, ?, ?, NOW())
+    ON DUPLICATE KEY UPDATE
+      enabled = VALUES(enabled),
+      version = VALUES(version),
+      title = VALUES(title),
+      message = VALUES(message),
+      updated_by = VALUES(updated_by),
+      updated_at = NOW()
+    `,
+    [next.enabled ? 1 : 0, next.version, next.title, next.message, next.updated_by]
+  );
+
+  const [[savedRow]] = await db.query(
+    `
+    SELECT enabled, version, title, message, updated_by, updated_at
+    FROM vine_system_notice_settings
+    WHERE id = 1
+    LIMIT 1
+    `
+  );
+  const saved = normalizeSystemNoticeSettings(savedRow || next);
+  systemNoticeCache = saved;
+  systemNoticeLoadedAt = Date.now();
+  return saved;
 };
 
 let followRequestSchemaReady = false;
@@ -7993,6 +8143,46 @@ router.put("/news/settings", authenticate, async (req, res) => {
   }
 });
 
+router.get("/system-notice/settings", authenticate, async (req, res) => {
+  try {
+    const user = req.user || {};
+    if (!isModeratorAccount(user)) {
+      return res.status(403).json({ message: "Only moderators can view the login notice." });
+    }
+
+    const settings = await getCurrentVineSystemNotice({ includeDisabled: true });
+    res.json(settings || normalizeSystemNoticeSettings({}));
+  } catch (err) {
+    console.error("System notice settings fetch error:", err);
+    res.status(500).json({ message: "Failed to load login notice" });
+  }
+});
+
+router.put("/system-notice/settings", authenticate, async (req, res) => {
+  try {
+    const user = req.user || {};
+    if (!isModeratorAccount(user)) {
+      return res.status(403).json({ message: "Only moderators can update the login notice." });
+    }
+
+    const settings = await saveSystemNoticeSettings(
+      {
+        enabled: req.body?.enabled,
+        title: req.body?.title,
+        message: req.body?.message,
+      },
+      user.id || null
+    );
+
+    res.json({ success: true, settings });
+  } catch (err) {
+    console.error("System notice settings update error:", err);
+    res.status(err?.statusCode || 500).json({
+      message: err?.message || "Failed to save login notice",
+    });
+  }
+});
+
 router.get("/news/health", authenticate, async (req, res) => {
   try {
     const user = req.user || {};
@@ -11037,6 +11227,7 @@ router.get("/users/me/preferences", authenticate, async (req, res) => {
              notif_email_likes, notif_email_comments, notif_email_mentions, notif_email_messages, notif_email_reports,
              quiet_hours_enabled, quiet_hours_start, quiet_hours_end, notif_digest,
              muted_words, autoplay_media, blur_sensitive_media,
+             last_seen_notice_version,
              deactivated_at, delete_requested_at
       FROM vine_users
       WHERE id = ?
@@ -11044,10 +11235,48 @@ router.get("/users/me/preferences", authenticate, async (req, res) => {
       `,
       [req.user.id]
     );
-    res.json({ ...(prefs || {}), ...birthdayEditState, ...displayNameEditState });
+    const currentNotice = await getCurrentVineSystemNotice();
+    const lastSeenNoticeVersion = String(prefs?.last_seen_notice_version || "").trim();
+    const systemNotice = currentNotice
+      ? {
+          ...currentNotice,
+          last_seen_notice_version: lastSeenNoticeVersion || null,
+          needs_ack: lastSeenNoticeVersion !== currentNotice.version,
+        }
+      : null;
+
+    res.json({
+      ...(prefs || {}),
+      ...birthdayEditState,
+      ...displayNameEditState,
+      system_notice: systemNotice,
+    });
   } catch (err) {
     console.error("Get preferences error:", err);
     res.status(500).json({ message: "Failed to load preferences" });
+  }
+});
+
+router.post("/system-notice/ack", authenticate, async (req, res) => {
+  try {
+    const currentNotice = await getCurrentVineSystemNotice();
+    if (!currentNotice) {
+      return res.json({ success: true, version: null });
+    }
+
+    await db.query(
+      `
+      UPDATE vine_users
+      SET last_seen_notice_version = ?
+      WHERE id = ?
+      `,
+      [currentNotice.version, req.user.id]
+    );
+
+    res.json({ success: true, version: currentNotice.version });
+  } catch (err) {
+    console.error("Acknowledge system notice error:", err);
+    res.status(500).json({ message: "Failed to save notice acknowledgment" });
   }
 });
 

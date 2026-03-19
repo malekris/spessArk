@@ -86,6 +86,13 @@ export default function VineGuardianAnalytics() {
   });
   const [newsSaving, setNewsSaving] = useState(false);
   const [newsRefreshing, setNewsRefreshing] = useState(false);
+  const [noticeForm, setNoticeForm] = useState({
+    enabled: true,
+    title: "A quick Vine update",
+    message:
+      "We have polished a few things across Vine to keep it lighter, cleaner, and easier to use. Tap okay to continue.",
+  });
+  const [noticeSaving, setNoticeSaving] = useState(false);
   const [from, setFrom] = useState(() => {
     const d = new Date(Date.now() - 6 * 86400000);
     return d.toISOString().slice(0, 10);
@@ -115,7 +122,8 @@ export default function VineGuardianAnalytics() {
         setLoading(true);
         setError("");
         const q = new URLSearchParams({ from, to }).toString();
-        const [overviewResult, perfResult, activityResult, newsHealthResult, newsSettingsResult] = await Promise.allSettled([
+        const [overviewResult, perfResult, activityResult, newsHealthResult, newsSettingsResult, noticeSettingsResult] =
+          await Promise.allSettled([
           fetch(`${API}/api/vine/analytics/overview?${q}`, {
             headers: { Authorization: `Bearer ${token}` },
           }),
@@ -129,6 +137,9 @@ export default function VineGuardianAnalytics() {
             headers: { Authorization: `Bearer ${token}` },
           }),
           fetch(`${API}/api/vine/news/settings`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          fetch(`${API}/api/vine/system-notice/settings`, {
             headers: { Authorization: `Bearer ${token}` },
           }),
         ]);
@@ -183,12 +194,22 @@ export default function VineGuardianAnalytics() {
           }
         }
 
+        let noticeSettingsBody = null;
+        if (noticeSettingsResult?.status === "fulfilled") {
+          const noticeSettingsRes = noticeSettingsResult.value;
+          const parsed = await noticeSettingsRes.json().catch(() => null);
+          if (noticeSettingsRes.ok) {
+            noticeSettingsBody = parsed;
+          }
+        }
+
         setData({
           ...overviewBody,
           performance: perfBody,
           activity: activityBody,
           newsHealth: newsHealthBody,
           newsSettings: newsSettingsBody,
+          noticeSettings: noticeSettingsBody,
         });
       } catch (err) {
         setError("Failed to load analytics");
@@ -299,6 +320,19 @@ export default function VineGuardianAnalytics() {
       timezone: String(source.timezone || "Africa/Kampala"),
     });
   }, [data?.newsSettings, data?.newsHealth]);
+
+  useEffect(() => {
+    const source = data?.noticeSettings;
+    if (!source) return;
+    setNoticeForm({
+      enabled: source.enabled !== false && Number(source.enabled) !== 0,
+      title: String(source.title || "A quick Vine update"),
+      message: String(
+        source.message ||
+          "We have polished a few things across Vine to keep it lighter, cleaner, and easier to use. Tap okay to continue."
+      ),
+    });
+  }, [data?.noticeSettings]);
 
   const exportCsv = (filename, rows) => {
     if (!rows?.length) return;
@@ -573,6 +607,31 @@ export default function VineGuardianAnalytics() {
     }
   };
 
+  const saveSystemNotice = async () => {
+    try {
+      setNoticeSaving(true);
+      const res = await fetch(`${API}/api/vine/system-notice/settings`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(noticeForm),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(body?.message || "Failed to save login notice");
+        return;
+      }
+      setData((prev) => (prev ? { ...prev, noticeSettings: body.settings } : prev));
+      alert(body?.settings?.enabled ? "Login notice published" : "Login notice turned off");
+    } catch {
+      alert("Failed to save login notice");
+    } finally {
+      setNoticeSaving(false);
+    }
+  };
+
   const releaseNow = async (userId) => {
     if (!userId) return;
     try {
@@ -658,6 +717,7 @@ export default function VineGuardianAnalytics() {
   const activity = data?.activity || null;
   const newsHealth = data?.newsHealth || null;
   const newsRuntime = newsHealth?.runtime || {};
+  const noticeSettings = data?.noticeSettings || null;
   const recentLogins = activity?.recent_logins || [];
   const recentActions = activity?.recent_actions || [];
   const perfRuntime = perf?.runtime || {};
@@ -847,6 +907,79 @@ export default function VineGuardianAnalytics() {
                 onClick={refreshNewsNow}
               >
                 {newsRefreshing ? "Refreshing..." : "Refresh now"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="guardian-section">
+        <h3>Login Notice</h3>
+        <div className="guardian-news-grid">
+          <div className="guardian-news-card guardian-notice-card">
+            <span className="guardian-news-label">Notice Copy</span>
+            <input
+              type="text"
+              className="guardian-news-time guardian-notice-input"
+              value={noticeForm.title}
+              maxLength={140}
+              onChange={(e) =>
+                setNoticeForm((prev) => ({
+                  ...prev,
+                  title: e.target.value,
+                }))
+              }
+              placeholder="A quick Vine update"
+            />
+            <textarea
+              className="guardian-news-time guardian-notice-message"
+              value={noticeForm.message}
+              maxLength={4000}
+              onChange={(e) =>
+                setNoticeForm((prev) => ({
+                  ...prev,
+                  message: e.target.value,
+                }))
+              }
+              placeholder="Write the note people should see after login."
+            />
+            <small>Saving a changed notice republishes it once to everyone on their next login.</small>
+          </div>
+
+          <div className="guardian-news-card guardian-notice-card">
+            <span className="guardian-news-label">Publishing</span>
+            <label className="guardian-notice-toggle">
+              <input
+                type="checkbox"
+                checked={Boolean(noticeForm.enabled)}
+                onChange={(e) =>
+                  setNoticeForm((prev) => ({
+                    ...prev,
+                    enabled: e.target.checked,
+                  }))
+                }
+              />
+              <span>{noticeForm.enabled ? "Show this notice on login" : "Keep notice turned off"}</span>
+            </label>
+            <div className="guardian-news-runtime">
+              <span>
+                Current version: <strong>{noticeSettings?.version || "Draft only"}</strong>
+              </span>
+              <span>
+                Last updated: <strong>{noticeSettings?.updated_at ? formatAgo(noticeSettings.updated_at) : "Not yet"}</strong>
+              </span>
+              <span>
+                Delivery: <strong>{noticeForm.enabled ? "Shows once until user taps Okay" : "Disabled"}</strong>
+              </span>
+            </div>
+            <div className="guardian-news-actions">
+              <button
+                type="button"
+                className="guardian-csv-btn guardian-news-save"
+                disabled={noticeSaving}
+                onClick={saveSystemNotice}
+              >
+                {noticeSaving ? "Saving..." : noticeForm.enabled ? "Publish notice" : "Save disabled state"}
               </button>
             </div>
           </div>

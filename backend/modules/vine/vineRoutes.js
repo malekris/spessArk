@@ -1220,6 +1220,7 @@ const buildGuardianActivitySnapshot = async (perfCtx, dbName, { loginLimit = 12,
 };
 
 const VINE_PERF_LOGS_ENABLED = process.env.VINE_PERF_LOGS !== "0";
+const VINE_PERF_CONSOLE_LOGS_ENABLED = process.env.VINE_PERF_CONSOLE_LOGS === "1";
 const VINE_SLOW_ROUTE_MS = Math.max(50, Number(process.env.VINE_SLOW_ROUTE_MS || 700));
 const VINE_SLOW_QUERY_MS = Math.max(25, Number(process.env.VINE_SLOW_QUERY_MS || 180));
 
@@ -1255,15 +1256,17 @@ const timedVineQuery = async (perfCtx, label, sql, params = []) => {
       ms: elapsedMs,
       rows: rowCount,
     });
-    console.info(
-      "[vine-perf][query]",
-      JSON.stringify({
-        route: perfCtx?.routeKey || "unknown",
-        label,
-        ms: elapsedMs,
-        rows: rowCount,
-      })
-    );
+    if (VINE_PERF_CONSOLE_LOGS_ENABLED) {
+      console.info(
+        "[vine-perf][query]",
+        JSON.stringify({
+          route: perfCtx?.routeKey || "unknown",
+          label,
+          ms: elapsedMs,
+          rows: rowCount,
+        })
+      );
+    }
   }
   return result;
 };
@@ -1288,18 +1291,20 @@ const finalizeVinePerfContext = (perfCtx, extra = {}) => {
     ...perfCtx.meta,
     ...extra,
   });
-  console.info(
-    "[vine-perf][route]",
-    JSON.stringify({
-      route: perfCtx.routeKey,
-      ms: durationMs,
-      query_count: perfCtx.queries.length,
-      query_ms: totalQueryMs,
-      top_queries: topQueries,
-      ...perfCtx.meta,
-      ...extra,
-    })
-  );
+  if (VINE_PERF_CONSOLE_LOGS_ENABLED) {
+    console.info(
+      "[vine-perf][route]",
+      JSON.stringify({
+        route: perfCtx.routeKey,
+        ms: durationMs,
+        query_count: perfCtx.queries.length,
+        query_ms: totalQueryMs,
+        top_queries: topQueries,
+        ...perfCtx.meta,
+        ...extra,
+      })
+    );
+  }
 };
 
 const runVinePerfRoute = async (routeKey, meta, work) => {
@@ -12744,6 +12749,7 @@ router.get("/analytics/performance", authenticate, async (req, res) => {
 
     return res.json({
       enabled: VINE_PERF_LOGS_ENABLED,
+      console_enabled: VINE_PERF_CONSOLE_LOGS_ENABLED,
       thresholds: {
         vine_slow_route_ms: VINE_SLOW_ROUTE_MS,
         vine_slow_query_ms: VINE_SLOW_QUERY_MS,

@@ -4,6 +4,7 @@ import { loadPdfTools } from "../../../utils/loadPdfTools";
 import "./VineGuardianAnalytics.css";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
+const ANALYTICS_REFRESH_MS = 3 * 60 * 1000;
 const NEWS_WEEKDAY_OPTIONS = [
   { value: 0, label: "Sun" },
   { value: 1, label: "Mon" },
@@ -278,7 +279,7 @@ export default function VineGuardianAnalytics() {
 
     const startInterval = () => {
       if (intervalId) return;
-      intervalId = window.setInterval(refreshAnalyticsPanels, 60000);
+      intervalId = window.setInterval(refreshAnalyticsPanels, ANALYTICS_REFRESH_MS);
     };
 
     const stopInterval = () => {

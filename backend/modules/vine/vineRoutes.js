@@ -1647,6 +1647,7 @@ const FEED_FOLLOWED_CANDIDATE_LIMIT = 120;
 const FEED_PUBLIC_CANDIDATE_LIMIT = 140;
 const FEED_REVINE_CANDIDATE_LIMIT = 120;
 const FEED_NEWS_CANDIDATE_LIMIT = 160;
+const TRENDING_POST_CANDIDATE_LIMIT = 160;
 
 const parseFeedCursor = (query = {}) => {
   const rawTime = String(query.cursor_time || "").trim();
@@ -2074,6 +2075,114 @@ const getFeedPageData = async ({ viewerId, feedTag = "", feedTab = "for-you", cu
 
   const enrichedItems = await enrichVinePostRows(orderedRows, viewerId, perfCtx);
   return { items: enrichedItems, nextCursor };
+};
+
+const getTrendingPostRows = async ({ viewerId, limit }, perfCtx = null) => {
+  const safeViewerId = Number(viewerId || 0);
+  const safeLimit = Math.max(1, Math.min(Number(limit || 8) || 8, 20));
+  const candidateLimit = Math.max(safeLimit * 8, 80);
+  const viewerState = await loadViewerFeedState(safeViewerId, perfCtx);
+
+  const [candidateRows] = await timedVineQuery(
+    perfCtx,
+    "trending.source.candidates",
+    `
+    SELECT
+      p.id,
+      p.user_id,
+      p.community_id,
+      p.content,
+      p.image_url,
+      p.link_preview,
+      p.created_at
+    FROM vine_posts p
+    WHERE p.created_at >= NOW() - INTERVAL 1 DAY
+    ORDER BY p.created_at DESC, p.id DESC
+    LIMIT ?
+    `,
+    [Math.min(candidateLimit, TRENDING_POST_CANDIDATE_LIMIT)]
+  );
+
+  if (!Array.isArray(candidateRows) || !candidateRows.length) {
+    return [];
+  }
+
+  const authorIds = [...new Set(candidateRows.map((row) => Number(row.user_id || 0)).filter(Boolean))];
+  let authorRows = [];
+  if (authorIds.length) {
+    const placeholders = authorIds.map(() => "?").join(", ");
+    [authorRows] = await timedVineQuery(
+      perfCtx,
+      "trending.source.authors",
+      `
+      SELECT
+        id,
+        username,
+        display_name,
+        avatar_url,
+        is_verified,
+        is_private,
+        badge_type,
+        hide_like_counts
+      FROM vine_users
+      WHERE id IN (${placeholders})
+      `,
+      authorIds
+    );
+  }
+
+  const authorMap = new Map((authorRows || []).map((row) => [Number(row.id), row]));
+  const visibleRows = candidateRows.filter((row) => {
+    const authorId = Number(row.user_id || 0);
+    const authorRow = authorMap.get(authorId);
+    if (!authorId || !authorRow) return false;
+    if (viewerState.blockedIds.has(authorId) || viewerState.mutedIds.has(authorId)) return false;
+    if (!safeViewerId) return Number(authorRow.is_private || 0) === 0;
+    if (authorId === safeViewerId) return true;
+    if (viewerState.followedIds.has(authorId)) return true;
+    return Number(authorRow.is_private || 0) === 0;
+  });
+
+  if (!visibleRows.length) {
+    return [];
+  }
+
+  const baseRows = visibleRows.map((row) => {
+    const authorRow = authorMap.get(Number(row.user_id || 0)) || {};
+    return {
+      feed_id: `post-${row.id}`,
+      id: Number(row.id || 0),
+      user_id: Number(row.user_id || 0),
+      community_id: Number(row.community_id || 0),
+      content: row.content || "",
+      image_url: row.image_url || "",
+      link_preview: row.link_preview || null,
+      created_at: row.created_at,
+      sort_time: row.created_at,
+      username: authorRow.username || "",
+      display_name: authorRow.display_name || authorRow.username || "",
+      avatar_url: authorRow.avatar_url || "",
+      is_verified: Number(authorRow.is_verified || 0),
+      badge_type: authorRow.badge_type || null,
+      hide_like_counts: Number(authorRow.hide_like_counts || 0),
+      revined_by: null,
+      reviner_username: null,
+    };
+  });
+
+  const enrichedRows = await enrichVinePostRows(baseRows, safeViewerId, perfCtx);
+  return enrichedRows
+    .sort((a, b) => {
+      const likeDelta = Number(b.likes || 0) - Number(a.likes || 0);
+      if (likeDelta !== 0) return likeDelta;
+      const commentDelta = Number(b.comments || 0) - Number(a.comments || 0);
+      if (commentDelta !== 0) return commentDelta;
+      const aTime = new Date(a.created_at || 0).getTime();
+      const bTime = new Date(b.created_at || 0).getTime();
+      if (aTime !== bTime) return bTime - aTime;
+      return Number(b.id || 0) - Number(a.id || 0);
+    })
+    .slice(0, safeLimit);
 };
 
 const getGuardianRecipientIds = async () => {
@@ -9871,75 +9980,9 @@ router.get("/posts/trending", authOptional, async (req, res) => {
     const viewerId = req.user?.id || null;
     const limit = Math.min(Number(req.query.limit || 8), 20);
     const cacheKey = buildVineCacheKey("trending", viewerId || 0, limit);
-    const rows = await readThroughVineCache(cacheKey, VINE_CACHE_TTLS.trending, async () => {
-      const [results] = await db.query(
-        `
-        SELECT 
-          p.id,
-          p.user_id,
-          p.content,
-          p.image_url,
-          p.link_preview,
-          p.created_at AS created_at,
-          p.created_at AS sort_time,
-
-          u.username,
-          u.display_name,
-          u.avatar_url,
-          u.is_verified,
-          u.hide_like_counts,
-
-          (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id)    AS like_count,
-          (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comment_count,
-          (SELECT COUNT(*) FROM vine_revines WHERE post_id = p.id)  AS revine_count,
-
-          ${viewerId ? "(SELECT COUNT(*) > 0 FROM vine_likes WHERE post_id = p.id AND user_id = " + viewerId + ") AS user_liked," : "0 AS user_liked,"}
-          ${viewerId ? "(SELECT COUNT(*) > 0 FROM vine_revines WHERE post_id = p.id AND user_id = " + viewerId + ") AS user_revined," : "0 AS user_revined,"}
-          ${viewerId ? "(SELECT COUNT(*) > 0 FROM vine_bookmarks WHERE post_id = p.id AND user_id = " + viewerId + ") AS user_bookmarked" : "0 AS user_bookmarked"}
-
-        FROM vine_posts p
-      JOIN vine_users u ON p.user_id = u.id
-      WHERE p.created_at >= NOW() - INTERVAL 1 DAY
-        ${
-          viewerId
-            ? `AND NOT EXISTS (
-                SELECT 1 FROM vine_blocks b
-                WHERE (b.blocker_id = u.id AND b.blocked_id = ${viewerId})
-                   OR (b.blocker_id = ${viewerId} AND b.blocked_id = u.id)
-              )
-              AND NOT EXISTS (
-                SELECT 1 FROM vine_blocks b2
-                WHERE (b2.blocker_id = ${viewerId} AND b2.blocked_id = u.id)
-              )`
-            : ""
-        }
-        ${
-          viewerId
-            ? `AND NOT EXISTS (
-                SELECT 1 FROM vine_mutes m
-                WHERE m.muter_id = ${viewerId} AND m.muted_id = u.id
-              )`
-            : ""
-        }
-        ${
-          viewerId
-            ? `AND (
-                u.is_private = 0
-                OR u.id = ${viewerId}
-                OR EXISTS (
-                  SELECT 1 FROM vine_follows f
-                  WHERE f.follower_id = ${viewerId} AND f.following_id = u.id
-                )
-              )`
-            : "AND u.is_private = 0"
-        }
-      ORDER BY like_count DESC, comment_count DESC, p.created_at DESC
-        LIMIT ?
-        `,
-        [limit]
-      );
-      return results;
-    });
+    const rows = await readThroughVineCache(cacheKey, VINE_CACHE_TTLS.trending, async () =>
+      getTrendingPostRows({ viewerId, limit }, "trending")
+    );
 
     res.json(rows);
   } catch (err) {

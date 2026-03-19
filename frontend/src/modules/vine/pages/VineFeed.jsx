@@ -268,6 +268,9 @@ export default function VineFeed() {
   // ── State ───────────────────────────────────────
   const [posts, setPosts] = useState([]);
   const [feedLoading, setFeedLoading] = useState(true);
+  const [feedLoadingMore, setFeedLoadingMore] = useState(false);
+  const [feedNextCursor, setFeedNextCursor] = useState(null);
+  const [feedHasMore, setFeedHasMore] = useState(false);
   const [content, setContent] = useState("");
   const [images, setImages] = useState([]);
   const [previews, setPreviews] = useState([]);
@@ -323,6 +326,7 @@ export default function VineFeed() {
   const [recentlyActiveUsers, setRecentlyActiveUsers] = useState([]);
   const [presenceModalOpen, setPresenceModalOpen] = useState(false);
   const suggestionSlotsRef = useRef([]);
+  const feedNextCursorRef = useRef(null);
   const createInputRef = useRef(null);
   const checkedNewsTargetRef = useRef("");
   const draftPostRequestIdRef = useRef("");
@@ -466,11 +470,16 @@ export default function VineFeed() {
   }, [feedLoading, isNewsTab, posts, setParams, targetCommentId, targetPostId, token]);
 
   // ── Feed Loading + Polling ──────────────────────
-  const loadFeed = useCallback(async (signal) => {
+  const loadFeed = useCallback(async (signal, { append = false, cursorOverride = null } = {}) => {
     try {
       const query = new URLSearchParams();
       if (targetTag) query.set("tag", targetTag);
       if (activeFeedTab === "news") query.set("tab", "news");
+      const nextCursorToUse = append ? (cursorOverride || feedNextCursorRef.current) : null;
+      if (append && nextCursorToUse?.time && nextCursorToUse?.feedId) {
+        query.set("cursor_time", nextCursorToUse.time);
+        query.set("cursor_feed_id", nextCursorToUse.feedId);
+      }
       const res = await fetch(
         `${API}/api/vine/posts${query.toString() ? `?${query.toString()}` : ""}`,
         {
@@ -482,13 +491,31 @@ export default function VineFeed() {
       );
       const data = await res.json();
       if (signal?.aborted) return;
-      setPosts(data);
+      const rows = Array.isArray(data) ? data : [];
+      const nextTime = res.headers.get("X-Vine-Next-Cursor-Time") || "";
+      const nextFeedId = res.headers.get("X-Vine-Next-Cursor-Feed") || "";
+      const nextCursor = nextTime && nextFeedId ? { time: nextTime, feedId: nextFeedId } : null;
+      feedNextCursorRef.current = nextCursor;
+      setFeedNextCursor(nextCursor);
+      setFeedHasMore(Boolean(nextCursor));
+      setPosts((prev) => {
+        if (!append) return rows;
+        const merged = [...prev];
+        const seen = new Set(prev.map((row) => String(row?.feed_id || `${row?.id || ""}`)));
+        for (const row of rows) {
+          const key = String(row?.feed_id || `${row?.id || ""}`);
+          if (seen.has(key)) continue;
+          seen.add(key);
+          merged.push(row);
+        }
+        return merged;
+      });
       // Build suggestion slots only once per session to avoid jumping
-      if (suggestionSlotsRef.current.length === 0 && data.length > 0) {
+      if (!append && suggestionSlotsRef.current.length === 0 && rows.length > 0) {
         const nextSlots = [];
-        const first = Math.min(6, data.length);
+        const first = Math.min(6, rows.length);
         let idx = first;
-        while (idx < data.length && nextSlots.length < 3) {
+        while (idx < rows.length && nextSlots.length < 3) {
           nextSlots.push(idx);
           idx += 12;
         }
@@ -500,7 +527,11 @@ export default function VineFeed() {
       console.error("Load feed error", err);
     } finally {
       if (!signal?.aborted) {
-        setFeedLoading(false);
+        if (append) {
+          setFeedLoadingMore(false);
+        } else {
+          setFeedLoading(false);
+        }
       }
     }
   }, [targetTag, activeFeedTab, token]);
@@ -639,6 +670,10 @@ export default function VineFeed() {
   useEffect(() => {
     const controller = new AbortController();
     setFeedLoading(true);
+    setFeedLoadingMore(false);
+    feedNextCursorRef.current = null;
+    setFeedNextCursor(null);
+    setFeedHasMore(false);
     setSuggestionsLoading(!isNewsTab);
     setTrendingLoading(!isNewsTab);
     setBirthdaysLoading(!isNewsTab);
@@ -1316,6 +1351,14 @@ export default function VineFeed() {
     }
     setGifPickerOpen(true);
   };
+
+  const loadMoreFeed = () => {
+    if (feedLoading || feedLoadingMore || !feedHasMore) return;
+    const controller = new AbortController();
+    setFeedLoadingMore(true);
+    loadFeed(controller.signal, { append: true });
+  };
+
   useEffect(() => {
     if (!targetPostId) return;
     if (!posts.length) return;
@@ -2193,7 +2236,19 @@ export default function VineFeed() {
             </div>
           ))}
 
-          {posts.length > 0 && (
+          {feedHasMore && posts.length > 0 && (
+            <div className="vine-feed-more-wrap">
+              <button
+                type="button"
+                className="vine-feed-more-btn"
+                onClick={loadMoreFeed}
+                disabled={feedLoadingMore}
+              >
+                {feedLoadingMore ? "Loading more..." : isNewsTab ? "More Vine News" : "Load more posts"}
+              </button>
+            </div>
+          )}
+          {!feedHasMore && posts.length > 0 && (
             <p className="no-more-posts">
               {isNewsTab ? "No more Vine News updates" : "No more posts"}
             </p>

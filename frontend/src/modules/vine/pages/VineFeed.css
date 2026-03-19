@@ -2239,6 +2239,35 @@
   text-align: center;
 }
 
+.vine-feed-more-wrap {
+  margin: 22px 0 4px;
+  display: flex;
+  justify-content: center;
+}
+
+.vine-feed-more-btn {
+  border: 1px solid rgba(4, 120, 87, 0.22);
+  background: linear-gradient(135deg, #065f46 0%, #10b981 78%, #f6c453 100%);
+  color: #f8fffb;
+  font-weight: 800;
+  font-size: 0.95rem;
+  padding: 12px 22px;
+  border-radius: 999px;
+  box-shadow: 0 14px 26px rgba(16, 185, 129, 0.16);
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease;
+}
+
+.vine-feed-more-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 18px 34px rgba(16, 185, 129, 0.22);
+}
+
+.vine-feed-more-btn:disabled {
+  opacity: 0.72;
+  cursor: wait;
+}
+
 .no-more-posts {
   margin: 24px auto 0;
   padding: 10px 16px;
@@ -2254,6 +2283,11 @@
 .theme-dark .no-more-posts,
 .theme-dark .no-posts-hint {
   color: rgba(255, 255, 255, 0.75);
+}
+
+.theme-dark .vine-feed-more-btn {
+  border-color: rgba(253, 224, 71, 0.18);
+  box-shadow: 0 18px 36px rgba(5, 150, 105, 0.22);
 }
 
 .theme-dark .no-more-posts {

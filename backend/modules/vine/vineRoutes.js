@@ -1704,6 +1704,441 @@ const getVinePostRowById = async (postId, viewerId, perfCtx = null) => {
   return enriched || null;
 };
 
+const FEED_PAGE_SIZE = 40;
+const FEED_FOLLOWED_CANDIDATE_LIMIT = 120;
+const FEED_PUBLIC_CANDIDATE_LIMIT = 140;
+const FEED_REVINE_CANDIDATE_LIMIT = 120;
+const FEED_NEWS_CANDIDATE_LIMIT = 160;
+
+const parseFeedCursor = (query = {}) => {
+  const rawTime = String(query.cursor_time || "").trim();
+  const rawFeedId = String(query.cursor_feed_id || "").trim();
+  if (!rawTime || !rawFeedId) {
+    return { time: null, feedId: "", kind: null, sourceId: 0 };
+  }
+  const parsed = new Date(rawTime);
+  if (Number.isNaN(parsed.getTime())) {
+    return { time: null, feedId: "", kind: null, sourceId: 0 };
+  }
+  const kind = rawFeedId.startsWith("revine-")
+    ? "revine"
+    : rawFeedId.startsWith("post-")
+      ? "post"
+      : null;
+  const sourceId = Number(rawFeedId.split("-")[1] || 0);
+  return {
+    time: parsed,
+    feedId: rawFeedId,
+    kind,
+    sourceId: Number.isFinite(sourceId) ? sourceId : 0,
+  };
+};
+
+const buildSourceCursorClause = (alias, sourceKind, cursor) => {
+  if (!cursor?.time) return { sql: "", params: [] };
+  const mysqlTime = cursor.time.toISOString().slice(0, 19).replace("T", " ");
+  if (cursor.kind === sourceKind && cursor.sourceId > 0) {
+    return {
+      sql: ` AND (${alias}.created_at < ? OR (${alias}.created_at = ? AND ${alias}.id < ?))`,
+      params: [mysqlTime, mysqlTime, cursor.sourceId],
+    };
+  }
+  return {
+    sql: ` AND ${alias}.created_at <= ?`,
+    params: [mysqlTime],
+  };
+};
+
+const isNewsUserRow = (row = {}) => {
+  const username = String(row?.username || "").trim().toLowerCase();
+  const displayName = String(row?.display_name || "").trim().toLowerCase();
+  const badgeType = String(row?.badge_type || "").trim().toLowerCase();
+  return (
+    username === "vine_news" ||
+    username === "vine news" ||
+    displayName === "vine news" ||
+    badgeType === "news"
+  );
+};
+
+const buildFeedCursorToken = (item = {}) => ({
+  time: item?.sort_time ? new Date(item.sort_time).toISOString() : "",
+  feedId: String(item?.feed_id || ""),
+});
+
+const compareFeedCandidatesDesc = (a, b) => {
+  const aTime = new Date(a?.sort_time || 0).getTime();
+  const bTime = new Date(b?.sort_time || 0).getTime();
+  if (aTime !== bTime) return bTime - aTime;
+  return String(b?.feed_id || "").localeCompare(String(a?.feed_id || ""));
+};
+
+const isCandidateBeforeCursor = (item, cursor) => {
+  if (!cursor?.time || !cursor?.feedId) return true;
+  const itemTime = new Date(item?.sort_time || 0).getTime();
+  const cursorTime = cursor.time.getTime();
+  if (itemTime !== cursorTime) return itemTime < cursorTime;
+  return String(item?.feed_id || "") < String(cursor.feedId);
+};
+
+const loadViewerFeedState = async (viewerId, perfCtx = null) => {
+  const safeViewerId = Number(viewerId || 0);
+  if (!safeViewerId) {
+    return {
+      followedIds: new Set(),
+      blockedIds: new Set(),
+      mutedIds: new Set(),
+    };
+  }
+
+  const [[followRows], [blockRows], [muteRows]] = await Promise.all([
+    timedVineQuery(
+      perfCtx,
+      "feed.viewer-follows",
+      "SELECT following_id FROM vine_follows WHERE follower_id = ?",
+      [safeViewerId]
+    ),
+    timedVineQuery(
+      perfCtx,
+      "feed.viewer-blocks",
+      `
+      SELECT blocker_id, blocked_id
+      FROM vine_blocks
+      WHERE blocker_id = ? OR blocked_id = ?
+      `,
+      [safeViewerId, safeViewerId]
+    ),
+    timedVineQuery(
+      perfCtx,
+      "feed.viewer-mutes",
+      "SELECT muted_id FROM vine_mutes WHERE muter_id = ?",
+      [safeViewerId]
+    ),
+  ]);
+
+  const followedIds = new Set((followRows || []).map((row) => Number(row.following_id)).filter(Boolean));
+  const blockedIds = new Set();
+  for (const row of blockRows || []) {
+    const blockerId = Number(row.blocker_id || 0);
+    const blockedId = Number(row.blocked_id || 0);
+    if (blockerId === safeViewerId && blockedId > 0) blockedIds.add(blockedId);
+    if (blockedId === safeViewerId && blockerId > 0) blockedIds.add(blockerId);
+  }
+  const mutedIds = new Set((muteRows || []).map((row) => Number(row.muted_id)).filter(Boolean));
+
+  return { followedIds, blockedIds, mutedIds };
+};
+
+const getFeedPageData = async ({ viewerId, feedTag = "", feedTab = "for-you", cursor }, perfCtx = null) => {
+  await ensureVinePerformanceSchema();
+  const safeViewerId = Number(viewerId || 0);
+  const normalizedTag = String(feedTag || "").trim().toLowerCase();
+  const viewerState = await loadViewerFeedState(safeViewerId, perfCtx);
+  const followTargets = safeViewerId
+    ? [safeViewerId, ...viewerState.followedIds].filter((value, idx, arr) => value > 0 && arr.indexOf(value) === idx)
+    : [];
+
+  const followedCursor = buildSourceCursorClause("p", "post", cursor);
+  const publicCursor = buildSourceCursorClause("p", "post", cursor);
+  const revineCursor = buildSourceCursorClause("r", "revine", cursor);
+
+  const sourceQueries = [];
+
+  if (feedTab !== "news" && followTargets.length) {
+    const placeholders = followTargets.map(() => "?").join(", ");
+    sourceQueries.push(
+      timedVineQuery(
+        perfCtx,
+        "feed.source.followed-posts",
+        `
+        SELECT
+          p.id,
+          p.user_id,
+          p.community_id,
+          p.topic_tag,
+          p.content,
+          p.created_at
+        FROM vine_posts p
+        WHERE p.user_id IN (${placeholders})
+          ${followedCursor.sql}
+        ORDER BY p.created_at DESC, p.id DESC
+        LIMIT ?
+        `,
+        [...followTargets, ...followedCursor.params, FEED_FOLLOWED_CANDIDATE_LIMIT]
+      )
+    );
+  } else {
+    sourceQueries.push(Promise.resolve([[]]));
+  }
+
+  sourceQueries.push(
+    timedVineQuery(
+      perfCtx,
+      "feed.source.recent-posts",
+      `
+      SELECT
+        p.id,
+        p.user_id,
+        p.community_id,
+        p.topic_tag,
+        p.content,
+        p.created_at
+      FROM vine_posts p
+      WHERE 1 = 1
+        ${publicCursor.sql}
+      ORDER BY p.created_at DESC, p.id DESC
+      LIMIT ?
+      `,
+      [...publicCursor.params, feedTab === "news" ? FEED_NEWS_CANDIDATE_LIMIT : FEED_PUBLIC_CANDIDATE_LIMIT]
+    )
+  );
+
+  if (feedTab !== "news") {
+    sourceQueries.push(
+      timedVineQuery(
+        perfCtx,
+        "feed.source.revines",
+        `
+        SELECT
+          r.id,
+          r.post_id,
+          r.user_id,
+          r.created_at
+        FROM vine_revines r
+        WHERE 1 = 1
+          ${revineCursor.sql}
+        ORDER BY r.created_at DESC, r.id DESC
+        LIMIT ?
+        `,
+        [...revineCursor.params, FEED_REVINE_CANDIDATE_LIMIT]
+      )
+    );
+  } else {
+    sourceQueries.push(Promise.resolve([[]]));
+  }
+
+  const [
+    [followedRows],
+    [recentPostRows],
+    [revineRows],
+  ] = await Promise.all(sourceQueries);
+
+  const revinePostIds = [...new Set((revineRows || []).map((row) => Number(row.post_id || 0)).filter(Boolean))];
+  let revinePostMetaRows = [];
+  if (revinePostIds.length) {
+    const placeholders = revinePostIds.map(() => "?").join(", ");
+    [revinePostMetaRows] = await timedVineQuery(
+      perfCtx,
+      "feed.source.revine-post-meta",
+      `
+      SELECT
+        p.id,
+        p.user_id,
+        p.community_id,
+        p.topic_tag,
+        p.content
+      FROM vine_posts p
+      WHERE p.id IN (${placeholders})
+      `,
+      revinePostIds
+    );
+  }
+
+  const revinePostMap = new Map(
+    (revinePostMetaRows || []).map((row) => [Number(row.id), row])
+  );
+
+  const userIds = new Set();
+  for (const row of followedRows || []) userIds.add(Number(row.user_id || 0));
+  for (const row of recentPostRows || []) userIds.add(Number(row.user_id || 0));
+  for (const row of revineRows || []) {
+    const revineRow = revinePostMap.get(Number(row.post_id || 0));
+    userIds.add(Number(revineRow?.user_id || 0));
+    userIds.add(Number(row.user_id || 0));
+  }
+
+  let userRows = [];
+  const normalizedUserIds = [...userIds].filter(Boolean);
+  if (normalizedUserIds.length) {
+    const placeholders = normalizedUserIds.map(() => "?").join(", ");
+    [userRows] = await timedVineQuery(
+      perfCtx,
+      "feed.source.users",
+      `
+      SELECT
+        id,
+        username,
+        display_name,
+        is_private,
+        badge_type
+      FROM vine_users
+      WHERE id IN (${placeholders})
+      `,
+      normalizedUserIds
+    );
+  }
+
+  const userMap = new Map((userRows || []).map((row) => [Number(row.id), row]));
+  const postCandidateMap = new Map();
+
+  const matchesTag = (row) => {
+    if (!normalizedTag) return true;
+    const topicTag = String(row?.topic_tag || "").trim().toLowerCase();
+    if (topicTag === normalizedTag) return true;
+    const content = String(row?.content || "").toLowerCase();
+    return content.includes(`#${normalizedTag}`);
+  };
+
+  const isAuthorVisible = (authorId, authorRow) => {
+    const safeAuthorId = Number(authorId || 0);
+    if (!safeAuthorId || !authorRow) return false;
+    if (viewerState.blockedIds.has(safeAuthorId) || viewerState.mutedIds.has(safeAuthorId)) return false;
+    if (feedTab === "news") return isNewsUserRow(authorRow);
+    if (isNewsUserRow(authorRow)) return false;
+    if (!safeViewerId) return Number(authorRow.is_private || 0) === 0;
+    if (safeAuthorId === safeViewerId) return true;
+    if (viewerState.followedIds.has(safeAuthorId)) return true;
+    return Number(authorRow.is_private || 0) === 0;
+  };
+
+  for (const row of followedRows || []) {
+    const postId = Number(row.id || 0);
+    if (!postId || postCandidateMap.has(postId)) continue;
+    const authorRow = userMap.get(Number(row.user_id || 0));
+    if (!isAuthorVisible(row.user_id, authorRow)) continue;
+    if (!matchesTag(row)) continue;
+    const candidate = {
+      kind: "post",
+      feed_id: `post-${postId}`,
+      source_id: postId,
+      id: postId,
+      post_id: postId,
+      post_user_id: Number(row.user_id || 0),
+      revined_by: null,
+      sort_time: row.created_at,
+    };
+    if (!isCandidateBeforeCursor(candidate, cursor)) continue;
+    postCandidateMap.set(postId, candidate);
+  }
+
+  for (const row of recentPostRows || []) {
+    const postId = Number(row.id || 0);
+    if (!postId || postCandidateMap.has(postId)) continue;
+    const authorRow = userMap.get(Number(row.user_id || 0));
+    if (!isAuthorVisible(row.user_id, authorRow)) continue;
+    if (!matchesTag(row)) continue;
+    const candidate = {
+      kind: "post",
+      feed_id: `post-${postId}`,
+      source_id: postId,
+      id: postId,
+      post_id: postId,
+      post_user_id: Number(row.user_id || 0),
+      revined_by: null,
+      sort_time: row.created_at,
+    };
+    if (!isCandidateBeforeCursor(candidate, cursor)) continue;
+    postCandidateMap.set(postId, candidate);
+  }
+
+  const feedCandidates = [...postCandidateMap.values()];
+
+  for (const row of revineRows || []) {
+    const sourceId = Number(row.id || 0);
+    const postRow = revinePostMap.get(Number(row.post_id || 0));
+    if (!sourceId || !postRow) continue;
+    const authorRow = userMap.get(Number(postRow.user_id || 0));
+    if (!isAuthorVisible(postRow.user_id, authorRow)) continue;
+    if (!matchesTag(postRow)) continue;
+    const candidate = {
+      kind: "revine",
+      feed_id: `revine-${sourceId}`,
+      source_id: sourceId,
+      id: Number(postRow.id || 0),
+      post_id: Number(postRow.id || 0),
+      post_user_id: Number(postRow.user_id || 0),
+      revined_by: Number(row.user_id || 0),
+      sort_time: row.created_at,
+    };
+    if (!isCandidateBeforeCursor(candidate, cursor)) continue;
+    feedCandidates.push(candidate);
+  }
+
+  feedCandidates.sort(compareFeedCandidatesDesc);
+  const finalCandidates = feedCandidates.slice(0, FEED_PAGE_SIZE);
+  const nextCursor = finalCandidates.length === FEED_PAGE_SIZE
+    ? buildFeedCursorToken(finalCandidates[finalCandidates.length - 1])
+    : null;
+
+  if (!finalCandidates.length) {
+    return { items: [], nextCursor: null };
+  }
+
+  const postIds = [...new Set(finalCandidates.map((row) => Number(row.post_id || row.id || 0)).filter(Boolean))];
+  const postPlaceholders = postIds.map(() => "?").join(", ");
+  const [hydratedRows] = await timedVineQuery(
+    perfCtx,
+    "feed.hydrate.posts",
+    `
+    SELECT
+      p.id,
+      p.user_id,
+      p.community_id,
+      p.topic_tag,
+      p.is_community_pinned,
+      c.name AS community_name,
+      c.slug AS community_slug,
+      p.content,
+      p.image_url,
+      p.link_preview,
+      COALESCE(p.view_count, 0) AS views,
+      p.created_at,
+      u.username,
+      u.display_name,
+      u.avatar_url,
+      u.is_verified,
+      u.badge_type,
+      u.hide_like_counts
+    FROM vine_posts p
+    JOIN vine_users u ON p.user_id = u.id
+    LEFT JOIN vine_communities c ON c.id = p.community_id
+    WHERE p.id IN (${postPlaceholders})
+    `,
+    postIds
+  );
+
+  const hydratedPostMap = new Map((hydratedRows || []).map((row) => [Number(row.id), row]));
+  const revinerIds = [...new Set(finalCandidates.map((row) => Number(row.revined_by || 0)).filter(Boolean))];
+  let revinerRows = [];
+  if (revinerIds.length) {
+    const placeholders = revinerIds.map(() => "?").join(", ");
+    [revinerRows] = await timedVineQuery(
+      perfCtx,
+      "feed.hydrate.reviners",
+      `SELECT id, username FROM vine_users WHERE id IN (${placeholders})`,
+      revinerIds
+    );
+  }
+  const revinerMap = new Map((revinerRows || []).map((row) => [Number(row.id), row]));
+
+  const orderedRows = finalCandidates
+    .map((candidate) => {
+      const postRow = hydratedPostMap.get(Number(candidate.post_id || candidate.id || 0));
+      if (!postRow) return null;
+      return {
+        ...postRow,
+        feed_id: candidate.feed_id,
+        sort_time: candidate.sort_time,
+        revined_by: candidate.revined_by || null,
+        reviner_username: candidate.revined_by ? (revinerMap.get(Number(candidate.revined_by))?.username || null) : null,
+      };
+    })
+    .filter(Boolean);
+
+  const enrichedItems = await enrichVinePostRows(orderedRows, viewerId, perfCtx);
+  return { items: enrichedItems, nextCursor };
+};
+
 let postViewSchemaReady = false;
 let postViewSchemaPromise = null;
 const ensurePostViewSchema = async () => {
@@ -7558,166 +7993,54 @@ router.get("/posts", authOptional, async (req, res) => {
       const viewerId = req.user?.id || null;
       const feedTag = String(req.query.tag || "").trim().replace(/^#/, "").toLowerCase();
       const feedTab = String(req.query.tab || "for-you").trim().toLowerCase() === "news" ? "news" : "for-you";
+      const cursor = parseFeedCursor(req.query);
       const rows = await runVinePerfRoute(
         "feed",
-        { viewer_id: Number(viewerId || 0), tag: feedTag || null, tab: feedTab },
+        {
+          viewer_id: Number(viewerId || 0),
+          tag: feedTag || null,
+          tab: feedTab,
+          cursor_time: cursor.time ? cursor.time.toISOString() : null,
+          cursor_feed_id: cursor.feedId || null,
+        },
         async (perfCtx) => {
           await ensureVinePerformanceSchema();
           await ensureCommunitySchema();
           await ensurePollSchema();
           triggerNewsIngestIfDue();
           await publishDueScheduledPosts();
-          const cacheKey = buildVineCacheKey("feed", viewerId || 0, feedTab, feedTag || "all");
-          const tagFilterSql = feedTag
-            ? ` AND (LOWER(COALESCE(p.content, '')) LIKE ${db.escape(`%#${feedTag}%`)} OR LOWER(COALESCE(p.topic_tag, '')) = ${db.escape(feedTag)})`
-            : "";
-          const newsAuthorSql =
-            `(LOWER(COALESCE(u.username, '')) IN ('vine_news', 'vine news') OR LOWER(COALESCE(u.display_name, '')) = 'vine news' OR LOWER(COALESCE(u.badge_type, '')) = 'news')`;
-          const newsPostFilterSql =
-            feedTab === "news"
-              ? ` AND ${newsAuthorSql}`
-              : ` AND NOT ${newsAuthorSql}`;
-          const newsRevineFilterSql =
-            feedTab === "news"
-              ? " AND 1 = 0"
-              : ` AND NOT ${newsAuthorSql}`;
-          const feedBranchLimit = 100;
-          const feedCandidateLimit = feedTag ? 1500 : feedTab === "news" ? 1200 : 600;
-          const visibilityFilterSql = viewerId
-            ? `(u.is_private = 0 OR u.id = ${viewerId} OR EXISTS (
-                  SELECT 1 FROM vine_follows
-                  WHERE follower_id = ${viewerId} AND following_id = u.id
-                ))`
-            : "u.is_private = 0";
-          const blockFilterSql = viewerId
-            ? ` AND NOT EXISTS (
-                  SELECT 1 FROM vine_blocks b
-                  WHERE (b.blocker_id = u.id AND b.blocked_id = ${viewerId})
-                     OR (b.blocker_id = ${viewerId} AND b.blocked_id = u.id)
-                )`
-            : "";
-          const muteFilterSql = viewerId
-            ? ` AND NOT EXISTS (
-                  SELECT 1 FROM vine_mutes m
-                  WHERE m.muter_id = ${viewerId} AND m.muted_id = u.id
-                )`
-            : "";
+          const cacheKey = buildVineCacheKey(
+            "feed",
+            viewerId || 0,
+            feedTab,
+            feedTag || "all",
+            cursor.time ? cursor.time.toISOString() : "first-page",
+            cursor.feedId || "start"
+          );
 
           return readThroughVineCache(cacheKey, VINE_CACHE_TTLS.feed, async () => {
-            const [baseRows] = await timedVineQuery(
-              perfCtx,
-              "feed.rows",
-              `
-        (
-          SELECT
-            CONCAT('post-', p.id) AS feed_id,
-            p.id,
-            p.user_id,
-            p.community_id,
-            p.topic_tag,
-            p.is_community_pinned,
-            c.name AS community_name,
-            c.slug AS community_slug,
-            p.content,
-            p.image_url,
-            p.link_preview,
-            COALESCE(p.view_count, 0) AS views,
-            p.created_at,
-            p.created_at AS sort_time,
-            u.username,
-            u.display_name,
-            u.avatar_url,
-            u.is_verified,
-            u.badge_type,
-            u.hide_like_counts,
-            NULL AS revined_by,
-            NULL AS reviner_username
-  
-          FROM (
-            SELECT
-              id,
-              user_id,
-              community_id,
-              topic_tag,
-              is_community_pinned,
-              content,
-              image_url,
-              link_preview,
-              view_count,
-              created_at
-            FROM vine_posts
-            ORDER BY created_at DESC, id DESC
-            LIMIT ?
-          ) p
-          JOIN vine_users u ON p.user_id = u.id
-          LEFT JOIN vine_communities c ON c.id = p.community_id
-          WHERE ${visibilityFilterSql}
-          ${blockFilterSql}
-          ${muteFilterSql}
-          ${newsPostFilterSql}
-          ${tagFilterSql}
-          ORDER BY p.created_at DESC, p.id DESC
-          LIMIT ?
-        )
-        UNION ALL
-        (
-          SELECT
-            CONCAT('revine-', r.id) AS feed_id,
-            p.id,
-            p.user_id,
-            p.community_id,
-            p.topic_tag,
-            p.is_community_pinned,
-            c.name AS community_name,
-            c.slug AS community_slug,
-            p.content,
-            p.image_url,
-            p.link_preview,
-            COALESCE(p.view_count, 0) AS views,
-            p.created_at,
-            r.created_at AS sort_time,
-            u.username,
-            u.display_name,
-            u.avatar_url,
-            u.is_verified,
-            u.badge_type,
-            u.hide_like_counts,
-            r.user_id AS revined_by,
-            ru.username AS reviner_username
-  
-          FROM (
-            SELECT
-              id,
-              post_id,
-              user_id,
-              created_at
-            FROM vine_revines
-            ORDER BY created_at DESC, id DESC
-            LIMIT ?
-          ) r
-          JOIN vine_posts p ON r.post_id = p.id
-          JOIN vine_users u ON p.user_id = u.id
-          LEFT JOIN vine_communities c ON c.id = p.community_id
-          JOIN vine_users ru ON r.user_id = ru.id
-          WHERE ${visibilityFilterSql}
-          ${blockFilterSql}
-          ${muteFilterSql}
-          ${newsRevineFilterSql}
-          ${tagFilterSql}
-          ORDER BY r.created_at DESC, r.id DESC
-          LIMIT ?
-        )
-        ORDER BY sort_time DESC, feed_id DESC
-        LIMIT 100
-      `,
-              [feedCandidateLimit, feedBranchLimit, feedCandidateLimit, feedBranchLimit]
+            return getFeedPageData(
+              {
+                viewerId,
+                feedTag,
+                feedTab,
+                cursor,
+              },
+              perfCtx
             );
-            return enrichVinePostRows(baseRows, viewerId, perfCtx);
           });
         }
       );
-  
-      res.json(rows);
+
+      if (rows?.nextCursor?.time && rows?.nextCursor?.feedId) {
+        res.set("X-Vine-Next-Cursor-Time", rows.nextCursor.time);
+        res.set("X-Vine-Next-Cursor-Feed", rows.nextCursor.feedId);
+      } else {
+        res.set("X-Vine-Next-Cursor-Time", "");
+        res.set("X-Vine-Next-Cursor-Feed", "");
+      }
+
+      res.json(Array.isArray(rows?.items) ? rows.items : []);
     } catch (err) {
       console.error("Feed error:", err);
       res.status(500).json([]);
@@ -9548,8 +9871,8 @@ router.get("/posts/trending", authOptional, async (req, res) => {
   }
 });
 
-// Ranked Feed (open network)
-router.get("/posts", authOptional, async (req, res) => {
+// Deprecated ranked feed kept only as an emergency debug route.
+router.get("/posts/_legacy-ranked-debug", authOptional, async (req, res) => {
   try {
     const viewerId = req.user?.id || null;
 

@@ -12,6 +12,39 @@ import {
 } from "./alevel.controller.js";
 
 const router = express.Router();
+
+const SINGLE_PAPER_SUBJECTS = new Set(["general paper", "sub math", "submath"]);
+
+const normalizeSubjectName = (value = "") => String(value || "").trim().toLowerCase();
+
+const isSinglePaperSubject = (subjectName = "") =>
+  SINGLE_PAPER_SUBJECTS.has(normalizeSubjectName(subjectName));
+
+const getPaperOptionsForSubject = (subjectName = "") =>
+  isSinglePaperSubject(subjectName) ? ["Single"] : ["Paper 1", "Paper 2"];
+
+const normalizePaperLabel = (value = "") => {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "paper 1" || raw === "paper1" || raw === "p1") return "Paper 1";
+  if (raw === "paper 2" || raw === "paper2" || raw === "p2") return "Paper 2";
+  if (raw === "single" || raw === "single paper") return "Single";
+  return "";
+};
+
+const resolvePaperLabel = (subjectName = "", requestedPaper = "") => {
+  const allowed = getPaperOptionsForSubject(subjectName);
+  if (allowed.length === 1) return "Single";
+
+  const normalized = normalizePaperLabel(requestedPaper);
+  return allowed.includes(normalized) ? normalized : "Paper 1";
+};
+
+const buildSubjectDisplay = (subjectName = "", paperLabel = "") => {
+  const resolvedPaper = normalizePaperLabel(paperLabel);
+  return resolvedPaper && resolvedPaper !== "Single"
+    ? `${subjectName} — ${resolvedPaper}`
+    : subjectName;
+};
 // ===== A-LEVEL LEARNERS =====
 router.get("/learners", getLearners);
 router.post("/learners", createLearner);
@@ -30,7 +63,13 @@ router.get("/subjects", async (req, res) => {
       FROM alevel_subjects 
       ORDER BY name
     `);
-    res.json(rows || []);
+    res.json(
+      (rows || []).map((row) => ({
+        ...row,
+        is_single_paper: isSinglePaperSubject(row.name),
+        paper_options: getPaperOptionsForSubject(row.name),
+      }))
+    );
   } catch (err) {
     console.error("subjects error:", err);
     res.status(500).json([]);
@@ -45,6 +84,7 @@ router.get("/admin/assignments", authAdmin, async (req, res) => {
         ats.id,
         ats.teacher_id,
         ats.stream,
+        ats.paper_label,
         s.name AS subject,
         t.name AS teacher_name,
         t.email AS teacher_email
@@ -54,7 +94,13 @@ router.get("/admin/assignments", authAdmin, async (req, res) => {
       ORDER BY ats.id DESC
     `);
 
-    res.json(rows || []);
+    res.json(
+      (rows || []).map((row) => ({
+        ...row,
+        paper_label: normalizePaperLabel(row.paper_label) || resolvePaperLabel(row.subject),
+        subject_display: buildSubjectDisplay(row.subject, row.paper_label),
+      }))
+    );
   } catch (err) {
     console.error("admin assignments error:", err);
     res.status(500).json({ message: "Failed to fetch assignments" });
@@ -62,17 +108,43 @@ router.get("/admin/assignments", authAdmin, async (req, res) => {
 });
 // create assignment
 router.post("/admin/assignments", authAdmin, async (req, res) => {
-  const { teacherId, subjectId, stream } = req.body;
+  const { teacherId, subjectId, stream, paperLabel } = req.body;
 
   if (!teacherId || !subjectId || !stream) {
     return res.status(400).json({ message: "Missing fields" });
   }
 
   try {
+    const [[subjectRow]] = await db.query(
+      `SELECT name FROM alevel_subjects WHERE id = ?`,
+      [subjectId]
+    );
+
+    if (!subjectRow) {
+      return res.status(404).json({ message: "Subject not found" });
+    }
+
+    const resolvedPaper = resolvePaperLabel(subjectRow.name, paperLabel);
+
+    const [[existing]] = await db.query(
+      `SELECT id
+       FROM alevel_teacher_subjects
+       WHERE teacher_id = ?
+         AND subject_id = ?
+         AND stream = ?
+         AND paper_label = ?
+       LIMIT 1`,
+      [teacherId, subjectId, stream, resolvedPaper]
+    );
+
+    if (existing) {
+      return res.status(409).json({ message: "Assignment already exists for this paper" });
+    }
+
     await db.query(
-      `INSERT INTO alevel_teacher_subjects (teacher_id, subject_id, stream)
-       VALUES (?, ?, ?)`,
-      [teacherId, subjectId, stream]
+      `INSERT INTO alevel_teacher_subjects (teacher_id, subject_id, stream, paper_label)
+       VALUES (?, ?, ?, ?)`,
+      [teacherId, subjectId, stream, resolvedPaper]
     );
 
     res.json({ success: true });
@@ -85,6 +157,31 @@ router.post("/admin/assignments", authAdmin, async (req, res) => {
 // delete assignment
 router.delete("/admin/assignments/:id", authAdmin, async (req, res) => {
   try {
+    const [[assignment]] = await db.query(
+      `SELECT id, subject_id, teacher_id, stream
+       FROM alevel_teacher_subjects
+       WHERE id = ?`,
+      [req.params.id]
+    );
+
+    if (!assignment) {
+      return res.status(404).json({ message: "Assignment not found" });
+    }
+
+    await db.query(
+      `DELETE am
+       FROM alevel_marks am
+       LEFT JOIN alevel_learners l ON l.id = am.learner_id
+       WHERE am.assignment_id = ?
+          OR (
+            am.assignment_id IS NULL
+            AND am.subject_id = ?
+            AND am.teacher_id = ?
+            AND l.stream = ?
+          )`,
+      [assignment.id, assignment.subject_id, assignment.teacher_id, assignment.stream]
+    );
+
     await db.query(
       `DELETE FROM alevel_teacher_subjects WHERE id = ?`,
       [req.params.id]
@@ -105,6 +202,7 @@ router.get("/teachers/alevel-assignments", authTeacher, async (req, res) => {
       SELECT
         ats.id,
         ats.stream,
+        ats.paper_label,
         s.name AS subject
       FROM alevel_teacher_subjects ats
       JOIN alevel_subjects s ON s.id = ats.subject_id
@@ -112,7 +210,13 @@ router.get("/teachers/alevel-assignments", authTeacher, async (req, res) => {
       ORDER BY ats.id DESC
     `, [teacherId]);
 
-    res.json(rows || []);
+    res.json(
+      (rows || []).map((row) => ({
+        ...row,
+        paper_label: normalizePaperLabel(row.paper_label) || resolvePaperLabel(row.subject),
+        subject_display: buildSubjectDisplay(row.subject, row.paper_label),
+      }))
+    );
   } catch (err) {
     console.error("alevel assignments error:", err);
     res.status(500).json({ message: "Failed to fetch alevel assignments" });
@@ -130,6 +234,7 @@ router.get("/teachers/alevel-assignments-by-email", authTeacher, async (req, res
       SELECT
         ats.id,
         ats.stream,
+        ats.paper_label,
         s.name AS subject
       FROM alevel_teacher_subjects ats
       JOIN alevel_subjects s ON s.id = ats.subject_id
@@ -140,7 +245,13 @@ router.get("/teachers/alevel-assignments-by-email", authTeacher, async (req, res
       [teacherEmail]
     );
 
-    res.json(rows || []);
+    res.json(
+      (rows || []).map((row) => ({
+        ...row,
+        paper_label: normalizePaperLabel(row.paper_label) || resolvePaperLabel(row.subject),
+        subject_display: buildSubjectDisplay(row.subject, row.paper_label),
+      }))
+    );
   } catch (err) {
     console.error("alevel assignments by email error:", err);
     res.status(500).json({ message: "Failed to fetch alevel assignments" });
@@ -183,13 +294,13 @@ router.get("/teachers/alevel-assignments/:id/students", async (req, res) => {
 /* GET marks */
 router.get("/teachers/alevel-marks", async (req, res) => {
   try {
-    const { assignmentId, term } = req.query;
+    const { assignmentId, term, year } = req.query;
 
     if (!assignmentId || !term) return res.json([]);
 
     // Get subject_id and teacher_id from assignment
     const [[ts]] = await db.query(
-      `SELECT subject_id, teacher_id 
+      `SELECT id, subject_id, teacher_id 
        FROM alevel_teacher_subjects 
        WHERE id = ?`,
       [assignmentId]
@@ -209,11 +320,11 @@ router.get("/teachers/alevel-marks", async (req, res) => {
       FROM alevel_marks am
       JOIN alevel_exams ae 
         ON ae.id = am.exam_id
-      WHERE am.subject_id = ?
-        AND am.teacher_id = ?
+      WHERE am.assignment_id = ?
         AND am.term = ?
+        ${year ? "AND YEAR(am.created_at) = ?" : ""}
       ORDER BY am.learner_id
-    `, [ts.subject_id, ts.teacher_id, term]);
+    `, year ? [ts.id, term, year] : [ts.id, term]);
 
     res.json(rows || []);
   } catch (err) {
@@ -225,7 +336,7 @@ router.get("/teachers/alevel-marks", async (req, res) => {
 
 /* SAVE marks */
 router.post("/teachers/alevel-marks", async (req, res) => {
-  const { assignmentId, term, marks } = req.body;
+  const { assignmentId, term, year, marks } = req.body;
 
   if (!assignmentId || !term || !Array.isArray(marks)) {
     return res.status(400).json({ message: "Invalid payload" });
@@ -238,7 +349,7 @@ router.post("/teachers/alevel-marks", async (req, res) => {
 
     // 1. Get subject_id + teacher_id from assignment
     const [[ts]] = await conn.query(
-      `SELECT subject_id, teacher_id 
+      `SELECT id, subject_id, teacher_id 
        FROM alevel_teacher_subjects 
        WHERE id = ?`,
       [assignmentId]
@@ -260,15 +371,15 @@ router.post("/teachers/alevel-marks", async (req, res) => {
     // 3. Delete old marks for this subject + teacher + term
     await conn.query(
       `DELETE FROM alevel_marks
-       WHERE subject_id = ?
-         AND teacher_id = ?
+       WHERE assignment_id = ?
          AND term = ?`,
-      [ts.subject_id, ts.teacher_id, term]
+      [ts.id, term]
     );
 
     // 4. Insert new marks
     const rows = marks.map(m => [
       m.studentId,
+      ts.id,
       ts.subject_id,
       examMap[m.aoi],       // MID/EOT → exam_id
       m.score === "Missed" ? null : m.score,
@@ -279,7 +390,7 @@ router.post("/teachers/alevel-marks", async (req, res) => {
     if (rows.length > 0) {
       await conn.query(
         `INSERT INTO alevel_marks 
-        (learner_id, subject_id, exam_id, score, teacher_id, term)
+        (learner_id, assignment_id, subject_id, exam_id, score, teacher_id, term)
         VALUES ?`,
         [rows]
       );
@@ -309,7 +420,7 @@ router.get("/alevel-analytics/subject", authTeacher, async (req, res) => {
 
     // 1. Get assignment context (subject + stream)
     const [[ts]] = await db.query(
-      `SELECT ats.subject_id, ats.stream, s.name AS subject_name
+      `SELECT ats.id, ats.subject_id, ats.stream, ats.paper_label, s.name AS subject_name
        FROM alevel_teacher_subjects ats
        JOIN alevel_subjects s ON s.id = ats.subject_id
        WHERE ats.id = ?`,
@@ -332,15 +443,14 @@ router.get("/alevel-analytics/subject", authTeacher, async (req, res) => {
       FROM alevel_marks am
       JOIN alevel_exams ae ON ae.id = am.exam_id
       JOIN alevel_learners l ON l.id = am.learner_id
-      WHERE am.subject_id = ?
-        AND am.teacher_id = ?
+      WHERE am.assignment_id = ?
         AND am.term = ?
         AND l.stream = ?
         ${examFilter}
       GROUP BY ae.name
       ORDER BY FIELD(ae.name, 'MID', 'EOT'), ae.name
       `,
-      [ts.subject_id, teacherId, term, ts.stream, ...examParams]
+      [ts.id, term, ts.stream, ...examParams]
     );
 
     // 3. Overall average (stream-aware)
@@ -351,13 +461,12 @@ router.get("/alevel-analytics/subject", authTeacher, async (req, res) => {
       FROM alevel_marks am
       JOIN alevel_learners l ON l.id = am.learner_id
       JOIN alevel_exams ae ON ae.id = am.exam_id
-      WHERE am.subject_id = ?
-        AND am.teacher_id = ?
+      WHERE am.assignment_id = ?
         AND am.term = ?
         AND l.stream = ?
         ${examFilter}
       `,
-      [ts.subject_id, teacherId, term, ts.stream, ...examParams]
+      [ts.id, term, ts.stream, ...examParams]
     );
 
     // 4. Registered learners for this subject + stream
@@ -390,6 +499,8 @@ router.get("/alevel-analytics/subject", authTeacher, async (req, res) => {
         ? Number(overall.overall_average).toFixed(2)
         : "—",
       assignment: { subject: ts.subject_name || "A-Level" },
+      assignment_paper: normalizePaperLabel(ts.paper_label) || resolvePaperLabel(ts.subject_name),
+      subject_display: buildSubjectDisplay(ts.subject_name || "A-Level", ts.paper_label),
     });
   } catch (err) {
     console.error("❌ A-Level analytics crash:", err);
@@ -403,16 +514,17 @@ router.get("/admin/marks-sets", async (req, res) => {
   try {
     const [rows] = await db.query(`
       SELECT DISTINCT
-        ats.id AS assignment_id,
+        am.assignment_id AS assignment_id,
         'A-Level' AS class_level,
         l.stream,
         s.name AS subject,
+        ats.paper_label,
         am.term,
         YEAR(am.created_at) AS year,
         ae.name AS aoi_label,
         t.name AS teacher_name
       FROM alevel_marks am
-      JOIN alevel_teacher_subjects ats ON ats.subject_id = am.subject_id
+      JOIN alevel_teacher_subjects ats ON ats.id = am.assignment_id
       JOIN alevel_subjects s ON s.id = am.subject_id
       JOIN teachers t ON t.id = am.teacher_id
       JOIN alevel_learners l ON l.id = am.learner_id
@@ -420,7 +532,13 @@ router.get("/admin/marks-sets", async (req, res) => {
       ORDER BY year DESC, term, subject, stream
     `);
 
-    res.json(rows || []);
+    res.json(
+      (rows || []).map((row) => ({
+        ...row,
+        paper_label: normalizePaperLabel(row.paper_label) || resolvePaperLabel(row.subject),
+        subject_display: buildSubjectDisplay(row.subject, row.paper_label),
+      }))
+    );
   } catch (err) {
     console.error("A-Level marks sets error:", err);
     res.status(500).json({ message: "Failed to load A-Level mark sets" });
@@ -438,7 +556,7 @@ router.get("/admin/marks-detail", async (req, res) => {
     }
 
     const [[ts]] = await db.query(
-      `SELECT subject_id FROM alevel_teacher_subjects WHERE id = ?`,
+      `SELECT id, subject_id, paper_label FROM alevel_teacher_subjects WHERE id = ?`,
       [assignmentId]
     );
 
@@ -461,14 +579,19 @@ router.get("/admin/marks-detail", async (req, res) => {
       FROM alevel_marks am
       JOIN alevel_learners l ON l.id = am.learner_id
       JOIN alevel_exams ae ON ae.id = am.exam_id
-      WHERE am.subject_id = ?
+      WHERE am.assignment_id = ?
         AND am.term = ?
         AND am.exam_id = ?
         AND YEAR(am.created_at) = ?
       ORDER BY l.first_name, l.last_name
-    `, [ts.subject_id, term, exam.id, year]);
+    `, [ts.id, term, exam.id, year]);
 
-    res.json(rows || []);
+    res.json(
+      (rows || []).map((row) => ({
+        ...row,
+        paper_label: normalizePaperLabel(ts.paper_label) || null,
+      }))
+    );
   } catch (err) {
     console.error("A-Level marks detail error:", err);
     res.status(500).json({ message: "Failed to load marks detail" });
@@ -505,27 +628,36 @@ router.get("/download/sets", async (req, res) => {
   try {
     const [rows] = await pool.query(`
       SELECT
-        CONCAT(am.subject_id, '-', am.teacher_id, '-', am.term, '-', am.exam_id) AS setId,
+        CONCAT(am.assignment_id, '-', am.term, '-', am.exam_id) AS setId,
+        am.assignment_id,
         subj.name AS subject,
+        ats.paper_label,
         t.name AS submitted_by,
         am.term,
         ae.name AS exam
       FROM alevel_marks am
+      JOIN alevel_teacher_subjects ats ON ats.id = am.assignment_id
       JOIN alevel_subjects subj ON subj.id = am.subject_id
       JOIN teachers t ON t.id = am.teacher_id
       JOIN alevel_exams ae ON ae.id = am.exam_id
       GROUP BY 
-        am.subject_id,
-        am.teacher_id,
+        am.assignment_id,
         am.term,
         am.exam_id,
         subj.name,
+        ats.paper_label,
         t.name,
         ae.name
       ORDER BY am.term DESC, subj.name, ae.name
     `);
 
-    res.json(rows || []);
+    res.json(
+      (rows || []).map((row) => ({
+        ...row,
+        paper_label: normalizePaperLabel(row.paper_label) || resolvePaperLabel(row.subject),
+        subject_display: buildSubjectDisplay(row.subject, row.paper_label),
+      }))
+    );
   } catch (err) {
     console.error("❌ Download sets error:", err);
     res.status(500).json({ message: "Failed to load mark sets" });
@@ -536,7 +668,7 @@ router.get("/download/sets/:setId", async (req, res) => {
   try {
     const { setId } = req.params;
 
-    const [subject_id, teacher_id, term, exam_id] = setId.split("-");
+    const [assignment_id, term, exam_id] = setId.split("-");
 
     const [rows] = await pool.query(`
       SELECT 
@@ -546,12 +678,11 @@ router.get("/download/sets/:setId", async (req, res) => {
       FROM alevel_marks am
       JOIN alevel_learners l ON l.id = am.learner_id
       JOIN alevel_exams ae ON ae.id = am.exam_id
-      WHERE am.subject_id = ?
-        AND am.teacher_id = ?
+      WHERE am.assignment_id = ?
         AND am.term = ?
         AND am.exam_id = ?
       ORDER BY learner
-    `, [subject_id, teacher_id, term, exam_id]);
+    `, [assignment_id, term, exam_id]);
 
     res.json({
       columns: ["learner", "exam", "score"],
@@ -566,15 +697,14 @@ router.get("/download/sets/:setId", async (req, res) => {
 router.delete("/download/sets/:setId", async (req, res) => {
   try {
     const { setId } = req.params;
-    const [subject_id, teacher_id, term, exam_id] = setId.split("-");
+    const [assignment_id, term, exam_id] = setId.split("-");
 
     await pool.query(`
       DELETE FROM alevel_marks
-      WHERE subject_id = ?
-        AND teacher_id = ?
+      WHERE assignment_id = ?
         AND term = ?
         AND exam_id = ?
-    `, [subject_id, teacher_id, term, exam_id]);
+    `, [assignment_id, term, exam_id]);
 
     res.status(204).end();
   } catch (err) {
@@ -590,7 +720,7 @@ router.get("/download/sets/:assignmentId/export", async (req, res) => {
     const { term } = req.query;
 
     const [[ts]] = await pool.query(
-      `SELECT subject_id, teacher_id 
+      `SELECT id, subject_id, teacher_id 
        FROM alevel_teacher_subjects 
        WHERE id = ?`,
       [assignmentId]
@@ -606,11 +736,10 @@ router.get("/download/sets/:assignmentId/export", async (req, res) => {
       FROM alevel_marks am
       JOIN alevel_learners l ON l.id = am.learner_id
       JOIN alevel_exams ae ON ae.id = am.exam_id
-      WHERE am.subject_id = ?
-        AND am.teacher_id = ?
+      WHERE am.assignment_id = ?
         AND am.term = ?
       ORDER BY Learner
-    `, [ts.subject_id, ts.teacher_id, term]);
+    `, [ts.id, term]);
 
     const csv = [
       Object.keys(rows[0] || {}).join(","),

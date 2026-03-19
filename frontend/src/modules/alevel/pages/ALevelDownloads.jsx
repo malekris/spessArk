@@ -85,7 +85,7 @@ export default function ALevelDownload() {
   async function deleteSet(e, set) {
     e.stopPropagation();
 
-    if (!confirm(`Delete ${set.subject} (${set.exam}) Term ${set.term}?`)) return;
+    if (!confirm(`Delete ${set.subject_display || set.subject} (${set.exam}) Term ${set.term}?`)) return;
 
     try {
       const res = await fetch(
@@ -125,7 +125,7 @@ export default function ALevelDownload() {
 
     const a = document.createElement("a");
     a.href = url;
-    a.download = `Marks_${selected.subject}_Term${selected.term}_${selected.exam}.csv`;
+    a.download = `Marks_${(selected.subject_display || selected.subject).replace(/\s+/g, "_")}_Term${selected.term}_${selected.exam}.csv`;
     a.click();
 
     URL.revokeObjectURL(url);
@@ -141,7 +141,7 @@ export default function ALevelDownload() {
     const H = doc.internal.pageSize.getHeight();
   
     const school = "St. Phillip's Equatorial Secondary School";
-    const title = `${selected.subject} — ${selected.exam} (Term ${selected.term})`;
+    const title = `${selected.subject_display || selected.subject} — ${selected.exam} (Term ${selected.term})`;
     const teacher = selected.submitted_by || "—";
     const generated = new Date().toLocaleString();
   
@@ -356,10 +356,10 @@ export default function ALevelDownload() {
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start" }}>
                         <div style={{ flex: 1 }}>
                           <div style={{ fontWeight: "800", fontSize: "1rem", color: selected?.setId === set.setId ? amethyst : "#fff" }}>
-                            {set.subject}
+                            {set.subject_display || set.subject}
                           </div>
                           <div style={{ fontSize: "0.75rem", opacity: 0.5 }}>
-                            {set.exam} • Term {set.term}
+                            {(set.paper_label && set.paper_label !== "Single" ? `${set.paper_label} • ` : "")}{set.exam} • Term {set.term}
                           </div>
                           <div style={{ fontSize: "0.7rem", opacity: 0.4, fontStyle: "italic", marginTop: "2px" }}>
                             {set.submitted_by}

@@ -23,6 +23,7 @@ export default function ALevelAssignSubjects() {
     teacherId: "",
     subject: "",
     stream: "",
+    paperLabel: "",
   });
 
   const [printStream, setPrintStream] = useState("");
@@ -40,7 +41,14 @@ export default function ALevelAssignSubjects() {
   const canAssign =
     form.teacherId &&
     form.subject &&
-    form.stream;
+    form.stream &&
+    form.paperLabel;
+
+  const selectedSubject = subjects.find((s) => String(s.id) === String(form.subject));
+  const paperOptions = Array.isArray(selectedSubject?.paper_options) && selectedSubject.paper_options.length > 0
+    ? selectedSubject.paper_options
+    : ["Single"];
+  const isSinglePaperOnly = paperOptions.length === 1;
 
   /* ======================================================
      3. LOAD DATA
@@ -83,7 +91,21 @@ export default function ALevelAssignSubjects() {
      4. FORM HELPERS
   ====================================================== */
   function update(field, value) {
-    setForm((p) => ({ ...p, [field]: value }));
+    setForm((p) => {
+      if (field !== "subject") return { ...p, [field]: value };
+
+      const nextSubject = subjects.find((s) => String(s.id) === String(value));
+      const nextPapers =
+        Array.isArray(nextSubject?.paper_options) && nextSubject.paper_options.length > 0
+          ? nextSubject.paper_options
+          : [""];
+
+      return {
+        ...p,
+        subject: value,
+        paperLabel: nextPapers[0] || "",
+      };
+    });
     setError("");
     setSuccess("");
   }
@@ -106,14 +128,15 @@ export default function ALevelAssignSubjects() {
           teacherId: form.teacherId,
           subjectId: form.subject,
           stream: form.stream,
+          paperLabel: form.paperLabel,
         },
       });
 
       setSuccess("Assignment created successfully");
-      setForm({ teacherId: "", subject: "", stream: "" });
+      setForm({ teacherId: "", subject: "", stream: "", paperLabel: "" });
       loadAll();
-    } catch {
-      setError("Failed to assign subject");
+    } catch (err) {
+      setError(err?.message || "Failed to assign subject");
     }
   }
 
@@ -121,7 +144,7 @@ export default function ALevelAssignSubjects() {
      6. DELETE ASSIGNMENT
   ====================================================== */
   async function deleteAssignment(id) {
-    if (!window.confirm("Delete this assignment?")) return;
+    if (!window.confirm("Delete this assignment and its captured marks?")) return;
 
     try {
       await adminFetch(`/api/alevel/admin/assignments/${id}`, {
@@ -150,10 +173,11 @@ export default function ALevelAssignSubjects() {
     autoTable(doc, {
       startY: 50, // push table down to make space for header
   
-      head: [["Stream", "Subject", "Teacher"]],
+      head: [["Stream", "Subject", "Paper", "Teacher"]],
       body: filteredAssignments.map((a) => [
         a.stream,
         a.subject,
+        a.paper_label || "Single",
         a.teacher_name,
       ]),
   
@@ -228,7 +252,7 @@ export default function ALevelAssignSubjects() {
           onSubmit={handleAssign}
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(3, 1fr)",
+            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
             gap: "1rem",
           }}
         >
@@ -263,6 +287,27 @@ export default function ALevelAssignSubjects() {
               <option>S6 Arts</option>
               <option>S6 Sciences</option>
             </select>
+          </div>
+
+          <div>
+            <label>Paper</label>
+            <select
+              value={form.paperLabel}
+              onChange={(e) => update("paperLabel", e.target.value)}
+              disabled={!form.subject || isSinglePaperOnly}
+            >
+              {!form.subject && <option value="">Select subject first</option>}
+              {paperOptions.map((paper) => (
+                <option key={paper} value={paper}>
+                  {paper}
+                </option>
+              ))}
+            </select>
+            {selectedSubject && (
+              <div className="muted-text" style={{ marginTop: "0.35rem", fontSize: "0.78rem" }}>
+                {isSinglePaperOnly ? "Single-paper subject" : "Most A-Level subjects have two papers."}
+              </div>
+            )}
           </div>
 
           <div style={{ gridColumn: "1 / -1" }}>
@@ -306,6 +351,7 @@ export default function ALevelAssignSubjects() {
                 <tr>
                   <th>Stream</th>
                   <th>Subject</th>
+                  <th>Paper</th>
                   <th>Teacher</th>
                   <th />
                 </tr>
@@ -315,6 +361,7 @@ export default function ALevelAssignSubjects() {
                   <tr key={a.id}>
                     <td>{a.stream || "—"}</td>
                     <td>{a.subject}</td>
+                    <td>{a.paper_label || "Single"}</td>
                     <td>{a.teacher_name}</td>
                     <td>
                       <button className="danger-link" onClick={() => deleteAssignment(a.id)}>

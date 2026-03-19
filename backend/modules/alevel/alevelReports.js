@@ -3,6 +3,21 @@ import { db } from "../../server.js";
 
 const router = express.Router();
 
+function normalizePaperLabel(value = "") {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "paper 1" || raw === "paper1" || raw === "p1") return "Paper 1";
+  if (raw === "paper 2" || raw === "paper2" || raw === "p2") return "Paper 2";
+  if (raw === "single" || raw === "single paper") return "Single";
+  return "";
+}
+
+function displaySubjectWithPaper(subject, paperLabel) {
+  const resolvedPaper = normalizePaperLabel(paperLabel);
+  if (!subject) return "";
+  if (!resolvedPaper || resolvedPaper === "Single") return subject;
+  return `${subject} — ${resolvedPaper}`;
+}
+
 /* ------------------------------
    HELPERS
 --------------------------------*/
@@ -231,6 +246,7 @@ router.post("/download", async (req, res) => {
         const [rows] = await db.query(`
           SELECT 
             s.name AS subject,
+            ats.paper_label,
             t.name AS teacher,
             MAX(CASE WHEN e.name = 'MID' THEN m.score END) AS mid,
             MAX(CASE WHEN e.name = 'EOT' THEN m.score END) AS eot
@@ -238,11 +254,12 @@ router.post("/download", async (req, res) => {
           JOIN alevel_subjects s ON s.id = m.subject_id
           JOIN alevel_exams e ON e.id = m.exam_id
           JOIN teachers t ON t.id = m.teacher_id
+          LEFT JOIN alevel_teacher_subjects ats ON ats.id = m.assignment_id
           WHERE m.learner_id = ?
             AND m.term = ?
             AND YEAR(m.created_at) = ?
-          GROUP BY s.id, s.name, t.name
-          ORDER BY s.name ASC
+          GROUP BY s.id, s.name, ats.paper_label, t.name
+          ORDER BY s.name ASC, ats.paper_label ASC
         `, [learner.id, term, year]);
 
         // Only generate reports for learners with at least one recorded mark.
@@ -255,16 +272,17 @@ router.post("/download", async (req, res) => {
         let subsidiaries = [];
   
         rows.forEach(r => {
+          const subjectLabel = displaySubjectWithPaper(r.subject, r.paper_label);
           const avg = calcAverage(r.mid, r.eot);
           const score = scoreFromAverage(avg);
   
           if (r.subject.toLowerCase().includes("sub") || r.subject.toLowerCase().includes("general")) {
             const sg = subsidiaryGrade(avg);
-            subsidiaries.push({ ...r, avg, score, grade: sg.grade, points: sg.points });
+            subsidiaries.push({ ...r, subject: subjectLabel, avg, score, grade: sg.grade, points: sg.points });
           } else {
             const grade = gradeFromScore(score);
             const points = pointsFromGrade(grade);
-            principals.push({ ...r, avg, score, grade, points });
+            principals.push({ ...r, subject: subjectLabel, avg, score, grade, points });
           }
         });
   

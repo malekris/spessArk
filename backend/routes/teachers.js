@@ -11,6 +11,21 @@ import { extractClientIp, logAuditEvent } from "../utils/auditLogger.js";
 dotenv.config();
 const router = express.Router();
 
+const normalizeAlevelPaperLabel = (value = "") => {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "paper 1" || raw === "paper1" || raw === "p1") return "Paper 1";
+  if (raw === "paper 2" || raw === "paper2" || raw === "p2") return "Paper 2";
+  if (raw === "single" || raw === "single paper") return "Single";
+  return "";
+};
+
+const buildAlevelSubjectDisplay = (subject = "", paperLabel = "") => {
+  const normalizedPaper = normalizeAlevelPaperLabel(paperLabel);
+  return normalizedPaper && normalizedPaper !== "Single"
+    ? `${subject} — ${normalizedPaper}`
+    : subject;
+};
+
 
 
 /* =======================
@@ -373,6 +388,7 @@ router.get("/alevel-assignments", authTeacher, async (req, res) => {
       SELECT
         ats.id,
         ats.stream,
+        ats.paper_label,
         s.name AS subject,
         NULL AS class_level
       FROM alevel_teacher_subjects ats
@@ -385,7 +401,13 @@ router.get("/alevel-assignments", authTeacher, async (req, res) => {
       [teacherId, canonicalTeacherId]
     );
 
-    return res.json(rows || []);
+    return res.json(
+      (rows || []).map((row) => ({
+        ...row,
+        paper_label: normalizeAlevelPaperLabel(row.paper_label) || "Single",
+        subject_display: buildAlevelSubjectDisplay(row.subject, row.paper_label),
+      }))
+    );
   } catch (err) {
     console.error("❌ A-Level teacher assignments error:", err);
     return res.status(500).json({
@@ -414,6 +436,7 @@ router.get("/teachers/alevel-assignments", authTeacher, async (req, res) => {
       SELECT
         ats.id,
         ats.stream,
+        ats.paper_label,
         s.name AS subject,
         NULL AS class_level
       FROM alevel_teacher_subjects ats
@@ -426,7 +449,13 @@ router.get("/teachers/alevel-assignments", authTeacher, async (req, res) => {
       [teacherId, canonicalTeacherId]
     );
 
-    return res.json(rows || []);
+    return res.json(
+      (rows || []).map((row) => ({
+        ...row,
+        paper_label: normalizeAlevelPaperLabel(row.paper_label) || "Single",
+        subject_display: buildAlevelSubjectDisplay(row.subject, row.paper_label),
+      }))
+    );
   } catch (err) {
     console.error("❌ A-Level teacher assignments alias error:", err);
     return res.status(500).json({

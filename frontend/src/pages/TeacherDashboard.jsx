@@ -48,6 +48,15 @@ const calculateAverage = (marksObj, averageColumns) => {
   return avg.toFixed(2);
 };
 
+const getAssignmentDisplayLabel = (assignment) => {
+  if (!assignment) return "—";
+  if (assignment.subject_display) return assignment.subject_display;
+  if (assignment.paper_label && assignment.paper_label !== "Single") {
+    return `${assignment.subject} — ${assignment.paper_label}`;
+  }
+  return assignment.subject || "—";
+};
+
 // ============================
 // MAIN COMPONENT
 // ============================
@@ -210,6 +219,12 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
                 {
                   ...r,
                   subject: r.subject ?? r.subject_name ?? "—",
+                  paper_label: r.paper_label ?? "Single",
+                  subject_display:
+                    r.subject_display ??
+                    [r.subject ?? r.subject_name ?? "—", r.paper_label && r.paper_label !== "Single" ? r.paper_label : ""]
+                      .filter(Boolean)
+                      .join(" — "),
                   stream: r.stream ?? "—",
                 },
               ])
@@ -228,6 +243,12 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
                 {
                   ...r,
                   subject: r.subject ?? r.subject_name ?? "—",
+                  paper_label: r.paper_label ?? "Single",
+                  subject_display:
+                    r.subject_display ??
+                    [r.subject ?? r.subject_name ?? "—", r.paper_label && r.paper_label !== "Single" ? r.paper_label : ""]
+                      .filter(Boolean)
+                      .join(" — "),
                   stream: r.stream ?? "—",
                 },
               ])
@@ -668,7 +689,7 @@ useEffect(() => {
 
       doc.setFontSize(10);
       doc.setFont("helvetica", "normal");
-      doc.text(`${selectedAssignment.subject} | ${selectedAssignment.class_level} ${selectedAssignment.stream}`, 105, 24, { align: "center" });
+      doc.text(`${getAssignmentDisplayLabel(selectedAssignment)} | ${selectedAssignment.class_level} ${selectedAssignment.stream}`, 105, 24, { align: "center" });
       doc.text(`${marksYear} • ${marksTerm}`, 105, 29, { align: "center" });
 
       const columns = getMarkColumns(selectedAssignment?.isAlevel === true, marksTerm);
@@ -861,13 +882,14 @@ useEffect(() => {
                 WebkitOverflowScrolling: "touch",
               }}
             >
-              <table className="teachers-table" style={{ minWidth: "560px" }}>
+              <table className="teachers-table" style={{ minWidth: "680px" }}>
                 <thead>
                   <tr>
                     <th>Level</th>
                     <th>Class</th>
                     <th>Stream</th>
                     <th>Subject</th>
+                    <th>Paper</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -885,6 +907,7 @@ useEffect(() => {
                       <td>{a.class_level}</td>
                       <td>{a.stream}</td>
                       <td>{a.subject}</td>
+                      <td>—</td>
                     </tr>
                   ))}
 
@@ -903,6 +926,7 @@ useEffect(() => {
                       <td>{a.stream?.split(" ")[0] ?? "—"}</td>
                       <td>{a.stream}</td>
                       <td>{a.subject}</td>
+                      <td>{a.paper_label || "Single"}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -916,7 +940,7 @@ useEffect(() => {
           <section className="panel" style={{ marginTop: "1rem" }}>
             <div className="panel-card">
               <div className="panel-alert">
-                You are entering marks for <strong>{selectedAssignment.class_level} {selectedAssignment.stream} — {selectedAssignment.subject}</strong> ({marksYear}, {marksTerm})
+                You are entering marks for <strong>{selectedAssignment.class_level} {selectedAssignment.stream} — {selectedAssignment.subject_display || selectedAssignment.subject}</strong> ({marksYear}, {marksTerm})
               </div>
 
               {/* Analytics (read-only) */}
@@ -924,7 +948,7 @@ useEffect(() => {
 
               {analytics && (
                 <div className="panel-card" style={{ marginBottom: "1rem" }}>
-                  <h3 style={{ marginBottom: "0.6rem" }}>📊 Subject Analytics — {analytics.assignment?.subject}</h3>
+                  <h3 style={{ marginBottom: "0.6rem" }}>📊 Subject Analytics — {analytics.subject_display || analytics.assignment?.subject || selectedAssignment.subject_display || selectedAssignment.subject}</h3>
 
                   <div style={{ display: "flex", gap: "1.2rem", flexWrap: "wrap" }}>
                     <div>

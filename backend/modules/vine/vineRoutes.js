@@ -7582,6 +7582,26 @@ router.get("/posts", authOptional, async (req, res) => {
               ? " AND 1 = 0"
               : ` AND NOT ${newsAuthorSql}`;
           const feedBranchLimit = 100;
+          const feedCandidateLimit = feedTag ? 1500 : feedTab === "news" ? 1200 : 600;
+          const visibilityFilterSql = viewerId
+            ? `(u.is_private = 0 OR u.id = ${viewerId} OR EXISTS (
+                  SELECT 1 FROM vine_follows
+                  WHERE follower_id = ${viewerId} AND following_id = u.id
+                ))`
+            : "u.is_private = 0";
+          const blockFilterSql = viewerId
+            ? ` AND NOT EXISTS (
+                  SELECT 1 FROM vine_blocks b
+                  WHERE (b.blocker_id = u.id AND b.blocked_id = ${viewerId})
+                     OR (b.blocker_id = ${viewerId} AND b.blocked_id = u.id)
+                )`
+            : "";
+          const muteFilterSql = viewerId
+            ? ` AND NOT EXISTS (
+                  SELECT 1 FROM vine_mutes m
+                  WHERE m.muter_id = ${viewerId} AND m.muted_id = u.id
+                )`
+            : "";
 
           return readThroughVineCache(cacheKey, VINE_CACHE_TTLS.feed, async () => {
             const [baseRows] = await timedVineQuery(
@@ -7589,7 +7609,7 @@ router.get("/posts", authOptional, async (req, res) => {
               "feed.rows",
               `
         (
-          SELECT 
+          SELECT
             CONCAT('post-', p.id) AS feed_id,
             p.id,
             p.user_id,
@@ -7613,34 +7633,27 @@ router.get("/posts", authOptional, async (req, res) => {
             NULL AS revined_by,
             NULL AS reviner_username
   
-          FROM vine_posts p
+          FROM (
+            SELECT
+              id,
+              user_id,
+              community_id,
+              topic_tag,
+              is_community_pinned,
+              content,
+              image_url,
+              link_preview,
+              view_count,
+              created_at
+            FROM vine_posts
+            ORDER BY created_at DESC, id DESC
+            LIMIT ?
+          ) p
           JOIN vine_users u ON p.user_id = u.id
           LEFT JOIN vine_communities c ON c.id = p.community_id
-          WHERE ${
-            viewerId
-              ? `(u.is_private = 0 OR u.id = ${viewerId} OR EXISTS (
-                    SELECT 1 FROM vine_follows
-                    WHERE follower_id = ${viewerId} AND following_id = u.id
-                  ))`
-              : "u.is_private = 0"
-          }
-          ${
-            viewerId
-              ? ` AND NOT EXISTS (
-                    SELECT 1 FROM vine_blocks b
-                    WHERE (b.blocker_id = u.id AND b.blocked_id = ${viewerId})
-                       OR (b.blocker_id = ${viewerId} AND b.blocked_id = u.id)
-                  )`
-              : ""
-          }
-          ${
-            viewerId
-              ? ` AND NOT EXISTS (
-                    SELECT 1 FROM vine_mutes m
-                    WHERE m.muter_id = ${viewerId} AND m.muted_id = u.id
-                  )`
-              : ""
-          }
+          WHERE ${visibilityFilterSql}
+          ${blockFilterSql}
+          ${muteFilterSql}
           ${newsPostFilterSql}
           ${tagFilterSql}
           ORDER BY p.created_at DESC, p.id DESC
@@ -7648,7 +7661,7 @@ router.get("/posts", authOptional, async (req, res) => {
         )
         UNION ALL
         (
-          SELECT 
+          SELECT
             CONCAT('revine-', r.id) AS feed_id,
             p.id,
             p.user_id,
@@ -7672,36 +7685,23 @@ router.get("/posts", authOptional, async (req, res) => {
             r.user_id AS revined_by,
             ru.username AS reviner_username
   
-          FROM vine_revines r
+          FROM (
+            SELECT
+              id,
+              post_id,
+              user_id,
+              created_at
+            FROM vine_revines
+            ORDER BY created_at DESC, id DESC
+            LIMIT ?
+          ) r
           JOIN vine_posts p ON r.post_id = p.id
           JOIN vine_users u ON p.user_id = u.id
           LEFT JOIN vine_communities c ON c.id = p.community_id
           JOIN vine_users ru ON r.user_id = ru.id
-          WHERE ${
-            viewerId
-              ? `(u.is_private = 0 OR u.id = ${viewerId} OR EXISTS (
-                    SELECT 1 FROM vine_follows
-                    WHERE follower_id = ${viewerId} AND following_id = u.id
-                  ))`
-              : "u.is_private = 0"
-          }
-          ${
-            viewerId
-              ? ` AND NOT EXISTS (
-                    SELECT 1 FROM vine_blocks b
-                    WHERE (b.blocker_id = u.id AND b.blocked_id = ${viewerId})
-                       OR (b.blocker_id = ${viewerId} AND b.blocked_id = u.id)
-                  )`
-              : ""
-          }
-          ${
-            viewerId
-              ? ` AND NOT EXISTS (
-                    SELECT 1 FROM vine_mutes m
-                    WHERE m.muter_id = ${viewerId} AND m.muted_id = u.id
-                  )`
-              : ""
-          }
+          WHERE ${visibilityFilterSql}
+          ${blockFilterSql}
+          ${muteFilterSql}
           ${newsRevineFilterSql}
           ${tagFilterSql}
           ORDER BY r.created_at DESC, r.id DESC
@@ -7710,7 +7710,7 @@ router.get("/posts", authOptional, async (req, res) => {
         ORDER BY sort_time DESC, feed_id DESC
         LIMIT 100
       `,
-              [feedBranchLimit, feedBranchLimit]
+              [feedCandidateLimit, feedBranchLimit, feedCandidateLimit, feedBranchLimit]
             );
             return enrichVinePostRows(baseRows, viewerId, perfCtx);
           });

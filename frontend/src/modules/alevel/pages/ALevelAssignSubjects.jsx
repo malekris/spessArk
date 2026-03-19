@@ -165,14 +165,18 @@ export default function ALevelAssignSubjects() {
   
     const doc = new jsPDF("p", "mm", "a4");
     const W = doc.internal.pageSize.getWidth();
+    const H = doc.internal.pageSize.getHeight();
   
     const school = "St. Phillip's Equatorial Secondary School";
     const title = "A-Level Teaching Assignments";
     const generated = new Date().toLocaleString();
+    const HEADER_BOTTOM_Y = 40;
+    const TABLE_START_Y = 50;
   
     autoTable(doc, {
-      startY: 50, // push table down to make space for header
-  
+      startY: TABLE_START_Y,
+      margin: { top: TABLE_START_Y, left: 14, right: 14, bottom: 16 },
+
       head: [["Stream", "Subject", "Paper", "Teacher"]],
       body: filteredAssignments.map((a) => [
         a.stream,
@@ -206,7 +210,7 @@ export default function ALevelAssignSubjects() {
   
         // Divider line
         doc.setDrawColor(200);
-        doc.line(14, 40, W - 14, 40);
+        doc.line(14, HEADER_BOTTOM_Y, W - 14, HEADER_BOTTOM_Y);
   
         // ===== FOOTER =====
         const pageCount = doc.internal.getNumberOfPages();
@@ -217,7 +221,7 @@ export default function ALevelAssignSubjects() {
         doc.text(
           `Generated from SPESS ARK · Page ${page} of ${pageCount}`,
           W / 2,
-          doc.internal.pageSize.getHeight() - 10,
+          H - 10,
           { align: "center" }
         );
   
@@ -249,16 +253,12 @@ export default function ALevelAssignSubjects() {
       ============================ */}
       <div className="panel-card" style={{ marginTop: "1rem" }}>
         <form
+          className="alevel-assign-form"
           onSubmit={handleAssign}
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-            gap: "1rem",
-          }}
         >
-          <div>
-            <label>Teacher</label>
-            <select value={form.teacherId} onChange={(e) => update("teacherId", e.target.value)}>
+          <div className="alevel-assign-field">
+            <label className="alevel-assign-label">Teacher</label>
+            <select className="alevel-assign-select" value={form.teacherId} onChange={(e) => update("teacherId", e.target.value)}>
               <option value="">Select teacher</option>
               {teachers.map((t) => (
                 <option key={t.id} value={t.id}>{t.name}</option>
@@ -266,9 +266,9 @@ export default function ALevelAssignSubjects() {
             </select>
           </div>
 
-          <div>
-            <label>Subject</label>
-            <select value={form.subject} onChange={(e) => update("subject", e.target.value)}>
+          <div className="alevel-assign-field">
+            <label className="alevel-assign-label">Subject</label>
+            <select className="alevel-assign-select" value={form.subject} onChange={(e) => update("subject", e.target.value)}>
               <option value="">Select subject</option>
               {subjects.map((s) => (
                 <option key={s.id} value={s.id}>
@@ -278,9 +278,9 @@ export default function ALevelAssignSubjects() {
             </select>
           </div>
 
-          <div>
-            <label>Stream</label>
-            <select value={form.stream} onChange={(e) => update("stream", e.target.value)}>
+          <div className="alevel-assign-field">
+            <label className="alevel-assign-label">Stream</label>
+            <select className="alevel-assign-select" value={form.stream} onChange={(e) => update("stream", e.target.value)}>
               <option value="">Select stream</option>
               <option>S5 Arts</option>
               <option>S5 Sciences</option>
@@ -289,9 +289,10 @@ export default function ALevelAssignSubjects() {
             </select>
           </div>
 
-          <div>
-            <label>Paper</label>
+          <div className="alevel-assign-field">
+            <label className="alevel-assign-label">Paper</label>
             <select
+              className="alevel-assign-select"
               value={form.paperLabel}
               onChange={(e) => update("paperLabel", e.target.value)}
               disabled={!form.subject || isSinglePaperOnly}
@@ -304,13 +305,13 @@ export default function ALevelAssignSubjects() {
               ))}
             </select>
             {selectedSubject && (
-              <div className="muted-text" style={{ marginTop: "0.35rem", fontSize: "0.78rem" }}>
+              <div className="muted-text alevel-assign-help">
                 {isSinglePaperOnly ? "Single-paper subject" : "Most A-Level subjects have two papers."}
               </div>
             )}
           </div>
 
-          <div style={{ gridColumn: "1 / -1" }}>
+          <div className="alevel-assign-action">
             <button className="primary-btn" disabled={!canAssign}>
               Assign Subject
             </button>
@@ -322,11 +323,11 @@ export default function ALevelAssignSubjects() {
           ASSIGNMENTS TABLE
       ============================ */}
       <div className="panel-card" style={{ marginTop: "1.5rem" }}>
-        <div style={{ display: "flex", justifyContent: "space-between" }}>
+        <div className="alevel-assign-toolbar">
           <h3>Existing Assignments</h3>
 
-          <div style={{ display: "flex", gap: "0.6rem" }}>
-            <select value={printStream} onChange={(e) => setPrintStream(e.target.value)}>
+          <div className="alevel-assign-toolbar-actions">
+            <select className="alevel-assign-select alevel-assign-select-compact" value={printStream} onChange={(e) => setPrintStream(e.target.value)}>
               <option value="">All Streams</option>
               <option>S5 Arts</option>
               <option>S5 Sciences</option>

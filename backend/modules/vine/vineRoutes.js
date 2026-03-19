@@ -2905,6 +2905,11 @@ const ensureCommunitySchema = async () => {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `);
+  if (!(await hasIndexNamed(dbName, "vine_scheduled_posts", "idx_vine_scheduled_posts_status_run"))) {
+    await db.query(
+      "ALTER TABLE vine_scheduled_posts ADD INDEX idx_vine_scheduled_posts_status_run (status, run_at, id)"
+    );
+  }
 
   await db.query(`
     CREATE TABLE IF NOT EXISTS vine_community_assignments (
@@ -3836,12 +3841,15 @@ const NEWS_DAILY_MINUTE = Math.min(
   Math.max(0, Number.parseInt(process.env.NEWS_DAILY_MINUTE || "0", 10) || 0)
 );
 const NEWS_BACKGROUND_TICK_MS = 5 * 60 * 1000;
+const SCHEDULED_POST_SWEEP_MS = 60 * 1000;
 const BIRTHDAY_NOTIFICATION_TIMEZONE =
   String(process.env.VINE_BIRTHDAY_TIMEZONE || NEWS_INGEST_TIMEZONE).trim() ||
   NEWS_INGEST_TIMEZONE;
 const BIRTHDAY_BACKGROUND_TICK_MS = 15 * 60 * 1000;
 const newsFeedRuntimeStats = new Map();
 let newsBootIngestScheduled = false;
+let scheduledPostSweepInFlight = false;
+let lastScheduledPostSweepAt = 0;
 let newsSettingsCache = null;
 let newsSettingsLoadedAt = 0;
 const NEWS_SETTINGS_CACHE_MS = 60 * 1000;
@@ -4173,6 +4181,14 @@ const scheduleNewsIngestOnBoot = () => {
 };
 
 scheduleNewsIngestOnBoot();
+
+setTimeout(() => {
+  void triggerScheduledPostPublishIfDue({ force: true });
+}, 18_000);
+const scheduledPostTicker = setInterval(() => {
+  void triggerScheduledPostPublishIfDue();
+}, SCHEDULED_POST_SWEEP_MS);
+if (typeof scheduledPostTicker.unref === "function") scheduledPostTicker.unref();
 
 setTimeout(() => {
   void triggerBirthdayNotificationsIfDue();
@@ -5372,6 +5388,23 @@ const publishDueScheduledPosts = async () => {
     } catch (e) {
       console.error("Publish scheduled post failed:", e);
     }
+  }
+};
+
+const triggerScheduledPostPublishIfDue = async ({ force = false } = {}) => {
+  const now = Date.now();
+  if (!force && scheduledPostSweepInFlight) return;
+  if (!force && now - lastScheduledPostSweepAt < SCHEDULED_POST_SWEEP_MS) return;
+
+  scheduledPostSweepInFlight = true;
+  lastScheduledPostSweepAt = now;
+  try {
+    await publishDueScheduledPosts();
+  } catch (err) {
+    console.error("Scheduled post sweep error:", err?.message || err);
+  } finally {
+    scheduledPostSweepInFlight = false;
+    lastScheduledPostSweepAt = Date.now();
   }
 };
 
@@ -8079,7 +8112,7 @@ router.get("/communities/:slug/posts", authOptional, async (req, res) => {
     await ensureVinePerformanceSchema();
     await ensureCommunitySchema();
     await ensurePollSchema();
-    await publishDueScheduledPosts();
+    void triggerScheduledPostPublishIfDue();
     const viewerId = Number(req.user?.id || 0) || null;
     const topic = String(req.query?.topic || "").trim().toLowerCase();
     const cacheKey = buildVineCacheKey("community-posts", req.params.slug, viewerId || 0, topic || "all");
@@ -8158,7 +8191,7 @@ router.get("/posts", authOptional, async (req, res) => {
           await ensureCommunitySchema();
           await ensurePollSchema();
           triggerNewsIngestIfDue();
-          await publishDueScheduledPosts();
+          void triggerScheduledPostPublishIfDue();
           const cacheKey = buildVineCacheKey(
             "feed",
             viewerId || 0,

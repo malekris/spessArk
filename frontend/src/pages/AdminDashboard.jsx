@@ -265,6 +265,7 @@ export default function AdminDashboard() {
   /* ---------- Marksheet ---------- */
   const [marksheetClass, setMarksheetClass] = useState("");
   const [marksheetStream, setMarksheetStream] = useState("");
+  const [marksheetSubject, setMarksheetSubject] = useState("");
   const [marksheetError, setMarksheetError] = useState("");
 
   /* ---------- Stream readiness ---------- */
@@ -1568,16 +1569,10 @@ export default function AdminDashboard() {
       return;
     }
   
-    const list = students
-      .filter((s) => {
-        if (s.class_level !== marksheetClass) return false;
-        if (!marksheetStream) return true;
-        return s.stream === marksheetStream;
-      })
-      .sort((a, b) => a.name.localeCompare(b.name));
+    const list = filteredMarksheetStudents;
   
     if (list.length === 0) {
-      setMarksheetError("No learners found for that class/stream selection.");
+      setMarksheetError("No learners found for that class/stream/subject selection.");
       return;
     }
   
@@ -1588,12 +1583,13 @@ export default function AdminDashboard() {
   
     const generatedAt = formatDateTime(new Date().toISOString());
     const schoolName = "St. Phillip's Equatorial Secondary School (SPESS)";
-    const title = "Class List";
+    const title = marksheetSubject ? `${marksheetSubject} Marksheet` : "Class List";
     const classLabel = marksheetClass;
     const streamLabel = marksheetStream || "North & South";
+    const subjectLabel = marksheetSubject || "All subjects";
   
     const topMargin = 16;
-    const firstHeaderHeight = 50;
+    const firstHeaderHeight = 56;
     const continuationHeaderHeight = 16;
     const tableHeaderHeight = 10;
     const bottomMargin = 18;
@@ -1614,7 +1610,8 @@ export default function AdminDashboard() {
       doc.setFont("helvetica", "normal");
       doc.text(`Class: ${classLabel}`, 14, 38);
       doc.text(`Stream: ${streamLabel}`, 14, 44);
-      doc.text(`Generated: ${generatedAt}`, 14, 50);
+      doc.text(`Subject: ${subjectLabel}`, 14, 50);
+      doc.text(`Generated: ${generatedAt}`, 14, 56);
     };
   
     /* ---------- CONTINUATION HEADER ---------- */
@@ -1622,7 +1619,7 @@ export default function AdminDashboard() {
       doc.setFont("helvetica", "italic");
       doc.setFontSize(9);
       doc.text(
-        `Class ${classLabel} — ${streamLabel}`,
+        `Class ${classLabel} — ${streamLabel} — ${subjectLabel}`,
         14,
         14
       );
@@ -1723,16 +1720,10 @@ export default function AdminDashboard() {
       return;
     }
 
-    const list = students
-      .filter((s) => {
-        if (s.class_level !== marksheetClass) return false;
-        if (!marksheetStream) return true;
-        return s.stream === marksheetStream;
-      })
-      .sort((a, b) => a.name.localeCompare(b.name));
+    const list = filteredMarksheetStudents;
 
     if (list.length === 0) {
-      setMarksheetError("No learners found for that class/stream selection.");
+      setMarksheetError("No learners found for that class/stream/subject selection.");
       return;
     }
 
@@ -1763,7 +1754,8 @@ export default function AdminDashboard() {
 
     const classLabel = marksheetClass;
     const streamLabel = marksheetStream || "all_streams";
-    const filename = `class_marksheet_${String(classLabel).toLowerCase()}_${String(streamLabel).toLowerCase().replace(/\s+/g, "_")}.csv`;
+    const subjectLabel = marksheetSubject || "all_subjects";
+    const filename = `class_marksheet_${String(classLabel).toLowerCase()}_${String(streamLabel).toLowerCase().replace(/\s+/g, "_")}_${String(subjectLabel).toLowerCase().replace(/\s+/g, "_")}.csv`;
 
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -1786,6 +1778,20 @@ export default function AdminDashboard() {
 
   /* ------------------ Derived values / filters ------------------ */
   const allSubjectsForFilter = [...COMPULSORY_SUBJECTS, ...OPTIONAL_SUBJECTS];
+  const filteredMarksheetStudents = useMemo(() => {
+    return students
+      .filter((s) => {
+        if (s.class_level !== marksheetClass) return false;
+        if (marksheetStream && s.stream !== marksheetStream) return false;
+        if (marksheetSubject) {
+          const subs = Array.isArray(s.subjects) ? s.subjects : [];
+          if (!subs.includes(marksheetSubject)) return false;
+        }
+        return true;
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [students, marksheetClass, marksheetStream, marksheetSubject]);
+
   const potentialDuplicateLearner = useMemo(() => {
     const name = String(studentForm.name || "").trim().toLowerCase();
     const cls = String(studentForm.class_level || "").trim();
@@ -2160,6 +2166,13 @@ export default function AdminDashboard() {
                     <option value="">All streams</option>
                     <option value="North">North</option>
                     <option value="South">South</option>
+                  </select>
+
+                  <select value={marksheetSubject} onChange={(e) => { setMarksheetSubject(e.target.value); setMarksheetError(""); }}>
+                    <option value="">All subjects</option>
+                    {allSubjectsForFilter.map((subject) => (
+                      <option key={subject} value={subject}>{subject}</option>
+                    ))}
                   </select>
 
                   <button

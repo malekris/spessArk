@@ -416,31 +416,6 @@ function VinePostCard({
   };
 
   useEffect(() => {
-    if (!token) return;
-    if (!post?.id) return;
-    if (viewedPosts.has(viewTrackingKey) || pendingViewedPosts.has(viewTrackingKey)) return;
-    const el = postRef.current;
-    if (!el) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (!entry.isIntersecting) return;
-          recordViewOnce();
-          observer.disconnect();
-        });
-      },
-      {
-        threshold: 0.35,
-        rootMargin: "0px 0px -12% 0px",
-      }
-    );
-
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [post.id, token, viewTrackingKey]);
-
-  useEffect(() => {
     if (!post?.has_poll) {
       setPoll(null);
       return;

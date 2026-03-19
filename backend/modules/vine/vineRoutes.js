@@ -1245,7 +1245,7 @@ const timedVineQuery = async (perfCtx, label, sql, params = []) => {
   const elapsedMs = Date.now() - startedAt;
   const rows = Array.isArray(result) ? result[0] : undefined;
   const rowCount = getPerfRowCount(rows);
-  if (perfCtx) {
+  if (perfCtx && Array.isArray(perfCtx.queries)) {
     perfCtx.queries.push({ label, ms: elapsedMs, rows: rowCount });
   }
   if (VINE_PERF_LOGS_ENABLED && elapsedMs >= VINE_SLOW_QUERY_MS) {
@@ -10009,12 +10009,21 @@ router.get("/posts/:id/comments", authOptional, async (req, res) => {
 // 🔥 Trending posts (last 24h)
 router.get("/posts/trending", authOptional, async (req, res) => {
   try {
-    await ensureVinePerformanceSchema();
     const viewerId = req.user?.id || null;
     const limit = Math.min(Number(req.query.limit || 8), 20);
-    const cacheKey = buildVineCacheKey("trending", viewerId || 0, limit);
-    const rows = await readThroughVineCache(cacheKey, VINE_CACHE_TTLS.trending, async () =>
-      getTrendingPostRows({ viewerId, limit }, "trending")
+    const rows = await runVinePerfRoute(
+      "trending",
+      {
+        viewer_id: Number(viewerId || 0),
+        limit,
+      },
+      async (perfCtx) => {
+        await ensureVinePerformanceSchema();
+        const cacheKey = buildVineCacheKey("trending", viewerId || 0, limit);
+        return readThroughVineCache(cacheKey, VINE_CACHE_TTLS.trending, async () =>
+          getTrendingPostRows({ viewerId, limit }, perfCtx)
+        );
+      }
     );
 
     res.json(rows);

@@ -124,19 +124,6 @@ export default function ALevelLearners() {
   const [search, setSearch] = useState("");
   const [filterStream, setFilterStream] = useState("");
   const [filterClass, setFilterClass] = useState("");
-  const premiumHeaderCellStyle = {
-    position: "sticky",
-    top: 0,
-    zIndex: 3,
-    background: "linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%)",
-    color: "#0f172a",
-    fontWeight: 800,
-    letterSpacing: "0.03em",
-    textTransform: "uppercase",
-    fontSize: "0.76rem",
-    boxShadow: "inset 0 -1px 0 #cbd5e1, 0 2px 6px rgba(15,23,42,0.08)",
-    borderBottom: "1px solid #cbd5e1",
-  };
 
   useIdleLogout(() => {
     localStorage.removeItem("SPESS_ADMIN_KEY");
@@ -469,21 +456,21 @@ export default function ALevelLearners() {
 
       {error && <div className="panel-alert panel-alert-error">{error}</div>}
 
-      <div style={{ display: "flex", gap: "0.6rem", margin: "0.75rem 0 1rem 0", alignItems: "center" }}>
+      <div className="alevel-learners-toolbar">
   
   {/* Search */}
   <input
+    className="alevel-learners-filter-input"
     placeholder="Search learner by name..."
     value={search}
     onChange={(e) => setSearch(e.target.value)}
-    style={{ padding: "0.4rem 0.7rem", borderRadius: "999px", background: "#0f172a", border: "1px solid #334155", color: "#e5e7eb", minWidth: 220 }}
   />
 
   {/* Class filter */}
   <select
+    className="alevel-learners-filter-select"
     value={filterClass}
     onChange={(e) => setFilterClass(e.target.value)}
-    style={{ padding: "0.4rem 0.6rem", borderRadius: "0.6rem", background: "#0f172a", border: "1px solid #334155", color: "#e5e7eb" }}
   >
     <option value="">All classes</option>
     <option value="S5">S5</option>
@@ -492,9 +479,9 @@ export default function ALevelLearners() {
 
   {/* Stream filter */}
   <select
+    className="alevel-learners-filter-select"
     value={filterStream}
     onChange={(e) => setFilterStream(e.target.value)}
-    style={{ padding: "0.4rem 0.6rem", borderRadius: "0.6rem", background: "#0f172a", border: "1px solid #334155", color: "#e5e7eb" }}
   >
     <option value="">All streams</option>
     {STREAMS.map((s) => (
@@ -506,15 +493,20 @@ export default function ALevelLearners() {
 
       <div
         className="alevel-learners-layout"
-        style={{ display: "grid", gridTemplateColumns: "minmax(460px, 1.08fr) minmax(0, 1.32fr)", gap: "1.5rem" }}
+        style={{ display: "grid", gridTemplateColumns: "minmax(500px, 1.1fr) minmax(0, 1.35fr)", gap: "1.5rem" }}
       >
         {/* FORM */}
         <div className="panel-card alevel-register-card">
-          <h3>{editing ? "Edit Learner" : "Register Learner"}</h3>
+          <div className="alevel-register-header">
+            <h3>{editing ? "Edit Learner" : "Register Learner"}</h3>
+            <p className="muted-text">
+              Capture clean learner profiles, subject combinations, and stream placement without disturbing the A-Level workflow.
+            </p>
+          </div>
 
-          <form onSubmit={saveLearner} className="teacher-form">
+          <form onSubmit={saveLearner} className="teacher-form alevel-register-form-grid">
             {/* Full name */}
-            <div className="form-row">
+            <div className="form-row alevel-register-span-2">
               <label>Full Name</label>
               <input name="name" value={form.name} onChange={handleChange} placeholder="e.g. Kato John" />
               <div className="muted-text">Enter first and last name</div>
@@ -557,7 +549,7 @@ export default function ALevelLearners() {
             </div>
 
             {/* Combination (auto) */}
-            <div className="form-row">
+            <div className="form-row alevel-register-span-2">
               <label>Combination</label>
               <input name="combination" value={form.combination} disabled placeholder="Auto-generated from selected principals" />
               <div className="muted-text">Generated automatically from selected principals</div>
@@ -566,11 +558,11 @@ export default function ALevelLearners() {
             {/* Subjects */}
             {subjectPool.length > 0 && (
               <>
-                <div className="form-row">
+                <div className="form-row alevel-register-span-2">
                   <label>Principal Subjects (pick exactly 3)</label>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.4rem" }}>
+                  <div className="alevel-subject-grid">
                     {subjectPool.map((s) => (
-                      <label key={s} style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
+                      <label key={s} className={`alevel-subject-option ${principals.includes(s) ? "is-selected" : ""}`}>
                         <input type="checkbox" checked={principals.includes(s)} onChange={() => togglePrincipal(s)} />
                         <span>{s}</span>
                       </label>
@@ -579,11 +571,11 @@ export default function ALevelLearners() {
                   <div className="muted-text">Exactly 3 principal subjects are required</div>
                 </div>
 
-                <div className="form-row">
+                <div className="form-row alevel-register-span-2">
                   <label>Subsidiaries (optional)</label>
-                  <div style={{ display: "flex", gap: "1rem" }}>
+                  <div className="alevel-subsidiary-row">
                     {SUBSIDIARIES.map((s) => (
-                      <label key={s} style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
+                      <label key={s} className={`alevel-subject-option alevel-subsidiary-option ${subsidiaries.includes(s) ? "is-selected" : ""}`}>
                         <input type="checkbox" checked={subsidiaries.includes(s)} onChange={() => toggleSubsidiary(s)} />
                         <span>{s}</span>
                       </label>
@@ -594,7 +586,9 @@ export default function ALevelLearners() {
               </>
             )}
 
-            <button className="primary-btn">{editing ? "Update Learner" : "Save Learner"}</button>
+            <div className="alevel-register-actions alevel-register-span-2">
+              <button className="primary-btn">{editing ? "Update Learner" : "Save Learner"}</button>
+            </div>
           </form>
         </div>
 
@@ -602,16 +596,19 @@ export default function ALevelLearners() {
        {/* LIST */}
 <div className="panel-card">
   {/* Header row */}
-  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-    <h3>Registered Learners</h3>
+  <div className="alevel-learners-card-header">
+    <div>
+      <h3>Registered Learners</h3>
+      <p className="muted-text">Search, review, and export polished class lists for each A-Level stream.</p>
+    </div>
 
     {/* PDF selector */}
-    <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
+    <div className="alevel-learners-export-bar">
       {/* PDF Class */}
       <select
+        className="alevel-learners-filter-select alevel-export-select"
         value={pdfClass}
         onChange={(e) => setPdfClass(e.target.value)}
-        style={{ padding: "0.35rem", borderRadius: "0.4rem" }}
       >
         <option value="">Class</option>
         <option value="S5">S5</option>
@@ -620,9 +617,9 @@ export default function ALevelLearners() {
 
       {/* PDF Stream */}
       <select
+        className="alevel-learners-filter-select alevel-export-select"
         value={pdfStream}
         onChange={(e) => setPdfStream(e.target.value)}
-        style={{ padding: "0.35rem", borderRadius: "0.4rem" }}
       >
         <option value="">Stream</option>
         <option value="Arts">Arts</option>
@@ -664,14 +661,14 @@ export default function ALevelLearners() {
         WebkitOverflowScrolling: "touch",
       }}
     >
-      <table className="teachers-table" style={{ minWidth: "760px" }}>
+      <table className="teachers-table alevel-learners-table" style={{ minWidth: "760px" }}>
         <thead>
           <tr>
-            <th style={premiumHeaderCellStyle}>#</th>
-            <th style={premiumHeaderCellStyle}>Name</th>
-            <th style={premiumHeaderCellStyle}>Stream</th>
-            <th style={premiumHeaderCellStyle}>Subjects</th>
-            <th style={premiumHeaderCellStyle} />
+            <th className="alevel-table-head-cell">#</th>
+            <th className="alevel-table-head-cell">Name</th>
+            <th className="alevel-table-head-cell">Stream</th>
+            <th className="alevel-table-head-cell">Subjects</th>
+            <th className="alevel-table-head-cell alevel-table-actions-head">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -687,10 +684,10 @@ export default function ALevelLearners() {
                 <td>{i + 1}</td>
                 <td>{l.name}</td>
                 <td>{l.stream}</td>
-                <td>{l.subjects}</td>
-                <td>
-                  <button className="ghost-btn" onClick={() => handleEdit(l)}>Edit</button>
-                  <button className="danger-link" onClick={() => handleDelete(l.id)}>Delete</button>
+                <td className="alevel-subjects-cell">{l.subjects}</td>
+                <td className="alevel-table-actions">
+                  <button className="ghost-btn alevel-action-btn" onClick={() => handleEdit(l)}>Edit</button>
+                  <button className="danger-link alevel-action-btn alevel-danger-btn" onClick={() => handleDelete(l.id)}>Delete</button>
                 </td>
               </tr>
             ))

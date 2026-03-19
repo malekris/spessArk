@@ -622,15 +622,59 @@ export default function AdminDashboard() {
     preview.document.close();
   };
 
+  const buildEnrollmentByStreamClassGenderMap = (studentList = []) => {
+    const result = {};
+
+    studentList.forEach((s) => {
+      const stream = s.stream || "Unknown";
+      const cls = s.class_level || "Unknown";
+      const gender = s.gender || "Other";
+
+      if (!result[stream]) result[stream] = {};
+      if (!result[stream][cls]) {
+        result[stream][cls] = {
+          Male: 0,
+          Female: 0,
+          Other: 0,
+          total: 0,
+        };
+      }
+
+      if (gender === "Male") result[stream][cls].Male += 1;
+      else if (gender === "Female") result[stream][cls].Female += 1;
+      else result[stream][cls].Other += 1;
+
+      result[stream][cls].total += 1;
+    });
+
+    return result;
+  };
+
   const handleDownloadEnrollmentSummaryPdf = async () => {
+    let latestStudents = students;
+    let latestALevelLearners = aLevelLearners;
+
+    try {
+      const [studentsData, aLevelData] = await Promise.all([
+        plainFetch("/api/students"),
+        plainFetch("/api/alevel/learners"),
+      ]);
+
+      if (Array.isArray(studentsData)) latestStudents = studentsData;
+      if (Array.isArray(aLevelData)) latestALevelLearners = aLevelData;
+    } catch (err) {
+      console.error("Error refreshing enrollment summary snapshot:", err);
+    }
+
     const { jsPDF } = await loadPdfTools();
     const doc = new jsPDF("p", "mm", "a4");
     const pageW = doc.internal.pageSize.getWidth();
     const pageH = doc.internal.pageSize.getHeight();
     const generatedAt = new Date().toLocaleString();
+    const latestEnrollmentByStreamClassGender = buildEnrollmentByStreamClassGenderMap(latestStudents);
 
     const classOrder = ["S1", "S2", "S3", "S4"];
-    const streams = Object.keys(enrollmentByStreamClassGender || {});
+    const streams = Object.keys(latestEnrollmentByStreamClassGender || {});
     const sortedStreams = [...streams].sort((a, b) => {
       const aa = String(a).toLowerCase();
       const bb = String(b).toLowerCase();
@@ -677,7 +721,7 @@ export default function AdminDashboard() {
       doc.text("No enrollment data available.", 14, y);
     } else {
       sortedStreams.forEach((stream) => {
-        const clsMap = enrollmentByStreamClassGender[stream] || {};
+        const clsMap = latestEnrollmentByStreamClassGender[stream] || {};
         let streamBoys = 0;
         let streamGirls = 0;
         let streamTotal = 0;
@@ -728,7 +772,7 @@ export default function AdminDashboard() {
 
     // A-Level summary appears in PDF only (not dashboard charts/cards)
     const alevelByStreamClass = {};
-    (aLevelLearners || []).forEach((l) => {
+    (latestALevelLearners || []).forEach((l) => {
       const full = String(l.stream || "").trim(); // e.g. "S5 Arts"
       const [clsToken, ...streamParts] = full.split(" ");
       const cls = /^S[56]$/i.test(clsToken || "") ? clsToken.toUpperCase() : "";
@@ -816,7 +860,7 @@ export default function AdminDashboard() {
       classSummary[c] = { boys: 0, girls: 0, total: 0 };
     });
 
-    (students || []).forEach((s) => {
+    (latestStudents || []).forEach((s) => {
       const cls = String(s.class_level || "").toUpperCase();
       if (!classSummary[cls]) return;
       const g = String(s.gender || "").toLowerCase();
@@ -825,7 +869,7 @@ export default function AdminDashboard() {
       classSummary[cls].total += 1;
     });
 
-    (aLevelLearners || []).forEach((l) => {
+    (latestALevelLearners || []).forEach((l) => {
       const [clsToken] = String(l.stream || "").trim().split(" ");
       const cls = String(clsToken || "").toUpperCase();
       if (!classSummary[cls]) return;
@@ -1825,33 +1869,10 @@ export default function AdminDashboard() {
     return true;
   });
     /* ---------- Enrollment breakdown by stream / class / gender ---------- */
-  const enrollmentByStreamClassGender = React.useMemo(() => {
-  const result = {};
-
-  students.forEach((s) => {
-    const stream = s.stream || "Unknown";
-    const cls = s.class_level || "Unknown";
-    const gender = s.gender || "Other";
-
-    if (!result[stream]) result[stream] = {};
-    if (!result[stream][cls]) {
-      result[stream][cls] = {
-        Male: 0,
-        Female: 0,
-        Other: 0,
-        total: 0,
-      };
-    }
-
-    if (gender === "Male") result[stream][cls].Male += 1;
-    else if (gender === "Female") result[stream][cls].Female += 1;
-    else result[stream][cls].Other += 1;
-
-    result[stream][cls].total += 1;
-  });
-
-  return result;
-  }, [students]);
+  const enrollmentByStreamClassGender = React.useMemo(
+    () => buildEnrollmentByStreamClassGenderMap(students),
+    [students]
+  );
   const enrollmentByClassWithOrderedStreams = React.useMemo(() => {
     const byClass = {};
     Object.entries(enrollmentByStreamClassGender).forEach(([stream, classes]) => {

@@ -311,12 +311,18 @@ export default function ALevelLearners() {
     const generatedAt = new Date().toLocaleString();
     const schoolName = "St. Phillip's Equatorial Secondary School (SPESS)";
     const title = "A-Level Learners Class List";
-    const classLabel = filterClass || "All";
-    const streamLabel = filterStream || "All";
-    const filtered = search || filterClass || filterStream ? "Yes" : "No";
-    const totalCount = filteredLearners.length;
+    const classLabel = pdfClass;
+    const streamLabel = pdfStream;
+    const totalCount = pdfLearners.length;
 
     const subtitle = `Class: ${pdfClass}   |   Stream: ${pdfStream}`;
+    const cleanValue = (value, fallback = "") => {
+      const text = String(value ?? "").trim();
+      if (!text || /^unspecified$/i.test(text) || /^undefined$/i.test(text) || /^null$/i.test(text)) {
+        return fallback;
+      }
+      return text;
+    };
 
     const topMargin = 16;
     const firstHeaderHeight = 60;
@@ -337,8 +343,7 @@ export default function ALevelLearners() {
       doc.text(`Generated: ${generatedAt}`, 14, 38);
       doc.text(`Class: ${classLabel}`, 14, 44);
       doc.text(`Stream: ${streamLabel}`, 14, 50);
-      doc.text(`Filtered: ${filtered}`, 14, 56);
-      doc.text(`Total learners: ${totalCount}`, 14, 62);
+      doc.text(`Total learners: ${totalCount}`, 14, 56);
       doc.setFontSize(10);
       doc.text(subtitle, pageW / 2, 32, { align: "center" });
 
@@ -377,7 +382,7 @@ export default function ALevelLearners() {
 
     const rows = pdfLearners;
     rows.forEach((l, idx) => {
-      const subjectsText = (l.subjects || "").toString();
+      const subjectsText = cleanValue(l.subjects);
       const subjectLines = doc.splitTextToSize(subjectsText, pageW - 160);
       const rowHeight = Math.max(baseRowHeight, subjectLines.length * 5.5);
       if (y + rowHeight > pageH - bottomMargin) {
@@ -388,10 +393,10 @@ export default function ALevelLearners() {
       }
       doc.setFontSize(9);
       doc.text(String(idx + 1), 12, y);
-      doc.text(l.name || "", 18, y);
-      doc.text(l.gender || "", 70, y);
-      doc.text(l.stream || "", 92, y);
-      doc.text(l.combination || "—", 128, y);
+      doc.text(cleanValue(l.name), 18, y);
+      doc.text(cleanValue(l.gender), 70, y);
+      doc.text(cleanValue(l.stream), 92, y);
+      doc.text(cleanValue(l.combination, "—"), 128, y);
       doc.text(subjectLines, 150, y);
       y += rowHeight;
     });

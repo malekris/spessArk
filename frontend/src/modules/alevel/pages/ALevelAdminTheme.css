@@ -141,7 +141,16 @@
 }
 
 .alevel-learners-layout {
+  display: grid;
+  grid-template-columns: minmax(340px, 0.72fr) minmax(0, 2.28fr);
+  gap: 1.5rem;
   align-items: start;
+}
+
+.alevel-learners-list-card {
+  width: 100%;
+  min-width: 0;
+  padding: 1.45rem 1.35rem 1.55rem !important;
 }
 
 .alevel-learners-toolbar {
@@ -184,7 +193,7 @@
 }
 
 .alevel-register-card {
-  padding: 1.5rem 1.45rem 1.6rem !important;
+  padding: 1.35rem 1.15rem 1.45rem !important;
 }
 
 .alevel-register-header {
@@ -300,6 +309,21 @@
   min-width: 135px;
 }
 
+.alevel-learners-table-shell {
+  margin-top: 0.75rem;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 60vh;
+  -webkit-overflow-scrolling: touch;
+}
+
+.alevel-learners-table {
+  min-width: 1080px;
+  width: 100%;
+}
+
 .alevel-learners-table thead th {
   position: sticky;
   top: 0;
@@ -322,8 +346,30 @@
 }
 
 .alevel-subjects-cell {
-  min-width: 240px;
+  min-width: 360px;
   line-height: 1.45;
+}
+
+.alevel-learners-table th:nth-child(1),
+.alevel-learners-table td:nth-child(1) {
+  width: 60px;
+  min-width: 60px;
+  text-align: center;
+}
+
+.alevel-learners-table th:nth-child(2),
+.alevel-learners-table td:nth-child(2) {
+  min-width: 220px;
+}
+
+.alevel-learners-table th:nth-child(3),
+.alevel-learners-table td:nth-child(3) {
+  min-width: 150px;
+}
+
+.alevel-learners-table th:nth-child(5),
+.alevel-learners-table td:nth-child(5) {
+  min-width: 170px;
 }
 
 .alevel-table-actions {
@@ -550,6 +596,20 @@
   border-color: rgba(248, 113, 113, 0.32) !important;
   color: #991b1b !important;
   box-shadow: 0 10px 18px rgba(248, 113, 113, 0.14);
+}
+
+@media (min-width: 1400px) {
+  .alevel-learners-layout {
+    grid-template-columns: minmax(350px, 0.66fr) minmax(0, 2.55fr);
+  }
+
+  .alevel-learners-table {
+    min-width: 1220px;
+  }
+
+  .alevel-subjects-cell {
+    min-width: 470px;
+  }
 }
 
 @media (max-width: 960px) {

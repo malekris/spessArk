@@ -496,10 +496,7 @@ export default function ALevelLearners() {
       </div>
 
 
-      <div
-        className="alevel-learners-layout"
-        style={{ display: "grid", gridTemplateColumns: "minmax(500px, 1.1fr) minmax(0, 1.35fr)", gap: "1.5rem" }}
-      >
+      <div className="alevel-learners-layout">
         {/* FORM */}
         <div className="panel-card alevel-register-card">
           <div className="alevel-register-header">
@@ -599,7 +596,7 @@ export default function ALevelLearners() {
 
         {/* LIST */}
        {/* LIST */}
-<div className="panel-card">
+<div className="panel-card alevel-learners-list-card">
   {/* Header row */}
   <div className="alevel-learners-card-header">
     <div>
@@ -655,18 +652,8 @@ export default function ALevelLearners() {
   {loading ? (
     <p>Loading...</p>
   ) : (
-    <div
-      className="teachers-table-wrapper"
-      style={{
-        marginTop: "0.6rem",
-        maxWidth: "100%",
-        overflowX: "auto",
-        overflowY: "auto",
-        maxHeight: "60vh",
-        WebkitOverflowScrolling: "touch",
-      }}
-    >
-      <table className="teachers-table alevel-learners-table" style={{ minWidth: "760px" }}>
+    <div className="teachers-table-wrapper alevel-learners-table-shell">
+      <table className="teachers-table alevel-learners-table">
         <thead>
           <tr>
             <th className="alevel-table-head-cell">#</th>

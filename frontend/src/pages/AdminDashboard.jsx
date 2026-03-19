@@ -666,12 +666,15 @@ export default function AdminDashboard() {
       console.error("Error refreshing enrollment summary snapshot:", err);
     }
 
-    const { jsPDF } = await loadPdfTools();
+    const { jsPDF, autoTable } = await loadPdfTools();
     const doc = new jsPDF("p", "mm", "a4");
     const pageW = doc.internal.pageSize.getWidth();
     const pageH = doc.internal.pageSize.getHeight();
     const generatedAt = new Date().toLocaleString();
     const latestEnrollmentByStreamClassGender = buildEnrollmentByStreamClassGenderMap(latestStudents);
+    const marginX = 12;
+    const contentWidth = pageW - marginX * 2;
+    const bottomMargin = 16;
 
     const classOrder = ["S1", "S2", "S3", "S4"];
     const streams = Object.keys(latestEnrollmentByStreamClassGender || {});
@@ -684,33 +687,136 @@ export default function AdminDashboard() {
     });
 
     let y = 16;
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(13);
-    doc.text("St Phllips Equatorial Secondary School", pageW / 2, y, { align: "center" });
-    y += 6;
-    doc.setFontSize(15);
-    doc.text("SPESS ARK", pageW / 2, y, { align: "center" });
-    y += 5;
-    doc.setFontSize(10);
-    doc.text("Enrollment Summary by Stream and Class (S1-S6)", pageW / 2, y, { align: "center" });
-    y += 5;
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
-    doc.text(`Generated: ${generatedAt}`, pageW / 2, y, { align: "center" });
-    y += 8;
 
-    const renderHeader = () => {
+    const drawDocumentHeader = () => {
+      doc.setDrawColor(0);
+      doc.setLineWidth(0.45);
+      doc.line(marginX, y, pageW - marginX, y);
+      y += 6;
+
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(9);
-      doc.text("Class", 14, y);
-      doc.text("Boys", 72, y, { align: "right" });
-      doc.text("Girls", 104, y, { align: "right" });
-      doc.text("Total", 136, y, { align: "right" });
-      doc.setDrawColor(180);
-      doc.line(12, y + 1.5, 140, y + 1.5);
-      y += 5;
+      doc.setFontSize(13);
+      doc.text("ST PHILLIPS EQUATORIAL SECONDARY SCHOOL", pageW / 2, y, { align: "center" });
+      y += 5.5;
+
+      doc.setFontSize(16);
+      doc.text("SPESS ARK", pageW / 2, y, { align: "center" });
+      y += 5.5;
+
       doc.setFont("helvetica", "normal");
+      doc.setFontSize(9.5);
+      doc.text("Enrollment Summary by Stream and Class (S1-S6)", pageW / 2, y, { align: "center" });
+      y += 4.5;
+
+      doc.setFontSize(8.5);
+      doc.text(`Generated: ${generatedAt}`, pageW / 2, y, { align: "center" });
+      y += 4.5;
+
+      doc.setLineWidth(0.25);
+      doc.line(marginX, y, pageW - marginX, y);
+      y += 7;
     };
+
+    const drawContinuationHeader = () => {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      doc.text("Enrollment Summary by Stream and Class (S1-S6)", marginX, 14);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8);
+      doc.text(`Generated: ${generatedAt}`, pageW - marginX, 14, { align: "right" });
+      doc.setDrawColor(0);
+      doc.setLineWidth(0.2);
+      doc.line(marginX, 17, pageW - marginX, 17);
+      y = 23;
+    };
+
+    const ensureSpace = (needed = 20) => {
+      if (y + needed <= pageH - bottomMargin) return;
+      doc.addPage();
+      drawContinuationHeader();
+    };
+
+    const drawSectionBand = (title, subtitle = "") => {
+      ensureSpace(subtitle ? 48 : 42);
+      const bandHeight = subtitle ? 13 : 9;
+      doc.setFillColor(244, 244, 244);
+      doc.setDrawColor(0);
+      doc.setLineWidth(0.25);
+      doc.roundedRect(marginX, y, contentWidth, bandHeight, 1.6, 1.6, "FD");
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      doc.text(title, marginX + 4, y + 5.2);
+      if (subtitle) {
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(8.2);
+        doc.text(subtitle, marginX + 4, y + 10);
+      }
+      y += bandHeight + 4;
+    };
+
+    const renderSummaryTable = ({ title, subtitle, rows, totalLabel }) => {
+      const totals = rows.reduce(
+        (acc, row) => ({
+          boys: acc.boys + Number(row.boys || 0),
+          girls: acc.girls + Number(row.girls || 0),
+          total: acc.total + Number(row.total || 0),
+        }),
+        { boys: 0, girls: 0, total: 0 }
+      );
+
+      drawSectionBand(title, subtitle);
+
+      autoTable(doc, {
+        startY: y,
+        margin: { left: marginX, right: marginX },
+        tableWidth: contentWidth,
+        theme: "grid",
+        head: [["Class", "Boys", "Girls", "Total"]],
+        body: rows.map((row) => [row.label, String(row.boys), String(row.girls), String(row.total)]),
+        foot: [[totalLabel, String(totals.boys), String(totals.girls), String(totals.total)]],
+        styles: {
+          font: "helvetica",
+          fontSize: 9,
+          textColor: [0, 0, 0],
+          lineColor: [0, 0, 0],
+          lineWidth: 0.22,
+          cellPadding: { top: 2.2, right: 2.6, bottom: 2.2, left: 2.6 },
+          valign: "middle",
+        },
+        headStyles: {
+          fillColor: [236, 236, 236],
+          textColor: [0, 0, 0],
+          fontStyle: "bold",
+          halign: "center",
+          lineColor: [0, 0, 0],
+          lineWidth: 0.25,
+        },
+        bodyStyles: {
+          fillColor: [255, 255, 255],
+        },
+        alternateRowStyles: {
+          fillColor: [250, 250, 250],
+        },
+        footStyles: {
+          fillColor: [242, 242, 242],
+          textColor: [0, 0, 0],
+          fontStyle: "bold",
+          lineColor: [0, 0, 0],
+          lineWidth: 0.25,
+        },
+        columnStyles: {
+          0: { cellWidth: 78, halign: "left" },
+          1: { cellWidth: 36, halign: "center" },
+          2: { cellWidth: 36, halign: "center" },
+          3: { cellWidth: 36, halign: "center" },
+        },
+      });
+
+      y = doc.lastAutoTable.finalY + 6;
+      return totals;
+    };
+
+    drawDocumentHeader();
 
     let grandBoys = 0;
     let grandGirls = 0;
@@ -718,55 +824,31 @@ export default function AdminDashboard() {
 
     if (sortedStreams.length === 0) {
       doc.setFontSize(10);
-      doc.text("No enrollment data available.", 14, y);
+      doc.text("No enrollment data available.", marginX, y);
     } else {
+      drawSectionBand("O-Level Summary", "Current enrollment by stream for S1 to S4.");
       sortedStreams.forEach((stream) => {
         const clsMap = latestEnrollmentByStreamClassGender[stream] || {};
-        let streamBoys = 0;
-        let streamGirls = 0;
-        let streamTotal = 0;
-
-        if (y > pageH - 40) {
-          doc.addPage();
-          y = 18;
-        }
-
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(10);
-        doc.text(`Stream: ${stream}`, 14, y);
-        y += 5;
-        renderHeader();
-
-        classOrder.forEach((cls) => {
+        const rows = classOrder.map((cls) => {
           const row = clsMap[cls] || { Male: 0, Female: 0, total: 0 };
-          const boys = Number(row.Male || 0);
-          const girls = Number(row.Female || 0);
-          const total = Number(row.total || 0);
-
-          streamBoys += boys;
-          streamGirls += girls;
-          streamTotal += total;
-
-          doc.setFontSize(9);
-          doc.text(cls, 14, y);
-          doc.text(String(boys), 72, y, { align: "right" });
-          doc.text(String(girls), 104, y, { align: "right" });
-          doc.text(String(total), 136, y, { align: "right" });
-          y += 5;
+          return {
+            label: cls,
+            boys: Number(row.Male || 0),
+            girls: Number(row.Female || 0),
+            total: Number(row.total || 0),
+          };
         });
 
-        doc.setDrawColor(160);
-        doc.line(12, y - 1.8, 140, y - 1.8);
-        doc.setFont("helvetica", "bold");
-        doc.text("Stream Total", 14, y + 2);
-        doc.text(String(streamBoys), 72, y + 2, { align: "right" });
-        doc.text(String(streamGirls), 104, y + 2, { align: "right" });
-        doc.text(String(streamTotal), 136, y + 2, { align: "right" });
-        y += 8;
+        const totals = renderSummaryTable({
+          title: `${stream} Stream`,
+          subtitle: "Class-by-class boys, girls and total enrollment.",
+          rows,
+          totalLabel: "Stream Total",
+        });
 
-        grandBoys += streamBoys;
-        grandGirls += streamGirls;
-        grandTotal += streamTotal;
+        grandBoys += totals.boys;
+        grandGirls += totals.girls;
+        grandTotal += totals.total;
       });
     }
 
@@ -794,62 +876,30 @@ export default function AdminDashboard() {
 
     const alevelStreams = ["Arts", "Sciences"].filter((s) => alevelByStreamClass[s]);
     if (alevelStreams.length) {
-      if (y > pageH - 70) {
-        doc.addPage();
-        y = 18;
-      }
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(11);
-      doc.text("A-Level Summary (PDF Only)", 14, y);
-      y += 6;
+      drawSectionBand("A-Level Summary", "Senior section totals for S5 and S6.");
 
       alevelStreams.forEach((stream) => {
         const clsMap = alevelByStreamClass[stream] || {};
-        let streamBoys = 0;
-        let streamGirls = 0;
-        let streamTotal = 0;
-
-        if (y > pageH - 40) {
-          doc.addPage();
-          y = 18;
-        }
-
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(10);
-        doc.text(`Stream: ${stream}`, 14, y);
-        y += 5;
-        renderHeader();
-
-        ["S5", "S6"].forEach((cls) => {
+        const rows = ["S5", "S6"].map((cls) => {
           const row = clsMap[cls] || { Male: 0, Female: 0, total: 0 };
-          const boys = Number(row.Male || 0);
-          const girls = Number(row.Female || 0);
-          const total = Number(row.total || 0);
-
-          streamBoys += boys;
-          streamGirls += girls;
-          streamTotal += total;
-
-          doc.setFontSize(9);
-          doc.text(cls, 14, y);
-          doc.text(String(boys), 72, y, { align: "right" });
-          doc.text(String(girls), 104, y, { align: "right" });
-          doc.text(String(total), 136, y, { align: "right" });
-          y += 5;
+          return {
+            label: cls,
+            boys: Number(row.Male || 0),
+            girls: Number(row.Female || 0),
+            total: Number(row.total || 0),
+          };
         });
 
-        doc.setDrawColor(160);
-        doc.line(12, y - 1.8, 140, y - 1.8);
-        doc.setFont("helvetica", "bold");
-        doc.text("A-Level Stream Total", 14, y + 2);
-        doc.text(String(streamBoys), 72, y + 2, { align: "right" });
-        doc.text(String(streamGirls), 104, y + 2, { align: "right" });
-        doc.text(String(streamTotal), 136, y + 2, { align: "right" });
-        y += 8;
+        const totals = renderSummaryTable({
+          title: `${stream} Stream`,
+          subtitle: "Senior stream enrollment across both classes.",
+          rows,
+          totalLabel: "A-Level Stream Total",
+        });
 
-        grandBoys += streamBoys;
-        grandGirls += streamGirls;
-        grandTotal += streamTotal;
+        grandBoys += totals.boys;
+        grandGirls += totals.girls;
+        grandTotal += totals.total;
       });
     }
 
@@ -879,61 +929,36 @@ export default function AdminDashboard() {
       classSummary[cls].total += 1;
     });
 
-    if (y > pageH - 70) {
-      doc.addPage();
-      y = 18;
-    }
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(11);
-    doc.text("Class Summary (All Streams Combined)", 14, y);
-    y += 6;
+    const classSummaryRows = classSummaryOrder.map((cls) => ({
+      label: cls,
+      boys: Number(classSummary[cls]?.boys || 0),
+      girls: Number(classSummary[cls]?.girls || 0),
+      total: Number(classSummary[cls]?.total || 0),
+    }));
 
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(9);
-    doc.text("Class", 14, y);
-    doc.text("Boys", 72, y, { align: "right" });
-    doc.text("Girls", 104, y, { align: "right" });
-    doc.text("Total", 136, y, { align: "right" });
-    doc.setDrawColor(180);
-    doc.line(12, y + 1.5, 140, y + 1.5);
-    y += 5;
-
-    classSummaryOrder.forEach((cls) => {
-      const row = classSummary[cls] || { boys: 0, girls: 0, total: 0 };
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(9);
-      doc.text(cls, 14, y);
-      doc.text(String(row.boys), 72, y, { align: "right" });
-      doc.text(String(row.girls), 104, y, { align: "right" });
-      doc.text(String(row.total), 136, y, { align: "right" });
-      y += 5;
+    renderSummaryTable({
+      title: "Class Summary",
+      subtitle: "Combined totals for each class across all streams.",
+      rows: classSummaryRows,
+      totalLabel: "Class Summary Total",
     });
 
-    const summaryBoys = classSummaryOrder.reduce((acc, cls) => acc + (classSummary[cls]?.boys || 0), 0);
-    const summaryGirls = classSummaryOrder.reduce((acc, cls) => acc + (classSummary[cls]?.girls || 0), 0);
-    const summaryTotal = classSummaryOrder.reduce((acc, cls) => acc + (classSummary[cls]?.total || 0), 0);
-    doc.setDrawColor(160);
-    doc.line(12, y - 1.8, 140, y - 1.8);
-    doc.setFont("helvetica", "bold");
-    doc.text("Class Summary Total", 14, y + 2);
-    doc.text(String(summaryBoys), 72, y + 2, { align: "right" });
-    doc.text(String(summaryGirls), 104, y + 2, { align: "right" });
-    doc.text(String(summaryTotal), 136, y + 2, { align: "right" });
-    y += 8;
-
-    if (y > pageH - 20) {
-      doc.addPage();
-      y = 20;
-    }
-    doc.setDrawColor(120);
-    doc.line(12, y, 140, y);
-    y += 5;
+    ensureSpace(22);
+    doc.setFillColor(241, 241, 241);
+    doc.setDrawColor(0);
+    doc.setLineWidth(0.25);
+    doc.roundedRect(marginX, y, contentWidth, 14, 1.8, 1.8, "FD");
     doc.setFont("helvetica", "bold");
     doc.setFontSize(10);
-    doc.text("Grand Total (All Streams)", 14, y);
-    doc.text(String(grandBoys), 72, y, { align: "right" });
-    doc.text(String(grandGirls), 104, y, { align: "right" });
-    doc.text(String(grandTotal), 136, y, { align: "right" });
+    doc.text("Grand Total (All Streams)", marginX + 4, y + 5.4);
+    doc.text(String(grandBoys), marginX + 114, y + 5.4, { align: "center" });
+    doc.text(String(grandGirls), marginX + 150, y + 5.4, { align: "center" });
+    doc.text(String(grandTotal), pageW - marginX - 18, y + 5.4, { align: "center" });
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.text("Boys", marginX + 114, y + 10, { align: "center" });
+    doc.text("Girls", marginX + 150, y + 10, { align: "center" });
+    doc.text("Total", pageW - marginX - 18, y + 10, { align: "center" });
 
     const pages = doc.internal.getNumberOfPages();
     for (let i = 1; i <= pages; i++) {

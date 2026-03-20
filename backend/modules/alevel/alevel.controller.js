@@ -1,8 +1,10 @@
 // backend/modules/alevel/alevel.controller.js
 import { db } from "../../server.js";
 import express from "express";
+import { extractClientIp, logAuditEvent } from "../../utils/auditLogger.js";
 
 const router = express.Router();
+const AUDIT_ADMIN_USER_ID = 1;
 
 // GET /api/alevel/learners
 export async function getLearners(req, res) {
@@ -92,6 +94,15 @@ export async function createLearner(req, res) {
     );
 
     await conn.commit();
+    await logAuditEvent({
+      userId: AUDIT_ADMIN_USER_ID,
+      userRole: "admin",
+      action: "CREATE_ALEVEL_LEARNER",
+      entityType: "system",
+      entityId: Number(learnerId),
+      description: `Created A-Level learner ${name} in ${stream}${combination ? ` (${combination})` : ""}`,
+      ipAddress: extractClientIp(req),
+    });
     res.json({ success: true, id: learnerId });
   } catch (err) {
     await conn.rollback();
@@ -105,6 +116,17 @@ export async function deleteLearner(req, res) {
   const { id } = req.params;
 
   try {
+    const [[learner]] = await db.query(
+      `SELECT id, CONCAT(first_name, ' ', COALESCE(last_name, '')) AS name, stream, combination
+       FROM alevel_learners
+       WHERE id = ?`,
+      [id]
+    );
+
+    if (!learner) {
+      return res.status(404).json({ message: "Learner not found" });
+    }
+
     // 1. Delete marks first (foreign key blocker)
     await db.query(
       "DELETE FROM alevel_marks WHERE learner_id = ?",
@@ -127,6 +149,15 @@ export async function deleteLearner(req, res) {
       return res.status(404).json({ message: "Learner not found" });
     }
 
+    await logAuditEvent({
+      userId: AUDIT_ADMIN_USER_ID,
+      userRole: "admin",
+      action: "DELETE_ALEVEL_LEARNER",
+      entityType: "system",
+      entityId: Number(learner.id),
+      description: `Deleted A-Level learner ${String(learner.name || "").trim()} from ${learner.stream}${learner.combination ? ` (${learner.combination})` : ""}`,
+      ipAddress: extractClientIp(req),
+    });
     res.json({ success: true });
   } catch (err) {
     console.error("deleteLearner error:", err);
@@ -171,6 +202,15 @@ export async function updateLearner(req, res) {
     );
 
     await conn.commit();
+    await logAuditEvent({
+      userId: AUDIT_ADMIN_USER_ID,
+      userRole: "admin",
+      action: "UPDATE_ALEVEL_LEARNER",
+      entityType: "system",
+      entityId: Number(id),
+      description: `Updated A-Level learner ${name} in ${stream}${combination ? ` (${combination})` : ""}`,
+      ipAddress: extractClientIp(req),
+    });
     res.json({ success: true });
   } catch (err) {
     await conn.rollback();

@@ -3,6 +3,7 @@ import { db } from "../../server.js";
 import authTeacher from "../../middleware/authTeacher.js";
 import authAdmin from "../../middleware/authAdmin.js";
 import { pool } from "../../server.js";
+import { extractClientIp, logAuditEvent } from "../../utils/auditLogger.js";
 
 import {
   getLearners,
@@ -12,6 +13,7 @@ import {
 } from "./alevel.controller.js";
 
 const router = express.Router();
+const AUDIT_ADMIN_USER_ID = 1;
 
 const SINGLE_PAPER_SUBJECTS = new Set(["general paper", "sub math", "submath"]);
 
@@ -141,11 +143,21 @@ router.post("/admin/assignments", authAdmin, async (req, res) => {
       return res.status(409).json({ message: "Assignment already exists for this paper" });
     }
 
-    await db.query(
+    const [result] = await db.query(
       `INSERT INTO alevel_teacher_subjects (teacher_id, subject_id, stream, paper_label)
        VALUES (?, ?, ?, ?)`,
       [teacherId, subjectId, stream, resolvedPaper]
     );
+
+    await logAuditEvent({
+      userId: AUDIT_ADMIN_USER_ID,
+      userRole: "admin",
+      action: "ASSIGN_SUBJECT",
+      entityType: "subject",
+      entityId: Number(result.insertId),
+      description: `${buildSubjectDisplay(subjectRow.name, resolvedPaper)} assigned to ${stream} (teacher #${teacherId})`,
+      ipAddress: extractClientIp(req),
+    });
 
     res.json({ success: true });
   } catch (err) {
@@ -158,9 +170,10 @@ router.post("/admin/assignments", authAdmin, async (req, res) => {
 router.delete("/admin/assignments/:id", authAdmin, async (req, res) => {
   try {
     const [[assignment]] = await db.query(
-      `SELECT id, subject_id, teacher_id, stream
-       FROM alevel_teacher_subjects
-       WHERE id = ?`,
+      `SELECT ats.id, ats.subject_id, ats.teacher_id, ats.stream, ats.paper_label, s.name AS subject
+       FROM alevel_teacher_subjects ats
+       JOIN alevel_subjects s ON s.id = ats.subject_id
+       WHERE ats.id = ?`,
       [req.params.id]
     );
 
@@ -186,6 +199,16 @@ router.delete("/admin/assignments/:id", authAdmin, async (req, res) => {
       `DELETE FROM alevel_teacher_subjects WHERE id = ?`,
       [req.params.id]
     );
+
+    await logAuditEvent({
+      userId: AUDIT_ADMIN_USER_ID,
+      userRole: "admin",
+      action: "REMOVE_ASSIGNMENT",
+      entityType: "subject",
+      entityId: Number(assignment.id),
+      description: `Removed A-Level assignment ${buildSubjectDisplay(assignment.subject, assignment.paper_label)} from ${assignment.stream} (teacher #${assignment.teacher_id})`,
+      ipAddress: extractClientIp(req),
+    });
     res.json({ success: true });
   } catch (err) {
     console.error("delete assignment error:", err);
@@ -335,7 +358,7 @@ router.get("/teachers/alevel-marks", async (req, res) => {
 
 
 /* SAVE marks */
-router.post("/teachers/alevel-marks", async (req, res) => {
+router.post("/teachers/alevel-marks", authTeacher, async (req, res) => {
   const { assignmentId, term, year, marks } = req.body;
 
   if (!assignmentId || !term || !Array.isArray(marks)) {
@@ -346,19 +369,31 @@ router.post("/teachers/alevel-marks", async (req, res) => {
 
   try {
     await conn.beginTransaction();
+    const teacherId = Number(req.teacher?.id);
 
-    // 1. Get subject_id + teacher_id from assignment
+    // 1. Get assignment context scoped to the logged-in teacher
     const [[ts]] = await conn.query(
-      `SELECT id, subject_id, teacher_id 
+      `SELECT ats.id, ats.subject_id, ats.teacher_id, ats.stream, ats.paper_label, s.name AS subject_name
        FROM alevel_teacher_subjects 
-       WHERE id = ?`,
-      [assignmentId]
+       JOIN alevel_subjects s ON s.id = ats.subject_id
+       WHERE ats.id = ?
+         AND ats.teacher_id = ?`,
+      [assignmentId, teacherId]
     );
 
     if (!ts) {
       await conn.rollback();
       return res.status(404).json({ message: "Assignment not found" });
     }
+
+    const [[existingMarksMeta]] = await conn.query(
+      `SELECT COUNT(*) AS count
+       FROM alevel_marks
+       WHERE assignment_id = ?
+         AND term = ?`,
+      [ts.id, term]
+    );
+    const hasExistingMarks = Number(existingMarksMeta?.count || 0) > 0;
 
     // 2. Get exam IDs (MID, EOT)
     const [exams] = await conn.query(
@@ -383,7 +418,7 @@ router.post("/teachers/alevel-marks", async (req, res) => {
       ts.subject_id,
       examMap[m.aoi],       // MID/EOT → exam_id
       m.score === "Missed" ? null : m.score,
-      ts.teacher_id,
+      teacherId,
       term
     ]);
 
@@ -397,6 +432,19 @@ router.post("/teachers/alevel-marks", async (req, res) => {
     }
 
     await conn.commit();
+
+    const marksAction = hasExistingMarks ? "UPDATE_MARKS" : "SUBMIT_MARKS";
+    const marksVerb = marksAction === "UPDATE_MARKS" ? "Updated" : "Submitted";
+    await logAuditEvent({
+      userId: teacherId,
+      userRole: "teacher",
+      action: marksAction,
+      entityType: "marks",
+      entityId: Number(ts.id),
+      description: `${marksVerb} A-Level marks for ${buildSubjectDisplay(ts.subject_name, ts.paper_label)} in ${ts.stream} (${term}${year ? ` ${year}` : ""})`,
+      ipAddress: extractClientIp(req),
+    });
+
     res.json({ success: true });
   } catch (err) {
     await conn.rollback();
@@ -699,12 +747,33 @@ router.delete("/download/sets/:setId", async (req, res) => {
     const { setId } = req.params;
     const [assignment_id, term, exam_id] = setId.split("-");
 
+    const [[setMeta]] = await pool.query(
+      `SELECT ats.id, ats.stream, ats.paper_label, s.name AS subject, ae.name AS exam_name
+       FROM alevel_teacher_subjects ats
+       JOIN alevel_subjects s ON s.id = ats.subject_id
+       LEFT JOIN alevel_exams ae ON ae.id = ?
+       WHERE ats.id = ?`,
+      [exam_id, assignment_id]
+    );
+
     await pool.query(`
       DELETE FROM alevel_marks
       WHERE assignment_id = ?
         AND term = ?
         AND exam_id = ?
     `, [assignment_id, term, exam_id]);
+
+    if (setMeta) {
+      await logAuditEvent({
+        userId: AUDIT_ADMIN_USER_ID,
+        userRole: "admin",
+        action: "DELETE_MARKS_SET",
+        entityType: "marks",
+        entityId: Number(assignment_id),
+        description: `Deleted A-Level marks set for ${buildSubjectDisplay(setMeta.subject, setMeta.paper_label)} in ${setMeta.stream} (${setMeta.exam_name || "Exam"} ${term})`,
+        ipAddress: extractClientIp(req),
+      });
+    }
 
     res.status(204).end();
   } catch (err) {

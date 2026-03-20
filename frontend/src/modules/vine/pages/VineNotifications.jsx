@@ -8,6 +8,7 @@ const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 
 export default function VineNotifications() {
   const [notifications, setNotifications] = useState([]);
+  const [markingAllRead, setMarkingAllRead] = useState(false);
   const navigate = useNavigate();
   const token = getVineToken();
   const hasLiveSession = Boolean(token) && !isVineTokenExpired(token);
@@ -269,6 +270,25 @@ export default function VineNotifications() {
     }
   };
 
+  const unreadCount = notifications.filter((n) => Number(n?.is_read) !== 1).length;
+
+  const markAllAsRead = async () => {
+    if (!token || unreadCount === 0 || markingAllRead) return;
+    try {
+      setMarkingAllRead(true);
+      const res = await fetch(`${API}/api/vine/notifications/mark-read`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      setNotifications((prev) => prev.map((n) => ({ ...n, is_read: 1 })));
+    } catch {
+      // no-op
+    } finally {
+      setMarkingAllRead(false);
+    }
+  };
+
   const respondFollowRequest = async (notification, action) => {
     let requestId = getMeta(notification).follow_request_id;
     if (!requestId) {
@@ -351,6 +371,31 @@ export default function VineNotifications() {
           <span className="notif-topbar-back-label">Feed</span>
         </button>
         <h3>Notifications</h3>
+      </div>
+
+      <div className="notif-summary-bar">
+        <div className="notif-summary-copy">
+          <div className="notif-summary-title">
+            {unreadCount > 0
+              ? `${unreadCount} unread notification${unreadCount === 1 ? "" : "s"}`
+              : "All caught up"}
+          </div>
+          <div className="notif-summary-subtitle">
+            {notifications.length > 0
+              ? `${notifications.length} total loaded in your notifications list`
+              : "New activity will show up here"}
+          </div>
+        </div>
+        {unreadCount > 0 && (
+          <button
+            type="button"
+            className="notif-mark-all-btn"
+            onClick={markAllAsRead}
+            disabled={markingAllRead}
+          >
+            {markingAllRead ? "Marking..." : "Mark all as read"}
+          </button>
+        )}
       </div>
 
       {/* Empty state */}

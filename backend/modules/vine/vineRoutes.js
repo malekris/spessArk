@@ -9474,7 +9474,7 @@ router.get("/users/new", authOptional, async (req, res) => {
              OR (b.blocker_id = ? AND b.blocked_id = u.id)
         )
       GROUP BY u.id, u.username, u.display_name, u.avatar_url, u.is_verified, u.created_at
-      ORDER BY follower_count DESC, u.created_at DESC, u.id DESC
+      ORDER BY u.created_at DESC, u.id DESC
     `, [viewerId, viewerId, viewerId, viewerId, viewerId]);
 
     res.json(rows);

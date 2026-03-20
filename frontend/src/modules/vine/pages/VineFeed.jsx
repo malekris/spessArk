@@ -52,6 +52,7 @@ const FEED_REFRESH_FALLBACK_MS = 60 * 1000;
 const STATUS_RAIL_REFRESH_FALLBACK_MS = 60 * 1000;
 const FEED_EVENT_DEBOUNCE_MS = 350;
 const MAX_VISIBLE_BIRTHDAYS = 5;
+const formatBadgeCount = (count) => (Number(count || 0) > 99 ? "99+" : String(Number(count || 0)));
 
 // ────────────────────────────────────────────────
 //  HELPERS
@@ -374,12 +375,21 @@ export default function VineFeed() {
     return converted.filter(Boolean);
   };
 
-  const renderSuggestedVinersCarousel = (heading, subtitle = "") => (
+  const renderSuggestedVinersCarousel = (heading, subtitle = "", { sortByFollowers = false } = {}) => {
+    const rows = sortByFollowers
+      ? [...suggestedUsers].sort((a, b) => {
+          const followerDiff = Number(b?.follower_count || 0) - Number(a?.follower_count || 0);
+          if (followerDiff !== 0) return followerDiff;
+          return Number(b?.id || 0) - Number(a?.id || 0);
+        })
+      : suggestedUsers;
+
+    return (
     <div className="vine-suggest-carousel vine-suggest-carousel-recovery">
       <div className="suggest-carousel-header">{heading}</div>
       {subtitle ? <div className="suggest-carousel-subtitle">{subtitle}</div> : null}
       <div className="suggest-carousel-track">
-        {suggestedUsers.map((u) => {
+        {rows.map((u) => {
           const avatarSrc = u.avatar_url
             ? (u.avatar_url.startsWith("http") ? u.avatar_url : `${API}${u.avatar_url}`)
             : DEFAULT_AVATAR;
@@ -448,7 +458,8 @@ export default function VineFeed() {
         })}
       </div>
     </div>
-  );
+    );
+  };
 
   const composerFingerprint = [
     content.trim(),
@@ -749,19 +760,16 @@ export default function VineFeed() {
     feedNextCursorRef.current = null;
     setFeedNextCursor(null);
     setFeedHasMore(false);
-    setSuggestionsLoading(!isNewsTab);
+    setSuggestionsLoading(true);
     setTrendingLoading(!isNewsTab);
     setBirthdaysLoading(!isNewsTab);
     setStatusRailLoading(true);
     loadFeed(controller.signal); // initial load
+    loadSuggestions(controller.signal);
     if (isNewsTab) {
-      suggestionSlotsRef.current = [];
-      setSuggestionSlots([]);
-      setSuggestedUsers([]);
       setTrendingPosts([]);
       setBirthdayRows({ today: [], upcoming: [] });
     } else {
-      loadSuggestions(controller.signal);
       loadTrending(controller.signal);
       loadBirthdays(controller.signal);
     }
@@ -802,9 +810,7 @@ export default function VineFeed() {
           loadTrending(controller.signal);
         }
         if (full) {
-          if (!isNewsTab) {
-            loadSuggestions(controller.signal);
-          }
+          loadSuggestions(controller.signal);
           loadRestrictions(controller.signal);
           loadMyCommunities(controller.signal);
         }
@@ -1489,7 +1495,7 @@ export default function VineFeed() {
 
         <div className="notif-bell" onClick={handleOpenNotifications}>
           🔔
-          {unread > 0 && <span className="notif-badge">{unread}</span>}
+          {unread > 0 && <span className="notif-badge">{formatBadgeCount(unread)}</span>}
         </div>
 
         <div className="nav-right">
@@ -1535,7 +1541,7 @@ export default function VineFeed() {
             style={{ position: "relative" }}
           >
             💬 DM
-            {unreadDMs > 0 && <span className="dm-unread-badge">{unreadDMs}</span>}
+            {unreadDMs > 0 && <span className="dm-unread-badge">{formatBadgeCount(unreadDMs)}</span>}
           </button>
 
           <button className="discover-btn" onClick={() => navigate("/vine/suggestions")}>
@@ -2190,7 +2196,7 @@ export default function VineFeed() {
         <div className="vine-posts-list">
           {feedLoading && posts.length === 0 ? (
             <>
-              {!isNewsTab && suggestionsLoading && (
+              {suggestionsLoading && (
                 <div className="vine-suggest-carousel vine-suggest-carousel-skeleton" aria-hidden="true">
                   <div className="suggest-carousel-header vine-skeleton-block vine-suggest-skeleton-heading" />
                   <div className="suggest-carousel-track">
@@ -2211,7 +2217,7 @@ export default function VineFeed() {
             </>
           ) : posts.map((post, index) => (
             <div key={post.feed_id || `post-${post.id}`}>
-              {!isNewsTab && suggestionSlots.includes(index) && suggestedUsers.length > 0 && (
+              {suggestionSlots.includes(index) && suggestedUsers.length > 0 && (
                 renderSuggestedVinersCarousel("Viners you may want to follow")
               )}
               <VinePostCard
@@ -2248,7 +2254,8 @@ export default function VineFeed() {
               {!isNewsTab && suggestedUsers.length > 0 &&
                 renderSuggestedVinersCarousel(
                   "Viners you may know",
-                  "Popular around Vine, with the most-followed showing first."
+                  "Popular around Vine, with the most-followed showing first.",
+                  { sortByFollowers: true }
                 )}
             </>
           )}
@@ -2262,7 +2269,8 @@ export default function VineFeed() {
               {!isNewsTab && suggestedUsers.length > 0 &&
                 renderSuggestedVinersCarousel(
                   "Viners you may know",
-                  "Start with the people already pulling the strongest crowd on Vine."
+                  "Start with the people already pulling the strongest crowd on Vine.",
+                  { sortByFollowers: true }
                 )}
             </>
           )}

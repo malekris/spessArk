@@ -1,7 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "./VineNotifications.css";
-import useWindowedList from "../../../hooks/useWindowedList";
 import { getVineToken, isVineTokenExpired } from "../utils/vineAuth";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
@@ -12,17 +11,6 @@ export default function VineNotifications() {
   const navigate = useNavigate();
   const token = getVineToken();
   const hasLiveSession = Boolean(token) && !isVineTokenExpired(token);
-  const listRef = useRef(null);
-  const {
-    visibleItems: visibleNotifications,
-    padTop,
-    padBottom,
-  } = useWindowedList(notifications, {
-    containerRef: listRef,
-    estimatedItemHeight: 118,
-    overscan: 5,
-    enabled: notifications.length > 28,
-  });
   useEffect(() => {
     document.title = "Vine — Notifications";
   }, []);
@@ -405,9 +393,8 @@ export default function VineNotifications() {
 
       {/* List */}
      
-      <div className="notif-list-window" ref={listRef}>
-      {padTop > 0 && <div style={{ height: `${padTop}px` }} aria-hidden="true" />}
-      {visibleNotifications.map(n => (
+      <div className="notif-list-window">
+      {notifications.map(n => (
   <div
     key={n.id}
     className={`notif-row ${!n.is_read ? "unread" : ""}`}
@@ -536,7 +523,6 @@ export default function VineNotifications() {
     </div>
   </div>
 ))}
-      {padBottom > 0 && <div style={{ height: `${padBottom}px` }} aria-hidden="true" />}
       </div>
 
     </div>

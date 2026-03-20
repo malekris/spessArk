@@ -1841,8 +1841,27 @@ const getFeedPageData = async ({ viewerId, feedTag = "", feedTab = "for-you", cu
     sourceQueries.push(Promise.resolve([[]]));
   }
 
-  if (feedTab === "news") {
-    sourceQueries.push(Promise.resolve([[]]));
+  if (feedTab !== "news" && followTargets.length) {
+    const placeholders = followTargets.map(() => "?").join(", ");
+    sourceQueries.push(
+      timedVineQuery(
+        perfCtx,
+        "feed.source.followed-revines",
+        `
+        SELECT
+          r.id,
+          r.post_id,
+          r.user_id,
+          r.created_at
+        FROM vine_revines r
+        WHERE r.user_id IN (${placeholders})
+          ${revineCursor.sql}
+        ORDER BY r.created_at DESC, r.id DESC
+        LIMIT ?
+        `,
+        [...followTargets, ...revineCursor.params, FEED_REVINE_CANDIDATE_LIMIT]
+      )
+    );
   } else {
     sourceQueries.push(Promise.resolve([[]]));
   }

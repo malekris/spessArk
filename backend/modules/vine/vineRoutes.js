@@ -9453,8 +9453,10 @@ router.get("/users/new", authOptional, async (req, res) => {
         u.username,
         u.display_name,
         u.avatar_url,
-        u.is_verified
+        u.is_verified,
+        COUNT(f.follower_id) AS follower_count
       FROM vine_users u
+      LEFT JOIN vine_follows f ON f.following_id = u.id
       WHERE u.id != ?
         AND u.id NOT IN (
           SELECT following_id
@@ -9471,7 +9473,8 @@ router.get("/users/new", authOptional, async (req, res) => {
           WHERE (b.blocker_id = u.id AND b.blocked_id = ?)
              OR (b.blocker_id = ? AND b.blocked_id = u.id)
         )
-      ORDER BY u.created_at DESC
+      GROUP BY u.id, u.username, u.display_name, u.avatar_url, u.is_verified, u.created_at
+      ORDER BY follower_count DESC, u.created_at DESC, u.id DESC
     `, [viewerId, viewerId, viewerId, viewerId, viewerId]);
 
     res.json(rows);
@@ -13298,38 +13301,35 @@ router.get("/notifications", authenticate, async (req, res) => {
         const includeMeta = dbName
           ? await hasColumn(dbName, "vine_notifications", "meta_json")
           : false;
-        const cacheKey = buildVineCacheKey("notifications", viewerId);
-        return readThroughVineCache(cacheKey, VINE_CACHE_TTLS.notifications, async () => {
-          const [notificationRows] = await timedVineQuery(
-            perfCtx,
-            "notifications.rows",
-            `
-            SELECT 
-              n.id,
-              n.actor_id,
-              n.type,
-              n.post_id,
-              n.comment_id,
-              n.is_read,
-              n.created_at,
-              ${includeMeta ? "n.meta_json," : "NULL AS meta_json,"}
-              u.username,
-              u.display_name,
-              u.avatar_url,
-              u.is_verified
-            FROM vine_notifications n
-            JOIN vine_users u ON n.actor_id = u.id
-            WHERE n.user_id = ?
-              AND NOT EXISTS (
-                SELECT 1 FROM vine_mutes m
-                WHERE m.muter_id = n.user_id AND m.muted_id = n.actor_id
-              )
-            ORDER BY n.created_at DESC
-          `,
-            [viewerId]
-          );
-          return notificationRows;
-        });
+        const [notificationRows] = await timedVineQuery(
+          perfCtx,
+          "notifications.rows",
+          `
+          SELECT 
+            n.id,
+            n.actor_id,
+            n.type,
+            n.post_id,
+            n.comment_id,
+            n.is_read,
+            n.created_at,
+            ${includeMeta ? "n.meta_json," : "NULL AS meta_json,"}
+            u.username,
+            u.display_name,
+            u.avatar_url,
+            u.is_verified
+          FROM vine_notifications n
+          LEFT JOIN vine_users u ON n.actor_id = u.id
+          WHERE n.user_id = ?
+            AND NOT EXISTS (
+              SELECT 1 FROM vine_mutes m
+              WHERE m.muter_id = n.user_id AND m.muted_id = n.actor_id
+            )
+          ORDER BY n.created_at DESC
+        `,
+          [viewerId]
+        );
+        return notificationRows;
       }
     );
 
@@ -13343,14 +13343,20 @@ router.get("/notifications", authenticate, async (req, res) => {
 router.get("/notifications/unread-count", authenticate, async (req, res) => {
   await ensureVinePerformanceSchema();
   const viewerId = Number(req.user.id);
-  const cacheKey = buildVineCacheKey("notifications-unread", viewerId);
-  const row = await readThroughVineCache(cacheKey, VINE_CACHE_TTLS.notificationCounts, async () => {
-    const [[countRow]] = await db.query(
-      "SELECT COUNT(*) AS total FROM vine_notifications WHERE user_id = ? AND is_read = 0",
-      [viewerId]
-    );
-    return countRow;
-  });
+  const [[row]] = await db.query(
+    `
+    SELECT COUNT(*) AS total
+    FROM vine_notifications n
+    WHERE n.user_id = ?
+      AND n.is_read = 0
+      AND NOT EXISTS (
+        SELECT 1
+        FROM vine_mutes m
+        WHERE m.muter_id = n.user_id AND m.muted_id = n.actor_id
+      )
+    `,
+    [viewerId]
+  );
 
   res.json({ count: Number(row?.total || 0) });
 });
@@ -13365,14 +13371,20 @@ router.get("/notifications/unseen-count", authenticate, async (req, res) => {
   }
 
   const viewerId = Number(req.user.id);
-  const cacheKey = buildVineCacheKey("notifications-unseen", viewerId, since.toISOString());
-  const row = await readThroughVineCache(cacheKey, VINE_CACHE_TTLS.notificationCounts, async () => {
-    const [[countRow]] = await db.query(
-      "SELECT COUNT(*) AS total FROM vine_notifications WHERE user_id = ? AND created_at > ?",
-      [viewerId, since]
-    );
-    return countRow;
-  });
+  const [[row]] = await db.query(
+    `
+    SELECT COUNT(*) AS total
+    FROM vine_notifications n
+    WHERE n.user_id = ?
+      AND n.created_at > ?
+      AND NOT EXISTS (
+        SELECT 1
+        FROM vine_mutes m
+        WHERE m.muter_id = n.user_id AND m.muted_id = n.actor_id
+      )
+    `,
+    [viewerId, since]
+  );
 
   res.json({ count: Number(row?.total || 0) });
 });

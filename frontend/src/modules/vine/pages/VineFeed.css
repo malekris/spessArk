@@ -2154,6 +2154,13 @@
   margin-bottom: 10px;
 }
 
+.suggest-carousel-subtitle {
+  margin: -4px 0 12px;
+  color: #2f6f64;
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
 .suggest-carousel-track {
   display: flex;
   gap: 12px;
@@ -2196,6 +2203,12 @@
   color: #2f6f64;
 }
 
+.suggest-meta {
+  font-size: 0.78rem;
+  color: #4b746a;
+  font-weight: 700;
+}
+
 .suggest-follow {
   margin-top: 6px;
   background: #064e3b;
@@ -2208,6 +2221,10 @@
   align-self: stretch;
   text-align: center;
   margin-top: auto;
+}
+
+.vine-suggest-carousel-recovery {
+  margin-top: 10px;
 }
 
 .theme-dark .vine-suggest-carousel {

@@ -263,7 +263,6 @@ export default function VineFeed() {
     ["vine guardian", "vine_guardian", "vine news", "vine_news"].includes(
       String(me?.username || "").toLowerCase()
     );
-  const bellSeenKey = `vine_notif_seen_at_${me?.id || "anon"}`;
 
   // ── State ───────────────────────────────────────
   const [posts, setPosts] = useState([]);
@@ -374,6 +373,82 @@ export default function VineFeed() {
     );
     return converted.filter(Boolean);
   };
+
+  const renderSuggestedVinersCarousel = (heading, subtitle = "") => (
+    <div className="vine-suggest-carousel vine-suggest-carousel-recovery">
+      <div className="suggest-carousel-header">{heading}</div>
+      {subtitle ? <div className="suggest-carousel-subtitle">{subtitle}</div> : null}
+      <div className="suggest-carousel-track">
+        {suggestedUsers.map((u) => {
+          const avatarSrc = u.avatar_url
+            ? (u.avatar_url.startsWith("http") ? u.avatar_url : `${API}${u.avatar_url}`)
+            : DEFAULT_AVATAR;
+          const followerCount = Number(u.follower_count || 0);
+          const followerLabel =
+            followerCount === 1 ? "1 follower" : `${followerCount.toLocaleString()} followers`;
+          return (
+            <div
+              key={u.id}
+              className="suggest-card"
+              onClick={() => navigate(`/vine/profile/${u.username}`)}
+            >
+              <img
+                src={avatarSrc}
+                alt={u.username}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigate(`/vine/profile/${u.username}`);
+                }}
+                onError={(e) => {
+                  e.currentTarget.src = DEFAULT_AVATAR;
+                }}
+              />
+              <div className="suggest-name">
+                <span
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigate(`/vine/profile/${u.username}`);
+                  }}
+                >
+                  {u.display_name || u.username}
+                </span>
+                {(Number(u.is_verified) === 1 || ["vine guardian","vine_guardian","vine news","vine_news"].includes(String(u.username || "").toLowerCase())) && (
+                  <span className={`verified ${["vine guardian","vine_guardian","vine news","vine_news"].includes(String(u.username || "").toLowerCase()) ? "guardian" : ""}`}>
+                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
+                      <path
+                        d="M20 6L9 17l-5-5"
+                        stroke="white"
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </span>
+                )}
+              </div>
+              <div className="suggest-handle">@{u.username}</div>
+              <div className="suggest-meta">{followerLabel}</div>
+              <button
+                className="suggest-follow"
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  const res = await fetch(`${API}/api/vine/users/${u.id}/follow`, {
+                    method: "POST",
+                    headers: { Authorization: `Bearer ${token}` },
+                  });
+                  if (res.ok) {
+                    setSuggestedUsers((prev) => prev.filter((p) => p.id !== u.id));
+                  }
+                }}
+              >
+                Follow
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 
   const composerFingerprint = [
     content.trim(),
@@ -1100,8 +1175,6 @@ export default function VineFeed() {
   };
 
   const handleOpenNotifications = () => {
-    localStorage.setItem(bellSeenKey, new Date().toISOString());
-    setUnread(0);
     navigate("/vine/notifications");
   };
 
@@ -1114,24 +1187,10 @@ export default function VineFeed() {
     // Fetch bell badge count
     const fetchUnreadNotifications = async () => {
       try {
-        const since = localStorage.getItem(bellSeenKey);
-        if (since) {
-          const res = await fetch(
-            `${API}/api/vine/notifications/unseen-count?since=${encodeURIComponent(since)}`,
-            {
-              headers: { Authorization: `Bearer ${token}` },
-              signal: notificationController.signal,
-            }
-          );
-          const data = await res.json().catch(() => ({}));
-          if (notificationController.signal.aborted) return;
-          setUnread(Number(data.count || 0));
-          return;
-        }
-
         const res = await fetch(`${API}/api/vine/notifications/unread-count`, {
           headers: { Authorization: `Bearer ${token}` },
           signal: notificationController.signal,
+          cache: "no-store",
         });
         const data = await res.json().catch(() => ({}));
         if (notificationController.signal.aborted) return;
@@ -1174,7 +1233,7 @@ export default function VineFeed() {
       socket.off("dm_received", fetchUnreadDMs);
       socket.off("messages_seen", fetchUnreadDMs);
     };
-  }, [token, bellSeenKey]);
+  }, [token]);
 
   useEffect(() => {
     if (!token) return;
@@ -2153,76 +2212,7 @@ export default function VineFeed() {
           ) : posts.map((post, index) => (
             <div key={post.feed_id || `post-${post.id}`}>
               {!isNewsTab && suggestionSlots.includes(index) && suggestedUsers.length > 0 && (
-                <div className="vine-suggest-carousel">
-                  <div className="suggest-carousel-header">
-                    Viners you may want to follow
-                  </div>
-                  <div className="suggest-carousel-track">
-                    {suggestedUsers.map((u) => {
-                      const avatarSrc = u.avatar_url
-                        ? (u.avatar_url.startsWith("http") ? u.avatar_url : `${API}${u.avatar_url}`)
-                        : DEFAULT_AVATAR;
-                      return (
-                        <div
-                          key={u.id}
-                          className="suggest-card"
-                          onClick={() => navigate(`/vine/profile/${u.username}`)}
-                        >
-                          <img
-                            src={avatarSrc}
-                            alt={u.username}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              navigate(`/vine/profile/${u.username}`);
-                            }}
-                            onError={(e) => {
-                              e.currentTarget.src = DEFAULT_AVATAR;
-                            }}
-                          />
-                          <div className="suggest-name">
-                            <span
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                navigate(`/vine/profile/${u.username}`);
-                              }}
-                            >
-                              {u.display_name || u.username}
-                            </span>
-                            {(Number(u.is_verified) === 1 || ["vine guardian","vine_guardian","vine news","vine_news"].includes(String(u.username || "").toLowerCase())) && (
-                              <span className={`verified ${["vine guardian","vine_guardian","vine news","vine_news"].includes(String(u.username || "").toLowerCase()) ? "guardian" : ""}`}>
-                                <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
-                                  <path
-                                    d="M20 6L9 17l-5-5"
-                                    stroke="white"
-                                    strokeWidth="3"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                  />
-                                </svg>
-                              </span>
-                            )}
-                          </div>
-                          <div className="suggest-handle">@{u.username}</div>
-                          <button
-                            className="suggest-follow"
-                            onClick={async (e) => {
-                              e.stopPropagation();
-                              const res = await fetch(`${API}/api/vine/users/${u.id}/follow`, {
-                                method: "POST",
-                                headers: { Authorization: `Bearer ${token}` },
-                              });
-                              if (res.ok) {
-                                setSuggestedUsers((prev) => prev.filter((p) => p.id !== u.id));
-                              }
-                            }}
-                          >
-                            Follow
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
+                renderSuggestedVinersCarousel("Viners you may want to follow")
               )}
               <VinePostCard
                 post={post}
@@ -2249,18 +2239,32 @@ export default function VineFeed() {
             </div>
           )}
           {!feedHasMore && posts.length > 0 && (
-            <p className="no-more-posts">
-              {isNewsTab
-                ? "No more Vine News updates"
-                : "You're all caught up. Follow more people to have more stories on your feed."}
-            </p>
+            <>
+              <p className="no-more-posts">
+                {isNewsTab
+                  ? "No more Vine News updates"
+                  : "You're all caught up. Follow more people to have more stories on your feed."}
+              </p>
+              {!isNewsTab && suggestedUsers.length > 0 &&
+                renderSuggestedVinersCarousel(
+                  "Viners you may know",
+                  "Popular around Vine, with the most-followed showing first."
+                )}
+            </>
           )}
           {!feedLoading && posts.length === 0 && (
-            <p className="no-posts-hint">
-              {isNewsTab
-                ? "No Vine News updates yet"
-                : "Follow more people to have more stories on your feed."}
-            </p>
+            <>
+              <p className="no-posts-hint">
+                {isNewsTab
+                  ? "No Vine News updates yet"
+                  : "Follow more people to have more stories on your feed."}
+              </p>
+              {!isNewsTab && suggestedUsers.length > 0 &&
+                renderSuggestedVinersCarousel(
+                  "Viners you may know",
+                  "Start with the people already pulling the strongest crowd on Vine."
+                )}
+            </>
           )}
         </div>
         <footer className="vine-feed-footer">

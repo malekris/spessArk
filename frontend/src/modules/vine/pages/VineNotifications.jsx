@@ -33,6 +33,7 @@ export default function VineNotifications() {
       const res = await fetch(`${API}/api/vine/notifications`, {
         headers: { Authorization: `Bearer ${token}` },
         signal: controller.signal,
+        cache: "no-store",
       });
 
       const data = await res.json();
@@ -59,6 +60,33 @@ export default function VineNotifications() {
     }
   };
 
+  const getActorUsername = (notification) => {
+    const meta = getMeta(notification);
+    return String(
+      notification?.username ||
+        meta?.username ||
+        meta?.actor_username ||
+        ""
+    ).trim();
+  };
+
+  const getActorDisplayName = (notification) => {
+    const meta = getMeta(notification);
+    return String(
+      notification?.display_name ||
+        meta?.display_name ||
+        meta?.actor_display_name ||
+        getActorUsername(notification) ||
+        "Someone"
+    ).trim();
+  };
+
+  const openActorProfile = (notification) => {
+    const username = getActorUsername(notification);
+    if (!username) return;
+    navigate(`/vine/profile/${username}`);
+  };
+
   const buildPostTarget = (notification) => {
     const meta = getMeta(notification);
     const postId = notification?.post_id || meta?.post_id || meta?.target_post_id || null;
@@ -74,12 +102,13 @@ export default function VineNotifications() {
 
   const resolveNotificationPath = (notification) => {
     const meta = getMeta(notification);
+    const actorUsername = getActorUsername(notification);
 
-    if (notification.type === "follow" || notification.type === "follow_request_accepted") {
-      return `/vine/profile/${notification.username}`;
+    if ((notification.type === "follow" || notification.type === "follow_request_accepted") && actorUsername) {
+      return `/vine/profile/${actorUsername}`;
     }
-    if (notification.type === "birthday") {
-      return `/vine/profile/${notification.username}`;
+    if (notification.type === "birthday" && actorUsername) {
+      return `/vine/profile/${actorUsername}`;
     }
     if (notification.type === "follow_request") {
       return "/vine/settings";
@@ -297,8 +326,8 @@ export default function VineNotifications() {
         return;
       }
       const p = new URLSearchParams({
-        username: notification.username || "",
-        displayName: notification.display_name || notification.username || "",
+        username: getActorUsername(notification),
+        displayName: getActorDisplayName(notification),
       });
       navigate(`/vine/dms/new/${userId}?${p.toString()}`);
     } catch (err) {
@@ -354,20 +383,20 @@ export default function VineNotifications() {
       {n.avatar_url ? (
         <img
           src={n.avatar_url}
-          alt={n.username}
+          alt={getActorDisplayName(n)}
           onClick={(e) => {
             e.stopPropagation();
-            navigate(`/vine/profile/${n.username}`);
+            openActorProfile(n);
           }}
         />
       ) : (
         <span
           onClick={(e) => {
             e.stopPropagation();
-            navigate(`/vine/profile/${n.username}`);
+            openActorProfile(n);
           }}
         >
-          {(n.username || "U")[0].toUpperCase()}
+          {getActorDisplayName(n)[0]?.toUpperCase() || "U"}
         </span>
       )}
     </div>
@@ -379,19 +408,19 @@ export default function VineNotifications() {
           className="notif-user"
           onClick={(e) => {
             e.stopPropagation(); // prevent row click
-            navigate(`/vine/profile/${n.username}`);
+            openActorProfile(n);
           }}
         >
           <span
             onClick={(e) => {
               e.stopPropagation();
-              navigate(`/vine/profile/${n.username}`);
+              openActorProfile(n);
             }}
           >
-            {n.display_name || n.username}
+            {getActorDisplayName(n)}
           </span>
-          {(Number(n.is_verified) === 1 || ["vine guardian","vine_guardian","vine news","vine_news"].includes(String(n.username || "").toLowerCase())) && (
-            <span className={`verified ${["vine guardian","vine_guardian","vine news","vine_news"].includes(String(n.username || "").toLowerCase()) ? "guardian" : ""}`}>
+          {(Number(n.is_verified) === 1 || ["vine guardian","vine_guardian","vine news","vine_news"].includes(getActorUsername(n).toLowerCase())) && (
+            <span className={`verified ${["vine guardian","vine_guardian","vine news","vine_news"].includes(getActorUsername(n).toLowerCase()) ? "guardian" : ""}`}>
               <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
                 <path
                   d="M20 6L9 17l-5-5"

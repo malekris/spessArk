@@ -228,17 +228,22 @@ const TERM_TEACHER_WIDTH = TERM_MARKS_TABLE_WIDTH * 0.19;
 
 // ===== VERTICAL RHYTHM =====
 const RHYTHM = 6;
-const CONTENT_START_Y = 64; // 🔒 single source of truth
+const CONTENT_START_Y = 69; // aligned to premium header + student info block
 const TABLE_BORDER_COLOR = [0, 0, 0];
-const TABLE_BORDER_WIDTH = 0.45;
-const TABLE_HEADER_FILL = [245, 245, 245];
+const TABLE_BORDER_WIDTH = 0.38;
+const TABLE_HEADER_FILL = [236, 236, 236];
+const TABLE_ROW_ALT_FILL = [250, 250, 250];
+const TABLE_SECTION_FILL = [244, 244, 244];
+const TABLE_TOTAL_FILL = [242, 242, 242];
 const TABLE_TEXT_COLOR = [0, 0, 0];
+const TABLE_CELL_PADDING = { top: 2.1, right: 2.4, bottom: 2.1, left: 2.4 };
 
 const buildTableStyles = (overrides = {}) => ({
   font: "helvetica",
   textColor: TABLE_TEXT_COLOR,
   lineColor: TABLE_BORDER_COLOR,
   lineWidth: TABLE_BORDER_WIDTH,
+  cellPadding: TABLE_CELL_PADDING,
   ...overrides,
 });
 
@@ -250,6 +255,29 @@ const buildHeadStyles = (overrides = {}) => ({
   lineWidth: TABLE_BORDER_WIDTH,
   ...overrides,
 });
+
+const buildBodyStyles = (overrides = {}) => ({
+  fillColor: [255, 255, 255],
+  textColor: TABLE_TEXT_COLOR,
+  lineColor: TABLE_BORDER_COLOR,
+  lineWidth: TABLE_BORDER_WIDTH,
+  ...overrides,
+});
+
+const buildAlternateRowStyles = (overrides = {}) => ({
+  fillColor: TABLE_ROW_ALT_FILL,
+  ...overrides,
+});
+
+const drawSectionBand = (label, yPos, width = ACTIVE_TABLE_WIDTH, xPos = getColumnX()) => {
+  doc.setFillColor(...TABLE_SECTION_FILL);
+  doc.setDrawColor(...TABLE_BORDER_COLOR);
+  doc.setLineWidth(0.25);
+  doc.roundedRect(xPos, yPos, width, 6.8, 1.2, 1.2, "FD");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.text(label, xPos + 3, yPos + 4.5);
+};
 
 const getColumnX = () => {
   if (SINGLE_COLUMN_MODE) return LEFT_COL_X;
@@ -310,61 +338,65 @@ let currentY = 95; // below header + student info
           HEADER (CLEAN & SPACED)
          =========================== */
     
+        doc.setDrawColor(...TABLE_BORDER_COLOR);
+        doc.setLineWidth(0.45);
+        doc.line(15, 10, pageWidth - 15, 10);
+
         // Badge
         doc.addImage(badge, "PNG", 15, 12, 18, 18);
 
         // School name
         doc.setFont("helvetica", "bold");
-        doc.setFontSize(15);
+        doc.setFontSize(14.5);
         doc.text(
-         "ST. PHILLIP'S EQUATORIAL SECONDARY SCHOOL",
+          "ST. PHILLIP'S EQUATORIAL SECONDARY SCHOOL",
           pageWidth / 2,
-            18,
-            { align: "center" }
-);
+          18,
+          { align: "center" }
+        );
 
-// Address
-doc.setFont("helvetica", "normal");
-doc.setFontSize(10);
-doc.text(
-  "P.O. BOX 53, Kayabwe, Mpigi",
-  pageWidth / 2,
-  24,
-  { align: "center" }
-);
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(11.5);
+        doc.text("SPESS ARK", pageWidth / 2, 23, { align: "center" });
 
-// Contacts (same size + equal spacing)
-doc.setFontSize(10);
-doc.text(
-  "Email: stphillipsequatorial@gmail.com | www.stphillipsequatorial.com",
-  pageWidth / 2,
-  29,
-  { align: "center" }
-);
+        // Address
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(9.4);
+        doc.text(
+          "P.O. BOX 53, Kayabwe, Mpigi",
+          pageWidth / 2,
+          27.8,
+          { align: "center" }
+        );
 
-doc.text(
-  "Tel: 0700651402, 0772571671, 0762001883, 0787301685",
-  pageWidth / 2,
-  34,
-  { align: "center" }
-);
+        // Contacts (same size + equal spacing)
+        doc.setFontSize(9.2);
+        doc.text(
+          "Email: stphillipsequatorial@gmail.com | www.stphillipsequatorial.com",
+          pageWidth / 2,
+          32.2,
+          { align: "center" }
+        );
 
-        // Divider
-doc.setLineWidth(0.6);
-doc.line(15, 40, pageWidth - 15, 40);
+        doc.text(
+          "Tel: 0700651402, 0772571671, 0762001883, 0787301685",
+          pageWidth / 2,
+          36.6,
+          { align: "center" }
+        );
 
-// Report title (ONLY ONCE)
-const reportTitle = isEndOfYear
-  ? `END OF YEAR REPORT CARD — ${meta.year}`
-  : `END OF TERM REPORT — TERM ${meta.term} ${meta.year}`;
-doc.setFont("helvetica", "bold");
-doc.setFontSize(12);
-doc.text(
-  reportTitle,
-  pageWidth / 2,
-  47,
-  { align: "center" }
-);
+        doc.setLineWidth(0.35);
+        doc.line(15, 40.5, pageWidth - 15, 40.5);
+
+        // Report title
+        const reportTitle = isEndOfYear
+          ? `END OF YEAR REPORT CARD — ${meta.year}`
+          : `END OF TERM REPORT — TERM ${meta.term} ${meta.year}`;
+        doc.setFillColor(...TABLE_SECTION_FILL);
+        doc.roundedRect(15, 44, pageWidth - 30, 8, 1.4, 1.4, "FD");
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(11.2);
+        doc.text(reportTitle, pageWidth / 2, 49.2, { align: "center" });
 
 
 
@@ -373,31 +405,29 @@ doc.text(
    STUDENT INFO (FIXED LAYOUT)
 =========================== */
 
-const infoStartY = 56; // add breathing room below report title
+const infoStartY = 57;
 const infoLeftX = 15;
 const infoRightX = pageWidth / 2 + 10;
-
-doc.setFontSize(11);
+doc.setFontSize(10);
 
 // Labels
 doc.setFont("helvetica", "bold");
-doc.text("Name:", infoLeftX, infoStartY);
-doc.text("Age:", infoLeftX, infoStartY + 6);
-
-doc.text("Class:", infoRightX, infoStartY);
-doc.text("Stream:", infoRightX, infoStartY + 6);
+doc.text("NAME", infoLeftX + 2, infoStartY);
+doc.text("AGE", infoLeftX + 2, infoStartY + 5.2);
+doc.text("CLASS", infoRightX + 2, infoStartY);
+doc.text("STREAM", infoRightX + 2, infoStartY + 5.2);
 
 // Values
 doc.setFont("helvetica", "normal");
-doc.text(student.info.student_name || "—", infoLeftX + 22, infoStartY);
+doc.text(student.info.student_name || "—", infoLeftX + 21, infoStartY);
 doc.text(
   String(calculateAge(student.info.dob)),
-  infoLeftX + 22,
-  infoStartY + 6
+  infoLeftX + 21,
+  infoStartY + 5.2
 );
 
-doc.text(student.info.class_level || "—", infoRightX + 30, infoStartY);
-doc.text(student.info.stream || "—", infoRightX + 30, infoStartY + 6);
+doc.text(student.info.class_level || "—", infoRightX + 22, infoStartY);
+doc.text(student.info.stream || "—", infoRightX + 22, infoStartY + 5.2);
 /* ===========================
    SUBJECT TABLE DATA (REQUIRED)
 =========================== */
@@ -481,15 +511,15 @@ autoTable(doc, {
 
   styles: buildTableStyles({
     fontSize: 9,
-    cellPadding: 2,
     overflow: "linebreak",
     wordBreak: "normal",
     valign: "middle",
   }),
 
+  bodyStyles: buildBodyStyles(),
+  alternateRowStyles: buildAlternateRowStyles(),
   headStyles: buildHeadStyles({
     fontSize: 9,
-    cellPadding: 2,
   }),
   columnStyles: isEndOfYear
     ? {
@@ -601,14 +631,16 @@ const classPosition = Number(student.info.class_position) || 0;
 const classTotal = Number(student.info.class_total) || 0;
 const streamPosition = Number(student.info.stream_position) || 0;
 const streamTotal = Number(student.info.stream_total) || 0;
+const positionStatus = String(student.info.position_status || "").trim().toUpperCase();
+const isPositionEligible = positionStatus === "ELIGIBLE";
 const classPositionText =
-  classPosition > 0 && classTotal > 0
+  isPositionEligible && classPosition > 0 && classTotal > 0
     ? `${classPosition} / ${classTotal} ${getMedal(classPosition)}`
-    : "—";
+    : "INELIGIBLE";
 const streamPositionText =
-  streamPosition > 0 && streamTotal > 0
+  isPositionEligible && streamPosition > 0 && streamTotal > 0
     ? `${streamPosition} / ${streamTotal} ${getMedal(streamPosition)}`
-    : "—";
+    : "INELIGIBLE";
 
 // Draw line
 /* ===========================
@@ -629,8 +661,10 @@ if (isEndOfYear) {
       fontSize: 8.8,
       fontStyle: "bold",
       halign: "center",
-      cellPadding: 1.8,
       lineHeight: 1.0,
+    }),
+    bodyStyles: buildBodyStyles({
+      fillColor: TABLE_TOTAL_FILL,
     }),
     columnStyles: {
       0: { cellWidth: COLUMN_WIDTH / 3 },
@@ -663,10 +697,10 @@ if (isEndOfYear) {
     styles: buildTableStyles({
       fontSize: 9,
       halign: "center",
-      cellPadding: 2,
       lineHeight: 1.0,
     }),
 
+    bodyStyles: buildBodyStyles(),
     headStyles: buildHeadStyles(),
 
     columnStyles: {
@@ -684,7 +718,7 @@ if (isEndOfYear) {
  /* ===========================
    GRADING SCALE (COMPACT)
 =========================== */
-ensureSpace(10);
+ensureSpace(18);
 autoTable(doc, {
   startY: currentY,
   margin: { left: getColumnX() },
@@ -698,8 +732,10 @@ autoTable(doc, {
     fontSize: 8.6,
     fontStyle: "bold",
     halign: "center",
-    cellPadding: 1.8,
     lineHeight: 1.0,
+  }),
+  bodyStyles: buildBodyStyles({
+    fillColor: [252, 252, 252],
   }),
   columnStyles: {
     0: { cellWidth: (isEndOfYear ? COLUMN_WIDTH : TERM_MARKS_TABLE_WIDTH) / 3 },
@@ -714,9 +750,10 @@ currentY = doc.lastAutoTable.finalY + RHYTHM * 0.75;
    END OF YEAR GRADE BANDS
 =========================== */
 if (isEndOfYear) {
-  ensureSpace(8);
+  ensureSpace(16);
+  drawSectionBand("End Of Year Grade Bands", currentY, COLUMN_WIDTH);
   autoTable(doc, {
-    startY: currentY,
+    startY: currentY + 8,
     margin: { left: getColumnX() },
     tableWidth: COLUMN_WIDTH,
     body: [[
@@ -730,8 +767,10 @@ if (isEndOfYear) {
       fontSize: 8.6,
       fontStyle: "bold",
       halign: "center",
-      cellPadding: 1.8,
       lineHeight: 1.0,
+    }),
+    bodyStyles: buildBodyStyles({
+      fillColor: [252, 252, 252],
     }),
     columnStyles: {
       0: { cellWidth: COLUMN_WIDTH / 5 },
@@ -765,9 +804,12 @@ autoTable(doc, {
   styles: buildTableStyles({
     fontSize: 11,
     lineHeight: 1.0,
-    cellPadding: 2,
   }),
 
+  bodyStyles: buildBodyStyles(),
+  alternateRowStyles: buildAlternateRowStyles({
+    fillColor: TABLE_TOTAL_FILL,
+  }),
   headStyles: buildHeadStyles(),
 
   columnStyles: {
@@ -783,10 +825,10 @@ currentY = doc.lastAutoTable.finalY + RHYTHM;
 /* ===========================
    REQUIREMENTS
 =========================== */
-ensureSpace(22);
+ensureSpace(16);
 
 doc.setFont("helvetica", "bold");
-doc.setFontSize(10);
+doc.setFontSize(9.5);
 doc.text("Requirements for Next Term:", getColumnX(), currentY);
 
 doc.setFont("helvetica", "normal");
@@ -802,16 +844,17 @@ currentY += RHYTHM * 2;
 ensureSpace(12);
 
 doc.setFont("helvetica", "bold");
-doc.setFontSize(10);
+doc.setFontSize(9.2);
 const datesY = currentY;
 const termDatesLeftX = getColumnX();
-const termDatesRightX = termDatesLeftX + COLUMN_WIDTH * 0.52;
+const termDatesWidth = isEndOfYear ? COLUMN_WIDTH : TERM_MARKS_TABLE_WIDTH;
+const termDatesRightX = termDatesLeftX + termDatesWidth * 0.52;
 
-doc.text("Term Ended:", termDatesLeftX, datesY);
+doc.text("Term Ended:", termDatesLeftX + 2, datesY);
 doc.text("Next Term Begins:", termDatesRightX, datesY);
 
 doc.setFont("helvetica", "normal");
-doc.text("__________", termDatesLeftX + 24, datesY);
+doc.text("__________", termDatesLeftX + 26, datesY);
 doc.text("__________", termDatesRightX + 35, datesY);
 
 currentY += RHYTHM * 2;

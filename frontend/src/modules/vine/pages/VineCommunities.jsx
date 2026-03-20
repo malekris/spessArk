@@ -112,6 +112,9 @@ export default function VineCommunities() {
   const [announcementText, setAnnouncementText] = useState("");
   const [editingAnnouncementId, setEditingAnnouncementId] = useState(null);
   const [editingAnnouncementText, setEditingAnnouncementText] = useState("");
+  const [sessionCreateNotice, setSessionCreateNotice] = useState("");
+  const [assignmentDeleteTarget, setAssignmentDeleteTarget] = useState(null);
+  const [communitySuccessModal, setCommunitySuccessModal] = useState(null);
   const [calendarMonth, setCalendarMonth] = useState(() => {
     const now = new Date();
     return new Date(now.getFullYear(), now.getMonth(), 1);
@@ -119,6 +122,7 @@ export default function VineCommunities() {
   const [seenAnnouncementIds, setSeenAnnouncementIds] = useState({});
   const communityBannerDragStart = useRef(0);
   const communityBannerOffsetStart = useRef(0);
+  const sessionCreateNoticeTimerRef = useRef(null);
   const communityPostRef = useRef(null);
   const communityPostRequestIdRef = useRef("");
   const communityPostFingerprintRef = useRef("");
@@ -138,6 +142,37 @@ export default function VineCommunities() {
     const timer = setInterval(() => setNowMs(Date.now()), 60 * 1000);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(
+    () => () => {
+      if (sessionCreateNoticeTimerRef.current) {
+        window.clearTimeout(sessionCreateNoticeTimerRef.current);
+      }
+    },
+    []
+  );
+
+  const showSessionCreateNotice = (message) => {
+    if (sessionCreateNoticeTimerRef.current) {
+      window.clearTimeout(sessionCreateNoticeTimerRef.current);
+      sessionCreateNoticeTimerRef.current = null;
+    }
+    setSessionCreateNotice(message);
+    sessionCreateNoticeTimerRef.current = window.setTimeout(() => {
+      setSessionCreateNotice("");
+      sessionCreateNoticeTimerRef.current = null;
+    }, 3200);
+  };
+
+  const showCommunitySuccessModal = (title, message, options = {}) => {
+    setCommunitySuccessModal({
+      title: String(title || "Done"),
+      message: String(message || "").trim(),
+      kicker: String(options.kicker || "All set"),
+      buttonLabel: String(options.buttonLabel || "Okay"),
+      tone: options.tone === "warning" ? "warning" : "success",
+    });
+  };
 
   useEffect(() => {
     if (activeCommunity?.name) {
@@ -818,7 +853,7 @@ export default function VineCommunities() {
       setAssignmentRubric("");
       setAssignmentFile(null);
       await loadCommunityDetail(activeCommunity.slug, topicFilter);
-      alert("Assignment created");
+      showSessionCreateNotice("Assignment created. Learners can now see it under Assignments.");
     } catch {
       alert("Failed to create assignment");
     }
@@ -829,7 +864,16 @@ export default function VineCommunities() {
     const text = String(submissionDrafts[assignmentId] || savedDraftsMap[assignmentId] || "").trim();
     const files = Array.isArray(submissionFiles[assignmentId]) ? submissionFiles[assignmentId] : [];
     const isPractical = String(assignmentTypeValue || "theory").toLowerCase() === "practical";
-    if (!text && files.length === 0) return;
+    if (!text && files.length === 0) {
+      showCommunitySuccessModal(
+        "Write your answer first",
+        isPractical
+          ? "Add your answer or attach your work before submitting this assignment."
+          : "Add your answer before submitting this assignment.",
+        { kicker: "Heads up", tone: "warning" }
+      );
+      return;
+    }
     try {
       const formData = new FormData();
       if (text) formData.append("content", text);
@@ -852,7 +896,10 @@ export default function VineCommunities() {
       setSavedDraftsMap((prev) => ({ ...prev, [assignmentId]: "" }));
       setSubmissionFiles((prev) => ({ ...prev, [assignmentId]: [] }));
       await loadCommunityDetail(activeCommunity.slug, topicFilter);
-      alert("Assignment submitted");
+      showCommunitySuccessModal(
+        "Assignment submitted",
+        "Your work is now safely in and ready for the class owner to review."
+      );
     } catch {
       alert("Failed to submit assignment");
     }
@@ -862,7 +909,11 @@ export default function VineCommunities() {
     if (!activeCommunity?.id || !assignmentId) return;
     const text = String(submissionDrafts[assignmentId] || "").trim();
     if (!text) {
-      alert("Write your answer first.");
+      showCommunitySuccessModal(
+        "Write your answer first",
+        "Add your answer before saving this draft.",
+        { kicker: "Heads up", tone: "warning" }
+      );
       return;
     }
     try {
@@ -880,21 +931,40 @@ export default function VineCommunities() {
         return;
       }
       setSavedDraftsMap((prev) => ({ ...prev, [assignmentId]: text }));
-      alert("Draft saved");
+      showCommunitySuccessModal(
+        "Draft saved",
+        "Your work is safely saved. You can come back and finish it anytime."
+      );
     } catch {
       alert("Failed to save draft");
     }
   };
 
-  const deleteAssignment = async (assignmentId) => {
+  const deleteAssignment = async (assignment) => {
+    const assignmentId = Number(
+      typeof assignment === "object" && assignment !== null ? assignment.id : assignment
+    );
     if (!activeCommunity?.id || !assignmentId) return;
     const viewerRole = String(activeCommunity?.viewer_role || "").toLowerCase();
     if (viewerRole !== "owner") {
       alert("Only community owner can delete assignments");
       return;
     }
-    const ok = window.confirm("Delete this assignment and all submissions?");
-    if (!ok) return;
+    setAssignmentDeleteTarget({
+      id: assignmentId,
+      title:
+        typeof assignment === "object" && assignment !== null
+          ? String(assignment.title || "").trim()
+          : "",
+    });
+  };
+
+  const confirmDeleteAssignment = async () => {
+    const assignmentId = Number(assignmentDeleteTarget?.id || 0);
+    if (!activeCommunity?.id || !assignmentId) {
+      setAssignmentDeleteTarget(null);
+      return;
+    }
     try {
       const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/assignments/${assignmentId}`, {
         method: "DELETE",
@@ -911,7 +981,8 @@ export default function VineCommunities() {
         setGradingDrafts({});
       }
       await loadCommunityDetail(activeCommunity.slug, topicFilter);
-      alert("Assignment deleted");
+      setAssignmentDeleteTarget(null);
+      showSessionCreateNotice("Assignment deleted. It has been removed from the class.");
     } catch {
       alert("Failed to delete assignment");
     }
@@ -1542,7 +1613,7 @@ export default function VineCommunities() {
       setSessionEndsAt("");
       setSessionNotes("");
       await loadSessions();
-      alert("Class session created");
+      showSessionCreateNotice("Class session created. Learners can now see it in Attendance.");
     } catch {
       alert("Failed to create class");
     }
@@ -2068,6 +2139,72 @@ export default function VineCommunities() {
             <div className="community-empty">Pick a community to view posts</div>
           ) : (
             <>
+              {sessionCreateNotice ? (
+                <div className="community-session-toast" role="status" aria-live="polite">
+                  {sessionCreateNotice}
+                </div>
+              ) : null}
+              {assignmentDeleteTarget ? (
+                <div className="community-confirm-backdrop" role="presentation">
+                  <div
+                    className="community-confirm-modal"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="assignment-delete-title"
+                  >
+                    <div className="community-confirm-kicker">Confirm action</div>
+                    <h4 id="assignment-delete-title">Delete assignment?</h4>
+                    <p>
+                      {assignmentDeleteTarget.title
+                        ? `“${assignmentDeleteTarget.title}” and all its submissions will be removed from this class.`
+                        : "This assignment and all its submissions will be removed from this class."}
+                    </p>
+                    <div className="community-confirm-actions">
+                      <button
+                        type="button"
+                        className="community-confirm-cancel"
+                        onClick={() => setAssignmentDeleteTarget(null)}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        className="community-confirm-danger"
+                        onClick={confirmDeleteAssignment}
+                      >
+                        Delete assignment
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+              {communitySuccessModal ? (
+                <div className="community-confirm-backdrop" role="presentation">
+                  <div
+                    className="community-confirm-modal community-confirm-modal-success"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="community-success-title"
+                  >
+                    <div className="community-confirm-kicker">{communitySuccessModal.kicker || "All set"}</div>
+                    <h4 id="community-success-title">{communitySuccessModal.title}</h4>
+                    <p>{communitySuccessModal.message}</p>
+                    <div className="community-confirm-actions">
+                      <button
+                        type="button"
+                        className={
+                          communitySuccessModal.tone === "warning"
+                            ? "community-confirm-warning"
+                            : "community-confirm-success"
+                        }
+                        onClick={() => setCommunitySuccessModal(null)}
+                      >
+                        {communitySuccessModal.buttonLabel || "Okay"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
               <div className="community-hero">
                 <div
                   className="community-banner"
@@ -2590,8 +2727,8 @@ export default function VineCommunities() {
                           </div>
                         )}
                         <div className="community-calendar-grid">
-                          {["S", "M", "T", "W", "T", "F", "S"].map((d) => (
-                            <div key={`head-${d}`} className="calendar-day-head">{d}</div>
+                          {["S", "M", "T", "W", "T", "F", "S"].map((d, idx) => (
+                            <div key={`head-${idx}-${d}`} className="calendar-day-head">{d}</div>
                           ))}
                           {monthCells.map((day, idx) => (
                             <div
@@ -2939,7 +3076,7 @@ export default function VineCommunities() {
                                   )}
                                   <button
                                     className="assignment-delete-btn"
-                                    onClick={() => deleteAssignment(a.id)}
+                                    onClick={() => deleteAssignment(a)}
                                   >
                                     Delete assignment
                                   </button>

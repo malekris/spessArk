@@ -1815,48 +1815,34 @@ const getFeedPageData = async ({ viewerId, feedTag = "", feedTab = "for-you", cu
     sourceQueries.push(Promise.resolve([[]]));
   }
 
-  sourceQueries.push(
-    timedVineQuery(
-      perfCtx,
-      "feed.source.recent-posts",
-      `
-      SELECT
-        p.id,
-        p.user_id,
-        p.community_id,
-        p.topic_tag,
-        p.content,
-        p.created_at
-      FROM vine_posts p
-      WHERE 1 = 1
-        ${publicCursor.sql}
-      ORDER BY p.created_at DESC, p.id DESC
-      LIMIT ?
-      `,
-      [...publicCursor.params, feedTab === "news" ? FEED_NEWS_CANDIDATE_LIMIT : FEED_PUBLIC_CANDIDATE_LIMIT]
-    )
-  );
-
-  if (feedTab !== "news") {
+  if (feedTab === "news") {
     sourceQueries.push(
       timedVineQuery(
         perfCtx,
-        "feed.source.revines",
+        "feed.source.news-posts",
         `
         SELECT
-          r.id,
-          r.post_id,
-          r.user_id,
-          r.created_at
-        FROM vine_revines r
+          p.id,
+          p.user_id,
+          p.community_id,
+          p.topic_tag,
+          p.content,
+          p.created_at
+        FROM vine_posts p
         WHERE 1 = 1
-          ${revineCursor.sql}
-        ORDER BY r.created_at DESC, r.id DESC
+          ${publicCursor.sql}
+        ORDER BY p.created_at DESC, p.id DESC
         LIMIT ?
         `,
-        [...revineCursor.params, FEED_REVINE_CANDIDATE_LIMIT]
+        [...publicCursor.params, FEED_NEWS_CANDIDATE_LIMIT]
       )
     );
+  } else {
+    sourceQueries.push(Promise.resolve([[]]));
+  }
+
+  if (feedTab === "news") {
+    sourceQueries.push(Promise.resolve([[]]));
   } else {
     sourceQueries.push(Promise.resolve([[]]));
   }

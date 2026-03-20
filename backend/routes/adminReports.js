@@ -15,7 +15,24 @@ const normalizeClassLevel = (value) => String(value || "").trim().toUpperCase();
 const getExpectedSubjectLoad = (classLevel) =>
   REQUIRED_SUBJECT_LOAD[normalizeClassLevel(classLevel)] || null;
 
-const buildEligibleRankMeta = (rows, valueKey, normalizeStream) => {
+const hasRecordedScore = (value) => value !== null && value !== undefined && value !== "";
+const isMissedStatus = (status) => String(status || "").trim().toLowerCase() === "missed";
+
+const buildPopulationMeta = (rows, normalizeStream) => {
+  const streamPopulationByKey = new Map();
+
+  rows.forEach((row) => {
+    const streamKey = normalizeStream(row.stream);
+    streamPopulationByKey.set(streamKey, (streamPopulationByKey.get(streamKey) || 0) + 1);
+  });
+
+  return {
+    classPopulation: rows.length,
+    streamPopulationByKey,
+  };
+};
+
+const buildEligibleRankMeta = (rows, valueKey, normalizeStream, isSubjectComplete) => {
   const byStudent = new Map();
 
   rows.forEach((row) => {
@@ -25,14 +42,19 @@ const buildEligibleRankMeta = (rows, valueKey, normalizeStream) => {
         class_level: row.class_level,
         stream: normalizeStream(row.stream),
         values: [],
-        subjects: new Set(),
+        subjects: new Map(),
       });
     }
 
     const bucket = byStudent.get(row.student_id);
-    bucket.subjects.add(String(row.subject || "").trim().toLowerCase());
+    const subjectKey = String(row.subject || "").trim().toLowerCase();
+    const previousSubject = bucket.subjects.get(subjectKey);
+    const rowComplete = isSubjectComplete(row);
+    bucket.subjects.set(subjectKey, {
+      complete: previousSubject ? previousSubject.complete && rowComplete : rowComplete,
+    });
 
-    if (row[valueKey] !== null && row[valueKey] !== undefined && row[valueKey] !== "") {
+    if (hasRecordedScore(row[valueKey])) {
       bucket.values.push(Number(row[valueKey]));
     }
   });
@@ -40,10 +62,15 @@ const buildEligibleRankMeta = (rows, valueKey, normalizeStream) => {
   const eligibleSummaries = Array.from(byStudent.values())
     .map((student) => {
       const expectedLoad = getExpectedSubjectLoad(student.class_level);
-      const subjectCount = student.subjects.size;
-      const isEligible = expectedLoad ? subjectCount >= expectedLoad : student.values.length > 0;
+      const subjectEntries = Array.from(student.subjects.values());
+      const subjectCount = subjectEntries.length;
+      const completeSubjectCount = subjectEntries.filter((entry) => entry.complete).length;
+      const hasFullSubjectLoad = expectedLoad ? subjectCount >= expectedLoad : subjectCount > 0;
+      const hasCompleteExamSet = expectedLoad
+        ? hasFullSubjectLoad && completeSubjectCount >= expectedLoad
+        : completeSubjectCount > 0;
       const overall =
-        isEligible && student.values.length > 0
+        student.values.length > 0
           ? Number(
               (
                 student.values.reduce((acc, value) => acc + value, 0) /
@@ -55,7 +82,7 @@ const buildEligibleRankMeta = (rows, valueKey, normalizeStream) => {
       return {
         student_id: student.student_id,
         stream: student.stream,
-        isEligible,
+        isEligible: hasCompleteExamSet && overall !== null,
         overall,
       };
     })
@@ -128,6 +155,15 @@ router.get("/term", authAdmin, async (req, res) => {
 
     const normalizeStream = (v) => String(v || "").trim().toLowerCase();
     const wantedStream = normalizeStream(stream);
+    const isTermSubjectComplete = (row) => {
+      const scoredAoIs = [row.AOI1, row.AOI2, row.AOI3].filter((value) => hasRecordedScore(value));
+      const hasAnyMissed =
+        isMissedStatus(row.AOI1_status) ||
+        isMissedStatus(row.AOI2_status) ||
+        isMissedStatus(row.AOI3_status);
+
+      return scoredAoIs.length >= 2 && !hasAnyMissed;
+    };
 
     // Pull class-wide marks first so class position is truly class-wide.
     const [rows] = await pool.query(
@@ -174,6 +210,18 @@ router.get("/term", authAdmin, async (req, res) => {
         class_level,
       ]
     );
+    const [populationRows] = await pool.query(
+      `
+      SELECT id, stream
+      FROM students
+      WHERE class_level = ?
+      `,
+      [class_level]
+    );
+    const { classPopulation, streamPopulationByKey } = buildPopulationMeta(
+      populationRows,
+      normalizeStream
+    );
 
     // ✅ SINGLE processed block (average + remark)
     const processedAll = rows.map((r) => {
@@ -202,21 +250,24 @@ router.get("/term", authAdmin, async (req, res) => {
       };
     });
 
-    const { classTotal, classPositionById, streamRankMeta } = buildEligibleRankMeta(
+    const { classPositionById, streamRankMeta } = buildEligibleRankMeta(
       processedAll,
       "average",
-      normalizeStream
+      normalizeStream,
+      isTermSubjectComplete
     );
 
     const withPositions = processedAll.map((row) => {
       const sKey = normalizeStream(row.stream);
       const streamMeta = streamRankMeta.get(sKey);
+      const isEligible = classPositionById.has(row.student_id);
       return {
         ...row,
         class_position: classPositionById.get(row.student_id) || null,
-        class_total: classTotal,
+        class_total: classPopulation,
         stream_position: streamMeta?.posById.get(row.student_id) || null,
-        stream_total: streamMeta?.total || null,
+        stream_total: streamPopulationByKey.get(sKey) || 0,
+        position_status: isEligible ? "ELIGIBLE" : "INELIGIBLE",
       };
     });
 
@@ -253,6 +304,33 @@ router.get("/year", authAdmin, async (req, res) => {
 
     const normalizeStream = (v) => String(v || "").trim().toLowerCase();
     const wantedStream = normalizeStream(stream);
+    const isYearSubjectComplete = (row) => {
+      const requiredComponents = [
+        row.T1_AOI1,
+        row.T1_AOI2,
+        row.T1_AOI3,
+        row.T2_AOI1,
+        row.T2_AOI2,
+        row.T2_AOI3,
+        row.AOI1,
+        row.AOI2,
+        row.AOI3,
+        row.EXAM80,
+      ];
+      const hasAnyMissed =
+        isMissedStatus(row.T1_AOI1_status) ||
+        isMissedStatus(row.T1_AOI2_status) ||
+        isMissedStatus(row.T1_AOI3_status) ||
+        isMissedStatus(row.T2_AOI1_status) ||
+        isMissedStatus(row.T2_AOI2_status) ||
+        isMissedStatus(row.T2_AOI3_status) ||
+        isMissedStatus(row.AOI1_status) ||
+        isMissedStatus(row.AOI2_status) ||
+        isMissedStatus(row.AOI3_status) ||
+        isMissedStatus(row.EXAM80_status);
+
+      return requiredComponents.every((value) => hasRecordedScore(value)) && !hasAnyMissed;
+    };
 
     const [rows] = await pool.query(
       `
@@ -268,10 +346,16 @@ router.get("/year", authAdmin, async (req, res) => {
         MAX(CASE WHEN m.term = 'Term 1' AND m.aoi_label = 'AOI1' THEN m.score END) AS T1_AOI1,
         MAX(CASE WHEN m.term = 'Term 1' AND m.aoi_label = 'AOI2' THEN m.score END) AS T1_AOI2,
         MAX(CASE WHEN m.term = 'Term 1' AND m.aoi_label = 'AOI3' THEN m.score END) AS T1_AOI3,
+        MAX(CASE WHEN m.term = 'Term 1' AND m.aoi_label = 'AOI1' THEN m.status END) AS T1_AOI1_status,
+        MAX(CASE WHEN m.term = 'Term 1' AND m.aoi_label = 'AOI2' THEN m.status END) AS T1_AOI2_status,
+        MAX(CASE WHEN m.term = 'Term 1' AND m.aoi_label = 'AOI3' THEN m.status END) AS T1_AOI3_status,
 
         MAX(CASE WHEN m.term = 'Term 2' AND m.aoi_label = 'AOI1' THEN m.score END) AS T2_AOI1,
         MAX(CASE WHEN m.term = 'Term 2' AND m.aoi_label = 'AOI2' THEN m.score END) AS T2_AOI2,
         MAX(CASE WHEN m.term = 'Term 2' AND m.aoi_label = 'AOI3' THEN m.score END) AS T2_AOI3,
+        MAX(CASE WHEN m.term = 'Term 2' AND m.aoi_label = 'AOI1' THEN m.status END) AS T2_AOI1_status,
+        MAX(CASE WHEN m.term = 'Term 2' AND m.aoi_label = 'AOI2' THEN m.status END) AS T2_AOI2_status,
+        MAX(CASE WHEN m.term = 'Term 2' AND m.aoi_label = 'AOI3' THEN m.status END) AS T2_AOI3_status,
 
         MAX(CASE WHEN m.term = 'Term 3' AND m.aoi_label = 'AOI1' THEN m.score END) AS AOI1,
         MAX(CASE WHEN m.term = 'Term 3' AND m.aoi_label = 'AOI2' THEN m.score END) AS AOI2,
@@ -279,7 +363,8 @@ router.get("/year", authAdmin, async (req, res) => {
         MAX(CASE WHEN m.term = 'Term 3' AND m.aoi_label = 'AOI1' THEN m.status END) AS AOI1_status,
         MAX(CASE WHEN m.term = 'Term 3' AND m.aoi_label = 'AOI2' THEN m.status END) AS AOI2_status,
         MAX(CASE WHEN m.term = 'Term 3' AND m.aoi_label = 'AOI3' THEN m.status END) AS AOI3_status,
-        MAX(CASE WHEN m.term = 'Term 3' AND m.aoi_label = 'EXAM80' THEN m.score END) AS EXAM80
+        MAX(CASE WHEN m.term = 'Term 3' AND m.aoi_label = 'EXAM80' THEN m.score END) AS EXAM80,
+        MAX(CASE WHEN m.term = 'Term 3' AND m.aoi_label = 'EXAM80' THEN m.status END) AS EXAM80_status
       FROM students s
       JOIN marks m ON m.student_id = s.id
       JOIN teacher_assignments ta ON ta.id = m.assignment_id
@@ -290,6 +375,18 @@ router.get("/year", authAdmin, async (req, res) => {
       ORDER BY s.name, ta.subject
       `,
       [yearParam, class_level]
+    );
+    const [populationRows] = await pool.query(
+      `
+      SELECT id, stream
+      FROM students
+      WHERE class_level = ?
+      `,
+      [class_level]
+    );
+    const { classPopulation, streamPopulationByKey } = buildPopulationMeta(
+      populationRows,
+      normalizeStream
     );
 
     const toNum = (v) => (v === null || v === undefined ? null : Number(v));
@@ -350,21 +447,24 @@ router.get("/year", authAdmin, async (req, res) => {
       };
     });
 
-    const { classTotal, classPositionById, streamRankMeta } = buildEligibleRankMeta(
+    const { classPositionById, streamRankMeta } = buildEligibleRankMeta(
       processedAll,
       "percent100",
-      normalizeStream
+      normalizeStream,
+      isYearSubjectComplete
     );
 
     const withPositions = processedAll.map((row) => {
       const sKey = normalizeStream(row.stream);
       const streamMeta = streamRankMeta.get(sKey);
+      const isEligible = classPositionById.has(row.student_id);
       return {
         ...row,
         class_position: classPositionById.get(row.student_id) || null,
-        class_total: classTotal,
+        class_total: classPopulation,
         stream_position: streamMeta?.posById.get(row.student_id) || null,
-        stream_total: streamMeta?.total || null,
+        stream_total: streamPopulationByKey.get(sKey) || 0,
+        position_status: isEligible ? "ELIGIBLE" : "INELIGIBLE",
       };
     });
 

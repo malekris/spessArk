@@ -1539,8 +1539,8 @@ export default function VineFeed() {
             className={`vine-feed-tab ${!isNewsTab ? "active" : ""}`}
             onClick={() => switchFeedTab("for-you")}
           >
-            <span className="vine-feed-tab-label">For You</span>
-            <span className="vine-feed-tab-subtitle">Everyone on Vine</span>
+            <span className="vine-feed-tab-label">Following</span>
+            <span className="vine-feed-tab-subtitle">People you follow</span>
           </button>
           <button
             type="button"
@@ -2250,12 +2250,16 @@ export default function VineFeed() {
           )}
           {!feedHasMore && posts.length > 0 && (
             <p className="no-more-posts">
-              {isNewsTab ? "No more Vine News updates" : "No more posts"}
+              {isNewsTab
+                ? "No more Vine News updates"
+                : "You're all caught up. Follow more people to have more stories on your feed."}
             </p>
           )}
           {!feedLoading && posts.length === 0 && (
             <p className="no-posts-hint">
-              {isNewsTab ? "No Vine News updates yet" : "No posts yet 🌱"}
+              {isNewsTab
+                ? "No Vine News updates yet"
+                : "Follow more people to have more stories on your feed."}
             </p>
           )}
         </div>

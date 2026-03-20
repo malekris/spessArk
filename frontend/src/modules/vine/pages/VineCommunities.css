@@ -121,6 +121,128 @@
   padding: 12px;
 }
 
+.community-session-toast {
+  position: fixed;
+  top: 104px;
+  right: 18px;
+  z-index: 1200;
+  width: min(420px, calc(100vw - 28px));
+  padding: 12px 16px;
+  border: 1px solid rgba(16, 185, 129, 0.24);
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at top right, rgba(250, 204, 21, 0.18), transparent 34%),
+    linear-gradient(180deg, rgba(240, 253, 244, 0.98), rgba(220, 252, 231, 0.98));
+  color: #065f46;
+  font-weight: 800;
+  box-shadow: 0 16px 34px rgba(6, 78, 59, 0.12);
+  backdrop-filter: blur(10px);
+}
+
+.community-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(6, 20, 15, 0.42);
+  backdrop-filter: blur(8px);
+}
+
+.community-confirm-modal {
+  width: min(100%, 430px);
+  border-radius: 22px;
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  background:
+    radial-gradient(circle at top right, rgba(250, 204, 21, 0.16), transparent 32%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(240, 253, 244, 0.98));
+  box-shadow: 0 24px 60px rgba(2, 6, 23, 0.24);
+  padding: 20px 18px 18px;
+  color: #0f3f2e;
+}
+
+.community-confirm-kicker {
+  font-size: 0.74rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #059669;
+  margin-bottom: 8px;
+}
+
+.community-confirm-modal h4 {
+  margin: 0 0 10px;
+  font-size: 1.25rem;
+  color: #052e16;
+}
+
+.community-confirm-modal p {
+  margin: 0;
+  line-height: 1.6;
+  color: #35594a;
+}
+
+.community-confirm-modal-success {
+  border-color: rgba(16, 185, 129, 0.28);
+  box-shadow:
+    0 24px 60px rgba(2, 6, 23, 0.24),
+    0 0 0 1px rgba(16, 185, 129, 0.08);
+}
+
+.community-confirm-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.community-confirm-actions button {
+  flex: 1;
+  min-height: 46px;
+  border: none;
+  border-radius: 999px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.community-confirm-cancel {
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid #bbf7d0;
+  color: #065f46;
+}
+
+.community-confirm-danger {
+  background: linear-gradient(135deg, #ef4444, #b91c1c);
+  color: #fff;
+  box-shadow: 0 14px 28px rgba(239, 68, 68, 0.22);
+}
+
+.community-confirm-success {
+  background: linear-gradient(135deg, #065f46, #10b981);
+  color: #fff;
+  box-shadow: 0 14px 28px rgba(16, 185, 129, 0.22);
+}
+
+.community-confirm-warning {
+  background: linear-gradient(135deg, #f59e0b, #f97316);
+  color: #fff;
+  box-shadow: 0 14px 28px rgba(249, 115, 22, 0.24);
+}
+
+@media (max-width: 640px) {
+  .community-session-toast {
+    top: 88px;
+    right: 12px;
+    left: 12px;
+    width: auto;
+  }
+
+  .community-confirm-actions {
+    flex-direction: column;
+  }
+}
+
 .communities-sidebar {
   display: flex;
   flex-direction: column;

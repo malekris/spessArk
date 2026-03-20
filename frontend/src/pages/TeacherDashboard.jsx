@@ -163,6 +163,8 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
   const [marksSaving, setMarksSaving] = useState(false);
   const [marksError, setMarksError] = useState("");
   const [markErrors, setMarkErrors] = useState({});
+  const [pendingMissedConfirmation, setPendingMissedConfirmation] = useState(null);
+  const [showMarksSavedModal, setShowMarksSavedModal] = useState(false);
 
   // ----------------------------
   // Initial data fetches
@@ -570,29 +572,75 @@ useEffect(() => {
   // ----------------------------
   // Save marks (respects AOI columns or A-Level MID/EOT)
   // ----------------------------
-  const handleSaveMarks = async () => {
+  const handleSaveMarks = async ({ confirmedMissing = false } = {}) => {
     resetIdleTimer();
     if (!selectedAssignment) return;
     const token = localStorage.getItem("teacherToken");
     if (!token) return;
 
     try {
+      setShowMarksSavedModal(false);
       const payload = [];
       const clearMarks = [];
       const errors = {};
       const isAlevel = selectedAssignment?.isAlevel === true;
       const columns = getMarkColumns(isAlevel, marksTerm);
+      const autoMissedCells = new Set();
+
+      if (!isAlevel) {
+        const aoiColumns = columns.filter((aoi) => aoi === "AOI1" || aoi === "AOI2" || aoi === "AOI3");
+        const activeAoiColumns = aoiColumns.filter((aoi) =>
+          students.some((s) => {
+            const currentScore = studentMarks[s.id]?.[aoi];
+            const currentStatus = studentStatus[s.id]?.[aoi];
+            const hadSavedValue = initialStudentMarks[s.id]?.[aoi] !== undefined;
+            const hasScore = currentScore !== undefined && currentScore !== null && currentScore !== "" && currentScore !== "Missed";
+            return hasScore || currentStatus === "Missed" || hadSavedValue;
+          })
+        );
+
+        const missingByAoi = activeAoiColumns
+          .map((aoi) => ({
+            aoi,
+            learners: students.filter((s) => {
+              const score = studentMarks[s.id]?.[aoi];
+              const status = studentStatus[s.id]?.[aoi];
+              const isEmptyScore = score === undefined || score === null || score === "" || score === "Missed";
+              return status !== "Missed" && isEmptyScore;
+            }),
+          }))
+          .filter((entry) => entry.learners.length > 0);
+
+        if (missingByAoi.length > 0 && !confirmedMissing) {
+          setPendingMissedConfirmation(missingByAoi);
+          setMarksError("");
+          return;
+        }
+
+        if (missingByAoi.length > 0) {
+          setPendingMissedConfirmation(null);
+          setMarksError("");
+          missingByAoi.forEach(({ aoi, learners }) => {
+            learners.forEach((learner) => {
+              autoMissedCells.add(`${learner.id}_${aoi}`);
+            });
+          });
+        } else if (confirmedMissing) {
+          setPendingMissedConfirmation(null);
+        }
+      }
 
       for (const s of students) {
         const marksByAoi = studentMarks[s.id] || {};
         const statusByAoi = studentStatus[s.id] || {};
 
         for (const aoi of columns) {
-          const score = marksByAoi[aoi];
-          const status = statusByAoi[aoi];
+          const autoMissed = autoMissedCells.has(`${s.id}_${aoi}`);
+          const score = autoMissed ? "Missed" : marksByAoi[aoi];
+          const status = autoMissed ? "Missed" : statusByAoi[aoi];
           const hadSavedValue = initialStudentMarks[s.id]?.[aoi] !== undefined;
 
-          const scoreTouched = score !== undefined && score !== null && score !== "";
+          const scoreTouched = score !== undefined && score !== null && score !== "" && score !== "Missed";
           const statusTouched = status === "Missed";
 
           if (!scoreTouched && !statusTouched) {
@@ -656,9 +704,9 @@ useEffect(() => {
         throw new Error(err.message || "Failed to save marks");
       }
 
-      alert("Marks saved successfully.");
       await loadStudentsAndMarks(selectedAssignment);
       await loadAnalytics(selectedAssignment);
+      setShowMarksSavedModal(true);
     } catch (err) {
       console.error("Save marks error:", err);
       setMarksError(err.message);
@@ -1243,6 +1291,93 @@ useEffect(() => {
                 </button>
 
                 <button className="primary-btn" disabled={passwordSaving} onClick={handleChangePassword}>{passwordSaving ? "Saving…" : "Update Password"}</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {pendingMissedConfirmation && (
+          <div className="modal-backdrop">
+            <div className="modal-card" style={{ maxWidth: "680px" }}>
+              <h2>Confirm Missed AOIs</h2>
+              <p style={{ marginTop: "-0.15rem", marginBottom: "1rem", color: "#475569", lineHeight: 1.6 }}>
+                Some learners do not have scores in the AOI columns you are saving. If you continue, they will be marked as missed for those AOIs.
+              </p>
+
+              <div style={{ display: "grid", gap: "0.85rem", marginBottom: "1rem" }}>
+                {pendingMissedConfirmation.map(({ aoi, learners }) => (
+                  <div key={aoi} style={{ border: "1px solid rgba(148, 163, 184, 0.25)", borderRadius: "16px", padding: "0.9rem 1rem", background: "rgba(248, 250, 252, 0.92)" }}>
+                    <div style={{ fontWeight: 800, color: "#0f172a", marginBottom: "0.45rem" }}>{aoi}</div>
+                    <div style={{ color: "#334155", lineHeight: 1.6 }}>
+                      {learners.map((learner) => learner.name).join(", ")}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div
+                className="panel-alert"
+                style={{
+                  marginBottom: "1rem",
+                  background: "rgba(245, 158, 11, 0.12)",
+                  border: "1px solid rgba(245, 158, 11, 0.35)",
+                  color: "#92400e",
+                  lineHeight: 1.65,
+                }}
+              >
+                If you mark these learners as missed, those missed AOIs will count as incomplete in end-of-term reports. Learners with missed AOIs will not qualify for class or stream position ranking.
+              </div>
+
+              <div className="panel-alert" style={{ marginBottom: "1rem" }}>
+                Choose <strong>Mark Missed And Save</strong> to complete the save, or <strong>Go Back</strong> to return to the table and fill the missing scores before saving.
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.6rem", flexWrap: "wrap" }}>
+                <button
+                  className="ghost-btn"
+                  onClick={() => {
+                    setPendingMissedConfirmation(null);
+                    setMarksError("Save cancelled. Fill the empty AOI cells or confirm them as missed.");
+                  }}
+                >
+                  Go Back
+                </button>
+
+                <button
+                  className="primary-btn"
+                  disabled={marksSaving}
+                  onClick={() => handleSaveMarks({ confirmedMissing: true })}
+                >
+                  {marksSaving ? "Saving…" : "Mark Missed And Save"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showMarksSavedModal && (
+          <div className="modal-backdrop">
+            <div className="modal-card" style={{ maxWidth: "520px" }}>
+              <h2>Marks Saved</h2>
+              <div
+                style={{
+                  border: "1px solid rgba(34, 197, 94, 0.28)",
+                  background: "rgba(240, 253, 244, 0.95)",
+                  color: "#14532d",
+                  borderRadius: "16px",
+                  padding: "0.95rem 1rem",
+                  lineHeight: 1.6,
+                  marginBottom: "1rem",
+                }}
+              >
+                Marks have been saved successfully for <strong>{getAssignmentDisplayLabel(selectedAssignment)}</strong> in{" "}
+                <strong>{marksTerm}</strong>, <strong>{marksYear}</strong>.
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                <button className="primary-btn" onClick={() => setShowMarksSavedModal(false)}>
+                  Okay
+                </button>
               </div>
             </div>
           </div>

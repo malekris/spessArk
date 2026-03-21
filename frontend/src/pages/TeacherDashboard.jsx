@@ -57,6 +57,30 @@ const getAssignmentDisplayLabel = (assignment) => {
   return assignment.subject || "—";
 };
 
+const formatColumnLabel = (column) => {
+  if (!column) return "—";
+  return column === "EXAM80" ? "/80" : column;
+};
+
+const matchesAssignmentSearch = (assignment, rawQuery) => {
+  const query = String(rawQuery || "").trim().toLowerCase();
+  if (!query) return true;
+
+  const haystack = [
+    assignment?.class_level,
+    assignment?.stream,
+    assignment?.subject,
+    assignment?.subject_display,
+    assignment?.paper_label,
+    assignment?.isAlevel ? "a level" : "o level",
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return haystack.includes(query);
+};
+
 // ============================
 // MAIN COMPONENT
 // ============================
@@ -114,14 +138,55 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
     };
   }, []);
 
+  useEffect(() => {
+    const html = document.documentElement;
+    const body = document.body;
+    const previous = {
+      htmlOverflowY: html.style.overflowY,
+      bodyOverflowY: body.style.overflowY,
+      htmlOverflowX: html.style.overflowX,
+      bodyOverflowX: body.style.overflowX,
+      htmlTouchAction: html.style.touchAction,
+      bodyTouchAction: body.style.touchAction,
+      htmlOverscroll: html.style.overscrollBehaviorY,
+      bodyOverscroll: body.style.overscrollBehaviorY,
+    };
+
+    html.style.overflowY = "auto";
+    body.style.overflowY = "auto";
+    html.style.overflowX = "hidden";
+    body.style.overflowX = "hidden";
+    html.style.touchAction = "pan-y";
+    body.style.touchAction = "pan-y";
+    html.style.overscrollBehaviorY = "auto";
+    body.style.overscrollBehaviorY = "auto";
+
+    return () => {
+      html.style.overflowY = previous.htmlOverflowY;
+      body.style.overflowY = previous.bodyOverflowY;
+      html.style.overflowX = previous.htmlOverflowX;
+      body.style.overflowX = previous.bodyOverflowX;
+      html.style.touchAction = previous.htmlTouchAction;
+      body.style.touchAction = previous.bodyTouchAction;
+      html.style.overscrollBehaviorY = previous.htmlOverscroll;
+      body.style.overscrollBehaviorY = previous.bodyOverscroll;
+    };
+  }, []);
+
   // ----------------------------
   // Password modal
   // ----------------------------
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [passwordResetMode, setPasswordResetMode] = useState(false);
+  const [settingsTab, setSettingsTab] = useState("password");
   const [passwordForm, setPasswordForm] = useState({ current: "", next: "", confirm: "" });
   const [passwordError, setPasswordError] = useState("");
   const [passwordSaving, setPasswordSaving] = useState(false);
+  const [emailForm, setEmailForm] = useState({ next: "", confirm: "", password: "" });
+  const [emailError, setEmailError] = useState("");
+  const [emailSaving, setEmailSaving] = useState(false);
+  const [settingsNotice, setSettingsNotice] = useState("");
+  const [showHelpModal, setShowHelpModal] = useState(false);
 
   // ----------------------------
   // Profile
@@ -140,6 +205,13 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
   const [assignments, setAssignments] = useState([]);
   const [aLevelAssignments, setALevelAssignments] = useState([]);
   const [selectedAssignment, setSelectedAssignment] = useState(null);
+  const [assignmentSearch, setAssignmentSearch] = useState("");
+  const [focusedColumn, setFocusedColumn] = useState(null);
+  const [recentActivity, setRecentActivity] = useState({
+    assignment: null,
+    save: null,
+    pdf: null,
+  });
 
   const [examType, setExamType] = useState("MID"); // For A-Level
   const [analytics, setAnalytics] = useState(null);
@@ -165,6 +237,29 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
   const [markErrors, setMarkErrors] = useState({});
   const [pendingMissedConfirmation, setPendingMissedConfirmation] = useState(null);
   const [showMarksSavedModal, setShowMarksSavedModal] = useState(false);
+  const [marksSavedSummary, setMarksSavedSummary] = useState(null);
+
+  useEffect(() => {
+    if (!teacher) return;
+    const storageKey = `teacherDashboardRecentActivity:${teacher.id || teacher.email || "default"}`;
+
+    try {
+      const saved = JSON.parse(localStorage.getItem(storageKey) || "null");
+      setRecentActivity({
+        assignment: saved?.assignment || null,
+        save: saved?.save || null,
+        pdf: saved?.pdf || null,
+      });
+    } catch {
+      setRecentActivity({ assignment: null, save: null, pdf: null });
+    }
+  }, [teacher?.id, teacher?.email]);
+
+  useEffect(() => {
+    if (!teacher) return;
+    const storageKey = `teacherDashboardRecentActivity:${teacher.id || teacher.email || "default"}`;
+    localStorage.setItem(storageKey, JSON.stringify(recentActivity));
+  }, [recentActivity, teacher?.id, teacher?.email]);
 
   // ----------------------------
   // Initial data fetches
@@ -272,6 +367,7 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
     const shouldReset = params.get("reset") === "1" || sessionStorage.getItem("teacherResetMode") === "1";
     if (shouldReset) {
       setPasswordResetMode(true);
+      setSettingsTab("password");
       setShowChangePassword(true);
     }
   }, []);
@@ -301,6 +397,22 @@ useEffect(() => {
 useEffect(() => {
   if (selectedAssignment) loadAnalytics(selectedAssignment);
 }, [selectedAssignment, marksYear, marksTerm]);
+
+  const closeSettingsModal = useCallback(() => {
+    setShowChangePassword(false);
+    setSettingsNotice("");
+    setPasswordError("");
+    setEmailError("");
+    setPasswordForm({ current: "", next: "", confirm: "" });
+    setEmailForm({ next: "", confirm: "", password: "" });
+    setSettingsTab("password");
+
+    if (passwordResetMode) {
+      sessionStorage.removeItem("teacherResetMode");
+      setPasswordResetMode(false);
+      navigate("/ark/teacher", { replace: true });
+    }
+  }, [navigate, passwordResetMode]);
 
   // ============================
   // API: load analytics
@@ -447,6 +559,7 @@ useEffect(() => {
   // ----------------------------
   const handleChangePassword = async () => {
     setPasswordError("");
+    setSettingsNotice("");
 
     if (!passwordResetMode && !passwordForm.current) {
       setPasswordError("All fields are required.");
@@ -492,10 +605,10 @@ useEffect(() => {
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Failed to change password");
 
-      alert("Password updated successfully.");
-      setShowChangePassword(false);
+      setSettingsNotice("Password updated successfully.");
       if (passwordResetMode) {
         sessionStorage.removeItem("teacherResetMode");
+        setShowChangePassword(false);
         setPasswordResetMode(false);
         navigate("/ark/teacher", { replace: true });
       }
@@ -504,6 +617,64 @@ useEffect(() => {
       setPasswordError(err.message);
     } finally {
       setPasswordSaving(false);
+    }
+  };
+
+  const handleChangeEmail = async () => {
+    setEmailError("");
+    setSettingsNotice("");
+
+    if (!emailForm.next || !emailForm.confirm || !emailForm.password) {
+      setEmailError("All fields are required.");
+      return;
+    }
+
+    const normalizedNext = String(emailForm.next || "").trim().toLowerCase();
+    const normalizedConfirm = String(emailForm.confirm || "").trim().toLowerCase();
+
+    if (normalizedNext !== normalizedConfirm) {
+      setEmailError("Email addresses do not match.");
+      return;
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedNext)) {
+      setEmailError("Enter a valid email address.");
+      return;
+    }
+
+    try {
+      setEmailSaving(true);
+      const token = localStorage.getItem("teacherToken");
+
+      const res = await fetch(`${API_BASE}/api/teachers/change-email`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          currentPassword: emailForm.password,
+          newEmail: normalizedNext,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Failed to change email");
+
+      if (data?.token) {
+        localStorage.setItem("teacherToken", data.token);
+      }
+      if (data?.teacher) {
+        localStorage.setItem("teacherProfile", JSON.stringify(data.teacher));
+        setTeacher(data.teacher);
+      }
+
+      setEmailForm({ next: "", confirm: "", password: "" });
+      setSettingsNotice("Email updated successfully.");
+    } catch (err) {
+      setEmailError(err.message);
+    } finally {
+      setEmailSaving(false);
     }
   };
 
@@ -686,6 +857,21 @@ useEffect(() => {
       }
 
       setMarkErrors({});
+      const saveSummary = {
+        assignmentLabel: getAssignmentDisplayLabel(selectedAssignment),
+        term: marksTerm,
+        year: marksYear,
+        savedColumns: Array.from(new Set([...payload.map((item) => item.aoi), ...clearMarks.map((item) => item.aoi)])).map(formatColumnLabel),
+        updatedLearners: new Set([
+          ...payload.map((item) => item.studentId),
+          ...clearMarks.map((item) => item.studentId),
+        ]).size,
+        missedRecorded: payload.filter((item) => item.score === "Missed").length,
+        savedEntries: payload.length,
+        clearedEntries: clearMarks.length,
+        savedAt: new Date().toISOString(),
+      };
+
       setMarksSaving(true);
 
       const endpoint = isAlevel ? "/api/alevel/teachers/alevel-marks" : "/api/teachers/marks";
@@ -706,6 +892,11 @@ useEffect(() => {
 
       await loadStudentsAndMarks(selectedAssignment);
       await loadAnalytics(selectedAssignment);
+      setMarksSavedSummary(saveSummary);
+      setRecentActivity((previous) => ({
+        ...previous,
+        save: saveSummary,
+      }));
       setShowMarksSavedModal(true);
     } catch (err) {
       console.error("Save marks error:", err);
@@ -729,22 +920,39 @@ useEffect(() => {
     const img = new Image();
     img.src = badge;
 
-    img.onload = () => {
-      doc.addImage(img, "PNG", 14, 10, 20, 20);
-      doc.setFontSize(14);
-      doc.setFont("helvetica", "bold");
-      doc.text("St. Phillips Equatorial Secondary School", 105, 18, { align: "center" });
-
-      doc.setFontSize(10);
-      doc.setFont("helvetica", "normal");
-      doc.text(`${getAssignmentDisplayLabel(selectedAssignment)} | ${selectedAssignment.class_level} ${selectedAssignment.stream}`, 105, 24, { align: "center" });
-      doc.text(`${marksYear} • ${marksTerm}`, 105, 29, { align: "center" });
-
+    const renderPdf = () => {
+      const generatedAt = new Date();
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const assignmentLabel = getAssignmentDisplayLabel(selectedAssignment);
       const columns = getMarkColumns(selectedAssignment?.isAlevel === true, marksTerm);
       const hasExam80 = !selectedAssignment?.isAlevel && marksTerm === "Term 3";
       const pdfAoiColumns = hasExam80 ? columns.filter((c) => c !== "EXAM80") : columns;
       const pdfAverageColumns = selectedAssignment?.isAlevel ? ["MID", "EOT"] : ["AOI1", "AOI2", "AOI3"];
-      const head = ["#", "Learner", "Gender", ...pdfAoiColumns.map((c) => (c === "EXAM80" ? "/80" : c)), "Avg", ...(hasExam80 ? ["/80"] : [])];
+      const scoreColumns = [...pdfAoiColumns, ...(hasExam80 ? ["EXAM80"] : [])];
+      const head = ["#", "Learner", "Gender", ...pdfAoiColumns.map(formatColumnLabel), "Avg", ...(hasExam80 ? ["/80"] : [])];
+      const metadataCards = [
+        {
+          label: "Assignment",
+          value: assignmentLabel,
+        },
+        {
+          label: "Class / Stream",
+          value: `${selectedAssignment.class_level} • ${selectedAssignment.stream}`,
+        },
+        {
+          label: "Session",
+          value: `${marksTerm} • ${marksYear}`,
+        },
+        {
+          label: "Teacher / Learners",
+          value: `${teacher?.name || "Teacher"} • ${students.length}`,
+        },
+      ];
+
+      const missedCount = students.reduce((count, learner) => {
+        return count + scoreColumns.filter((column) => studentMarks[learner.id]?.[column] === "Missed").length;
+      }, 0);
 
       const tableBody = students.map((s, i) => {
         const m = studentMarks[s.id] || {};
@@ -767,25 +975,140 @@ useEffect(() => {
         return [i + 1, s.name, s.gender, ...cells, avg, ...(hasExam80 ? [exam80Cell] : [])];
       });
 
+      doc.setDrawColor(31, 41, 55);
+      doc.setFillColor(248, 250, 252);
+      doc.roundedRect(12, 10, pageWidth - 24, 28, 4, 4, "FD");
+
+      if (img.complete && img.naturalWidth > 0) {
+        doc.addImage(img, "PNG", 16, 13, 16, 16);
+      }
+
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(15, 23, 42);
+      doc.setFontSize(15);
+      doc.text("St. Phillips Equatorial Secondary School", pageWidth / 2, 18, { align: "center" });
+
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(71, 85, 105);
+      doc.setFontSize(9.5);
+      doc.text("Score Marksheet", pageWidth / 2, 23.5, { align: "center" });
+      doc.text(`${assignmentLabel} • ${selectedAssignment.class_level} ${selectedAssignment.stream}`, pageWidth / 2, 28.5, { align: "center" });
+      doc.text(`${marksTerm} ${marksYear}`, pageWidth / 2, 33, { align: "center" });
+
+      const cardGap = 4;
+      const cardWidth = (pageWidth - 28 - cardGap) / 2;
+      const cardHeight = 16;
+      metadataCards.forEach((card, index) => {
+        const column = index % 2;
+        const row = Math.floor(index / 2);
+        const x = 14 + column * (cardWidth + cardGap);
+        const y = 42 + row * (cardHeight + 4);
+
+        doc.setFillColor(255, 255, 255);
+        doc.setDrawColor(203, 213, 225);
+        doc.roundedRect(x, y, cardWidth, cardHeight, 3, 3, "FD");
+
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(2, 132, 199);
+        doc.setFontSize(8);
+        doc.text(card.label.toUpperCase(), x + 3, y + 5);
+
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(15, 23, 42);
+        doc.setFontSize(9.2);
+        doc.text(String(card.value || "—"), x + 3, y + 11.2, {
+          maxWidth: cardWidth - 6,
+        });
+      });
+
+      doc.setFillColor(241, 245, 249);
+      doc.setDrawColor(203, 213, 225);
+      doc.roundedRect(14, 82, pageWidth - 28, 10, 3, 3, "FD");
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(15, 23, 42);
+      doc.setFontSize(8.8);
+      doc.text(`MARKS CAPTURED: ${scoreColumns.map(formatColumnLabel).join(" • ") || "—"}`, 18, 88.2);
+      doc.text(`MISSED ENTRIES: ${missedCount}`, pageWidth - 18, 88.2, { align: "right" });
+
       autoTable(doc, {
-        startY: 38,
+        startY: 96,
         head: [head],
         body: tableBody,
         theme: "grid",
-        styles: { fontSize: 9, cellPadding: 3, valign: "middle" },
-        headStyles: { fillColor: [226, 232, 240], textColor: 15, fontStyle: "bold" },
-        columnStyles: { 0: { cellWidth: 12 }, 1: { cellWidth: 66 }, 2: { cellWidth: 20 } },
-        didDrawPage: () => {
-          const ph = doc.internal.pageSize.height;
+        margin: { left: 14, right: 14, top: 24, bottom: 18 },
+        styles: {
+          font: "helvetica",
+          fontSize: 8.8,
+          cellPadding: 3.1,
+          valign: "middle",
+          textColor: [15, 23, 42],
+          lineColor: [203, 213, 225],
+          lineWidth: 0.2,
+        },
+        headStyles: {
+          fillColor: [226, 232, 240],
+          textColor: [15, 23, 42],
+          fontStyle: "bold",
+          lineColor: [203, 213, 225],
+          lineWidth: 0.25,
+        },
+        bodyStyles: {
+          fillColor: [255, 255, 255],
+        },
+        alternateRowStyles: {
+          fillColor: [248, 250, 252],
+        },
+        columnStyles: {
+          0: { cellWidth: 12, halign: "center" },
+          1: { cellWidth: 66 },
+          2: { cellWidth: 20, halign: "center" },
+        },
+        didParseCell: (data) => {
+          const value = String(data.cell.raw ?? "").trim();
+          if (data.section === "body" && value === "Missed") {
+            data.cell.styles.fillColor = [254, 242, 242];
+            data.cell.styles.textColor = [153, 27, 27];
+            data.cell.styles.fontStyle = "bold";
+          }
+        },
+        didDrawPage: (data) => {
+          const pageNumber = data.pageNumber;
+          if (pageNumber > 1) {
+            doc.setDrawColor(203, 213, 225);
+            doc.line(14, 12, pageWidth - 14, 12);
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(9);
+            doc.setTextColor(15, 23, 42);
+            doc.text(assignmentLabel, 14, 18);
+            doc.setFont("helvetica", "normal");
+            doc.setTextColor(71, 85, 105);
+            doc.text(`${marksTerm} ${marksYear}`, pageWidth - 14, 18, { align: "right" });
+          }
+
+          doc.setDrawColor(203, 213, 225);
+          doc.line(14, pageHeight - 14, pageWidth - 14, pageHeight - 14);
+          doc.setFont("helvetica", "normal");
           doc.setFontSize(8);
           doc.setTextColor(100);
-          doc.text(`Submitted by ${teacher?.name || "Teacher"} on ${new Date().toLocaleString()}`, 14, ph - 10);
-          doc.text(`Page ${doc.internal.getNumberOfPages()}`, 180, ph - 10);
+          doc.text(`Generated from SPESS ARK • Submitted by ${teacher?.name || "Teacher"} • ${formatDateTime(generatedAt)}`, 14, pageHeight - 8.5);
+          doc.text(`Page ${doc.internal.getNumberOfPages()}`, pageWidth - 14, pageHeight - 8.5, { align: "right" });
         },
       });
 
+      setRecentActivity((previous) => ({
+        ...previous,
+        pdf: {
+          assignmentLabel,
+          term: marksTerm,
+          year: marksYear,
+          generatedAt: generatedAt.toISOString(),
+        },
+      }));
       window.open(doc.output("bloburl"), "_blank");
     };
+
+    img.onload = renderPdf;
+    img.onerror = renderPdf;
   };
 
   // ----------------------------
@@ -800,6 +1123,102 @@ useEffect(() => {
   const learnersTableMinWidth = Math.max(1100, 320 + effectiveColumnCount * 190);
   const learnerColWidth = 170;
   const genderColWidth = 72;
+  const currentCalendarYear = new Date().getFullYear();
+  const allAssignableColumns = [...renderAoiColumns, ...(hasExam80Column ? ["EXAM80"] : [])];
+  const activeFocusColumn = allAssignableColumns.includes(focusedColumn) ? focusedColumn : allAssignableColumns[0] || null;
+  const filteredAssignments = assignments.filter((assignment) => matchesAssignmentSearch(assignment, assignmentSearch));
+  const filteredALevelAssignments = aLevelAssignments.filter((assignment) => matchesAssignmentSearch(assignment, assignmentSearch));
+  const totalAssignmentsCount = assignments.length + aLevelAssignments.length;
+  const visibleAssignmentsCount = filteredAssignments.length + filteredALevelAssignments.length;
+  const focusSummary = activeFocusColumn
+    ? students.reduce(
+        (summary, learner) => {
+          const status = studentStatus[learner.id]?.[activeFocusColumn] ?? "Present";
+          const score = studentMarks[learner.id]?.[activeFocusColumn];
+          const hasScore = score !== undefined && score !== null && score !== "" && score !== "Missed";
+
+          if (status === "Missed") {
+            summary.missed += 1;
+          } else if (hasScore) {
+            summary.filled += 1;
+          } else {
+            summary.blank += 1;
+          }
+
+          return summary;
+        },
+        { filled: 0, missed: 0, blank: 0 }
+      )
+    : { filled: 0, missed: 0, blank: 0 };
+  const settingsLabelStyle = {
+    color: "#334155",
+    fontWeight: 800,
+  };
+  const settingsInputStyle = {
+    background: "#ffffff",
+    border: "1px solid rgba(148, 163, 184, 0.5)",
+    color: "#0f172a",
+    boxShadow: "inset 0 1px 2px rgba(15, 23, 42, 0.05)",
+    padding: "0.62rem 0.8rem",
+  };
+  const settingsDisabledInputStyle = {
+    ...settingsInputStyle,
+    background: "linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)",
+    color: "#475569",
+  };
+  const settingsCancelButtonStyle = {
+    borderRadius: "999px",
+    border: "1px solid rgba(148, 163, 184, 0.45)",
+    background: "#ffffff",
+    color: "#0f172a",
+    fontWeight: 800,
+    padding: "0.65rem 1rem",
+    cursor: "pointer",
+    boxShadow: "0 10px 22px rgba(15, 23, 42, 0.06)",
+  };
+  const topPillButtonBase = {
+    borderRadius: "999px",
+    padding: "0.72rem 1.05rem",
+    fontWeight: 800,
+    fontSize: "0.76rem",
+    letterSpacing: "0.1em",
+    textTransform: "uppercase",
+    cursor: "pointer",
+    boxShadow: "0 14px 30px rgba(2, 6, 23, 0.22)",
+    backdropFilter: "blur(10px)",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "0.55rem",
+    flexShrink: 0,
+    whiteSpace: "nowrap",
+  };
+  const topPillBadgeBase = {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: "28px",
+    height: "28px",
+    borderRadius: "999px",
+    fontSize: "0.64rem",
+    fontWeight: 900,
+    letterSpacing: "0.08em",
+  };
+
+  useEffect(() => {
+    if (!selectedAssignment) {
+      setFocusedColumn(null);
+      return;
+    }
+
+    if (!allAssignableColumns.length) {
+      setFocusedColumn(null);
+      return;
+    }
+
+    if (!focusedColumn || !allAssignableColumns.includes(focusedColumn)) {
+      setFocusedColumn(allAssignableColumns[0]);
+    }
+  }, [selectedAssignment?.id, focusedColumn, marksTerm, allAssignableColumns]);
 
   // ============================
   // RENDER
@@ -856,12 +1275,67 @@ useEffect(() => {
       </div>
 
       {/* Right Buttons (The Pill Container) */}
-      <div style={{ display: "flex", gap: "0.6rem", alignItems: "center" }}>
-        <button className="secondary-btn" onClick={() => setShowChangePassword(true)}>
-          Change Password
+      <div
+        style={{
+          display: "flex",
+          gap: "0.6rem",
+          alignItems: "center",
+          flexWrap: "wrap",
+          justifyContent: isMobileTable ? "flex-start" : "flex-end",
+          width: isMobileTable ? "100%" : "auto",
+          maxWidth: "100%",
+        }}
+      >
+        <button
+          onClick={() => {
+            setSettingsNotice("");
+            setPasswordError("");
+            setEmailError("");
+            setSettingsTab("password");
+            setShowChangePassword(true);
+          }}
+          style={{
+            ...topPillButtonBase,
+            border: "1px solid rgba(125, 211, 252, 0.34)",
+            background: "linear-gradient(135deg, rgba(255,255,255,0.14), rgba(56,189,248,0.14))",
+            color: "#e0f2fe",
+          }}
+        >
+          <span
+            style={{
+              ...topPillBadgeBase,
+              background: "rgba(15, 23, 42, 0.38)",
+              color: "#7dd3fc",
+            }}
+          >
+            ACC
+          </span>
+          <span>Settings</span>
         </button>
 
-        <button className="nav-logout" onClick={handleLogout}>
+        <button
+          type="button"
+          onClick={() => setShowHelpModal(true)}
+          style={{
+            ...topPillButtonBase,
+            border: "1px solid rgba(245, 158, 11, 0.34)",
+            background: "linear-gradient(135deg, rgba(255,255,255,0.14), rgba(245,158,11,0.14))",
+            color: "#fef3c7",
+          }}
+        >
+          <span
+            style={{
+              ...topPillBadgeBase,
+              background: "rgba(15, 23, 42, 0.38)",
+              color: "#fbbf24",
+            }}
+          >
+            HLP
+          </span>
+          <span>Help</span>
+        </button>
+
+        <button className="nav-logout" onClick={handleLogout} style={{ flexShrink: 0, whiteSpace: "nowrap" }}>
           Logout
         </button>
       </div>
@@ -879,9 +1353,7 @@ useEffect(() => {
   </div>
 </header>
 
-
-
-      <main className="admin-main">
+      <main className="admin-main" style={{ paddingBottom: selectedAssignment && isMobileTable ? "7.5rem" : undefined }}>
         <section className="admin-heading">
           
           {teacher && <h2>👋 Hello Teacher {teacher.name}</h2>}
@@ -917,9 +1389,182 @@ useEffect(() => {
           </section>
         </section>
 
+        <section
+          style={{
+            marginTop: "1rem",
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+            gap: "1rem",
+          }}
+        >
+          <div className="panel-card" style={{ background: "linear-gradient(180deg, rgba(15, 23, 42, 0.92), rgba(2, 6, 23, 0.92))" }}>
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "0.45rem",
+                padding: "0.34rem 0.78rem",
+                borderRadius: "999px",
+                border: "1px solid rgba(125, 211, 252, 0.22)",
+                background: "rgba(56, 189, 248, 0.08)",
+                color: "#7dd3fc",
+                fontSize: "0.7rem",
+                letterSpacing: "0.12em",
+                textTransform: "uppercase",
+                fontWeight: 800,
+                marginBottom: "0.9rem",
+              }}
+            >
+              Teacher Profile
+            </div>
+
+            <div style={{ display: "grid", gap: "0.85rem" }}>
+              <div>
+                <div style={{ fontSize: "1.08rem", fontWeight: 900, color: "#f8fafc" }}>{teacher?.name || "Teacher"}</div>
+                <div style={{ marginTop: "0.25rem", color: "#94a3b8", wordBreak: "break-word" }}>{teacher?.email || "—"}</div>
+              </div>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))",
+                  gap: "0.7rem",
+                }}
+              >
+                {[
+                  { label: "O-Level", value: assignments.length, tone: "#7dd3fc" },
+                  { label: "A-Level", value: aLevelAssignments.length, tone: "#fbbf24" },
+                  { label: "Total", value: totalAssignmentsCount, tone: "#86efac" },
+                ].map((item) => (
+                  <div
+                    key={item.label}
+                    style={{
+                      borderRadius: "16px",
+                      border: "1px solid rgba(148, 163, 184, 0.16)",
+                      background: "rgba(255,255,255,0.04)",
+                      padding: "0.9rem 0.95rem",
+                    }}
+                  >
+                    <div style={{ color: item.tone, fontSize: "0.72rem", letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 800 }}>
+                      {item.label}
+                    </div>
+                    <div style={{ marginTop: "0.35rem", fontSize: "1.25rem", fontWeight: 900, color: "#f8fafc" }}>{item.value}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="panel-card" style={{ background: "linear-gradient(180deg, rgba(17, 24, 39, 0.94), rgba(15, 23, 42, 0.92))" }}>
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "0.45rem",
+                padding: "0.34rem 0.78rem",
+                borderRadius: "999px",
+                border: "1px solid rgba(245, 158, 11, 0.22)",
+                background: "rgba(245, 158, 11, 0.08)",
+                color: "#fbbf24",
+                fontSize: "0.7rem",
+                letterSpacing: "0.12em",
+                textTransform: "uppercase",
+                fontWeight: 800,
+                marginBottom: "0.9rem",
+              }}
+            >
+              Recent Activity
+            </div>
+
+            <div style={{ display: "grid", gap: "0.8rem" }}>
+              {[
+                {
+                  label: "Last Assignment Opened",
+                  primary: recentActivity.assignment?.assignmentLabel || "No assignment opened yet",
+                  secondary: recentActivity.assignment?.openedAt
+                    ? `${recentActivity.assignment.level} • ${recentActivity.assignment.classLevel} • ${formatDateTime(recentActivity.assignment.openedAt)}`
+                    : "Select an assignment to start working.",
+                },
+                {
+                  label: "Last Save",
+                  primary: recentActivity.save?.assignmentLabel || "No marks saved yet",
+                  secondary: recentActivity.save?.savedAt
+                    ? `${recentActivity.save.savedColumns?.join(", ") || "No columns"} • ${formatDateTime(recentActivity.save.savedAt)}`
+                    : "Your next successful save will show here.",
+                },
+                {
+                  label: "Last PDF",
+                  primary: recentActivity.pdf?.assignmentLabel || "No PDF generated yet",
+                  secondary: recentActivity.pdf?.generatedAt
+                    ? `${recentActivity.pdf.term}, ${recentActivity.pdf.year} • ${formatDateTime(recentActivity.pdf.generatedAt)}`
+                    : "Generate a marks PDF to track it here.",
+                },
+              ].map((item) => (
+                <div
+                  key={item.label}
+                  style={{
+                    borderRadius: "16px",
+                    border: "1px solid rgba(148, 163, 184, 0.16)",
+                    background: "rgba(255,255,255,0.04)",
+                    padding: "0.9rem 0.95rem",
+                  }}
+                >
+                  <div style={{ color: "#94a3b8", fontSize: "0.72rem", letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 800 }}>
+                    {item.label}
+                  </div>
+                  <div style={{ marginTop: "0.3rem", color: "#f8fafc", fontWeight: 800 }}>{item.primary}</div>
+                  <div style={{ marginTop: "0.2rem", color: "#cbd5e1", lineHeight: 1.55, fontSize: "0.88rem" }}>{item.secondary}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
         {/* ASSIGNMENTS */}
         <section className="panel" style={{ marginTop: "1rem" }}>
           <div className="panel-card">
+            <div
+              style={{
+                display: "flex",
+                gap: "0.8rem",
+                alignItems: "center",
+                justifyContent: "space-between",
+                flexWrap: "wrap",
+                marginBottom: "0.9rem",
+              }}
+            >
+              <div>
+                <h3 style={{ marginBottom: "0.3rem" }}>Assignments</h3>
+                <div className="muted-text">
+                  {assignmentSearch.trim()
+                    ? `Showing ${visibleAssignmentsCount} of ${totalAssignmentsCount} assignments`
+                    : `${totalAssignmentsCount} assignments ready for marks entry`}
+                </div>
+              </div>
+
+              <div style={{ display: "flex", gap: "0.6rem", alignItems: "center", flexWrap: "wrap" }}>
+                <input
+                  type="text"
+                  value={assignmentSearch}
+                  onChange={(e) => setAssignmentSearch(e.target.value)}
+                  placeholder="Search class, stream, subject or paper"
+                  style={{
+                    minWidth: isMobileTable ? "100%" : "280px",
+                    padding: "0.72rem 0.95rem",
+                    borderRadius: "999px",
+                    border: "1px solid rgba(148, 163, 184, 0.24)",
+                    background: "rgba(15, 23, 42, 0.82)",
+                    color: "#f8fafc",
+                  }}
+                />
+                {assignmentSearch.trim() && (
+                  <button className="ghost-btn" onClick={() => setAssignmentSearch("")}>
+                    Clear
+                  </button>
+                )}
+              </div>
+            </div>
+
             <div
               className="teachers-table-wrapper"
               style={{
@@ -941,25 +1586,72 @@ useEffect(() => {
                   </tr>
                 </thead>
                 <tbody>
-                  {assignments.map((a) => (
+                  {filteredAssignments.map((a) => (
                     <tr
                       key={`ol-${a.id}`}
                       style={{ cursor: "pointer" }}
                       onClick={() => {
                         const obj = { ...a, isAlevel: false };
                         setSelectedAssignment(obj);
+                        setMarksSavedSummary(null);
+                        setRecentActivity((previous) => ({
+                          ...previous,
+                          assignment: {
+                            assignmentLabel: getAssignmentDisplayLabel(obj),
+                            stream: obj.stream,
+                            classLevel: obj.class_level,
+                            level: "O-Level",
+                            openedAt: new Date().toISOString(),
+                          },
+                        }));
                         loadStudentsAndMarks(obj);
                       }}
                     >
-                      <td>O-Level</td>
+                      <td>
+                        <span
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            padding: "0.28rem 0.7rem",
+                            borderRadius: "999px",
+                            fontSize: "0.72rem",
+                            fontWeight: 800,
+                            letterSpacing: "0.08em",
+                            textTransform: "uppercase",
+                            background: "rgba(56, 189, 248, 0.14)",
+                            color: "#7dd3fc",
+                            border: "1px solid rgba(56, 189, 248, 0.22)",
+                          }}
+                        >
+                          O-Level
+                        </span>
+                      </td>
                       <td>{a.class_level}</td>
                       <td>{a.stream}</td>
                       <td>{a.subject}</td>
-                      <td>—</td>
+                      <td>
+                        <span
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            padding: "0.24rem 0.62rem",
+                            borderRadius: "999px",
+                            fontSize: "0.72rem",
+                            fontWeight: 800,
+                            color: "#cbd5e1",
+                            border: "1px solid rgba(148, 163, 184, 0.2)",
+                            background: "rgba(148, 163, 184, 0.08)",
+                          }}
+                        >
+                          Single
+                        </span>
+                      </td>
                     </tr>
                   ))}
 
-                {aLevelAssignments.map((a) => (
+                {filteredALevelAssignments.map((a) => (
                   <tr
                     key={`al-${a.id}`}
                     style={{ cursor: "pointer", background: "rgba(255,255,255,0.02)" }}
@@ -967,16 +1659,79 @@ useEffect(() => {
                       const derivedClass = a.stream?.split(" ")[0] ?? "A-Level";
                       const obj = { ...a, class_level: derivedClass, isAlevel: true };
                       setSelectedAssignment(obj);
+                      setMarksSavedSummary(null);
+                      setRecentActivity((previous) => ({
+                        ...previous,
+                        assignment: {
+                          assignmentLabel: getAssignmentDisplayLabel(obj),
+                          stream: obj.stream,
+                          classLevel: obj.class_level,
+                          level: "A-Level",
+                          openedAt: new Date().toISOString(),
+                        },
+                      }));
                       loadStudentsAndMarks(obj);
                     }}
                   >
-                      <td style={{ fontWeight: "bold", color: "#f59e0b" }}>A-Level</td>
+                      <td>
+                        <span
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            padding: "0.28rem 0.7rem",
+                            borderRadius: "999px",
+                            fontSize: "0.72rem",
+                            fontWeight: 800,
+                            letterSpacing: "0.08em",
+                            textTransform: "uppercase",
+                            background: "rgba(245, 158, 11, 0.14)",
+                            color: "#fbbf24",
+                            border: "1px solid rgba(245, 158, 11, 0.22)",
+                          }}
+                        >
+                          A-Level
+                        </span>
+                      </td>
                       <td>{a.stream?.split(" ")[0] ?? "—"}</td>
                       <td>{a.stream}</td>
-                      <td>{a.subject}</td>
-                      <td>{a.paper_label || "Single"}</td>
+                      <td>{a.subject_display || a.subject}</td>
+                      <td>
+                        <span
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            padding: "0.24rem 0.62rem",
+                            borderRadius: "999px",
+                            fontSize: "0.72rem",
+                            fontWeight: 800,
+                            color: a.paper_label === "Paper 2" ? "#fef3c7" : a.paper_label === "Paper 1" ? "#d1fae5" : "#e0f2fe",
+                            border: a.paper_label === "Paper 2"
+                              ? "1px solid rgba(245, 158, 11, 0.24)"
+                              : a.paper_label === "Paper 1"
+                              ? "1px solid rgba(16, 185, 129, 0.24)"
+                              : "1px solid rgba(56, 189, 248, 0.24)",
+                            background: a.paper_label === "Paper 2"
+                              ? "rgba(245, 158, 11, 0.12)"
+                              : a.paper_label === "Paper 1"
+                              ? "rgba(16, 185, 129, 0.12)"
+                              : "rgba(56, 189, 248, 0.1)",
+                          }}
+                        >
+                          {a.paper_label || "Single"}
+                        </span>
+                      </td>
                     </tr>
                   ))}
+
+                  {visibleAssignmentsCount === 0 && (
+                    <tr>
+                      <td colSpan={5} style={{ padding: "1rem", textAlign: "center", color: "#94a3b8" }}>
+                        No assignments match your search yet.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -1069,6 +1824,41 @@ useEffect(() => {
               </div>
 
               <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(145px, 1fr))",
+                  gap: "0.75rem",
+                  marginBottom: "0.9rem",
+                }}
+              >
+                {[
+                  { label: "Learners", value: students.length, tone: "#e2e8f0" },
+                  { label: activeFocusColumn ? `${formatColumnLabel(activeFocusColumn)} Filled` : "Filled", value: focusSummary.filled, tone: "#86efac" },
+                  { label: activeFocusColumn ? `${formatColumnLabel(activeFocusColumn)} Missed` : "Missed", value: focusSummary.missed, tone: "#fca5a5" },
+                  { label: activeFocusColumn ? `${formatColumnLabel(activeFocusColumn)} Blank` : "Blank", value: focusSummary.blank, tone: "#fcd34d" },
+                ].map((item) => (
+                  <div
+                    key={item.label}
+                    style={{
+                      borderRadius: "16px",
+                      padding: "0.85rem 0.95rem",
+                      border: "1px solid rgba(148, 163, 184, 0.18)",
+                      background: activeFocusColumn && item.label.startsWith(formatColumnLabel(activeFocusColumn))
+                        ? "linear-gradient(135deg, rgba(56, 189, 248, 0.12), rgba(14, 165, 233, 0.06))"
+                        : "rgba(255,255,255,0.04)",
+                    }}
+                  >
+                    <div style={{ color: item.tone, fontSize: "0.7rem", letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 800 }}>
+                      {item.label}
+                    </div>
+                    <div style={{ marginTop: "0.3rem", color: "#f8fafc", fontSize: "1.15rem", fontWeight: 900 }}>
+                      {item.value}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div
                 className="teachers-table-wrapper"
                 style={{ maxWidth: "100%", maxHeight: "62vh", overflowX: "auto", overflowY: "auto", WebkitOverflowScrolling: "touch" }}
               >
@@ -1111,10 +1901,35 @@ useEffect(() => {
                         Gender
                       </th>
                       {renderAoiColumns.map((c) => (
-                        <th key={c}>{c === "EXAM80" ? "/80" : c}</th>
+                        <th
+                          key={c}
+                          onClick={() => setFocusedColumn(c)}
+                          style={{
+                            cursor: "pointer",
+                            background: activeFocusColumn === c ? "linear-gradient(180deg, rgba(14, 165, 233, 0.26), rgba(56, 189, 248, 0.14))" : undefined,
+                            color: activeFocusColumn === c ? "#e0f2fe" : undefined,
+                            boxShadow: activeFocusColumn === c ? "inset 0 0 0 1px rgba(125, 211, 252, 0.3)" : undefined,
+                            borderBottom: activeFocusColumn === c ? "2px solid rgba(125, 211, 252, 0.8)" : undefined,
+                          }}
+                        >
+                          {formatColumnLabel(c)}
+                        </th>
                       ))}
                       <th>Avg</th>
-                      {hasExam80Column && <th>/80</th>}
+                      {hasExam80Column && (
+                        <th
+                          onClick={() => setFocusedColumn("EXAM80")}
+                          style={{
+                            cursor: "pointer",
+                            background: activeFocusColumn === "EXAM80" ? "linear-gradient(180deg, rgba(14, 165, 233, 0.26), rgba(56, 189, 248, 0.14))" : undefined,
+                            color: activeFocusColumn === "EXAM80" ? "#e0f2fe" : undefined,
+                            boxShadow: activeFocusColumn === "EXAM80" ? "inset 0 0 0 1px rgba(125, 211, 252, 0.3)" : undefined,
+                            borderBottom: activeFocusColumn === "EXAM80" ? "2px solid rgba(125, 211, 252, 0.8)" : undefined,
+                          }}
+                        >
+                          /80
+                        </th>
+                      )}
                     </tr>
                   </thead>
                   <tbody>
@@ -1168,9 +1983,20 @@ useEffect(() => {
                             const limits = getScoreConstraints(selectedAssignment?.isAlevel === true, aoi);
 
                             return (
-                              <td key={aoi}>
+                              <td
+                                key={aoi}
+                                style={{
+                                  background: activeFocusColumn === aoi ? "linear-gradient(180deg, rgba(56, 189, 248, 0.12), rgba(14, 165, 233, 0.04))" : undefined,
+                                  boxShadow: activeFocusColumn === aoi ? "inset 0 0 0 1px rgba(125, 211, 252, 0.2)" : undefined,
+                                }}
+                              >
                                 <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", whiteSpace: "nowrap" }}>
-                                  <select value={status} onChange={(e) => setAOIStatus(s.id, aoi, e.target.value)} style={{ width: "70px" }}>
+                                  <select
+                                    value={status}
+                                    onFocus={() => setFocusedColumn(aoi)}
+                                    onChange={(e) => setAOIStatus(s.id, aoi, e.target.value)}
+                                    style={{ width: "70px" }}
+                                  >
                                     <option>Present</option>
                                     <option>Missed</option>
                                   </select>
@@ -1182,6 +2008,7 @@ useEffect(() => {
                                     step={limits.step}
                                     disabled={status === "Missed"}
                                     value={value === undefined || value === null ? "" : (value === "Missed" ? "" : value)}
+                                    onFocus={() => setFocusedColumn(aoi)}
                                     onChange={(e) => setAOIScore(s.id, aoi, e.target.value)}
                                     style={{ width: "46px", border: markErrors[errorKey] ? "2px solid #dc2626" : undefined, backgroundColor: markErrors[errorKey] ? "#fff5f5" : undefined }}
                                   />
@@ -1202,9 +2029,19 @@ useEffect(() => {
                             const errorKey = `${s.id}_${aoi}`;
                             const limits = getScoreConstraints(false, aoi);
                             return (
-                              <td>
+                              <td
+                                style={{
+                                  background: activeFocusColumn === "EXAM80" ? "linear-gradient(180deg, rgba(56, 189, 248, 0.12), rgba(14, 165, 233, 0.04))" : undefined,
+                                  boxShadow: activeFocusColumn === "EXAM80" ? "inset 0 0 0 1px rgba(125, 211, 252, 0.2)" : undefined,
+                                }}
+                              >
                                 <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", whiteSpace: "nowrap" }}>
-                                  <select value={status} onChange={(e) => setAOIStatus(s.id, aoi, e.target.value)} style={{ width: "70px" }}>
+                                  <select
+                                    value={status}
+                                    onFocus={() => setFocusedColumn("EXAM80")}
+                                    onChange={(e) => setAOIStatus(s.id, aoi, e.target.value)}
+                                    style={{ width: "70px" }}
+                                  >
                                     <option>Present</option>
                                     <option>Missed</option>
                                   </select>
@@ -1216,6 +2053,7 @@ useEffect(() => {
                                     step={limits.step}
                                     disabled={status === "Missed"}
                                     value={value === undefined || value === null ? "" : (value === "Missed" ? "" : value)}
+                                    onFocus={() => setFocusedColumn("EXAM80")}
                                     onChange={(e) => setAOIScore(s.id, aoi, e.target.value)}
                                     style={{ width: "46px", border: markErrors[errorKey] ? "2px solid #dc2626" : undefined, backgroundColor: markErrors[errorKey] ? "#fff5f5" : undefined }}
                                   />
@@ -1234,7 +2072,15 @@ useEffect(() => {
                 </table>
               </div>
 
-              <div style={{ textAlign: "right", marginTop: "1rem", display: "flex", gap: "0.6rem", justifyContent: "flex-end" }}>
+              <div
+                style={{
+                  textAlign: "right",
+                  marginTop: "1rem",
+                  display: isMobileTable ? "none" : "flex",
+                  gap: "0.6rem",
+                  justifyContent: "flex-end",
+                }}
+              >
                 <button className="secondary-btn" onClick={handleDownloadPDF}>Download PDF</button>
                 <button className="primary-btn" disabled={Object.keys(markErrors).length > 0 || marksSaving} onClick={handleSaveMarks}>
                   {marksSaving ? "Saving…" : "Save Marks"}
@@ -1248,49 +2094,473 @@ useEffect(() => {
 
         {showChangePassword && (
           <div className="modal-backdrop">
-            <div className="modal-card">
-              <h2>Change Password</h2>
-
-              {passwordError && <div className="panel-alert panel-alert-error">{passwordError}</div>}
-
-              {passwordResetMode && (
-                <div className="panel-alert">
-                  Enter a new password to complete the reset.
+            <div
+              className="modal-card"
+              style={{
+                maxWidth: "720px",
+                padding: "0",
+                overflow: "hidden",
+                border: "1px solid rgba(14, 165, 233, 0.18)",
+                boxShadow: "0 28px 70px rgba(15, 23, 42, 0.3)",
+              }}
+            >
+              <div
+                style={{
+                  padding: "1.35rem 1.5rem 1.25rem",
+                  background: "linear-gradient(135deg, #0f172a 0%, #1e293b 52%, #0c4a6e 100%)",
+                  color: "#f8fafc",
+                }}
+              >
+                <div
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "0.45rem",
+                    padding: "0.32rem 0.75rem",
+                    borderRadius: "999px",
+                    background: "rgba(255,255,255,0.12)",
+                    border: "1px solid rgba(255,255,255,0.15)",
+                    fontSize: "0.72rem",
+                    fontWeight: 800,
+                    letterSpacing: "0.12em",
+                    textTransform: "uppercase",
+                    marginBottom: "0.9rem",
+                  }}
+                >
+                  <span>Teacher</span>
+                  <span style={{ color: "#7dd3fc" }}>Settings</span>
                 </div>
-              )}
 
-              {!passwordResetMode && (
-                <div className="form-row">
-                  <label>Current password</label>
-                  <input type="password" value={passwordForm.current} onChange={(e) => setPasswordForm((p) => ({ ...p, current: e.target.value }))} />
-                </div>
-              )}
+                <h2 style={{ margin: 0, color: "#ffffff" }}>{passwordResetMode ? "Complete Password Reset" : "Account Settings"}</h2>
+                <p style={{ margin: "0.55rem 0 0", color: "rgba(226, 232, 240, 0.92)", lineHeight: 1.6 }}>
+                  {passwordResetMode
+                    ? "Finish updating your password so you can return to the dashboard safely."
+                    : "Manage your teacher account details here. You can update your email and password without leaving the dashboard."}
+                </p>
 
-              <div className="form-row">
-                <label>New password</label>
-                <input type="password" value={passwordForm.next} onChange={(e) => setPasswordForm((p) => ({ ...p, next: e.target.value }))} />
+                {!passwordResetMode && (
+                  <div
+                    style={{
+                      marginTop: "1rem",
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                      gap: "0.75rem",
+                    }}
+                  >
+                    <div
+                      style={{
+                        padding: "0.9rem 1rem",
+                        borderRadius: "18px",
+                        background: "rgba(255,255,255,0.08)",
+                        border: "1px solid rgba(255,255,255,0.12)",
+                      }}
+                    >
+                      <div style={{ fontSize: "0.72rem", letterSpacing: "0.12em", textTransform: "uppercase", color: "#7dd3fc", fontWeight: 800 }}>
+                        Teacher
+                      </div>
+                      <div style={{ marginTop: "0.32rem", fontSize: "1rem", fontWeight: 800 }}>{teacher?.name || "Teacher"}</div>
+                    </div>
+
+                    <div
+                      style={{
+                        padding: "0.9rem 1rem",
+                        borderRadius: "18px",
+                        background: "rgba(255,255,255,0.08)",
+                        border: "1px solid rgba(255,255,255,0.12)",
+                      }}
+                    >
+                      <div style={{ fontSize: "0.72rem", letterSpacing: "0.12em", textTransform: "uppercase", color: "#7dd3fc", fontWeight: 800 }}>
+                        Current Email
+                      </div>
+                      <div style={{ marginTop: "0.32rem", fontSize: "0.95rem", fontWeight: 700, wordBreak: "break-word" }}>
+                        {teacher?.email || "—"}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
-              <div className="form-row">
-                <label>Confirm new password</label>
-                <input type="password" value={passwordForm.confirm} onChange={(e) => setPasswordForm((p) => ({ ...p, confirm: e.target.value }))} />
+              <div style={{ padding: "1.4rem 1.5rem 1.5rem", background: "linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)" }}>
+                {settingsNotice && <div className="panel-alert panel-alert-success">{settingsNotice}</div>}
+
+                {passwordResetMode ? (
+                  <div className="panel-alert">Enter a new password to complete the reset.</div>
+                ) : (
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: "0.75rem",
+                      marginBottom: "1rem",
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSettingsTab("password");
+                        setSettingsNotice("");
+                        setPasswordError("");
+                      }}
+                      style={{
+                        padding: "0.78rem 1rem",
+                        borderRadius: "16px",
+                        border: settingsTab === "password" ? "1px solid rgba(14, 165, 233, 0.35)" : "1px solid rgba(148, 163, 184, 0.22)",
+                        background: settingsTab === "password"
+                          ? "linear-gradient(135deg, rgba(14,165,233,0.14), rgba(2,132,199,0.08))"
+                          : "#ffffff",
+                        color: "#0f172a",
+                        fontWeight: 800,
+                        cursor: "pointer",
+                        minWidth: "170px",
+                        textAlign: "left",
+                        boxShadow: settingsTab === "password" ? "0 12px 24px rgba(14, 165, 233, 0.12)" : "none",
+                      }}
+                    >
+                      <div style={{ fontSize: "0.7rem", textTransform: "uppercase", letterSpacing: "0.12em", color: "#0284c7", marginBottom: "0.2rem" }}>
+                        Security
+                      </div>
+                      <div>Change Password</div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSettingsTab("email");
+                        setSettingsNotice("");
+                        setEmailError("");
+                      }}
+                      style={{
+                        padding: "0.78rem 1rem",
+                        borderRadius: "16px",
+                        border: settingsTab === "email" ? "1px solid rgba(14, 165, 233, 0.35)" : "1px solid rgba(148, 163, 184, 0.22)",
+                        background: settingsTab === "email"
+                          ? "linear-gradient(135deg, rgba(14,165,233,0.14), rgba(2,132,199,0.08))"
+                          : "#ffffff",
+                        color: "#0f172a",
+                        fontWeight: 800,
+                        cursor: "pointer",
+                        minWidth: "170px",
+                        textAlign: "left",
+                        boxShadow: settingsTab === "email" ? "0 12px 24px rgba(14, 165, 233, 0.12)" : "none",
+                      }}
+                    >
+                      <div style={{ fontSize: "0.7rem", textTransform: "uppercase", letterSpacing: "0.12em", color: "#0284c7", marginBottom: "0.2rem" }}>
+                        Identity
+                      </div>
+                      <div>Change Email</div>
+                    </button>
+                  </div>
+                )}
+
+                {(passwordResetMode || settingsTab === "password") && (
+                  <div
+                    style={{
+                      border: "1px solid rgba(148, 163, 184, 0.18)",
+                      borderRadius: "20px",
+                      padding: "1rem 1rem 1.1rem",
+                      background: "#ffffff",
+                      boxShadow: "0 16px 28px rgba(15, 23, 42, 0.06)",
+                    }}
+                  >
+                    <div style={{ marginBottom: "0.9rem" }}>
+                      <div style={{ fontSize: "0.74rem", textTransform: "uppercase", letterSpacing: "0.12em", color: "#0284c7", fontWeight: 800 }}>
+                        Password
+                      </div>
+                      <div style={{ marginTop: "0.2rem", color: "#334155", lineHeight: 1.55 }}>
+                        Use a strong password that only you know.
+                      </div>
+                    </div>
+
+                    {passwordError && <div className="panel-alert panel-alert-error">{passwordError}</div>}
+
+                    {!passwordResetMode && (
+                      <div className="form-row">
+                        <label style={settingsLabelStyle}>Current password</label>
+                        <input
+                          type="password"
+                          style={settingsInputStyle}
+                          value={passwordForm.current}
+                          onChange={(e) => setPasswordForm((p) => ({ ...p, current: e.target.value }))}
+                        />
+                      </div>
+                    )}
+
+                    <div className="form-row">
+                      <label style={settingsLabelStyle}>New password</label>
+                      <input
+                        type="password"
+                        style={settingsInputStyle}
+                        value={passwordForm.next}
+                        onChange={(e) => setPasswordForm((p) => ({ ...p, next: e.target.value }))}
+                      />
+                    </div>
+
+                    <div className="form-row">
+                      <label style={settingsLabelStyle}>Confirm new password</label>
+                      <input
+                        type="password"
+                        style={settingsInputStyle}
+                        value={passwordForm.confirm}
+                        onChange={(e) => setPasswordForm((p) => ({ ...p, confirm: e.target.value }))}
+                      />
+                    </div>
+
+                    <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.6rem", marginTop: "0.2rem" }}>
+                      <button className="ghost-btn" style={settingsCancelButtonStyle} onClick={closeSettingsModal}>
+                        Cancel
+                      </button>
+
+                      <button className="primary-btn" disabled={passwordSaving} onClick={handleChangePassword}>
+                        {passwordSaving ? "Saving…" : "Update Password"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {!passwordResetMode && settingsTab === "email" && (
+                  <div
+                    style={{
+                      border: "1px solid rgba(148, 163, 184, 0.18)",
+                      borderRadius: "20px",
+                      padding: "1rem 1rem 1.1rem",
+                      background: "#ffffff",
+                      boxShadow: "0 16px 28px rgba(15, 23, 42, 0.06)",
+                    }}
+                  >
+                    <div style={{ marginBottom: "0.9rem" }}>
+                      <div style={{ fontSize: "0.74rem", textTransform: "uppercase", letterSpacing: "0.12em", color: "#0284c7", fontWeight: 800 }}>
+                        Email
+                      </div>
+                      <div style={{ marginTop: "0.2rem", color: "#334155", lineHeight: 1.55 }}>
+                        Update the teacher email address used for login and account communication.
+                      </div>
+                    </div>
+
+                    {emailError && <div className="panel-alert panel-alert-error">{emailError}</div>}
+
+                    <div className="form-row">
+                      <label style={settingsLabelStyle}>Current email</label>
+                      <input type="text" style={settingsDisabledInputStyle} value={teacher?.email || ""} disabled />
+                    </div>
+
+                    <div className="form-row">
+                      <label style={settingsLabelStyle}>New email</label>
+                      <input
+                        type="email"
+                        style={settingsInputStyle}
+                        value={emailForm.next}
+                        onChange={(e) => setEmailForm((p) => ({ ...p, next: e.target.value }))}
+                      />
+                    </div>
+
+                    <div className="form-row">
+                      <label style={settingsLabelStyle}>Confirm new email</label>
+                      <input
+                        type="email"
+                        style={settingsInputStyle}
+                        value={emailForm.confirm}
+                        onChange={(e) => setEmailForm((p) => ({ ...p, confirm: e.target.value }))}
+                      />
+                    </div>
+
+                    <div className="form-row">
+                      <label style={settingsLabelStyle}>Current password</label>
+                      <input
+                        type="password"
+                        style={settingsInputStyle}
+                        value={emailForm.password}
+                        onChange={(e) => setEmailForm((p) => ({ ...p, password: e.target.value }))}
+                      />
+                      <div className="muted-text">Required to protect teacher accounts when updating email.</div>
+                    </div>
+
+                    <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.6rem", marginTop: "0.2rem" }}>
+                      <button className="ghost-btn" style={settingsCancelButtonStyle} onClick={closeSettingsModal}>
+                        Cancel
+                      </button>
+
+                      <button className="primary-btn" disabled={emailSaving} onClick={handleChangeEmail}>
+                        {emailSaving ? "Saving…" : "Update Email"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showHelpModal && (
+          <div
+            className="modal-backdrop"
+            onClick={() => setShowHelpModal(false)}
+            style={{
+              padding: "1rem 1rem 2.5rem",
+              overflowY: "auto",
+              alignItems: "flex-start",
+              WebkitOverflowScrolling: "touch",
+            }}
+          >
+            <div
+              className="modal-card"
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                maxWidth: "760px",
+                width: "min(760px, 100%)",
+                maxHeight: "none",
+                overflow: "visible",
+                padding: 0,
+                border: "1px solid rgba(245, 158, 11, 0.18)",
+                boxShadow: "0 28px 70px rgba(15, 23, 42, 0.3)",
+                position: "relative",
+                margin: "0 auto",
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setShowHelpModal(false)}
+                style={{
+                  position: "absolute",
+                  top: "1rem",
+                  right: "1rem",
+                  width: "38px",
+                  height: "38px",
+                  borderRadius: "999px",
+                  border: "1px solid rgba(255,255,255,0.18)",
+                  background: "rgba(15, 23, 42, 0.42)",
+                  color: "#ffffff",
+                  fontSize: "1rem",
+                  fontWeight: 800,
+                  cursor: "pointer",
+                  zIndex: 3,
+                }}
+                aria-label="Close help"
+                title="Close help"
+              >
+                ×
+              </button>
+
+              <div
+                style={{
+                  padding: "1.35rem 1.5rem 1.2rem",
+                  background: "linear-gradient(135deg, #111827 0%, #1f2937 52%, #92400e 100%)",
+                  color: "#f8fafc",
+                }}
+              >
+                <div
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "0.45rem",
+                    padding: "0.32rem 0.75rem",
+                    borderRadius: "999px",
+                    background: "rgba(255,255,255,0.12)",
+                    border: "1px solid rgba(255,255,255,0.15)",
+                    fontSize: "0.72rem",
+                    fontWeight: 800,
+                    letterSpacing: "0.12em",
+                    textTransform: "uppercase",
+                    marginBottom: "0.9rem",
+                  }}
+                >
+                  <span>Teacher</span>
+                  <span style={{ color: "#fbbf24" }}>Help</span>
+                </div>
+
+                <h2 style={{ margin: 0, color: "#ffffff" }}>How To Use The Dashboard</h2>
+                <p style={{ margin: "0.55rem 0 0", color: "rgba(226, 232, 240, 0.92)", lineHeight: 1.6 }}>
+                  A quick guide for marks entry, saving, PDF generation, account settings, and password recovery.
+                </p>
               </div>
 
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.6rem" }}>
-                <button className="ghost-btn" onClick={() => {
-                  setShowChangePassword(false);
-                  setPasswordError("");
-                  setPasswordForm({ current: "", next: "", confirm: "" });
-                  if (passwordResetMode) {
-                    sessionStorage.removeItem("teacherResetMode");
-                    setPasswordResetMode(false);
-                    navigate("/ark/teacher", { replace: true });
-                  }
-                }}>
-                  Cancel
-                </button>
+              <div style={{ padding: "1.35rem 1.5rem 1.5rem", background: "linear-gradient(180deg, #fffbeb 0%, #f8fafc 100%)" }}>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                    gap: "0.9rem",
+                    marginBottom: "1rem",
+                  }}
+                >
+                  {[
+                    {
+                      title: "1. Select Assignment",
+                      body: "Click the correct class, stream, subject, and paper from the assignments table before entering any marks.",
+                    },
+                    {
+                      title: "2. Enter Scores",
+                      body: "Fill learner scores using the allowed score ranges shown in the table. Use Present or Missed correctly for each learner.",
+                    },
+                    {
+                      title: "3. Save & Review",
+                      body: "Click Save Marks after checking the rows. The system stores the marks and updates analytics for that assignment.",
+                    },
+                    {
+                      title: "4. Generate PDF",
+                      body: "Use Download PDF to open a printable marks sheet for the currently selected assignment and term.",
+                    },
+                  ].map((item) => (
+                    <div
+                      key={item.title}
+                      style={{
+                        borderRadius: "18px",
+                        border: "1px solid rgba(245, 158, 11, 0.16)",
+                        background: "#ffffff",
+                        padding: "1rem 1.05rem",
+                        boxShadow: "0 14px 28px rgba(15, 23, 42, 0.05)",
+                      }}
+                    >
+                      <div style={{ color: "#92400e", fontWeight: 900, marginBottom: "0.45rem" }}>{item.title}</div>
+                      <div style={{ color: "#334155", lineHeight: 1.65 }}>{item.body}</div>
+                    </div>
+                  ))}
+                </div>
 
-                <button className="primary-btn" disabled={passwordSaving} onClick={handleChangePassword}>{passwordSaving ? "Saving…" : "Update Password"}</button>
+                <div
+                  style={{
+                    border: "1px solid rgba(148, 163, 184, 0.18)",
+                    borderRadius: "20px",
+                    padding: "1rem 1.05rem",
+                    background: "#ffffff",
+                    boxShadow: "0 16px 28px rgba(15, 23, 42, 0.05)",
+                    display: "grid",
+                    gap: "0.95rem",
+                  }}
+                >
+                  <div>
+                    <div style={{ color: "#0284c7", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.12em", fontSize: "0.72rem" }}>
+                      Marks Guidelines
+                    </div>
+                    <div style={{ color: "#334155", lineHeight: 1.7, marginTop: "0.35rem" }}>
+                      Select the right assignment first. Enter scores carefully based on the score limits for that column. If a learner did not do the assessment,
+                      mark them as <strong>Missed</strong> instead of leaving the cell empty.
+                    </div>
+                  </div>
+
+                  <div>
+                    <div style={{ color: "#0284c7", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.12em", fontSize: "0.72rem" }}>
+                      Settings
+                    </div>
+                    <div style={{ color: "#334155", lineHeight: 1.7, marginTop: "0.35rem" }}>
+                      Use the <strong>Settings</strong> button to change your password or update your teacher email whenever needed. Changes are saved directly on your account.
+                    </div>
+                  </div>
+
+                  <div>
+                    <div style={{ color: "#0284c7", fontWeight: 900, textTransform: "uppercase", letterSpacing: "0.12em", fontSize: "0.72rem" }}>
+                      Forgot Password
+                    </div>
+                    <div style={{ color: "#334155", lineHeight: 1.7, marginTop: "0.35rem" }}>
+                      If you lose your password, use <strong>Forgot Password</strong> on the teacher login page. A reset code is sent to your email, and you can use it to
+                      open the password reset flow safely.
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "1rem" }}>
+                  <button className="primary-btn" type="button" onClick={() => setShowHelpModal(false)}>
+                    Close Help
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -1370,9 +2640,44 @@ useEffect(() => {
                   marginBottom: "1rem",
                 }}
               >
-                Marks have been saved successfully for <strong>{getAssignmentDisplayLabel(selectedAssignment)}</strong> in{" "}
-                <strong>{marksTerm}</strong>, <strong>{marksYear}</strong>.
+                Marks have been saved successfully for <strong>{marksSavedSummary?.assignmentLabel || getAssignmentDisplayLabel(selectedAssignment)}</strong> in{" "}
+                <strong>{marksSavedSummary?.term || marksTerm}</strong>, <strong>{marksSavedSummary?.year || marksYear}</strong>.
               </div>
+
+              {marksSavedSummary && (
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+                    gap: "0.75rem",
+                    marginBottom: "1rem",
+                  }}
+                >
+                  {[
+                    { label: "Learners Updated", value: marksSavedSummary.updatedLearners },
+                    { label: "Missed Recorded", value: marksSavedSummary.missedRecorded },
+                    { label: "Columns Saved", value: marksSavedSummary.savedColumns?.join(", ") || "—" },
+                    { label: "Saved At", value: formatDateTime(marksSavedSummary.savedAt) },
+                  ].map((item) => (
+                    <div
+                      key={item.label}
+                      style={{
+                        border: "1px solid rgba(148, 163, 184, 0.18)",
+                        background: "rgba(248, 250, 252, 0.94)",
+                        borderRadius: "14px",
+                        padding: "0.8rem 0.9rem",
+                      }}
+                    >
+                      <div style={{ fontSize: "0.72rem", textTransform: "uppercase", letterSpacing: "0.12em", color: "#0284c7", fontWeight: 800 }}>
+                        {item.label}
+                      </div>
+                      <div style={{ marginTop: "0.35rem", color: "#0f172a", fontWeight: 800, lineHeight: 1.5 }}>
+                        {item.value}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
 
               <div style={{ display: "flex", justifyContent: "flex-end" }}>
                 <button className="primary-btn" onClick={() => setShowMarksSavedModal(false)}>
@@ -1382,6 +2687,57 @@ useEffect(() => {
             </div>
           </div>
         )}
+
+        {selectedAssignment && isMobileTable && (
+          <div
+            style={{
+              position: "fixed",
+              left: "0.8rem",
+              right: "0.8rem",
+              bottom: "0.8rem",
+              zIndex: 80,
+              borderRadius: "22px",
+              padding: "0.8rem",
+              background: "linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(2, 6, 23, 0.96))",
+              border: "1px solid rgba(56, 189, 248, 0.22)",
+              boxShadow: "0 24px 50px rgba(2, 6, 23, 0.42)",
+              backdropFilter: "blur(14px)",
+            }}
+          >
+            <div style={{ color: "#cbd5e1", fontSize: "0.78rem", marginBottom: "0.65rem", textAlign: "center" }}>
+              {getAssignmentDisplayLabel(selectedAssignment)} • {marksTerm} {marksYear}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.6rem" }}>
+              <button className="secondary-btn" onClick={handleDownloadPDF} style={{ width: "100%" }}>
+                Download PDF
+              </button>
+              <button
+                className="primary-btn"
+                style={{ width: "100%" }}
+                disabled={Object.keys(markErrors).length > 0 || marksSaving}
+                onClick={handleSaveMarks}
+              >
+                {marksSaving ? "Saving…" : "Save Marks"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        <footer
+          style={{
+            marginTop: "2rem",
+            paddingTop: "1rem",
+            paddingBottom: "0.4rem",
+            borderTop: "1px solid rgba(148, 163, 184, 0.16)",
+            textAlign: "center",
+            fontSize: "0.78rem",
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+            color: "rgba(148, 163, 184, 0.88)",
+          }}
+        >
+          &copy; SPESS ARK {currentCalendarYear}
+        </footer>
       </main>
     </div>
   );

@@ -3,7 +3,12 @@ import express from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
-import { sendWelcomeEmail, sendTeacherResetCodeEmail } from "../utils/email.js";
+import {
+  sendWelcomeEmail,
+  sendTeacherResetCodeEmail,
+  sendTeacherPasswordChangedEmail,
+  sendTeacherEmailChangedEmail,
+} from "../utils/email.js";
 import { pool } from "../server.js";
 import authTeacher from "../middleware/authTeacher.js";
 import { extractClientIp, logAuditEvent } from "../utils/auditLogger.js";
@@ -24,6 +29,14 @@ const buildAlevelSubjectDisplay = (subject = "", paperLabel = "") => {
   return normalizedPaper && normalizedPaper !== "Single"
     ? `${subject} — ${normalizedPaper}`
     : subject;
+};
+
+const fireAndForgetTeacherEmail = (job, label) => {
+  Promise.resolve()
+    .then(job)
+    .catch((err) => {
+      console.warn(`⚠️ ${label} email failed:`, err.message);
+    });
 };
 
 
@@ -282,10 +295,23 @@ router.post("/reset-password", authTeacher, async (req, res) => {
     }
 
     const hashed = await bcrypt.hash(newPassword, 10);
+    const [teacherRows] = await pool.query(
+      "SELECT id, name, email FROM teachers WHERE id = ? LIMIT 1",
+      [req.teacher.id]
+    );
+
     await pool.query(
       "UPDATE teachers SET password_hash = ?, reset_token = NULL, reset_expires = NULL WHERE id = ?",
       [hashed, req.teacher.id]
     );
+
+    const teacher = teacherRows[0];
+    if (teacher?.email) {
+      fireAndForgetTeacherEmail(
+        () => sendTeacherPasswordChangedEmail(teacher.email, teacher.name),
+        "Teacher password reset notice"
+      );
+    }
 
     return res.json({ message: "Password updated successfully" });
   } catch (err) {
@@ -307,7 +333,7 @@ router.post("/change-password", authTeacher, async (req, res) => {
     }
 
     const [rows] = await pool.query(
-      "SELECT password_hash FROM teachers WHERE id = ?",
+      "SELECT name, email, password_hash FROM teachers WHERE id = ?",
       [teacherId]
     );
 
@@ -331,9 +357,133 @@ router.post("/change-password", authTeacher, async (req, res) => {
       [hashed, teacherId]
     );
 
+    fireAndForgetTeacherEmail(
+      () => sendTeacherPasswordChangedEmail(rows[0].email, rows[0].name),
+      "Teacher password change notice"
+    );
+
+    await logAuditEvent({
+      userId: teacherId,
+      userRole: "teacher",
+      action: "CHANGE_PASSWORD",
+      entityType: "teacher",
+      entityId: teacherId,
+      description: "Teacher changed account password",
+      ipAddress: extractClientIp(req),
+    });
+
     return res.json({ message: "Password updated successfully" });
   } catch (err) {
     console.error("❌ Change password error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
+/* =======================
+   CHANGE EMAIL (TEACHER)
+======================= */
+router.post("/change-email", authTeacher, async (req, res) => {
+  try {
+    const teacherId = Number(req.teacher.id);
+    const { currentPassword, newEmail } = req.body;
+
+    if (!currentPassword || !newEmail) {
+      return res.status(400).json({ message: "Missing fields" });
+    }
+
+    const normalizedEmail = String(newEmail || "").trim().toLowerCase();
+    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailPattern.test(normalizedEmail)) {
+      return res.status(400).json({ message: "Enter a valid email address" });
+    }
+
+    const [rows] = await pool.query(
+      "SELECT id, name, email, password_hash FROM teachers WHERE id = ?",
+      [teacherId]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ message: "Teacher not found" });
+    }
+
+    const teacher = rows[0];
+    const currentEmail = String(teacher.email || "").trim().toLowerCase();
+
+    if (currentEmail === normalizedEmail) {
+      return res.status(400).json({ message: "Enter a different email address" });
+    }
+
+    const passwordValid = await bcrypt.compare(currentPassword, teacher.password_hash);
+    if (!passwordValid) {
+      return res.status(401).json({ message: "Incorrect current password" });
+    }
+
+    const [existing] = await pool.query(
+      "SELECT id FROM teachers WHERE email = ? AND id <> ? LIMIT 1",
+      [normalizedEmail, teacherId]
+    );
+
+    if (existing.length > 0) {
+      return res.status(409).json({ message: "That email is already in use" });
+    }
+
+    await pool.query("UPDATE teachers SET email = ? WHERE id = ?", [normalizedEmail, teacherId]);
+
+    await logAuditEvent({
+      userId: teacherId,
+      userRole: "teacher",
+      action: "CHANGE_EMAIL",
+      entityType: "teacher",
+      entityId: teacherId,
+      description: `Teacher changed account email from ${teacher.email} to ${normalizedEmail}`,
+      ipAddress: extractClientIp(req),
+    });
+
+    fireAndForgetTeacherEmail(
+      () =>
+        sendTeacherEmailChangedEmail({
+          toEmail: teacher.email,
+          name: teacher.name,
+          oldEmail: teacher.email,
+          newEmail: normalizedEmail,
+          audience: "old",
+        }),
+      "Teacher old-email change notice"
+    );
+
+    fireAndForgetTeacherEmail(
+      () =>
+        sendTeacherEmailChangedEmail({
+          toEmail: normalizedEmail,
+          name: teacher.name,
+          oldEmail: teacher.email,
+          newEmail: normalizedEmail,
+          audience: "new",
+        }),
+      "Teacher new-email change notice"
+    );
+
+    const token = jwt.sign(
+      {
+        id: teacherId,
+        email: normalizedEmail,
+        role: "teacher",
+      },
+      process.env.JWT_SECRET || "dev_secret",
+      { expiresIn: "7d" }
+    );
+
+    return res.json({
+      message: "Email updated successfully",
+      token,
+      teacher: {
+        id: teacherId,
+        name: teacher.name,
+        email: normalizedEmail,
+      },
+    });
+  } catch (err) {
+    console.error("❌ Change email error:", err);
     return res.status(500).json({ message: "Server error" });
   }
 });

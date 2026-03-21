@@ -275,6 +275,116 @@ export async function sendTeacherResetCodeEmail(email, code) {
   console.log("📧 Teacher reset code sent");
 }
 
+function buildTeacherAccountNoticeShell({ title, bodyHtml }) {
+  return `
+    <div style="font-family: Arial, sans-serif; background:#f8fafc; padding:30px;">
+      <div style="max-width:600px; margin:auto; background:#ffffff; padding:32px; border-radius:18px; border:1px solid #e2e8f0; box-shadow:0 18px 40px rgba(15,23,42,0.08);">
+        <div style="text-align:center; margin-bottom:18px;">
+          <img
+            src="https://stphillipsequatorial.com/badge.png"
+            alt="St. Phillips Badge"
+            style="height:82px;"
+          />
+        </div>
+
+        <h2 style="color:#0f172a; margin:0 0 14px;">${title}</h2>
+        ${bodyHtml}
+
+        <div style="margin-top:24px; padding:14px 16px; background:#eff6ff; border:1px solid #bfdbfe; border-radius:12px; color:#1e3a8a; font-size:14px; line-height:1.6;">
+          If you did not make this change, please contact the school administrator immediately.
+        </div>
+
+        <hr style="border:none; border-top:1px solid #e5e7eb; margin:24px 0;" />
+
+        <p style="font-size:13px; color:#64748b; line-height:1.7; text-align:center; margin:0;">
+          SPESS ARK - Teacher account security notice<br/>
+          St. Phillips Equatorial Secondary School
+        </p>
+      </div>
+    </div>
+  `;
+}
+
+export async function sendTeacherPasswordChangedEmail(email, name = "") {
+  if (!email) return;
+
+  const payload = {
+    from: "SPESS ARK <no-reply@stphillipsequatorial.com>",
+    to: email,
+    subject: "Your SPESS ARK password was changed",
+    html: buildTeacherAccountNoticeShell({
+      title: "Password Changed",
+      bodyHtml: `
+        <p style="font-size:15px; color:#334155; line-height:1.7;">
+          Hello ${name || "Teacher"},
+        </p>
+        <p style="font-size:15px; color:#334155; line-height:1.7;">
+          Your <strong>SPESS ARK</strong> teacher account password was changed successfully.
+        </p>
+        <p style="font-size:15px; color:#334155; line-height:1.7;">
+          You can continue signing in with your current teacher email and the new password you set.
+        </p>
+      `,
+    }),
+  };
+
+  await sendWithRetry(payload, 2);
+  console.log("📧 Teacher password change notice sent");
+}
+
+export async function sendTeacherEmailChangedEmail({
+  toEmail,
+  name = "",
+  oldEmail = "",
+  newEmail = "",
+  audience = "new",
+}) {
+  if (!toEmail) return;
+
+  const isOldAddressNotice = audience === "old";
+  const title = isOldAddressNotice ? "Teacher Email Changed" : "New Teacher Email Confirmed";
+  const message = isOldAddressNotice
+    ? `
+        <p style="font-size:15px; color:#334155; line-height:1.7;">
+          Hello ${name || "Teacher"},
+        </p>
+        <p style="font-size:15px; color:#334155; line-height:1.7;">
+          The email on your <strong>SPESS ARK</strong> teacher account was changed from
+          <strong>${oldEmail}</strong> to <strong>${newEmail}</strong>.
+        </p>
+        <p style="font-size:15px; color:#334155; line-height:1.7;">
+          This notice was sent to your previous email address for security purposes.
+        </p>
+      `
+    : `
+        <p style="font-size:15px; color:#334155; line-height:1.7;">
+          Hello ${name || "Teacher"},
+        </p>
+        <p style="font-size:15px; color:#334155; line-height:1.7;">
+          Your <strong>SPESS ARK</strong> teacher account email was updated successfully.
+        </p>
+        <p style="font-size:15px; color:#334155; line-height:1.7;">
+          Previous email: <strong>${oldEmail}</strong><br/>
+          New email: <strong>${newEmail}</strong>
+        </p>
+      `;
+
+  const payload = {
+    from: "SPESS ARK <no-reply@stphillipsequatorial.com>",
+    to: toEmail,
+    subject: isOldAddressNotice
+      ? "Your SPESS ARK teacher email was changed"
+      : "Your new SPESS ARK teacher email is active",
+    html: buildTeacherAccountNoticeShell({
+      title,
+      bodyHtml: message,
+    }),
+  };
+
+  await sendWithRetry(payload, 2);
+  console.log(`📧 Teacher email change notice sent to ${toEmail}`);
+}
+
 export async function sendVineSuspensionEmail(email, username, durationLabel, reason = "") {
   if (!email) return;
   const safeReason = String(reason || "").trim();

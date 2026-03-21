@@ -26,6 +26,7 @@ import dmRoutes from "./modules/vine/dms.js";
 import path from "path";
 import { fileURLToPath } from "url";
 import { extractClientIp, logAuditEvent } from "./utils/auditLogger.js";
+import { sendTeacherPasswordChangedEmail } from "./utils/email.js";
 
 
 const app = express();
@@ -71,6 +72,14 @@ function getVineFrontendBase(req) {
   }
 
   return `${requestProto}://${requestHost}`.replace(/\/+$/, "");
+}
+
+function fireAndForgetEmail(job, label) {
+  Promise.resolve()
+    .then(job)
+    .catch((err) => {
+      console.warn(`⚠️ ${label} email failed:`, err.message);
+    });
 }
 /* =======================
    MIDDLEWARE
@@ -1829,7 +1838,7 @@ app.post("/api/teacher/change-password", authTeacher, async (req, res) => {
     }
 
     const [rows] = await pool.query(
-      "SELECT password_hash FROM teachers WHERE id = ?",
+      "SELECT name, email, password_hash FROM teachers WHERE id = ?",
       [teacherId]
     );
 
@@ -1851,6 +1860,11 @@ app.post("/api/teacher/change-password", authTeacher, async (req, res) => {
     await pool.query(
       "UPDATE teachers SET password_hash = ? WHERE id = ?",
       [hashed, teacherId]
+    );
+
+    fireAndForgetEmail(
+      () => sendTeacherPasswordChangedEmail(rows[0].email, rows[0].name),
+      "Legacy teacher password change notice"
     );
 
     res.json({ message: "Password updated successfully" });

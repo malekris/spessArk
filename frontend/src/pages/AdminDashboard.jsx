@@ -2358,14 +2358,20 @@ export default function AdminDashboard() {
               </form>
 
               {/* quick list below create form */}
-              {notices.map((n) => (
-                <div key={n.id} className="notice-item">
-                  <h4>{n.title}</h4>
-                  <p>{n.body}</p>
-                  <small>{formatDateTime(n.created_at)}</small>
-                  <button className="danger-link" onClick={() => handleDeleteNotice(n.id)}>Delete</button>
-                </div>
-              ))}
+              <div className="notice-stack notice-stack-compact">
+                {notices.map((n) => (
+                  <div key={n.id} className="notice-item">
+                    <h4>{n.title}</h4>
+                    <p>{n.body}</p>
+                    <div className="notice-item-meta">
+                      <small>{formatDateTime(n.created_at)}</small>
+                      <div className="notice-item-actions">
+                        <button className="danger-link" onClick={() => handleDeleteNotice(n.id)}>Delete</button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
 
             <div className="panel-card">
@@ -2373,15 +2379,19 @@ export default function AdminDashboard() {
               {loadingNotices ? (
                 <p className="muted-text">Loading notices…</p>
               ) : notices.length === 0 ? (
-                <p className="muted-text">No notices yet.</p>
+                <p className="notice-empty">No notices yet.</p>
               ) : (
-                notices.map((n) => (
-                  <div key={n.id} style={{ padding: "0.8rem 0", borderBottom: "1px solid rgba(148,163,184,0.15)" }}>
-                    <h4 style={{ marginBottom: "0.3rem" }}>{n.title}</h4>
-                    <p style={{ marginBottom: "0.4rem" }}>{n.body}</p>
-                    <small className="muted-text">{formatDateTime(n.created_at)}</small>
-                  </div>
-                ))
+                <div className="notice-stack">
+                  {notices.map((n) => (
+                    <div key={n.id} className="notice-item">
+                      <h4>{n.title}</h4>
+                      <div className="notice-item-body">{n.body}</div>
+                      <div className="notice-item-meta">
+                        <small>{formatDateTime(n.created_at)}</small>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
           </div>

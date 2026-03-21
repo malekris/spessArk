@@ -647,6 +647,7 @@ const streamPositionText =
   isPositionEligible && streamPosition > 0 && streamTotal > 0
     ? `${streamPosition} / ${streamTotal} ${getMedal(streamPosition)}`
     : "INELIGIBLE";
+const showIneligibleFootnote = !isPositionEligible;
 
 // Draw line
 /* ===========================
@@ -831,7 +832,18 @@ currentY = doc.lastAutoTable.finalY + RHYTHM;
 /* ===========================
    REQUIREMENTS
 =========================== */
-ensureSpace(16);
+const termDatesWidth = isEndOfYear ? COLUMN_WIDTH : TERM_MARKS_TABLE_WIDTH;
+const ineligibleNoteText =
+  "NOTE: INELIGIBLE means the learner did not meet the full subject load and assessment completion requirements for class and stream ranking.";
+doc.setFont("helvetica", "bold");
+doc.setFontSize(7.4);
+const ineligibleNoteLines = showIneligibleFootnote
+  ? doc.splitTextToSize(ineligibleNoteText, termDatesWidth)
+  : [];
+const footerMetaBlockHeight =
+  RHYTHM * 3.4 + (showIneligibleFootnote ? ineligibleNoteLines.length * 3 + RHYTHM * 0.35 : 0);
+
+ensureSpace(footerMetaBlockHeight);
 
 doc.setFont("helvetica", "bold");
 doc.setFontSize(9.5);
@@ -847,13 +859,10 @@ currentY += RHYTHM * 2;
    TERM DATES (AFTER REQUIREMENTS)
 =========================== */
 
-ensureSpace(12);
-
 doc.setFont("helvetica", "bold");
 doc.setFontSize(9.2);
 const datesY = currentY;
 const termDatesLeftX = getColumnX();
-const termDatesWidth = isEndOfYear ? COLUMN_WIDTH : TERM_MARKS_TABLE_WIDTH;
 const termDatesRightX = termDatesLeftX + termDatesWidth * 0.52;
 
 doc.text("Term Ended:", termDatesLeftX + 2, datesY);
@@ -863,7 +872,19 @@ doc.setFont("helvetica", "normal");
 doc.text(formatReportDateValue(meta?.termEndedOn), termDatesLeftX + 26, datesY);
 doc.text(formatReportDateValue(meta?.nextTermBeginsOn), termDatesRightX + 35, datesY);
 
-currentY += RHYTHM * 2;
+currentY += RHYTHM * 0.9;
+
+if (showIneligibleFootnote) {
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(7.4);
+  doc.setTextColor(55, 65, 81);
+  doc.text(ineligibleNoteLines, getColumnX(), currentY);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(0, 0, 0);
+  currentY += ineligibleNoteLines.length * 3;
+}
+
+currentY += RHYTHM * 0.4;
 
     progress.update(index + 1);
     await nextPaint();

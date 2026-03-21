@@ -29,6 +29,9 @@ export default function ALevelAssignSubjects() {
   const [printStream, setPrintStream] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [assignmentPendingDelete, setAssignmentPendingDelete] = useState(null);
+  const [deleteSaving, setDeleteSaving] = useState(false);
+  const [createdAssignmentNotice, setCreatedAssignmentNotice] = useState(null);
 
   /* ======================================================
      2. DERIVED DATA
@@ -122,6 +125,11 @@ export default function ALevelAssignSubjects() {
     }
 
     try {
+      const teacherLabel =
+        teachers.find((teacher) => String(teacher.id) === String(form.teacherId))?.name || "Selected teacher";
+      const subjectLabel =
+        subjects.find((subject) => String(subject.id) === String(form.subject))?.name || "Selected subject";
+
       await adminFetch("/api/alevel/admin/assignments", {
         method: "POST",
         body: {
@@ -132,7 +140,13 @@ export default function ALevelAssignSubjects() {
         },
       });
 
-      setSuccess("Assignment created successfully");
+      setSuccess("");
+      setCreatedAssignmentNotice({
+        teacher: teacherLabel,
+        subject: subjectLabel,
+        stream: form.stream,
+        paperLabel: form.paperLabel || "Single",
+      });
       setForm({ teacherId: "", subject: "", stream: "", paperLabel: "" });
       loadAll();
     } catch (err) {
@@ -143,16 +157,21 @@ export default function ALevelAssignSubjects() {
   /* ======================================================
      6. DELETE ASSIGNMENT
   ====================================================== */
-  async function deleteAssignment(id) {
-    if (!window.confirm("Delete this assignment and its captured marks?")) return;
-
+  async function deleteAssignment() {
+    if (!assignmentPendingDelete?.id) return;
     try {
-      await adminFetch(`/api/alevel/admin/assignments/${id}`, {
+      setDeleteSaving(true);
+      await adminFetch(`/api/alevel/admin/assignments/${assignmentPendingDelete.id}`, {
         method: "DELETE",
       });
-      setAssignments((p) => p.filter((a) => a.id !== id));
-    } catch {
-      alert("Delete failed");
+      setAssignments((p) => p.filter((a) => a.id !== assignmentPendingDelete.id));
+      setSuccess("Assignment deleted successfully");
+      setError("");
+      setAssignmentPendingDelete(null);
+    } catch (err) {
+      setError(err?.message || "Delete failed");
+    } finally {
+      setDeleteSaving(false);
     }
   }
 
@@ -365,7 +384,7 @@ export default function ALevelAssignSubjects() {
                     <td>{a.paper_label || "Single"}</td>
                     <td>{a.teacher_name}</td>
                     <td>
-                      <button className="danger-link" onClick={() => deleteAssignment(a.id)}>
+                      <button className="danger-link" onClick={() => setAssignmentPendingDelete(a)}>
                         Delete
                       </button>
                     </td>
@@ -376,6 +395,141 @@ export default function ALevelAssignSubjects() {
           </div>
         )}
       </div>
+
+      {assignmentPendingDelete && (
+        <div className="modal-backdrop">
+          <div className="modal-card" style={{ maxWidth: "560px" }}>
+            <h2>Delete Assignment</h2>
+            <p style={{ marginTop: "-0.15rem", marginBottom: "1rem", color: "#475569", lineHeight: 1.6 }}>
+              You are about to remove this A-Level assignment from the system.
+            </p>
+
+            <div
+              style={{
+                border: "1px solid rgba(148, 163, 184, 0.22)",
+                background: "rgba(248, 250, 252, 0.95)",
+                borderRadius: "16px",
+                padding: "1rem",
+                marginBottom: "1rem",
+                color: "#0f172a",
+                lineHeight: 1.7,
+              }}
+            >
+              <div><strong>Stream:</strong> {assignmentPendingDelete.stream || "—"}</div>
+              <div><strong>Subject:</strong> {assignmentPendingDelete.subject || "—"}</div>
+              <div><strong>Paper:</strong> {assignmentPendingDelete.paper_label || "Single"}</div>
+              <div><strong>Teacher:</strong> {assignmentPendingDelete.teacher_name || "—"}</div>
+            </div>
+
+            <div
+              className="panel-alert"
+              style={{
+                marginBottom: "1rem",
+                background: "rgba(239, 68, 68, 0.10)",
+                border: "1px solid rgba(239, 68, 68, 0.28)",
+                color: "#991b1b",
+                lineHeight: 1.65,
+              }}
+            >
+              Deleting this assignment will also remove the captured marks attached to it. This action should only be used when you are sure.
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.65rem", flexWrap: "wrap" }}>
+              <button
+                className="ghost-btn"
+                disabled={deleteSaving}
+                onClick={() => setAssignmentPendingDelete(null)}
+              >
+                Cancel
+              </button>
+              <button
+                className="primary-btn"
+                disabled={deleteSaving}
+                onClick={deleteAssignment}
+                style={{ background: "#b91c1c", borderColor: "#b91c1c" }}
+              >
+                {deleteSaving ? "Deleting…" : "Delete Assignment"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {createdAssignmentNotice && (
+        <div className="modal-backdrop">
+          <div className="modal-card" style={{ maxWidth: "580px" }}>
+            <h2>Assignment Created</h2>
+            <p style={{ marginTop: "-0.15rem", marginBottom: "1rem", color: "#475569", lineHeight: 1.6 }}>
+              The A-Level assignment has been created successfully and is now ready for teacher use.
+            </p>
+
+            <div
+              style={{
+                border: "1px solid rgba(14, 116, 144, 0.18)",
+                background: "linear-gradient(180deg, rgba(248, 250, 252, 0.98) 0%, rgba(241, 245, 249, 0.95) 100%)",
+                borderRadius: "18px",
+                padding: "1rem 1.05rem",
+                marginBottom: "1rem",
+                color: "#0f172a",
+                boxShadow: "0 18px 36px rgba(15, 23, 42, 0.08)",
+              }}
+            >
+              <div style={{ fontSize: "0.8rem", textTransform: "uppercase", letterSpacing: "0.14em", color: "#0f766e", fontWeight: 800, marginBottom: "0.8rem" }}>
+                SPESS ARK · A-Level Assignment
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "0.85rem 1rem" }}>
+                <div>
+                  <div style={{ fontSize: "0.74rem", textTransform: "uppercase", letterSpacing: "0.12em", color: "#64748b", marginBottom: "0.25rem" }}>
+                    Stream
+                  </div>
+                  <div style={{ fontWeight: 800 }}>{createdAssignmentNotice.stream}</div>
+                </div>
+
+                <div>
+                  <div style={{ fontSize: "0.74rem", textTransform: "uppercase", letterSpacing: "0.12em", color: "#64748b", marginBottom: "0.25rem" }}>
+                    Teacher
+                  </div>
+                  <div style={{ fontWeight: 800 }}>{createdAssignmentNotice.teacher}</div>
+                </div>
+
+                <div>
+                  <div style={{ fontSize: "0.74rem", textTransform: "uppercase", letterSpacing: "0.12em", color: "#64748b", marginBottom: "0.25rem" }}>
+                    Subject
+                  </div>
+                  <div style={{ fontWeight: 800 }}>{createdAssignmentNotice.subject}</div>
+                </div>
+
+                <div>
+                  <div style={{ fontSize: "0.74rem", textTransform: "uppercase", letterSpacing: "0.12em", color: "#64748b", marginBottom: "0.25rem" }}>
+                    Paper
+                  </div>
+                  <div style={{ fontWeight: 800 }}>{createdAssignmentNotice.paperLabel}</div>
+                </div>
+              </div>
+            </div>
+
+            <div
+              className="panel-alert"
+              style={{
+                marginBottom: "1rem",
+                background: "rgba(16, 185, 129, 0.10)",
+                border: "1px solid rgba(16, 185, 129, 0.22)",
+                color: "#065f46",
+                lineHeight: 1.65,
+              }}
+            >
+              Teachers assigned to this paper can now see it in their dashboard and begin capturing marks.
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <button className="primary-btn" onClick={() => setCreatedAssignmentNotice(null)}>
+                Great
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       </main>
     </div>
   );

@@ -1750,7 +1750,14 @@ export default function VineCommunities() {
       ...row,
       _status: String(attendanceDrafts[row.user_id] || row.status || "absent").toLowerCase(),
     }));
+    const formatAttendanceStatus = (value) => {
+      const normalized = String(value || "absent").toLowerCase();
+      if (!normalized) return "Absent";
+      return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+    };
     const presentRows = withStatus.filter((row) => row._status === "present");
+    const lateRows = withStatus.filter((row) => row._status === "late");
+    const excusedRows = withStatus.filter((row) => row._status === "excused");
     const absentRows = withStatus.filter((row) => row._status === "absent");
     const ownerRow = attendanceRows.find(
       (row) => String(row.community_role || "").toLowerCase() === "owner"
@@ -1759,6 +1766,8 @@ export default function VineCommunities() {
     const moderatorName = currentUser?.display_name || currentUser?.username || "Moderator";
     const totalLearners = normalizedRows.length;
     const totalPresent = presentRows.length;
+    const totalLate = lateRows.length;
+    const totalExcused = excusedRows.length;
     const totalAbsent = absentRows.length;
 
     doc.setFontSize(16);
@@ -1767,18 +1776,18 @@ export default function VineCommunities() {
     doc.text(`${activeCommunity?.name || "Community"} - Register`, 40, 62);
     doc.text(`Session: ${session?.title || "Untitled"}`, 40, 78);
     doc.text(`Date: ${session?.starts_at ? new Date(session.starts_at).toLocaleString() : ""}`, 40, 94);
-    const signingBody = presentRows.map((row, idx) => [
+    const signingBody = withStatus.map((row, idx) => [
       idx + 1,
       row.display_name || row.username || "",
       `@${row.username || ""}`,
-      "present",
+      formatAttendanceStatus(row._status),
       "__________________________",
     ]);
 
     autoTable(doc, {
       startY: 108,
       head: [["No", "Name", "Username", "Status", "Signature"]],
-      body: signingBody.length ? signingBody : [["-", "No present learners", "-", "-", "-"]],
+      body: signingBody.length ? signingBody : [["-", "No learners listed", "-", "-", "-"]],
       theme: "grid",
       styles: {
         fontSize: 10,
@@ -1803,17 +1812,19 @@ export default function VineCommunities() {
 
     const signTableEndY = doc.lastAutoTable?.finalY || 108;
     doc.setFontSize(12);
-    doc.text("Absentee List", 40, signTableEndY + 24);
-    const absentBody = absentRows.map((row, idx) => [
-      idx + 1,
-      row.display_name || row.username || "",
-      `@${row.username || ""}`,
-      "absent",
-    ]);
+    doc.text("Follow-up List", 40, signTableEndY + 24);
+    const followUpBody = withStatus
+      .filter((row) => row._status !== "present")
+      .map((row, idx) => [
+        idx + 1,
+        row.display_name || row.username || "",
+        `@${row.username || ""}`,
+        formatAttendanceStatus(row._status),
+      ]);
     autoTable(doc, {
       startY: signTableEndY + 32,
       head: [["No", "Name", "Username", "Status"]],
-      body: absentBody.length ? absentBody : [["-", "No absentees", "-", "-"]],
+      body: followUpBody.length ? followUpBody : [["-", "No follow-up needed", "-", "-"]],
       theme: "grid",
       styles: {
         fontSize: 10,
@@ -1838,9 +1849,11 @@ export default function VineCommunities() {
     doc.setFontSize(11);
     doc.text(`Total learners (group members): ${totalLearners}`, 40, absentTableEndY + 26);
     doc.text(`Learners present: ${totalPresent}`, 40, absentTableEndY + 44);
-    doc.text(`Learners absent: ${totalAbsent}`, 40, absentTableEndY + 62);
-    doc.text(`Class teacher signature: ${teacherName} ____________________`, 40, absentTableEndY + 90);
-    doc.text(`Moderator (${moderatorName}) signature: ____________________`, 40, absentTableEndY + 112);
+    doc.text(`Learners late: ${totalLate}`, 40, absentTableEndY + 62);
+    doc.text(`Learners excused: ${totalExcused}`, 40, absentTableEndY + 80);
+    doc.text(`Learners absent: ${totalAbsent}`, 40, absentTableEndY + 98);
+    doc.text(`Class teacher signature: ${teacherName} ____________________`, 40, absentTableEndY + 126);
+    doc.text(`Moderator (${moderatorName}) signature: ____________________`, 40, absentTableEndY + 148);
 
     const blob = doc.output("blob");
     const url = URL.createObjectURL(blob);

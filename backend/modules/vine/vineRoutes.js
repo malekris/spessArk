@@ -2472,6 +2472,25 @@ const ensureAdvancedSettingsSchema = async () => {
   advancedSettingsSchemaReady = true;
 };
 
+let postTagSchemaReady = false;
+const ensurePostTagSchema = async () => {
+  if (postTagSchemaReady) return;
+  const dbName = await getDbName();
+  if (!dbName) return;
+
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_post_tags (
+      post_id INT NOT NULL,
+      tagged_user_id INT NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (post_id, tagged_user_id),
+      KEY idx_vine_post_tags_tagged_post (tagged_user_id, post_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+  `);
+
+  postTagSchemaReady = true;
+};
+
 let systemNoticeSchemaReady = false;
 let systemNoticeCache = null;
 let systemNoticeLoadedAt = 0;
@@ -2712,6 +2731,7 @@ const purgeUserAccount = async (userId) => {
     await db.query(`DELETE FROM vine_community_join_requests WHERE community_id IN (${placeholders})`, communityIds);
     await db.query(`DELETE FROM vine_community_members WHERE community_id IN (${placeholders})`, communityIds);
     await db.query(`DELETE FROM vine_scheduled_posts WHERE community_id IN (${placeholders})`, communityIds);
+    await db.query(`DELETE FROM vine_post_tags WHERE post_id IN (SELECT id FROM vine_posts WHERE community_id IN (${placeholders}))`, communityIds).catch(() => {});
     await db.query(`DELETE FROM vine_posts WHERE community_id IN (${placeholders})`, communityIds);
     await db.query(`DELETE FROM vine_communities WHERE id IN (${placeholders})`, communityIds);
   }
@@ -2731,6 +2751,7 @@ const purgeUserAccount = async (userId) => {
   await db.query("DELETE FROM vine_bookmarks WHERE user_id = ?", [numericUserId]).catch(() => {});
   await db.query("DELETE FROM vine_likes WHERE user_id = ?", [numericUserId]).catch(() => {});
   await db.query("DELETE FROM vine_revines WHERE user_id = ?", [numericUserId]).catch(() => {});
+  await db.query("DELETE FROM vine_post_tags WHERE tagged_user_id = ? OR post_id IN (SELECT id FROM vine_posts WHERE user_id = ?)", [numericUserId, numericUserId]).catch(() => {});
   await db.query("DELETE FROM vine_posts WHERE user_id = ?", [numericUserId]).catch(() => {});
   await db.query("DELETE FROM vine_notifications WHERE user_id = ? OR actor_id = ?", [numericUserId, numericUserId]).catch(() => {});
   await db.query("DELETE FROM vine_reports WHERE reporter_id = ? OR reported_user_id = ?", [numericUserId, numericUserId]).catch(() => {});
@@ -4967,6 +4988,80 @@ const notifyMentions = async ({ mentions, actorId, postId, commentId, type }) =>
   }
 };
 
+const resolveEligiblePostTagUserIds = async ({ mentions, actorId }) => {
+  await ensureAdvancedSettingsSchema();
+  const explicitMentions = Array.from(
+    new Set(
+      (mentions || [])
+        .map((mention) => String(mention || "").trim().toLowerCase())
+        .filter(Boolean)
+    )
+  ).filter((username) => username !== "all");
+
+  if (!explicitMentions.length) return [];
+
+  const placeholders = explicitMentions.map(() => "?").join(", ");
+  const [users] = await db.query(
+    `SELECT id, username, tags_privacy FROM vine_users WHERE LOWER(username) IN (${placeholders})`,
+    explicitMentions
+  );
+
+  const taggedUserIds = [];
+  for (const user of users || []) {
+    const taggedUserId = Number(user.id || 0);
+    if (!taggedUserId || taggedUserId === Number(actorId || 0)) continue;
+    if (await isUserBlocked(taggedUserId, actorId)) continue;
+    if (await isUserBlocked(actorId, taggedUserId)) continue;
+    if (await isMutedBy(taggedUserId, actorId)) continue;
+
+    const privacyValue = String(user.tags_privacy || "everyone").toLowerCase();
+    if (privacyValue === "no_one") continue;
+    if (privacyValue === "followers") {
+      const [[isFollower]] = await db.query(
+        `
+        SELECT 1 AS ok
+        FROM vine_follows
+        WHERE follower_id = ? AND following_id = ?
+        LIMIT 1
+        `,
+        [actorId, taggedUserId]
+      );
+      if (!isFollower?.ok) continue;
+    }
+
+    taggedUserIds.push(taggedUserId);
+  }
+
+  return taggedUserIds;
+};
+
+const syncPostTagLinks = async ({ postId, actorId, content }) => {
+  const safePostId = Number(postId || 0);
+  if (!safePostId) return;
+
+  await ensurePostTagSchema();
+  const mentions = extractMentions(String(content || ""));
+  const taggedUserIds = await resolveEligiblePostTagUserIds({ mentions, actorId });
+
+  await db.query("DELETE FROM vine_post_tags WHERE post_id = ?", [safePostId]);
+
+  if (!taggedUserIds.length) return;
+
+  const valuesSql = taggedUserIds.map(() => "(?, ?, NOW())").join(", ");
+  const params = [];
+  taggedUserIds.forEach((taggedUserId) => {
+    params.push(safePostId, taggedUserId);
+  });
+
+  await db.query(
+    `
+    INSERT IGNORE INTO vine_post_tags (post_id, tagged_user_id, created_at)
+    VALUES ${valuesSql}
+    `,
+    params
+  );
+};
+
 const isPrivateHostname = (hostname) => {
   if (!hostname) return true;
   const h = hostname.toLowerCase();
@@ -5375,7 +5470,7 @@ const publishDueScheduledPosts = async () => {
   );
   for (const row of rows) {
     try {
-      await db.query(
+      const [publishResult] = await db.query(
         `
         INSERT INTO vine_posts
           (user_id, community_id, content, image_url, link_preview, topic_tag)
@@ -5391,6 +5486,11 @@ const publishDueScheduledPosts = async () => {
           row.topic_tag || null,
         ]
       );
+      await syncPostTagLinks({
+        postId: Number(publishResult.insertId),
+        actorId: Number(row.user_id || 0),
+        content: row.content || "",
+      });
       await db.query(
         "UPDATE vine_scheduled_posts SET status = 'published' WHERE id = ?",
         [row.id]
@@ -8941,6 +9041,11 @@ router.get("/posts/:id/public", authOptional, async (req, res) => {
         }
 
         const mentions = extractMentions(content?.trim() || "");
+        await syncPostTagLinks({
+          postId: createdPostId,
+          actorId: userId,
+          content: content?.trim() || "",
+        });
         await notifyMentions({
           mentions,
           actorId: userId,
@@ -9508,6 +9613,7 @@ const getProfileUserPayload = async (username, viewerId, perfCtx = null) => {
   await ensureProfileAboutSchema();
   await ensureFollowRequestSchema();
   await ensureCommunitySchema();
+  await ensurePostTagSchema();
 
   const safeViewerId = Number(viewerId || 0);
   const cacheKey = buildVineCacheKey(
@@ -9556,7 +9662,14 @@ const getProfileUserPayload = async (username, viewerId, perfCtx = null) => {
         u.show_last_active,
         (
           (SELECT COUNT(*) FROM vine_posts WHERE user_id = u.id) +
-          (SELECT COUNT(*) FROM vine_revines WHERE user_id = u.id)
+          (SELECT COUNT(*) FROM vine_revines WHERE user_id = u.id) +
+          (
+            SELECT COUNT(*)
+            FROM vine_post_tags pt
+            JOIN vine_posts ptag ON ptag.id = pt.post_id
+            WHERE pt.tagged_user_id = u.id
+              AND ptag.user_id <> u.id
+          )
         ) AS post_count,
         (SELECT COUNT(*) FROM vine_follows WHERE following_id = u.id) AS follower_count,
         (SELECT COUNT(*) FROM vine_follows WHERE follower_id = u.id) AS following_count,
@@ -9669,6 +9782,7 @@ const getProfileUserPayload = async (username, viewerId, perfCtx = null) => {
 
 const getProfileFeedRows = async (profileUserId, viewerId, { limit = null, offset = 0 } = {}, perfCtx = null) => {
   await ensureVinePerformanceSchema();
+  await ensurePostTagSchema();
   const safeViewerId = Number(viewerId || 0);
   const safeLimit = Number.isFinite(Number(limit)) ? Number(limit) : null;
   const safeOffset = Math.max(0, Number(offset || 0));
@@ -9685,9 +9799,12 @@ const getProfileFeedRows = async (profileUserId, viewerId, { limit = null, offse
     const branchLimit = safeLimit && safeLimit > 0 ? safeLimit + safeOffset : null;
     const profileParams = [];
     const postBranchLimitSql = branchLimit ? "LIMIT ?" : "";
+    const taggedBranchLimitSql = branchLimit ? "LIMIT ?" : "";
     const revineBranchLimitSql = branchLimit ? "LIMIT ?" : "";
     const outerLimitSql = safeLimit && safeLimit > 0 ? "LIMIT ? OFFSET ?" : "";
     profileParams.push(profileUserId);
+    if (branchLimit) profileParams.push(branchLimit);
+    profileParams.push(profileUserId, profileUserId);
     if (branchLimit) profileParams.push(branchLimit);
     profileParams.push(profileUserId);
     if (branchLimit) profileParams.push(branchLimit);
@@ -9727,6 +9844,39 @@ const getProfileFeedRows = async (profileUserId, viewerId, { limit = null, offse
         WHERE p.user_id = ?
         ORDER BY p.is_pinned DESC, p.created_at DESC, p.id DESC
         ${postBranchLimitSql}
+      )
+      UNION ALL
+
+      (
+        SELECT
+          CONCAT('tagged-', p.id, '-', pt.tagged_user_id) AS feed_id,
+          p.id,
+          p.user_id,
+          p.community_id,
+          p.topic_tag,
+          p.content,
+          p.image_url,
+          p.link_preview,
+          p.created_at,
+          0 AS is_pinned,
+          p.created_at AS sort_time,
+
+          u.username,
+          u.display_name,
+          u.avatar_url,
+          u.badge_type,
+          u.is_verified,
+          u.hide_like_counts,
+          NULL AS reviner_username,
+          0 AS revined_by
+
+        FROM vine_post_tags pt
+        JOIN vine_posts p ON pt.post_id = p.id
+        JOIN vine_users u ON p.user_id = u.id
+        WHERE pt.tagged_user_id = ?
+          AND p.user_id <> ?
+        ORDER BY p.created_at DESC, p.id DESC
+        ${taggedBranchLimitSql}
       )
       UNION ALL
 
@@ -10777,6 +10927,7 @@ router.delete("/posts/:id", requireVineAuth, async (req, res) => {
     }
 
     // 3️⃣ Delete post from DB
+    await db.query("DELETE FROM vine_post_tags WHERE post_id = ?", [postId]).catch(() => {});
     await db.query("DELETE FROM vine_posts WHERE id = ?", [postId]);
 
     emitVineFeedUpdated({
@@ -10819,6 +10970,12 @@ router.patch("/posts/:id", requireVineAuth, async (req, res) => {
       "UPDATE vine_posts SET content = ?, updated_at = NOW() WHERE id = ?",
       [content, postId]
     );
+
+    await syncPostTagLinks({
+      postId,
+      actorId: userId,
+      content,
+    });
 
     clearVineReadCache();
     return res.json({ success: true });
@@ -13523,6 +13680,7 @@ router.get("/users/:username/photos", authOptional, async (req, res) => {
 
   try {
     await ensureVinePerformanceSchema();
+    await ensurePostTagSchema();
     // 1️⃣ Resolve user
     const [[user]] = await db.query(
       "SELECT id, is_private FROM vine_users WHERE username = ?",
@@ -13554,32 +13712,62 @@ router.get("/users/:username/photos", authOptional, async (req, res) => {
     const rows = await readThroughVineCache(cacheKey, VINE_CACHE_TTLS.profilePhotos, async () => {
       const [baseRows] = await db.query(
         `
-        SELECT
-          p.id,
-          CONCAT('post-', p.id) AS feed_id,
-          p.user_id,
-          p.community_id,
-          p.topic_tag,
-          p.content,
-          p.image_url,
-          p.link_preview,
-          p.created_at,
-          p.created_at AS sort_time,
-          u.username,
-          u.display_name,
-          u.avatar_url,
-          u.is_verified,
-          u.badge_type,
-          u.hide_like_counts,
-          NULL AS reviner_username,
-          0 AS revined_by
-        FROM vine_posts p
-        JOIN vine_users u ON p.user_id = u.id
-        WHERE p.user_id = ?
-          AND p.image_url IS NOT NULL
-        ORDER BY p.created_at DESC, p.id DESC
+        (
+          SELECT
+            p.id,
+            CONCAT('post-', p.id) AS feed_id,
+            p.user_id,
+            p.community_id,
+            p.topic_tag,
+            p.content,
+            p.image_url,
+            p.link_preview,
+            p.created_at,
+            p.created_at AS sort_time,
+            u.username,
+            u.display_name,
+            u.avatar_url,
+            u.is_verified,
+            u.badge_type,
+            u.hide_like_counts,
+            NULL AS reviner_username,
+            0 AS revined_by
+          FROM vine_posts p
+          JOIN vine_users u ON p.user_id = u.id
+          WHERE p.user_id = ?
+            AND p.image_url IS NOT NULL
+        )
+        UNION ALL
+        (
+          SELECT
+            p.id,
+            CONCAT('tagged-photo-', p.id, '-', pt.tagged_user_id) AS feed_id,
+            p.user_id,
+            p.community_id,
+            p.topic_tag,
+            p.content,
+            p.image_url,
+            p.link_preview,
+            p.created_at,
+            p.created_at AS sort_time,
+            u.username,
+            u.display_name,
+            u.avatar_url,
+            u.is_verified,
+            u.badge_type,
+            u.hide_like_counts,
+            NULL AS reviner_username,
+            0 AS revined_by
+          FROM vine_post_tags pt
+          JOIN vine_posts p ON pt.post_id = p.id
+          JOIN vine_users u ON p.user_id = u.id
+          WHERE pt.tagged_user_id = ?
+            AND p.user_id <> ?
+            AND p.image_url IS NOT NULL
+        )
+        ORDER BY sort_time DESC, feed_id DESC
         `,
-        [user.id]
+        [user.id, user.id, user.id]
       );
       const enrichedRows = await enrichVinePostRows(baseRows, viewerId);
       return enrichedRows.map((row) => ({

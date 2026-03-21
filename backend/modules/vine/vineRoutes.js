@@ -13659,7 +13659,7 @@ router.get("/users/:username/likes", authOptional, async (req, res) => {
         JOIN vine_posts p ON l.post_id = p.id
         JOIN vine_users u ON p.user_id = u.id
         WHERE l.user_id = ?
-        ORDER BY l.created_at DESC, l.post_id DESC
+        ORDER BY sort_time DESC, p.id DESC
         `,
         [user.id]
       );

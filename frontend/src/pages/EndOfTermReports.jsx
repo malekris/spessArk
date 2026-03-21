@@ -3,6 +3,7 @@ import React, { useMemo, useState } from "react";
 import generateReportCardPDF from "../components/reportCardPdf";
 
   const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5001";
+  const REPORT_DATES_STORAGE_KEY = "spess_report_card_dates";
 
   function EndOfTermReports({ mode = "term" }) {
   const isEndOfYearMode = mode === "year";
@@ -16,6 +17,15 @@ import generateReportCardPDF from "../components/reportCardPdf";
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [data, setData] = useState([]);
+  const [reportDatesCache, setReportDatesCache] = useState(() => {
+    try {
+      const raw = window.localStorage.getItem(REPORT_DATES_STORAGE_KEY);
+      const parsed = raw ? JSON.parse(raw) : {};
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+      return {};
+    }
+  });
   const termOptions = useMemo(
     () => (isEndOfYearMode ? [{ value: "3", label: "Term 3" }] : [
       { value: "1", label: "Term 1" },
@@ -23,11 +33,51 @@ import generateReportCardPDF from "../components/reportCardPdf";
     ]),
     [isEndOfYearMode]
   );
+  const reportDatesKey = useMemo(
+    () => `${mode}_${year}_${term}`,
+    [mode, year, term]
+  );
+  const reportDates = reportDatesCache[reportDatesKey] || {
+    termEndedOn: "",
+    nextTermBeginsOn: "",
+  };
+
+  const updateReportDate = (field, value) => {
+    setReportDatesCache((prev) => {
+      const next = {
+        ...prev,
+        [reportDatesKey]: {
+          ...(prev[reportDatesKey] || {}),
+          [field]: value,
+        },
+      };
+      try {
+        window.localStorage.setItem(REPORT_DATES_STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        // ignore storage write issues
+      }
+      return next;
+    });
+    setError("");
+  };
+
+  const validateReportDates = (actionLabel) => {
+    if (reportDates.termEndedOn && reportDates.nextTermBeginsOn) return true;
+    setError(
+      `Enter both "Term Ended On" and "Next Term Begins On" before ${actionLabel} ${isEndOfYearMode ? "end-of-year" : "end-of-term"} report cards.`
+    );
+    return false;
+  };
 
   /* ======================
      FETCH REPORT DATA
   ====================== */
   const handlePreview = async () => {
+    if (!validateReportDates("previewing")) {
+      setData([]);
+      return;
+    }
+
     setLoading(true);
     setError("");
     setData([]);
@@ -90,12 +140,16 @@ import generateReportCardPDF from "../components/reportCardPdf";
      DOWNLOAD PDF
   ====================== */
   const handleDownload = () => {
+    if (!validateReportDates("downloading")) return;
+
     generateReportCardPDF(data, {
       year,
       term,
       class_level: classLevel,
       stream,
       reportType: isEndOfYearMode ? "year" : "term",
+      termEndedOn: reportDates.termEndedOn,
+      nextTermBeginsOn: reportDates.nextTermBeginsOn,
     });
   };
 
@@ -157,6 +211,75 @@ import generateReportCardPDF from "../components/reportCardPdf";
         >
           Download PDF
         </button>
+      </div>
+
+      <div
+        style={{
+          marginTop: "1rem",
+          padding: "0.95rem 1rem",
+          borderRadius: "1rem",
+          border: "1px solid rgba(148, 163, 184, 0.28)",
+          background: "rgba(15, 23, 42, 0.72)",
+          display: "grid",
+          gap: "0.8rem",
+        }}
+      >
+        <div>
+          <div style={{ fontSize: "0.78rem", textTransform: "uppercase", letterSpacing: "0.14em", color: "#93c5fd", marginBottom: "0.3rem" }}>
+            Report Dates
+          </div>
+          <div style={{ fontSize: "0.88rem", color: "#cbd5e1", lineHeight: 1.6 }}>
+            Set these once here and they go straight onto the report card. Preview and download stay blocked until both dates are filled.
+          </div>
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+            gap: "0.8rem",
+          }}
+        >
+          <label style={{ display: "grid", gap: "0.35rem" }}>
+            <span style={{ fontSize: "0.78rem", textTransform: "uppercase", letterSpacing: "0.12em", color: "#cbd5e1" }}>
+              Term Ended On
+            </span>
+            <input
+              type="date"
+              value={reportDates.termEndedOn || ""}
+              onChange={(e) => updateReportDate("termEndedOn", e.target.value)}
+              style={{
+                minHeight: "44px",
+                borderRadius: "0.9rem",
+                border: "1px solid rgba(148, 163, 184, 0.35)",
+                background: "rgba(2, 6, 23, 0.9)",
+                color: "#e2e8f0",
+                padding: "0.72rem 0.85rem",
+                outline: "none",
+              }}
+            />
+          </label>
+
+          <label style={{ display: "grid", gap: "0.35rem" }}>
+            <span style={{ fontSize: "0.78rem", textTransform: "uppercase", letterSpacing: "0.12em", color: "#cbd5e1" }}>
+              Next Term Begins On
+            </span>
+            <input
+              type="date"
+              value={reportDates.nextTermBeginsOn || ""}
+              onChange={(e) => updateReportDate("nextTermBeginsOn", e.target.value)}
+              style={{
+                minHeight: "44px",
+                borderRadius: "0.9rem",
+                border: "1px solid rgba(148, 163, 184, 0.35)",
+                background: "rgba(2, 6, 23, 0.9)",
+                color: "#e2e8f0",
+                padding: "0.72rem 0.85rem",
+                outline: "none",
+              }}
+            />
+          </label>
+        </div>
       </div>
 
       {/* STATUS */}

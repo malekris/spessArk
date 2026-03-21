@@ -1247,6 +1247,16 @@ export default function AdminDashboard() {
     return `"${s}"`;
   };
 
+  const formatMarksDetailScore = (row) => {
+    if (!row) return "";
+    if (String(row.status || "").toLowerCase() === "missed") return "Missed";
+    if (row.score === null || row.score === undefined || row.score === "") {
+      return row.aoi_label ? "Missed" : "";
+    }
+    const numericScore = Number(row.score);
+    return Number.isFinite(numericScore) ? String(row.score) : String(row.score);
+  };
+
   /* ---------- Export helpers (CSV / PDF) ---------- */
   const handleDownloadCsv = () => {
     if (!selectedAoi || marksDetail.length === 0) return;
@@ -1276,7 +1286,7 @@ export default function AdminDashboard() {
       csvEscape(row.student_name),
       csvEscape(row.class_level),
       csvEscape(row.stream),
-      csvEscape(row.score),
+      csvEscape(formatMarksDetailScore(row)),
       csvEscape(selectedAoi.subject),
       csvEscape(selectedAoi.aoi_label),
       csvEscape(selectedAoi.term),
@@ -1425,7 +1435,7 @@ export default function AdminDashboard() {
       doc.text(row.class_level || "", 122, y);
       doc.text(row.stream || "", 142, y);
       doc.text(
-        row.score != null ? String(row.score) : "",
+        formatMarksDetailScore(row),
         168,
         y,
         { align: "right" }
@@ -2731,7 +2741,7 @@ export default function AdminDashboard() {
                               <td>{row.class_level}</td>
                               <td>{row.stream}</td>
                               {selectedAoi === "ALL" && <td>{row.aoi_label}</td>}
-                              <td>{row.score}</td>
+                              <td>{formatMarksDetailScore(row)}</td>
                             </tr>
                           ))}
                         </tbody>

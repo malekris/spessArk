@@ -22,6 +22,16 @@ const calculateAge = (dob) => {
 
   return age;
 };
+
+const formatReportDateValue = (value) => {
+  if (!value) return "__________";
+  const raw = String(value).trim();
+  if (!raw) return "__________";
+  const parsed = new Date(`${raw}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return raw;
+  return parsed.toLocaleDateString("en-GB");
+};
+
 const COMMENT_BANK = {
   poor: {
     head: [
@@ -343,7 +353,7 @@ let currentY = 95; // below header + student info
         doc.line(15, 10, pageWidth - 15, 10);
 
         // Badge
-        doc.addImage(badge, "PNG", 15, 12, 18, 18);
+        doc.addImage(badge, "PNG", 15, 14, 18, 18);
 
         // School name
         doc.setFont("helvetica", "bold");
@@ -351,13 +361,9 @@ let currentY = 95; // below header + student info
         doc.text(
           "ST. PHILLIP'S EQUATORIAL SECONDARY SCHOOL",
           pageWidth / 2,
-          18,
+          20.5,
           { align: "center" }
         );
-
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(11.5);
-        doc.text("SPESS ARK", pageWidth / 2, 23, { align: "center" });
 
         // Address
         doc.setFont("helvetica", "normal");
@@ -365,7 +371,7 @@ let currentY = 95; // below header + student info
         doc.text(
           "P.O. BOX 53, Kayabwe, Mpigi",
           pageWidth / 2,
-          27.8,
+          25.9,
           { align: "center" }
         );
 
@@ -374,14 +380,14 @@ let currentY = 95; // below header + student info
         doc.text(
           "Email: stphillipsequatorial@gmail.com | www.stphillipsequatorial.com",
           pageWidth / 2,
-          32.2,
+          30.3,
           { align: "center" }
         );
 
         doc.text(
           "Tel: 0700651402, 0772571671, 0762001883, 0787301685",
           pageWidth / 2,
-          36.6,
+          34.7,
           { align: "center" }
         );
 
@@ -854,8 +860,8 @@ doc.text("Term Ended:", termDatesLeftX + 2, datesY);
 doc.text("Next Term Begins:", termDatesRightX, datesY);
 
 doc.setFont("helvetica", "normal");
-doc.text("__________", termDatesLeftX + 26, datesY);
-doc.text("__________", termDatesRightX + 35, datesY);
+doc.text(formatReportDateValue(meta?.termEndedOn), termDatesLeftX + 26, datesY);
+doc.text(formatReportDateValue(meta?.nextTermBeginsOn), termDatesRightX + 35, datesY);
 
 currentY += RHYTHM * 2;
 

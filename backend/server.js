@@ -1014,6 +1014,7 @@ app.get("/api/admin/marks-detail", authAdmin, async (req, res) => {
         s.class_level,
         s.stream,
         m.score,
+        m.status,
         m.term,
         m.year,
         m.aoi_label

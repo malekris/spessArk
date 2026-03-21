@@ -1869,8 +1869,13 @@ useEffect(() => {
                         style={{
                           ...(isMobileTable
                             ? {
+                                position: "sticky",
+                                left: 0,
+                                zIndex: 8,
                                 minWidth: "140px",
                                 maxWidth: "140px",
+                                background: "#0f172a",
+                                borderRight: "1px solid rgba(148, 163, 184, 0.24)",
                               }
                             : {
                                 position: "sticky",
@@ -1944,8 +1949,13 @@ useEffect(() => {
                             style={{
                               ...(isMobileTable
                                 ? {
+                                    position: "sticky",
+                                    left: 0,
+                                    zIndex: 4,
                                     minWidth: "140px",
                                     maxWidth: "140px",
+                                    background: stickyRowBg,
+                                    borderRight: "1px solid rgba(148, 163, 184, 0.22)",
                                   }
                                 : {
                                     position: "sticky",

@@ -3,6 +3,7 @@ import { plainFetch, adminFetch } from "../../../lib/api";
 import { useNavigate } from "react-router-dom";
 import useIdleLogout from "../../../hooks/useIdleLogout";
 import { loadPdfTools } from "../../../utils/loadPdfTools";
+import ALevelAdminShell from "../components/ALevelAdminShell";
 import "../../../pages/AdminDashboard.css";
 import "./ALevelAdminTheme.css";
 
@@ -256,14 +257,11 @@ export default function ALevelAssignSubjects() {
      8. RENDER
   ====================================================== */
   return (
-    <div className="admin-root alevel-admin-root">
-      <main className="admin-main alevel-admin-main">
-      <button className="ghost-btn" onClick={() => navigate("/ark/admin/alevel")}>
-        ← Back to A-Level Dashboard
-      </button>
-
-      <h1 style={{ marginTop: "1rem" }}>Assign Subjects (A-Level)</h1>
-
+    <ALevelAdminShell
+      title="Assign Subjects"
+      subtitle="Control A-Level stream assignments, paper ownership, and teaching coverage from one shared panel."
+    >
+      <>
       {error && <div className="panel-alert panel-alert-error">{error}</div>}
       {success && <div className="panel-alert panel-alert-success">{success}</div>}
 
@@ -530,7 +528,7 @@ export default function ALevelAssignSubjects() {
           </div>
         </div>
       )}
-      </main>
-    </div>
+      </>
+    </ALevelAdminShell>
   );
 }

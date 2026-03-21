@@ -10,6 +10,7 @@ import { plainFetch } from "../../../lib/api";
 import { useNavigate } from "react-router-dom";
 import useIdleLogout from "../../../hooks/useIdleLogout";
 import { loadPdfTools } from "../../../utils/loadPdfTools";
+import ALevelAdminShell from "../components/ALevelAdminShell";
 import "../../../pages/AdminDashboard.css";
 import "./ALevelAdminTheme.css";
 
@@ -453,15 +454,14 @@ export default function ALevelLearners() {
   // Main render
   // -----------------------
   return (
-    <div className="admin-root alevel-admin-root">
-      <main className="admin-main alevel-admin-main">
-      <button className="ghost-btn" onClick={() => navigate("/ark/admin/alevel")}>← Back to A-Level Dashboard</button>
+    <ALevelAdminShell
+      title="A-Level Learners"
+      subtitle="Register, update, filter, and export learner records without leaving the A-Level workspace."
+    >
+      <>
+        {error && <div className="panel-alert panel-alert-error">{error}</div>}
 
-      <h1>A-Level Learners</h1>
-
-      {error && <div className="panel-alert panel-alert-error">{error}</div>}
-
-      <div className="alevel-learners-layout">
+        <div className="alevel-learners-layout">
         {/* FORM */}
         <div className="panel-card alevel-register-card">
           <div className="alevel-register-header">
@@ -559,134 +559,145 @@ export default function ALevelLearners() {
           </form>
         </div>
 
-        {/* LIST */}
-       {/* LIST */}
-<div className="panel-card alevel-learners-list-card">
-  {/* Header row */}
-  <div className="alevel-learners-card-header">
-    <div>
-      <h3>Registered Learners</h3>
-      <p className="muted-text">Search, review, and export polished class lists for each A-Level stream.</p>
-    </div>
+          <div className="panel-card alevel-learners-list-card">
+            <div className="alevel-learners-card-header">
+              <div>
+                <h3>Registered Learners</h3>
+                <p className="muted-text">Search, review, and export polished class lists for each A-Level stream.</p>
+              </div>
 
-    {/* PDF selector */}
-    <div className="alevel-learners-export-bar">
-      {/* PDF Class */}
-      <select
-        className="alevel-learners-filter-select alevel-export-select"
-        value={pdfClass}
-        onChange={(e) => setPdfClass(e.target.value)}
-      >
-        <option value="">Class</option>
-        <option value="S5">S5</option>
-        <option value="S6">S6</option>
-      </select>
+              <div className="alevel-learners-export-bar">
+                <select
+                  className="alevel-learners-filter-select alevel-export-select"
+                  value={pdfClass}
+                  onChange={(e) => setPdfClass(e.target.value)}
+                  aria-label="Select class for learner export"
+                >
+                  <option value="">Select Class</option>
+                  <option value="S5">S5</option>
+                  <option value="S6">S6</option>
+                </select>
 
-      {/* PDF Stream */}
-      <select
-        className="alevel-learners-filter-select alevel-export-select"
-        value={pdfStream}
-        onChange={(e) => setPdfStream(e.target.value)}
-      >
-        <option value="">Stream</option>
-        <option value="Arts">Arts</option>
-        <option value="Sciences">Sciences</option>
-      </select>
+                <select
+                  className="alevel-learners-filter-select alevel-export-select"
+                  value={pdfStream}
+                  onChange={(e) => setPdfStream(e.target.value)}
+                  aria-label="Select stream for learner export"
+                >
+                  <option value="">Select Stream</option>
+                  <option value="Arts">Arts</option>
+                  <option value="Sciences">Sciences</option>
+                </select>
 
-      <button className="primary-btn" onClick={handleDownloadAlevelClasslistPdf}>
-        Download PDF
-      </button>
-      <button
-        className="primary-btn"
-        onClick={handleDownloadAlevelClasslistCsv}
-        style={{
-          background: "linear-gradient(135deg, #ef4444 0%, #b91c1c 100%)",
-          color: "#fff",
-          border: "none",
-          borderRadius: "999px",
-          padding: "0.45rem 0.95rem",
-          fontWeight: 700,
-        }}
-      >
-        Download CSV
-      </button>
-    </div>
-  </div>
+                <button className="primary-btn" onClick={handleDownloadAlevelClasslistPdf}>
+                  Download PDF
+                </button>
+                <button
+                  className="primary-btn"
+                  onClick={handleDownloadAlevelClasslistCsv}
+                  style={{
+                    background: "linear-gradient(135deg, #ef4444 0%, #b91c1c 100%)",
+                    color: "#fff",
+                    border: "none",
+                    borderRadius: "999px",
+                    padding: "0.45rem 0.95rem",
+                    fontWeight: 700,
+                  }}
+                >
+                  Download CSV
+                </button>
+              </div>
+            </div>
 
-  <div className="alevel-learners-list-filters">
-    <input
-      className="alevel-learners-filter-input alevel-learners-list-search"
-      placeholder="Search registered learners by name..."
-      value={search}
-      onChange={(e) => setSearch(e.target.value)}
-    />
+            <div className="alevel-learners-list-filters">
+              <input
+                className="alevel-learners-filter-input alevel-learners-list-search"
+                placeholder="Search registered learners by name..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
 
-    <select
-      className="alevel-learners-filter-select"
-      value={filterClass}
-      onChange={(e) => setFilterClass(e.target.value)}
-    >
-      <option value="">All classes</option>
-      <option value="S5">S5</option>
-      <option value="S6">S6</option>
-    </select>
+              <div className="alevel-inline-filter-field">
+                <label className="alevel-inline-filter-label">Class Filter</label>
+                <select
+                  className="alevel-learners-filter-select"
+                  value={filterClass}
+                  onChange={(e) => setFilterClass(e.target.value)}
+                  aria-label="Filter learners by class"
+                >
+                  <option value="">All classes</option>
+                  <option value="S5">S5</option>
+                  <option value="S6">S6</option>
+                </select>
+              </div>
 
-    <select
-      className="alevel-learners-filter-select"
-      value={filterStream}
-      onChange={(e) => setFilterStream(e.target.value)}
-    >
-      <option value="">All streams</option>
-      {STREAMS.map((s) => (
-        <option key={s} value={s}>{s}</option>
-      ))}
-    </select>
-  </div>
+              <div className="alevel-inline-filter-field">
+                <label className="alevel-inline-filter-label">Stream Filter</label>
+                <select
+                  className="alevel-learners-filter-select"
+                  value={filterStream}
+                  onChange={(e) => setFilterStream(e.target.value)}
+                  aria-label="Filter learners by stream"
+                >
+                  <option value="">All streams</option>
+                  {STREAMS.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
 
-  {/* Table */}
-  {loading ? (
-    <p>Loading...</p>
-  ) : (
-    <div className="teachers-table-wrapper alevel-learners-table-shell">
-      <table className="teachers-table alevel-learners-table">
-        <thead>
-          <tr>
-            <th className="alevel-table-head-cell">#</th>
-            <th className="alevel-table-head-cell">Name</th>
-            <th className="alevel-table-head-cell">Stream</th>
-            <th className="alevel-table-head-cell">Subjects</th>
-            <th className="alevel-table-head-cell alevel-table-actions-head">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {filteredLearners.length === 0 ? (
-            <tr>
-              <td colSpan="5" style={{ textAlign: "center", padding: "1rem" }}>
-                No learners found
-              </td>
-            </tr>
-          ) : (
-            filteredLearners.map((l, i) => (
-              <tr key={l.id}>
-                <td>{i + 1}</td>
-                <td>{l.name}</td>
-                <td>{l.stream}</td>
-                <td className="alevel-subjects-cell">{l.subjects}</td>
-                <td className="alevel-table-actions">
-                  <button className="ghost-btn alevel-action-btn" onClick={() => handleEdit(l)}>Edit</button>
-                  <button className="danger-link alevel-action-btn alevel-danger-btn" onClick={() => handleDelete(l.id)}>Delete</button>
-                </td>
-              </tr>
-            ))
-          )}
-        </tbody>
-      </table>
-    </div>
-  )}
-</div>
-     
-      </div>
-      </main>
-    </div>
+            {loading ? (
+              <p>Loading...</p>
+            ) : (
+              <div className="teachers-table-wrapper alevel-learners-table-shell">
+                <table className="teachers-table alevel-learners-table">
+                  <thead>
+                    <tr>
+                      <th className="alevel-table-head-cell">#</th>
+                      <th className="alevel-table-head-cell">Name</th>
+                      <th className="alevel-table-head-cell">Stream</th>
+                      <th className="alevel-table-head-cell">Subjects</th>
+                      <th className="alevel-table-head-cell alevel-table-actions-head">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredLearners.length === 0 ? (
+                      <tr>
+                        <td colSpan="5" style={{ textAlign: "center", padding: "1rem" }}>
+                          No learners found
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredLearners.map((l, i) => (
+                        <tr key={l.id}>
+                          <td>{i + 1}</td>
+                          <td>{l.name}</td>
+                          <td>{l.stream}</td>
+                          <td className="alevel-subjects-cell">{l.subjects}</td>
+                          <td className="alevel-table-actions">
+                            <button className="ghost-btn alevel-action-btn" onClick={() => handleEdit(l)}>
+                              Edit
+                            </button>
+                            <button
+                              className="danger-link alevel-action-btn alevel-danger-btn"
+                              onClick={() => handleDelete(l.id)}
+                            >
+                              Delete
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      </>
+    </ALevelAdminShell>
   );
 }

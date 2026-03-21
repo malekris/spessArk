@@ -2,7 +2,14 @@
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif !important;
 }
 
-.alevel-admin-root:not(.alevel-dashboard-layout) {
+.alevel-admin-root.alevel-shell-root {
+  display: flex;
+  min-height: 100vh;
+  background: var(--alevel-shell-bg) !important;
+  color: var(--alevel-shell-body) !important;
+}
+
+.alevel-admin-root:not(.alevel-shell-root):not(.alevel-dashboard-layout) {
   display: block;
   min-height: 100vh;
   height: auto;
@@ -12,9 +19,9 @@
   -webkit-overflow-scrolling: touch;
 }
 
-.alevel-admin-root:not(.alevel-dashboard-layout) .alevel-admin-main,
-.alevel-admin-root:not(.alevel-dashboard-layout) .panel,
-.alevel-admin-root:not(.alevel-dashboard-layout) .panel-card {
+.alevel-admin-root:not(.alevel-shell-root):not(.alevel-dashboard-layout) .alevel-admin-main,
+.alevel-admin-root:not(.alevel-shell-root):not(.alevel-dashboard-layout) .panel,
+.alevel-admin-root:not(.alevel-shell-root):not(.alevel-dashboard-layout) .panel-card {
   min-height: auto;
   height: auto;
   max-height: none;
@@ -52,11 +59,245 @@
   overflow-x: hidden;
 }
 
+.alevel-shell-sidebar {
+  width: var(--alevel-sidebar-width) !important;
+  padding: 1.6rem 1rem 1.2rem;
+  border-right: 1px solid var(--alevel-sidebar-border);
+  background: var(--alevel-sidebar-bg);
+  transition: width 0.24s ease, padding 0.24s ease, background 0.24s ease;
+  z-index: 40;
+  backdrop-filter: blur(16px);
+}
+
+.alevel-shell-main,
 .alevel-dashboard-main {
-  margin-left: 270px;
-  width: calc(100% - 270px);
+  margin-left: var(--alevel-sidebar-width);
+  width: calc(100% - var(--alevel-sidebar-width));
   min-width: 0;
   overflow-x: hidden;
+}
+
+.alevel-shell-main {
+  min-height: 100vh;
+}
+
+.alevel-shell-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 25;
+  padding: 1rem 2rem;
+  background: var(--alevel-topbar-bg);
+  border-bottom: 1px solid var(--alevel-topbar-border);
+  backdrop-filter: blur(14px);
+}
+
+.alevel-shell-topbar-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.alevel-shell-page-copy h1 {
+  margin: 0;
+  color: var(--alevel-shell-title);
+  font-size: 1.2rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+}
+
+.alevel-shell-page-copy p {
+  margin: 0.2rem 0 0;
+  color: var(--alevel-shell-muted);
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+.alevel-shell-topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.alevel-shell-topbar-btn {
+  background: var(--alevel-shell-ghost-bg) !important;
+  border-color: var(--alevel-shell-ghost-border) !important;
+  color: var(--alevel-shell-body) !important;
+}
+
+.alevel-shell-content {
+  padding-top: 1.6rem;
+}
+
+.alevel-shell-brand {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  margin-bottom: 1.6rem;
+}
+
+.alevel-shell-brand-title {
+  display: flex;
+  align-items: baseline;
+  gap: 0.42rem;
+  color: var(--alevel-shell-title);
+  font-size: 1.08rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
+.alevel-shell-brand-accent {
+  color: var(--alevel-accent);
+}
+
+.alevel-shell-brand p {
+  margin: 0.32rem 0 0;
+  color: var(--alevel-shell-muted);
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.alevel-shell-collapse-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  border: 1px solid var(--alevel-shell-ghost-border);
+  background: var(--alevel-shell-ghost-bg);
+  color: var(--alevel-shell-body);
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 800;
+  transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+
+.alevel-shell-collapse-btn:hover,
+.alevel-shell-sidebar-btn:hover,
+.alevel-shell-nav-item:hover {
+  transform: translateY(-1px);
+}
+
+.alevel-shell-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin-top: 0.35rem;
+}
+
+.alevel-shell-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  width: 100%;
+  padding: 0.82rem 0.88rem;
+  border-radius: 16px;
+  border: 1px solid transparent;
+  background: var(--alevel-nav-bg);
+  color: var(--alevel-nav-text);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
+}
+
+.alevel-shell-nav-item:hover {
+  background: var(--alevel-nav-hover);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+.alevel-shell-nav-item.is-active {
+  background: var(--alevel-nav-hover);
+  color: var(--alevel-nav-active-text);
+  border-color: var(--alevel-nav-active-border);
+  box-shadow: 0 12px 24px rgba(2, 6, 23, 0.18);
+}
+
+.alevel-shell-nav-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  background: rgba(56, 189, 248, 0.12);
+  color: var(--alevel-accent);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.alevel-shell-nav-label {
+  font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.alevel-shell-sidebar-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  margin-top: auto;
+  padding-top: 1rem;
+}
+
+.alevel-shell-sidebar-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.82rem 0.88rem;
+  border-radius: 16px;
+  border: 1px solid var(--alevel-shell-ghost-border);
+  background: var(--alevel-shell-ghost-bg);
+  color: var(--alevel-shell-body);
+  cursor: pointer;
+  transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+
+.alevel-shell-sidebar-btn span:first-child {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  background: rgba(56, 189, 248, 0.12);
+  color: var(--alevel-accent);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sidebar-collapsed .alevel-shell-sidebar {
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+}
+
+.sidebar-collapsed .alevel-shell-brand {
+  justify-content: center;
+}
+
+.sidebar-collapsed .alevel-shell-brand-copy p,
+.sidebar-collapsed .alevel-shell-brand-accent {
+  display: none;
+}
+
+.sidebar-collapsed .alevel-shell-brand-title {
+  justify-content: center;
+}
+
+.sidebar-collapsed .alevel-shell-nav-item,
+.sidebar-collapsed .alevel-shell-sidebar-btn {
+  justify-content: center;
+  padding-left: 0.55rem;
+  padding-right: 0.55rem;
 }
 
 .alevel-admin-root h1,
@@ -183,6 +424,20 @@
 
 .alevel-learners-filter-select {
   min-width: 148px;
+  padding-right: 2.8rem;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, #7dd3fc 50%),
+    linear-gradient(135deg, #7dd3fc 50%, transparent 50%),
+    linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(2, 6, 23, 0.95));
+  background-position:
+    calc(100% - 18px) calc(50% - 3px),
+    calc(100% - 12px) calc(50% - 3px),
+    0 0;
+  background-size: 6px 6px, 6px 6px, 100% 100%;
+  background-repeat: no-repeat;
+  -webkit-text-fill-color: #e2e8f0;
 }
 
 .alevel-learners-filter-input:focus,
@@ -309,7 +564,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
-  align-items: center;
+  align-items: flex-end;
   margin-top: 1rem;
   margin-bottom: 0.15rem;
 }
@@ -319,8 +574,47 @@
   flex: 1 1 280px;
 }
 
+.alevel-inline-filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 180px;
+}
+
+.alevel-inline-filter-label {
+  padding-left: 0.2rem;
+  color: #7dd3fc;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
 .alevel-export-select {
-  min-width: 135px;
+  min-width: 168px;
+  border: 1px solid rgba(56, 189, 248, 0.42);
+  background:
+    linear-gradient(180deg, rgba(8, 18, 34, 0.98), rgba(2, 10, 22, 0.96)),
+    linear-gradient(135deg, rgba(56, 189, 248, 0.16), rgba(14, 165, 233, 0.08));
+  color: #f8fafc;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 12px 26px rgba(2, 6, 23, 0.28);
+}
+
+.alevel-export-select:hover {
+  border-color: rgba(125, 211, 252, 0.72);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 14px 28px rgba(2, 6, 23, 0.34);
+}
+
+.alevel-export-select option,
+.alevel-learners-filter-select option {
+  background: #0f172a;
+  color: #f8fafc;
 }
 
 .alevel-learners-table-shell {
@@ -562,6 +856,35 @@
   box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.12), 0 12px 26px rgba(148, 163, 184, 0.18);
 }
 
+.alevel-admin-root.mode-light .alevel-inline-filter-label {
+  color: #0369a1;
+}
+
+.alevel-admin-root.mode-light .alevel-learners-filter-select {
+  background-image:
+    linear-gradient(45deg, transparent 50%, #0284c7 50%),
+    linear-gradient(135deg, #0284c7 50%, transparent 50%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(241, 245, 249, 0.98));
+  -webkit-text-fill-color: #0f172a;
+}
+
+.alevel-admin-root.mode-light .alevel-export-select {
+  border-color: rgba(14, 165, 233, 0.32);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(241, 245, 249, 0.98)),
+    linear-gradient(135deg, rgba(14, 165, 233, 0.08), rgba(14, 165, 233, 0.03));
+  color: #0f172a;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 12px 24px rgba(148, 163, 184, 0.18);
+}
+
+.alevel-admin-root.mode-light .alevel-export-select option,
+.alevel-admin-root.mode-light .alevel-learners-filter-select option {
+  background: #ffffff;
+  color: #0f172a;
+}
+
 .alevel-admin-root.mode-light .alevel-assign-select {
   border: 1px solid rgba(14, 116, 144, 0.18);
   background:
@@ -632,11 +955,13 @@
 }
 
 @media (max-width: 960px) {
+  .alevel-shell-root,
   .alevel-dashboard-layout {
     flex-direction: column !important;
   }
 
-  .alevel-sidebar {
+  .alevel-sidebar,
+  .alevel-shell-sidebar {
     position: static !important;
     width: 100% !important;
     height: auto !important;
@@ -644,9 +969,14 @@
     overflow: visible;
   }
 
+  .alevel-shell-main,
   .alevel-dashboard-main {
     margin-left: 0;
     width: 100%;
+  }
+
+  .alevel-shell-topbar {
+    padding: 1rem 1rem 0.9rem;
   }
 
   .alevel-admin-main {
@@ -680,5 +1010,17 @@
 
   .alevel-table-actions {
     justify-content: flex-start;
+  }
+
+  .sidebar-collapsed .alevel-shell-brand-copy p,
+  .sidebar-collapsed .alevel-shell-brand-accent {
+    display: inline;
+  }
+
+  .sidebar-collapsed .alevel-shell-nav-item,
+  .sidebar-collapsed .alevel-shell-sidebar-btn {
+    justify-content: flex-start;
+    padding-left: 0.88rem;
+    padding-right: 0.88rem;
   }
 }

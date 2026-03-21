@@ -2,6 +2,7 @@ import { useState } from "react";
 import "./AlevelReport.css";
 import { useNavigate } from "react-router-dom";
 import useIdleLogout from "../../../hooks/useIdleLogout";
+import ALevelAdminShell from "../components/ALevelAdminShell";
 import "../../../pages/AdminDashboard.css";
 import "./ALevelAdminTheme.css";
 
@@ -103,177 +104,199 @@ export default function AlevelReport() {
     letterSpacing: "0.1em"
   };
   return (
-    <div className="admin-root alevel-admin-root" style={{ minHeight: "100vh", background: cinematicBlack, color: platinum, paddingBottom: "4rem", fontFamily: "'Inter', sans-serif" }}>
-      
-      {/* CINEMATIC BANNER */}
-      <div style={{
-        position: "relative",
-        height: "350px",
-        width: "100%",
-        backgroundImage: `linear-gradient(to bottom, rgba(10, 12, 16, 0.1), ${cinematicBlack}), url('/tracy.jpg')`,
-        backgroundSize: "cover",
-        backgroundPosition: "center 20%",
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "center",
-        padding: "0 4rem"
-      }}>
-        <button 
-  onClick={() => navigate("/ark/admin/alevel")} 
-  style={{
-    position: "absolute",
-    top: "2rem",
-    left: "4rem",
-    background: "rgba(0,0,0,0.5)",
-    border: "none",
-    color: "#c084fc", // use real color instead of amethyst
-    cursor: "pointer",
-    padding: "8px 16px",
-    borderRadius: "10px",
-    fontWeight: "700",
-    fontSize: "0.7rem",
-    backdropFilter: "blur(5px)",
-    zIndex: 50   // 👈 THIS FIXES IT
-  }}
->
-  ← BACK TO A LEVEL MANAGER
-</button>
+    <ALevelAdminShell
+      title="Report Hub"
+      subtitle="Preview and generate A-Level report cards from the same shared navigation and theme shell."
+    >
+      {({ isDark }) => {
+        const pageBg = isDark ? cinematicBlack : "#f8fafc";
+        const bodyText = isDark ? platinum : "#0f172a";
+        const softText = isDark ? "rgba(241, 245, 249, 0.82)" : "#475569";
+        const shellCard = isDark
+          ? glassBg
+          : "linear-gradient(180deg, rgba(255,255,255,0.96), rgba(241,245,249,0.94))";
+        const shellBorder = isDark ? "rgba(255, 255, 255, 0.05)" : "rgba(15, 23, 42, 0.08)";
+        const themedInputStyle = {
+          ...inputStyle,
+          background: isDark ? "rgba(0, 0, 0, 0.3)" : "rgba(255,255,255,0.9)",
+          border: `1px solid ${isDark ? "rgba(255, 255, 255, 0.1)" : "rgba(15, 23, 42, 0.12)"}`,
+          color: bodyText,
+        };
 
-
-        <h1 style={{ fontSize: "3.5rem", fontWeight: "900", margin: 0, textShadow: "0 4px 20px rgba(0,0,0,0.6)" }}>
-          Academic <span style={{ color: amethyst }}>Reports</span>
-        </h1>
-        <p style={{ fontSize: "1.1rem", opacity: 0.8, maxWidth: "600px", marginTop: "0.5rem" }}>
-          Generate and analyze comprehensive student performance statements for A-Level candidates.
-        </p>
-      </div>
-
-      <div style={{ maxWidth: "1200px", margin: "-60px auto 0 auto", padding: "0 2rem", position: "relative", zIndex: 10 }}>
-        
-        {/* MAIN FILTER CARD */}
-        <div style={{
-          background: glassBg,
-          backdropFilter: "blur(16px)",
-          borderRadius: "28px",
-          padding: "2.5rem",
-          border: "1px solid rgba(255, 255, 255, 0.05)",
-          boxShadow: "0 8px 32px 0 rgba(0, 0, 0, 0.37)"
-        }}>
-          <h2 style={{ fontSize: "1.25rem", fontWeight: "800", marginBottom: "2rem", color: "#fff" }}>Report Generation Parameters</h2>
-
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1.5rem" }}>
-            
-            <div className="form-group">
-              <label style={labelStyle}>Term</label>
-              <select style={inputStyle} value={term} onChange={(e) => setTerm(e.target.value)}>
-                <option value="" style={{background: cinematicBlack}}>Select Term</option>
-                <option style={{background: cinematicBlack}}>Term 1</option>
-                <option style={{background: cinematicBlack}}>Term 2</option>
-                <option style={{background: cinematicBlack}}>Term 3</option>
-              </select>
-            </div>
-
-            <div className="form-group">
-              <label style={labelStyle}>Class</label>
-              <select style={inputStyle} value={cls} onChange={(e) => setCls(e.target.value)}>
-                <option value="" style={{background: cinematicBlack}}>Select Class</option>
-                <option value="S5" style={{background: cinematicBlack}}>S5</option>
-                <option value="S6" style={{background: cinematicBlack}}>S6</option>
-              </select>
-            </div>
-
-            <div className="form-group">
-              <label style={labelStyle}>Stream</label>
-              <select style={inputStyle} value={stream} onChange={(e) => setStream(e.target.value)}>
-                <option value="" style={{background: cinematicBlack}}>Select Stream</option>
-                <option value="Arts" style={{background: cinematicBlack}}>Arts</option>
-                <option value="Sciences" style={{background: cinematicBlack}}>Sciences</option>
-              </select>
-            </div>
-
-            <div className="form-group">
-              <label style={labelStyle}>Year</label>
-              <input
-                type="number"
-                style={inputStyle}
-                value={year}
-                onChange={(e) => setYear(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div style={{ marginTop: "2.5rem", display: "flex", alignItems: "center", gap: "1.5rem" }}>
-            <button 
+        return (
+          <div style={{ minHeight: "100%", color: bodyText, paddingBottom: "3rem", fontFamily: "'Inter', sans-serif" }}>
+            <div
               style={{
-                background: amethyst,
-                color: cinematicBlack,
-                border: "none",
-                padding: "14px 28px",
-                borderRadius: "14px",
-                fontWeight: "800",
-                fontSize: "0.9rem",
-                cursor: loading ? "not-allowed" : "pointer",
-                transition: "transform 0.2s ease",
-                opacity: loading ? 0.7 : 1
+                position: "relative",
+                minHeight: "280px",
+                width: "100%",
+                backgroundImage: `linear-gradient(to bottom, ${
+                  isDark ? `rgba(10, 12, 16, 0.1), ${cinematicBlack}` : "rgba(248, 250, 252, 0.08), rgba(248, 250, 252, 0.94)"
+                }), url('/tracy.jpg')`,
+                backgroundSize: "cover",
+                backgroundPosition: "center 20%",
+                display: "flex",
+                flexDirection: "column",
+                justifyContent: "flex-end",
+                padding: "0 2rem 2rem",
+                borderRadius: "0 0 28px 28px",
+                overflow: "hidden",
               }}
-              onClick={handlePreview} 
-              disabled={loading}
             >
-              {loading ? "PROCESSING..." : "PREVIEW REPORTS"}
-            </button>
-            {error && <p style={{ color: "#fca5a5", fontSize: "0.85rem", fontWeight: "600", margin: 0 }}>{error}</p>}
+              <h1 style={{ fontSize: "3rem", fontWeight: "900", margin: 0, color: bodyText }}>
+                Academic <span style={{ color: amethyst }}>Reports</span>
+              </h1>
+              <p style={{ fontSize: "1.08rem", color: softText, maxWidth: "640px", marginTop: "0.55rem" }}>
+                Generate and analyze comprehensive student performance statements for A-Level candidates.
+              </p>
+            </div>
+
+            <div style={{ maxWidth: "1200px", margin: "-40px auto 0 auto", padding: "0 0.25rem", position: "relative", zIndex: 10 }}>
+              <div
+                style={{
+                  background: shellCard,
+                  backdropFilter: "blur(16px)",
+                  borderRadius: "28px",
+                  padding: "2.5rem",
+                  border: `1px solid ${shellBorder}`,
+                  boxShadow: isDark ? "0 8px 32px 0 rgba(0, 0, 0, 0.37)" : "0 20px 40px rgba(15, 23, 42, 0.08)",
+                }}
+              >
+                <h2 style={{ fontSize: "1.25rem", fontWeight: "800", marginBottom: "2rem", color: bodyText }}>
+                  Report Generation Parameters
+                </h2>
+
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1.5rem" }}>
+                  <div className="form-group">
+                    <label style={labelStyle}>Term</label>
+                    <select style={themedInputStyle} value={term} onChange={(e) => setTerm(e.target.value)}>
+                      <option value="" style={{ background: pageBg }}>
+                        Select Term
+                      </option>
+                      <option style={{ background: pageBg }}>Term 1</option>
+                      <option style={{ background: pageBg }}>Term 2</option>
+                      <option style={{ background: pageBg }}>Term 3</option>
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label style={labelStyle}>Class</label>
+                    <select style={themedInputStyle} value={cls} onChange={(e) => setCls(e.target.value)}>
+                      <option value="" style={{ background: pageBg }}>
+                        Select Class
+                      </option>
+                      <option value="S5" style={{ background: pageBg }}>
+                        S5
+                      </option>
+                      <option value="S6" style={{ background: pageBg }}>
+                        S6
+                      </option>
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label style={labelStyle}>Stream</label>
+                    <select style={themedInputStyle} value={stream} onChange={(e) => setStream(e.target.value)}>
+                      <option value="" style={{ background: pageBg }}>
+                        Select Stream
+                      </option>
+                      <option value="Arts" style={{ background: pageBg }}>
+                        Arts
+                      </option>
+                      <option value="Sciences" style={{ background: pageBg }}>
+                        Sciences
+                      </option>
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label style={labelStyle}>Year</label>
+                    <input type="number" style={themedInputStyle} value={year} onChange={(e) => setYear(e.target.value)} />
+                  </div>
+                </div>
+
+                <div style={{ marginTop: "2.5rem", display: "flex", alignItems: "center", gap: "1.5rem", flexWrap: "wrap" }}>
+                  <button
+                    style={{
+                      background: amethyst,
+                      color: cinematicBlack,
+                      border: "none",
+                      padding: "14px 28px",
+                      borderRadius: "14px",
+                      fontWeight: "800",
+                      fontSize: "0.9rem",
+                      cursor: loading ? "not-allowed" : "pointer",
+                      transition: "transform 0.2s ease",
+                      opacity: loading ? 0.7 : 1,
+                    }}
+                    onClick={handlePreview}
+                    disabled={loading}
+                  >
+                    {loading ? "PROCESSING..." : "PREVIEW REPORTS"}
+                  </button>
+                  {error && (
+                    <p style={{ color: isDark ? "#fca5a5" : "#991b1b", fontSize: "0.85rem", fontWeight: "600", margin: 0 }}>
+                      {error}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {previewData && (
+                <div
+                  style={{
+                    marginTop: "1.5rem",
+                    background: isDark ? "rgba(167, 139, 250, 0.05)" : "rgba(59, 130, 246, 0.06)",
+                    backdropFilter: "blur(12px)",
+                    borderRadius: "20px",
+                    padding: "1.5rem 2.5rem",
+                    border: `1px solid ${isDark ? "rgba(167, 139, 250, 0.2)" : "rgba(59, 130, 246, 0.16)"}`,
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: "1rem",
+                    flexWrap: "wrap",
+                    animation: "fadeIn 0.5s ease forwards",
+                  }}
+                >
+                  <p style={{ margin: 0, fontSize: "1rem", color: softText }}>
+                    <span style={{ color: amethyst, fontWeight: "800" }}>{previewData.learners}</span> student reports available ·{" "}
+                    <span style={{ color: amethyst, fontWeight: "800" }}>{previewData.subjects}</span> subjects included
+                  </p>
+
+                  <button
+                    style={{
+                      background: isDark ? "rgba(255, 255, 255, 0.05)" : "rgba(255,255,255,0.9)",
+                      color: bodyText,
+                      border: `1px solid ${isDark ? "rgba(255, 255, 255, 0.1)" : "rgba(15, 23, 42, 0.12)"}`,
+                      padding: "10px 20px",
+                      borderRadius: "12px",
+                      fontWeight: "700",
+                      fontSize: "0.8rem",
+                      cursor: "pointer",
+                    }}
+                    onClick={handleDownload}
+                  >
+                    DOWNLOAD REPORTS
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <style>
+              {`
+                @keyframes fadeIn {
+                  from { opacity: 0; transform: translateY(10px); }
+                  to { opacity: 1; transform: translateY(0); }
+                }
+                select { cursor: pointer; }
+                input:focus, select:focus { border-color: ${amethyst} !important; }
+              `}
+            </style>
           </div>
-        </div>
-
-        {/* PREVIEW STATUS CARD */}
-        {previewData && (
-          <div style={{
-            marginTop: "1.5rem",
-            background: "rgba(167, 139, 250, 0.05)",
-            backdropFilter: "blur(12px)",
-            borderRadius: "20px",
-            padding: "1.5rem 2.5rem",
-            border: `1px solid rgba(167, 139, 250, 0.2)`,
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            animation: "fadeIn 0.5s ease forwards"
-          }}>
-            <p style={{ margin: 0, fontSize: "1rem", opacity: 0.9 }}>
-              <span style={{ color: amethyst, fontWeight: "800" }}>{previewData.learners}</span> student reports available ·{" "}
-              <span style={{ color: amethyst, fontWeight: "800" }}>{previewData.subjects}</span> subjects included
-            </p>
-
-            <button 
-              style={{
-                background: "rgba(255, 255, 255, 0.05)",
-                color: platinum,
-                border: "1px solid rgba(255, 255, 255, 0.1)",
-                padding: "10px 20px",
-                borderRadius: "12px",
-                fontWeight: "700",
-                fontSize: "0.8rem",
-                cursor: "pointer"
-              }}
-              onClick={handleDownload}
-            >
-              DOWNLOAD REPORTS
-            </button>
-          </div>
-        )}
-      </div>
-
-      <style>
-        {`
-          @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-          }
-          select { cursor: pointer; }
-          input:focus, select:focus { border-color: ${amethyst} !important; }
-        `}
-      </style>
-    </div>
+        );
+      }}
+    </ALevelAdminShell>
   );
 }
 

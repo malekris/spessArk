@@ -14,6 +14,7 @@ export async function getLearners(req, res) {
         l.id,
         CONCAT(l.first_name, ' ', l.last_name) AS name,
         l.gender,
+        l.dob,
         l.house,
         l.stream,
         l.combination,
@@ -26,6 +27,7 @@ export async function getLearners(req, res) {
         l.first_name,
         l.last_name,
         l.gender,
+        l.dob,
         l.house,
         l.stream,
         l.combination

@@ -461,41 +461,6 @@ export default function ALevelLearners() {
 
       {error && <div className="panel-alert panel-alert-error">{error}</div>}
 
-      <div className="alevel-learners-toolbar">
-  
-  {/* Search */}
-  <input
-    className="alevel-learners-filter-input"
-    placeholder="Search learner by name..."
-    value={search}
-    onChange={(e) => setSearch(e.target.value)}
-  />
-
-  {/* Class filter */}
-  <select
-    className="alevel-learners-filter-select"
-    value={filterClass}
-    onChange={(e) => setFilterClass(e.target.value)}
-  >
-    <option value="">All classes</option>
-    <option value="S5">S5</option>
-    <option value="S6">S6</option>
-  </select>
-
-  {/* Stream filter */}
-  <select
-    className="alevel-learners-filter-select"
-    value={filterStream}
-    onChange={(e) => setFilterStream(e.target.value)}
-  >
-    <option value="">All streams</option>
-    {STREAMS.map((s) => (
-      <option key={s} value={s}>{s}</option>
-    ))}
-  </select>
-      </div>
-
-
       <div className="alevel-learners-layout">
         {/* FORM */}
         <div className="panel-card alevel-register-card">
@@ -646,6 +611,36 @@ export default function ALevelLearners() {
         Download CSV
       </button>
     </div>
+  </div>
+
+  <div className="alevel-learners-list-filters">
+    <input
+      className="alevel-learners-filter-input alevel-learners-list-search"
+      placeholder="Search registered learners by name..."
+      value={search}
+      onChange={(e) => setSearch(e.target.value)}
+    />
+
+    <select
+      className="alevel-learners-filter-select"
+      value={filterClass}
+      onChange={(e) => setFilterClass(e.target.value)}
+    >
+      <option value="">All classes</option>
+      <option value="S5">S5</option>
+      <option value="S6">S6</option>
+    </select>
+
+    <select
+      className="alevel-learners-filter-select"
+      value={filterStream}
+      onChange={(e) => setFilterStream(e.target.value)}
+    >
+      <option value="">All streams</option>
+      {STREAMS.map((s) => (
+        <option key={s} value={s}>{s}</option>
+      ))}
+    </select>
   </div>
 
   {/* Table */}

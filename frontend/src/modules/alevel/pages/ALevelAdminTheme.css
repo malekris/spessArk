@@ -305,6 +305,20 @@
   flex-wrap: wrap;
 }
 
+.alevel-learners-list-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  margin-top: 1rem;
+  margin-bottom: 0.15rem;
+}
+
+.alevel-learners-list-search {
+  min-width: min(360px, 100%);
+  flex: 1 1 280px;
+}
+
 .alevel-export-select {
   min-width: 135px;
 }
@@ -654,6 +668,14 @@
 
   .alevel-learners-filter-input {
     min-width: 100%;
+  }
+
+  .alevel-learners-list-filters {
+    align-items: stretch;
+  }
+
+  .alevel-learners-list-search {
+    flex-basis: 100%;
   }
 
   .alevel-table-actions {

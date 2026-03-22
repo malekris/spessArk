@@ -79,12 +79,24 @@ export default function VineLogin() {
   };
 
   return (
-    <div className="vine-auth-bg">
-      <div className="vine-auth-card">
+    <div className="vine-auth-bg vine-auth-bg-login">
+      <div className="vine-login-florals" aria-hidden="true">
+        <span className="vine-flower vine-flower-top" />
+        <span className="vine-flower vine-flower-bottom" />
+        <span className="vine-leaf-arc vine-leaf-arc-left" />
+        <span className="vine-leaf-arc vine-leaf-arc-right" />
+      </div>
+      <div className="vine-auth-card vine-auth-card-login">
       <Link to="/" className="back-home-btn">
     ← Back to website
-  </Link>   
+  </Link>
+        <div className="vine-login-kicker">
+          <span className="vine-login-kicker-line" />
+          <span className="vine-login-kicker-bloom">Bloom into Vine</span>
+          <span className="vine-login-kicker-line" />
+        </div>
         <h2 className="vine-title">Welcome to SPESS VINE 🌱</h2>
+        <p className="vine-login-subcopy">Forest calm, mint light, and a little floral grace before you step in.</p>
 
         {isDesktop && !showDesktopForm ? (
           <button

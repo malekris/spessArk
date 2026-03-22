@@ -13,26 +13,309 @@
     justify-content: center;
     padding: 1rem;
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    position: relative;
+    overflow: hidden;
   }
+
+.vine-auth-bg-login {
+  background:
+    linear-gradient(rgba(3, 34, 18, 0.28), rgba(3, 34, 18, 0.52)),
+    url("/newcover.jpeg") center center / cover no-repeat;
+}
+
+.vine-auth-bg-login::before,
+.vine-auth-bg-login::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.vine-auth-bg-login::before {
+  background:
+    radial-gradient(circle at 14% 18%, rgba(214, 255, 232, 0.14), transparent 18%),
+    radial-gradient(circle at 84% 14%, rgba(173, 236, 197, 0.1), transparent 16%),
+    radial-gradient(circle at 50% 82%, rgba(226, 255, 238, 0.08), transparent 24%),
+    linear-gradient(135deg, rgba(5, 46, 22, 0.22), rgba(6, 78, 59, 0.08) 42%, rgba(233, 255, 242, 0.04) 64%, rgba(5, 46, 22, 0.28));
+  mix-blend-mode: screen;
+}
+
+.vine-auth-bg-login::after {
+  background:
+    linear-gradient(90deg, rgba(230, 255, 241, 0.06), transparent 24%, transparent 76%, rgba(230, 255, 241, 0.06)),
+    linear-gradient(180deg, rgba(5, 46, 22, 0.12), transparent 20%, transparent 78%, rgba(5, 46, 22, 0.22));
+}
+
+.vine-login-florals {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.vine-flower,
+.vine-leaf-arc {
+  position: absolute;
+  display: block;
+  filter: drop-shadow(0 12px 22px rgba(2, 27, 15, 0.18));
+}
+
+.vine-flower {
+  width: 184px;
+  height: 184px;
+  border-radius: 50%;
+  opacity: 0.5;
+}
+
+.vine-flower::before,
+.vine-flower::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+}
+
+.vine-flower::before {
+  background:
+    radial-gradient(circle at 50% 15%, rgba(242, 255, 248, 0.72) 0 12%, transparent 13%),
+    radial-gradient(circle at 78% 32%, rgba(199, 248, 218, 0.58) 0 13%, transparent 14%),
+    radial-gradient(circle at 84% 61%, rgba(237, 255, 244, 0.62) 0 13%, transparent 14%),
+    radial-gradient(circle at 50% 83%, rgba(188, 240, 209, 0.6) 0 14%, transparent 15%),
+    radial-gradient(circle at 16% 61%, rgba(237, 255, 244, 0.62) 0 13%, transparent 14%),
+    radial-gradient(circle at 22% 32%, rgba(199, 248, 218, 0.58) 0 13%, transparent 14%),
+    radial-gradient(circle at 50% 50%, rgba(255, 244, 179, 0.72) 0 10%, rgba(16, 94, 56, 0.38) 11% 16%, transparent 17%),
+    radial-gradient(circle at 50% 50%, rgba(226, 255, 239, 0.14), transparent 68%);
+}
+
+.vine-flower::after {
+  inset: 24px;
+  border: 1px solid rgba(226, 255, 239, 0.08);
+}
+
+.vine-flower-top {
+  top: 28px;
+  right: clamp(8rem, 20vw, 22rem);
+  width: 224px;
+  height: 224px;
+  opacity: 0.68;
+  transform: rotate(12deg);
+}
+
+.vine-flower-top::before {
+  background:
+    radial-gradient(circle at 50% 14%, rgba(247, 255, 250, 0.82) 0 12%, transparent 13%),
+    radial-gradient(circle at 79% 31%, rgba(214, 253, 229, 0.68) 0 13%, transparent 14%),
+    radial-gradient(circle at 84% 61%, rgba(244, 255, 248, 0.72) 0 13%, transparent 14%),
+    radial-gradient(circle at 50% 83%, rgba(195, 245, 214, 0.66) 0 14%, transparent 15%),
+    radial-gradient(circle at 16% 61%, rgba(244, 255, 248, 0.72) 0 13%, transparent 14%),
+    radial-gradient(circle at 21% 31%, rgba(214, 253, 229, 0.68) 0 13%, transparent 14%),
+    radial-gradient(circle at 50% 50%, rgba(255, 247, 191, 0.82) 0 10%, rgba(18, 102, 61, 0.42) 11% 16%, transparent 17%),
+    radial-gradient(circle at 50% 50%, rgba(231, 255, 241, 0.18), transparent 68%);
+}
+
+.vine-flower-top::after {
+  inset: 20px;
+  border: 1px solid rgba(233, 255, 241, 0.14);
+}
+
+.vine-flower-bottom {
+  bottom: 34px;
+  left: clamp(1rem, 8vw, 4rem);
+  width: 176px;
+  height: 176px;
+  opacity: 0.24;
+  transform: rotate(-18deg);
+}
+
+.vine-leaf-arc {
+  width: 280px;
+  height: 160px;
+  opacity: 0.24;
+}
+
+.vine-leaf-arc::before,
+.vine-leaf-arc::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+.vine-leaf-arc::before {
+  background:
+    radial-gradient(ellipse at 18% 70%, rgba(177, 240, 201, 0.22) 0 14%, transparent 15%),
+    radial-gradient(ellipse at 34% 42%, rgba(225, 255, 237, 0.18) 0 12%, transparent 13%),
+    radial-gradient(ellipse at 52% 66%, rgba(170, 233, 194, 0.18) 0 13%, transparent 14%),
+    radial-gradient(ellipse at 70% 40%, rgba(225, 255, 237, 0.16) 0 11%, transparent 12%),
+    radial-gradient(ellipse at 86% 60%, rgba(170, 233, 194, 0.16) 0 10%, transparent 11%);
+}
+
+.vine-leaf-arc::after {
+  background:
+    linear-gradient(135deg, transparent 44%, rgba(214, 255, 231, 0.1) 48%, rgba(214, 255, 231, 0.04) 52%, transparent 56%);
+}
+
+.vine-leaf-arc-left {
+  left: -54px;
+  top: 30%;
+  transform: rotate(-18deg);
+}
+
+.vine-leaf-arc-right {
+  right: -54px;
+  bottom: 15%;
+  transform: rotate(161deg);
+}
+
+@media (min-width: 769px) {
+  .vine-auth-bg-login {
+    justify-content: flex-start;
+    padding-left: clamp(2.5rem, 7vw, 7rem);
+    padding-right: 2rem;
+  }
+
+  .vine-auth-card-login {
+    margin-top: clamp(1rem, 4vh, 3rem);
+  }
+}
   
   /* ───── The Login Card (Rounded Mint Style) ───── */
   .vine-auth-card {
-    background: rgba(225, 245, 233, 0.95); /* Slightly transparent mint */
-    backdrop-filter: blur(8px); /* Optional: makes card look high-end over the image */
+    background: rgba(238, 252, 244, 0.88);
+    backdrop-filter: blur(12px);
     width: 100%;
     max-width: 400px;
     padding: 40px 30px;
     border-radius: 35px; /* That fire rounding */
-    border: 1.5px solid #c8e6c9;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+    border: 1.5px solid rgba(220, 255, 235, 0.78);
+    box-shadow:
+      0 26px 60px rgba(1, 23, 12, 0.36),
+      inset 0 1px 0 rgba(255, 255, 255, 0.52);
     text-align: center;
+    position: relative;
+    z-index: 1;
   }
+
+.vine-auth-card-login {
+  background:
+    linear-gradient(180deg, rgba(247, 255, 250, 0.94), rgba(236, 251, 242, 0.9)),
+    rgba(238, 252, 244, 0.9);
+  border: 1.5px solid rgba(223, 255, 236, 0.9);
+  box-shadow:
+    0 30px 68px rgba(1, 23, 12, 0.34),
+    0 10px 30px rgba(27, 94, 58, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.62);
+  overflow: hidden;
+}
+
+.vine-auth-card-login::after {
+  content: "";
+  position: absolute;
+  width: 156px;
+  height: 156px;
+  right: -42px;
+  bottom: -42px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 15%, rgba(242, 255, 248, 0.82) 0 12%, transparent 13%),
+    radial-gradient(circle at 78% 32%, rgba(199, 248, 218, 0.72) 0 13%, transparent 14%),
+    radial-gradient(circle at 84% 61%, rgba(237, 255, 244, 0.76) 0 13%, transparent 14%),
+    radial-gradient(circle at 50% 83%, rgba(188, 240, 209, 0.7) 0 14%, transparent 15%),
+    radial-gradient(circle at 16% 61%, rgba(237, 255, 244, 0.76) 0 13%, transparent 14%),
+    radial-gradient(circle at 22% 32%, rgba(199, 248, 218, 0.72) 0 13%, transparent 14%);
+  opacity: 0.2;
+  transform: rotate(18deg);
+  pointer-events: none;
+}
+
+.vine-auth-card::before {
+  content: "";
+  position: absolute;
+  inset: 12px;
+  border-radius: 25px;
+  border: 1px solid rgba(14, 91, 54, 0.08);
+  pointer-events: none;
+}
+
+.vine-auth-card-login::before {
+  content: "";
+  position: absolute;
+  inset: 10px;
+  border-radius: 27px;
+  border: 1px solid rgba(14, 91, 54, 0.09);
+  background:
+    radial-gradient(circle at 14% 12%, rgba(232, 255, 242, 0.82), transparent 30%),
+    radial-gradient(circle at 82% 86%, rgba(209, 248, 222, 0.18), transparent 28%);
+  pointer-events: none;
+}
+
+.vine-auth-card-login .vine-title {
+  font-size: 1.92rem;
+  letter-spacing: 0.015em;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.42);
+}
+
+.vine-auth-card-login .vine-subtitle {
+  color: #0f5a3c;
+}
+
+.vine-auth-card-login .vine-form input {
+  background: rgba(255, 255, 255, 0.94);
+  border-color: rgba(116, 190, 143, 0.34);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    0 8px 18px rgba(15, 90, 60, 0.04);
+}
+
+.vine-auth-card-login .vine-btn {
+  position: relative;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  box-shadow:
+    0 14px 24px rgba(9, 65, 39, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14);
+}
+
+.vine-auth-card-login .vine-btn::before,
+.vine-auth-card-login .vine-btn::after {
+  position: relative;
+  z-index: 1;
+}
+
+.vine-auth-card-login .vine-btn::before {
+  content: "✿";
+  color: rgba(238, 255, 244, 0.96);
+  font-size: 0.92rem;
+  text-shadow: 0 0 12px rgba(232, 255, 240, 0.28);
+}
+
+.vine-auth-card-login .vine-btn::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background:
+    radial-gradient(circle at 18% 50%, rgba(232, 255, 241, 0.24), transparent 20%),
+    linear-gradient(115deg, transparent 26%, rgba(238, 255, 244, 0.1) 50%, transparent 74%);
+  opacity: 0.9;
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.vine-auth-card-login .vine-btn:hover:not(:disabled)::after {
+  transform: translateX(6px);
+  opacity: 1;
+}
   
   .vine-title {
     color: #052e16;
     font-size: 1.8rem;
     font-weight: 900;
-    margin-bottom: 30px;
+    margin-bottom: 12px;
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.34);
+    letter-spacing: 0.01em;
+    font-family: Georgia, "Times New Roman", serif;
   }
 
   .vine-subtitle {
@@ -41,6 +324,50 @@
     font-weight: 600;
     margin-bottom: 18px;
   }
+
+.vine-login-kicker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.vine-login-kicker-line {
+  width: 44px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(11, 90, 53, 0.44), transparent);
+}
+
+.vine-login-kicker-bloom {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  color: #14532d;
+  background: rgba(239, 255, 246, 0.72);
+  border: 1px solid rgba(164, 230, 190, 0.32);
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  box-shadow: 0 6px 14px rgba(12, 76, 46, 0.06);
+}
+
+.vine-login-kicker-bloom::before {
+  content: "✿";
+  color: #2a7a4c;
+  font-size: 0.92rem;
+}
+
+.vine-login-subcopy {
+  margin: 0 0 24px;
+  color: #256047;
+  font-size: 0.98rem;
+  line-height: 1.55;
+  font-weight: 600;
+}
   
   /* ───── Form Styling ───── */
   .vine-form {
@@ -50,22 +377,26 @@
   }
   
   .vine-form input {
-    background: #ffffff;
-    border: 2px solid #c8e6c9;
+    background: rgba(255, 255, 255, 0.9);
+    border: 1.5px solid rgba(112, 177, 133, 0.28);
     border-radius: 50px; 
     padding: 14px 20px;
     font-size: 1rem;
     color: #064e3b;
     outline: none;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
   }
   
   .vine-form input:focus {
     border-color: #2e7d32;
+    box-shadow:
+      0 0 0 4px rgba(173, 236, 197, 0.28),
+      inset 0 1px 0 rgba(255, 255, 255, 0.7);
   }
   
   /* ───── Action Button ───── */
   .vine-btn {
-    background: #2e7d32;
+    background: linear-gradient(135deg, #14532d, #166534 55%, #1f7a4a);
     color: #ffffff;
     border: none;
     border-radius: 50px;
@@ -78,7 +409,7 @@
   }
   
   .vine-btn:hover:not(:disabled) {
-    background: #1b5e20;
+    background: linear-gradient(135deg, #0f4a26, #14532d 50%, #19653f);
     transform: translateY(-2px);
   }
   
@@ -142,11 +473,98 @@
     .vine-auth-bg {
       background-size: cover; /* Mobile gets full immersive image */
     }
+
+    .vine-auth-bg-login::before {
+      background:
+        radial-gradient(circle at 16% 18%, rgba(214, 255, 232, 0.08), transparent 16%),
+        linear-gradient(135deg, rgba(5, 46, 22, 0.16), rgba(6, 78, 59, 0.05) 42%, rgba(233, 255, 242, 0.02) 64%, rgba(5, 46, 22, 0.2));
+      mix-blend-mode: normal;
+    }
+
+    .vine-auth-bg-login::after {
+      background:
+        linear-gradient(180deg, rgba(5, 46, 22, 0.1), transparent 22%, transparent 80%, rgba(5, 46, 22, 0.16));
+    }
+
+    .vine-login-florals {
+      opacity: 0.82;
+    }
+
+    .vine-flower,
+    .vine-leaf-arc {
+      filter: none;
+    }
     
     .vine-auth-card {
       padding: 30px 20px;
       border-radius: 28px;
       width: 95%;
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+      box-shadow:
+        0 18px 36px rgba(1, 23, 12, 0.22),
+        inset 0 1px 0 rgba(255, 255, 255, 0.46);
+    }
+
+    .vine-auth-bg-login {
+      background-position: center top;
+    }
+
+    .vine-auth-card-login {
+      box-shadow:
+        0 18px 40px rgba(1, 23, 12, 0.2),
+        0 6px 18px rgba(27, 94, 58, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.56);
+    }
+
+    .vine-auth-card-login::after {
+      width: 118px;
+      height: 118px;
+      right: -28px;
+      bottom: -30px;
+      opacity: 0.12;
+    }
+
+    .vine-flower-top {
+      width: 138px;
+      height: 138px;
+      top: 18px;
+      right: -34px;
+      opacity: 0.36;
+    }
+
+    .vine-flower-bottom {
+      display: none;
+    }
+
+    .vine-leaf-arc-left {
+      width: 170px;
+      height: 96px;
+      opacity: 0.08;
+      left: -70px;
+      top: 38%;
+    }
+
+    .vine-leaf-arc-right {
+      display: none;
+    }
+
+    .vine-title {
+      font-size: 1.62rem;
+    }
+
+    .vine-login-subcopy {
+      font-size: 0.92rem;
+      margin-bottom: 20px;
+    }
+
+    .vine-auth-card-login .vine-btn::before {
+      font-size: 0.82rem;
+      opacity: 0.9;
+    }
+
+    .vine-auth-card-login .vine-btn::after {
+      opacity: 0.55;
     }
   }
   .back-home-btn {

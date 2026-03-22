@@ -374,7 +374,7 @@ router.post("/teachers/alevel-marks", authTeacher, async (req, res) => {
     // 1. Get assignment context scoped to the logged-in teacher
     const [[ts]] = await conn.query(
       `SELECT ats.id, ats.subject_id, ats.teacher_id, ats.stream, ats.paper_label, s.name AS subject_name
-       FROM alevel_teacher_subjects 
+       FROM alevel_teacher_subjects ats
        JOIN alevel_subjects s ON s.id = ats.subject_id
        WHERE ats.id = ?
          AND ats.teacher_id = ?`,

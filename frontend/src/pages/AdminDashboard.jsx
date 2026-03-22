@@ -13,6 +13,11 @@ import AssessmentSubmissionTracker from "../components/AssessmentSubmissionTrack
 import AuditLogsPanel from "../components/AuditLogsPanel";
 import PromotionPanel from "../components/PromotionPanel";
 import { loadPdfTools } from "../utils/loadPdfTools";
+import {
+  DEFAULT_SCHOOL_CALENDAR,
+  getSchoolCalendarBadge,
+  normalizeSchoolCalendar,
+} from "../utils/schoolCalendar";
 
 // API base (fallback for local dev)
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5001";
@@ -54,6 +59,17 @@ const formatDateTime = (value) => {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return String(value);
   return d.toLocaleString();
+};
+
+const formatDateOnly = (value) => {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return d.toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
 };
 
 // Promotion window: opens Dec 5 and locks after Jan 30 (inclusive window).
@@ -192,6 +208,13 @@ export default function AdminDashboard() {
   const [activeSection, setActiveSection] = useState("");
   const [showEnrollmentChartsModal, setShowEnrollmentChartsModal] = useState(false);
   const [dashboardClock, setDashboardClock] = useState(() => new Date());
+  const [schoolCalendarForm, setSchoolCalendarForm] = useState(() =>
+    normalizeSchoolCalendar(DEFAULT_SCHOOL_CALENDAR)
+  );
+  const [schoolCalendarLoading, setSchoolCalendarLoading] = useState(false);
+  const [schoolCalendarSaving, setSchoolCalendarSaving] = useState(false);
+  const [schoolCalendarError, setSchoolCalendarError] = useState("");
+  const [schoolCalendarNotice, setSchoolCalendarNotice] = useState("");
 
   useEffect(() => {
     document.title = activeSection ? `${activeSection} | SPESS ARK` : "Admin Dashboard | SPESS ARK";
@@ -204,6 +227,10 @@ export default function AdminDashboard() {
   const promotionWindowOpen = useMemo(
     () => isPromotionWindowOpen(dashboardClock),
     [dashboardClock]
+  );
+  const schoolCalendarBadge = useMemo(
+    () => getSchoolCalendarBadge(schoolCalendarForm, dashboardClock),
+    [schoolCalendarForm, dashboardClock]
   );
   useEffect(() => {
     if (!promotionWindowOpen && activeSection === "Learner Promotion") {
@@ -292,6 +319,7 @@ export default function AdminDashboard() {
         ? ""
         : "Inactive (opens Dec 5, locks Jan 30)",
     },
+    { title: "School Calendar", subtitle: "Manage terms and holiday dates", icon: "🗓️" },
     { title: "Stream Readiness", subtitle: "Compulsory coverage by class and stream", icon: "🧭" },
     { title: "Audit Log", subtitle: "Track system actions and changes", icon: "🛡️" },
     { title: "Notices", subtitle: "Create school notices", icon: "📢" },
@@ -318,6 +346,22 @@ export default function AdminDashboard() {
       setNoticesError("Could not load notices");
     } finally {
       setLoadingNotices(false);
+    }
+  };
+
+  const fetchSchoolCalendar = async () => {
+    setSchoolCalendarLoading(true);
+    setSchoolCalendarError("");
+    setSchoolCalendarNotice("");
+    try {
+      const data = await adminFetch("/api/admin/school-calendar");
+      setSchoolCalendarForm(normalizeSchoolCalendar(data));
+    } catch (err) {
+      console.error("Error loading school calendar:", err);
+      setSchoolCalendarForm(normalizeSchoolCalendar(DEFAULT_SCHOOL_CALENDAR));
+      setSchoolCalendarError(err.message || "Could not load school calendar.");
+    } finally {
+      setSchoolCalendarLoading(false);
     }
   };
 
@@ -1195,6 +1239,8 @@ export default function AdminDashboard() {
     } else if (activeSection === "Assessment Submission Tracker") {
       // load marks so tracker has data
       fetchMarksSets();
+    } else if (activeSection === "School Calendar") {
+      fetchSchoolCalendar();
     } else if (activeSection === "Stream Readiness") {
       fetchStreamReadiness();
     } else if (activeSection === "Assign Subjects") {
@@ -1239,6 +1285,60 @@ export default function AdminDashboard() {
       }
       return [...prev, subject];
     });
+  };
+
+  const handleSchoolCalendarAcademicYearChange = (value) => {
+    setSchoolCalendarError("");
+    setSchoolCalendarNotice("");
+    setSchoolCalendarForm((prev) => ({
+      ...prev,
+      academicYear: value,
+    }));
+  };
+
+  const handleSchoolCalendarEntryChange = (key, field, value) => {
+    setSchoolCalendarError("");
+    setSchoolCalendarNotice("");
+    setSchoolCalendarForm((prev) => ({
+      ...prev,
+      entries: prev.entries.map((entry) =>
+        entry.key === key ? { ...entry, [field]: value } : entry
+      ),
+    }));
+  };
+
+  const handleSaveSchoolCalendar = async (e) => {
+    e?.preventDefault?.();
+    setSchoolCalendarSaving(true);
+    setSchoolCalendarError("");
+    setSchoolCalendarNotice("");
+
+    try {
+      const payload = {
+        academicYear: schoolCalendarForm.academicYear,
+        entries: schoolCalendarForm.entries.map((entry) => ({
+          key: entry.key,
+          from: entry.from,
+          to: entry.to,
+        })),
+      };
+
+      const saved = await adminFetch("/api/admin/school-calendar", {
+        method: "PUT",
+        body: payload,
+      });
+
+      const normalized = normalizeSchoolCalendar(saved);
+      setSchoolCalendarForm(normalized);
+      setSchoolCalendarNotice(
+        "School calendar updated. Teacher dashboards will now use these term and holiday dates."
+      );
+    } catch (err) {
+      console.error("Error saving school calendar:", err);
+      setSchoolCalendarError(err.message || "Could not save school calendar.");
+    } finally {
+      setSchoolCalendarSaving(false);
+    }
   };
 
   const csvEscape = (value) => {
@@ -2812,6 +2912,171 @@ export default function AdminDashboard() {
             <button className="panel-close" type="button" onClick={() => setActiveSection("")}>✕ Close</button>
           </div>
           <EndOfTermReports mode="year" />
+        </section>
+      );
+    }
+    if (activeSection === "School Calendar") {
+      return (
+        <section className="panel">
+          <div className="panel-header">
+            <div>
+              <h2>School Calendar</h2>
+              <p>Update term dates once and let teacher dashboards read the same shared calendar automatically.</p>
+            </div>
+            <button className="panel-close" type="button" onClick={() => setActiveSection("")}>
+              ✕ Close
+            </button>
+          </div>
+
+          {schoolCalendarError && (
+            <div className="panel-alert panel-alert-error">{schoolCalendarError}</div>
+          )}
+          {schoolCalendarNotice && (
+            <div
+              className="panel-alert"
+              style={{
+                background: "rgba(56, 189, 248, 0.1)",
+                border: "1px solid rgba(56, 189, 248, 0.28)",
+                color: "#bae6fd",
+              }}
+            >
+              {schoolCalendarNotice}
+            </div>
+          )}
+
+          <div className="panel-grid">
+            <div className="panel-card">
+              <div className="panel-card-header" style={{ marginBottom: "1rem" }}>
+                <div>
+                  <h3 style={{ marginBottom: "0.2rem" }}>Calendar Editor</h3>
+                  <p className="muted-text" style={{ margin: 0 }}>
+                    Terms and holidays both show in the teacher branding strip.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="ghost-btn"
+                  onClick={fetchSchoolCalendar}
+                  disabled={schoolCalendarLoading}
+                >
+                  {schoolCalendarLoading ? "Refreshing…" : "Refresh"}
+                </button>
+              </div>
+
+              <form className="teacher-form" onSubmit={handleSaveSchoolCalendar}>
+                <div className="form-row">
+                  <label>Academic Year</label>
+                  <input
+                    value={schoolCalendarForm.academicYear}
+                    onChange={(e) => handleSchoolCalendarAcademicYearChange(e.target.value)}
+                    placeholder="2026"
+                  />
+                </div>
+
+                <div className="calendar-editor-grid">
+                  {schoolCalendarForm.entries.map((entry) => (
+                    <div key={entry.key} className="calendar-entry-card">
+                      <div className="calendar-entry-heading">
+                        <div>
+                          <strong>{entry.label}</strong>
+                          <small>{entry.status}</small>
+                        </div>
+                      </div>
+
+                      <div className="calendar-entry-grid">
+                        <div className="form-row">
+                          <label>From</label>
+                          <input
+                            type="date"
+                            value={entry.from}
+                            onChange={(e) =>
+                              handleSchoolCalendarEntryChange(entry.key, "from", e.target.value)
+                            }
+                          />
+                        </div>
+                        <div className="form-row">
+                          <label>To</label>
+                          <input
+                            type="date"
+                            value={entry.to}
+                            onChange={(e) =>
+                              handleSchoolCalendarEntryChange(entry.key, "to", e.target.value)
+                            }
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <button type="submit" className="primary-btn" disabled={schoolCalendarSaving}>
+                  {schoolCalendarSaving ? "Saving Calendar…" : "Save Shared Calendar"}
+                </button>
+              </form>
+            </div>
+
+            <div className="panel-card">
+              <div className="panel-card-header" style={{ marginBottom: "1rem" }}>
+                <div>
+                  <h3 style={{ marginBottom: "0.2rem" }}>Live Preview</h3>
+                  <p className="muted-text" style={{ margin: 0 }}>
+                    This is what teachers will see right now across the shared dashboard branding.
+                  </p>
+                </div>
+              </div>
+
+              <div className="calendar-preview-shell">
+                <span className="calendar-pill calendar-pill-year">
+                  Academic Year {schoolCalendarBadge.academicYear}
+                </span>
+                <span className="calendar-pill">{schoolCalendarBadge.termLabel}</span>
+                <span
+                  className={`calendar-pill ${
+                    schoolCalendarBadge.status === "In Session"
+                      ? "calendar-pill-success"
+                      : schoolCalendarBadge.status === "Holiday Break"
+                      ? "calendar-pill-warning"
+                      : "calendar-pill-neutral"
+                  }`}
+                >
+                  {schoolCalendarBadge.status}
+                </span>
+              </div>
+
+              <div className="calendar-preview-meta">
+                <strong>Today</strong>
+                <span>{formatDateOnly(dashboardClock)}</span>
+              </div>
+
+              <div className="teachers-table-wrapper" style={{ maxHeight: "56vh" }}>
+                <table className="teachers-table">
+                  <thead>
+                    <tr>
+                      <th>Period</th>
+                      <th>Status</th>
+                      <th>From</th>
+                      <th>To</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {schoolCalendarForm.entries.map((entry) => (
+                      <tr key={entry.key}>
+                        <td>{entry.label}</td>
+                        <td>{entry.status}</td>
+                        <td>{formatDateOnly(entry.from)}</td>
+                        <td>{formatDateOnly(entry.to)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <p className="calendar-sync-note">
+                Shared usage: the teacher dashboard will show <strong>terms</strong> and
+                <strong> holidays</strong> from these dates automatically. No more hardcoding.
+              </p>
+            </div>
+          </div>
         </section>
       );
     }

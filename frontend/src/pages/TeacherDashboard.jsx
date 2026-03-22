@@ -6,6 +6,11 @@ import useIdleLogout from "../hooks/useIdleLogout";
 import { useNavigate } from "react-router-dom";
 import { plainFetch } from "../lib/api";
 import { loadPdfTools } from "../utils/loadPdfTools";
+import {
+  DEFAULT_SCHOOL_CALENDAR,
+  getSchoolCalendarBadge,
+  normalizeSchoolCalendar,
+} from "../utils/schoolCalendar";
 
 // ============================
 // CONSTANTS / CONFIG
@@ -207,11 +212,16 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
   const [selectedAssignment, setSelectedAssignment] = useState(null);
   const [assignmentSearch, setAssignmentSearch] = useState("");
   const [focusedColumn, setFocusedColumn] = useState(null);
+  const [assignmentStatuses, setAssignmentStatuses] = useState({});
+  const [assignmentStatusesLoading, setAssignmentStatusesLoading] = useState(false);
   const [recentActivity, setRecentActivity] = useState({
     assignment: null,
     save: null,
     pdf: null,
   });
+  const [schoolCalendar, setSchoolCalendar] = useState(() =>
+    normalizeSchoolCalendar(DEFAULT_SCHOOL_CALENDAR)
+  );
 
   const [examType, setExamType] = useState("MID"); // For A-Level
   const [analytics, setAnalytics] = useState(null);
@@ -260,6 +270,148 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
     const storageKey = `teacherDashboardRecentActivity:${teacher.id || teacher.email || "default"}`;
     localStorage.setItem(storageKey, JSON.stringify(recentActivity));
   }, [recentActivity, teacher?.id, teacher?.email]);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    const syncSchoolCalendar = () => {
+      plainFetch("/api/school-calendar")
+        .then((data) => {
+          if (!isCancelled) {
+            setSchoolCalendar(normalizeSchoolCalendar(data));
+          }
+        })
+        .catch((err) => {
+          console.error("Error loading shared school calendar:", err);
+          if (!isCancelled) {
+            setSchoolCalendar(normalizeSchoolCalendar(DEFAULT_SCHOOL_CALENDAR));
+          }
+        });
+    };
+
+    syncSchoolCalendar();
+    const refreshTimer = window.setInterval(syncSchoolCalendar, 5 * 60 * 1000);
+    window.addEventListener("focus", syncSchoolCalendar);
+
+    return () => {
+      isCancelled = true;
+      window.clearInterval(refreshTimer);
+      window.removeEventListener("focus", syncSchoolCalendar);
+    };
+  }, []);
+
+  const loadAssignmentStatuses = useCallback(async () => {
+    const token = localStorage.getItem("teacherToken");
+    const assignmentRows = [
+      ...assignments.map((assignment) => ({ ...assignment, isAlevel: false })),
+      ...aLevelAssignments.map((assignment) => ({ ...assignment, isAlevel: true })),
+    ];
+
+    if (!token || assignmentRows.length === 0) {
+      setAssignmentStatuses({});
+      return;
+    }
+
+    try {
+      setAssignmentStatusesLoading(true);
+
+      const entries = await Promise.all(
+        assignmentRows.map(async (assignment) => {
+          const key = `${assignment.isAlevel ? "al" : "ol"}-${assignment.id}`;
+          const params = new URLSearchParams({
+            assignmentId: assignment.id,
+            year: marksYear,
+            term: marksTerm,
+          });
+
+          try {
+            const [studentsRes, marksRes] = await Promise.all([
+              fetch(
+                `${API_BASE}${assignment.isAlevel
+                  ? `/api/alevel/teachers/alevel-assignments/${assignment.id}/students`
+                  : `/api/teachers/assignments/${assignment.id}/students`}`,
+                { headers: { Authorization: `Bearer ${token}` } }
+              ),
+              fetch(
+                `${API_BASE}${assignment.isAlevel
+                  ? `/api/alevel/teachers/alevel-marks?${params}`
+                  : `/api/teachers/marks?${params}`}`,
+                { headers: { Authorization: `Bearer ${token}` } }
+              ),
+            ]);
+
+            if (!studentsRes.ok || !marksRes.ok) {
+              throw new Error("Status sync failed");
+            }
+
+            const studentsBody = await studentsRes.json();
+            const marksBody = await marksRes.json();
+            const studentsList = Array.isArray(studentsBody)
+              ? studentsBody
+              : Array.isArray(studentsBody?.students)
+              ? studentsBody.students
+              : [];
+            const marksList = Array.isArray(marksBody) ? marksBody : [];
+            const expectedEntries = studentsList.length * getMarkColumns(assignment.isAlevel === true, marksTerm).length;
+            const recordedEntries = marksList.length;
+
+            let label = "Not Started";
+            let tone = {
+              color: "#cbd5e1",
+              border: "1px solid rgba(148, 163, 184, 0.2)",
+              background: "rgba(148, 163, 184, 0.08)",
+            };
+
+            if (recordedEntries > 0 && expectedEntries > 0 && recordedEntries >= expectedEntries) {
+              label = "Complete";
+              tone = {
+                color: "#d1fae5",
+                border: "1px solid rgba(16, 185, 129, 0.24)",
+                background: "rgba(16, 185, 129, 0.12)",
+              };
+            } else if (recordedEntries > 0) {
+              label = "In Progress";
+              tone = {
+                color: "#fef3c7",
+                border: "1px solid rgba(245, 158, 11, 0.24)",
+                background: "rgba(245, 158, 11, 0.12)",
+              };
+            }
+
+            return [
+              key,
+              {
+                label,
+                learners: studentsList.length,
+                recordedEntries,
+                expectedEntries,
+                tone,
+              },
+            ];
+          } catch {
+            return [
+              key,
+              {
+                label: "Ready",
+                learners: 0,
+                recordedEntries: 0,
+                expectedEntries: 0,
+                tone: {
+                  color: "#e0f2fe",
+                  border: "1px solid rgba(56, 189, 248, 0.24)",
+                  background: "rgba(56, 189, 248, 0.1)",
+                },
+              },
+            ];
+          }
+        })
+      );
+
+      setAssignmentStatuses(Object.fromEntries(entries));
+    } finally {
+      setAssignmentStatusesLoading(false);
+    }
+  }, [aLevelAssignments, assignments, marksTerm, marksYear]);
 
   // ----------------------------
   // Initial data fetches
@@ -387,6 +539,10 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
     };
     load();
   }, []);
+
+  useEffect(() => {
+    loadAssignmentStatuses();
+  }, [loadAssignmentStatuses]);
 
   // Reload marks when class, term or year changes
 useEffect(() => {
@@ -892,6 +1048,7 @@ useEffect(() => {
 
       await loadStudentsAndMarks(selectedAssignment);
       await loadAnalytics(selectedAssignment);
+      await loadAssignmentStatuses();
       setMarksSavedSummary(saveSummary);
       setRecentActivity((previous) => ({
         ...previous,
@@ -1124,6 +1281,31 @@ useEffect(() => {
   const learnerColWidth = 170;
   const genderColWidth = 72;
   const currentCalendarYear = new Date().getFullYear();
+  const schoolCalendarBadge = getSchoolCalendarBadge(schoolCalendar, new Date());
+  const countdownTone =
+    typeof schoolCalendarBadge.daysRemaining === "number"
+      ? schoolCalendarBadge.daysRemaining > 30
+        ? {
+            border: "1px solid rgba(34, 197, 94, 0.24)",
+            background: "rgba(34, 197, 94, 0.12)",
+            color: "#dcfce7",
+          }
+        : schoolCalendarBadge.daysRemaining > 10
+        ? {
+            border: "1px solid rgba(245, 158, 11, 0.24)",
+            background: "rgba(245, 158, 11, 0.12)",
+            color: "#fef3c7",
+          }
+        : {
+            border: "1px solid rgba(239, 68, 68, 0.24)",
+            background: "rgba(239, 68, 68, 0.12)",
+            color: "#fecaca",
+          }
+      : {
+          border: "1px solid rgba(148, 163, 184, 0.24)",
+          background: "rgba(148, 163, 184, 0.1)",
+          color: "#e2e8f0",
+        };
   const allAssignableColumns = [...renderAoiColumns, ...(hasExam80Column ? ["EXAM80"] : [])];
   const activeFocusColumn = allAssignableColumns.includes(focusedColumn) ? focusedColumn : allAssignableColumns[0] || null;
   const filteredAssignments = assignments.filter((assignment) => matchesAssignmentSearch(assignment, assignmentSearch));
@@ -1354,6 +1536,110 @@ useEffect(() => {
 </header>
 
       <main className="admin-main" style={{ paddingBottom: selectedAssignment && isMobileTable ? "7.5rem" : undefined }}>
+        <section
+          style={{
+            marginBottom: "1rem",
+            padding: "0.9rem 1rem",
+            borderRadius: "20px",
+            border: "1px solid rgba(56, 189, 248, 0.18)",
+            background: "linear-gradient(135deg, rgba(15, 23, 42, 0.78), rgba(2, 6, 23, 0.86))",
+            boxShadow: "0 16px 34px rgba(2, 6, 23, 0.22)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: "0.8rem",
+            flexWrap: "wrap",
+          }}
+        >
+          <div>
+            <div style={{ color: "#7dd3fc", fontSize: "0.72rem", letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 800 }}>
+              St. Phillips Equatorial Secondary School
+            </div>
+            <div style={{ marginTop: "0.2rem", color: "#f8fafc", fontWeight: 800, fontSize: "1rem" }}>
+              Teacher Workspace
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap", alignItems: "center" }}>
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: "0.34rem 0.8rem",
+                borderRadius: "999px",
+                border: "1px solid rgba(148, 163, 184, 0.22)",
+                background: "rgba(255,255,255,0.04)",
+                color: "#cbd5e1",
+                fontSize: "0.72rem",
+                fontWeight: 800,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+              }}
+            >
+              Academic Year {schoolCalendarBadge.academicYear || (selectedAssignment ? marksYear : currentCalendarYear)}
+            </span>
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: "0.34rem 0.8rem",
+                borderRadius: "999px",
+                border: "1px solid rgba(148, 163, 184, 0.22)",
+                background: "rgba(255,255,255,0.04)",
+                color: "#cbd5e1",
+                fontSize: "0.72rem",
+                fontWeight: 800,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+              }}
+            >
+              {schoolCalendarBadge.termLabel}
+            </span>
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: "0.34rem 0.8rem",
+                borderRadius: "999px",
+                border: schoolCalendarBadge.status === "In Session"
+                  ? "1px solid rgba(16, 185, 129, 0.24)"
+                  : "1px solid rgba(245, 158, 11, 0.24)",
+                background: schoolCalendarBadge.status === "In Session"
+                  ? "rgba(16, 185, 129, 0.1)"
+                  : "rgba(245, 158, 11, 0.12)",
+                color: schoolCalendarBadge.status === "In Session" ? "#d1fae5" : "#fef3c7",
+                fontSize: "0.72rem",
+                fontWeight: 800,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+              }}
+            >
+              {schoolCalendarBadge.status}
+            </span>
+            {schoolCalendarBadge.countdownLabel ? (
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: "0.34rem 0.8rem",
+                  borderRadius: "999px",
+                  fontSize: "0.72rem",
+                  fontWeight: 800,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                  ...countdownTone,
+                }}
+              >
+                {schoolCalendarBadge.countdownLabel}
+              </span>
+            ) : null}
+          </div>
+        </section>
+
         <section className="admin-heading">
           
           {teacher && <h2>👋 Hello Teacher {teacher.name}</h2>}
@@ -1473,7 +1759,7 @@ useEffect(() => {
                 marginBottom: "0.9rem",
               }}
             >
-              Recent Activity
+              Submission History
             </div>
 
             <div style={{ display: "grid", gap: "0.8rem" }}>
@@ -1540,6 +1826,11 @@ useEffect(() => {
                     ? `Showing ${visibleAssignmentsCount} of ${totalAssignmentsCount} assignments`
                     : `${totalAssignmentsCount} assignments ready for marks entry`}
                 </div>
+                {assignmentStatusesLoading && (
+                  <div className="muted-text" style={{ marginTop: "0.3rem" }}>
+                    Syncing assignment statuses…
+                  </div>
+                )}
               </div>
 
               <div style={{ display: "flex", gap: "0.6rem", alignItems: "center", flexWrap: "wrap" }}>
@@ -1583,6 +1874,7 @@ useEffect(() => {
                     <th>Stream</th>
                     <th>Subject</th>
                     <th>Paper</th>
+                    <th>Status</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1646,6 +1938,26 @@ useEffect(() => {
                           }}
                         >
                           Single
+                        </span>
+                      </td>
+                      <td>
+                        <span
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            padding: "0.24rem 0.62rem",
+                            borderRadius: "999px",
+                            fontSize: "0.72rem",
+                            fontWeight: 800,
+                            ...(assignmentStatuses[`ol-${a.id}`]?.tone || {
+                              color: "#cbd5e1",
+                              border: "1px solid rgba(148, 163, 184, 0.2)",
+                              background: "rgba(148, 163, 184, 0.08)",
+                            }),
+                          }}
+                        >
+                          {assignmentStatuses[`ol-${a.id}`]?.label || "Ready"}
                         </span>
                       </td>
                     </tr>
@@ -1722,12 +2034,32 @@ useEffect(() => {
                           {a.paper_label || "Single"}
                         </span>
                       </td>
+                      <td>
+                        <span
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            padding: "0.24rem 0.62rem",
+                            borderRadius: "999px",
+                            fontSize: "0.72rem",
+                            fontWeight: 800,
+                            ...(assignmentStatuses[`al-${a.id}`]?.tone || {
+                              color: "#cbd5e1",
+                              border: "1px solid rgba(148, 163, 184, 0.2)",
+                              background: "rgba(148, 163, 184, 0.08)",
+                            }),
+                          }}
+                        >
+                          {assignmentStatuses[`al-${a.id}`]?.label || "Ready"}
+                        </span>
+                      </td>
                     </tr>
                   ))}
 
                   {visibleAssignmentsCount === 0 && (
                     <tr>
-                      <td colSpan={5} style={{ padding: "1rem", textAlign: "center", color: "#94a3b8" }}>
+                      <td colSpan={6} style={{ padding: "1rem", textAlign: "center", color: "#94a3b8" }}>
                         No assignments match your search yet.
                       </td>
                     </tr>

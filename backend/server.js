@@ -260,6 +260,147 @@ if (dbUrl) {
 
 export const pool = mysql.createPool(poolConfig);
 export const db = pool;//alias, no behavior change
+
+const SCHOOL_CALENDAR_ENTRY_DEFINITIONS = [
+  { key: "term1", label: "Term I", status: "In Session" },
+  { key: "holiday1", label: "Holiday After Term I", status: "Holiday Break" },
+  { key: "term2", label: "Term II", status: "In Session" },
+  { key: "holiday2", label: "Holiday After Term II", status: "Holiday Break" },
+  { key: "term3", label: "Term III", status: "In Session" },
+  { key: "holiday3", label: "Holiday After Term III", status: "Holiday Break" },
+];
+
+const DEFAULT_SCHOOL_CALENDAR = {
+  academicYear: "2026",
+  entries: [
+    { key: "term1", from: "2026-02-10", to: "2026-05-01" },
+    { key: "holiday1", from: "2026-05-02", to: "2026-05-24" },
+    { key: "term2", from: "2026-05-25", to: "2026-08-21" },
+    { key: "holiday2", from: "2026-08-22", to: "2026-09-13" },
+    { key: "term3", from: "2026-09-14", to: "2026-12-04" },
+    { key: "holiday3", from: "2026-12-05", to: "2027-01-31" },
+  ],
+};
+
+const normalizeCalendarDate = (value) => {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const match = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (match) return match[1];
+
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return "";
+
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, "0");
+  const day = String(parsed.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const normalizeSchoolCalendarPayload = (raw = {}) => {
+  const academicYear =
+    String(raw?.academicYear ?? raw?.academic_year ?? DEFAULT_SCHOOL_CALENDAR.academicYear).trim() ||
+    DEFAULT_SCHOOL_CALENDAR.academicYear;
+
+  const rawEntries = Array.isArray(raw?.entries)
+    ? raw.entries
+    : Array.isArray(raw?.terms)
+    ? raw.terms
+    : [];
+
+  const entries = SCHOOL_CALENDAR_ENTRY_DEFINITIONS.map((definition, index) => {
+    const matched =
+      rawEntries.find((entry) => String(entry?.key || "").trim().toLowerCase() === definition.key) ||
+      rawEntries.find(
+        (entry) =>
+          String(entry?.label || "").trim().toLowerCase() === definition.label.toLowerCase()
+      ) ||
+      rawEntries[index] ||
+      {};
+
+    return {
+      key: definition.key,
+      label: definition.label,
+      status: definition.status,
+      from: normalizeCalendarDate(matched.from ?? matched.starts_on ?? matched.startDate),
+      to: normalizeCalendarDate(matched.to ?? matched.ends_on ?? matched.endDate),
+    };
+  });
+
+  return {
+    academicYear,
+    entries,
+  };
+};
+
+let schoolCalendarReadyPromise = null;
+
+async function ensureSchoolCalendarSettingsTable() {
+  if (!schoolCalendarReadyPromise) {
+    schoolCalendarReadyPromise = (async () => {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS school_calendar_settings (
+          id TINYINT UNSIGNED NOT NULL PRIMARY KEY,
+          academic_year VARCHAR(20) NOT NULL,
+          calendar_json LONGTEXT NOT NULL,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+      `);
+
+      const [rows] = await pool.query(
+        `SELECT id FROM school_calendar_settings WHERE id = 1 LIMIT 1`
+      );
+
+      if (!rows.length) {
+        const seeded = normalizeSchoolCalendarPayload(DEFAULT_SCHOOL_CALENDAR);
+        await pool.query(
+          `INSERT INTO school_calendar_settings (id, academic_year, calendar_json)
+           VALUES (1, ?, ?)`,
+          [seeded.academicYear, JSON.stringify(seeded.entries)]
+        );
+      }
+    })().catch((err) => {
+      schoolCalendarReadyPromise = null;
+      throw err;
+    });
+  }
+
+  return schoolCalendarReadyPromise;
+}
+
+async function readSchoolCalendarSettings() {
+  await ensureSchoolCalendarSettingsTable();
+
+  const [[row]] = await pool.query(
+    `SELECT academic_year, calendar_json, updated_at
+     FROM school_calendar_settings
+     WHERE id = 1
+     LIMIT 1`
+  );
+
+  const fallback = normalizeSchoolCalendarPayload(DEFAULT_SCHOOL_CALENDAR);
+  if (!row) {
+    return {
+      ...fallback,
+      updatedAt: null,
+    };
+  }
+
+  let parsedEntries = [];
+  try {
+    parsedEntries = JSON.parse(row.calendar_json || "[]");
+  } catch {
+    parsedEntries = [];
+  }
+
+  return {
+    ...normalizeSchoolCalendarPayload({
+      academicYear: row.academic_year,
+      entries: parsedEntries,
+    }),
+    updatedAt: row.updated_at ?? null,
+  };
+}
 // ===============================
 // ADMIN → LIST TEACHERS
 // ===============================
@@ -1770,6 +1911,73 @@ app.delete("/api/admin/marks-set", authAdmin, async (req, res) => {
     res.status(500).json({ message: "Server error while deleting mark set" });
   }
 });
+// GET /api/notices (teachers)
+app.get("/api/school-calendar", async (req, res) => {
+  try {
+    const calendar = await readSchoolCalendarSettings();
+    res.json(calendar);
+  } catch (err) {
+    console.error("Load school calendar error:", err);
+    res.status(500).json({ message: "Failed to load school calendar" });
+  }
+});
+
+app.get("/api/admin/school-calendar", authAdmin, async (req, res) => {
+  try {
+    const calendar = await readSchoolCalendarSettings();
+    res.json(calendar);
+  } catch (err) {
+    console.error("Admin load school calendar error:", err);
+    res.status(500).json({ message: "Failed to load school calendar" });
+  }
+});
+
+app.put("/api/admin/school-calendar", authAdmin, async (req, res) => {
+  try {
+    const normalized = normalizeSchoolCalendarPayload(req.body || {});
+    const missingDates = normalized.entries.filter((entry) => !entry.from || !entry.to);
+    if (missingDates.length) {
+      return res.status(400).json({
+        message: `Fill in both dates for ${missingDates[0].label}.`,
+      });
+    }
+
+    const invalidRange = normalized.entries.find((entry) => entry.from > entry.to);
+    if (invalidRange) {
+      return res.status(400).json({
+        message: `${invalidRange.label} has an end date before its start date.`,
+      });
+    }
+
+    await ensureSchoolCalendarSettingsTable();
+    await pool.query(
+      `INSERT INTO school_calendar_settings (id, academic_year, calendar_json)
+       VALUES (1, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         academic_year = VALUES(academic_year),
+         calendar_json = VALUES(calendar_json)`,
+      [normalized.academicYear, JSON.stringify(normalized.entries)]
+    );
+
+    const saved = await readSchoolCalendarSettings();
+
+    await logAuditEvent({
+      userId: Number(req.admin?.id) || 1,
+      userRole: "admin",
+      action: "UPDATE_SCHOOL_CALENDAR",
+      entityType: "system",
+      entityId: 1,
+      description: `Updated school calendar for academic year ${saved.academicYear}`,
+      ipAddress: extractClientIp(req),
+    });
+
+    res.json(saved);
+  } catch (err) {
+    console.error("Save school calendar error:", err);
+    res.status(500).json({ message: "Failed to save school calendar" });
+  }
+});
+
 // GET /api/notices (teachers)
 app.get("/api/notices", async (req, res) => {
   try {

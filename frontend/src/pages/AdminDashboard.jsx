@@ -1974,14 +1974,15 @@ export default function AdminDashboard() {
     /* ---------- TABLE HEADER ---------- */
     const drawTableHeader = () => {
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(9);
+      doc.setFontSize(8.5);
   
-      doc.text("#", 12, y);
-      doc.text("Name", 20, y);
-      doc.text("Gender", 92, y);
-      doc.text("Class", 112, y);
-      doc.text("Stream", 130, y);
-      doc.text("Optional Subjects", 148, y);
+      doc.text("#", 11, y);
+      doc.text("Name", 18, y);
+      doc.text("Gender", 76, y);
+      doc.text("DOB", 93, y);
+      doc.text("Class", 118, y);
+      doc.text("Stream", 133, y);
+      doc.text("Optional Subjects", 152, y);
   
       doc.setDrawColor(180);
       doc.line(10, y + 2, pageW - 10, y + 2);
@@ -2021,25 +2022,29 @@ export default function AdminDashboard() {
       const optionalSubs = subs.filter((sub) =>
         OPTIONAL_SUBJECTS.includes(sub)
       );
+      const nameLines = doc.splitTextToSize(s.name || "", 55);
       const optionalText = optionalSubs.join(", ");
-      const subjectLines = doc.splitTextToSize(optionalText, pageW - 160);
+      const subjectLines = doc.splitTextToSize(optionalText, pageW - 162);
+      const dobText = formatDateOnly(s.dob);
   
       const rowHeight = Math.max(
         baseRowHeight,
-        subjectLines.length * 6
+        nameLines.length * 5,
+        subjectLines.length * 5
       );
   
       if (y + rowHeight > pageH - bottomMargin) {
         startNewPage();
       }
   
-      doc.setFontSize(9);
-      doc.text(String(index + 1), 12, y);
-      doc.text(s.name || "", 20, y);
-      doc.text(s.gender || "", 92, y);
-      doc.text(s.class_level || "", 112, y);
-      doc.text(s.stream || "", 130, y);
-      doc.text(subjectLines, 148, y);
+      doc.setFontSize(8.5);
+      doc.text(String(index + 1), 11, y);
+      doc.text(nameLines, 18, y);
+      doc.text(s.gender || "", 76, y);
+      doc.text(dobText, 93, y);
+      doc.text(s.class_level || "", 118, y);
+      doc.text(s.stream || "", 133, y);
+      doc.text(subjectLines, 152, y);
   
       y += rowHeight;
     });

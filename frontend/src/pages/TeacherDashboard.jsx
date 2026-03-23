@@ -248,6 +248,7 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
   const [pendingMissedConfirmation, setPendingMissedConfirmation] = useState(null);
   const [showMarksSavedModal, setShowMarksSavedModal] = useState(false);
   const [marksSavedSummary, setMarksSavedSummary] = useState(null);
+  const [marksEntryLocks, setMarksEntryLocks] = useState([]);
 
   useEffect(() => {
     if (!teacher) return;
@@ -299,6 +300,44 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
       window.removeEventListener("focus", syncSchoolCalendar);
     };
   }, []);
+
+  useEffect(() => {
+    const token = localStorage.getItem("teacherToken");
+    if (!token) return;
+
+    let isCancelled = false;
+
+    const params = new URLSearchParams({
+      term: marksTerm,
+      year: String(marksYear),
+    });
+
+    fetch(`${API_BASE}/api/teachers/marks-entry-locks?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(async (res) => {
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.message || "Failed to load marks locks");
+        }
+        return res.json();
+      })
+      .then((data) => {
+        if (!isCancelled) {
+          setMarksEntryLocks(Array.isArray(data?.locks) ? data.locks : []);
+        }
+      })
+      .catch((err) => {
+        console.error("Marks entry locks load error:", err);
+        if (!isCancelled) {
+          setMarksEntryLocks([]);
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [marksTerm, marksYear]);
 
   const loadAssignmentStatuses = useCallback(async () => {
     const token = localStorage.getItem("teacherToken");
@@ -962,6 +1001,10 @@ useEffect(() => {
         const statusByAoi = studentStatus[s.id] || {};
 
         for (const aoi of columns) {
+          if (lockedCurrentComponents.has(aoi)) {
+            continue;
+          }
+
           const autoMissed = autoMissedCells.has(`${s.id}_${aoi}`);
           const score = autoMissed ? "Missed" : marksByAoi[aoi];
           const status = autoMissed ? "Missed" : statusByAoi[aoi];
@@ -1009,6 +1052,15 @@ useEffect(() => {
       if (Object.keys(errors).length > 0) {
         setMarkErrors(errors);
         setMarksError("Please fix highlighted AOI scores.");
+        return;
+      }
+
+      if (payload.length === 0 && clearMarks.length === 0) {
+        setMarksError(
+          activeMarksLocks.length > 0
+            ? "Marks entry is locked for the available score components. No unlocked marks can be saved right now."
+            : "No changes to save."
+        );
         return;
       }
 
@@ -1282,6 +1334,23 @@ useEffect(() => {
   const genderColWidth = 72;
   const currentCalendarYear = new Date().getFullYear();
   const schoolCalendarBadge = getSchoolCalendarBadge(schoolCalendar, new Date());
+  const selectedMarksLockLevel = selectedAssignment?.isAlevel ? "A-Level" : "O-Level";
+  const activeMarksLocks = selectedAssignment
+    ? marksEntryLocks.filter(
+        (lock) =>
+          Boolean(lock?.effective_locked) &&
+          String(lock?.level_name || "O-Level").trim() === selectedMarksLockLevel
+      )
+    : [];
+  const lockedCurrentComponents = new Set(
+    activeMarksLocks.map((lock) => String(lock?.aoi_label || "").toUpperCase())
+  );
+  const marksLockBannerText =
+    activeMarksLocks.length > 0
+      ? `System locked down: deadline for marks entry has passed for ${activeMarksLocks
+          .map((lock) => formatColumnLabel(String(lock?.aoi_label || "").toUpperCase()))
+          .join(", ")}.`
+      : "";
   const countdownTone =
     typeof schoolCalendarBadge.daysRemaining === "number"
       ? schoolCalendarBadge.daysRemaining > 30
@@ -1307,6 +1376,13 @@ useEffect(() => {
           color: "#e2e8f0",
         };
   const allAssignableColumns = [...renderAoiColumns, ...(hasExam80Column ? ["EXAM80"] : [])];
+  const hasUnlockedEditableColumn = allAssignableColumns.some(
+    (column) => !lockedCurrentComponents.has(column)
+  );
+  const saveButtonDisabled =
+    Object.keys(markErrors).length > 0 ||
+    marksSaving ||
+    (!!selectedAssignment && !hasUnlockedEditableColumn);
   const activeFocusColumn = allAssignableColumns.includes(focusedColumn) ? focusedColumn : allAssignableColumns[0] || null;
   const filteredAssignments = assignments.filter((assignment) => matchesAssignmentSearch(assignment, assignmentSearch));
   const filteredALevelAssignments = aLevelAssignments.filter((assignment) => matchesAssignmentSearch(assignment, assignmentSearch));
@@ -2070,6 +2146,38 @@ useEffect(() => {
           </div>
         </section>
 
+        {selectedAssignment && activeMarksLocks.length > 0 && (
+          <section
+            style={{
+              marginTop: "1rem",
+              borderRadius: "18px",
+              border: "1px solid rgba(239, 68, 68, 0.28)",
+              background: "linear-gradient(135deg, rgba(127, 29, 29, 0.22), rgba(15, 23, 42, 0.94))",
+              padding: "0.95rem 1rem",
+              color: "#fecaca",
+              boxShadow: "0 16px 32px rgba(2, 6, 23, 0.22)",
+            }}
+          >
+            <div
+              style={{
+                fontSize: "0.74rem",
+                fontWeight: 800,
+                letterSpacing: "0.12em",
+                textTransform: "uppercase",
+                marginBottom: "0.35rem",
+              }}
+            >
+              System Lockdown
+            </div>
+            <div style={{ color: "#f8fafc", lineHeight: 1.6, fontWeight: 700 }}>
+              {marksLockBannerText}
+            </div>
+            <div style={{ marginTop: "0.3rem", color: "#fecaca", fontSize: "0.84rem", lineHeight: 1.55 }}>
+              Locked score components are read-only. Teachers cannot save late scores after the deadline unless admin reopens the entry window.
+            </div>
+          </section>
+        )}
+
         {/* MARK ENTRY */}
         {selectedAssignment && (
           <section className="panel" style={{ marginTop: "1rem" }}>
@@ -2238,34 +2346,74 @@ useEffect(() => {
                         Gender
                       </th>
                       {renderAoiColumns.map((c) => (
-                        <th
-                          key={c}
-                          onClick={() => setFocusedColumn(c)}
-                          style={{
-                            cursor: "pointer",
-                            background: activeFocusColumn === c ? "linear-gradient(180deg, rgba(14, 165, 233, 0.26), rgba(56, 189, 248, 0.14))" : undefined,
-                            color: activeFocusColumn === c ? "#e0f2fe" : undefined,
-                            boxShadow: activeFocusColumn === c ? "inset 0 0 0 1px rgba(125, 211, 252, 0.3)" : undefined,
-                            borderBottom: activeFocusColumn === c ? "2px solid rgba(125, 211, 252, 0.8)" : undefined,
-                          }}
-                        >
-                          {formatColumnLabel(c)}
-                        </th>
+                        (() => {
+                          const isColumnLocked = lockedCurrentComponents.has(c);
+                          return (
+                            <th
+                              key={c}
+                              onClick={() => setFocusedColumn(c)}
+                              style={{
+                                cursor: "pointer",
+                                background: isColumnLocked
+                                  ? "linear-gradient(180deg, rgba(127, 29, 29, 0.3), rgba(69, 10, 10, 0.18))"
+                                  : activeFocusColumn === c
+                                  ? "linear-gradient(180deg, rgba(14, 165, 233, 0.26), rgba(56, 189, 248, 0.14))"
+                                  : undefined,
+                                color: isColumnLocked ? "#fecaca" : activeFocusColumn === c ? "#e0f2fe" : undefined,
+                                boxShadow: activeFocusColumn === c
+                                  ? "inset 0 0 0 1px rgba(125, 211, 252, 0.3)"
+                                  : isColumnLocked
+                                  ? "inset 0 0 0 1px rgba(248, 113, 113, 0.18)"
+                                  : undefined,
+                                borderBottom: activeFocusColumn === c
+                                  ? "2px solid rgba(125, 211, 252, 0.8)"
+                                  : isColumnLocked
+                                  ? "2px solid rgba(248, 113, 113, 0.65)"
+                                  : undefined,
+                              }}
+                              title={isColumnLocked ? `${formatColumnLabel(c)} is locked for this term.` : undefined}
+                            >
+                              {formatColumnLabel(c)}{isColumnLocked ? " 🔒" : ""}
+                            </th>
+                          );
+                        })()
                       ))}
                       <th>Avg</th>
                       {hasExam80Column && (
-                        <th
-                          onClick={() => setFocusedColumn("EXAM80")}
-                          style={{
-                            cursor: "pointer",
-                            background: activeFocusColumn === "EXAM80" ? "linear-gradient(180deg, rgba(14, 165, 233, 0.26), rgba(56, 189, 248, 0.14))" : undefined,
-                            color: activeFocusColumn === "EXAM80" ? "#e0f2fe" : undefined,
-                            boxShadow: activeFocusColumn === "EXAM80" ? "inset 0 0 0 1px rgba(125, 211, 252, 0.3)" : undefined,
-                            borderBottom: activeFocusColumn === "EXAM80" ? "2px solid rgba(125, 211, 252, 0.8)" : undefined,
-                          }}
-                        >
-                          /80
-                        </th>
+                        (() => {
+                          const isExam80Locked = lockedCurrentComponents.has("EXAM80");
+                          return (
+                            <th
+                              onClick={() => setFocusedColumn("EXAM80")}
+                              style={{
+                                cursor: "pointer",
+                                background: isExam80Locked
+                                  ? "linear-gradient(180deg, rgba(127, 29, 29, 0.3), rgba(69, 10, 10, 0.18))"
+                                  : activeFocusColumn === "EXAM80"
+                                  ? "linear-gradient(180deg, rgba(14, 165, 233, 0.26), rgba(56, 189, 248, 0.14))"
+                                  : undefined,
+                                color: isExam80Locked
+                                  ? "#fecaca"
+                                  : activeFocusColumn === "EXAM80"
+                                  ? "#e0f2fe"
+                                  : undefined,
+                                boxShadow: activeFocusColumn === "EXAM80"
+                                  ? "inset 0 0 0 1px rgba(125, 211, 252, 0.3)"
+                                  : isExam80Locked
+                                  ? "inset 0 0 0 1px rgba(248, 113, 113, 0.18)"
+                                  : undefined,
+                                borderBottom: activeFocusColumn === "EXAM80"
+                                  ? "2px solid rgba(125, 211, 252, 0.8)"
+                                  : isExam80Locked
+                                  ? "2px solid rgba(248, 113, 113, 0.65)"
+                                  : undefined,
+                              }}
+                              title={isExam80Locked ? "/80 is locked for this term." : undefined}
+                            >
+                              /80{isExam80Locked ? " 🔒" : ""}
+                            </th>
+                          );
+                        })()
                       )}
                     </tr>
                   </thead>
@@ -2323,21 +2471,35 @@ useEffect(() => {
                             const value = marksForS[aoi];
                             const errorKey = `${s.id}_${aoi}`;
                             const limits = getScoreConstraints(selectedAssignment?.isAlevel === true, aoi);
+                            const isAoiLocked = lockedCurrentComponents.has(aoi);
 
                             return (
                               <td
                                 key={aoi}
                                 style={{
-                                  background: activeFocusColumn === aoi ? "linear-gradient(180deg, rgba(56, 189, 248, 0.12), rgba(14, 165, 233, 0.04))" : undefined,
-                                  boxShadow: activeFocusColumn === aoi ? "inset 0 0 0 1px rgba(125, 211, 252, 0.2)" : undefined,
+                                  background: isAoiLocked
+                                    ? "linear-gradient(180deg, rgba(127, 29, 29, 0.18), rgba(69, 10, 10, 0.08))"
+                                    : activeFocusColumn === aoi
+                                    ? "linear-gradient(180deg, rgba(56, 189, 248, 0.12), rgba(14, 165, 233, 0.04))"
+                                    : undefined,
+                                  boxShadow: isAoiLocked
+                                    ? "inset 0 0 0 1px rgba(248, 113, 113, 0.14)"
+                                    : activeFocusColumn === aoi
+                                    ? "inset 0 0 0 1px rgba(125, 211, 252, 0.2)"
+                                    : undefined,
                                 }}
                               >
                                 <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", whiteSpace: "nowrap" }}>
                                   <select
                                     value={status}
+                                    disabled={isAoiLocked}
                                     onFocus={() => setFocusedColumn(aoi)}
                                     onChange={(e) => setAOIStatus(s.id, aoi, e.target.value)}
-                                    style={{ width: "70px" }}
+                                    style={{
+                                      width: "70px",
+                                      opacity: isAoiLocked ? 0.75 : 1,
+                                      cursor: isAoiLocked ? "not-allowed" : "pointer",
+                                    }}
                                   >
                                     <option>Present</option>
                                     <option>Missed</option>
@@ -2348,14 +2510,29 @@ useEffect(() => {
                                     min={limits.min}
                                     max={limits.max}
                                     step={limits.step}
-                                    disabled={status === "Missed"}
+                                    disabled={status === "Missed" || isAoiLocked}
                                     value={value === undefined || value === null ? "" : (value === "Missed" ? "" : value)}
                                     onFocus={() => setFocusedColumn(aoi)}
                                     onChange={(e) => setAOIScore(s.id, aoi, e.target.value)}
-                                    style={{ width: "46px", border: markErrors[errorKey] ? "2px solid #dc2626" : undefined, backgroundColor: markErrors[errorKey] ? "#fff5f5" : undefined }}
+                                    style={{
+                                      width: "46px",
+                                      border: markErrors[errorKey] ? "2px solid #dc2626" : undefined,
+                                      backgroundColor: markErrors[errorKey]
+                                        ? "#fff5f5"
+                                        : isAoiLocked
+                                        ? "rgba(248, 113, 113, 0.08)"
+                                        : undefined,
+                                      opacity: isAoiLocked ? 0.75 : 1,
+                                      cursor: isAoiLocked ? "not-allowed" : "text",
+                                    }}
                                   />
                                 </div>
 
+                                {isAoiLocked && (
+                                  <div style={{ color: "#fecaca", fontSize: "0.72rem", marginTop: "0.2rem" }}>
+                                    Locked
+                                  </div>
+                                )}
                                 {markErrors[errorKey] && (
                                   <div style={{ color: "#fecaca", fontSize: "0.75rem", marginTop: "0.2rem" }}>{markErrors[errorKey]}</div>
                                 )}
@@ -2370,19 +2547,33 @@ useEffect(() => {
                             const value = marksForS[aoi];
                             const errorKey = `${s.id}_${aoi}`;
                             const limits = getScoreConstraints(false, aoi);
+                            const isExam80Locked = lockedCurrentComponents.has("EXAM80");
                             return (
                               <td
                                 style={{
-                                  background: activeFocusColumn === "EXAM80" ? "linear-gradient(180deg, rgba(56, 189, 248, 0.12), rgba(14, 165, 233, 0.04))" : undefined,
-                                  boxShadow: activeFocusColumn === "EXAM80" ? "inset 0 0 0 1px rgba(125, 211, 252, 0.2)" : undefined,
+                                  background: isExam80Locked
+                                    ? "linear-gradient(180deg, rgba(127, 29, 29, 0.18), rgba(69, 10, 10, 0.08))"
+                                    : activeFocusColumn === "EXAM80"
+                                    ? "linear-gradient(180deg, rgba(56, 189, 248, 0.12), rgba(14, 165, 233, 0.04))"
+                                    : undefined,
+                                  boxShadow: isExam80Locked
+                                    ? "inset 0 0 0 1px rgba(248, 113, 113, 0.14)"
+                                    : activeFocusColumn === "EXAM80"
+                                    ? "inset 0 0 0 1px rgba(125, 211, 252, 0.2)"
+                                    : undefined,
                                 }}
                               >
                                 <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", whiteSpace: "nowrap" }}>
                                   <select
                                     value={status}
+                                    disabled={isExam80Locked}
                                     onFocus={() => setFocusedColumn("EXAM80")}
                                     onChange={(e) => setAOIStatus(s.id, aoi, e.target.value)}
-                                    style={{ width: "70px" }}
+                                    style={{
+                                      width: "70px",
+                                      opacity: isExam80Locked ? 0.75 : 1,
+                                      cursor: isExam80Locked ? "not-allowed" : "pointer",
+                                    }}
                                   >
                                     <option>Present</option>
                                     <option>Missed</option>
@@ -2393,14 +2584,29 @@ useEffect(() => {
                                     min={limits.min}
                                     max={limits.max}
                                     step={limits.step}
-                                    disabled={status === "Missed"}
+                                    disabled={status === "Missed" || isExam80Locked}
                                     value={value === undefined || value === null ? "" : (value === "Missed" ? "" : value)}
                                     onFocus={() => setFocusedColumn("EXAM80")}
                                     onChange={(e) => setAOIScore(s.id, aoi, e.target.value)}
-                                    style={{ width: "46px", border: markErrors[errorKey] ? "2px solid #dc2626" : undefined, backgroundColor: markErrors[errorKey] ? "#fff5f5" : undefined }}
+                                    style={{
+                                      width: "46px",
+                                      border: markErrors[errorKey] ? "2px solid #dc2626" : undefined,
+                                      backgroundColor: markErrors[errorKey]
+                                        ? "#fff5f5"
+                                        : isExam80Locked
+                                        ? "rgba(248, 113, 113, 0.08)"
+                                        : undefined,
+                                      opacity: isExam80Locked ? 0.75 : 1,
+                                      cursor: isExam80Locked ? "not-allowed" : "text",
+                                    }}
                                   />
                                 </div>
 
+                                {isExam80Locked && (
+                                  <div style={{ color: "#fecaca", fontSize: "0.72rem", marginTop: "0.2rem" }}>
+                                    Locked
+                                  </div>
+                                )}
                                 {markErrors[errorKey] && (
                                   <div style={{ color: "#fecaca", fontSize: "0.75rem", marginTop: "0.2rem" }}>{markErrors[errorKey]}</div>
                                 )}
@@ -2424,7 +2630,7 @@ useEffect(() => {
                 }}
               >
                 <button className="secondary-btn" onClick={handleDownloadPDF}>Download PDF</button>
-                <button className="primary-btn" disabled={Object.keys(markErrors).length > 0 || marksSaving} onClick={handleSaveMarks}>
+                <button className="primary-btn" disabled={saveButtonDisabled} onClick={handleSaveMarks}>
                   {marksSaving ? "Saving…" : "Save Marks"}
                 </button>
               </div>
@@ -3056,7 +3262,7 @@ useEffect(() => {
               <button
                 className="primary-btn"
                 style={{ width: "100%" }}
-                disabled={Object.keys(markErrors).length > 0 || marksSaving}
+                disabled={saveButtonDisabled}
                 onClick={handleSaveMarks}
               >
                 {marksSaving ? "Saving…" : "Save Marks"}

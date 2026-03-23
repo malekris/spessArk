@@ -282,6 +282,36 @@ const DEFAULT_SCHOOL_CALENDAR = {
   ],
 };
 
+export const MARKS_ENTRY_LOCK_GROUPS = Object.freeze({
+  "O-Level": ["AOI1", "AOI2", "AOI3", "EXAM80"],
+  "A-Level": ["MID", "EOT"],
+});
+
+const MARKS_ENTRY_LOCK_LEVELS = Object.keys(MARKS_ENTRY_LOCK_GROUPS);
+
+const normalizeMarksLockLevel = (value) => {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) return "";
+  if (["o-level", "o level", "olevel"].includes(raw)) return "O-Level";
+  if (["a-level", "a level", "alevel"].includes(raw)) return "A-Level";
+  return "";
+};
+
+const normalizeMarksLockComponent = (value) => {
+  const raw = String(value || "").trim().toUpperCase();
+  if (!raw) return "";
+  if (raw === "AOI 1") return "AOI1";
+  if (raw === "AOI 2") return "AOI2";
+  if (raw === "AOI 3") return "AOI3";
+  if (raw === "/80" || raw === "80") return "EXAM80";
+  return raw;
+};
+
+export const getMarksLockComponents = (level) => {
+  const normalizedLevel = normalizeMarksLockLevel(level);
+  return normalizedLevel ? MARKS_ENTRY_LOCK_GROUPS[normalizedLevel] || [] : [];
+};
+
 const normalizeCalendarDate = (value) => {
   const raw = String(value || "").trim();
   if (!raw) return "";
@@ -400,6 +430,164 @@ async function readSchoolCalendarSettings() {
     }),
     updatedAt: row.updated_at ?? null,
   };
+}
+
+let marksEntryLocksReadyPromise = null;
+
+const normalizeMarksLockDateTime = (value) => {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return null;
+
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, "0");
+  const day = String(parsed.getDate()).padStart(2, "0");
+  const hours = String(parsed.getHours()).padStart(2, "0");
+  const minutes = String(parsed.getMinutes()).padStart(2, "0");
+  const seconds = String(parsed.getSeconds()).padStart(2, "0");
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+};
+
+async function ensureMarksEntryLocksTable() {
+  if (!marksEntryLocksReadyPromise) {
+    marksEntryLocksReadyPromise = (async () => {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS marks_entry_locks (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+          term VARCHAR(20) NOT NULL,
+          year INT NOT NULL,
+          level_name VARCHAR(20) NOT NULL DEFAULT 'O-Level',
+          aoi_label VARCHAR(20) NOT NULL,
+          deadline_at DATETIME NULL,
+          is_locked TINYINT(1) NOT NULL DEFAULT 0,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          UNIQUE KEY uq_marks_entry_locks_term_year_level_aoi (term, year, level_name, aoi_label)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+      `);
+
+      const [columns] = await pool.query(
+        `SELECT COLUMN_NAME, DATA_TYPE, COLUMN_TYPE
+         FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE()
+           AND TABLE_NAME = 'marks_entry_locks'`
+      );
+      const columnMap = new Map((columns || []).map((column) => [column.COLUMN_NAME, column]));
+
+      if (!columnMap.has("level_name")) {
+        await pool.query(
+          `ALTER TABLE marks_entry_locks
+           ADD COLUMN level_name VARCHAR(20) NOT NULL DEFAULT 'O-Level' AFTER year`
+        );
+      }
+
+      const aoiColumn = columnMap.get("aoi_label");
+      if (aoiColumn && String(aoiColumn.DATA_TYPE || "").toLowerCase() !== "varchar") {
+        await pool.query(
+          `ALTER TABLE marks_entry_locks
+           MODIFY COLUMN aoi_label VARCHAR(20) NOT NULL`
+        );
+      }
+
+      const [indexes] = await pool.query(`SHOW INDEX FROM marks_entry_locks`);
+      const indexNames = new Set((indexes || []).map((index) => index.Key_name));
+
+      if (indexNames.has("uq_marks_entry_locks_term_year_aoi")) {
+        await pool.query(
+          `ALTER TABLE marks_entry_locks
+           DROP INDEX uq_marks_entry_locks_term_year_aoi`
+        );
+      }
+
+      if (!indexNames.has("uq_marks_entry_locks_term_year_level_aoi")) {
+        await pool.query(
+          `ALTER TABLE marks_entry_locks
+           ADD UNIQUE KEY uq_marks_entry_locks_term_year_level_aoi (term, year, level_name, aoi_label)`
+        );
+      }
+    })().catch((err) => {
+      marksEntryLocksReadyPromise = null;
+      throw err;
+    });
+  }
+
+  return marksEntryLocksReadyPromise;
+}
+
+export async function readMarksEntryLocks(term, year, level = "") {
+  await ensureMarksEntryLocksTable();
+
+  const normalizedTerm = String(term || "").trim();
+  const normalizedYear = Number(year);
+  const normalizedLevel = normalizeMarksLockLevel(level);
+
+  if (!normalizedTerm || !Number.isInteger(normalizedYear) || normalizedYear <= 0) {
+    return [];
+  }
+
+  const queryParams = [normalizedTerm, normalizedYear];
+  let levelSql = "";
+  if (normalizedLevel) {
+    levelSql = " AND level_name = ?";
+    queryParams.push(normalizedLevel);
+  }
+
+  const [rows] = await pool.query(
+    `SELECT
+        term,
+        year,
+        level_name,
+        aoi_label,
+        is_locked,
+        DATE_FORMAT(deadline_at, '%Y-%m-%dT%H:%i') AS deadline_at,
+        updated_at
+     FROM marks_entry_locks
+     WHERE term = ?
+       AND year = ?${levelSql}`,
+    queryParams
+  );
+
+  const byComponent = new Map(
+    (rows || []).map((row) => [
+      `${normalizeMarksLockLevel(row.level_name) || "O-Level"}__${normalizeMarksLockComponent(row.aoi_label)}`,
+      {
+        term: row.term,
+        year: Number(row.year),
+        level_name: normalizeMarksLockLevel(row.level_name) || "O-Level",
+        aoi_label: normalizeMarksLockComponent(row.aoi_label),
+        deadline_at: row.deadline_at || "",
+        is_locked: Boolean(row.is_locked),
+        updated_at: row.updated_at ?? null,
+      },
+    ])
+  );
+
+  const now = new Date();
+  const levelsToReturn = normalizedLevel ? [normalizedLevel] : MARKS_ENTRY_LOCK_LEVELS;
+
+  return levelsToReturn.flatMap((levelName) =>
+    getMarksLockComponents(levelName).map((component) => {
+      const row = byComponent.get(`${levelName}__${component}`) || {
+        term: normalizedTerm,
+        year: normalizedYear,
+        level_name: levelName,
+        aoi_label: component,
+        deadline_at: "",
+        is_locked: false,
+        updated_at: null,
+      };
+
+      const deadline = row.deadline_at ? new Date(row.deadline_at) : null;
+      const deadlinePassed = deadline && !Number.isNaN(deadline.getTime()) ? now >= deadline : false;
+
+      return {
+        ...row,
+        effective_locked: Boolean(row.is_locked) || Boolean(deadlinePassed),
+        lock_reason: row.is_locked ? "Manual lock" : deadlinePassed ? "Deadline passed" : "Open",
+      };
+    })
+  );
 }
 // ===============================
 // ADMIN → LIST TEACHERS
@@ -1302,6 +1490,27 @@ app.post("/api/teacher/marks", authTeacher, async (req, res) => {
     }
 
     const assignmentSubject = (assignmentRow.subject || "").trim();
+    const oLevelLockableAois = getMarksLockComponents("O-Level");
+    const activeLocks = await readMarksEntryLocks(term, year, "O-Level");
+    const lockedAois = new Set(
+      activeLocks
+        .filter((lock) => lock.effective_locked)
+        .map((lock) => String(lock.aoi_label || "").toUpperCase())
+    );
+    const touchedLockedAois = Array.from(
+      new Set(
+        [...marks, ...clearMarks]
+          .map((entry) => String(entry?.aoi || "").trim().toUpperCase())
+          .filter((aoi) => oLevelLockableAois.includes(aoi) && lockedAois.has(aoi))
+      )
+    );
+
+    if (touchedLockedAois.length > 0) {
+      return res.status(423).json({
+        message: `Marks entry locked for ${touchedLockedAois.join(", ")} in ${term} ${year}. Deadline has passed or admin locked it.`,
+      });
+    }
+
     const [[existingMarksMeta]] = await pool.query(
       `SELECT COUNT(*) AS count
        FROM marks
@@ -1659,6 +1868,27 @@ app.post("/api/teachers/marks", authTeacher, async (req, res) => {
       return res.status(404).json({ message: "Assignment not found or not assigned to this teacher" });
     }
     const assignmentSubject = (assignmentRow.subject || "").trim();
+    const oLevelLockableAois = getMarksLockComponents("O-Level");
+    const activeLocks = await readMarksEntryLocks(term, year, "O-Level");
+    const lockedAois = new Set(
+      activeLocks
+        .filter((lock) => lock.effective_locked)
+        .map((lock) => String(lock.aoi_label || "").toUpperCase())
+    );
+    const touchedLockedAois = Array.from(
+      new Set(
+        [...marks, ...clearMarks]
+          .map((entry) => String(entry?.aoi || "").trim().toUpperCase())
+          .filter((aoi) => oLevelLockableAois.includes(aoi) && lockedAois.has(aoi))
+      )
+    );
+
+    if (touchedLockedAois.length > 0) {
+      return res.status(423).json({
+        message: `Marks entry locked for ${touchedLockedAois.join(", ")} in ${term} ${year}. Deadline has passed or admin locked it.`,
+      });
+    }
+
     const [[existingMarksMeta]] = await pool.query(
       `SELECT COUNT(*) AS count
        FROM marks
@@ -1975,6 +2205,98 @@ app.put("/api/admin/school-calendar", authAdmin, async (req, res) => {
   } catch (err) {
     console.error("Save school calendar error:", err);
     res.status(500).json({ message: "Failed to save school calendar" });
+  }
+});
+
+app.get("/api/teachers/marks-entry-locks", authTeacher, async (req, res) => {
+  try {
+    const term = String(req.query.term || "").trim();
+    const year = Number(req.query.year);
+    const level = normalizeMarksLockLevel(req.query.level);
+
+    if (!term || !Number.isInteger(year) || year <= 0) {
+      return res.status(400).json({ message: "term and year are required" });
+    }
+
+    const locks = await readMarksEntryLocks(term, year, level);
+    res.json({ term, year, level: level || "", locks });
+  } catch (err) {
+    console.error("Teacher load marks entry locks error:", err);
+    res.status(500).json({ message: "Failed to load marks entry locks" });
+  }
+});
+
+app.get("/api/admin/marks-entry-locks", authAdmin, async (req, res) => {
+  try {
+    const term = String(req.query.term || "").trim();
+    const year = Number(req.query.year);
+    const level = normalizeMarksLockLevel(req.query.level);
+
+    if (!term || !Number.isInteger(year) || year <= 0) {
+      return res.status(400).json({ message: "term and year are required" });
+    }
+
+    const locks = await readMarksEntryLocks(term, year, level);
+    res.json({ term, year, level: level || "", locks });
+  } catch (err) {
+    console.error("Admin load marks entry locks error:", err);
+    res.status(500).json({ message: "Failed to load marks entry locks" });
+  }
+});
+
+app.put("/api/admin/marks-entry-locks", authAdmin, async (req, res) => {
+  try {
+    const term = String(req.body?.term || "").trim();
+    const year = Number(req.body?.year);
+    const submittedLocks = Array.isArray(req.body?.locks) ? req.body.locks : [];
+
+    if (!term || !Number.isInteger(year) || year <= 0) {
+      return res.status(400).json({ message: "term and year are required" });
+    }
+
+    const locksByKey = new Map(
+      submittedLocks.map((lock) => {
+        const normalizedLevel = normalizeMarksLockLevel(lock?.level_name || lock?.level) || "O-Level";
+        const normalizedComponent = normalizeMarksLockComponent(lock?.aoi_label);
+        return [`${normalizedLevel}__${normalizedComponent}`, lock];
+      })
+    );
+
+    await ensureMarksEntryLocksTable();
+
+    for (const levelName of MARKS_ENTRY_LOCK_LEVELS) {
+      for (const component of getMarksLockComponents(levelName)) {
+        const row = locksByKey.get(`${levelName}__${component}`) || {};
+        const deadlineAt = normalizeMarksLockDateTime(row.deadline_at);
+        const isLocked = Boolean(row.is_locked);
+
+        await pool.query(
+          `INSERT INTO marks_entry_locks (term, year, level_name, aoi_label, deadline_at, is_locked)
+           VALUES (?, ?, ?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE
+             deadline_at = VALUES(deadline_at),
+             is_locked = VALUES(is_locked)`,
+          [term, year, levelName, component, deadlineAt, isLocked ? 1 : 0]
+        );
+      }
+    }
+
+    const savedLocks = await readMarksEntryLocks(term, year);
+
+    await logAuditEvent({
+      userId: Number(req.admin?.id) || 1,
+      userRole: "admin",
+      action: "UPDATE_MARKS_LOCKS",
+      entityType: "system",
+      entityId: Number(year),
+      description: `Updated marks entry locks for ${term} ${year}`,
+      ipAddress: extractClientIp(req),
+    });
+
+    res.json({ term, year, locks: savedLocks });
+  } catch (err) {
+    console.error("Save marks entry locks error:", err);
+    res.status(500).json({ message: "Failed to save marks entry locks" });
   }
 });
 

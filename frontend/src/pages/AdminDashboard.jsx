@@ -53,6 +53,23 @@ const S1_S2_PRESELECT_OPTIONALS = [
 ];
 const CLASS_SORT_ORDER = ["S1", "S2", "S3", "S4"];
 const STREAM_SORT_ORDER = ["North", "South"];
+const MARKS_LOCK_GROUPS = {
+  "O-Level": ["AOI1", "AOI2", "AOI3", "EXAM80"],
+  "A-Level": ["MID", "EOT"],
+};
+const MARKS_LOCK_LEVELS = Object.keys(MARKS_LOCK_GROUPS);
+
+const formatMarksLockComponentLabel = (component) => {
+  const raw = String(component || "").trim().toUpperCase();
+  if (raw === "AOI1") return "AOI 1";
+  if (raw === "AOI2") return "AOI 2";
+  if (raw === "AOI3") return "AOI 3";
+  if (raw === "EXAM80") return "/80";
+  return raw || "—";
+};
+
+const getMarksLockRowKey = (levelName, aoiLabel) =>
+  `${String(levelName || "").trim()}__${String(aoiLabel || "").trim().toUpperCase()}`;
 
 const formatDateTime = (value) => {
   if (!value) return "—";
@@ -71,6 +88,21 @@ const formatDateOnly = (value) => {
     year: "numeric",
   });
 };
+
+const createEmptyMarksLockForm = (term = "Term 1", year = new Date().getFullYear()) => ({
+  term,
+  year,
+  locks: MARKS_LOCK_LEVELS.flatMap((levelName) =>
+    MARKS_LOCK_GROUPS[levelName].map((aoi) => ({
+      level_name: levelName,
+      aoi_label: aoi,
+      deadline_at: "",
+      is_locked: false,
+      effective_locked: false,
+      lock_reason: "Open",
+    }))
+  ),
+});
 
 // Promotion window: opens Dec 5 and locks after Jan 30 (inclusive window).
 const isPromotionWindowOpen = (date = new Date()) => {
@@ -215,6 +247,11 @@ export default function AdminDashboard() {
   const [schoolCalendarSaving, setSchoolCalendarSaving] = useState(false);
   const [schoolCalendarError, setSchoolCalendarError] = useState("");
   const [schoolCalendarNotice, setSchoolCalendarNotice] = useState("");
+  const [marksLockForm, setMarksLockForm] = useState(() => createEmptyMarksLockForm());
+  const [marksLockLoading, setMarksLockLoading] = useState(false);
+  const [marksLockSaving, setMarksLockSaving] = useState(false);
+  const [marksLockError, setMarksLockError] = useState("");
+  const [marksLockNotice, setMarksLockNotice] = useState("");
 
   useEffect(() => {
     document.title = activeSection ? `${activeSection} | SPESS ARK` : "Admin Dashboard | SPESS ARK";
@@ -320,6 +357,7 @@ export default function AdminDashboard() {
         : "Inactive (opens Dec 5, locks Jan 30)",
     },
     { title: "School Calendar", subtitle: "Manage terms and holiday dates", icon: "🗓️" },
+    { title: "Marks Entry Lock", subtitle: "Lock AOIs, /80, MID and EOT after deadline", icon: "🔒" },
     { title: "Stream Readiness", subtitle: "Compulsory coverage by class and stream", icon: "🧭" },
     { title: "Audit Log", subtitle: "Track system actions and changes", icon: "🛡️" },
     { title: "Notices", subtitle: "Create school notices", icon: "📢" },
@@ -362,6 +400,50 @@ export default function AdminDashboard() {
       setSchoolCalendarError(err.message || "Could not load school calendar.");
     } finally {
       setSchoolCalendarLoading(false);
+    }
+  };
+
+  const fetchMarksEntryLocks = async (
+    term = marksLockForm.term || "Term 1",
+    year = Number(marksLockForm.year) || new Date().getFullYear()
+  ) => {
+    setMarksLockLoading(true);
+    setMarksLockError("");
+    setMarksLockNotice("");
+    try {
+      const data = await adminFetch(
+        `/api/admin/marks-entry-locks?term=${encodeURIComponent(term)}&year=${encodeURIComponent(year)}`
+      );
+      const rows = Array.isArray(data?.locks) ? data.locks : [];
+      const byKey = new Map(
+        rows.map((row) => [
+          getMarksLockRowKey(row.level_name || "O-Level", row.aoi_label),
+          row,
+        ])
+      );
+      setMarksLockForm({
+        term,
+        year,
+        locks: MARKS_LOCK_LEVELS.flatMap((levelName) =>
+          MARKS_LOCK_GROUPS[levelName].map((aoi) => {
+            const matched = byKey.get(getMarksLockRowKey(levelName, aoi));
+            return {
+              level_name: levelName,
+              aoi_label: aoi,
+              deadline_at: matched?.deadline_at || "",
+              is_locked: Boolean(matched?.is_locked),
+              effective_locked: Boolean(matched?.effective_locked),
+              lock_reason: matched?.lock_reason || "Open",
+            };
+          })
+        ),
+      });
+    } catch (err) {
+      console.error("Error loading marks entry locks:", err);
+      setMarksLockForm(createEmptyMarksLockForm(term, year));
+      setMarksLockError(err.message || "Could not load marks entry locks.");
+    } finally {
+      setMarksLockLoading(false);
     }
   };
 
@@ -1241,6 +1323,8 @@ export default function AdminDashboard() {
       fetchMarksSets();
     } else if (activeSection === "School Calendar") {
       fetchSchoolCalendar();
+    } else if (activeSection === "Marks Entry Lock") {
+      fetchMarksEntryLocks();
     } else if (activeSection === "Stream Readiness") {
       fetchStreamReadiness();
     } else if (activeSection === "Assign Subjects") {
@@ -1338,6 +1422,89 @@ export default function AdminDashboard() {
       setSchoolCalendarError(err.message || "Could not save school calendar.");
     } finally {
       setSchoolCalendarSaving(false);
+    }
+  };
+
+  const handleMarksLockMetaChange = (field, value) => {
+    setMarksLockError("");
+    setMarksLockNotice("");
+    setMarksLockForm((prev) => ({
+      ...prev,
+      [field]: field === "year" ? Number(value) || new Date().getFullYear() : value,
+    }));
+  };
+
+  const handleMarksLockRowChange = (levelName, aoi, field, value) => {
+    setMarksLockError("");
+    setMarksLockNotice("");
+    setMarksLockForm((prev) => ({
+      ...prev,
+      locks: prev.locks.map((row) =>
+        row.level_name === levelName && row.aoi_label === aoi
+          ? {
+              ...row,
+              [field]: field === "is_locked" ? Boolean(value) : value,
+            }
+          : row
+      ),
+    }));
+  };
+
+  const handleSaveMarksEntryLocks = async (e) => {
+    e?.preventDefault?.();
+    setMarksLockSaving(true);
+    setMarksLockError("");
+    setMarksLockNotice("");
+
+    try {
+      const payload = {
+        term: marksLockForm.term,
+        year: Number(marksLockForm.year),
+        locks: marksLockForm.locks.map((row) => ({
+          level_name: row.level_name,
+          aoi_label: row.aoi_label,
+          deadline_at: row.deadline_at || "",
+          is_locked: Boolean(row.is_locked),
+        })),
+      };
+
+      const saved = await adminFetch("/api/admin/marks-entry-locks", {
+        method: "PUT",
+        body: payload,
+      });
+
+      const rows = Array.isArray(saved?.locks) ? saved.locks : [];
+      const byKey = new Map(
+        rows.map((row) => [
+          getMarksLockRowKey(row.level_name || "O-Level", row.aoi_label),
+          row,
+        ])
+      );
+      setMarksLockForm({
+        term: saved?.term || payload.term,
+        year: Number(saved?.year || payload.year),
+        locks: MARKS_LOCK_LEVELS.flatMap((levelName) =>
+          MARKS_LOCK_GROUPS[levelName].map((aoi) => {
+            const matched = byKey.get(getMarksLockRowKey(levelName, aoi));
+            return {
+              level_name: levelName,
+              aoi_label: aoi,
+              deadline_at: matched?.deadline_at || "",
+              is_locked: Boolean(matched?.is_locked),
+              effective_locked: Boolean(matched?.effective_locked),
+              lock_reason: matched?.lock_reason || "Open",
+            };
+          })
+        ),
+      });
+      setMarksLockNotice(
+        "Marks entry lock settings saved. Teachers will be blocked immediately when AOI, /80, MID or EOT windows are locked or their deadlines pass."
+      );
+    } catch (err) {
+      console.error("Error saving marks entry locks:", err);
+      setMarksLockError(err.message || "Could not save marks entry locks.");
+    } finally {
+      setMarksLockSaving(false);
     }
   };
 
@@ -3075,6 +3242,283 @@ export default function AdminDashboard() {
                 Shared usage: the teacher dashboard will show <strong>terms</strong> and
                 <strong> holidays</strong> from these dates automatically. No more hardcoding.
               </p>
+            </div>
+          </div>
+        </section>
+      );
+    }
+    if (activeSection === "Marks Entry Lock") {
+      return (
+        <section className="panel">
+          <div className="panel-header">
+            <div>
+              <h2>Marks Entry Lock</h2>
+              <p>Set deadlines and lock late marks entry for O-Level AOIs, Term 3 /80, and A-Level MID/EOT. Teachers will see a banner immediately and locked components stop accepting marks.</p>
+            </div>
+            <button className="panel-close" type="button" onClick={() => setActiveSection("")}>
+              ✕ Close
+            </button>
+          </div>
+
+          {marksLockError && <div className="panel-alert panel-alert-error">{marksLockError}</div>}
+          {marksLockNotice && (
+            <div
+              className="panel-alert"
+              style={{
+                background: "rgba(56, 189, 248, 0.1)",
+                border: "1px solid rgba(56, 189, 248, 0.28)",
+                color: "#bae6fd",
+              }}
+            >
+              {marksLockNotice}
+            </div>
+          )}
+
+          <div className="panel-grid">
+            <div
+              className="panel-card"
+              style={{ display: "flex", flexDirection: "column", minHeight: 0 }}
+            >
+              <div className="panel-card-header" style={{ marginBottom: "1rem" }}>
+                <div>
+                  <h3 style={{ marginBottom: "0.2rem" }}>Lock Setup</h3>
+                  <p className="muted-text" style={{ margin: 0 }}>
+                    This applies school-wide to both O-Level and A-Level marks entry for the selected term and year.
+                  </p>
+                  <div
+                    style={{
+                      marginTop: "0.5rem",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "0.4rem",
+                      borderRadius: "999px",
+                      border: "1px solid rgba(56, 189, 248, 0.26)",
+                      background: "rgba(56, 189, 248, 0.1)",
+                      color: "#bae6fd",
+                      padding: "0.32rem 0.75rem",
+                      fontSize: "0.78rem",
+                      fontWeight: 800,
+                      letterSpacing: "0.04em",
+                    }}
+                  >
+                    Applies to teachers immediately
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="ghost-btn"
+                  onClick={() => fetchMarksEntryLocks(marksLockForm.term, Number(marksLockForm.year))}
+                  disabled={marksLockLoading}
+                >
+                  {marksLockLoading ? "Refreshing…" : "Refresh"}
+                </button>
+              </div>
+
+              <form className="teacher-form" onSubmit={handleSaveMarksEntryLocks}>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                    gap: "0.8rem",
+                  }}
+                >
+                  <div className="form-row">
+                    <label>Term</label>
+                    <select
+                      value={marksLockForm.term}
+                      onChange={(e) => handleMarksLockMetaChange("term", e.target.value)}
+                    >
+                      <option value="Term 1">Term 1</option>
+                      <option value="Term 2">Term 2</option>
+                      <option value="Term 3">Term 3</option>
+                    </select>
+                  </div>
+
+                  <div className="form-row">
+                    <label>Year</label>
+                    <input
+                      type="number"
+                      min="2020"
+                      max="2100"
+                      value={marksLockForm.year}
+                      onChange={(e) => handleMarksLockMetaChange("year", e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    display: "grid",
+                    gap: "1rem",
+                    marginTop: "0.9rem",
+                    maxHeight: "58vh",
+                    overflowX: "auto",
+                    overflowY: "auto",
+                    paddingRight: "0.35rem",
+                    paddingBottom: "0.45rem",
+                    alignContent: "start",
+                  }}
+                >
+                  {MARKS_LOCK_LEVELS.map((levelName) => (
+                    <div
+                      key={levelName}
+                      className="calendar-entry-card"
+                      style={{ padding: "1rem", background: "rgba(15, 23, 42, 0.64)" }}
+                    >
+                      <div className="panel-card-header" style={{ marginBottom: "0.95rem" }}>
+                        <div>
+                          <h4 style={{ margin: 0, color: "#f8fafc" }}>{levelName}</h4>
+                          <p className="muted-text" style={{ margin: "0.2rem 0 0" }}>
+                            {levelName === "O-Level"
+                              ? "AOI 1, AOI 2, AOI 3 and Term 3 /80 are controlled here."
+                              : "MID and EOT entry windows follow these locks."}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div
+                        className="calendar-editor-grid"
+                        style={{
+                          gridTemplateColumns: `repeat(${Math.max(
+                            1,
+                            marksLockForm.locks.filter((row) => row.level_name === levelName).length
+                          )}, minmax(220px, 220px))`,
+                          minWidth: `${
+                            Math.max(
+                              1,
+                              marksLockForm.locks.filter((row) => row.level_name === levelName).length
+                            ) * 236
+                          }px`,
+                        }}
+                      >
+                        {marksLockForm.locks
+                          .filter((row) => row.level_name === levelName)
+                          .map((row) => (
+                            <div key={getMarksLockRowKey(levelName, row.aoi_label)} className="calendar-entry-card">
+                              <div className="calendar-entry-heading">
+                                <div>
+                                  <strong>{formatMarksLockComponentLabel(row.aoi_label)}</strong>
+                                  <small>{row.effective_locked ? "Currently Locked" : "Open for Entry"}</small>
+                                </div>
+                              </div>
+
+                              <div className="form-row" style={{ marginBottom: "0.75rem" }}>
+                                <label>Deadline</label>
+                                <input
+                                  type="datetime-local"
+                                  value={row.deadline_at || ""}
+                                  onChange={(e) =>
+                                    handleMarksLockRowChange(
+                                      row.level_name,
+                                      row.aoi_label,
+                                      "deadline_at",
+                                      e.target.value
+                                    )
+                                  }
+                                />
+                              </div>
+
+                              <label
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: "0.55rem",
+                                  color: "#e2e8f0",
+                                  fontSize: "0.85rem",
+                                  cursor: "pointer",
+                                }}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={Boolean(row.is_locked)}
+                                  onChange={(e) =>
+                                    handleMarksLockRowChange(
+                                      row.level_name,
+                                      row.aoi_label,
+                                      "is_locked",
+                                      e.target.checked
+                                    )
+                                  }
+                                />
+                                <span>
+                                  Lock {formatMarksLockComponentLabel(row.aoi_label)} immediately
+                                </span>
+                              </label>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <button type="submit" className="primary-btn" disabled={marksLockSaving}>
+                  {marksLockSaving ? "Saving Locks…" : "Save Marks Lock Settings"}
+                </button>
+              </form>
+            </div>
+
+            <div className="panel-card">
+              <div className="panel-card-header" style={{ marginBottom: "1rem" }}>
+                <div>
+                  <h3 style={{ marginBottom: "0.2rem" }}>Teacher Impact Preview</h3>
+                  <p className="muted-text" style={{ margin: 0 }}>
+                    This is the kind of warning teachers will see when deadlines close.
+                  </p>
+                </div>
+              </div>
+
+              <div
+                style={{
+                  borderRadius: "18px",
+                  border: "1px solid rgba(239, 68, 68, 0.28)",
+                  background: "linear-gradient(135deg, rgba(127, 29, 29, 0.22), rgba(15, 23, 42, 0.92))",
+                  padding: "1rem 1.05rem",
+                  color: "#fecaca",
+                  marginBottom: "1rem",
+                }}
+              >
+                <div style={{ fontSize: "0.78rem", letterSpacing: "0.12em", textTransform: "uppercase", fontWeight: 800, marginBottom: "0.45rem" }}>
+                  System Lockdown Notice
+                </div>
+                <div style={{ color: "#f8fafc", fontWeight: 700, lineHeight: 1.6 }}>
+                  System locked down: deadline for marks entry has passed for{" "}
+                  <strong>
+                    {marksLockForm.locks
+                      .filter((row) => row.effective_locked)
+                      .map(
+                        (row) =>
+                          `${row.level_name} ${formatMarksLockComponentLabel(row.aoi_label)}`
+                      )
+                      .join(", ") || "no components yet"}
+                  </strong>
+                  .
+                </div>
+              </div>
+
+              <div className="teachers-table-wrapper" style={{ maxHeight: "56vh" }}>
+                <table className="teachers-table">
+                  <thead>
+                    <tr>
+                      <th>Level</th>
+                      <th>Component</th>
+                      <th>Deadline</th>
+                      <th>Manual Lock</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {marksLockForm.locks.map((row) => (
+                      <tr key={getMarksLockRowKey(row.level_name, row.aoi_label)}>
+                        <td>{row.level_name}</td>
+                        <td>{formatMarksLockComponentLabel(row.aoi_label)}</td>
+                        <td>{row.deadline_at ? formatDateTime(row.deadline_at) : "—"}</td>
+                        <td>{row.is_locked ? "Yes" : "No"}</td>
+                        <td>{row.effective_locked ? row.lock_reason || "Locked" : "Open"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         </section>

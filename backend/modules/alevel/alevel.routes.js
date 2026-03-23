@@ -1,5 +1,5 @@
 import express from "express";
-import { db } from "../../server.js";
+import { db, getMarksLockComponents, readMarksEntryLocks } from "../../server.js";
 import authTeacher from "../../middleware/authTeacher.js";
 import authAdmin from "../../middleware/authAdmin.js";
 import { pool } from "../../server.js";
@@ -360,6 +360,7 @@ router.get("/teachers/alevel-marks", async (req, res) => {
 /* SAVE marks */
 router.post("/teachers/alevel-marks", authTeacher, async (req, res) => {
   const { assignmentId, term, year, marks } = req.body;
+  const clearMarks = Array.isArray(req.body?.clearMarks) ? req.body.clearMarks : [];
 
   if (!assignmentId || !term || !Array.isArray(marks)) {
     return res.status(400).json({ message: "Invalid payload" });
@@ -386,6 +387,35 @@ router.post("/teachers/alevel-marks", authTeacher, async (req, res) => {
       return res.status(404).json({ message: "Assignment not found" });
     }
 
+    const normalizedYear =
+      Number.isInteger(Number(year)) && Number(year) > 0
+        ? Number(year)
+        : new Date().getFullYear();
+    const aLevelLockableComponents = getMarksLockComponents("A-Level");
+    const activeLocks = await readMarksEntryLocks(term, normalizedYear, "A-Level");
+    const lockedComponents = new Set(
+      activeLocks
+        .filter((lock) => Boolean(lock?.effective_locked))
+        .map((lock) => String(lock?.aoi_label || "").trim().toUpperCase())
+    );
+    const touchedComponents = Array.from(
+      new Set(
+        [...marks, ...clearMarks]
+          .map((entry) => String(entry?.aoi || "").trim().toUpperCase())
+          .filter((component) => aLevelLockableComponents.includes(component))
+      )
+    );
+    const touchedLockedComponents = touchedComponents.filter((component) =>
+      lockedComponents.has(component)
+    );
+
+    if (touchedLockedComponents.length > 0) {
+      await conn.rollback();
+      return res.status(423).json({
+        message: `Marks entry locked for ${touchedLockedComponents.join(", ")} in ${term} ${normalizedYear}. Deadline has passed or admin locked it.`,
+      });
+    }
+
     const [[existingMarksMeta]] = await conn.query(
       `SELECT COUNT(*) AS count
        FROM alevel_marks
@@ -403,24 +433,55 @@ router.post("/teachers/alevel-marks", authTeacher, async (req, res) => {
     const examMap = {};
     exams.forEach(e => examMap[e.name] = e.id);
 
-    // 3. Delete old marks for this subject + teacher + term
-    await conn.query(
-      `DELETE FROM alevel_marks
-       WHERE assignment_id = ?
-         AND term = ?`,
-      [ts.id, term]
-    );
+    for (const component of touchedComponents) {
+      if (!examMap[component]) {
+        await conn.rollback();
+        return res.status(400).json({ message: `Exam setup missing for ${component}` });
+      }
+    }
+
+    // 3. Replace only the unlocked components being saved, keeping locked components intact.
+    if (touchedComponents.length > 0) {
+      const examIdsToReplace = touchedComponents.map((component) => examMap[component]);
+      const placeholders = examIdsToReplace.map(() => "?").join(", ");
+
+      await conn.query(
+        `DELETE FROM alevel_marks
+         WHERE assignment_id = ?
+           AND term = ?
+           AND exam_id IN (${placeholders})`,
+        [ts.id, term, ...examIdsToReplace]
+      );
+    }
 
     // 4. Insert new marks
-    const rows = marks.map(m => [
-      m.studentId,
-      ts.id,
-      ts.subject_id,
-      examMap[m.aoi],       // MID/EOT → exam_id
-      m.score === "Missed" ? null : m.score,
-      teacherId,
-      term
-    ]);
+    const rows = [];
+    for (const mark of marks) {
+      const aoi = String(mark?.aoi || "").trim().toUpperCase();
+      if (!aLevelLockableComponents.includes(aoi)) {
+        await conn.rollback();
+        return res.status(400).json({ message: "A-Level marks must use MID or EOT." });
+      }
+
+      const isMissed = mark.score === "Missed";
+      if (!isMissed) {
+        const scoreNum = Number(mark.score);
+        if (!Number.isFinite(scoreNum) || scoreNum < 0 || scoreNum > 100) {
+          await conn.rollback();
+          return res.status(400).json({ message: "A-Level score must be between 0 and 100." });
+        }
+      }
+
+      rows.push([
+        mark.studentId,
+        ts.id,
+        ts.subject_id,
+        examMap[aoi],
+        isMissed ? null : Number(mark.score),
+        teacherId,
+        term,
+      ]);
+    }
 
     if (rows.length > 0) {
       await conn.query(
@@ -441,7 +502,7 @@ router.post("/teachers/alevel-marks", authTeacher, async (req, res) => {
       action: marksAction,
       entityType: "marks",
       entityId: Number(ts.id),
-      description: `${marksVerb} A-Level marks for ${buildSubjectDisplay(ts.subject_name, ts.paper_label)} in ${ts.stream} (${term}${year ? ` ${year}` : ""})`,
+      description: `${marksVerb} A-Level marks for ${buildSubjectDisplay(ts.subject_name, ts.paper_label)} in ${ts.stream} (${term} ${normalizedYear})`,
       ipAddress: extractClientIp(req),
     });
 

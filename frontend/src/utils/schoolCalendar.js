@@ -50,6 +50,20 @@ const parseDateKey = (dateKey) => {
   return new Date(year, month - 1, day);
 };
 
+const parseDateKeyEndOfDay = (dateKey) => {
+  const base = parseDateKey(dateKey);
+  if (!base) return null;
+  return new Date(
+    base.getFullYear(),
+    base.getMonth(),
+    base.getDate(),
+    23,
+    59,
+    59,
+    999
+  );
+};
+
 const getInclusiveDaysRemaining = (fromDateKey, toDateKey) => {
   const fromDate = parseDateKey(fromDateKey);
   const toDate = parseDateKey(toDateKey);
@@ -140,6 +154,71 @@ export const getSchoolCalendarBadge = (calendar, date = new Date()) => {
     status: activeEntry.status,
     daysRemaining,
     countdownLabel,
+  };
+};
+
+export const getSchoolCalendarPreciseCountdown = (calendar, date = new Date()) => {
+  const normalized = normalizeSchoolCalendar(calendar || DEFAULT_SCHOOL_CALENDAR);
+  const dateKey = toLocalDateKey(date);
+  const activeEntry = normalized.entries.find(
+    (entry) => entry.from && entry.to && dateKey >= entry.from && dateKey <= entry.to
+  );
+
+  if (!activeEntry) {
+    return {
+      label: "",
+      targetLabel: "",
+      totalMs: null,
+      weeks: 0,
+      days: 0,
+      hours: 0,
+      minutes: 0,
+      seconds: 0,
+    };
+  }
+
+  const endOfPeriod = parseDateKeyEndOfDay(activeEntry.to);
+  if (!endOfPeriod) {
+    return {
+      label: "",
+      targetLabel: activeEntry.label,
+      totalMs: null,
+      weeks: 0,
+      days: 0,
+      hours: 0,
+      minutes: 0,
+      seconds: 0,
+    };
+  }
+
+  const totalMs = Math.max(0, endOfPeriod.getTime() - date.getTime());
+  let remainingSeconds = Math.floor(totalMs / 1000);
+
+  const weeks = Math.floor(remainingSeconds / (7 * 24 * 60 * 60));
+  remainingSeconds -= weeks * 7 * 24 * 60 * 60;
+
+  const days = Math.floor(remainingSeconds / (24 * 60 * 60));
+  remainingSeconds -= days * 24 * 60 * 60;
+
+  const hours = Math.floor(remainingSeconds / (60 * 60));
+  remainingSeconds -= hours * 60 * 60;
+
+  const minutes = Math.floor(remainingSeconds / 60);
+  remainingSeconds -= minutes * 60;
+
+  const seconds = remainingSeconds;
+  const targetLabel = activeEntry.status === "Holiday Break" ? "break" : "term";
+  const label = `${weeks}w ${days}d ${hours}h ${minutes}m ${seconds}s left in this ${targetLabel}`;
+
+  return {
+    label,
+    targetLabel: activeEntry.label,
+    totalMs,
+    weeks,
+    days,
+    hours,
+    minutes,
+    seconds,
   };
 };
 

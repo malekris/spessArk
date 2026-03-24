@@ -17,6 +17,7 @@ import { loadPdfTools } from "../utils/loadPdfTools";
 import {
   DEFAULT_SCHOOL_CALENDAR,
   getSchoolCalendarBadge,
+  getSchoolCalendarPreciseCountdown,
   normalizeSchoolCalendar,
 } from "../utils/schoolCalendar";
 
@@ -241,6 +242,7 @@ export default function AdminDashboard() {
   const [activeSection, setActiveSection] = useState("");
   const [showEnrollmentChartsModal, setShowEnrollmentChartsModal] = useState(false);
   const [dashboardClock, setDashboardClock] = useState(() => new Date());
+  const [schoolCalendarPreviewClock, setSchoolCalendarPreviewClock] = useState(() => new Date());
   const [schoolCalendarForm, setSchoolCalendarForm] = useState(() =>
     normalizeSchoolCalendar(DEFAULT_SCHOOL_CALENDAR)
   );
@@ -261,14 +263,25 @@ export default function AdminDashboard() {
     const timerId = window.setInterval(() => setDashboardClock(new Date()), 60_000);
     return () => window.clearInterval(timerId);
   }, []);
+  useEffect(() => {
+    if (activeSection !== "School Calendar") return undefined;
+
+    setSchoolCalendarPreviewClock(new Date());
+    const timerId = window.setInterval(() => setSchoolCalendarPreviewClock(new Date()), 1000);
+    return () => window.clearInterval(timerId);
+  }, [activeSection]);
 
   const promotionWindowOpen = useMemo(
     () => isPromotionWindowOpen(dashboardClock),
     [dashboardClock]
   );
   const schoolCalendarBadge = useMemo(
-    () => getSchoolCalendarBadge(schoolCalendarForm, dashboardClock),
-    [schoolCalendarForm, dashboardClock]
+    () => getSchoolCalendarBadge(schoolCalendarForm, schoolCalendarPreviewClock),
+    [schoolCalendarForm, schoolCalendarPreviewClock]
+  );
+  const schoolCalendarPreciseCountdown = useMemo(
+    () => getSchoolCalendarPreciseCountdown(schoolCalendarForm, schoolCalendarPreviewClock),
+    [schoolCalendarForm, schoolCalendarPreviewClock]
   );
   useEffect(() => {
     if (!promotionWindowOpen && activeSection === "Learner Promotion") {
@@ -3222,7 +3235,12 @@ export default function AdminDashboard() {
 
               <div className="calendar-preview-meta">
                 <strong>Today</strong>
-                <span>{formatDateOnly(dashboardClock)}</span>
+                <span>{formatDateOnly(schoolCalendarPreviewClock)}</span>
+              </div>
+
+              <div className="calendar-preview-meta calendar-preview-countdown">
+                <strong>Countdown</strong>
+                <span>{schoolCalendarPreciseCountdown.label || "Waiting for active calendar window"}</span>
               </div>
 
               <div className="teachers-table-wrapper" style={{ maxHeight: "56vh" }}>

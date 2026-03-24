@@ -3115,8 +3115,25 @@ useEffect(() => {
         )}
 
         {pendingMissedConfirmation && (
-          <div className="modal-backdrop">
-            <div className="modal-card" style={{ maxWidth: "680px" }}>
+          <div
+            className="modal-backdrop"
+            style={{
+              zIndex: 10020,
+              padding: "1rem 1rem 6.5rem",
+              overflowY: "auto",
+              alignItems: "flex-start",
+              WebkitOverflowScrolling: "touch",
+            }}
+          >
+            <div
+              className="modal-card"
+              style={{
+                maxWidth: "680px",
+                width: "min(680px, 100%)",
+                margin: "0 auto",
+                maxHeight: "none",
+              }}
+            >
               <h2>Confirm Missed AOIs</h2>
               <p style={{ marginTop: "-0.15rem", marginBottom: "1rem", color: "#475569", lineHeight: 1.6 }}>
                 Some learners do not have scores in the AOI columns you are saving. If you continue, they will be marked as missed for those AOIs.
@@ -3174,8 +3191,20 @@ useEffect(() => {
         )}
 
         {showMarksSavedModal && (
-          <div className="modal-backdrop">
-            <div className="modal-card" style={{ maxWidth: "520px" }}>
+          <div
+            className="modal-backdrop"
+            style={{
+              zIndex: 10020,
+              padding: "1rem 1rem 5rem",
+              overflowY: "auto",
+              alignItems: "flex-start",
+              WebkitOverflowScrolling: "touch",
+            }}
+          >
+            <div
+              className="modal-card"
+              style={{ maxWidth: "520px", width: "min(520px, 100%)", margin: "0 auto" }}
+            >
               <h2>Marks Saved</h2>
               <div
                 style={{
@@ -3236,7 +3265,12 @@ useEffect(() => {
           </div>
         )}
 
-        {selectedAssignment && isMobileTable && (
+        {selectedAssignment &&
+          isMobileTable &&
+          !pendingMissedConfirmation &&
+          !showMarksSavedModal &&
+          !showChangePassword &&
+          !showHelpModal && (
           <div
             style={{
               position: "fixed",

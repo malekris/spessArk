@@ -823,6 +823,7 @@
 
 .teacher-root .modal-backdrop {
   padding: 1rem;
+  z-index: 10020;
 }
 
 @media (max-width: 900px) {

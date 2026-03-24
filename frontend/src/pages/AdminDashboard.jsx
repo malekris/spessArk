@@ -91,6 +91,19 @@ const formatDateOnly = (value) => {
   });
 };
 
+const normalizeOperationalTerm = (value) => {
+  const raw = String(value || "").trim().toLowerCase();
+  if (/\b(term\s*3|iii|3)\b/.test(raw)) return "Term 3";
+  if (/\b(term\s*2|ii|2)\b/.test(raw)) return "Term 2";
+  if (/\b(term\s*1|i|1)\b/.test(raw)) return "Term 1";
+  return "Term 1";
+};
+
+const toPercent = (value, total) => {
+  if (!total) return 0;
+  return Math.max(0, Math.min(100, Math.round((Number(value || 0) / Number(total || 0)) * 100)));
+};
+
 const createEmptyMarksLockForm = (term = "Term 1", year = new Date().getFullYear()) => ({
   term,
   year,
@@ -105,6 +118,23 @@ const createEmptyMarksLockForm = (term = "Term 1", year = new Date().getFullYear
     }))
   ),
 });
+
+const buildMarksLockRows = (rows = []) =>
+  MARKS_LOCK_LEVELS.flatMap((levelName) =>
+    MARKS_LOCK_GROUPS[levelName].map((aoi) => {
+      const matched = rows.find(
+        (row) => getMarksLockRowKey(row.level_name || "O-Level", row.aoi_label) === getMarksLockRowKey(levelName, aoi)
+      );
+      return {
+        level_name: levelName,
+        aoi_label: aoi,
+        deadline_at: matched?.deadline_at || "",
+        is_locked: Boolean(matched?.is_locked),
+        effective_locked: Boolean(matched?.effective_locked),
+        lock_reason: matched?.lock_reason || "Open",
+      };
+    })
+  );
 
 // Promotion window: opens Dec 5 and locks after Jan 30 (inclusive window).
 const isPromotionWindowOpen = (date = new Date()) => {
@@ -250,6 +280,11 @@ export default function AdminDashboard() {
   const [schoolCalendarSaving, setSchoolCalendarSaving] = useState(false);
   const [schoolCalendarError, setSchoolCalendarError] = useState("");
   const [schoolCalendarNotice, setSchoolCalendarNotice] = useState("");
+  const [oLevelAssignmentsOverview, setOLevelAssignmentsOverview] = useState([]);
+  const [aLevelAssignmentsOverview, setALevelAssignmentsOverview] = useState([]);
+  const [aLevelMarksSets, setALevelMarksSets] = useState([]);
+  const [overviewMarksLocks, setOverviewMarksLocks] = useState([]);
+  const [reportReadinessSummary, setReportReadinessSummary] = useState(null);
   const [marksLockForm, setMarksLockForm] = useState(() => createEmptyMarksLockForm());
   const [marksLockLoading, setMarksLockLoading] = useState(false);
   const [marksLockSaving, setMarksLockSaving] = useState(false);
@@ -283,6 +318,14 @@ export default function AdminDashboard() {
     () => getSchoolCalendarPreciseCountdown(schoolCalendarForm, schoolCalendarPreviewClock),
     [schoolCalendarForm, schoolCalendarPreviewClock]
   );
+  const dashboardOperationalTerm = useMemo(
+    () => normalizeOperationalTerm(schoolCalendarBadge.termLabel || marksLockForm.term),
+    [schoolCalendarBadge.termLabel, marksLockForm.term]
+  );
+  const dashboardOperationalYear = useMemo(() => {
+    const parsed = Number(schoolCalendarForm.academicYear);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : new Date().getFullYear();
+  }, [schoolCalendarForm.academicYear]);
   useEffect(() => {
     if (!promotionWindowOpen && activeSection === "Learner Promotion") {
       setActiveSection("");
@@ -314,6 +357,7 @@ export default function AdminDashboard() {
   const [deletingStudentId, setDeletingStudentId] = useState(null);
   const [editingStudent, setEditingStudent] = useState(null);
   const savingStudentRef = useRef(false);
+  const detailSectionRef = useRef(null);
   const [showStudentSaveConfirm, setShowStudentSaveConfirm] = useState(false);
   const [pendingStudentSave, setPendingStudentSave] = useState(null);
 
@@ -430,28 +474,10 @@ export default function AdminDashboard() {
         `/api/admin/marks-entry-locks?term=${encodeURIComponent(term)}&year=${encodeURIComponent(year)}`
       );
       const rows = Array.isArray(data?.locks) ? data.locks : [];
-      const byKey = new Map(
-        rows.map((row) => [
-          getMarksLockRowKey(row.level_name || "O-Level", row.aoi_label),
-          row,
-        ])
-      );
       setMarksLockForm({
         term,
         year,
-        locks: MARKS_LOCK_LEVELS.flatMap((levelName) =>
-          MARKS_LOCK_GROUPS[levelName].map((aoi) => {
-            const matched = byKey.get(getMarksLockRowKey(levelName, aoi));
-            return {
-              level_name: levelName,
-              aoi_label: aoi,
-              deadline_at: matched?.deadline_at || "",
-              is_locked: Boolean(matched?.is_locked),
-              effective_locked: Boolean(matched?.effective_locked),
-              lock_reason: matched?.lock_reason || "Open",
-            };
-          })
-        ),
+        locks: buildMarksLockRows(rows),
       });
     } catch (err) {
       console.error("Error loading marks entry locks:", err);
@@ -459,6 +485,68 @@ export default function AdminDashboard() {
       setMarksLockError(err.message || "Could not load marks entry locks.");
     } finally {
       setMarksLockLoading(false);
+    }
+  };
+
+  const fetchOverviewMarksEntryLocks = async (
+    term = dashboardOperationalTerm,
+    year = dashboardOperationalYear
+  ) => {
+    try {
+      const data = await adminFetch(
+        `/api/admin/marks-entry-locks?term=${encodeURIComponent(term)}&year=${encodeURIComponent(year)}`
+      );
+      setOverviewMarksLocks(buildMarksLockRows(Array.isArray(data?.locks) ? data.locks : []));
+    } catch (err) {
+      console.error("Error loading overview marks entry locks:", err);
+      setOverviewMarksLocks(buildMarksLockRows([]));
+    }
+  };
+
+  const fetchOLevelAssignmentsOverview = async () => {
+    try {
+      const data = await adminFetch("/api/admin/assignments");
+      setOLevelAssignmentsOverview(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error("Error loading O-Level assignments overview:", err);
+      setOLevelAssignmentsOverview([]);
+    }
+  };
+
+  const fetchALevelAssignmentsOverview = async () => {
+    try {
+      const data = await adminFetch("/api/alevel/admin/assignments");
+      setALevelAssignmentsOverview(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error("Error loading A-Level assignments overview:", err);
+      setALevelAssignmentsOverview([]);
+    }
+  };
+
+  const fetchALevelMarksSets = async () => {
+    try {
+      const data = await adminFetch("/api/alevel/admin/marks-sets");
+      setALevelMarksSets(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error("Error loading A-Level marks sets:", err);
+      setALevelMarksSets([]);
+    }
+  };
+
+  const fetchReportReadinessSummary = async (
+    term = dashboardOperationalTerm,
+    year = dashboardOperationalYear
+  ) => {
+    try {
+      const params = new URLSearchParams({
+        term,
+        year: String(year),
+      });
+      const data = await adminFetch(`/api/admin/reports/readiness-summary?${params.toString()}`);
+      setReportReadinessSummary(data || null);
+    } catch (err) {
+      console.error("Error loading report readiness summary:", err);
+      setReportReadinessSummary(null);
     }
   };
 
@@ -1316,10 +1404,20 @@ export default function AdminDashboard() {
     fetchTeachers();
     fetchStudents();
     fetchALevelLearners();
+    fetchSchoolCalendar();
+    fetchOLevelAssignmentsOverview();
+    fetchALevelAssignmentsOverview();
     // prefetch marks summary so tracker / download panels are snappy
     fetchMarksSets();
+    fetchALevelMarksSets();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    fetchOverviewMarksEntryLocks(dashboardOperationalTerm, dashboardOperationalYear);
+    fetchReportReadinessSummary(dashboardOperationalTerm, dashboardOperationalYear);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dashboardOperationalTerm, dashboardOperationalYear]);
   
 
   useEffect(() => {
@@ -2142,6 +2240,13 @@ export default function AdminDashboard() {
     setActiveSection((prev) => (prev === card?.title ? "" : card?.title));
   };
 
+  useEffect(() => {
+    if (!activeSection || !detailSectionRef.current) return;
+    window.requestAnimationFrame(() => {
+      detailSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, [activeSection]);
+
   /* ------------------ Derived values / filters ------------------ */
   const allSubjectsForFilter = [...COMPULSORY_SUBJECTS, ...OPTIONAL_SUBJECTS];
   const filteredMarksheetStudents = useMemo(() => {
@@ -2280,6 +2385,101 @@ export default function AdminDashboard() {
   const totalBoys = students.filter((s) => s.gender === "Male").length;
   const totalGirls = students.filter((s) => s.gender === "Female").length;
   const totalTeachers = teachers.length;
+  const activeSchoolStatusLocks = overviewMarksLocks.filter((row) => row.effective_locked);
+
+  const assessmentCompliance = useMemo(() => {
+    const oLevelRows = marksSets.filter(
+      (row) =>
+        normalizeOperationalTerm(row.term) === dashboardOperationalTerm &&
+        Number(row.year) === Number(dashboardOperationalYear)
+    );
+    const aLevelRows = aLevelMarksSets.filter(
+      (row) =>
+        normalizeOperationalTerm(row.term) === dashboardOperationalTerm &&
+        Number(row.year) === Number(dashboardOperationalYear)
+    );
+
+    const oLevelSubmittedAssignments = new Set(oLevelRows.map((row) => row.assignment_id));
+    const oLevelAoi1Assignments = new Set(
+      oLevelRows
+        .filter((row) => String(row.aoi_label || "").trim().toUpperCase() === "AOI1")
+        .map((row) => row.assignment_id)
+    );
+
+    const aLevelSubmittedAssignments = new Set(aLevelRows.map((row) => row.assignment_id));
+    const aLevelSubmittedComponents = new Set(
+      aLevelRows
+        .filter((row) => ["MID", "EOT"].includes(String(row.aoi_label || "").trim().toUpperCase()))
+        .map((row) => `${row.assignment_id}__${String(row.aoi_label || "").trim().toUpperCase()}`)
+    );
+
+    const oLevelTotal = oLevelAssignmentsOverview.length;
+    const aLevelTotal = aLevelAssignmentsOverview.length;
+    const aLevelExpectedComponents = aLevelTotal * 2;
+
+    return {
+      oLevelSubmitted: oLevelSubmittedAssignments.size,
+      oLevelPending: Math.max(0, oLevelTotal - oLevelSubmittedAssignments.size),
+      oLevelAoi1Rate: toPercent(oLevelAoi1Assignments.size, oLevelTotal),
+      aLevelSubmitted: aLevelSubmittedAssignments.size,
+      aLevelPending: Math.max(0, aLevelTotal - aLevelSubmittedAssignments.size),
+      aLevelMidEotRate: toPercent(aLevelSubmittedComponents.size, aLevelExpectedComponents),
+      oLevelTotal,
+      aLevelTotal,
+      aLevelExpectedComponents,
+    };
+  }, [
+    aLevelAssignmentsOverview,
+    aLevelMarksSets,
+    dashboardOperationalTerm,
+    dashboardOperationalYear,
+    marksSets,
+    oLevelAssignmentsOverview,
+  ]);
+
+  const teacherLoadSummary = useMemo(() => {
+    const assignedTeacherIds = new Set(
+      [...oLevelAssignmentsOverview, ...aLevelAssignmentsOverview]
+        .map((row) => row.teacher_id)
+        .filter((value) => value !== null && value !== undefined && value !== "")
+        .map((value) => String(value))
+    );
+
+    return {
+      assignedTeachers: assignedTeacherIds.size,
+      totalTeachingSlots: oLevelAssignmentsOverview.length + aLevelAssignmentsOverview.length,
+      oLevelAssignments: oLevelAssignmentsOverview.length,
+      aLevelAssignments: aLevelAssignmentsOverview.length,
+    };
+  }, [oLevelAssignmentsOverview, aLevelAssignmentsOverview]);
+
+  const reportReadinessCard = useMemo(() => {
+    const empty = {
+      term: dashboardOperationalTerm,
+      year: dashboardOperationalYear,
+      oLevel: { totalLearners: totalStudents, readyLearners: 0, incompleteLearners: totalStudents, readinessPercent: 0 },
+      aLevel: {
+        totalLearners: aLevelLearners.length,
+        readyLearners: 0,
+        incompleteLearners: aLevelLearners.length,
+        readinessPercent: 0,
+      },
+      combined: {
+        totalLearners: totalStudents + aLevelLearners.length,
+        readyLearners: 0,
+        incompleteLearners: totalStudents + aLevelLearners.length,
+        readinessPercent: 0,
+      },
+    };
+
+    return reportReadinessSummary || empty;
+  }, [
+    aLevelLearners.length,
+    dashboardOperationalTerm,
+    dashboardOperationalYear,
+    reportReadinessSummary,
+    totalStudents,
+  ]);
 
   const s1Students = students.filter((s) => s.class_level === "S1").length;
   const s2Students = students.filter((s) => s.class_level === "S2").length;
@@ -3975,6 +4175,193 @@ export default function AdminDashboard() {
       View Charts
     </button>
   </div>
+
+  <div className="admin-ops-grid">
+    <article className="admin-ops-card">
+      <div className="admin-ops-card-head">
+        <div>
+          <h3>Assessment Compliance</h3>
+          <p>{dashboardOperationalTerm} {dashboardOperationalYear} snapshot</p>
+        </div>
+        <span className="admin-ops-badge admin-ops-badge-blue">Live</span>
+      </div>
+      <div className="admin-ops-kpi-grid">
+        <div className="admin-ops-kpi">
+          <span>O-Level</span>
+          <strong>{assessmentCompliance.oLevelSubmitted} / {assessmentCompliance.oLevelTotal}</strong>
+          <small>{assessmentCompliance.oLevelPending} pending assignments</small>
+        </div>
+        <div className="admin-ops-kpi">
+          <span>A-Level</span>
+          <strong>{assessmentCompliance.aLevelSubmitted} / {assessmentCompliance.aLevelTotal}</strong>
+          <small>{assessmentCompliance.aLevelPending} pending papers</small>
+        </div>
+      </div>
+      <div className="admin-ops-meter-block">
+        <div className="admin-ops-meter-label">
+          <span>AOI 1 Coverage</span>
+          <strong>{assessmentCompliance.oLevelAoi1Rate}%</strong>
+        </div>
+        <div className="admin-ops-meter">
+          <div style={{ width: `${assessmentCompliance.oLevelAoi1Rate}%` }} />
+        </div>
+      </div>
+      <div className="admin-ops-meter-block">
+        <div className="admin-ops-meter-label">
+          <span>A-Level MID / EOT Coverage</span>
+          <strong>{assessmentCompliance.aLevelMidEotRate}%</strong>
+        </div>
+        <div className="admin-ops-meter admin-ops-meter-amber">
+          <div style={{ width: `${assessmentCompliance.aLevelMidEotRate}%` }} />
+        </div>
+      </div>
+    </article>
+
+    <article className="admin-ops-card">
+      <div className="admin-ops-card-head">
+        <div>
+          <h3>Ready-To-Print Center</h3>
+          <p>Fast PTA and office print shortcuts</p>
+        </div>
+        <span className="admin-ops-badge admin-ops-badge-gold">Print</span>
+      </div>
+      <div className="admin-ops-action-grid">
+        <button type="button" className="ghost-btn" onClick={() => setActiveSection("Mini Reports")}>
+          Mini Reports
+        </button>
+        <button type="button" className="ghost-btn" onClick={() => setActiveSection("Download Marks")}>
+          Download Marks
+        </button>
+        <button type="button" className="ghost-btn" onClick={() => setActiveSection("End of Term Reports")}>
+          Term Reports
+        </button>
+        <button type="button" className="ghost-btn" onClick={() => setActiveSection("End of Year Reports")}>
+          Year Reports
+        </button>
+        <button type="button" className="ghost-btn" onClick={() => setShowEnrollmentChartsModal(true)}>
+          Enrollment PDF
+        </button>
+      </div>
+      <p className="admin-ops-note">
+        Use this as the quick office desk for parent meetings, marksheets and summary exports.
+      </p>
+    </article>
+
+    <article className="admin-ops-card">
+      <div className="admin-ops-card-head">
+        <div>
+          <h3>School Status</h3>
+          <p>Shared live calendar and marks control</p>
+        </div>
+        <span
+          className={`admin-ops-badge ${
+            schoolCalendarBadge.status === "In Session"
+              ? "admin-ops-badge-green"
+              : schoolCalendarBadge.status === "Holiday Break"
+              ? "admin-ops-badge-gold"
+              : "admin-ops-badge-neutral"
+          }`}
+        >
+          {schoolCalendarBadge.status}
+        </span>
+      </div>
+      <div className="admin-ops-pill-row">
+        <span className="calendar-pill calendar-pill-year">AY {schoolCalendarBadge.academicYear}</span>
+        <span className="calendar-pill">{schoolCalendarBadge.termLabel}</span>
+      </div>
+      <div className="admin-ops-countdown">
+        {schoolCalendarPreciseCountdown.label || "Waiting for active calendar window"}
+      </div>
+      <div className="admin-ops-kpi-grid">
+        <div className="admin-ops-kpi">
+          <span>Today</span>
+          <strong>{formatDateOnly(schoolCalendarPreviewClock)}</strong>
+          <small>{dashboardOperationalTerm}</small>
+        </div>
+        <div className="admin-ops-kpi">
+          <span>Locked Components</span>
+          <strong>{activeSchoolStatusLocks.length}</strong>
+          <small>
+            {activeSchoolStatusLocks.length
+              ? activeSchoolStatusLocks
+                  .slice(0, 3)
+                  .map((row) => formatMarksLockComponentLabel(row.aoi_label))
+                  .join(", ")
+              : "All entry windows open"}
+          </small>
+        </div>
+      </div>
+    </article>
+
+    <article className="admin-ops-card">
+      <div className="admin-ops-card-head">
+        <div>
+          <h3>Report Readiness</h3>
+          <p>Ready = learner has at least one submitted score this term</p>
+        </div>
+        <span className="admin-ops-badge admin-ops-badge-rose">{reportReadinessCard.combined.readinessPercent}%</span>
+      </div>
+      <div className="admin-ops-meter-block">
+        <div className="admin-ops-meter-label">
+          <span>O-Level</span>
+          <strong>{reportReadinessCard.oLevel.readyLearners} / {reportReadinessCard.oLevel.totalLearners}</strong>
+        </div>
+        <div className="admin-ops-meter">
+          <div style={{ width: `${reportReadinessCard.oLevel.readinessPercent}%` }} />
+        </div>
+        <small className="admin-ops-subnote">
+          {reportReadinessCard.oLevel.incompleteLearners} learners still incomplete
+        </small>
+      </div>
+      <div className="admin-ops-meter-block">
+        <div className="admin-ops-meter-label">
+          <span>A-Level</span>
+          <strong>{reportReadinessCard.aLevel.readyLearners} / {reportReadinessCard.aLevel.totalLearners}</strong>
+        </div>
+        <div className="admin-ops-meter admin-ops-meter-cyan">
+          <div style={{ width: `${reportReadinessCard.aLevel.readinessPercent}%` }} />
+        </div>
+        <small className="admin-ops-subnote">
+          {reportReadinessCard.aLevel.incompleteLearners} learners still incomplete
+        </small>
+      </div>
+    </article>
+
+    <article className="admin-ops-card">
+      <div className="admin-ops-card-head">
+        <div>
+          <h3>Teacher Load Summary</h3>
+          <p>Quick staffing and teaching slot picture</p>
+        </div>
+        <span className="admin-ops-badge admin-ops-badge-purple">Staff</span>
+      </div>
+      <div className="admin-ops-kpi-grid">
+        <div className="admin-ops-kpi">
+          <span>Total Teachers</span>
+          <strong>{totalTeachers}</strong>
+          <small>Registered accounts</small>
+        </div>
+        <div className="admin-ops-kpi">
+          <span>Assigned Teachers</span>
+          <strong>{teacherLoadSummary.assignedTeachers}</strong>
+          <small>Currently carrying loads</small>
+        </div>
+        <div className="admin-ops-kpi">
+          <span>O-Level Loads</span>
+          <strong>{teacherLoadSummary.oLevelAssignments}</strong>
+          <small>Active class assignments</small>
+        </div>
+        <div className="admin-ops-kpi">
+          <span>A-Level Loads</span>
+          <strong>{teacherLoadSummary.aLevelAssignments}</strong>
+          <small>Active paper assignments</small>
+        </div>
+      </div>
+      <p className="admin-ops-note">
+        Total teaching slots in the system: <strong>{teacherLoadSummary.totalTeachingSlots}</strong>
+      </p>
+    </article>
+  </div>
 </section>
 
 
@@ -4006,7 +4393,7 @@ export default function AdminDashboard() {
           ))}
         </section>
 
-        <section className="admin-section">{renderSectionContent()}</section>
+        <section ref={detailSectionRef} className="admin-section">{renderSectionContent()}</section>
       </main>
 
       {/* single modal instance */}

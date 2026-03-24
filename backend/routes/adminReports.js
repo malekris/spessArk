@@ -567,4 +567,84 @@ router.get("/mini-aoi1", authAdmin, async (req, res) => {
   }
 });
 
+router.get("/readiness-summary", authAdmin, async (req, res) => {
+  try {
+    const term = normalizeTermLabel(req.query.term || "Term 1");
+    const year = Number(req.query.year) || new Date().getFullYear();
+
+    const [[oLevelTotalRow]] = await pool.query(
+      `
+        SELECT COUNT(*) AS total
+        FROM students
+        WHERE class_level IN ('S1', 'S2', 'S3', 'S4')
+          AND COALESCE(status, 'active') = 'active'
+      `
+    );
+
+    const [[oLevelReadyRow]] = await pool.query(
+      `
+        SELECT COUNT(DISTINCT m.student_id) AS total
+        FROM marks m
+        JOIN students s ON s.id = m.student_id
+        WHERE m.term = ?
+          AND m.year = ?
+          AND s.class_level IN ('S1', 'S2', 'S3', 'S4')
+          AND COALESCE(s.status, 'active') = 'active'
+      `,
+      [term, year]
+    );
+
+    const [[aLevelTotalRow]] = await pool.query(
+      `
+        SELECT COUNT(*) AS total
+        FROM alevel_learners
+      `
+    );
+
+    const [[aLevelReadyRow]] = await pool.query(
+      `
+        SELECT COUNT(DISTINCT am.learner_id) AS total
+        FROM alevel_marks am
+        WHERE am.term = ?
+          AND YEAR(am.created_at) = ?
+      `,
+      [term, year]
+    );
+
+    const oLevelTotal = Number(oLevelTotalRow?.total || 0);
+    const oLevelReady = Number(oLevelReadyRow?.total || 0);
+    const aLevelTotal = Number(aLevelTotalRow?.total || 0);
+    const aLevelReady = Number(aLevelReadyRow?.total || 0);
+
+    const percentOf = (value, total) =>
+      total > 0 ? Math.round((Number(value || 0) / Number(total || 0)) * 100) : 0;
+
+    res.json({
+      term,
+      year,
+      oLevel: {
+        totalLearners: oLevelTotal,
+        readyLearners: oLevelReady,
+        incompleteLearners: Math.max(0, oLevelTotal - oLevelReady),
+        readinessPercent: percentOf(oLevelReady, oLevelTotal),
+      },
+      aLevel: {
+        totalLearners: aLevelTotal,
+        readyLearners: aLevelReady,
+        incompleteLearners: Math.max(0, aLevelTotal - aLevelReady),
+        readinessPercent: percentOf(aLevelReady, aLevelTotal),
+      },
+      combined: {
+        totalLearners: oLevelTotal + aLevelTotal,
+        readyLearners: oLevelReady + aLevelReady,
+        incompleteLearners: Math.max(0, oLevelTotal + aLevelTotal - (oLevelReady + aLevelReady)),
+        readinessPercent: percentOf(oLevelReady + aLevelReady, oLevelTotal + aLevelTotal),
+      },
+    });
+  } catch (err) {
+    console.error("Admin readiness summary error:", err);
+    res.status(500).json({ message: "Failed to load report readiness summary" });
+  }
+});
+
 export default router;

@@ -57,6 +57,12 @@ const COMMENT_BANKS = {
     "The learner did not sit the available AOI 1 assessment.",
     "AOI 1 was missed, so no performance score could be recorded.",
   ],
+  missedMultiple: [
+    "Several AOI 1 assessments were missed. Please follow up on the missed work.",
+    "The learner has multiple missed AOI 1 assessments. The missed tasks should be addressed.",
+    "More than one AOI 1 assessment was missed. Teachers should guide make-up follow-up where possible.",
+    "Repeated missed AOI 1 assessments have affected this snapshot. The missed assessments need attention.",
+  ],
   pending: [
     "AOI 1 is awaiting a submitted score.",
     "The available AOI 1 score is still pending submission.",
@@ -76,6 +82,10 @@ const pickCommentFromBank = (bank, seedValue) => {
 
 const buildComment = ({ average, studentId, studentName, subjectCount, missedCount, scoredCount }) => {
   const seed = `${studentId}-${studentName}-${subjectCount}-${missedCount}-${String(average ?? "na")}`;
+
+  if (missedCount >= 2) {
+    return pickCommentFromBank("missedMultiple", seed);
+  }
 
   if (scoredCount === 0 && missedCount > 0) {
     return pickCommentFromBank("missed", seed);

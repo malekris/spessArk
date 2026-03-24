@@ -5,6 +5,7 @@ import AssignSubjectsPanel from "../components/AssignSubjectsPanel";
 import { plainFetch, adminFetch } from "../lib/api";
 import EditStudentModal from "../components/EditStudentModal";
 import EndOfTermReports from "./EndOfTermReports";
+import MiniProgressReports from "./MiniProgressReports";
 import { useNavigate } from "react-router-dom";
 import useIdleLogout from "../hooks/useIdleLogout";
 import EnrollmentInsightsPanel from "../components/EnrollmentInsightsPanel";
@@ -344,6 +345,7 @@ export default function AdminDashboard() {
     { title: "Download Marks", subtitle: "View & export assessment scores", icon: "📊" },
     { title: "Manage Teachers", subtitle: "Accounts & permissions", icon: "🧑🏽‍🏫" },
     { title: "End of Term Reports", subtitle: "Term 1 & Term 2 report cards", icon: "📘", route: "/admin/reports/term" },
+    { title: "Mini Reports", subtitle: "AOI 1 parent progress slips", icon: "🧾" },
     { title: "End of Year Reports", subtitle: "Term 3 report cards", icon: "📕", route: "/admin/reports/year" },
     {
       title: "Learner Promotion",
@@ -3072,6 +3074,9 @@ export default function AdminDashboard() {
           <EndOfTermReports />
         </section>
       );
+    }
+    if (activeSection === "Mini Reports") {
+      return <MiniProgressReports onClose={() => setActiveSection("")} />;
     }
     if (activeSection === "End of Year Reports") {
       return (

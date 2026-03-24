@@ -32,6 +32,24 @@ const buildPopulationMeta = (rows, normalizeStream) => {
   };
 };
 
+const normalizeTermLabel = (term) => {
+  if (term === "1" || term === 1) return "Term 1";
+  if (term === "2" || term === 2) return "Term 2";
+  if (term === "3" || term === 3) return "Term 3";
+  return String(term || "").trim();
+};
+
+const formatMiniRemark = (score, status) => {
+  if (isMissedStatus(status)) return "MISSED";
+  if (!hasRecordedScore(score)) return "PENDING";
+  const numeric = Number(score);
+  if (!Number.isFinite(numeric)) return "PENDING";
+  if (numeric >= 2.5) return "OUTSTANDING";
+  if (numeric >= 1.5) return "MODERATE";
+  if (numeric >= 0.9) return "BASIC";
+  return "PENDING";
+};
+
 const buildEligibleRankMeta = (rows, valueKey, normalizeStream, isSubjectComplete) => {
   const byStudent = new Map();
 
@@ -477,6 +495,75 @@ router.get("/year", authAdmin, async (req, res) => {
   } catch (err) {
     console.error("❌ End of year report error:", err);
     res.status(500).json({ message: "Failed to load report data" });
+  }
+});
+
+/*
+  MINI PROGRESS REPORT
+  AOI 1 only, designed for parent updates.
+*/
+router.get("/mini-aoi1", authAdmin, async (req, res) => {
+  try {
+    const { year, term, class_level, stream, student_id } = req.query;
+    const yearParam = year || new Date().getFullYear();
+    const normalizedTerm = normalizeTermLabel(term);
+
+    if (!normalizedTerm || !class_level || !stream) {
+      return res.status(400).json({
+        message: "term, class_level and stream are required",
+      });
+    }
+
+    const params = [yearParam, normalizedTerm, class_level, stream];
+    let studentSql = "";
+    if (student_id) {
+      studentSql = " AND s.id = ? ";
+      params.push(student_id);
+    }
+
+    const [rows] = await pool.query(
+      `
+      SELECT
+        s.id AS student_id,
+        s.name AS student_name,
+        s.dob,
+        s.class_level,
+        s.stream,
+        ta.subject,
+        t.name AS teacher_name,
+        MAX(CASE WHEN m.aoi_label = 'AOI1' THEN m.score END) AS AOI1,
+        MAX(CASE WHEN m.aoi_label = 'AOI1' THEN m.status END) AS AOI1_status
+      FROM students s
+      JOIN marks m ON m.student_id = s.id
+      JOIN teacher_assignments ta ON ta.id = m.assignment_id
+      JOIN teachers t ON t.id = m.teacher_id
+      WHERE m.year = ?
+        AND m.term = ?
+        AND m.aoi_label = 'AOI1'
+        AND s.class_level = ?
+        AND s.stream = ?
+        ${studentSql}
+      GROUP BY
+        s.id,
+        ta.subject,
+        t.name
+      ORDER BY
+        s.name,
+        ta.subject
+      `,
+      params
+    );
+
+    const processed = (rows || []).map((row) => ({
+      ...row,
+      AOI1: hasRecordedScore(row.AOI1) ? Number(row.AOI1) : null,
+      remark: formatMiniRemark(row.AOI1, row.AOI1_status),
+    }));
+
+    res.json(processed);
+  } catch (err) {
+    console.error("Mini AOI1 report error:", err);
+    res.status(500).json({ message: "Failed to load mini report data" });
   }
 });
 

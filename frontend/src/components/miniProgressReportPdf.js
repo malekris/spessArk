@@ -29,15 +29,67 @@ const formatScore = (score, status) => {
   return Number.isFinite(numeric) ? numeric.toFixed(1) : String(score);
 };
 
-const buildComment = (average) => {
-  if (average === null || average === undefined || Number.isNaN(Number(average))) {
-    return "AOI 1 snapshot only.";
+const COMMENT_BANKS = {
+  low: [
+    "Basic performance shown. More guided practice is needed.",
+    "The learner needs closer support to strengthen AOI 1 work.",
+    "A fair start, but stronger daily effort is required.",
+    "More revision and class focus will improve performance.",
+    "The learner should work harder to raise the current level.",
+  ],
+  mid: [
+    "Good progress shown. Greater consistency will lift performance.",
+    "A promising start. The learner should maintain regular effort.",
+    "Steady work is evident. More confidence will improve results.",
+    "The learner is progressing well and should keep practising.",
+    "Satisfactory progress recorded. Continued focus is encouraged.",
+  ],
+  high: [
+    "Very good performance shown. The learner should sustain it.",
+    "Strong academic promise observed. Keep up the high standard.",
+    "Excellent start in AOI 1. Continued discipline is encouraged.",
+    "The learner is performing very well and should remain focused.",
+    "Outstanding progress recorded. The learner should aim even higher.",
+  ],
+  missed: [
+    "The learner missed the available AOI 1 assessment.",
+    "No score was recorded because the learner missed AOI 1.",
+    "The learner did not sit the available AOI 1 assessment.",
+    "AOI 1 was missed, so no performance score could be recorded.",
+  ],
+  pending: [
+    "AOI 1 is awaiting a submitted score.",
+    "The available AOI 1 score is still pending submission.",
+    "This slip is awaiting an AOI 1 score from the class record.",
+  ],
+};
+
+const pickCommentFromBank = (bank, seedValue) => {
+  const options = COMMENT_BANKS[bank] || COMMENT_BANKS.pending;
+  const raw = String(seedValue || "spess-mini");
+  let hash = 0;
+  for (let index = 0; index < raw.length; index += 1) {
+    hash = (hash * 31 + raw.charCodeAt(index)) % 2147483647;
   }
+  return options[Math.abs(hash) % options.length];
+};
+
+const buildComment = ({ average, studentId, studentName, subjectCount, missedCount, scoredCount }) => {
+  const seed = `${studentId}-${studentName}-${subjectCount}-${missedCount}-${String(average ?? "na")}`;
+
+  if (scoredCount === 0 && missedCount > 0) {
+    return pickCommentFromBank("missed", seed);
+  }
+
+  if (average === null || average === undefined || Number.isNaN(Number(average))) {
+    return pickCommentFromBank("pending", seed);
+  }
+
   const numeric = Number(average);
-  if (numeric >= 2.5) return "Strong start. Keep it up.";
-  if (numeric >= 1.5) return "Good progress. Stay consistent.";
-  if (numeric >= 0.9) return "Needs more support and practice.";
-  return "AOI 1 snapshot only.";
+  if (numeric >= 2.5) return pickCommentFromBank("high", seed);
+  if (numeric >= 1.5) return pickCommentFromBank("mid", seed);
+  if (numeric >= 0.9) return pickCommentFromBank("low", seed);
+  return pickCommentFromBank("pending", seed);
 };
 
 const truncateToWidth = (doc, text, maxWidth) => {
@@ -79,6 +131,9 @@ const groupMiniReportRows = (rows = []) => {
 
   return Array.from(grouped.values())
     .map((student) => {
+      const missedCount = student.subjects.filter(
+        (subject) => String(subject.status || "").trim().toLowerCase() === "missed"
+      ).length;
       const scored = student.subjects
         .filter((subject) => String(subject.status || "").trim().toLowerCase() !== "missed")
         .map((subject) => Number(subject.score))
@@ -93,7 +148,14 @@ const groupMiniReportRows = (rows = []) => {
         ...student,
         subjects: [...student.subjects].sort((a, b) => a.subject.localeCompare(b.subject)),
         average,
-        comment: buildComment(average),
+        comment: buildComment({
+          average,
+          studentId: student.student_id,
+          studentName: student.student_name,
+          subjectCount: student.subjects.length,
+          missedCount,
+          scoredCount: scored.length,
+        }),
       };
     })
     .sort((a, b) => a.student_name.localeCompare(b.student_name));

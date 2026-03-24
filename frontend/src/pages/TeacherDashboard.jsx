@@ -1330,7 +1330,7 @@ useEffect(() => {
   // Keep O-Level table spacing stable across Term 1/2/3 (including Term 3 /80 mode).
   const effectiveColumnCount = selectedAssignment?.isAlevel ? 2 : 4;
   const learnersTableMinWidth = Math.max(1100, 320 + effectiveColumnCount * 190);
-  const learnerColWidth = 170;
+  const learnerColWidth = 146;
   const genderColWidth = 72;
   const currentCalendarYear = new Date().getFullYear();
   const schoolCalendarBadge = getSchoolCalendarBadge(schoolCalendar, new Date());
@@ -2312,8 +2312,8 @@ useEffect(() => {
                                 position: "sticky",
                                 left: 0,
                                 zIndex: 8,
-                                minWidth: "140px",
-                                maxWidth: "140px",
+                                minWidth: "84px",
+                                maxWidth: "84px",
                                 background: "#0f172a",
                                 borderRight: "1px solid rgba(148, 163, 184, 0.24)",
                               }
@@ -2432,8 +2432,8 @@ useEffect(() => {
                                     position: "sticky",
                                     left: 0,
                                     zIndex: 4,
-                                    minWidth: "140px",
-                                    maxWidth: "140px",
+                                    minWidth: "84px",
+                                    maxWidth: "84px",
                                     background: stickyRowBg,
                                     borderRight: "1px solid rgba(148, 163, 184, 0.22)",
                                   }

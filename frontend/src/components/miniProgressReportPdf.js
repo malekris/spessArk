@@ -59,9 +59,6 @@ const COMMENT_BANKS = {
   ],
   missedMultiple: [
     "Several AOI 1 assessments were missed. Please follow up on the missed work.",
-    "The learner has multiple missed AOI 1 assessments. The missed tasks should be addressed.",
-    "More than one AOI 1 assessment was missed. Teachers should guide make-up follow-up where possible.",
-    "Repeated missed AOI 1 assessments have affected this snapshot. The missed assessments need attention.",
   ],
   pending: [
     "AOI 1 is awaiting a submitted score.",

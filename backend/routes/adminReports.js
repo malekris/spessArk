@@ -529,6 +529,7 @@ router.get("/mini-aoi1", authAdmin, async (req, res) => {
         s.dob,
         s.class_level,
         s.stream,
+        s.subjects AS registered_subjects,
         ta.subject,
         t.name AS teacher_name,
         MAX(CASE WHEN m.aoi_label = 'AOI1' THEN m.score END) AS AOI1,
@@ -558,6 +559,15 @@ router.get("/mini-aoi1", authAdmin, async (req, res) => {
       ...row,
       AOI1: hasRecordedScore(row.AOI1) ? Number(row.AOI1) : null,
       remark: formatMiniRemark(row.AOI1, row.AOI1_status),
+      registered_subjects_count: (() => {
+        if (Array.isArray(row.registered_subjects)) return row.registered_subjects.length;
+        try {
+          const parsed = JSON.parse(row.registered_subjects || "[]");
+          return Array.isArray(parsed) ? parsed.length : 0;
+        } catch {
+          return 0;
+        }
+      })(),
     }));
 
     res.json(processed);

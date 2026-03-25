@@ -111,6 +111,14 @@ const truncateToWidth = (doc, text, maxWidth) => {
   return trimmed ? `${trimmed}...` : "";
 };
 
+const drawLabelValue = (doc, label, value, x, y) => {
+  doc.setFont("helvetica", "bold");
+  doc.text(`${label}:`, x, y);
+  const labelWidth = doc.getTextWidth(`${label}:`);
+  doc.setFont("helvetica", "normal");
+  doc.text(String(value || "—"), x + labelWidth + 1.4, y);
+};
+
 const groupMiniReportRows = (rows = []) => {
   const grouped = new Map();
 
@@ -123,6 +131,7 @@ const groupMiniReportRows = (rows = []) => {
         dob: row.dob,
         class_level: row.class_level,
         stream: row.stream,
+        registered_subjects_count: Number(row.registered_subjects_count || 0),
         subjects: [],
       });
     }
@@ -154,6 +163,8 @@ const groupMiniReportRows = (rows = []) => {
       return {
         ...student,
         subjects: [...student.subjects].sort((a, b) => a.subject.localeCompare(b.subject)),
+        registered_subjects_count:
+          Number(student.registered_subjects_count || 0) || student.subjects.length,
         average,
         comment: buildComment({
           average,
@@ -248,29 +259,35 @@ export default async function generateMiniProgressReportPdf(rows, meta = {}) {
       align: "right",
     });
 
-    doc.setFontSize(8.5);
-    doc.text(`Class: ${classLabel}`, innerX, slotY + 23.5);
-    doc.text(`Stream: ${streamLabel}`, innerX + 35, slotY + 23.5);
-    doc.text(`Term: ${termLabel}`, innerX + 72, slotY + 23.5);
-    doc.text(`Year: ${yearLabel}`, innerX + 105, slotY + 23.5);
-
     doc.setFont("helvetica", "bold");
     doc.setFontSize(10);
     const studentName = doc.splitTextToSize(student.student_name || "", innerWidth - 68);
-    doc.text(studentName, innerX, slotY + 31.5);
+    doc.text(studentName, innerX, slotY + 24.5);
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8.5);
-    doc.text(`DOB: ${formatDateOnly(student.dob)}`, innerX, slotY + 39.5);
-    doc.text(`Age: ${calculateAge(student.dob)}`, innerX + 48, slotY + 39.5);
-    doc.text(`Generated: ${generatedAt}`, innerX + 72, slotY + 39.5);
+    drawLabelValue(doc, "Class", classLabel, innerX, slotY + 31.5);
+    drawLabelValue(doc, "Stream", streamLabel, innerX + 28, slotY + 31.5);
+    drawLabelValue(
+      doc,
+      "Subjects Registered",
+      student.registered_subjects_count || 0,
+      innerX + 58,
+      slotY + 31.5
+    );
+    drawLabelValue(doc, "Term", termLabel, innerX + 115, slotY + 31.5);
+    drawLabelValue(doc, "Year", yearLabel, innerX + 145, slotY + 31.5);
+
+    drawLabelValue(doc, "DOB", formatDateOnly(student.dob), innerX, slotY + 38.5);
+    drawLabelValue(doc, "Age", calculateAge(student.dob), innerX + 48, slotY + 38.5);
+    drawLabelValue(doc, "Generated", generatedAt, innerX + 72, slotY + 38.5);
 
     doc.setFont("helvetica", "italic");
     doc.setFontSize(8);
-    doc.text("AOI 1 snapshot based on submitted scores only.", innerX, slotY + 45);
+    doc.text("AOI 1 snapshot based on submitted scores only.", innerX, slotY + 44.5);
 
     autoTable(doc, {
-      startY: slotY + 48,
+      startY: slotY + 47.5,
       margin: { left: innerX, right: innerX },
       tableWidth: innerWidth,
       head: [["Subject", "AOI 1", "Remark", "Teacher"]],

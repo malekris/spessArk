@@ -132,6 +132,11 @@ const groupMiniReportRows = (rows = []) => {
         class_level: row.class_level,
         stream: row.stream,
         registered_subjects_count: Number(row.registered_subjects_count || 0),
+        class_position: row.class_position ?? null,
+        class_total: Number(row.class_total || 0),
+        stream_position: row.stream_position ?? null,
+        stream_total: Number(row.stream_total || 0),
+        position_status: row.position_status || "INELIGIBLE",
         subjects: [],
       });
     }
@@ -327,18 +332,28 @@ export default async function generateMiniProgressReportPdf(rows, meta = {}) {
       rowPageBreak: "avoid",
     });
 
-    const footerTopY = slotY + slotHeight - 22;
-    const summaryY = footerTopY + 6;
-    const signatureY = footerTopY + 15;
+    const footerTopY = slotY + slotHeight - 31;
+    const summaryY = footerTopY + 5.5;
+    const commentY = footerTopY + 12;
+    const signatureY = footerTopY + 18.5;
+    const noteY = footerTopY + 25.5;
+    const classPositionLabel =
+      student.position_status === "ELIGIBLE" && student.class_position
+        ? `${student.class_position} / ${student.class_total || 0}`
+        : "INELIGIBLE";
+    const streamPositionLabel =
+      student.position_status === "ELIGIBLE" && student.stream_position
+        ? `${student.stream_position} / ${student.stream_total || 0}`
+        : "INELIGIBLE";
 
     doc.setFillColor(255, 255, 255);
-    doc.rect(innerX - 0.5, footerTopY - 2, innerWidth + 1, 20, "F");
+    doc.rect(innerX - 0.5, footerTopY - 2, innerWidth + 1, 31, "F");
     doc.setDrawColor(0);
     doc.setLineWidth(0.2);
     doc.line(innerX, footerTopY, innerX + innerWidth, footerTopY);
 
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(8.4);
+    doc.setFontSize(8.1);
     doc.text(
       `AOI 1 Average: ${
         student.average === null || student.average === undefined ? "—" : student.average.toFixed(2)
@@ -346,16 +361,30 @@ export default async function generateMiniProgressReportPdf(rows, meta = {}) {
       innerX,
       summaryY
     );
-    doc.text("Comment:", innerX + 52, summaryY);
+    doc.text(`Class Position: ${classPositionLabel}`, innerX + 42, summaryY);
+    doc.text(`Stream Position: ${streamPositionLabel}`, innerX + 104, summaryY);
 
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(8);
-    const commentText = truncateToWidth(doc, student.comment, innerWidth - 70);
-    doc.text(commentText, innerX + 68, summaryY);
+    doc.setFontSize(7.9);
+    doc.setFont("helvetica", "bold");
+    doc.text("Comment:", innerX, commentY);
+    doc.setFont("helvetica", "normal");
+    const commentText = truncateToWidth(doc, student.comment, innerWidth - 18);
+    doc.text(commentText, innerX + 16, commentY);
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
     doc.text("Signature: ____________________", innerX, signatureY);
+
+    if (student.position_status !== "ELIGIBLE") {
+      doc.setFont("helvetica", "italic");
+      doc.setFontSize(7.1);
+      doc.text(
+        "NOTE: INELIGIBLE means the learner did not have enough completed AOI 1 scores in all required subjects to be ranked.",
+        innerX,
+        noteY
+      );
+    }
   });
 
   const blob = doc.output("blob");

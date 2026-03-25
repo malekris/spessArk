@@ -507,18 +507,13 @@ router.get("/mini-aoi1", authAdmin, async (req, res) => {
     const { year, term, class_level, stream, student_id } = req.query;
     const yearParam = year || new Date().getFullYear();
     const normalizedTerm = normalizeTermLabel(term);
+    const normalizeStream = (value) => String(value || "").trim().toLowerCase();
+    const wantedStream = normalizeStream(stream);
 
     if (!normalizedTerm || !class_level || !stream) {
       return res.status(400).json({
         message: "term, class_level and stream are required",
       });
-    }
-
-    const params = [yearParam, normalizedTerm, class_level, stream];
-    let studentSql = "";
-    if (student_id) {
-      studentSql = " AND s.id = ? ";
-      params.push(student_id);
     }
 
     const [rows] = await pool.query(
@@ -542,8 +537,6 @@ router.get("/mini-aoi1", authAdmin, async (req, res) => {
         AND m.term = ?
         AND m.aoi_label = 'AOI1'
         AND s.class_level = ?
-        AND s.stream = ?
-        ${studentSql}
       GROUP BY
         s.id,
         ta.subject,
@@ -552,10 +545,23 @@ router.get("/mini-aoi1", authAdmin, async (req, res) => {
         s.name,
         ta.subject
       `,
-      params
+      [yearParam, normalizedTerm, class_level]
     );
 
-    const processed = (rows || []).map((row) => ({
+    const [populationRows] = await pool.query(
+      `
+      SELECT id, stream
+      FROM students
+      WHERE class_level = ?
+      `,
+      [class_level]
+    );
+    const { classPopulation, streamPopulationByKey } = buildPopulationMeta(
+      populationRows,
+      normalizeStream
+    );
+
+    const processedAll = (rows || []).map((row) => ({
       ...row,
       AOI1: hasRecordedScore(row.AOI1) ? Number(row.AOI1) : null,
       remark: formatMiniRemark(row.AOI1, row.AOI1_status),
@@ -569,6 +575,43 @@ router.get("/mini-aoi1", authAdmin, async (req, res) => {
         }
       })(),
     }));
+
+    const isMiniSubjectComplete = (row) =>
+      hasRecordedScore(row.AOI1) && !isMissedStatus(row.AOI1_status);
+
+    const processedWithAverage = processedAll.map((row) => ({
+      ...row,
+      average: hasRecordedScore(row.AOI1) ? Number(Number(row.AOI1).toFixed(3)) : null,
+    }));
+
+    const { classPositionById, streamRankMeta } = buildEligibleRankMeta(
+      processedWithAverage,
+      "average",
+      normalizeStream,
+      isMiniSubjectComplete
+    );
+
+    const withPositions = processedAll.map((row) => {
+      const streamKey = normalizeStream(row.stream);
+      const streamMeta = streamRankMeta.get(streamKey);
+      const isEligible = classPositionById.has(row.student_id);
+
+      return {
+        ...row,
+        class_position: classPositionById.get(row.student_id) || null,
+        class_total: classPopulation,
+        stream_position: streamMeta?.posById.get(row.student_id) || null,
+        stream_total: streamPopulationByKey.get(streamKey) || 0,
+        position_status: isEligible ? "ELIGIBLE" : "INELIGIBLE",
+      };
+    });
+
+    const processed = withPositions.filter((row) => {
+      if (student_id) {
+        return String(row.student_id) === String(student_id);
+      }
+      return normalizeStream(row.stream) === wantedStream;
+    });
 
     res.json(processed);
   } catch (err) {

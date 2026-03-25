@@ -30,6 +30,11 @@ const formatScore = (score, status) => {
 };
 
 const COMMENT_BANKS = {
+  incompleteLoad: [
+    "Some AOI 1 assessments are missing. Please see the subject teachers about the missing work.",
+    "This AOI 1 record is incomplete. Kindly follow up with the subject teachers for the missing assessments.",
+    "Not all AOI 1 assessments are on record yet. Please contact the subject teachers about the missing assessments.",
+  ],
   low: [
     "Basic performance shown. More guided practice is needed.",
     "The learner needs closer support to strengthen AOI 1 work.",
@@ -67,6 +72,13 @@ const COMMENT_BANKS = {
   ],
 };
 
+const REQUIRED_SUBJECT_LOAD = {
+  S1: 12,
+  S2: 12,
+  S3: 9,
+  S4: 9,
+};
+
 const pickCommentFromBank = (bank, seedValue) => {
   const options = COMMENT_BANKS[bank] || COMMENT_BANKS.pending;
   const raw = String(seedValue || "spess-mini");
@@ -77,8 +89,21 @@ const pickCommentFromBank = (bank, seedValue) => {
   return options[Math.abs(hash) % options.length];
 };
 
-const buildComment = ({ average, studentId, studentName, subjectCount, missedCount, scoredCount }) => {
-  const seed = `${studentId}-${studentName}-${subjectCount}-${missedCount}-${String(average ?? "na")}`;
+const buildComment = ({
+  average,
+  studentId,
+  studentName,
+  subjectCount,
+  missedCount,
+  scoredCount,
+  classLevel,
+}) => {
+  const seed = `${studentId}-${studentName}-${classLevel}-${subjectCount}-${missedCount}-${String(average ?? "na")}`;
+  const expectedLoad = REQUIRED_SUBJECT_LOAD[String(classLevel || "").trim().toUpperCase()] || null;
+
+  if (expectedLoad && subjectCount < expectedLoad) {
+    return pickCommentFromBank("incompleteLoad", seed);
+  }
 
   if (missedCount >= 2) {
     return pickCommentFromBank("missedMultiple", seed);
@@ -178,6 +203,7 @@ const groupMiniReportRows = (rows = []) => {
           subjectCount: student.subjects.length,
           missedCount,
           scoredCount: scored.length,
+          classLevel: student.class_level,
         }),
       };
     })

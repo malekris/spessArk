@@ -1388,6 +1388,9 @@ useEffect(() => {
   const filteredALevelAssignments = aLevelAssignments.filter((assignment) => matchesAssignmentSearch(assignment, assignmentSearch));
   const totalAssignmentsCount = assignments.length + aLevelAssignments.length;
   const visibleAssignmentsCount = filteredAssignments.length + filteredALevelAssignments.length;
+  const selectedAssignmentRowKey = selectedAssignment
+    ? `${selectedAssignment.isAlevel ? "al" : "ol"}-${selectedAssignment.id}`
+    : "";
   const focusSummary = activeFocusColumn
     ? students.reduce(
         (summary, learner) => {
@@ -1957,7 +1960,17 @@ useEffect(() => {
                   {filteredAssignments.map((a) => (
                     <tr
                       key={`ol-${a.id}`}
-                      style={{ cursor: "pointer" }}
+                      style={{
+                        cursor: "pointer",
+                        background:
+                          selectedAssignmentRowKey === `ol-${a.id}`
+                            ? "linear-gradient(90deg, rgba(8, 47, 73, 0.92), rgba(14, 116, 144, 0.18))"
+                            : undefined,
+                        boxShadow:
+                          selectedAssignmentRowKey === `ol-${a.id}`
+                            ? "inset 4px 0 0 #38bdf8"
+                            : undefined,
+                      }}
                       onClick={() => {
                         const obj = { ...a, isAlevel: false };
                         setSelectedAssignment(obj);
@@ -2017,24 +2030,46 @@ useEffect(() => {
                         </span>
                       </td>
                       <td>
-                        <span
-                          style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            padding: "0.24rem 0.62rem",
-                            borderRadius: "999px",
-                            fontSize: "0.72rem",
-                            fontWeight: 800,
-                            ...(assignmentStatuses[`ol-${a.id}`]?.tone || {
-                              color: "#cbd5e1",
-                              border: "1px solid rgba(148, 163, 184, 0.2)",
-                              background: "rgba(148, 163, 184, 0.08)",
-                            }),
-                          }}
-                        >
-                          {assignmentStatuses[`ol-${a.id}`]?.label || "Ready"}
-                        </span>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.45rem", flexWrap: "wrap" }}>
+                          <span
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              padding: "0.24rem 0.62rem",
+                              borderRadius: "999px",
+                              fontSize: "0.72rem",
+                              fontWeight: 800,
+                              ...(assignmentStatuses[`ol-${a.id}`]?.tone || {
+                                color: "#cbd5e1",
+                                border: "1px solid rgba(148, 163, 184, 0.2)",
+                                background: "rgba(148, 163, 184, 0.08)",
+                              }),
+                            }}
+                          >
+                            {assignmentStatuses[`ol-${a.id}`]?.label || "Ready"}
+                          </span>
+                          {selectedAssignmentRowKey === `ol-${a.id}` && (
+                            <span
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                padding: "0.22rem 0.6rem",
+                                borderRadius: "999px",
+                                fontSize: "0.68rem",
+                                fontWeight: 900,
+                                letterSpacing: "0.08em",
+                                textTransform: "uppercase",
+                                color: "#e0f2fe",
+                                background: "rgba(14, 165, 233, 0.16)",
+                                border: "1px solid rgba(56, 189, 248, 0.24)",
+                              }}
+                            >
+                              Selected
+                            </span>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -2042,7 +2077,17 @@ useEffect(() => {
                 {filteredALevelAssignments.map((a) => (
                   <tr
                     key={`al-${a.id}`}
-                    style={{ cursor: "pointer", background: "rgba(255,255,255,0.02)" }}
+                    style={{
+                      cursor: "pointer",
+                      background:
+                        selectedAssignmentRowKey === `al-${a.id}`
+                          ? "linear-gradient(90deg, rgba(69, 26, 3, 0.88), rgba(245, 158, 11, 0.14))"
+                          : "rgba(255,255,255,0.02)",
+                      boxShadow:
+                        selectedAssignmentRowKey === `al-${a.id}`
+                          ? "inset 4px 0 0 #f59e0b"
+                          : undefined,
+                    }}
                     onClick={() => {
                       const derivedClass = a.stream?.split(" ")[0] ?? "A-Level";
                       const obj = { ...a, class_level: derivedClass, isAlevel: true };
@@ -2111,24 +2156,46 @@ useEffect(() => {
                         </span>
                       </td>
                       <td>
-                        <span
-                          style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            padding: "0.24rem 0.62rem",
-                            borderRadius: "999px",
-                            fontSize: "0.72rem",
-                            fontWeight: 800,
-                            ...(assignmentStatuses[`al-${a.id}`]?.tone || {
-                              color: "#cbd5e1",
-                              border: "1px solid rgba(148, 163, 184, 0.2)",
-                              background: "rgba(148, 163, 184, 0.08)",
-                            }),
-                          }}
-                        >
-                          {assignmentStatuses[`al-${a.id}`]?.label || "Ready"}
-                        </span>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.45rem", flexWrap: "wrap" }}>
+                          <span
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              padding: "0.24rem 0.62rem",
+                              borderRadius: "999px",
+                              fontSize: "0.72rem",
+                              fontWeight: 800,
+                              ...(assignmentStatuses[`al-${a.id}`]?.tone || {
+                                color: "#cbd5e1",
+                                border: "1px solid rgba(148, 163, 184, 0.2)",
+                                background: "rgba(148, 163, 184, 0.08)",
+                              }),
+                            }}
+                          >
+                            {assignmentStatuses[`al-${a.id}`]?.label || "Ready"}
+                          </span>
+                          {selectedAssignmentRowKey === `al-${a.id}` && (
+                            <span
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                padding: "0.22rem 0.6rem",
+                                borderRadius: "999px",
+                                fontSize: "0.68rem",
+                                fontWeight: 900,
+                                letterSpacing: "0.08em",
+                                textTransform: "uppercase",
+                                color: "#fef3c7",
+                                background: "rgba(245, 158, 11, 0.16)",
+                                border: "1px solid rgba(245, 158, 11, 0.26)",
+                              }}
+                            >
+                              Selected
+                            </span>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -2182,6 +2249,37 @@ useEffect(() => {
         {selectedAssignment && (
           <section className="panel" style={{ marginTop: "1rem" }}>
             <div className="panel-card">
+              <div
+                style={{
+                  marginBottom: "0.9rem",
+                  padding: "0.85rem 1rem",
+                  borderRadius: "16px",
+                  border: selectedAssignment?.isAlevel
+                    ? "1px solid rgba(245, 158, 11, 0.24)"
+                    : "1px solid rgba(56, 189, 248, 0.24)",
+                  background: selectedAssignment?.isAlevel
+                    ? "linear-gradient(135deg, rgba(69, 26, 3, 0.28), rgba(15, 23, 42, 0.94))"
+                    : "linear-gradient(135deg, rgba(8, 47, 73, 0.3), rgba(15, 23, 42, 0.94))",
+                  color: "#f8fafc",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: "0.72rem",
+                    fontWeight: 800,
+                    letterSpacing: "0.12em",
+                    textTransform: "uppercase",
+                    color: selectedAssignment?.isAlevel ? "#fcd34d" : "#7dd3fc",
+                    marginBottom: "0.3rem",
+                  }}
+                >
+                  Selected Assignment
+                </div>
+                <div style={{ fontSize: "0.98rem", fontWeight: 800, lineHeight: 1.5 }}>
+                  {getAssignmentDisplayLabel(selectedAssignment)} • {selectedAssignment.class_level} • {selectedAssignment.stream}
+                </div>
+              </div>
+
               <div className="panel-alert">
                 You are entering marks for <strong>{selectedAssignment.class_level} {selectedAssignment.stream} — {selectedAssignment.subject_display || selectedAssignment.subject}</strong> ({marksYear}, {marksTerm})
               </div>

@@ -10,7 +10,7 @@ export default function HomeSection() {
       <div className="hero">
         <div className="hero-media" aria-hidden="true">
           <img
-            src="/gravity.jpeg"
+            src="/newhome.jpg"
             alt=""
             className="hero-backdrop-image"
           />
@@ -18,7 +18,7 @@ export default function HomeSection() {
         </div>
 
         <img
-          src="/gravity.jpeg"
+          src="/newhome.jpg"
           alt="Students of St. Phillip’s Equatorial Secondary School"
           className="hero-main-image"
           loading="eager"

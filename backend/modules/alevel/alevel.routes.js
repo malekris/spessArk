@@ -1089,6 +1089,99 @@ router.delete("/download/sets/:setId", authAdmin, async (req, res) => {
   }
 });
 
+router.get("/download/score-sheet", authAdmin, async (req, res) => {
+  try {
+    const stream = String(req.query.stream || "").trim();
+    const term = String(req.query.term || "").trim();
+    const year = Number.parseInt(req.query.year, 10);
+
+    if (!stream || !term || !Number.isFinite(year)) {
+      return res.status(400).json({
+        message: "stream, term and year are required",
+      });
+    }
+
+    const [papers] = await pool.query(
+      `
+      SELECT
+        ats.id AS assignment_id,
+        ats.stream,
+        ats.paper_label,
+        s.name AS subject,
+        COALESCE(t.name, '—') AS teacher_name
+      FROM alevel_marks am
+      JOIN alevel_teacher_subjects ats ON ats.id = am.assignment_id
+      JOIN alevel_subjects s ON s.id = am.subject_id
+      LEFT JOIN teachers t ON t.id = ats.teacher_id
+      JOIN alevel_exams ae ON ae.id = am.exam_id
+      WHERE ats.stream = ?
+        AND am.term = ?
+        AND YEAR(COALESCE(am.created_at, NOW())) = ?
+        AND ae.name IN ('MID', 'EOT')
+      GROUP BY ats.id, ats.stream, ats.paper_label, s.name, t.name
+      ORDER BY s.name ASC, ats.paper_label ASC, t.name ASC
+      `,
+      [stream, term, year]
+    );
+
+    const [learners] = await pool.query(
+      `
+      SELECT
+        id,
+        CONCAT(first_name, ' ', COALESCE(last_name, '')) AS name,
+        gender
+      FROM alevel_learners
+      WHERE stream = ?
+      ORDER BY first_name ASC, last_name ASC
+      `,
+      [stream]
+    );
+
+    const assignmentIds = (papers || [])
+      .map((paper) => Number(paper.assignment_id))
+      .filter((id) => Number.isInteger(id) && id > 0);
+
+    let marks = [];
+    if (assignmentIds.length > 0) {
+      const placeholders = assignmentIds.map(() => "?").join(",");
+      const [rows] = await pool.query(
+        `
+        SELECT
+          am.assignment_id,
+          am.learner_id,
+          ae.name AS exam_name,
+          am.score,
+          CASE WHEN am.score IS NULL THEN 'Missed' ELSE 'Submitted' END AS status
+        FROM alevel_marks am
+        JOIN alevel_exams ae ON ae.id = am.exam_id
+        WHERE am.term = ?
+          AND YEAR(COALESCE(am.created_at, NOW())) = ?
+          AND am.assignment_id IN (${placeholders})
+          AND ae.name IN ('MID', 'EOT')
+        `,
+        [term, year, ...assignmentIds]
+      );
+      marks = rows || [];
+    }
+
+    return res.json({
+      stream,
+      term,
+      year,
+      learners: learners || [],
+      papers: (papers || []).map((row) => ({
+        ...row,
+        paper_label: normalizePaperLabel(row.paper_label) || resolvePaperLabel(row.subject),
+        subject_display: buildSubjectDisplay(row.subject, row.paper_label),
+      })),
+      marks,
+    });
+  } catch (err) {
+    console.error("A-Level score sheet source error:", err);
+    return res.status(500).json({ message: "Failed to load A-Level score sheet data" });
+  }
+});
+
 
 router.get("/download/sets/:assignmentId/export", async (req, res) => {
   try {

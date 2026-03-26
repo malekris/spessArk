@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import useIdleLogout from "../../../hooks/useIdleLogout";
 import { loadPdfTools } from "../../../utils/loadPdfTools";
@@ -7,6 +7,7 @@ import "../../../pages/AdminDashboard.css";
 import "./ALevelAdminTheme.css";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
+const ALEVEL_TERMS = ["Term 1", "Term 2", "Term 3"];
 
 const parseStreamContext = (rawStream = "") => {
   const value = String(rawStream || "").trim();
@@ -39,17 +40,41 @@ export default function ALevelDownload() {
   const [loadingSets, setLoadingSets] = useState(true);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [error, setError] = useState("");
+  const [scoreSheetFilters, setScoreSheetFilters] = useState({
+    stream: "",
+    term: "Term 1",
+    year: new Date().getFullYear(),
+  });
+  const [scoreSheetLoading, setScoreSheetLoading] = useState(false);
+  const [scoreSheetError, setScoreSheetError] = useState("");
 
   // --- Theme Constants ---
   const amethyst = "#38bdf8";
   const cinematicBlack = "#0a0c10";
   const glassBg = "rgba(30, 41, 59, 0.45)";
   const platinum = "#f1f5f9";
+  const adminHeaders = useMemo(
+    () => ({
+      "x-admin-key": localStorage.getItem("SPESS_ADMIN_KEY") || "",
+      Authorization: `Bearer ${localStorage.getItem("adminToken") || ""}`,
+    }),
+    []
+  );
 
   /* ---------------- LOAD SETS ---------------- */
   useEffect(() => {
     fetchSets();
   }, []);
+
+  useEffect(() => {
+    if (!Array.isArray(sets) || sets.length === 0) return;
+    const latest = sets[0];
+    setScoreSheetFilters((previous) => ({
+      stream: previous.stream || latest.stream || "",
+      term: previous.term || latest.term || "Term 1",
+      year: previous.year || Number(latest.year) || new Date().getFullYear(),
+    }));
+  }, [sets]);
 
   useIdleLogout(() => {
     localStorage.removeItem("SPESS_ADMIN_KEY");
@@ -129,6 +154,22 @@ export default function ALevelDownload() {
       setError("Delete failed.");
     }
   }
+
+  const scoreSheetStreams = useMemo(
+    () => Array.from(new Set((sets || []).map((set) => String(set.stream || "").trim()).filter(Boolean))).sort(),
+    [sets]
+  );
+
+  const scoreSheetYears = useMemo(() => {
+    const years = Array.from(
+      new Set(
+        (sets || [])
+          .map((set) => Number(set.year))
+          .filter((year) => Number.isFinite(year) && year > 0)
+      )
+    ).sort((a, b) => b - a);
+    return years.length > 0 ? years : [new Date().getFullYear()];
+  }, [sets]);
 
   /* ---------------- CSV EXPORT ---------------- */
   function exportCsv() {
@@ -312,6 +353,198 @@ export default function ALevelDownload() {
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   }
 
+  async function handleDownloadScoreSheetPdf() {
+    setScoreSheetError("");
+
+    const stream = String(scoreSheetFilters.stream || "").trim();
+    const term = String(scoreSheetFilters.term || "").trim();
+    const year = Number(scoreSheetFilters.year);
+
+    if (!stream || !term || !year) {
+      setScoreSheetError("Select stream, term and year first.");
+      return;
+    }
+
+    const chunkBy = (list, size) => {
+      const out = [];
+      for (let index = 0; index < list.length; index += size) {
+        out.push(list.slice(index, index + size));
+      }
+      return out;
+    };
+
+    const formatSheetCell = (mark) => {
+      if (!mark) return "";
+      if (String(mark.status || "").toLowerCase() === "missed") return "Missed";
+      if (mark.score === null || mark.score === undefined || mark.score === "") return "";
+      const value = Number(mark.score);
+      return Number.isFinite(value) ? String(Number(value.toFixed(2))) : String(mark.score);
+    };
+
+    setScoreSheetLoading(true);
+    try {
+      const params = new URLSearchParams({
+        stream,
+        term,
+        year: String(year),
+      });
+      const res = await fetch(`${API_BASE}/api/alevel/download/score-sheet?${params.toString()}`, {
+        headers: adminHeaders,
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        throw new Error(data?.message || "Failed to load A-Level score sheet data.");
+      }
+
+      const learners = Array.isArray(data?.learners) ? data.learners : [];
+      const papers = Array.isArray(data?.papers) ? data.papers : [];
+      const marks = Array.isArray(data?.marks) ? data.marks : [];
+
+      if (learners.length === 0) {
+        setScoreSheetError("No learners found in that A-Level stream.");
+        return;
+      }
+
+      if (papers.length === 0) {
+        setScoreSheetError("No submitted A-Level paper marks found for that stream, term and year.");
+        return;
+      }
+
+      const markMap = new Map(
+        marks.map((mark) => [
+          `${mark.learner_id}|${mark.assignment_id}|${String(mark.exam_name || "").toUpperCase()}`,
+          mark,
+        ])
+      );
+
+      const { jsPDF, autoTable } = await loadPdfTools();
+      const doc = new jsPDF("l", "mm", "a4");
+      const pageW = doc.internal.pageSize.getWidth();
+      const pageH = doc.internal.pageSize.getHeight();
+      const generatedAt = new Date().toLocaleString();
+      const { classLevel, streamName } = parseStreamContext(stream);
+      const paperChunks = chunkBy(papers, 4);
+      const componentColumnCount = 8; // 4 papers × 2 columns
+      const numberColWidth = 7;
+      const learnerColWidth = 55;
+      const genderColWidth = 7;
+      const paperScoreWidth =
+        (pageW - 16 - numberColWidth - learnerColWidth - genderColWidth) / componentColumnCount;
+
+      paperChunks.forEach((paperChunk, chunkIndex) => {
+        if (chunkIndex > 0) doc.addPage();
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(12);
+        doc.text("St. Phillip's Equatorial Secondary School (SPESS)", pageW / 2, 12, {
+          align: "center",
+        });
+        doc.text("Noticeboard Score Sheet", pageW / 2, 18, { align: "center" });
+
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(12);
+        doc.text(`Class: ${classLevel}`, 8, 25);
+        doc.text(`Stream: ${streamName}`, 48, 25);
+        doc.text(`Term: ${term}`, 98, 25);
+        doc.text(`Year: ${year}`, 140, 25);
+        doc.text(`Papers ${chunkIndex * 4 + 1}-${chunkIndex * 4 + paperChunk.length}`, 178, 25);
+
+        const headTop = [
+          { content: "#", rowSpan: 2, styles: { halign: "center", valign: "middle" } },
+          { content: "Learner", rowSpan: 2, styles: { halign: "left", valign: "middle" } },
+          { content: "G", rowSpan: 2, styles: { halign: "center", valign: "middle" } },
+          ...paperChunk.map((paper) => ({
+            content: String(paper.subject_display || paper.subject || "Paper"),
+            colSpan: 2,
+            styles: { halign: "center", valign: "middle" },
+          })),
+        ];
+
+        const headBottom = [
+          ...paperChunk.flatMap(() => ["MID", "EOT"]),
+        ];
+
+        const body = learners.map((learner, index) => {
+          const row = [
+            index + 1,
+            learner.name || "",
+            String(learner.gender || "").slice(0, 1).toUpperCase(),
+          ];
+
+          paperChunk.forEach((paper) => {
+            ["MID", "EOT"].forEach((examName) => {
+              const mark = markMap.get(`${learner.id}|${paper.assignment_id}|${examName}`);
+              row.push(formatSheetCell(mark));
+            });
+          });
+
+          return row;
+        });
+
+        autoTable(doc, {
+          startY: 32,
+          margin: { left: 8, right: 8, bottom: 12 },
+          head: [headTop, headBottom],
+          body,
+          theme: "grid",
+          styles: {
+            font: "helvetica",
+            fontSize: 12,
+            cellPadding: 1.2,
+            lineColor: [170, 177, 184],
+            lineWidth: 0.15,
+            textColor: [15, 23, 42],
+            halign: "center",
+          },
+          headStyles: {
+            fillColor: [230, 236, 244],
+            textColor: [15, 23, 42],
+            fontStyle: "bold",
+            fontSize: 12,
+          },
+          bodyStyles: {
+            fillColor: [255, 255, 255],
+          },
+          columnStyles: {
+            0: { cellWidth: numberColWidth, halign: "center" },
+            1: { cellWidth: learnerColWidth, halign: "left" },
+            2: { cellWidth: genderColWidth, halign: "center" },
+            ...Object.fromEntries(
+              Array.from({ length: componentColumnCount }, (_, idx) => [
+                3 + idx,
+                { cellWidth: paperScoreWidth, halign: "center" },
+              ])
+            ),
+          },
+        });
+      });
+
+      const totalPages = doc.internal.getNumberOfPages();
+      for (let page = 1; page <= totalPages; page += 1) {
+        doc.setPage(page);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(12);
+        doc.text(
+          `Generated from SPESS ARK · ${generatedAt} · Page ${page} of ${totalPages}`,
+          pageW / 2,
+          pageH - 8,
+          { align: "center" }
+        );
+      }
+
+      const blob = doc.output("blob");
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (err) {
+      console.error("A-Level score sheet PDF error:", err);
+      setScoreSheetError(err.message || "Failed to generate A-Level score sheet PDF.");
+    } finally {
+      setScoreSheetLoading(false);
+    }
+  }
+
   // Helper for Close button
   const closePreview = () => {
     setSelected(null);
@@ -379,10 +612,31 @@ export default function ALevelDownload() {
                   display: flex;
                   flex-direction: column;
                   gap: 0.75rem;
+                  max-height: min(72vh, 920px);
+                  overflow-y: auto;
+                  padding-right: 0.35rem;
+                  scrollbar-width: thin;
+                  scrollbar-color: rgba(56, 189, 248, 0.6) rgba(148, 163, 184, 0.12);
+                }
+                .alevel-download-registry::-webkit-scrollbar {
+                  width: 10px;
+                }
+                .alevel-download-registry::-webkit-scrollbar-track {
+                  background: rgba(148, 163, 184, 0.12);
+                  border-radius: 999px;
+                }
+                .alevel-download-registry::-webkit-scrollbar-thumb {
+                  background: linear-gradient(180deg, rgba(56, 189, 248, 0.78), rgba(14, 165, 233, 0.62));
+                  border-radius: 999px;
+                  border: 2px solid transparent;
+                  background-clip: padding-box;
                 }
                 @media (max-width: 1180px) {
                   .alevel-download-grid {
                     grid-template-columns: 1fr;
+                  }
+                  .alevel-download-registry {
+                    max-height: 55vh;
                   }
                 }
               `}
@@ -729,6 +983,147 @@ export default function ALevelDownload() {
                       </div>
                     </>
                   )}
+                </div>
+              </div>
+
+              <div
+                style={{
+                  marginTop: "1.5rem",
+                  background: surfacePanel,
+                  backdropFilter: "blur(12px)",
+                  borderRadius: "24px",
+                  padding: "1.5rem",
+                  border: `1px solid ${borderColor}`,
+                  boxShadow: isDark
+                    ? "0 8px 32px 0 rgba(0, 0, 0, 0.37)"
+                    : "0 18px 38px rgba(15, 23, 42, 0.09)",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: "1rem",
+                    flexWrap: "wrap",
+                    marginBottom: "1rem",
+                  }}
+                >
+                  <div>
+                    <h3
+                      style={{
+                        fontSize: "1rem",
+                        fontWeight: "900",
+                        color: surfaceText,
+                        marginBottom: "0.35rem",
+                      }}
+                    >
+                      Noticeboard Score Sheet (PDF)
+                    </h3>
+                    <div style={{ color: surfaceMuted, fontSize: "0.9rem" }}>
+                      Generate a noticeboard-ready A-Level score sheet by stream for MID and EOT.
+                    </div>
+                  </div>
+                  <div style={{ color: surfaceMuted, fontSize: "0.82rem", fontWeight: 700 }}>
+                    Landscape A4 · 4 papers per page · Helvetica 12
+                  </div>
+                </div>
+
+                {scoreSheetError && (
+                  <div
+                    style={{
+                      marginBottom: "1rem",
+                      padding: "0.85rem 1rem",
+                      borderRadius: "14px",
+                      background: isDark ? "rgba(127, 29, 29, 0.22)" : "rgba(254, 226, 226, 0.95)",
+                      border: "1px solid rgba(239, 68, 68, 0.24)",
+                      color: isDark ? "#fecaca" : "#991b1b",
+                    }}
+                  >
+                    {scoreSheetError}
+                  </div>
+                )}
+
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
+                    gap: "0.9rem",
+                    alignItems: "end",
+                  }}
+                >
+                  <label style={{ display: "grid", gap: "0.38rem" }}>
+                    <span style={{ color: amethyst, fontSize: "0.72rem", fontWeight: 900, letterSpacing: "0.1em", textTransform: "uppercase" }}>
+                      Stream
+                    </span>
+                    <select
+                      className="admin-ops-select"
+                      value={scoreSheetFilters.stream}
+                      onChange={(event) =>
+                        setScoreSheetFilters((previous) => ({ ...previous, stream: event.target.value }))
+                      }
+                    >
+                      <option value="">Select stream</option>
+                      {scoreSheetStreams.map((streamValue) => (
+                        <option key={streamValue} value={streamValue}>
+                          {streamValue}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label style={{ display: "grid", gap: "0.38rem" }}>
+                    <span style={{ color: amethyst, fontSize: "0.72rem", fontWeight: 900, letterSpacing: "0.1em", textTransform: "uppercase" }}>
+                      Term
+                    </span>
+                    <select
+                      className="admin-ops-select"
+                      value={scoreSheetFilters.term}
+                      onChange={(event) =>
+                        setScoreSheetFilters((previous) => ({ ...previous, term: event.target.value }))
+                      }
+                    >
+                      {ALEVEL_TERMS.map((termValue) => (
+                        <option key={termValue} value={termValue}>
+                          {termValue}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label style={{ display: "grid", gap: "0.38rem" }}>
+                    <span style={{ color: amethyst, fontSize: "0.72rem", fontWeight: 900, letterSpacing: "0.1em", textTransform: "uppercase" }}>
+                      Year
+                    </span>
+                    <select
+                      className="admin-ops-select"
+                      value={scoreSheetFilters.year}
+                      onChange={(event) =>
+                        setScoreSheetFilters((previous) => ({
+                          ...previous,
+                          year: Number(event.target.value) || previous.year,
+                        }))
+                      }
+                    >
+                      {scoreSheetYears.map((yearValue) => (
+                        <option key={yearValue} value={yearValue}>
+                          {yearValue}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <button
+                    onClick={handleDownloadScoreSheetPdf}
+                    style={{
+                      ...buttonPrimary,
+                      width: "100%",
+                      minHeight: "46px",
+                    }}
+                    disabled={scoreSheetLoading}
+                  >
+                    {scoreSheetLoading ? "Generating PDF…" : "Generate Score Sheet PDF"}
+                  </button>
                 </div>
               </div>
             </div>

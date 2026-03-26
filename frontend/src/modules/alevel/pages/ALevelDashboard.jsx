@@ -310,6 +310,38 @@ export default function ALevelDashboard() {
           transition: "all 0.4s cubic-bezier(0.4, 0, 0.2, 1)",
           color: palette.rootText,
         };
+        const actionCards = [
+          {
+            title: "Register Learners",
+            desc: "Manage student biographical data and enrollment status.",
+            path: "/ark/admin/alevel/learners",
+            id: "act1",
+          },
+          {
+            title: "Assign Subjects",
+            desc: "Pair educators with curriculum modules and class streams.",
+            path: "/ark/admin/alevel/assign",
+            id: "act2",
+          },
+          {
+            title: "Download Marks",
+            desc: "Export academic spreadsheets and administrative datasets.",
+            path: "/ark/admin/alevel/downloads",
+            id: "act3",
+          },
+          {
+            title: "Term Reports",
+            desc: "Generate high-fidelity terminal student reports.",
+            path: "/ark/admin/alevel/reports",
+            id: "act4",
+          },
+          {
+            title: "Assessment Submission Tracker",
+            desc: "Track A-Level subject submission by stream and term.",
+            id: "act5",
+            action: openTracker,
+          },
+        ];
 
         return (
           <>
@@ -492,94 +524,6 @@ export default function ALevelDashboard() {
                   </div>
                 </div>
               )}
-
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                  gap: "1.1rem",
-                }}
-              >
-                {[
-                  {
-                    title: "Register Learners",
-                    desc: "Manage student biographical data and enrollment status.",
-                    path: "/ark/admin/alevel/learners",
-                    id: "act1",
-                  },
-                  {
-                    title: "Assign Subjects",
-                    desc: "Pair educators with curriculum modules and class streams.",
-                    path: "/ark/admin/alevel/assign",
-                    id: "act2",
-                  },
-                  {
-                    title: "Download Marks",
-                    desc: "Export academic spreadsheets and administrative datasets.",
-                    path: "/ark/admin/alevel/downloads",
-                    id: "act3",
-                  },
-                  {
-                    title: "Term Reports",
-                    desc: "Generate high-fidelity terminal student reports.",
-                    path: "/ark/admin/alevel/reports",
-                    id: "act4",
-                  },
-                  {
-                    title: "Assessment Submission Tracker",
-                    desc: "Track A-Level subject submission by stream and term.",
-                    id: "act5",
-                    action: openTracker,
-                  },
-                ].map((card) => (
-                  <div
-                    key={card.id}
-                    onMouseEnter={() => setHoveredAction(card.id)}
-                    onMouseLeave={() => setHoveredAction(null)}
-                    onClick={() => {
-                      if (typeof card.action === "function") {
-                        card.action();
-                        return;
-                      }
-                      navigate(card.path);
-                    }}
-                    style={{
-                      ...cardStyle,
-                      padding: "1.6rem 1.35rem",
-                      cursor: "pointer",
-                      background: hoveredAction === card.id ? palette.actionHoverBg : palette.actionCardBg,
-                      borderColor: hoveredAction === card.id ? amethyst : palette.cardBorder,
-                      transform: hoveredAction === card.id ? "scale(1.02)" : "none",
-                    }}
-                  >
-                    <h3 style={{ margin: "0 0 0.65rem 0", fontSize: "1.05rem", fontWeight: "700" }}>{card.title}</h3>
-                    <p style={{ color: palette.muted, fontSize: "0.9rem", lineHeight: "1.5", marginBottom: "1.6rem" }}>
-                      {card.desc}
-                    </p>
-                    <div
-                      style={{
-                        color: amethyst,
-                        fontSize: "0.75rem",
-                        fontWeight: "800",
-                        letterSpacing: "0.1em",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "8px",
-                      }}
-                    >
-                      ACCESS MODULE{" "}
-                      <span
-                        style={{
-                          transition: "0.3s",
-                          transform: hoveredAction === card.id ? "translateX(6px)" : "none",
-                        }}
-                      >
-                        →
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
 
               <div
                 style={{
@@ -893,6 +837,64 @@ export default function ALevelDashboard() {
                   )}
                 </section>
               )}
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                  gap: "1.1rem",
+                  marginTop: "2rem",
+                }}
+              >
+                {actionCards.map((card) => (
+                  <div
+                    key={card.id}
+                    onMouseEnter={() => setHoveredAction(card.id)}
+                    onMouseLeave={() => setHoveredAction(null)}
+                    onClick={() => {
+                      if (typeof card.action === "function") {
+                        card.action();
+                        return;
+                      }
+                      navigate(card.path);
+                    }}
+                    style={{
+                      ...cardStyle,
+                      padding: "1.6rem 1.35rem",
+                      cursor: "pointer",
+                      background: hoveredAction === card.id ? palette.actionHoverBg : palette.actionCardBg,
+                      borderColor: hoveredAction === card.id ? amethyst : palette.cardBorder,
+                      transform: hoveredAction === card.id ? "scale(1.02)" : "none",
+                    }}
+                  >
+                    <h3 style={{ margin: "0 0 0.65rem 0", fontSize: "1.05rem", fontWeight: "700" }}>{card.title}</h3>
+                    <p style={{ color: palette.muted, fontSize: "0.9rem", lineHeight: "1.5", marginBottom: "1.6rem" }}>
+                      {card.desc}
+                    </p>
+                    <div
+                      style={{
+                        color: amethyst,
+                        fontSize: "0.75rem",
+                        fontWeight: "800",
+                        letterSpacing: "0.1em",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                      }}
+                    >
+                      ACCESS MODULE{" "}
+                      <span
+                        style={{
+                          transition: "0.3s",
+                          transform: hoveredAction === card.id ? "translateX(6px)" : "none",
+                        }}
+                      >
+                        →
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </>
         );

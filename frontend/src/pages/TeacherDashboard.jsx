@@ -1097,8 +1097,19 @@ useEffect(() => {
       });
 
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.message || "Failed to save marks");
+        let errorMessage = "Failed to save marks";
+        try {
+          const err = await res.json();
+          errorMessage = err?.message || errorMessage;
+        } catch {
+          const rawText = await res.text().catch(() => "");
+          if (rawText) {
+            errorMessage = rawText.startsWith("<!DOCTYPE")
+              ? "Server returned an unexpected response while saving marks."
+              : rawText;
+          }
+        }
+        throw new Error(errorMessage);
       }
 
       await loadStudentsAndMarks(selectedAssignment);

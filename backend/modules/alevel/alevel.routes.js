@@ -117,58 +117,10 @@ const ensureALevelMarksSchemaReady = async (executor = pool) => {
          SET created_at = COALESCE(created_at, NOW())`
       );
 
-      const [indexes] = await executor.query(
-        `SELECT
-           index_name,
-           non_unique,
-           GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') AS columns_csv
-         FROM information_schema.statistics
-         WHERE table_schema = ?
-           AND table_name = 'alevel_marks'
-         GROUP BY index_name, non_unique`,
-        [schemaName]
-      );
-
-      for (const indexRow of indexes || []) {
-        if (Number(indexRow?.non_unique || 0) !== 0) continue;
-        if (String(indexRow?.index_name || "").toUpperCase() === "PRIMARY") continue;
-        if (!isLegacyAlevelUniqueIndex(indexRow?.columns_csv)) continue;
-
-        await executor.query(
-          `ALTER TABLE alevel_marks DROP INDEX \`${escapeIndexName(indexRow.index_name)}\``
-        );
-      }
-
-      const [refreshedIndexes] = await executor.query(
-        `SELECT
-           index_name,
-           non_unique,
-           GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') AS columns_csv
-         FROM information_schema.statistics
-         WHERE table_schema = ?
-           AND table_name = 'alevel_marks'
-         GROUP BY index_name, non_unique`,
-        [schemaName]
-      );
-
-      const hasAssignmentScopedUnique = (refreshedIndexes || []).some(
-        (indexRow) =>
-          Number(indexRow?.non_unique || 0) === 0 &&
-          String(indexRow?.columns_csv || "").toLowerCase() ===
-            "learner_id,assignment_id,exam_id,term"
-      );
-
-      if (!hasAssignmentScopedUnique) {
-        try {
-          await executor.query(
-            `ALTER TABLE alevel_marks
-             ADD UNIQUE KEY uq_alevel_marks_assignment_term_exam (learner_id, assignment_id, exam_id, term)`
-          );
-        } catch (err) {
-          // Keep saves moving even if the table currently has historical duplicates.
-          console.warn("A-Level marks unique index could not be added automatically:", err?.message || err);
-        }
-      }
+      // Do not mutate A-Level unique indexes at request time.
+      // That is too risky on a live save path and can lock or fail unexpectedly.
+      // The save route below now handles legacy unanchored rows without requiring
+      // an automatic index rewrite during teacher submissions.
     })().catch((err) => {
       aLevelMarksSchemaReadyPromise = null;
       aLevelMarksHasCreatedAtPromise = null;
@@ -558,16 +510,16 @@ router.get("/teachers/alevel-marks", authTeacher, async (req, res) => {
 router.post("/teachers/alevel-marks", authTeacher, async (req, res) => {
   const { assignmentId, term, year, marks } = req.body;
   const clearMarks = Array.isArray(req.body?.clearMarks) ? req.body.clearMarks : [];
+  let conn = null;
 
   if (!assignmentId || !term || !Array.isArray(marks)) {
     return res.status(400).json({ message: "Invalid payload" });
   }
 
-  await ensureALevelMarksSchemaReady(pool);
-  await ensureMarksArchiveTablesReady(pool);
-  const conn = await db.getConnection();
-
   try {
+    await ensureALevelMarksSchemaReady(pool);
+    await ensureMarksArchiveTablesReady(pool);
+    conn = await db.getConnection();
     await conn.beginTransaction();
     const teacherId = Number(req.teacher?.id);
 
@@ -758,7 +710,9 @@ router.post("/teachers/alevel-marks", authTeacher, async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    await conn.rollback();
+    if (conn) {
+      await conn.rollback();
+    }
     console.error("❌ Save A-Level marks error:", err);
     if (err?.code === "ER_DUP_ENTRY") {
       return res.status(409).json({
@@ -768,7 +722,9 @@ router.post("/teachers/alevel-marks", authTeacher, async (req, res) => {
     }
     res.status(500).json({ message: "Failed to save marks" });
   } finally {
-    conn.release();
+    if (conn) {
+      conn.release();
+    }
   }
 });
 // ================================

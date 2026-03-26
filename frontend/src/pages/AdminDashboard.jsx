@@ -379,6 +379,11 @@ export default function AdminDashboard() {
   const [loadingMarksSets, setLoadingMarksSets] = useState(false);
   const [loadingMarksDetail, setLoadingMarksDetail] = useState(false);
   const [marksError, setMarksError] = useState("");
+  const [marksArchiveSets, setMarksArchiveSets] = useState([]);
+  const [loadingMarksArchive, setLoadingMarksArchive] = useState(false);
+  const [marksArchiveError, setMarksArchiveError] = useState("");
+  const [marksArchiveNotice, setMarksArchiveNotice] = useState("");
+  const [restoringArchiveKey, setRestoringArchiveKey] = useState("");
   const [selectedGroup, setSelectedGroup] = useState(null);
   const [selectedAoi, setSelectedAoi] = useState(null);
   const [scoreSheetLoading, setScoreSheetLoading] = useState(false);
@@ -1363,6 +1368,76 @@ export default function AdminDashboard() {
     }
   };
 
+  const getMarksArchiveSetKey = (row) =>
+    [
+      row?.level_name || "O-Level",
+      row?.assignment_id || "0",
+      row?.term || "",
+      row?.year ?? "",
+      row?.component_key || "",
+      row?.deleted_at_key || "",
+    ].join("__");
+
+  const fetchMarksArchiveSets = async () => {
+    setLoadingMarksArchive(true);
+    setMarksArchiveError("");
+    try {
+      const data = await adminFetch("/api/admin/marks-archive?limit=40");
+      setMarksArchiveSets(Array.isArray(data?.rows) ? data.rows : []);
+    } catch (err) {
+      console.error("Error loading deleted marks archive:", err);
+      setMarksArchiveError(err.message || "Could not load deleted marks archive.");
+      setMarksArchiveSets([]);
+    } finally {
+      setLoadingMarksArchive(false);
+    }
+  };
+
+  const handleRestoreArchiveSet = async (row) => {
+    if (!row) return;
+    const archiveKey = getMarksArchiveSetKey(row);
+    const contextLabel =
+      row.level_name === "A-Level"
+        ? `${row.subject || "Subject"} • ${row.stream || "Stream"}`
+        : `${row.subject || "Subject"} • ${row.class_level || "Class"} ${row.stream || "Stream"}`;
+
+    const confirmed = window.confirm(
+      `Restore deleted marks?\n\n${row.level_name}\n${contextLabel}\n${row.component_label}\n${row.term}${row.year ? ` ${row.year}` : ""}\nArchived rows: ${row.archived_rows}`
+    );
+
+    if (!confirmed) return;
+
+    setRestoringArchiveKey(archiveKey);
+    setMarksArchiveError("");
+    setMarksArchiveNotice("");
+
+    try {
+      const data = await adminFetch("/api/admin/marks-archive/restore", {
+        method: "POST",
+        body: {
+          levelName: row.level_name,
+          assignmentId: row.assignment_id,
+          term: row.term,
+          year: row.year,
+          componentKey: row.component_key,
+          deletedAtKey: row.deleted_at_key,
+        },
+      });
+
+      setMarksArchiveNotice(data?.message || "Deleted marks restored successfully.");
+      await Promise.all([
+        fetchMarksArchiveSets(),
+        fetchMarksSets(),
+        fetchALevelMarksSets(),
+      ]);
+    } catch (err) {
+      console.error("Error restoring deleted marks:", err);
+      setMarksArchiveError(err.message || "Failed to restore deleted marks.");
+    } finally {
+      setRestoringArchiveKey("");
+    }
+  };
+
   const fetchMarksDetail = async (set, returnOnly = false) => {
     if (!set) return;
   
@@ -1435,6 +1510,7 @@ export default function AdminDashboard() {
     else if (activeSection === "Add Students") fetchStudents();
     else if (activeSection === "Download Marks") {
       fetchMarksSets();
+      fetchMarksArchiveSets();
       setSelectedMarksSet(null);
       setMarksDetail([]);
     } else if (activeSection === "Assessment Submission Tracker") {
@@ -3033,6 +3109,102 @@ export default function AdminDashboard() {
             {scoreSheetError && (
               <div className="panel-alert panel-alert-error" style={{ marginTop: "0.8rem" }}>
                 {scoreSheetError}
+              </div>
+            )}
+          </div>
+
+          <div className="panel-card" style={{ marginBottom: "1rem" }}>
+            <div className="panel-card-header">
+              <div>
+                <h3>Deleted Marks Recovery</h3>
+                <p className="muted-text" style={{ margin: "0.2rem 0 0" }}>
+                  Restore archived O-Level and A-Level marks when something was cleared by mistake.
+                </p>
+              </div>
+              <button className="ghost-btn" onClick={fetchMarksArchiveSets} disabled={loadingMarksArchive}>
+                {loadingMarksArchive ? "Refreshing…" : "Refresh Archive"}
+              </button>
+            </div>
+
+            {marksArchiveNotice && (
+              <div className="panel-alert" style={{ marginBottom: "0.8rem" }}>
+                {marksArchiveNotice}
+              </div>
+            )}
+
+            {marksArchiveError && (
+              <div className="panel-alert panel-alert-error" style={{ marginBottom: "0.8rem" }}>
+                {marksArchiveError}
+              </div>
+            )}
+
+            {loadingMarksArchive ? (
+              <p className="muted-text">Loading deleted marks archive…</p>
+            ) : marksArchiveSets.length === 0 ? (
+              <p className="muted-text">No archived marks sets available right now.</p>
+            ) : (
+              <div className="teachers-table-wrapper">
+                <table className="teachers-table">
+                  <thead>
+                    <tr>
+                      <th>Level</th>
+                      <th>Subject</th>
+                      <th>Context</th>
+                      <th>Component</th>
+                      <th>Term</th>
+                      <th>Rows</th>
+                      <th>Deleted</th>
+                      <th>Status</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {marksArchiveSets.map((row) => {
+                      const archiveKey = getMarksArchiveSetKey(row);
+                      const isRestoring = restoringArchiveKey === archiveKey;
+                      const isRestored = Boolean(row.restored_at);
+                      const canRestore = row.assignment_exists && !isRestored;
+
+                      return (
+                        <tr key={archiveKey}>
+                          <td>{row.level_name}</td>
+                          <td>{row.subject || "—"}</td>
+                          <td>
+                            {row.level_name === "A-Level"
+                              ? row.stream || "—"
+                              : `${row.class_level || "—"} ${row.stream || "—"}`}
+                          </td>
+                          <td>{row.component_label || "—"}</td>
+                          <td>{row.term}{row.year ? ` ${row.year}` : ""}</td>
+                          <td>{row.archived_rows}</td>
+                          <td>
+                            <div>{formatDateTime(row.deleted_at)}</div>
+                            <small className="muted-text">{row.delete_reason || row.source_action || "Archived delete"}</small>
+                          </td>
+                          <td>
+                            {!row.assignment_exists ? (
+                              <span className="muted-text">Assignment missing</span>
+                            ) : isRestored ? (
+                              <span className="muted-text">Restored</span>
+                            ) : (
+                              <span className="muted-text">Ready</span>
+                            )}
+                          </td>
+                          <td>
+                            <button
+                              type="button"
+                              className="ghost-btn"
+                              onClick={() => handleRestoreArchiveSet(row)}
+                              disabled={!canRestore || isRestoring}
+                            >
+                              {isRestoring ? "Restoring…" : "Restore"}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>

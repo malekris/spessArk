@@ -953,9 +953,12 @@ useEffect(() => {
       const columns = getMarkColumns(isAlevel, marksTerm);
       const autoMissedCells = new Set();
 
-      if (!isAlevel) {
-        const aoiColumns = columns.filter((aoi) => aoi === "AOI1" || aoi === "AOI2" || aoi === "AOI3");
-        const activeAoiColumns = aoiColumns.filter((aoi) =>
+      {
+        const confirmableColumns = isAlevel
+          ? columns.filter((column) => column === "MID" || column === "EOT")
+          : columns.filter((column) => column === "AOI1" || column === "AOI2" || column === "AOI3");
+
+        const activeConfirmableColumns = confirmableColumns.filter((aoi) =>
           students.some((s) => {
             const currentScore = studentMarks[s.id]?.[aoi];
             const currentStatus = studentStatus[s.id]?.[aoi];
@@ -965,7 +968,7 @@ useEffect(() => {
           })
         );
 
-        const missingByAoi = activeAoiColumns
+        const missingByAoi = activeConfirmableColumns
           .map((aoi) => ({
             aoi,
             learners: students.filter((s) => {
@@ -3232,15 +3235,17 @@ useEffect(() => {
                 maxHeight: "none",
               }}
             >
-              <h2>Confirm Missed AOIs</h2>
+              <h2>{selectedAssignment?.isAlevel ? "Confirm Missed Assessments" : "Confirm Missed AOIs"}</h2>
               <p style={{ marginTop: "-0.15rem", marginBottom: "1rem", color: "#475569", lineHeight: 1.6 }}>
-                Some learners do not have scores in the AOI columns you are saving. If you continue, they will be marked as missed for those AOIs.
+                {selectedAssignment?.isAlevel
+                  ? "Some learners do not have scores in the MID or EOT columns you are saving. If you continue, they will be marked as missed for those assessments."
+                  : "Some learners do not have scores in the AOI columns you are saving. If you continue, they will be marked as missed for those AOIs."}
               </p>
 
               <div style={{ display: "grid", gap: "0.85rem", marginBottom: "1rem" }}>
                 {pendingMissedConfirmation.map(({ aoi, learners }) => (
                   <div key={aoi} style={{ border: "1px solid rgba(148, 163, 184, 0.25)", borderRadius: "16px", padding: "0.9rem 1rem", background: "rgba(248, 250, 252, 0.92)" }}>
-                    <div style={{ fontWeight: 800, color: "#0f172a", marginBottom: "0.45rem" }}>{aoi}</div>
+                    <div style={{ fontWeight: 800, color: "#0f172a", marginBottom: "0.45rem" }}>{formatColumnLabel(aoi)}</div>
                     <div style={{ color: "#334155", lineHeight: 1.6 }}>
                       {learners.map((learner) => learner.name).join(", ")}
                     </div>
@@ -3258,7 +3263,9 @@ useEffect(() => {
                   lineHeight: 1.65,
                 }}
               >
-                If you mark these learners as missed, those missed AOIs will count as incomplete in end-of-term reports. Learners with missed AOIs will not qualify for class or stream position ranking.
+                {selectedAssignment?.isAlevel
+                  ? "If you mark these learners as missed, those missed assessments will appear as missed in A-Level reports, downloads and summaries."
+                  : "If you mark these learners as missed, those missed AOIs will count as incomplete in end-of-term reports. Learners with missed AOIs will not qualify for class or stream position ranking."}
               </div>
 
               <div className="panel-alert" style={{ marginBottom: "1rem" }}>

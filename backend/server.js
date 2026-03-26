@@ -27,6 +27,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { extractClientIp, logAuditEvent } from "./utils/auditLogger.js";
 import { sendTeacherPasswordChangedEmail } from "./utils/email.js";
+import { ensureMarksArchiveTablesReady, archiveOLevelMarks } from "./utils/marksArchive.js";
 
 
 const app = express();
@@ -1296,27 +1297,70 @@ app.post("/api/admin/assignments", authAdmin, async (req, res) => {
 });
 // delete assignment 
 app.delete("/api/admin/assignments/:id", authAdmin, async (req, res) => {
+  let conn;
   try {
-    const { id } = req.params;
+    const assignmentId = Number(req.params.id);
+    if (!Number.isInteger(assignmentId) || assignmentId <= 0) {
+      return res.status(400).json({ message: "Invalid assignment id" });
+    }
 
-    // 1) Always delete related marks first (admin authority)
-    await pool.query(
-      "DELETE FROM marks WHERE assignment_id = ?",
-      [id]
+    conn = await pool.getConnection();
+    await conn.beginTransaction();
+
+    const [[assignmentRow]] = await conn.query(
+      `SELECT id, teacher_id, class_level, stream, subject
+       FROM teacher_assignments
+       WHERE id = ?`,
+      [assignmentId]
     );
 
-    // 2) Then delete the assignment itself
-    const [result] = await pool.query(
-      "DELETE FROM teacher_assignments WHERE id = ?",
-      [id]
-    );
-
-    if (result.affectedRows === 0) {
+    if (!assignmentRow) {
+      await conn.rollback();
       return res.status(404).json({ message: "Assignment not found" });
     }
 
+    const [[marksMeta]] = await conn.query(
+      `SELECT COUNT(*) AS count
+       FROM marks
+       WHERE assignment_id = ?`,
+      [assignmentId]
+    );
+
+    if (Number(marksMeta?.count || 0) > 0) {
+      await conn.rollback();
+      return res.status(409).json({
+        message:
+          "This assignment already has submitted marks. Delete the mark sets first from Download Marks before removing the assignment.",
+      });
+    }
+
+    const [result] = await conn.query("DELETE FROM teacher_assignments WHERE id = ?", [assignmentId]);
+
+    if (result.affectedRows === 0) {
+      await conn.rollback();
+      return res.status(404).json({ message: "Assignment not found" });
+    }
+
+    await conn.commit();
+    conn.release();
+    conn = null;
+
+    await logAuditEvent({
+      userId: Number(req.admin?.id) || 1,
+      userRole: "admin",
+      action: "REMOVE_ASSIGNMENT",
+      entityType: "subject",
+      entityId: assignmentId,
+      description: `Removed ${assignmentRow.subject} assignment for ${assignmentRow.class_level} ${assignmentRow.stream} (teacher #${assignmentRow.teacher_id})`,
+      ipAddress: extractClientIp(req),
+    });
+
     res.json({ message: "Assignment deleted successfully" });
   } catch (err) {
+    if (conn) {
+      try { await conn.rollback(); } catch (rollbackError) { console.error("Rollback error:", rollbackError); }
+      conn.release();
+    }
     console.error("Delete assignment error:", err);
     res.status(500).json({ message: "Failed to delete assignment" });
   }
@@ -1535,6 +1579,8 @@ app.post("/api/teacher/marks", authTeacher, async (req, res) => {
       return res.status(400).json({ message: "No valid studentIds provided" });
     }
 
+    await ensureMarksArchiveTablesReady(pool);
+
     // 3) Start transaction and validate registrations in batch
     conn = await pool.getConnection();
     await conn.beginTransaction();
@@ -1611,6 +1657,15 @@ app.post("/api/teacher/marks", authTeacher, async (req, res) => {
         await conn.rollback();
         return res.status(400).json({ message: `Student ${sid} is not registered for ${assignmentSubject}` });
       }
+
+      await archiveOLevelMarks(conn, {
+        whereSql: "m.assignment_id = ? AND m.student_id = ? AND m.year = ? AND m.term = ? AND CAST(m.aoi_label AS CHAR) = ?",
+        params: [assignmentId, sid, year, term, aoi],
+        deletedByUserId: teacherId,
+        deletedByRole: "teacher",
+        deleteReason: `Teacher cleared ${aoi} for ${assignmentSubject} in ${term} ${year}`,
+        sourceAction: "CLEAR_MARKS",
+      });
 
       await conn.query(
         `DELETE FROM marks
@@ -1912,6 +1967,8 @@ app.post("/api/teachers/marks", authTeacher, async (req, res) => {
       return res.status(400).json({ message: "No valid studentIds provided" });
     }
 
+    await ensureMarksArchiveTablesReady(pool);
+
     // transaction
     conn = await pool.getConnection();
     await conn.beginTransaction();
@@ -1987,6 +2044,15 @@ app.post("/api/teachers/marks", authTeacher, async (req, res) => {
         await conn.rollback();
         return res.status(400).json({ message: `Student ${sid} is not registered for ${assignmentSubject}` });
       }
+
+      await archiveOLevelMarks(conn, {
+        whereSql: "m.assignment_id = ? AND m.student_id = ? AND m.year = ? AND m.term = ? AND CAST(m.aoi_label AS CHAR) = ?",
+        params: [assignmentId, sid, year, term, aoi],
+        deletedByUserId: teacherId,
+        deletedByRole: "teacher",
+        deleteReason: `Teacher cleared ${aoi} for ${assignmentSubject} in ${term} ${year}`,
+        sourceAction: "CLEAR_MARKS",
+      });
 
       await conn.query(
         `DELETE FROM marks
@@ -2095,6 +2161,7 @@ app.post("/api/teachers/marks", authTeacher, async (req, res) => {
 
 // DELETE /api/admin/marks-set
 app.delete("/api/admin/marks-set", authAdmin, async (req, res) => {
+  let conn;
   try {
     const { assignmentId, term, year, aoi } = req.body;
 
@@ -2104,7 +2171,12 @@ app.delete("/api/admin/marks-set", authAdmin, async (req, res) => {
       });
     }
 
-    const [[assignmentRow]] = await pool.query(
+    await ensureMarksArchiveTablesReady(pool);
+
+    conn = await pool.getConnection();
+    await conn.beginTransaction();
+
+    const [[assignmentRow]] = await conn.query(
       `SELECT class_level, stream, subject
        FROM teacher_assignments
        WHERE id = ?
@@ -2112,7 +2184,16 @@ app.delete("/api/admin/marks-set", authAdmin, async (req, res) => {
       [assignmentId]
     );
 
-    const [result] = await pool.query(
+    const archivedRows = await archiveOLevelMarks(conn, {
+      whereSql: "m.assignment_id = ? AND m.term = ? AND m.year = ? AND CAST(m.aoi_label AS CHAR) = ?",
+      params: [assignmentId, term, year, aoi],
+      deletedByUserId: Number(req.admin?.id) || 1,
+      deletedByRole: "admin",
+      deleteReason: `Admin deleted ${aoi} mark set for ${assignmentRow?.subject || "subject"} in ${term} ${year}`,
+      sourceAction: "DELETE_MARKS_SET",
+    });
+
+    const [result] = await conn.query(
       `DELETE FROM marks
        WHERE assignment_id = ?
          AND term = ?
@@ -2121,6 +2202,10 @@ app.delete("/api/admin/marks-set", authAdmin, async (req, res) => {
       [assignmentId, term, year, aoi]
     );
 
+    await conn.commit();
+    conn.release();
+    conn = null;
+
     await logAuditEvent({
       userId: Number(req.admin?.id) || 1,
       userRole: "admin",
@@ -2128,7 +2213,7 @@ app.delete("/api/admin/marks-set", authAdmin, async (req, res) => {
       entityType: "marks",
       entityId: Number(assignmentId),
       description:
-        `Unlocked ${aoi} for ${assignmentRow?.subject || "subject"} (${assignmentRow?.class_level || "?"} ${assignmentRow?.stream || "?"}) ${term} ${year}; rows affected: ${result.affectedRows}`,
+        `Unlocked ${aoi} for ${assignmentRow?.subject || "subject"} (${assignmentRow?.class_level || "?"} ${assignmentRow?.stream || "?"}) ${term} ${year}; rows affected: ${result.affectedRows}; archived: ${archivedRows}`,
       ipAddress: extractClientIp(req),
     });
 
@@ -2137,8 +2222,390 @@ app.delete("/api/admin/marks-set", authAdmin, async (req, res) => {
       deletedRows: result.affectedRows,
     });
   } catch (err) {
+    if (conn) {
+      try { await conn.rollback(); } catch (rollbackError) { console.error("Rollback error:", rollbackError); }
+      conn.release();
+    }
     console.error("Error deleting mark set:", err);
     res.status(500).json({ message: "Server error while deleting mark set" });
+  }
+});
+
+app.get("/api/admin/marks-archive", authAdmin, async (req, res) => {
+  try {
+    await ensureMarksArchiveTablesReady(pool);
+    const limit = Math.min(Math.max(Number(req.query.limit) || 30, 1), 100);
+
+    const [oLevelRows] = await pool.query(
+      `
+        SELECT
+          'O-Level' AS level_name,
+          dma.assignment_id,
+          ta.class_level,
+          ta.stream,
+          ta.subject,
+          dma.term,
+          dma.year,
+          CAST(dma.aoi_label AS CHAR) AS component_key,
+          CAST(dma.aoi_label AS CHAR) AS component_label,
+          dma.deleted_at,
+          DATE_FORMAT(dma.deleted_at, '%Y-%m-%d %H:%i:%s') AS deleted_at_key,
+          dma.deleted_by_role,
+          dma.delete_reason,
+          dma.source_action,
+          COUNT(*) AS archived_rows,
+          MAX(dma.restored_at) AS restored_at,
+          MAX(CASE WHEN ta.id IS NOT NULL THEN 1 ELSE 0 END) AS assignment_exists
+        FROM deleted_marks_archive dma
+        LEFT JOIN teacher_assignments ta ON ta.id = dma.assignment_id
+        GROUP BY
+          dma.assignment_id,
+          ta.class_level,
+          ta.stream,
+          ta.subject,
+          dma.term,
+          dma.year,
+          dma.aoi_label,
+          dma.deleted_at,
+          dma.deleted_by_role,
+          dma.delete_reason,
+          dma.source_action
+        ORDER BY dma.deleted_at DESC
+        LIMIT ?
+      `,
+      [limit]
+    );
+
+    const [aLevelRows] = await pool.query(
+      `
+        SELECT
+          'A-Level' AS level_name,
+          dama.assignment_id,
+          NULL AS class_level,
+          ats.stream,
+          CASE
+            WHEN COALESCE(ats.paper_label, 'Single') = 'Single' THEN s.name
+            ELSE CONCAT(s.name, ' — ', ats.paper_label)
+          END AS subject,
+          dama.term,
+          NULL AS year,
+          CAST(dama.exam_id AS CHAR) AS component_key,
+          COALESCE(ae.name, CONCAT('Exam ', dama.exam_id)) AS component_label,
+          dama.deleted_at,
+          DATE_FORMAT(dama.deleted_at, '%Y-%m-%d %H:%i:%s') AS deleted_at_key,
+          dama.deleted_by_role,
+          dama.delete_reason,
+          dama.source_action,
+          COUNT(*) AS archived_rows,
+          MAX(dama.restored_at) AS restored_at,
+          MAX(CASE WHEN ats.id IS NOT NULL THEN 1 ELSE 0 END) AS assignment_exists
+        FROM deleted_alevel_marks_archive dama
+        LEFT JOIN alevel_teacher_subjects ats ON ats.id = dama.assignment_id
+        LEFT JOIN alevel_subjects s ON s.id = ats.subject_id
+        LEFT JOIN alevel_exams ae ON ae.id = dama.exam_id
+        GROUP BY
+          dama.assignment_id,
+          ats.stream,
+          s.name,
+          ats.paper_label,
+          dama.term,
+          dama.exam_id,
+          ae.name,
+          dama.deleted_at,
+          dama.deleted_by_role,
+          dama.delete_reason,
+          dama.source_action
+        ORDER BY dama.deleted_at DESC
+        LIMIT ?
+      `,
+      [limit]
+    );
+
+    const rows = [...oLevelRows, ...aLevelRows]
+      .sort((a, b) => new Date(b.deleted_at).getTime() - new Date(a.deleted_at).getTime())
+      .slice(0, limit * 2)
+      .map((row) => ({
+        ...row,
+        archived_rows: Number(row.archived_rows || 0),
+        assignment_exists: Boolean(row.assignment_exists),
+        restored_at: row.restored_at || null,
+      }));
+
+    res.json({ rows });
+  } catch (err) {
+    console.error("Marks archive list error:", err);
+    res.status(500).json({ message: "Failed to load deleted marks archive" });
+  }
+});
+
+app.post("/api/admin/marks-archive/restore", authAdmin, async (req, res) => {
+  let conn;
+  try {
+    await ensureMarksArchiveTablesReady(pool);
+
+    const {
+      levelName,
+      assignmentId,
+      term,
+      year,
+      componentKey,
+      deletedAtKey,
+    } = req.body || {};
+
+    const normalizedLevel = String(levelName || "").trim();
+    const normalizedAssignmentId = Number(assignmentId);
+    const normalizedTerm = String(term || "").trim();
+    const normalizedDeletedAtKey = String(deletedAtKey || "").trim();
+
+    if (!normalizedLevel || !normalizedAssignmentId || !normalizedTerm || !componentKey || !normalizedDeletedAtKey) {
+      return res.status(400).json({ message: "levelName, assignmentId, term, componentKey and deletedAtKey are required" });
+    }
+
+    conn = await pool.getConnection();
+    await conn.beginTransaction();
+
+    const adminUserId = Number(req.admin?.id) || 1;
+
+    if (normalizedLevel === "O-Level") {
+      const normalizedYear = Number(year);
+      const normalizedAoi = String(componentKey).trim().toUpperCase();
+
+      const [[assignmentRow]] = await conn.query(
+        `SELECT id, class_level, stream, subject
+         FROM teacher_assignments
+         WHERE id = ?`,
+        [normalizedAssignmentId]
+      );
+
+      if (!assignmentRow) {
+        await conn.rollback();
+        return res.status(404).json({ message: "Assignment no longer exists. Restore cannot continue." });
+      }
+
+      const [[archiveMeta]] = await conn.query(
+        `SELECT COUNT(*) AS count
+         FROM deleted_marks_archive
+         WHERE assignment_id = ?
+           AND term = ?
+           AND year = ?
+           AND aoi_label = ?
+           AND DATE_FORMAT(deleted_at, '%Y-%m-%d %H:%i:%s') = ?
+           AND restored_at IS NULL`,
+        [normalizedAssignmentId, normalizedTerm, normalizedYear, normalizedAoi, normalizedDeletedAtKey]
+      );
+
+      if (!Number(archiveMeta?.count || 0)) {
+        await conn.rollback();
+        return res.status(404).json({ message: "No archived O-Level marks found for that restore set." });
+      }
+
+      const [restoreResult] = await conn.query(
+        `
+          INSERT INTO marks (
+            teacher_id,
+            assignment_id,
+            student_id,
+            score,
+            status,
+            year,
+            term,
+            aoi_label,
+            created_at,
+            updated_at
+          )
+          SELECT
+            dma.teacher_id,
+            dma.assignment_id,
+            dma.student_id,
+            dma.score,
+            dma.status,
+            dma.year,
+            dma.term,
+            dma.aoi_label,
+            COALESCE(dma.original_created_at, NOW()),
+            COALESCE(dma.original_updated_at, NOW())
+          FROM deleted_marks_archive dma
+          WHERE dma.assignment_id = ?
+            AND dma.term = ?
+            AND dma.year = ?
+            AND dma.aoi_label = ?
+            AND DATE_FORMAT(dma.deleted_at, '%Y-%m-%d %H:%i:%s') = ?
+            AND dma.restored_at IS NULL
+            AND NOT EXISTS (
+              SELECT 1
+              FROM marks m
+              WHERE m.assignment_id = dma.assignment_id
+                AND m.student_id = dma.student_id
+                AND m.year = dma.year
+                AND m.term = dma.term
+                AND CAST(m.aoi_label AS CHAR) = CAST(dma.aoi_label AS CHAR)
+            )
+        `,
+        [normalizedAssignmentId, normalizedTerm, normalizedYear, normalizedAoi, normalizedDeletedAtKey]
+      );
+
+      const [updateResult] = await conn.query(
+        `
+          UPDATE deleted_marks_archive
+          SET restored_at = NOW(),
+              restored_by_user_id = ?,
+              restored_by_role = 'admin'
+          WHERE assignment_id = ?
+            AND term = ?
+            AND year = ?
+            AND aoi_label = ?
+            AND DATE_FORMAT(deleted_at, '%Y-%m-%d %H:%i:%s') = ?
+            AND restored_at IS NULL
+        `,
+        [adminUserId, normalizedAssignmentId, normalizedTerm, normalizedYear, normalizedAoi, normalizedDeletedAtKey]
+      );
+
+      await conn.commit();
+      conn.release();
+      conn = null;
+
+      await logAuditEvent({
+        userId: adminUserId,
+        userRole: "admin",
+        action: "RESTORE_MARKS",
+        entityType: "marks",
+        entityId: normalizedAssignmentId,
+        description: `Restored ${normalizedAoi} marks for ${assignmentRow.subject} (${assignmentRow.class_level} ${assignmentRow.stream}) ${normalizedTerm} ${normalizedYear}; restored rows: ${restoreResult.affectedRows}; archive rows closed: ${updateResult.affectedRows}`,
+        ipAddress: extractClientIp(req),
+      });
+
+      return res.json({
+        message: "O-Level marks restored successfully",
+        restoredRows: Number(restoreResult.affectedRows || 0),
+        closedArchiveRows: Number(updateResult.affectedRows || 0),
+      });
+    }
+
+    if (normalizedLevel === "A-Level") {
+      const normalizedExamId = Number(componentKey);
+
+      const [[assignmentRow]] = await conn.query(
+        `SELECT
+           ats.id,
+           ats.stream,
+           ats.paper_label,
+           s.name AS subject,
+           ae.name AS exam_name
+         FROM alevel_teacher_subjects ats
+         JOIN alevel_subjects s ON s.id = ats.subject_id
+         LEFT JOIN alevel_exams ae ON ae.id = ?
+         WHERE ats.id = ?`,
+        [normalizedExamId, normalizedAssignmentId]
+      );
+
+      if (!assignmentRow) {
+        await conn.rollback();
+        return res.status(404).json({ message: "A-Level assignment no longer exists. Restore cannot continue." });
+      }
+
+      const [[archiveMeta]] = await conn.query(
+        `SELECT COUNT(*) AS count
+         FROM deleted_alevel_marks_archive
+         WHERE assignment_id = ?
+           AND term = ?
+           AND exam_id = ?
+           AND DATE_FORMAT(deleted_at, '%Y-%m-%d %H:%i:%s') = ?
+           AND restored_at IS NULL`,
+        [normalizedAssignmentId, normalizedTerm, normalizedExamId, normalizedDeletedAtKey]
+      );
+
+      if (!Number(archiveMeta?.count || 0)) {
+        await conn.rollback();
+        return res.status(404).json({ message: "No archived A-Level marks found for that restore set." });
+      }
+
+      const [restoreResult] = await conn.query(
+        `
+          INSERT INTO alevel_marks (
+            learner_id,
+            assignment_id,
+            subject_id,
+            exam_id,
+            score,
+            teacher_id,
+            term
+          )
+          SELECT
+            dama.learner_id,
+            dama.assignment_id,
+            dama.subject_id,
+            dama.exam_id,
+            dama.score,
+            dama.teacher_id,
+            dama.term
+          FROM deleted_alevel_marks_archive dama
+          WHERE dama.assignment_id = ?
+            AND dama.term = ?
+            AND dama.exam_id = ?
+            AND DATE_FORMAT(dama.deleted_at, '%Y-%m-%d %H:%i:%s') = ?
+            AND dama.restored_at IS NULL
+            AND NOT EXISTS (
+              SELECT 1
+              FROM alevel_marks am
+              WHERE am.learner_id = dama.learner_id
+                AND am.assignment_id = dama.assignment_id
+                AND am.exam_id = dama.exam_id
+                AND am.term = dama.term
+            )
+        `,
+        [normalizedAssignmentId, normalizedTerm, normalizedExamId, normalizedDeletedAtKey]
+      );
+
+      const [updateResult] = await conn.query(
+        `
+          UPDATE deleted_alevel_marks_archive
+          SET restored_at = NOW(),
+              restored_by_user_id = ?,
+              restored_by_role = 'admin'
+          WHERE assignment_id = ?
+            AND term = ?
+            AND exam_id = ?
+            AND DATE_FORMAT(deleted_at, '%Y-%m-%d %H:%i:%s') = ?
+            AND restored_at IS NULL
+        `,
+        [adminUserId, normalizedAssignmentId, normalizedTerm, normalizedExamId, normalizedDeletedAtKey]
+      );
+
+      await conn.commit();
+      conn.release();
+      conn = null;
+
+      const assignmentLabel =
+        assignmentRow.paper_label && assignmentRow.paper_label !== "Single"
+          ? `${assignmentRow.subject} — ${assignmentRow.paper_label}`
+          : assignmentRow.subject;
+
+      await logAuditEvent({
+        userId: adminUserId,
+        userRole: "admin",
+        action: "RESTORE_MARKS",
+        entityType: "marks",
+        entityId: normalizedAssignmentId,
+        description: `Restored A-Level ${assignmentRow.exam_name || "Exam"} marks for ${assignmentLabel} in ${assignmentRow.stream} (${normalizedTerm}); restored rows: ${restoreResult.affectedRows}; archive rows closed: ${updateResult.affectedRows}`,
+        ipAddress: extractClientIp(req),
+      });
+
+      return res.json({
+        message: "A-Level marks restored successfully",
+        restoredRows: Number(restoreResult.affectedRows || 0),
+        closedArchiveRows: Number(updateResult.affectedRows || 0),
+      });
+    }
+
+    await conn.rollback();
+    return res.status(400).json({ message: "Unsupported archive level" });
+  } catch (err) {
+    if (conn) {
+      try { await conn.rollback(); } catch (rollbackError) { console.error("Restore archive rollback error:", rollbackError); }
+      conn.release();
+    }
+    console.error("Restore marks archive error:", err);
+    res.status(500).json({ message: "Failed to restore archived marks" });
   }
 });
 // GET /api/notices (teachers)

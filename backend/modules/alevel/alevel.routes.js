@@ -4,6 +4,7 @@ import authTeacher from "../../middleware/authTeacher.js";
 import authAdmin from "../../middleware/authAdmin.js";
 import { pool } from "../../server.js";
 import { extractClientIp, logAuditEvent } from "../../utils/auditLogger.js";
+import { ensureMarksArchiveTablesReady, archiveALevelMarks } from "../../utils/marksArchive.js";
 
 import {
   getLearners,
@@ -168,21 +169,31 @@ router.post("/admin/assignments", authAdmin, async (req, res) => {
 
 // delete assignment
 router.delete("/admin/assignments/:id", authAdmin, async (req, res) => {
+  let conn;
   try {
-    const [[assignment]] = await db.query(
+    const assignmentId = Number(req.params.id);
+    if (!Number.isInteger(assignmentId) || assignmentId <= 0) {
+      return res.status(400).json({ message: "Invalid assignment id" });
+    }
+
+    conn = await db.getConnection();
+    await conn.beginTransaction();
+
+    const [[assignment]] = await conn.query(
       `SELECT ats.id, ats.subject_id, ats.teacher_id, ats.stream, ats.paper_label, s.name AS subject
        FROM alevel_teacher_subjects ats
        JOIN alevel_subjects s ON s.id = ats.subject_id
        WHERE ats.id = ?`,
-      [req.params.id]
+      [assignmentId]
     );
 
     if (!assignment) {
+      await conn.rollback();
       return res.status(404).json({ message: "Assignment not found" });
     }
 
-    await db.query(
-      `DELETE am
+    const [[marksMeta]] = await conn.query(
+      `SELECT COUNT(*) AS count
        FROM alevel_marks am
        LEFT JOIN alevel_learners l ON l.id = am.learner_id
        WHERE am.assignment_id = ?
@@ -195,10 +206,18 @@ router.delete("/admin/assignments/:id", authAdmin, async (req, res) => {
       [assignment.id, assignment.subject_id, assignment.teacher_id, assignment.stream]
     );
 
-    await db.query(
-      `DELETE FROM alevel_teacher_subjects WHERE id = ?`,
-      [req.params.id]
-    );
+    if (Number(marksMeta?.count || 0) > 0) {
+      await conn.rollback();
+      return res.status(409).json({
+        message:
+          "This A-Level assignment already has submitted marks. Delete the marks set first from Data Center before removing the assignment.",
+      });
+    }
+
+    await conn.query(`DELETE FROM alevel_teacher_subjects WHERE id = ?`, [assignmentId]);
+    await conn.commit();
+    conn.release();
+    conn = null;
 
     await logAuditEvent({
       userId: AUDIT_ADMIN_USER_ID,
@@ -211,6 +230,10 @@ router.delete("/admin/assignments/:id", authAdmin, async (req, res) => {
     });
     res.json({ success: true });
   } catch (err) {
+    if (conn) {
+      try { await conn.rollback(); } catch (rollbackError) { console.error("A-Level delete assignment rollback error:", rollbackError); }
+      conn.release();
+    }
     console.error("delete assignment error:", err);
     res.status(500).json({ message: "Failed to delete" });
   }
@@ -366,6 +389,7 @@ router.post("/teachers/alevel-marks", authTeacher, async (req, res) => {
     return res.status(400).json({ message: "Invalid payload" });
   }
 
+  await ensureMarksArchiveTablesReady(pool);
   const conn = await db.getConnection();
 
   try {
@@ -444,6 +468,15 @@ router.post("/teachers/alevel-marks", authTeacher, async (req, res) => {
     if (touchedComponents.length > 0) {
       const examIdsToReplace = touchedComponents.map((component) => examMap[component]);
       const placeholders = examIdsToReplace.map(() => "?").join(", ");
+
+      await archiveALevelMarks(conn, {
+        whereSql: `am.assignment_id = ? AND am.term = ? AND am.exam_id IN (${placeholders})`,
+        params: [ts.id, term, ...examIdsToReplace],
+        deletedByUserId: teacherId,
+        deletedByRole: "teacher",
+        deleteReason: `Teacher replaced ${touchedComponents.join(", ")} for ${buildSubjectDisplay(ts.subject_name, ts.paper_label)} in ${term} ${normalizedYear}`,
+        sourceAction: "REPLACE_MARKS_SET",
+      });
 
       await conn.query(
         `DELETE FROM alevel_marks
@@ -803,12 +836,17 @@ router.get("/download/sets/:setId", async (req, res) => {
   }
 });
 
-router.delete("/download/sets/:setId", async (req, res) => {
+router.delete("/download/sets/:setId", authAdmin, async (req, res) => {
+  let conn;
   try {
     const { setId } = req.params;
     const [assignment_id, term, exam_id] = setId.split("-");
 
-    const [[setMeta]] = await pool.query(
+    await ensureMarksArchiveTablesReady(pool);
+    conn = await pool.getConnection();
+    await conn.beginTransaction();
+
+    const [[setMeta]] = await conn.query(
       `SELECT ats.id, ats.stream, ats.paper_label, s.name AS subject, ae.name AS exam_name
        FROM alevel_teacher_subjects ats
        JOIN alevel_subjects s ON s.id = ats.subject_id
@@ -817,27 +855,44 @@ router.delete("/download/sets/:setId", async (req, res) => {
       [exam_id, assignment_id]
     );
 
-    await pool.query(`
+    const archivedRows = await archiveALevelMarks(conn, {
+      whereSql: "am.assignment_id = ? AND am.term = ? AND am.exam_id = ?",
+      params: [assignment_id, term, exam_id],
+      deletedByUserId: Number(req.admin?.id) || AUDIT_ADMIN_USER_ID,
+      deletedByRole: "admin",
+      deleteReason: `Admin deleted A-Level marks set ${setMeta?.exam_name || "Exam"} for ${buildSubjectDisplay(setMeta?.subject, setMeta?.paper_label)} in ${term}`,
+      sourceAction: "DELETE_MARKS_SET",
+    });
+
+    await conn.query(`
       DELETE FROM alevel_marks
       WHERE assignment_id = ?
         AND term = ?
         AND exam_id = ?
     `, [assignment_id, term, exam_id]);
 
+    await conn.commit();
+    conn.release();
+    conn = null;
+
     if (setMeta) {
       await logAuditEvent({
-        userId: AUDIT_ADMIN_USER_ID,
+        userId: Number(req.admin?.id) || AUDIT_ADMIN_USER_ID,
         userRole: "admin",
         action: "DELETE_MARKS_SET",
         entityType: "marks",
         entityId: Number(assignment_id),
-        description: `Deleted A-Level marks set for ${buildSubjectDisplay(setMeta.subject, setMeta.paper_label)} in ${setMeta.stream} (${setMeta.exam_name || "Exam"} ${term})`,
+        description: `Deleted A-Level marks set for ${buildSubjectDisplay(setMeta.subject, setMeta.paper_label)} in ${setMeta.stream} (${setMeta.exam_name || "Exam"} ${term}); archived: ${archivedRows}`,
         ipAddress: extractClientIp(req),
       });
     }
 
     res.status(204).end();
   } catch (err) {
+    if (conn) {
+      try { await conn.rollback(); } catch (rollbackError) { console.error("A-Level marks-set rollback error:", rollbackError); }
+      conn.release();
+    }
     console.error("❌ Delete set error:", err);
     res.status(500).json({ message: "Failed to delete marks" });
   }

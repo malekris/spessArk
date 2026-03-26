@@ -876,6 +876,7 @@ export default function ALevelDashboard() {
                       refreshMarks={fetchAlevelTrackerData}
                       officialSubjects={trackerSubjects}
                       assignmentsEndpoint="/api/alevel/admin/assignments"
+                      trackedUnitLabel="papers"
                       componentOptions={[
                         { value: "MID", label: "MID" },
                         { value: "EOT", label: "EOT" },
@@ -887,7 +888,7 @@ export default function ALevelDashboard() {
                         { class_level: "A-Level", stream: "S6 Sciences" },
                       ]}
                       title="Assessment Submission Tracker"
-                      subtitle="Track A-Level subject submissions per stream using MID and EOT."
+                      subtitle="Track A-Level paper submissions per stream using MID and EOT."
                     />
                   )}
                 </section>

@@ -1,8 +1,37 @@
 import React, { useState, useEffect, useRef } from "react";
 import "./ActivitiesSection.css";
 
+const NEW_ACTIVITY_IMAGES = [
+  "/newactivities/IMG_5033.jpg",
+  "/newactivities/IMG_5036.jpg",
+  "/newactivities/IMG_5038.jpg",
+  "/newactivities/IMG_5045%202.jpg",
+  "/newactivities/IMG_5049%202.jpg",
+  "/newactivities/IMG_5050.jpg",
+  "/newactivities/IMG_5054.jpg",
+  "/newactivities/IMG_5055.jpg",
+  "/newactivities/IMG_5061.jpg",
+  "/newactivities/IMG_5063.jpg",
+  "/newactivities/IMG_5067.jpg",
+  "/newactivities/IMG_5084.jpg",
+  "/newactivities/IMG_5086%202.jpg",
+  "/newactivities/IMG_5087%202.jpg",
+  "/newactivities/IMG_5088%202.jpg",
+  "/newactivities/IMG_5090.jpg",
+  "/newactivities/IMG_5093.jpg",
+  "/newactivities/IMG_5094.jpg",
+  "/newactivities/IMG_5096.jpg",
+  "/newactivities/IMG_5101.jpg",
+  "/newactivities/IMG_5115%202.jpg",
+  "/newactivities/IMG_5117.jpg",
+];
+
 export default function ActivitiesSection() {
-  const images = Array.from({ length: 20 }, (_, i) => `/image${i + 1}.jpg`);
+  const images = [
+    ...NEW_ACTIVITY_IMAGES,
+    ...Array.from({ length: 20 }, (_, i) => `/image${i + 1}.jpg`),
+  ];
+  const latestCutoff = NEW_ACTIVITY_IMAGES.length;
 
   const [activeIndex, setActiveIndex] = useState(null);
   const [showHint, setShowHint] = useState(false);
@@ -22,9 +51,10 @@ export default function ActivitiesSection() {
   const handleDownload = (e) => {
     if (e) e.stopPropagation();
     const imageUrl = images[activeIndex];
+    const sourceName = imageUrl.split("/").pop() || `activity-${activeIndex + 1}.jpg`;
     const link = document.createElement("a");
     link.href = imageUrl;
-    link.download = `SPESS_Activity_${activeIndex + 1}.jpg`;
+    link.download = decodeURIComponent(sourceName);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -88,6 +118,7 @@ export default function ActivitiesSection() {
         <div className="activities-grid">
           {images.map((src, i) => (
             <div key={i} className="activity-card" onClick={() => setActiveIndex(i)}>
+              {i < latestCutoff && <div className="activity-badge">Latest</div>}
               <img src={src} alt={`Activity ${i + 1}`} loading="lazy" />
               <div className="card-overlay">VIEW</div>
             </div>
@@ -121,8 +152,9 @@ export default function ActivitiesSection() {
             onTouchEnd={handleTouchEnd}
             onContextMenu={(e) => e.preventDefault()}
           />
-          
+
           <div className="lightbox-counter">{activeIndex + 1} / {images.length}</div>
+          {activeIndex < latestCutoff && <div className="lightbox-badge">Latest Activity</div>}
         </div>
       )}
     </section>

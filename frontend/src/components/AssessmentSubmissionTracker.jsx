@@ -37,6 +37,7 @@ export default function AssessmentSubmissionTracker({
   title = "Assessment Submission Tracker",
   subtitle = "Track subject submissions per class and stream.",
   componentOptions = DEFAULT_COMPONENT_OPTIONS,
+  trackedUnitLabel = "subjects",
 }) {
   const [selectedTerm, setSelectedTerm] = useState(1);
   const [selectedComponent, setSelectedComponent] = useState(
@@ -74,10 +75,21 @@ export default function AssessmentSubmissionTracker({
         (Array.isArray(rows) ? rows : []).forEach((r) => {
           const stream = r.stream || "";
           const classLevel = r.class_level || "A-Level";
-          if (!stream || !r.subject) return;
+          const slotDisplay =
+            r.subject_display ||
+            (r.paper_label && r.paper_label !== "Single"
+              ? `${r.subject} — ${r.paper_label}`
+              : r.subject);
+          const slotId = r.assignment_id ?? r.id ?? null;
+          if (!stream || !slotDisplay) return;
           const k = keyOf(classLevel, stream);
-          if (!map[k]) map[k] = new Set();
-          map[k].add(r.subject);
+          if (!map[k]) map[k] = new Map();
+          const slotKey = slotId ? `assignment:${slotId}` : `${classLevel}||${stream}||${slotDisplay}`;
+          map[k].set(slotKey, {
+            key: slotKey,
+            display: slotDisplay,
+            teacher: r.teacher_name || "—",
+          });
         });
         setExpectedByGroup(map);
       } catch (err) {
@@ -109,6 +121,30 @@ export default function AssessmentSubmissionTracker({
   // Group by class + stream
   const grouped = useMemo(() => {
     const map = {};
+    const buildSlotDisplay = (row) =>
+      row?.subject_display ||
+      (row?.paper_label && row.paper_label !== "Single"
+        ? `${row.subject} — ${row.paper_label}`
+        : row?.subject || "—");
+    const buildSlotKey = (row) => {
+      const slotId = row?.assignment_id ?? row?.id ?? null;
+      if (slotId) return `assignment:${slotId}`;
+      return `${row?.class_level || "A-Level"}||${row?.stream || ""}||${buildSlotDisplay(row)}`;
+    };
+    const toExpectedMap = (items = []) => {
+      const expected = new Map();
+      items.forEach((subject) => {
+        const display = String(subject || "").trim();
+        if (!display) return;
+        expected.set(display, {
+          key: display,
+          display,
+          teacher: "—",
+        });
+      });
+      return expected;
+    };
+    const sortByDisplay = (a, b) => String(a.display || "").localeCompare(String(b.display || ""));
 
     // Seed fixed groups (useful for A-Level streams even before marks are submitted)
     (Array.isArray(seedGroups) ? seedGroups : []).forEach((g) => {
@@ -120,20 +156,20 @@ export default function AssessmentSubmissionTracker({
         map[k] = {
           class_level: classLevel,
           stream,
-          subjects: new Map(),
-          expectedSubjects: new Set(officialSubjects),
+          items: new Map(),
+          expectedItems: toExpectedMap(officialSubjects),
         };
       }
     });
 
     // Seed groups from assignments so missing subjects can be listed accurately.
-    Object.entries(expectedByGroup).forEach(([k, subjectSet]) => {
+    Object.entries(expectedByGroup).forEach(([k, expectedItems]) => {
       const [class_level, stream] = k.split("||");
       map[k] = {
         class_level,
         stream,
-        subjects: new Map(),
-        expectedSubjects: new Set(subjectSet),
+        items: new Map(),
+        expectedItems: expectedItems instanceof Map ? expectedItems : new Map(),
       };
     });
 
@@ -147,30 +183,48 @@ export default function AssessmentSubmissionTracker({
         map[key] = {
           class_level: m.class_level,
           stream: m.stream,
-          subjects: new Map(),
-          expectedSubjects: new Set(expectedByGroup[key] || []),
+          items: new Map(),
+          expectedItems:
+            expectedByGroup[key] instanceof Map
+              ? expectedByGroup[key]
+              : toExpectedMap(officialSubjects),
         };
       }
 
-      const existing = map[key].subjects.get(m.subject) || {
+      const slotKey = buildSlotKey(m);
+      const slotDisplay = buildSlotDisplay(m);
+      const existing = map[key].items.get(slotKey) || {
+        key: slotKey,
+        display: slotDisplay,
         teacher: m.teacher_name || "—",
-        aois: new Set(),
+        components: new Set(),
       };
       if (m.teacher_name) existing.teacher = m.teacher_name;
-      if (normalizedAoi) existing.aois.add(normalizedAoi);
-      map[key].subjects.set(m.subject, existing);
+      if (normalizedAoi) existing.components.add(normalizedAoi);
+      map[key].items.set(slotKey, existing);
+
+      if (!map[key].expectedItems.has(slotKey)) {
+        map[key].expectedItems.set(slotKey, {
+          key: slotKey,
+          display: slotDisplay,
+          teacher: m.teacher_name || "—",
+        });
+      }
     });
 
     return Object.values(map).map((group) => {
-      const submittedSubjects = new Set(group.subjects.keys());
-      const expectedSubjects = Array.from(
-        group.expectedSubjects && group.expectedSubjects.size ? group.expectedSubjects : new Set(officialSubjects)
-      );
-      const missingSubjects = expectedSubjects.filter((subject) => !submittedSubjects.has(subject));
+      const submittedKeys = new Set(group.items.keys());
+      const submittedItems = Array.from(group.items.values()).sort(sortByDisplay);
+      const expectedItems =
+        group.expectedItems && group.expectedItems.size
+          ? Array.from(group.expectedItems.values()).sort(sortByDisplay)
+          : Array.from(toExpectedMap(officialSubjects).values()).sort(sortByDisplay);
+      const missingItems = expectedItems.filter((item) => !submittedKeys.has(item.key));
       return {
         ...group,
-        missingSubjects,
-        expectedTotal: expectedSubjects.length,
+        submittedItems,
+        missingItems,
+        expectedTotal: expectedItems.length,
       };
     });
   }, [filtered, expectedByGroup, officialSubjects, seedGroups, selectedComponent]);
@@ -205,11 +259,11 @@ export default function AssessmentSubmissionTracker({
     y += 10;
   
     // ===== BODY =====
-    grouped.forEach((group, index) => {
-      const submittedCount = group.subjects.size;
+    grouped.forEach((group) => {
+      const submittedCount = group.submittedItems.length;
       const expectedTotal = Math.max(1, group.expectedTotal || officialSubjects.length);
       const percent = Math.round((submittedCount / expectedTotal) * 100);
-      const missing = group.missingSubjects.length;
+      const missing = group.missingItems.length;
   
       // Page break
       if (y > pageH - 30) {
@@ -225,7 +279,7 @@ export default function AssessmentSubmissionTracker({
       doc.setFont("helvetica", "normal");
       doc.setFontSize(10);
       doc.text(
-        `${submittedCount}/${expectedTotal} subjects submitted (${percent}%) — Missing: ${missing}`,
+        `${submittedCount}/${expectedTotal} ${trackedUnitLabel} submitted (${percent}%) — Missing: ${missing}`,
         14,
         y
       );
@@ -233,27 +287,27 @@ export default function AssessmentSubmissionTracker({
   
       doc.setFontSize(9);
   
-      [...group.subjects.entries()].forEach(([subject, meta]) => {
+      group.submittedItems.forEach((item) => {
         if (y > pageH - 20) {
           doc.addPage();
           y = 20;
         }
-        doc.text(`• ${subject} — ${meta?.teacher || "—"} (${selectedComponentLabel} submitted)`, 18, y);
+        doc.text(`• ${item.display} — ${item?.teacher || "—"} (${selectedComponentLabel} submitted)`, 18, y);
         y += 5;
       });
 
-      if (group.missingSubjects.length > 0) {
+      if (group.missingItems.length > 0) {
         y += 2;
         doc.setFont("helvetica", "bold");
-        doc.text("Missing subjects:", 14, y);
+        doc.text(`Missing ${trackedUnitLabel}:`, 14, y);
         y += 5;
         doc.setFont("helvetica", "normal");
-        group.missingSubjects.forEach((subject) => {
+        group.missingItems.forEach((item) => {
           if (y > pageH - 20) {
             doc.addPage();
             y = 20;
           }
-          doc.text(`• ${subject}`, 18, y);
+          doc.text(`• ${item.display}${item.teacher && item.teacher !== "—" ? ` — ${item.teacher}` : ""}`, 18, y);
           y += 5;
         });
       }
@@ -337,11 +391,11 @@ export default function AssessmentSubmissionTracker({
       ) : (
         <div style={{ display: "grid", gap: "1rem" }}>
           {grouped.map(group => {
-            const submittedCount = group.subjects.size;
+            const submittedCount = group.submittedItems.length;
             const expectedTotal = Math.max(1, group.expectedTotal || officialSubjects.length);
             const percent = Math.round((submittedCount / expectedTotal) * 100);
 
-            const missingCount = group.missingSubjects.length;
+            const missingCount = group.missingItems.length;
 
             return (
               <div key={`${group.class_level}-${group.stream}`} className="panel-card">
@@ -352,7 +406,7 @@ export default function AssessmentSubmissionTracker({
                 {/* Progress */}
                 <div style={{ margin: "0.6rem 0" }}>
                   <div style={{ fontSize: "0.85rem", marginBottom: "0.3rem" }}>
-                    {submittedCount}/{expectedTotal} subjects submitted for {selectedComponentLabel} ({percent}%)
+                    {submittedCount}/{expectedTotal} {trackedUnitLabel} submitted for {selectedComponentLabel} ({percent}%)
                   </div>
 
                   <div style={{
@@ -390,11 +444,11 @@ export default function AssessmentSubmissionTracker({
 
                 {/* Submitted */}
                 <details>
-                  <summary>✅ Submitted subjects for {selectedComponentLabel}</summary>
+                  <summary>✅ Submitted {trackedUnitLabel} for {selectedComponentLabel}</summary>
                   <ul>
-                    {[...group.subjects.entries()].map(([subject, meta]) => (
-                      <li key={subject}>
-                        {subject} — 👨‍🏫 {meta?.teacher || "—"} — {selectedComponentLabel} recorded
+                    {group.submittedItems.map((item) => (
+                      <li key={item.key}>
+                        {item.display} — 👨‍🏫 {item?.teacher || "—"} — {selectedComponentLabel} recorded
                       </li>
                     ))}
                   </ul>
@@ -402,13 +456,16 @@ export default function AssessmentSubmissionTracker({
 
                 {/* Missing */}
                 <details>
-                  <summary>❌ Missing subjects for {selectedComponentLabel} ({missingCount})</summary>
-                  {group.missingSubjects.length === 0 ? (
-                    <p className="muted-text">No missing subjects.</p>
+                  <summary>❌ Missing {trackedUnitLabel} for {selectedComponentLabel} ({missingCount})</summary>
+                  {group.missingItems.length === 0 ? (
+                    <p className="muted-text">No missing {trackedUnitLabel}.</p>
                   ) : (
                     <ul>
-                      {group.missingSubjects.map((subject) => (
-                        <li key={subject}>{subject}</li>
+                      {group.missingItems.map((item) => (
+                        <li key={item.key}>
+                          {item.display}
+                          {item.teacher && item.teacher !== "—" ? ` — 👨‍🏫 ${item.teacher}` : ""}
+                        </li>
                       ))}
                     </ul>
                   )}

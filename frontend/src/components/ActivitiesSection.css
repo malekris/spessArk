@@ -18,9 +18,9 @@
   height: 400px;
   width: 100%;
   background: linear-gradient(to bottom, rgba(10, 12, 16, 0.1), var(--cinematic-black)), 
-              url('/celine.jpg');
+              url('/newactivities/cov.jpg');
   background-size: cover;
-  background-position: center 30%;
+  background-position: center 42%;
   display: flex;
   align-items: center;
   padding: 0 4rem;
@@ -59,6 +59,22 @@
   background: #161b22;
   cursor: pointer;
   transition: all 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
+}
+
+.activity-badge {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 3;
+  padding: 0.42rem 0.8rem;
+  border-radius: 999px;
+  background: rgba(167, 139, 250, 0.92);
+  color: var(--cinematic-black);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  box-shadow: 0 10px 24px rgba(167, 139, 250, 0.28);
 }
 
 .activity-card img {
@@ -169,6 +185,21 @@
   letter-spacing: 0.2em;
 }
 
+.lightbox-badge {
+  position: absolute;
+  top: 2rem;
+  left: 2rem;
+  padding: 0.5rem 1rem;
+  border-radius: 999px;
+  background: rgba(167, 139, 250, 0.92);
+  color: var(--cinematic-black);
+  font-size: 0.75rem;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  box-shadow: 0 12px 26px rgba(167, 139, 250, 0.24);
+}
+
 /* LONG PRESS HINT */
 .long-press-hint {
   position: absolute;
@@ -208,6 +239,18 @@
   .lightbox-close { width: 55px; height: 55px; }
   
   .long-press-hint { top: 12%; width: 80%; text-align: center; }
+  .activity-badge {
+    top: 10px;
+    left: 10px;
+    padding: 0.34rem 0.68rem;
+    font-size: 0.62rem;
+  }
+  .lightbox-badge {
+    top: 1rem;
+    left: 1rem;
+    font-size: 0.66rem;
+    padding: 0.42rem 0.8rem;
+  }
 }
 
 @keyframes zoomIn {

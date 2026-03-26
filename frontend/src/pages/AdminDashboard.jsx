@@ -60,6 +60,11 @@ const MARKS_LOCK_GROUPS = {
   "A-Level": ["MID", "EOT"],
 };
 const MARKS_LOCK_LEVELS = Object.keys(MARKS_LOCK_GROUPS);
+const O_LEVEL_AOI_OPTIONS = [
+  { value: "AOI1", label: "AOI 1" },
+  { value: "AOI2", label: "AOI 2" },
+  { value: "AOI3", label: "AOI 3" },
+];
 
 const formatMarksLockComponentLabel = (component) => {
   const raw = String(component || "").trim().toUpperCase();
@@ -285,6 +290,7 @@ export default function AdminDashboard() {
   const [aLevelMarksSets, setALevelMarksSets] = useState([]);
   const [overviewMarksLocks, setOverviewMarksLocks] = useState([]);
   const [reportReadinessSummary, setReportReadinessSummary] = useState(null);
+  const [assessmentComplianceAoi, setAssessmentComplianceAoi] = useState("AOI1");
   const [marksLockForm, setMarksLockForm] = useState(() => createEmptyMarksLockForm());
   const [marksLockLoading, setMarksLockLoading] = useState(false);
   const [marksLockSaving, setMarksLockSaving] = useState(false);
@@ -2400,10 +2406,21 @@ export default function AdminDashboard() {
     );
 
     const oLevelSubmittedAssignments = new Set(oLevelRows.map((row) => row.assignment_id));
-    const oLevelAoi1Assignments = new Set(
-      oLevelRows
-        .filter((row) => String(row.aoi_label || "").trim().toUpperCase() === "AOI1")
-        .map((row) => row.assignment_id)
+    const oLevelTotal = oLevelAssignmentsOverview.length;
+    const aLevelTotal = aLevelAssignmentsOverview.length;
+    const aLevelExpectedComponents = aLevelTotal * 2;
+    const oLevelAoiCounts = Object.fromEntries(
+      O_LEVEL_AOI_OPTIONS.map(({ value }) => [
+        value,
+        new Set(
+          oLevelRows
+            .filter((row) => String(row.aoi_label || "").trim().toUpperCase() === value)
+            .map((row) => row.assignment_id)
+        ).size,
+      ])
+    );
+    const oLevelAoiRates = Object.fromEntries(
+      O_LEVEL_AOI_OPTIONS.map(({ value }) => [value, toPercent(oLevelAoiCounts[value], oLevelTotal)])
     );
 
     const aLevelSubmittedAssignments = new Set(aLevelRows.map((row) => row.assignment_id));
@@ -2413,14 +2430,11 @@ export default function AdminDashboard() {
         .map((row) => `${row.assignment_id}__${String(row.aoi_label || "").trim().toUpperCase()}`)
     );
 
-    const oLevelTotal = oLevelAssignmentsOverview.length;
-    const aLevelTotal = aLevelAssignmentsOverview.length;
-    const aLevelExpectedComponents = aLevelTotal * 2;
-
     return {
       oLevelSubmitted: oLevelSubmittedAssignments.size,
       oLevelPending: Math.max(0, oLevelTotal - oLevelSubmittedAssignments.size),
-      oLevelAoi1Rate: toPercent(oLevelAoi1Assignments.size, oLevelTotal),
+      oLevelAoiCounts,
+      oLevelAoiRates,
       aLevelSubmitted: aLevelSubmittedAssignments.size,
       aLevelPending: Math.max(0, aLevelTotal - aLevelSubmittedAssignments.size),
       aLevelMidEotRate: toPercent(aLevelSubmittedComponents.size, aLevelExpectedComponents),
@@ -2436,6 +2450,10 @@ export default function AdminDashboard() {
     marksSets,
     oLevelAssignmentsOverview,
   ]);
+  const selectedAssessmentAoiLabel =
+    O_LEVEL_AOI_OPTIONS.find((option) => option.value === assessmentComplianceAoi)?.label || "AOI 1";
+  const selectedAssessmentAoiRate = assessmentCompliance.oLevelAoiRates?.[assessmentComplianceAoi] ?? 0;
+  const selectedAssessmentAoiSubmitted = assessmentCompliance.oLevelAoiCounts?.[assessmentComplianceAoi] ?? 0;
 
   const teacherLoadSummary = useMemo(() => {
     const assignedTeacherIds = new Set(
@@ -4185,6 +4203,23 @@ export default function AdminDashboard() {
         </div>
         <span className="admin-ops-badge admin-ops-badge-blue">Live</span>
       </div>
+      <div className="admin-ops-control-row">
+        <label className="admin-ops-select-label" htmlFor="assessment-compliance-aoi">
+          O-Level Coverage View
+        </label>
+        <select
+          id="assessment-compliance-aoi"
+          className="admin-ops-select"
+          value={assessmentComplianceAoi}
+          onChange={(event) => setAssessmentComplianceAoi(event.target.value)}
+        >
+          {O_LEVEL_AOI_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </div>
       <div className="admin-ops-kpi-grid">
         <div className="admin-ops-kpi">
           <span>O-Level</span>
@@ -4199,12 +4234,33 @@ export default function AdminDashboard() {
       </div>
       <div className="admin-ops-meter-block">
         <div className="admin-ops-meter-label">
-          <span>AOI 1 Coverage</span>
-          <strong>{assessmentCompliance.oLevelAoi1Rate}%</strong>
+          <span>{selectedAssessmentAoiLabel} Coverage</span>
+          <strong>{selectedAssessmentAoiRate}%</strong>
         </div>
         <div className="admin-ops-meter">
-          <div style={{ width: `${assessmentCompliance.oLevelAoi1Rate}%` }} />
+          <div style={{ width: `${selectedAssessmentAoiRate}%` }} />
         </div>
+        <small className="admin-ops-subnote">
+          {selectedAssessmentAoiSubmitted} of {assessmentCompliance.oLevelTotal} O-Level assignments have submitted {selectedAssessmentAoiLabel}.
+        </small>
+      </div>
+      <div className="admin-ops-inline-meters">
+        {O_LEVEL_AOI_OPTIONS.map((option) => (
+          <div
+            key={option.value}
+            className={`admin-ops-inline-meter-card ${
+              option.value === assessmentComplianceAoi ? "is-active" : ""
+            }`}
+          >
+            <div className="admin-ops-meter-label">
+              <span>{option.label}</span>
+              <strong>{assessmentCompliance.oLevelAoiRates?.[option.value] ?? 0}%</strong>
+            </div>
+            <div className="admin-ops-meter">
+              <div style={{ width: `${assessmentCompliance.oLevelAoiRates?.[option.value] ?? 0}%` }} />
+            </div>
+          </div>
+        ))}
       </div>
       <div className="admin-ops-meter-block">
         <div className="admin-ops-meter-label">

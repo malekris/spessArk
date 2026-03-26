@@ -5,6 +5,7 @@ import "../pages/ALevelAdminTheme.css";
 
 const STORAGE_THEME_KEY = "alevelDashboardTheme";
 const STORAGE_SIDEBAR_KEY = "alevelSidebarCollapsed";
+const COMPACT_VIEWPORT_WIDTH = 1180;
 
 const NAV_ITEMS = [
   { label: "Overview", shortLabel: "OV", path: "/ark/admin/alevel" },
@@ -39,6 +40,19 @@ export default function ALevelAdminShell({
       return false;
     }
   });
+  const [viewportWidth, setViewportWidth] = useState(() => {
+    if (typeof window === "undefined") return COMPACT_VIEWPORT_WIDTH + 1;
+    return window.innerWidth;
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+
+    const handleResize = () => setViewportWidth(window.innerWidth);
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   useEffect(() => {
     try {
@@ -57,6 +71,8 @@ export default function ALevelAdminShell({
   }, [sidebarCollapsed]);
 
   const isDark = themeMode !== "light";
+  const isCompactViewport = viewportWidth <= COMPACT_VIEWPORT_WIDTH;
+  const isSidebarCompact = sidebarCollapsed || isCompactViewport;
 
   const handleLogout = () => {
     localStorage.removeItem("SPESS_ADMIN_KEY");
@@ -113,7 +129,7 @@ export default function ALevelAdminShell({
       };
 
   const shellVars = {
-    "--alevel-sidebar-width": sidebarCollapsed ? "92px" : "270px",
+    "--alevel-sidebar-width": isSidebarCompact ? "92px" : "270px",
     "--alevel-shell-bg": palette.shellBackground,
     "--alevel-sidebar-bg": palette.sidebarBackground,
     "--alevel-sidebar-border": palette.sidebarBorder,
@@ -137,7 +153,9 @@ export default function ALevelAdminShell({
   return (
     <div
       className={`admin-root alevel-admin-root alevel-shell-root ${isDark ? "mode-dark" : "mode-light"} ${
-        sidebarCollapsed ? "sidebar-collapsed" : ""
+        isSidebarCompact ? "sidebar-collapsed" : ""
+      } ${isCompactViewport ? "viewport-compact" : ""} ${
+        isCompactViewport ? "sidebar-auto-compact" : ""
       }`}
       style={shellVars}
     >
@@ -146,18 +164,31 @@ export default function ALevelAdminShell({
           <div className="alevel-shell-brand-copy">
             <div className="alevel-shell-brand-title">
               <span>ARK</span>
-              {!sidebarCollapsed && <span className="alevel-shell-brand-accent">ADMIN</span>}
+              {!isSidebarCompact && <span className="alevel-shell-brand-accent">ADMIN</span>}
             </div>
-            {!sidebarCollapsed && <p>A-Level Control Room</p>}
+            {!isSidebarCompact && <p>A-Level Control Room</p>}
           </div>
           <button
             type="button"
             className="alevel-shell-collapse-btn"
             onClick={() => setSidebarCollapsed((prev) => !prev)}
-            title={sidebarCollapsed ? "Expand navigation" : "Collapse navigation"}
-            aria-label={sidebarCollapsed ? "Expand navigation" : "Collapse navigation"}
+            title={
+              isCompactViewport
+                ? "Navigation auto-compacts at this window size"
+                : isSidebarCompact
+                  ? "Expand navigation"
+                  : "Collapse navigation"
+            }
+            aria-label={
+              isCompactViewport
+                ? "Navigation auto-compacts at this window size"
+                : isSidebarCompact
+                  ? "Expand navigation"
+                  : "Collapse navigation"
+            }
+            disabled={isCompactViewport}
           >
-            {sidebarCollapsed ? "→" : "←"}
+            {isCompactViewport ? "•" : isSidebarCompact ? "→" : "←"}
           </button>
         </div>
 
@@ -172,8 +203,8 @@ export default function ALevelAdminShell({
                 onClick={() => navigate(item.path)}
                 title={item.label}
               >
-                <span className="alevel-shell-nav-badge">{sidebarCollapsed ? item.shortLabel : item.label.slice(0, 2)}</span>
-                {!sidebarCollapsed && <span className="alevel-shell-nav-label">{item.label}</span>}
+                <span className="alevel-shell-nav-badge">{isSidebarCompact ? item.shortLabel : item.label.slice(0, 2)}</span>
+                {!isSidebarCompact && <span className="alevel-shell-nav-label">{item.label}</span>}
               </button>
             );
           })}
@@ -187,7 +218,7 @@ export default function ALevelAdminShell({
             title={isDark ? "Switch to light mode" : "Switch to dark mode"}
           >
             <span>{isDark ? "Light" : "Dark"}</span>
-            {!sidebarCollapsed && <span>{isDark ? "Switch to Light Mode" : "Switch to Dark Mode"}</span>}
+            {!isSidebarCompact && <span>{isDark ? "Switch to Light Mode" : "Switch to Dark Mode"}</span>}
           </button>
 
           <button
@@ -197,7 +228,7 @@ export default function ALevelAdminShell({
             title="Go to O-Level system"
           >
             <span>OL</span>
-            {!sidebarCollapsed && <span>O-Level System</span>}
+            {!isSidebarCompact && <span>O-Level System</span>}
           </button>
         </div>
       </aside>
@@ -221,8 +252,9 @@ export default function ALevelAdminShell({
               type="button"
               className="ghost-btn alevel-shell-topbar-btn"
               onClick={() => setSidebarCollapsed((prev) => !prev)}
+              disabled={isCompactViewport}
             >
-              {sidebarCollapsed ? "Show Nav" : "Collapse Nav"}
+              {isCompactViewport ? "Nav Compact" : isSidebarCompact ? "Show Nav" : "Collapse Nav"}
             </button>
             <button
               type="button"

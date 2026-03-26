@@ -21,6 +21,11 @@ const OFFICIAL_SUBJECTS = [
   "Geography",
 ];
 const TERMS = [1, 2, 3];
+const AOI_OPTIONS = [
+  { value: "AOI1", label: "AOI 1" },
+  { value: "AOI2", label: "AOI 2" },
+  { value: "AOI3", label: "AOI 3" },
+];
 const keyOf = (cls, stream) => `${cls}||${stream}`;
 
 export default function AssessmentSubmissionTracker({
@@ -32,11 +37,10 @@ export default function AssessmentSubmissionTracker({
   title = "Assessment Submission Tracker",
   subtitle = "Track subject submissions per class and stream.",
 }) {
-  useEffect(() => {
-    console.log("TRACKER marksSets:", marksSets);
-  }, [marksSets]);
   const [selectedTerm, setSelectedTerm] = useState(1);
+  const [selectedAoi, setSelectedAoi] = useState("AOI1");
   const [expectedByGroup, setExpectedByGroup] = useState({});
+  const selectedAoiLabel = AOI_OPTIONS.find((option) => option.value === selectedAoi)?.label || "AOI 1";
 
   useEffect(() => {
     const loadExpectedSubjects = async () => {
@@ -119,7 +123,10 @@ export default function AssessmentSubmissionTracker({
       };
     });
 
-    filtered.forEach(m => {
+    filtered.forEach((m) => {
+      const normalizedAoi = String(m.aoi_label || "").trim().toUpperCase();
+      if (normalizedAoi !== selectedAoi) return;
+
       const key = keyOf(m.class_level, m.stream);
 
       if (!map[key]) {
@@ -136,22 +143,23 @@ export default function AssessmentSubmissionTracker({
         aois: new Set(),
       };
       if (m.teacher_name) existing.teacher = m.teacher_name;
-      if (m.aoi_label) existing.aois.add(m.aoi_label);
+      if (normalizedAoi) existing.aois.add(normalizedAoi);
       map[key].subjects.set(m.subject, existing);
     });
 
     return Object.values(map).map((group) => {
       const submittedSubjects = new Set(group.subjects.keys());
-      const missingSubjects = officialSubjects.filter(
-        (s) => !submittedSubjects.has(s)
+      const expectedSubjects = Array.from(
+        group.expectedSubjects && group.expectedSubjects.size ? group.expectedSubjects : new Set(officialSubjects)
       );
+      const missingSubjects = expectedSubjects.filter((subject) => !submittedSubjects.has(subject));
       return {
         ...group,
         missingSubjects,
-        expectedTotal: officialSubjects.length,
+        expectedTotal: expectedSubjects.length,
       };
     });
-  }, [filtered, expectedByGroup, officialSubjects, seedGroups]);
+  }, [filtered, expectedByGroup, officialSubjects, seedGroups, selectedAoi]);
   // PDF 
   const handleDownloadTrackerPdf = async () => {
     const { jsPDF } = await loadPdfTools();
@@ -162,7 +170,7 @@ export default function AssessmentSubmissionTracker({
   
     const generatedAt = new Date().toLocaleString();
     const schoolName = "St. Phillip's Equatorial Secondary School (SPESS)";
-    const title = `Assessment Submission Tracker — Term ${selectedTerm}`;
+    const title = `Assessment Submission Tracker — Term ${selectedTerm} — ${selectedAoiLabel}`;
   
     let y = 18;
   
@@ -185,7 +193,7 @@ export default function AssessmentSubmissionTracker({
     // ===== BODY =====
     grouped.forEach((group, index) => {
       const submittedCount = group.subjects.size;
-      const expectedTotal = Math.max(1, officialSubjects.length);
+      const expectedTotal = Math.max(1, group.expectedTotal || officialSubjects.length);
       const percent = Math.round((submittedCount / expectedTotal) * 100);
       const missing = group.missingSubjects.length;
   
@@ -216,8 +224,7 @@ export default function AssessmentSubmissionTracker({
           doc.addPage();
           y = 20;
         }
-        const aoiCount = meta?.aois?.size || 0;
-        doc.text(`• ${subject} — ${meta?.teacher || "—"} (AOIs: ${aoiCount})`, 18, y);
+        doc.text(`• ${subject} — ${meta?.teacher || "—"} (${selectedAoiLabel} submitted)`, 18, y);
         y += 5;
       });
 
@@ -262,13 +269,13 @@ export default function AssessmentSubmissionTracker({
   return (
     <section className="panel">
       <div className="panel-header">
-  <div>
+          <div>
     <h2>{title}</h2>
-    <p>{subtitle}</p>
+    <p>{subtitle} Use the AOI selector to switch between AOI 1, AOI 2 and AOI 3.</p>
   </div>
 
   {/* TERM TOGGLE + PDF EXPORT — ALWAYS VISIBLE */}
-  <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+  <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
     {TERMS.map(t => (
       <button
         key={t}
@@ -278,6 +285,20 @@ export default function AssessmentSubmissionTracker({
         Term {t}
       </button>
     ))}
+
+    <select
+      value={selectedAoi}
+      onChange={(event) => setSelectedAoi(event.target.value)}
+      className="admin-ops-select"
+      style={{ minWidth: "112px", cursor: "pointer" }}
+      aria-label="Select AOI to visualize"
+    >
+      {AOI_OPTIONS.map((option) => (
+        <option key={option.value} value={option.value}>
+          {option.label}
+        </option>
+      ))}
+    </select>
 
     {/* PDF EXPORT BUTTON */}
     <button
@@ -296,14 +317,14 @@ export default function AssessmentSubmissionTracker({
       {grouped.length === 0 ? (
         <div className="panel-card">
           <p className="muted-text">
-            No submissions recorded for Term {selectedTerm} yet.
+            No submissions recorded for {selectedAoiLabel} in Term {selectedTerm} yet.
           </p>
         </div>
       ) : (
         <div style={{ display: "grid", gap: "1rem" }}>
           {grouped.map(group => {
             const submittedCount = group.subjects.size;
-            const expectedTotal = Math.max(1, officialSubjects.length);
+            const expectedTotal = Math.max(1, group.expectedTotal || officialSubjects.length);
             const percent = Math.round((submittedCount / expectedTotal) * 100);
 
             const missingCount = group.missingSubjects.length;
@@ -317,7 +338,7 @@ export default function AssessmentSubmissionTracker({
                 {/* Progress */}
                 <div style={{ margin: "0.6rem 0" }}>
                   <div style={{ fontSize: "0.85rem", marginBottom: "0.3rem" }}>
-                    {submittedCount}/{expectedTotal} subjects submitted ({percent}%)
+                    {submittedCount}/{expectedTotal} subjects submitted for {selectedAoiLabel} ({percent}%)
                   </div>
 
                   <div style={{
@@ -355,11 +376,11 @@ export default function AssessmentSubmissionTracker({
 
                 {/* Submitted */}
                 <details>
-                  <summary>✅ Submitted subjects</summary>
+                  <summary>✅ Submitted subjects for {selectedAoiLabel}</summary>
                   <ul>
                     {[...group.subjects.entries()].map(([subject, meta]) => (
                       <li key={subject}>
-                        {subject} — 👨‍🏫 {meta?.teacher || "—"} — AOIs submitted: {meta?.aois?.size || 0}
+                        {subject} — 👨‍🏫 {meta?.teacher || "—"} — {selectedAoiLabel} recorded
                       </li>
                     ))}
                   </ul>
@@ -367,7 +388,7 @@ export default function AssessmentSubmissionTracker({
 
                 {/* Missing */}
                 <details>
-                  <summary>❌ Missing subjects ({missingCount})</summary>
+                  <summary>❌ Missing subjects for {selectedAoiLabel} ({missingCount})</summary>
                   {group.missingSubjects.length === 0 ? (
                     <p className="muted-text">No missing subjects.</p>
                   ) : (

@@ -8,6 +8,27 @@ import "./ALevelAdminTheme.css";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
 
+const parseStreamContext = (rawStream = "") => {
+  const value = String(rawStream || "").trim();
+  if (!value) return { classLevel: "A-Level", streamName: "—" };
+
+  const match = value.match(/^(S[56])\s+(.+)$/i);
+  if (!match) {
+    return { classLevel: "A-Level", streamName: value };
+  }
+
+  return {
+    classLevel: match[1].toUpperCase(),
+    streamName: match[2].trim(),
+  };
+};
+
+const formatScoreCell = (row = {}) => {
+  if (String(row?.status || "").toLowerCase() === "missed") return "Missed";
+  if (row?.score === null || row?.score === undefined || row?.score === "") return "—";
+  return String(row.score);
+};
+
 export default function ALevelDownload() {
   const navigate = useNavigate();
   const IDLE_20_MIN = 20 * 60 * 1000;
@@ -135,94 +156,154 @@ export default function ALevelDownload() {
   /* ---------------- PDF EXPORT ---------------- */
   async function exportPdf() {
     if (!selected || contents.rows.length === 0) return;
-    const { jsPDF } = await loadPdfTools();
-  
+    const { jsPDF, autoTable } = await loadPdfTools();
+
     const doc = new jsPDF("p", "mm", "a4");
     const W = doc.internal.pageSize.getWidth();
     const H = doc.internal.pageSize.getHeight();
-  
+    const { classLevel, streamName } = parseStreamContext(selected.stream);
+
     const school = "St. Phillip's Equatorial Secondary School";
-    const title = `${selected.subject_display || selected.subject} — ${selected.exam} (Term ${selected.term})`;
+    const title = "A-Level Score Marksheet";
+    const subjectLine = selected.subject_display || selected.subject || "—";
+    const paperLine =
+      selected.paper_label && selected.paper_label !== "Single" ? selected.paper_label : "Single";
+    const examLine = selected.exam || "—";
+    const termLine = selected.term || "—";
+    const yearLine = selected.year || "—";
     const teacher = selected.submitted_by || "—";
     const generated = new Date().toLocaleString();
-  
-    /* ---------------- HEADER ---------------- */
-    function drawHeader() {
+
+    const numericScores = contents.rows
+      .map((row) => Number(row.score))
+      .filter((value) => Number.isFinite(value));
+
+    const totalLearners = contents.rows.length;
+    const missedCount = contents.rows.filter(
+      (row) => String(row?.status || "").toLowerCase() === "missed"
+    ).length;
+    const submittedCount = totalLearners - missedCount;
+    const averageScore =
+      numericScores.length > 0
+        ? (numericScores.reduce((sum, value) => sum + value, 0) / numericScores.length).toFixed(2)
+        : "—";
+
+    const drawHeader = () => {
+      doc.setDrawColor(0);
+      doc.setLineWidth(0.35);
+      doc.rect(14, 12, W - 28, 34);
+
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(15);
-      doc.text(school, W / 2, 18, { align: "center" });
-  
-      doc.setFont("helvetica", "normal");
+      doc.setFontSize(14);
+      doc.text(school, W / 2, 19, { align: "center" });
+
+      doc.setFont("helvetica", "bold");
       doc.setFontSize(12);
-      doc.text(title, W / 2, 26, { align: "center" });
-  
-      doc.setDrawColor(200);
-      doc.line(14, 30, W - 14, 30);
-  
-      doc.setFontSize(9);
-      doc.text(`Teacher: ${teacher}`, 14, 36);
-      doc.text(`Generated: ${generated}`, 14, 42);
-    }
-  
-    /* ---------------- FOOTER ---------------- */
-    function drawFooter(page, total) {
-      doc.setFontSize(8);
-      doc.setTextColor(120);
-      doc.text(
-        `Generated from SPESS ARK · Page ${page} of ${total}`,
-        W / 2,
-        H - 10,
-        { align: "center" }
-      );
-      doc.setTextColor(0);
-    }
-  
-    /* ---------------- TABLE HEADER ---------------- */
-    function drawTableHeader(y) {
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(10);
-  
-      doc.text("#", 14, y);
-      doc.text("Student Name", 28, y);
-      doc.text("Exam", 125, y);
-      doc.text("Score", W - 14, y, { align: "right" });
-  
-      doc.setDrawColor(220);
-      doc.line(14, y + 2, W - 14, y + 2);
-  
+      doc.text(title, W / 2, 27, { align: "center" });
+
       doc.setFont("helvetica", "normal");
-      return y + 8;
-    }
-  
-    /* ---------------- RENDER ---------------- */
+      doc.setFontSize(10);
+      doc.text(subjectLine, W / 2, 34, { align: "center" });
+
+      doc.setFontSize(8.8);
+      doc.text(`Paper: ${paperLine}`, 18, 41);
+      doc.text(`Exam: ${examLine}`, 56, 41);
+      doc.text(`Term: ${termLine}`, 92, 41);
+      doc.text(`Year: ${yearLine}`, 123, 41);
+      doc.text(`Class: ${classLevel}`, 148, 41);
+      doc.text(`Stream: ${streamName}`, W - 18, 41, { align: "right" });
+    };
+
+    const drawMetaBand = () => {
+      doc.setFillColor(245, 245, 245);
+      doc.roundedRect(14, 51, W - 28, 18, 2, 2, "F");
+      doc.setDrawColor(0);
+      doc.setLineWidth(0.2);
+      doc.roundedRect(14, 51, W - 28, 18, 2, 2, "S");
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8.5);
+      doc.text("Submitted By:", 18, 58);
+      doc.text("Generated:", 18, 64);
+      doc.text("Learners:", 108, 58);
+      doc.text("Submitted:", 108, 64);
+      doc.text("Missed:", 150, 58);
+      doc.text("Average:", 150, 64);
+
+      doc.setFont("helvetica", "normal");
+      doc.text(String(teacher), 42, 58);
+      doc.text(String(generated), 35, 64);
+      doc.text(String(totalLearners), 126, 58);
+      doc.text(String(submittedCount), 126, 64);
+      doc.text(String(missedCount), 166, 58);
+      doc.text(String(averageScore), 168, 64);
+    };
+
     drawHeader();
-    let y = drawTableHeader(52);
-  
-    const rowHeight = 7;
-    const bottomMargin = 18;
-  
-    contents.rows.forEach((r, i) => {
-      if (y + rowHeight > H - bottomMargin) {
-        doc.addPage();
-        drawHeader();
-        y = drawTableHeader(52);
-      }
-  
-      doc.text(String(i + 1), 14, y);
-      doc.text(String(r.learner ?? "—").slice(0, 45), 28, y);
-      doc.text(String(r.exam ?? "—"), 125, y);
-      doc.text(String(r.score ?? "—"), W - 14, y, { align: "right" });
-  
-      y += rowHeight;
+    drawMetaBand();
+
+    autoTable(doc, {
+      startY: 76,
+      head: [["#", "Learner", "Exam", "Status", "Score"]],
+      body: contents.rows.map((row, index) => [
+        index + 1,
+        row.learner || "—",
+        row.exam || "—",
+        row.status || "—",
+        formatScoreCell(row),
+      ]),
+      theme: "grid",
+      margin: { left: 14, right: 14, bottom: 18 },
+      headStyles: {
+        fillColor: [238, 238, 238],
+        textColor: [0, 0, 0],
+        lineColor: [0, 0, 0],
+        lineWidth: 0.2,
+        font: "helvetica",
+        fontStyle: "bold",
+        halign: "left",
+      },
+      bodyStyles: {
+        font: "helvetica",
+        fontSize: 9,
+        textColor: [20, 20, 20],
+        lineColor: [0, 0, 0],
+        lineWidth: 0.15,
+      },
+      alternateRowStyles: {
+        fillColor: [250, 250, 250],
+      },
+      columnStyles: {
+        0: { cellWidth: 10, halign: "center" },
+        1: { cellWidth: 78 },
+        2: { cellWidth: 24, halign: "center" },
+        3: { cellWidth: 28, halign: "center" },
+        4: { cellWidth: 22, halign: "right" },
+      },
+      didParseCell: (hook) => {
+        if (hook.section === "body" && hook.column.index === 3) {
+          const statusValue = String(hook.cell.raw || "").toLowerCase();
+          if (statusValue === "missed") {
+            hook.cell.styles.textColor = [153, 27, 27];
+            hook.cell.styles.fontStyle = "bold";
+          }
+        }
+      },
+      didDrawPage: () => {
+        const pageNumber = doc.internal.getNumberOfPages();
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(8);
+        doc.setTextColor(90);
+        doc.text(
+          `Generated from SPESS ARK · Submitted by ${teacher} · Page ${pageNumber}`,
+          W / 2,
+          H - 8,
+          { align: "center" }
+        );
+        doc.setTextColor(0);
+      },
     });
-  
-    /* ---------------- FOOTERS ---------------- */
-    const pages = doc.internal.getNumberOfPages();
-    for (let i = 1; i <= pages; i++) {
-      doc.setPage(i);
-      drawFooter(i, pages);
-    }
-  
+
     /* ---------------- OPEN AS BLOB (NO DOWNLOAD) ---------------- */
     const blob = doc.output("blob");
     const url = URL.createObjectURL(blob);
@@ -263,6 +344,12 @@ export default function ALevelDownload() {
           fontSize: "0.75rem",
           fontWeight: "700",
           transition: "all 0.2s",
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          minWidth: "148px",
+          minHeight: "42px",
+          boxShadow: isDark ? "0 10px 24px rgba(2, 6, 23, 0.32)" : "0 10px 24px rgba(15, 23, 42, 0.10)",
         };
         const buttonPrimary = {
           ...buttonSecondary,
@@ -457,10 +544,10 @@ export default function ALevelDownload() {
                     {selected && !loadingPreview && (
                       <div style={{ display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap" }}>
                         <button onClick={exportCsv} style={buttonSecondary}>
-                          Export CSV
+                          Download CSV
                         </button>
                         <button onClick={exportPdf} style={buttonPrimary}>
-                          Generate PDF
+                          Download PDF
                         </button>
                         <button
                           onClick={closePreview}
@@ -490,49 +577,141 @@ export default function ALevelDownload() {
                       <div style={{ color: amethyst, fontWeight: "600" }}>Parsing Recordset...</div>
                     </div>
                   ) : (
-                    <div
-                      key={selected.setId}
-                      className="animate-fade"
-                      style={{
-                        overflowX: "auto",
-                        borderRadius: "16px",
-                        background: previewShell,
-                        border: `1px solid ${borderColor}`,
-                      }}
-                    >
-                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem", color: surfaceText }}>
-                        <thead>
-                          <tr style={{ background: tableHead, borderBottom: `1px solid ${borderColor}` }}>
-                            {contents.columns.map((column) => (
-                              <th
-                                key={column}
-                                style={{
-                                  padding: "14px",
-                                  textAlign: "left",
-                                  color: amethyst,
-                                  fontSize: "0.65rem",
-                                  textTransform: "uppercase",
-                                  fontWeight: "900",
-                                }}
-                              >
-                                {column.replace("_", " ")}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {contents.rows.map((row, index) => (
-                            <tr key={index} style={{ borderBottom: `1px solid ${rowBorder}` }}>
+                    <>
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                          gap: "0.85rem",
+                          marginBottom: "1rem",
+                        }}
+                      >
+                        {[
+                          { label: "Subject", value: selected.subject_display || selected.subject || "—" },
+                          { label: "Class", value: parseStreamContext(selected.stream).classLevel },
+                          { label: "Stream", value: parseStreamContext(selected.stream).streamName },
+                          { label: "Submitted By", value: selected.submitted_by || "—" },
+                          { label: "Exam", value: selected.exam || "—" },
+                          { label: "Term / Year", value: `${selected.term || "—"} / ${selected.year || "—"}` },
+                        ].map((item) => (
+                          <div
+                            key={item.label}
+                            style={{
+                              borderRadius: "14px",
+                              border: `1px solid ${borderColor}`,
+                              background: previewShell,
+                              padding: "0.9rem 1rem",
+                            }}
+                          >
+                            <div
+                              style={{
+                                fontSize: "0.65rem",
+                                textTransform: "uppercase",
+                                letterSpacing: "0.14em",
+                                color: amethyst,
+                                fontWeight: 900,
+                                marginBottom: "0.25rem",
+                              }}
+                            >
+                              {item.label}
+                            </div>
+                            <div style={{ color: surfaceText, fontWeight: 700 }}>{item.value}</div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div
+                        style={{
+                          display: "flex",
+                          flexDirection: "column",
+                          alignItems: "stretch",
+                          gap: "0.9rem",
+                          borderRadius: "14px",
+                          border: `1px solid ${borderColor}`,
+                          background: previewShell,
+                          padding: "0.9rem 1rem",
+                          marginBottom: "1rem",
+                        }}
+                      >
+                        <div>
+                          <div
+                            style={{
+                              fontSize: "0.68rem",
+                              textTransform: "uppercase",
+                              letterSpacing: "0.14em",
+                              color: amethyst,
+                              fontWeight: 900,
+                              marginBottom: "0.22rem",
+                            }}
+                          >
+                            Export Actions
+                          </div>
+                          <div style={{ color: surfaceMuted, fontSize: "0.82rem" }}>
+                            Download this A-Level marks set as PDF or CSV.
+                          </div>
+                        </div>
+
+                        <div
+                          style={{
+                            display: "flex",
+                            gap: "0.75rem",
+                            alignItems: "center",
+                            flexWrap: "wrap",
+                          }}
+                        >
+                          <button onClick={exportCsv} style={buttonSecondary}>
+                            Download CSV
+                          </button>
+                          <button onClick={exportPdf} style={buttonPrimary}>
+                            Download PDF
+                          </button>
+                        </div>
+                      </div>
+
+                      <div
+                        key={selected.setId}
+                        className="animate-fade"
+                        style={{
+                          overflowX: "auto",
+                          borderRadius: "16px",
+                          background: previewShell,
+                          border: `1px solid ${borderColor}`,
+                        }}
+                      >
+                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem", color: surfaceText }}>
+                          <thead>
+                            <tr style={{ background: tableHead, borderBottom: `1px solid ${borderColor}` }}>
                               {contents.columns.map((column) => (
-                                <td key={column} style={{ padding: "12px 14px", color: surfaceMuted }}>
-                                  {row[column] ?? "—"}
-                                </td>
+                                <th
+                                  key={column}
+                                  style={{
+                                    padding: "14px",
+                                    textAlign: "left",
+                                    color: amethyst,
+                                    fontSize: "0.65rem",
+                                    textTransform: "uppercase",
+                                    fontWeight: "900",
+                                  }}
+                                >
+                                  {column.replaceAll("_", " ")}
+                                </th>
                               ))}
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                          </thead>
+                          <tbody>
+                            {contents.rows.map((row, index) => (
+                              <tr key={index} style={{ borderBottom: `1px solid ${rowBorder}` }}>
+                                {contents.columns.map((column) => (
+                                  <td key={column} style={{ padding: "12px 14px", color: surfaceMuted }}>
+                                    {column === "score" ? formatScoreCell(row) : row[column] ?? "—"}
+                                  </td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
                   )}
                 </div>
               </div>

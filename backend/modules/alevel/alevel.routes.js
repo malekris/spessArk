@@ -114,7 +114,8 @@ const ensureALevelMarksSchemaReady = async (executor = pool) => {
 
       await executor.query(
         `UPDATE alevel_marks
-         SET created_at = COALESCE(created_at, NOW())`
+         SET created_at = NOW()
+         WHERE created_at IS NULL`
       );
 
       // Do not mutate A-Level unique indexes at request time.
@@ -715,6 +716,12 @@ router.post("/teachers/alevel-marks", authTeacher, async (req, res) => {
     }
     console.error("❌ Save A-Level marks error:", err);
     if (err?.code === "ER_DUP_ENTRY") {
+      if (String(err?.sqlMessage || "").includes("alevel_marks.uniq_mark")) {
+        return res.status(409).json({
+          message:
+            "Paper-based A-Level saving is being blocked by the old alevel_marks unique key in the database. Existing marks are still safe, but the database now needs the Paper 1 / Paper 2 unique-key migration before this save can succeed.",
+        });
+      }
       return res.status(409).json({
         message:
           "A-Level marks could not be saved because older marks for this paper are still colliding with the new paper-based setup. The save path has been tightened; please try again after redeploy.",
@@ -953,8 +960,10 @@ router.get("/download/sets", async (req, res) => {
         am.assignment_id,
         subj.name AS subject,
         ats.paper_label,
+        ats.stream,
         t.name AS submitted_by,
         am.term,
+        YEAR(COALESCE(am.created_at, NOW())) AS year,
         ae.name AS exam
       FROM alevel_marks am
       JOIN alevel_teacher_subjects ats ON ats.id = am.assignment_id
@@ -967,9 +976,11 @@ router.get("/download/sets", async (req, res) => {
         am.exam_id,
         subj.name,
         ats.paper_label,
+        ats.stream,
         t.name,
+        YEAR(COALESCE(am.created_at, NOW())),
         ae.name
-      ORDER BY am.term DESC, subj.name, ae.name
+      ORDER BY YEAR(COALESCE(am.created_at, NOW())) DESC, am.term DESC, subj.name, ats.stream, ae.name
     `);
 
     res.json(
@@ -995,6 +1006,7 @@ router.get("/download/sets/:setId", async (req, res) => {
       SELECT 
         CONCAT(l.first_name, ' ', l.last_name) AS learner,
         ae.name AS exam,
+        CASE WHEN am.score IS NULL THEN 'Missed' ELSE 'Submitted' END AS status,
         am.score
       FROM alevel_marks am
       JOIN alevel_learners l ON l.id = am.learner_id
@@ -1006,7 +1018,7 @@ router.get("/download/sets/:setId", async (req, res) => {
     `, [assignment_id, term, exam_id]);
 
     res.json({
-      columns: ["learner", "exam", "score"],
+      columns: ["learner", "exam", "status", "score"],
       rows
     });
   } catch (err) {

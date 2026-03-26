@@ -369,6 +369,22 @@ export default function ALevelDownload() {
                 .animate-fade {
                   animation: cinematicFadeIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
                 }
+                .alevel-download-grid {
+                  display: grid;
+                  grid-template-columns: minmax(320px, 400px) minmax(0, 1fr);
+                  gap: 2rem;
+                  align-items: start;
+                }
+                .alevel-download-registry {
+                  display: flex;
+                  flex-direction: column;
+                  gap: 0.75rem;
+                }
+                @media (max-width: 1180px) {
+                  .alevel-download-grid {
+                    grid-template-columns: 1fr;
+                  }
+                }
               `}
             </style>
 
@@ -423,7 +439,7 @@ export default function ALevelDownload() {
                 </div>
               )}
 
-              <div style={{ display: "grid", gridTemplateColumns: "400px 1fr", gap: "2rem", alignItems: "start" }}>
+              <div className="alevel-download-grid">
                 <div
                   style={{
                     background: surfacePanel,
@@ -452,7 +468,7 @@ export default function ALevelDownload() {
                   {loadingSets ? (
                     <p style={{ color: surfaceMuted, fontSize: "0.9rem" }}>Syncing Database...</p>
                   ) : (
-                    <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", maxHeight: "600px", overflowY: "auto" }}>
+                    <div className="alevel-download-registry">
                       {sets.length === 0 ? (
                         <p style={{ color: surfaceMuted, textAlign: "center", padding: "2rem 0" }}>Empty Registry</p>
                       ) : (

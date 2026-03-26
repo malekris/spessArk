@@ -21,7 +21,7 @@ const OFFICIAL_SUBJECTS = [
   "Geography",
 ];
 const TERMS = [1, 2, 3];
-const AOI_OPTIONS = [
+const DEFAULT_COMPONENT_OPTIONS = [
   { value: "AOI1", label: "AOI 1" },
   { value: "AOI2", label: "AOI 2" },
   { value: "AOI3", label: "AOI 3" },
@@ -36,11 +36,25 @@ export default function AssessmentSubmissionTracker({
   seedGroups = [],
   title = "Assessment Submission Tracker",
   subtitle = "Track subject submissions per class and stream.",
+  componentOptions = DEFAULT_COMPONENT_OPTIONS,
 }) {
   const [selectedTerm, setSelectedTerm] = useState(1);
-  const [selectedAoi, setSelectedAoi] = useState("AOI1");
+  const [selectedComponent, setSelectedComponent] = useState(
+    componentOptions[0]?.value || DEFAULT_COMPONENT_OPTIONS[0].value
+  );
   const [expectedByGroup, setExpectedByGroup] = useState({});
-  const selectedAoiLabel = AOI_OPTIONS.find((option) => option.value === selectedAoi)?.label || "AOI 1";
+  const selectedComponentLabel =
+    componentOptions.find((option) => option.value === selectedComponent)?.label ||
+    componentOptions[0]?.label ||
+    "AOI 1";
+
+  useEffect(() => {
+    const nextDefault = componentOptions[0]?.value || DEFAULT_COMPONENT_OPTIONS[0].value;
+    const stillValid = componentOptions.some((option) => option.value === selectedComponent);
+    if (!stillValid) {
+      setSelectedComponent(nextDefault);
+    }
+  }, [componentOptions, selectedComponent]);
 
   useEffect(() => {
     const loadExpectedSubjects = async () => {
@@ -125,7 +139,7 @@ export default function AssessmentSubmissionTracker({
 
     filtered.forEach((m) => {
       const normalizedAoi = String(m.aoi_label || "").trim().toUpperCase();
-      if (normalizedAoi !== selectedAoi) return;
+      if (normalizedAoi !== selectedComponent) return;
 
       const key = keyOf(m.class_level, m.stream);
 
@@ -159,7 +173,7 @@ export default function AssessmentSubmissionTracker({
         expectedTotal: expectedSubjects.length,
       };
     });
-  }, [filtered, expectedByGroup, officialSubjects, seedGroups, selectedAoi]);
+  }, [filtered, expectedByGroup, officialSubjects, seedGroups, selectedComponent]);
   // PDF 
   const handleDownloadTrackerPdf = async () => {
     const { jsPDF } = await loadPdfTools();
@@ -170,7 +184,7 @@ export default function AssessmentSubmissionTracker({
   
     const generatedAt = new Date().toLocaleString();
     const schoolName = "St. Phillip's Equatorial Secondary School (SPESS)";
-    const title = `Assessment Submission Tracker — Term ${selectedTerm} — ${selectedAoiLabel}`;
+    const title = `Assessment Submission Tracker — Term ${selectedTerm} — ${selectedComponentLabel}`;
   
     let y = 18;
   
@@ -224,7 +238,7 @@ export default function AssessmentSubmissionTracker({
           doc.addPage();
           y = 20;
         }
-        doc.text(`• ${subject} — ${meta?.teacher || "—"} (${selectedAoiLabel} submitted)`, 18, y);
+        doc.text(`• ${subject} — ${meta?.teacher || "—"} (${selectedComponentLabel} submitted)`, 18, y);
         y += 5;
       });
 
@@ -271,7 +285,7 @@ export default function AssessmentSubmissionTracker({
       <div className="panel-header">
           <div>
     <h2>{title}</h2>
-    <p>{subtitle} Use the AOI selector to switch between AOI 1, AOI 2 and AOI 3.</p>
+    <p>{subtitle} Use the selector to switch between the available assessment components.</p>
   </div>
 
   {/* TERM TOGGLE + PDF EXPORT — ALWAYS VISIBLE */}
@@ -287,13 +301,13 @@ export default function AssessmentSubmissionTracker({
     ))}
 
     <select
-      value={selectedAoi}
-      onChange={(event) => setSelectedAoi(event.target.value)}
+      value={selectedComponent}
+      onChange={(event) => setSelectedComponent(event.target.value)}
       className="admin-ops-select"
       style={{ minWidth: "112px", cursor: "pointer" }}
-      aria-label="Select AOI to visualize"
+      aria-label="Select assessment component to visualize"
     >
-      {AOI_OPTIONS.map((option) => (
+      {componentOptions.map((option) => (
         <option key={option.value} value={option.value}>
           {option.label}
         </option>
@@ -317,7 +331,7 @@ export default function AssessmentSubmissionTracker({
       {grouped.length === 0 ? (
         <div className="panel-card">
           <p className="muted-text">
-            No submissions recorded for {selectedAoiLabel} in Term {selectedTerm} yet.
+            No submissions recorded for {selectedComponentLabel} in Term {selectedTerm} yet.
           </p>
         </div>
       ) : (
@@ -338,7 +352,7 @@ export default function AssessmentSubmissionTracker({
                 {/* Progress */}
                 <div style={{ margin: "0.6rem 0" }}>
                   <div style={{ fontSize: "0.85rem", marginBottom: "0.3rem" }}>
-                    {submittedCount}/{expectedTotal} subjects submitted for {selectedAoiLabel} ({percent}%)
+                    {submittedCount}/{expectedTotal} subjects submitted for {selectedComponentLabel} ({percent}%)
                   </div>
 
                   <div style={{
@@ -376,11 +390,11 @@ export default function AssessmentSubmissionTracker({
 
                 {/* Submitted */}
                 <details>
-                  <summary>✅ Submitted subjects for {selectedAoiLabel}</summary>
+                  <summary>✅ Submitted subjects for {selectedComponentLabel}</summary>
                   <ul>
                     {[...group.subjects.entries()].map(([subject, meta]) => (
                       <li key={subject}>
-                        {subject} — 👨‍🏫 {meta?.teacher || "—"} — {selectedAoiLabel} recorded
+                        {subject} — 👨‍🏫 {meta?.teacher || "—"} — {selectedComponentLabel} recorded
                       </li>
                     ))}
                   </ul>
@@ -388,7 +402,7 @@ export default function AssessmentSubmissionTracker({
 
                 {/* Missing */}
                 <details>
-                  <summary>❌ Missing subjects for {selectedAoiLabel} ({missingCount})</summary>
+                  <summary>❌ Missing subjects for {selectedComponentLabel} ({missingCount})</summary>
                   {group.missingSubjects.length === 0 ? (
                     <p className="muted-text">No missing subjects.</p>
                   ) : (

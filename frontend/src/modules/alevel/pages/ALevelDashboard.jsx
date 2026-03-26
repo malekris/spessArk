@@ -1,10 +1,41 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import useIdleLogout from "../../../hooks/useIdleLogout";
 import AssessmentSubmissionTracker from "../../../components/AssessmentSubmissionTracker";
 import ALevelAdminShell from "../components/ALevelAdminShell";
 import "../../../pages/AdminDashboard.css";
 import "./ALevelAdminTheme.css";
+
+const ALEVEL_TERMS = ["Term 1", "Term 2", "Term 3"];
+const ALEVEL_TERM_ORDER = { "Term 1": 1, "Term 2": 2, "Term 3": 3 };
+
+const normalizeAlevelTerm = (value = "") => {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw.includes("1")) return "Term 1";
+  if (raw.includes("2")) return "Term 2";
+  if (raw.includes("3")) return "Term 3";
+  return String(value || "").trim() || "Term 1";
+};
+
+const normalizeAlevelComponent = (value = "") => String(value || "").trim().toUpperCase();
+
+const getLatestAlevelPeriod = (sets = []) => {
+  const normalized = (Array.isArray(sets) ? sets : [])
+    .map((set) => ({
+      term: normalizeAlevelTerm(set.term),
+      year: Number(set.year),
+    }))
+    .filter((set) => Number.isFinite(set.year) && set.term);
+
+  if (normalized.length === 0) {
+    return { term: "Term 1", year: new Date().getFullYear() };
+  }
+
+  return normalized.sort((a, b) => {
+    if (b.year !== a.year) return b.year - a.year;
+    return (ALEVEL_TERM_ORDER[b.term] || 0) - (ALEVEL_TERM_ORDER[a.term] || 0);
+  })[0];
+};
 
 export default function ALevelDashboard() {
   const navigate = useNavigate();
@@ -19,6 +50,21 @@ export default function ALevelDashboard() {
   const [trackerSubjects, setTrackerSubjects] = useState([]);
   const [trackerLoading, setTrackerLoading] = useState(false);
   const [trackerError, setTrackerError] = useState("");
+  const [readinessAssignments, setReadinessAssignments] = useState([]);
+  const [readinessMarksSets, setReadinessMarksSets] = useState([]);
+  const [readinessLoading, setReadinessLoading] = useState(false);
+  const [readinessError, setReadinessError] = useState("");
+  const [selectedReadinessTerm, setSelectedReadinessTerm] = useState("Term 1");
+  const [selectedReadinessYear, setSelectedReadinessYear] = useState(new Date().getFullYear());
+  const [readinessSelectionSeeded, setReadinessSelectionSeeded] = useState(false);
+
+  const adminHeaders = useMemo(
+    () => ({
+      "x-admin-key": localStorage.getItem("SPESS_ADMIN_KEY") || "",
+      Authorization: `Bearer ${localStorage.getItem("adminToken") || ""}`,
+    }),
+    []
+  );
 
   useEffect(() => {
     fetch(`${API_BASE}/api/alevel/stats`)
@@ -26,6 +72,47 @@ export default function ALevelDashboard() {
       .then(setStats)
       .catch(console.error);
   }, [API_BASE]);
+
+  useEffect(() => {
+    const loadReadinessData = async () => {
+      setReadinessLoading(true);
+      setReadinessError("");
+      try {
+        const [assignmentsRes, marksSetsRes] = await Promise.all([
+          fetch(`${API_BASE}/api/alevel/admin/assignments`, { headers: adminHeaders }),
+          fetch(`${API_BASE}/api/alevel/admin/marks-sets`, { headers: adminHeaders }),
+        ]);
+
+        if (!assignmentsRes.ok) throw new Error("Failed to load A-Level assignments");
+        if (!marksSetsRes.ok) throw new Error("Failed to load A-Level submissions");
+
+        const [assignmentsData, marksSetsData] = await Promise.all([
+          assignmentsRes.json(),
+          marksSetsRes.json(),
+        ]);
+
+        const assignments = Array.isArray(assignmentsData) ? assignmentsData : [];
+        const marksSets = Array.isArray(marksSetsData) ? marksSetsData : [];
+
+        setReadinessAssignments(assignments);
+        setReadinessMarksSets(marksSets);
+
+        if (!readinessSelectionSeeded) {
+          const latest = getLatestAlevelPeriod(marksSets);
+          setSelectedReadinessTerm(latest.term);
+          setSelectedReadinessYear(latest.year);
+          setReadinessSelectionSeeded(true);
+        }
+      } catch (err) {
+        console.error("A-Level readiness load error:", err);
+        setReadinessError(err.message || "Failed to load readiness summary.");
+      } finally {
+        setReadinessLoading(false);
+      }
+    };
+
+    loadReadinessData();
+  }, [API_BASE, adminHeaders, readinessSelectionSeeded]);
 
   useIdleLogout(() => {
     localStorage.removeItem("SPESS_ADMIN_KEY");
@@ -71,6 +158,109 @@ export default function ALevelDashboard() {
       await fetchAlevelTrackerData();
     }
   };
+
+  const readinessYearOptions = useMemo(() => {
+    const years = Array.from(
+      new Set(
+        readinessMarksSets
+          .map((set) => Number(set.year))
+          .filter((year) => Number.isFinite(year) && year > 0)
+      )
+    ).sort((a, b) => b - a);
+
+    if (years.length === 0) {
+      years.push(new Date().getFullYear());
+    }
+
+    return years;
+  }, [readinessMarksSets]);
+
+  const effectiveReadinessYear = readinessYearOptions.includes(Number(selectedReadinessYear))
+    ? Number(selectedReadinessYear)
+    : readinessYearOptions[0];
+
+  const readinessSummary = useMemo(() => {
+    const assignments = Array.isArray(readinessAssignments) ? readinessAssignments : [];
+    const filteredSets = (Array.isArray(readinessMarksSets) ? readinessMarksSets : []).filter(
+      (set) =>
+        normalizeAlevelTerm(set.term) === selectedReadinessTerm &&
+        Number(set.year) === Number(effectiveReadinessYear)
+    );
+
+    const submittedKeys = new Set(
+      filteredSets.map(
+        (set) =>
+          `${set.assignment_id}|${selectedReadinessTerm}|${effectiveReadinessYear}|${normalizeAlevelComponent(set.aoi_label)}`
+      )
+    );
+
+    const normalizeAssignmentLabel = (assignment) => ({
+      ...assignment,
+      subject_display:
+        assignment?.subject_display ||
+        (assignment?.paper_label && assignment.paper_label !== "Single"
+          ? `${assignment.subject} — ${assignment.paper_label}`
+          : assignment?.subject || "—"),
+    });
+
+    const componentSummary = (component) => {
+      const submitted = assignments
+        .filter((assignment) =>
+          submittedKeys.has(
+            `${assignment.id}|${selectedReadinessTerm}|${effectiveReadinessYear}|${component}`
+          )
+        )
+        .map(normalizeAssignmentLabel);
+      const pending = assignments
+        .filter(
+          (assignment) =>
+            !submittedKeys.has(
+              `${assignment.id}|${selectedReadinessTerm}|${effectiveReadinessYear}|${component}`
+            )
+        )
+        .map(normalizeAssignmentLabel)
+        .sort((a, b) => {
+          const streamCompare = String(a.stream || "").localeCompare(String(b.stream || ""));
+          if (streamCompare !== 0) return streamCompare;
+          return String(a.subject_display || "").localeCompare(String(b.subject_display || ""));
+        });
+
+      const total = assignments.length;
+      const rate = total > 0 ? Math.round((submitted.length / total) * 100) : 0;
+
+      return {
+        component,
+        submitted,
+        pending,
+        submittedCount: submitted.length,
+        pendingCount: pending.length,
+        rate,
+      };
+    };
+
+    const mid = componentSummary("MID");
+    const eot = componentSummary("EOT");
+    const fullyReadyCount = assignments.filter(
+      (assignment) =>
+        submittedKeys.has(
+          `${assignment.id}|${selectedReadinessTerm}|${effectiveReadinessYear}|MID`
+        ) &&
+        submittedKeys.has(
+          `${assignment.id}|${selectedReadinessTerm}|${effectiveReadinessYear}|EOT`
+        )
+    ).length;
+
+    return {
+      totalAssignments: assignments.length,
+      mid,
+      eot,
+      fullyReadyCount,
+      fullyReadyRate:
+        assignments.length > 0
+          ? Math.round((fullyReadyCount / assignments.length) * 100)
+          : 0,
+    };
+  }, [effectiveReadinessYear, readinessAssignments, readinessMarksSets, selectedReadinessTerm]);
 
   return (
     <ALevelAdminShell
@@ -391,6 +581,267 @@ export default function ALevelDashboard() {
                 ))}
               </div>
 
+              <div
+                style={{
+                  ...cardStyle,
+                  marginTop: "2rem",
+                  padding: "1.5rem",
+                  background: isDark ? "rgba(15, 23, 42, 0.58)" : "rgba(255,255,255,0.92)",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "flex-start",
+                    gap: "1rem",
+                    flexWrap: "wrap",
+                    marginBottom: "1.25rem",
+                  }}
+                >
+                  <div>
+                    <div
+                      style={{
+                        fontSize: "0.72rem",
+                        fontWeight: "900",
+                        color: amethyst,
+                        letterSpacing: "0.15em",
+                        textTransform: "uppercase",
+                        marginBottom: "0.45rem",
+                      }}
+                    >
+                      Submission Readiness
+                    </div>
+                    <h3 style={{ margin: 0, fontSize: "1.15rem", fontWeight: "800", color: palette.rootText }}>
+                      A-Level Marks Readiness
+                    </h3>
+                    <p style={{ margin: "0.45rem 0 0", color: palette.muted, maxWidth: "680px", lineHeight: 1.55 }}>
+                      Monitor who has submitted MID and EOT marks for the selected term and year, and quickly see which teacher-stream-subject slots are still pending.
+                    </p>
+                  </div>
+
+                  <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
+                    <select
+                      value={selectedReadinessTerm}
+                      onChange={(event) => setSelectedReadinessTerm(event.target.value)}
+                      style={{
+                        minWidth: "120px",
+                        padding: "0.7rem 0.85rem",
+                        borderRadius: "12px",
+                        border: `1px solid ${palette.cardBorder}`,
+                        background: isDark ? "rgba(15, 23, 42, 0.85)" : "#ffffff",
+                        color: palette.rootText,
+                        fontWeight: "700",
+                      }}
+                    >
+                      {ALEVEL_TERMS.map((term) => (
+                        <option key={term} value={term}>
+                          {term}
+                        </option>
+                      ))}
+                    </select>
+
+                    <select
+                      value={effectiveReadinessYear}
+                      onChange={(event) => setSelectedReadinessYear(Number(event.target.value))}
+                      style={{
+                        minWidth: "104px",
+                        padding: "0.7rem 0.85rem",
+                        borderRadius: "12px",
+                        border: `1px solid ${palette.cardBorder}`,
+                        background: isDark ? "rgba(15, 23, 42, 0.85)" : "#ffffff",
+                        color: palette.rootText,
+                        fontWeight: "700",
+                      }}
+                    >
+                      {readinessYearOptions.map((yearOption) => (
+                        <option key={yearOption} value={yearOption}>
+                          {yearOption}
+                        </option>
+                      ))}
+                    </select>
+
+                    <button
+                      type="button"
+                      onClick={openTracker}
+                      style={{
+                        background: isDark ? "rgba(255,255,255,0.05)" : "rgba(255,255,255,0.95)",
+                        color: palette.rootText,
+                        border: `1px solid ${palette.cardBorder}`,
+                        borderRadius: "12px",
+                        padding: "0.72rem 0.95rem",
+                        fontWeight: "800",
+                        cursor: "pointer",
+                      }}
+                    >
+                      Open Tracker
+                    </button>
+                  </div>
+                </div>
+
+                {readinessError ? (
+                  <div
+                    style={{
+                      background: isDark ? "rgba(127, 29, 29, 0.22)" : "rgba(254, 226, 226, 0.95)",
+                      border: "1px solid rgba(239, 68, 68, 0.3)",
+                      color: isDark ? "#fecaca" : "#991b1b",
+                      borderRadius: "14px",
+                      padding: "1rem",
+                    }}
+                  >
+                    {readinessError}
+                  </div>
+                ) : readinessLoading ? (
+                  <div
+                    style={{
+                      borderRadius: "14px",
+                      border: `1px solid ${palette.cardBorder}`,
+                      padding: "1rem",
+                      color: palette.muted,
+                    }}
+                  >
+                    Loading A-Level readiness…
+                  </div>
+                ) : (
+                  <>
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                        gap: "0.9rem",
+                        marginBottom: "1rem",
+                      }}
+                    >
+                      {[
+                        { label: "Teaching Slots", value: readinessSummary.totalAssignments, accent: palette.rootText },
+                        { label: "Fully Ready", value: readinessSummary.fullyReadyCount, accent: amethyst },
+                        { label: "Readiness Rate", value: `${readinessSummary.fullyReadyRate}%`, accent: readinessSummary.fullyReadyRate >= 70 ? "#22c55e" : readinessSummary.fullyReadyRate >= 40 ? "#f59e0b" : "#ef4444" },
+                      ].map((tile) => (
+                        <div
+                          key={tile.label}
+                          style={{
+                            borderRadius: "16px",
+                            border: `1px solid ${palette.cardBorder}`,
+                            background: isDark ? "rgba(255,255,255,0.03)" : "rgba(248,250,252,0.95)",
+                            padding: "1rem 1.05rem",
+                          }}
+                        >
+                          <div style={{ fontSize: "0.68rem", letterSpacing: "0.13em", textTransform: "uppercase", color: palette.muted, fontWeight: 900 }}>
+                            {tile.label}
+                          </div>
+                          <div style={{ marginTop: "0.45rem", fontSize: "1.9rem", fontWeight: 900, color: tile.accent }}>
+                            {tile.value}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+                        gap: "1rem",
+                      }}
+                    >
+                      {[readinessSummary.mid, readinessSummary.eot].map((block) => (
+                        <div
+                          key={block.component}
+                          style={{
+                            borderRadius: "18px",
+                            border: `1px solid ${palette.cardBorder}`,
+                            background: isDark ? "rgba(255,255,255,0.03)" : "rgba(248,250,252,0.95)",
+                            padding: "1.05rem",
+                          }}
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: "1rem" }}>
+                            <div>
+                              <div style={{ fontSize: "0.7rem", letterSpacing: "0.14em", textTransform: "uppercase", color: amethyst, fontWeight: 900 }}>
+                                {block.component}
+                              </div>
+                              <div style={{ marginTop: "0.3rem", color: palette.rootText, fontSize: "1.05rem", fontWeight: 800 }}>
+                                {block.submittedCount} / {readinessSummary.totalAssignments} submitted
+                              </div>
+                            </div>
+                            <div style={{ color: block.rate >= 70 ? "#22c55e" : block.rate >= 40 ? "#f59e0b" : "#ef4444", fontWeight: 900, fontSize: "1rem" }}>
+                              {block.rate}%
+                            </div>
+                          </div>
+
+                          <div
+                            style={{
+                              marginTop: "0.8rem",
+                              height: "10px",
+                              borderRadius: "999px",
+                              background: isDark ? "rgba(255,255,255,0.08)" : "rgba(148,163,184,0.16)",
+                              overflow: "hidden",
+                            }}
+                          >
+                            <div
+                              style={{
+                                width: `${block.rate}%`,
+                                height: "100%",
+                                background: block.rate >= 70 ? "#22c55e" : block.rate >= 40 ? "#f59e0b" : "#ef4444",
+                              }}
+                            />
+                          </div>
+
+                          <div style={{ marginTop: "0.95rem", display: "flex", gap: "0.9rem", flexWrap: "wrap", color: palette.muted, fontSize: "0.85rem" }}>
+                            <span>Submitted: <strong style={{ color: palette.rootText }}>{block.submittedCount}</strong></span>
+                            <span>Pending: <strong style={{ color: palette.rootText }}>{block.pendingCount}</strong></span>
+                          </div>
+
+                          <div style={{ marginTop: "1rem" }}>
+                            <div style={{ fontSize: "0.72rem", letterSpacing: "0.12em", textTransform: "uppercase", color: palette.muted, fontWeight: 900, marginBottom: "0.55rem" }}>
+                              Pending Slots
+                            </div>
+
+                            {block.pending.length === 0 ? (
+                              <div
+                                style={{
+                                  borderRadius: "12px",
+                                  padding: "0.8rem 0.9rem",
+                                  background: isDark ? "rgba(34, 197, 94, 0.14)" : "rgba(220, 252, 231, 0.9)",
+                                  color: isDark ? "#bbf7d0" : "#166534",
+                                  fontWeight: "700",
+                                }}
+                              >
+                                All assignments submitted for {block.component}.
+                              </div>
+                            ) : (
+                              <div style={{ display: "flex", flexDirection: "column", gap: "0.55rem" }}>
+                                {block.pending.slice(0, 6).map((assignment) => (
+                                  <div
+                                    key={`${block.component}-${assignment.id}`}
+                                    style={{
+                                      borderRadius: "12px",
+                                      border: `1px solid ${palette.cardBorder}`,
+                                      padding: "0.75rem 0.85rem",
+                                      background: isDark ? "rgba(15, 23, 42, 0.46)" : "#ffffff",
+                                    }}
+                                  >
+                                    <div style={{ color: palette.rootText, fontWeight: 800 }}>
+                                      {assignment.subject_display}
+                                    </div>
+                                    <div style={{ marginTop: "0.18rem", color: palette.muted, fontSize: "0.84rem" }}>
+                                      {assignment.stream} • {assignment.teacher_name || "Teacher pending"}
+                                    </div>
+                                  </div>
+                                ))}
+                                {block.pending.length > 6 && (
+                                  <div style={{ color: palette.muted, fontSize: "0.82rem", fontWeight: 700 }}>
+                                    + {block.pending.length - 6} more pending
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+
               {showTracker && (
                 <section className="panel" style={{ marginTop: "2rem" }}>
                   <div className="panel-header">
@@ -425,6 +876,10 @@ export default function ALevelDashboard() {
                       refreshMarks={fetchAlevelTrackerData}
                       officialSubjects={trackerSubjects}
                       assignmentsEndpoint="/api/alevel/admin/assignments"
+                      componentOptions={[
+                        { value: "MID", label: "MID" },
+                        { value: "EOT", label: "EOT" },
+                      ]}
                       seedGroups={[
                         { class_level: "A-Level", stream: "S5 Arts" },
                         { class_level: "A-Level", stream: "S5 Sciences" },
@@ -432,7 +887,7 @@ export default function ALevelDashboard() {
                         { class_level: "A-Level", stream: "S6 Sciences" },
                       ]}
                       title="Assessment Submission Tracker"
-                      subtitle="Track A-Level subject submissions per stream."
+                      subtitle="Track A-Level subject submissions per stream using MID and EOT."
                     />
                   )}
                 </section>

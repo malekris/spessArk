@@ -48,6 +48,136 @@ const buildSubjectDisplay = (subjectName = "", paperLabel = "") => {
     ? `${subjectName} — ${resolvedPaper}`
     : subjectName;
 };
+
+let aLevelMarksSchemaReadyPromise = null;
+let aLevelMarksHasCreatedAtPromise = null;
+
+const getActiveSchemaName = async (executor = db) => {
+  if (process.env.DB_NAME) return process.env.DB_NAME;
+  const [[row]] = await executor.query("SELECT DATABASE() AS db_name");
+  return row?.db_name || null;
+};
+
+const getAlevelMarksHasCreatedAt = async (executor = db) => {
+  if (!aLevelMarksHasCreatedAtPromise) {
+    aLevelMarksHasCreatedAtPromise = (async () => {
+      const schemaName = await getActiveSchemaName(executor);
+      if (!schemaName) return false;
+
+      const [[meta]] = await executor.query(
+        `SELECT COUNT(*) AS count
+         FROM information_schema.columns
+         WHERE table_schema = ?
+           AND table_name = 'alevel_marks'
+           AND column_name = 'created_at'`,
+        [schemaName]
+      );
+
+      return Number(meta?.count || 0) > 0;
+    })().catch((err) => {
+      aLevelMarksHasCreatedAtPromise = null;
+      throw err;
+    });
+  }
+
+  return aLevelMarksHasCreatedAtPromise;
+};
+
+const isLegacyAlevelUniqueIndex = (columnsCsv = "") => {
+  const columns = String(columnsCsv || "")
+    .split(",")
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean);
+
+  return !columns.includes("assignment_id") &&
+    ["learner_id", "subject_id", "exam_id", "teacher_id", "term"].every((column) =>
+      columns.includes(column)
+    );
+};
+
+const escapeIndexName = (value = "") => String(value).replace(/`/g, "``");
+
+const ensureALevelMarksSchemaReady = async (executor = pool) => {
+  if (!aLevelMarksSchemaReadyPromise) {
+    aLevelMarksSchemaReadyPromise = (async () => {
+      const schemaName = await getActiveSchemaName(executor);
+      if (!schemaName) return;
+
+      const hasCreatedAt = await getAlevelMarksHasCreatedAt(executor);
+      if (!hasCreatedAt) {
+        await executor.query(
+          `ALTER TABLE alevel_marks
+           ADD COLUMN created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP`
+        );
+        aLevelMarksHasCreatedAtPromise = Promise.resolve(true);
+      }
+
+      await executor.query(
+        `UPDATE alevel_marks
+         SET created_at = COALESCE(created_at, NOW())`
+      );
+
+      const [indexes] = await executor.query(
+        `SELECT
+           index_name,
+           non_unique,
+           GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') AS columns_csv
+         FROM information_schema.statistics
+         WHERE table_schema = ?
+           AND table_name = 'alevel_marks'
+         GROUP BY index_name, non_unique`,
+        [schemaName]
+      );
+
+      for (const indexRow of indexes || []) {
+        if (Number(indexRow?.non_unique || 0) !== 0) continue;
+        if (String(indexRow?.index_name || "").toUpperCase() === "PRIMARY") continue;
+        if (!isLegacyAlevelUniqueIndex(indexRow?.columns_csv)) continue;
+
+        await executor.query(
+          `ALTER TABLE alevel_marks DROP INDEX \`${escapeIndexName(indexRow.index_name)}\``
+        );
+      }
+
+      const [refreshedIndexes] = await executor.query(
+        `SELECT
+           index_name,
+           non_unique,
+           GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') AS columns_csv
+         FROM information_schema.statistics
+         WHERE table_schema = ?
+           AND table_name = 'alevel_marks'
+         GROUP BY index_name, non_unique`,
+        [schemaName]
+      );
+
+      const hasAssignmentScopedUnique = (refreshedIndexes || []).some(
+        (indexRow) =>
+          Number(indexRow?.non_unique || 0) === 0 &&
+          String(indexRow?.columns_csv || "").toLowerCase() ===
+            "learner_id,assignment_id,exam_id,term"
+      );
+
+      if (!hasAssignmentScopedUnique) {
+        try {
+          await executor.query(
+            `ALTER TABLE alevel_marks
+             ADD UNIQUE KEY uq_alevel_marks_assignment_term_exam (learner_id, assignment_id, exam_id, term)`
+          );
+        } catch (err) {
+          // Keep saves moving even if the table currently has historical duplicates.
+          console.warn("A-Level marks unique index could not be added automatically:", err?.message || err);
+        }
+      }
+    })().catch((err) => {
+      aLevelMarksSchemaReadyPromise = null;
+      aLevelMarksHasCreatedAtPromise = null;
+      throw err;
+    });
+  }
+
+  return aLevelMarksSchemaReadyPromise;
+};
 // ===== A-LEVEL LEARNERS =====
 router.get("/learners", getLearners);
 router.post("/learners", createLearner);
@@ -338,24 +468,31 @@ router.get("/teachers/alevel-assignments/:id/students", async (req, res) => {
   }
 });
 /* GET marks */
-router.get("/teachers/alevel-marks", async (req, res) => {
+router.get("/teachers/alevel-marks", authTeacher, async (req, res) => {
   try {
     const { assignmentId, term, year } = req.query;
+    const teacherId = Number(req.teacher?.id);
 
     if (!assignmentId || !term) return res.json([]);
+    await ensureALevelMarksSchemaReady(pool);
 
-    // Get subject_id and teacher_id from assignment
+    // Get assignment context scoped to the logged-in teacher.
     const [[ts]] = await db.query(
-      `SELECT id, subject_id, teacher_id 
-       FROM alevel_teacher_subjects 
-       WHERE id = ?`,
-      [assignmentId]
+      `SELECT id, subject_id, teacher_id, stream
+       FROM alevel_teacher_subjects
+       WHERE id = ?
+         AND teacher_id = ?`,
+      [assignmentId, teacherId]
     );
 
     if (!ts) return res.json([]);
+    const hasCreatedAt = await getAlevelMarksHasCreatedAt(db);
+    const yearClause =
+      year && hasCreatedAt ? "AND YEAR(am.created_at) = ?" : "";
 
     const [rows] = await db.query(`
       SELECT 
+        am.assignment_id,
         am.learner_id AS student_id,
         ae.name AS aoi_label,
         am.score,
@@ -366,13 +503,50 @@ router.get("/teachers/alevel-marks", async (req, res) => {
       FROM alevel_marks am
       JOIN alevel_exams ae 
         ON ae.id = am.exam_id
-      WHERE am.assignment_id = ?
-        AND am.term = ?
-        ${year ? "AND YEAR(am.created_at) = ?" : ""}
-      ORDER BY am.learner_id
-    `, year ? [ts.id, term, year] : [ts.id, term]);
+      WHERE am.term = ?
+        AND (
+          am.assignment_id = ?
+          OR (
+            am.assignment_id IS NULL
+            AND am.subject_id = ?
+            AND am.teacher_id = ?
+            AND am.learner_id IN (
+              SELECT id FROM alevel_learners WHERE stream = ?
+            )
+          )
+        )
+        ${yearClause}
+      ORDER BY
+        am.learner_id,
+        FIELD(ae.name, 'MID', 'EOT'),
+        CASE WHEN am.assignment_id = ? THEN 0 ELSE 1 END,
+        am.id DESC
+    `, [
+      term,
+      ts.id,
+      ts.subject_id,
+      teacherId,
+      ts.stream,
+      ...(year && hasCreatedAt ? [year] : []),
+      ts.id,
+    ]);
 
-    res.json(rows || []);
+    const deduped = new Map();
+    for (const row of rows || []) {
+      const key = `${row.student_id}:${row.aoi_label}`;
+      const existing = deduped.get(key);
+      const currentIsAnchored = Number(row.assignment_id || 0) === Number(ts.id);
+      const existingIsAnchored =
+        Number(existing?.assignment_id || 0) === Number(ts.id);
+
+      if (!existing || (currentIsAnchored && !existingIsAnchored)) {
+        deduped.set(key, row);
+      }
+    }
+
+    res.json(
+      Array.from(deduped.values()).map(({ assignment_id, ...row }) => row)
+    );
   } catch (err) {
     console.error("❌ A-Level marks error:", err);
     res.status(500).json({ message: "Failed to fetch marks" });
@@ -389,6 +563,7 @@ router.post("/teachers/alevel-marks", authTeacher, async (req, res) => {
     return res.status(400).json({ message: "Invalid payload" });
   }
 
+  await ensureALevelMarksSchemaReady(pool);
   await ensureMarksArchiveTablesReady(pool);
   const conn = await db.getConnection();
 
@@ -443,9 +618,19 @@ router.post("/teachers/alevel-marks", authTeacher, async (req, res) => {
     const [[existingMarksMeta]] = await conn.query(
       `SELECT COUNT(*) AS count
        FROM alevel_marks
-       WHERE assignment_id = ?
-         AND term = ?`,
-      [ts.id, term]
+       WHERE term = ?
+         AND (
+           assignment_id = ?
+           OR (
+             assignment_id IS NULL
+             AND subject_id = ?
+             AND teacher_id = ?
+             AND learner_id IN (
+               SELECT id FROM alevel_learners WHERE stream = ?
+             )
+           )
+         )`,
+      [term, ts.id, ts.subject_id, teacherId, ts.stream]
     );
     const hasExistingMarks = Number(existingMarksMeta?.count || 0) > 0;
 
@@ -468,10 +653,32 @@ router.post("/teachers/alevel-marks", authTeacher, async (req, res) => {
     if (touchedComponents.length > 0) {
       const examIdsToReplace = touchedComponents.map((component) => examMap[component]);
       const placeholders = examIdsToReplace.map(() => "?").join(", ");
+      const replaceParams = [
+        term,
+        ...examIdsToReplace,
+        ts.id,
+        ts.subject_id,
+        teacherId,
+        ts.stream,
+      ];
 
       await archiveALevelMarks(conn, {
-        whereSql: `am.assignment_id = ? AND am.term = ? AND am.exam_id IN (${placeholders})`,
-        params: [ts.id, term, ...examIdsToReplace],
+        whereSql: `
+          am.term = ?
+          AND am.exam_id IN (${placeholders})
+          AND (
+            am.assignment_id = ?
+            OR (
+              am.assignment_id IS NULL
+              AND am.subject_id = ?
+              AND am.teacher_id = ?
+              AND am.learner_id IN (
+                SELECT id FROM alevel_learners WHERE stream = ?
+              )
+            )
+          )
+        `,
+        params: replaceParams,
         deletedByUserId: teacherId,
         deletedByRole: "teacher",
         deleteReason: `Teacher replaced ${touchedComponents.join(", ")} for ${buildSubjectDisplay(ts.subject_name, ts.paper_label)} in ${term} ${normalizedYear}`,
@@ -480,10 +687,20 @@ router.post("/teachers/alevel-marks", authTeacher, async (req, res) => {
 
       await conn.query(
         `DELETE FROM alevel_marks
-         WHERE assignment_id = ?
-           AND term = ?
-           AND exam_id IN (${placeholders})`,
-        [ts.id, term, ...examIdsToReplace]
+         WHERE term = ?
+           AND exam_id IN (${placeholders})
+           AND (
+             assignment_id = ?
+             OR (
+               assignment_id IS NULL
+               AND subject_id = ?
+               AND teacher_id = ?
+               AND learner_id IN (
+                 SELECT id FROM alevel_learners WHERE stream = ?
+               )
+             )
+           )`,
+        replaceParams
       );
     }
 
@@ -543,6 +760,12 @@ router.post("/teachers/alevel-marks", authTeacher, async (req, res) => {
   } catch (err) {
     await conn.rollback();
     console.error("❌ Save A-Level marks error:", err);
+    if (err?.code === "ER_DUP_ENTRY") {
+      return res.status(409).json({
+        message:
+          "A-Level marks could not be saved because older marks for this paper are still colliding with the new paper-based setup. The save path has been tightened; please try again after redeploy.",
+      });
+    }
     res.status(500).json({ message: "Failed to save marks" });
   } finally {
     conn.release();

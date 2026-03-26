@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
+import loginCover from "../../../assets/newloginpic.jpeg";
 import "./VineLogin.css";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
@@ -64,8 +65,17 @@ export default function VineForgotPassword() {
     }
   };
   return (
-    <div className="vine-auth-bg">
-      <div className="vine-auth-card">
+    <div
+      className="vine-auth-bg vine-auth-bg-login"
+      style={{ "--vine-login-cover": `url(${loginCover})` }}
+    >
+      <div className="vine-login-florals" aria-hidden="true">
+        <span className="vine-flower vine-flower-top" />
+        <span className="vine-flower vine-flower-bottom" />
+        <span className="vine-leaf-arc vine-leaf-arc-left" />
+        <span className="vine-leaf-arc vine-leaf-arc-right" />
+      </div>
+      <div className="vine-auth-card vine-auth-card-login">
         <h2 className="vine-title">Forgot Password</h2>
         <p className="vine-subtitle">
           {step === 1

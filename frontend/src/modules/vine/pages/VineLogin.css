@@ -20,7 +20,7 @@
 .vine-auth-bg-login {
   background:
     linear-gradient(rgba(3, 34, 18, 0.28), rgba(3, 34, 18, 0.52)),
-    url("/newcover.jpeg") center center / cover no-repeat;
+    var(--vine-login-cover, url("/newcover.jpeg")) center center / cover no-repeat;
 }
 
 .vine-auth-bg-login::before,

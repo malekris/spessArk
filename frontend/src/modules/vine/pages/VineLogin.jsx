@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { touchVineActivity } from "../utils/vineAuth";
+import loginCover from "../../../assets/newloginpic.jpeg";
 import "./VineLogin.css"; // 🔥 Pointing to the new file
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 
@@ -79,7 +80,10 @@ export default function VineLogin() {
   };
 
   return (
-    <div className="vine-auth-bg vine-auth-bg-login">
+    <div
+      className="vine-auth-bg vine-auth-bg-login"
+      style={{ "--vine-login-cover": `url(${loginCover})` }}
+    >
       <div className="vine-login-florals" aria-hidden="true">
         <span className="vine-flower vine-flower-top" />
         <span className="vine-flower vine-flower-bottom" />

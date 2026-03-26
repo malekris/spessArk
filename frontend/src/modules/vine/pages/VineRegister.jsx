@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import loginCover from "../../../assets/newloginpic.jpeg";
+import "./VineLogin.css";
 import "./VineRegister.css";  // ← this one line adds the styles
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
@@ -126,17 +128,28 @@ if (name === "username") {
   };
 
   return (
-    <div className="vine-auths">
-      <form className="vine-card" onSubmit={handleSubmit}>
-        <div style={{ textAlign: "center", fontSize: "2rem" }}>🌱</div>
-        <p style={{ textAlign: "center", color: "#15803d", fontWeight: 600 }}>
-          SPESS VINE
-        </p>
+    <div
+      className="vine-auth-bg vine-auth-bg-login vine-auth-bg-register"
+      style={{ "--vine-login-cover": `url(${loginCover})` }}
+    >
+      <div className="vine-login-florals" aria-hidden="true">
+        <span className="vine-flower vine-flower-top" />
+        <span className="vine-flower vine-flower-bottom" />
+        <span className="vine-leaf-arc vine-leaf-arc-left" />
+        <span className="vine-leaf-arc vine-leaf-arc-right" />
+      </div>
+      <form className="vine-auth-card vine-auth-card-login vine-form vine-register-card" onSubmit={handleSubmit}>
+        <div className="vine-register-seed">🌱</div>
+        <p className="vine-register-brand">SPESS VINE</p>
 
-        <h2>Create your Vine account 🌱</h2>
+        <h2 className="vine-title">Create your Vine account</h2>
+        <p className="vine-subtitle vine-register-subtitle">
+          Start your Vine story with the same calm forest glow.
+        </p>
 
         {/* Username – live space block + validation */}
         <input
+          className="vine-register-input"
           name="username"
           placeholder="Username (no spaces)"
           value={form.username}
@@ -148,6 +161,7 @@ if (name === "username") {
         />
 
         <input
+          className="vine-register-input"
           name="display_name"
           placeholder="Display name "
           value={form.display_name}
@@ -156,6 +170,7 @@ if (name === "username") {
 
         {/* Email – now required */}
         <input
+          className="vine-register-input"
           name="email"
           type="email"
           placeholder="Email (required)"
@@ -166,6 +181,7 @@ if (name === "username") {
         />
 
         <input
+          className="vine-register-input"
           name="password"
           type="password"
           placeholder="Password"
@@ -175,6 +191,7 @@ if (name === "username") {
         />
 
         <input
+          className="vine-register-input"
           name="confirm"
           type="password"
           placeholder="Confirm password"
@@ -183,13 +200,13 @@ if (name === "username") {
           required
         />
 
-        {error && <p className="error">{error}</p>}
+        {error && <p className="error vine-register-error">{error}</p>}
 
-        <button disabled={loading}>
+        <button className="vine-btn" disabled={loading}>
           {loading ? "Creating account..." : "Sign Up"}
         </button>
 
-        <p className="switch-auth">
+        <p className="switch-auth vine-register-switch">
           Already have an account? <Link to={safeRedirect ? `/vine/login?redirect=${encodeURIComponent(safeRedirect)}` : "/vine/login"}>Login</Link>
         </p>
       </form>

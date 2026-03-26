@@ -2,6 +2,91 @@
    VINE REGISTER PAGE – Modern Mint Gradient
    ========================================================================== */
 
+.vine-register-card {
+  max-width: 430px;
+  width: 100%;
+  padding: 28px 24px;
+  gap: 12px;
+}
+
+.vine-register-seed {
+  text-align: center;
+  font-size: 2rem;
+  margin-bottom: -2px;
+}
+
+.vine-register-brand {
+  margin: 0 0 2px;
+  text-align: center;
+  color: #15803d;
+  font-weight: 800;
+  font-size: 0.95rem;
+  letter-spacing: 0.16em;
+}
+
+.vine-register-card .vine-title {
+  margin-bottom: 4px;
+  font-size: 1.72rem;
+}
+
+.vine-register-subtitle {
+  margin-bottom: 2px;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.vine-register-input {
+  margin: 0;
+  padding: 12px 16px;
+}
+
+.vine-register-card .vine-btn {
+  width: 100%;
+  margin-top: 4px;
+  padding: 13px;
+}
+
+.vine-register-error {
+  margin: 0;
+}
+
+.vine-register-switch {
+  margin-top: 2px;
+}
+
+.vine-auth-bg-register {
+  padding-top: 0.75rem;
+  padding-bottom: 0.75rem;
+}
+
+@media (max-height: 820px) {
+  .vine-auth-bg-register {
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+  }
+
+  .vine-register-card {
+    padding: 24px 22px;
+    gap: 10px;
+  }
+
+  .vine-register-card .vine-title {
+    font-size: 1.6rem;
+  }
+
+  .vine-register-subtitle {
+    font-size: 0.86rem;
+  }
+
+  .vine-register-input {
+    padding: 11px 15px;
+  }
+
+  .vine-register-card .vine-btn {
+    padding: 12px;
+  }
+}
+
    .vine-auths {
     min-height: 100vh;
     width: 100%;

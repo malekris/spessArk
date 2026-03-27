@@ -84,14 +84,14 @@ export default function BoardingLogin() {
             "width 280ms ease, max-width 280ms ease, padding 280ms ease, border-radius 280ms ease, transform 280ms ease",
           transform: isOpen ? "translateY(0)" : "translateY(0)",
           background: isOpen
-            ? "linear-gradient(165deg, rgba(5, 18, 13, 0.82) 0%, rgba(4, 120, 87, 0.22) 48%, rgba(15, 23, 42, 0.78) 100%)"
-            : "linear-gradient(135deg, rgba(5, 18, 13, 0.42) 0%, rgba(16, 185, 129, 0.12) 50%, rgba(11, 18, 32, 0.34) 100%)",
+            ? "linear-gradient(165deg, rgba(4, 18, 13, 0.86) 0%, rgba(6, 78, 59, 0.28) 38%, rgba(16, 185, 129, 0.1) 68%, rgba(15, 23, 42, 0.82) 100%)"
+            : "linear-gradient(135deg, rgba(4, 18, 13, 0.46) 0%, rgba(16, 185, 129, 0.12) 46%, rgba(11, 18, 32, 0.34) 100%)",
           border: isOpen
             ? "1px solid rgba(110, 231, 183, 0.24)"
-            : "1px solid rgba(110, 231, 183, 0.14)",
+            : "1px solid rgba(110, 231, 183, 0.16)",
           boxShadow: isOpen
-            ? "0 24px 56px rgba(0, 0, 0, 0.58), 0 0 0 1px rgba(16, 185, 129, 0.08), inset 0 1px 0 rgba(167, 243, 208, 0.08)"
-            : "0 18px 42px rgba(0, 0, 0, 0.28), 0 0 28px rgba(16, 185, 129, 0.08), inset 0 1px 0 rgba(167, 243, 208, 0.05)",
+            ? "0 24px 56px rgba(0, 0, 0, 0.58), 0 0 0 1px rgba(16, 185, 129, 0.08), 0 0 22px rgba(16, 185, 129, 0.08), inset 0 1px 0 rgba(167, 243, 208, 0.08)"
+            : "0 18px 42px rgba(0, 0, 0, 0.28), 0 0 18px rgba(16, 185, 129, 0.08), inset 0 1px 0 rgba(167, 243, 208, 0.06)",
           overflow: "hidden",
         }}
       >
@@ -114,7 +114,7 @@ export default function BoardingLogin() {
                   textTransform: "uppercase",
                   fontWeight: 800,
                   color: "#d1fae5",
-                  textShadow: "0 0 14px rgba(16, 185, 129, 0.22)",
+                  textShadow: "0 0 10px rgba(16, 185, 129, 0.18)",
                 }}
               >
                 Boarding Access
@@ -144,9 +144,9 @@ export default function BoardingLogin() {
                 textTransform: "uppercase",
                 fontSize: "0.78rem",
                 border: "1px solid rgba(167, 243, 208, 0.28)",
-                background: "linear-gradient(135deg, rgba(16,185,129,0.88) 0%, rgba(5,150,105,0.95) 100%)",
+                background: "linear-gradient(135deg, rgba(52,211,153,0.9) 0%, rgba(16,185,129,0.92) 52%, rgba(5,150,105,0.96) 100%)",
                 color: "#022c22",
-                boxShadow: "0 12px 28px rgba(5, 150, 105, 0.28), 0 0 18px rgba(16,185,129,0.16)",
+                boxShadow: "0 12px 24px rgba(5, 150, 105, 0.24), 0 0 14px rgba(16,185,129,0.14)",
               }}
             >
               Open Boarding Login
@@ -163,8 +163,8 @@ export default function BoardingLogin() {
                   padding: "0.28rem 0.7rem",
                   borderRadius: "999px",
                   marginBottom: "0.65rem",
-                  background: "rgba(16, 185, 129, 0.14)",
-                  border: "1px solid rgba(110, 231, 183, 0.18)",
+                  background: "rgba(16, 185, 129, 0.12)",
+                  border: "1px solid rgba(110, 231, 183, 0.2)",
                   color: "#bbf7d0",
                   fontSize: "0.68rem",
                   fontWeight: 900,
@@ -174,8 +174,8 @@ export default function BoardingLogin() {
               >
                 Boarding Portal
               </div>
-              <h1 style={{ color: "#ecfdf5", textShadow: "0 0 18px rgba(16,185,129,0.2)" }}>BOARDING</h1>
-              <h2 style={{ color: "#86efac", fontWeight: 700 }}>Weekend Assessments</h2>
+              <h1 style={{ color: "#ecfdf5", textShadow: "0 0 12px rgba(16,185,129,0.16)" }}>BOARDING</h1>
+              <h2 style={{ color: "#6ee7b7", fontWeight: 700, textShadow: "0 0 8px rgba(16,185,129,0.1)" }}>Weekend Assessments</h2>
               <p className="ark-subtitle" style={{ color: "rgba(220, 252, 231, 0.72)" }}>
                 Separate boarding workspace for learners, marks, and reports.
               </p>
@@ -186,9 +186,9 @@ export default function BoardingLogin() {
                 marginTop: "0.35rem",
                 padding: "0.85rem 0.9rem 0.35rem",
                 borderRadius: "18px",
-                border: "1px solid rgba(110, 231, 183, 0.16)",
-                background: "linear-gradient(180deg, rgba(6, 20, 16, 0.72) 0%, rgba(8, 47, 73, 0.18) 100%)",
-                boxShadow: "0 18px 34px rgba(2, 6, 23, 0.34), inset 0 1px 0 rgba(167,243,208,0.08), 0 0 24px rgba(16,185,129,0.08)",
+                border: "1px solid rgba(110, 231, 183, 0.18)",
+                background: "linear-gradient(180deg, rgba(4, 20, 15, 0.8) 0%, rgba(5, 150, 105, 0.08) 100%)",
+                boxShadow: "0 18px 34px rgba(2, 6, 23, 0.34), inset 0 1px 0 rgba(167,243,208,0.08), 0 0 18px rgba(16,185,129,0.08)",
               }}
             >
               <div className="login-actions">
@@ -200,10 +200,10 @@ export default function BoardingLogin() {
                       value={form.username}
                       onChange={(event) => setForm((previous) => ({ ...previous, username: event.target.value }))}
                       style={{
-                        border: "1px solid rgba(110, 231, 183, 0.2)",
-                        background: "linear-gradient(180deg, rgba(4, 15, 12, 0.92) 0%, rgba(8, 28, 22, 0.86) 100%)",
+                        border: "1px solid rgba(110, 231, 183, 0.22)",
+                        background: "linear-gradient(180deg, rgba(3, 15, 11, 0.96) 0%, rgba(7, 38, 28, 0.9) 100%)",
                         color: "#f0fdf4",
-                        boxShadow: `inset 0 1px 0 rgba(167,243,208,0.06), 0 0 0 1px transparent`,
+                        boxShadow: "inset 0 1px 0 rgba(167,243,208,0.06), 0 0 8px rgba(16,185,129,0.05)",
                       }}
                     />
                   </div>
@@ -215,10 +215,10 @@ export default function BoardingLogin() {
                       value={form.password}
                       onChange={(event) => setForm((previous) => ({ ...previous, password: event.target.value }))}
                       style={{
-                        border: "1px solid rgba(110, 231, 183, 0.2)",
-                        background: "linear-gradient(180deg, rgba(4, 15, 12, 0.92) 0%, rgba(8, 28, 22, 0.86) 100%)",
+                        border: "1px solid rgba(110, 231, 183, 0.22)",
+                        background: "linear-gradient(180deg, rgba(3, 15, 11, 0.96) 0%, rgba(7, 38, 28, 0.9) 100%)",
                         color: "#f0fdf4",
-                        boxShadow: `inset 0 1px 0 rgba(167,243,208,0.06), 0 0 0 1px transparent`,
+                        boxShadow: "inset 0 1px 0 rgba(167,243,208,0.06), 0 0 8px rgba(16,185,129,0.05)",
                       }}
                     />
                   </div>
@@ -247,6 +247,7 @@ export default function BoardingLogin() {
                         background: "rgba(16, 185, 129, 0.1)",
                         border: "1px solid rgba(110, 231, 183, 0.22)",
                         color: "#d1fae5",
+                        boxShadow: "0 0 10px rgba(16,185,129,0.05)",
                       }}
                     >
                       Collapse
@@ -259,9 +260,9 @@ export default function BoardingLogin() {
                         flex: 1,
                         minWidth: "190px",
                         marginTop: 0,
-                        background: "linear-gradient(135deg, #34d399 0%, #10b981 45%, #059669 100%)",
+                        background: "linear-gradient(135deg, #6ee7b7 0%, #34d399 34%, #10b981 68%, #059669 100%)",
                         color: "#052e1b",
-                        boxShadow: `0 16px 28px ${emeraldGlow}, 0 0 20px rgba(52, 211, 153, 0.16)`,
+                        boxShadow: `0 16px 28px ${emeraldGlow}, 0 0 18px rgba(52, 211, 153, 0.16)`,
                       }}
                     >
                       {loading ? "Signing in..." : "Enter Boarding Workspace"}

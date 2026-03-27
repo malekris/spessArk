@@ -12,10 +12,30 @@ export default function BoardingLogin() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
+  const [showSplash, setShowSplash] = useState(false);
+  const [splashCountdown, setSplashCountdown] = useState(10);
 
   useEffect(() => {
     document.title = "Boarding Login | SPESS ARK";
   }, []);
+
+  useEffect(() => {
+    if (!showSplash) return undefined;
+
+    setSplashCountdown(10);
+    const tickTimer = window.setInterval(() => {
+      setSplashCountdown((previous) => (previous > 0 ? previous - 1 : 0));
+    }, 1000);
+
+    const navigateTimer = window.setTimeout(() => {
+      navigate("/ark/boarding", { replace: true });
+    }, 10000);
+
+    return () => {
+      window.clearInterval(tickTimer);
+      window.clearTimeout(navigateTimer);
+    };
+  }, [showSplash, navigate]);
 
   const handleLogin = async (event) => {
     event.preventDefault();
@@ -40,7 +60,7 @@ export default function BoardingLogin() {
 
       localStorage.setItem("boardingAdminToken", body.token);
       localStorage.setItem("boardingAdminUser", JSON.stringify(body.user || {}));
-      navigate("/ark/boarding", { replace: true });
+      setShowSplash(true);
     } catch (err) {
       setError(err.message || "Boarding login failed");
     } finally {
@@ -50,6 +70,24 @@ export default function BoardingLogin() {
 
   return (
     <div className="ark-login-wrapper">
+      <style>{`
+        @keyframes boardingSplashPulse {
+          0% { transform: scale(0.96); opacity: 0.78; }
+          50% { transform: scale(1.04); opacity: 1; }
+          100% { transform: scale(0.96); opacity: 0.78; }
+        }
+        @keyframes boardingSplashHalo {
+          0% { transform: scale(0.94); opacity: 0.24; }
+          50% { transform: scale(1.08); opacity: 0.5; }
+          100% { transform: scale(0.94); opacity: 0.24; }
+        }
+        @keyframes boardingSplashFloat {
+          0% { transform: translateY(0px); }
+          50% { transform: translateY(-5px); }
+          100% { transform: translateY(0px); }
+        }
+      `}</style>
+
       <div className="ark-bg-slideshow">
         <div className="ark-slide ark-active" style={{ backgroundImage: "url(/newactivities/covercover.jpeg)" }} />
         <div
@@ -66,6 +104,138 @@ export default function BoardingLogin() {
       <button className="ark-back-btn" onClick={() => navigate("/ark")}>
         <span style={{ marginRight: 5 }}>←</span> Back to SPESS ARK
       </button>
+
+      {showSplash && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 3000,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "1.5rem",
+            background:
+              "radial-gradient(circle at center, rgba(16, 185, 129, 0.14) 0%, rgba(2, 6, 23, 0.78) 38%, rgba(2, 6, 23, 0.96) 100%)",
+            backdropFilter: "blur(10px)",
+            WebkitBackdropFilter: "blur(10px)",
+          }}
+        >
+          <div
+            style={{
+              position: "relative",
+              width: "min(620px, 92vw)",
+              padding: "2.4rem 2rem",
+              borderRadius: "999px",
+              border: "1px solid rgba(110, 231, 183, 0.34)",
+              background:
+                "linear-gradient(135deg, rgba(3, 18, 12, 0.76) 0%, rgba(6, 78, 59, 0.22) 42%, rgba(15, 23, 42, 0.72) 100%)",
+              boxShadow:
+                "0 24px 60px rgba(0, 0, 0, 0.56), 0 0 46px rgba(16, 185, 129, 0.16), inset 0 1px 0 rgba(167, 243, 208, 0.12)",
+              overflow: "hidden",
+            }}
+          >
+            <div
+              style={{
+                position: "absolute",
+                inset: "12px",
+                borderRadius: "999px",
+                border: "1px solid rgba(110, 231, 183, 0.12)",
+                pointerEvents: "none",
+              }}
+            />
+            <div
+              style={{
+                position: "absolute",
+                width: "124px",
+                height: "124px",
+                borderRadius: "999px",
+                left: "50%",
+                top: "50%",
+                marginLeft: "-62px",
+                marginTop: "-62px",
+                border: "1px solid rgba(110, 231, 183, 0.18)",
+                boxShadow: "0 0 0 1px rgba(52, 211, 153, 0.06), 0 0 30px rgba(16, 185, 129, 0.12)",
+                animation: "boardingSplashHalo 2.6s ease-in-out infinite",
+                pointerEvents: "none",
+              }}
+            />
+
+            <div
+              style={{
+                position: "relative",
+                zIndex: 1,
+                display: "grid",
+                gap: "0.6rem",
+                justifyItems: "center",
+                textAlign: "center",
+                animation: "boardingSplashFloat 2.8s ease-in-out infinite",
+              }}
+            >
+              <div
+                style={{
+                  width: "64px",
+                  height: "64px",
+                  borderRadius: "999px",
+                  display: "grid",
+                  placeItems: "center",
+                  background: "rgba(16, 185, 129, 0.12)",
+                  border: "1px solid rgba(110, 231, 183, 0.22)",
+                  color: "#a7f3d0",
+                  fontSize: "1.7rem",
+                  animation: "boardingSplashPulse 2.2s ease-in-out infinite",
+                  boxShadow: "0 0 26px rgba(16, 185, 129, 0.14)",
+                }}
+              >
+                ✈️🧳
+              </div>
+
+              <div
+                style={{
+                  color: "#ecfdf5",
+                  fontSize: "clamp(1.5rem, 3vw, 2.3rem)",
+                  fontWeight: 900,
+                  letterSpacing: "0.06em",
+                  textShadow: "0 0 18px rgba(16, 185, 129, 0.18)",
+                }}
+              >
+                Now Boarding...
+              </div>
+
+              <div
+                style={{
+                  color: "rgba(220, 252, 231, 0.82)",
+                  fontSize: "0.95rem",
+                  maxWidth: "460px",
+                  lineHeight: 1.6,
+                }}
+              >
+                Preparing the boarding workspace for learners, weekend marks, and reports.
+              </div>
+
+              <div
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "0.55rem",
+                  marginTop: "0.3rem",
+                  padding: "0.42rem 0.8rem",
+                  borderRadius: "999px",
+                  background: "rgba(16, 185, 129, 0.12)",
+                  border: "1px solid rgba(110, 231, 183, 0.18)",
+                  color: "#d1fae5",
+                  fontSize: "0.78rem",
+                  fontWeight: 700,
+                  letterSpacing: "0.12em",
+                  textTransform: "uppercase",
+                }}
+              >
+                Now entering webportal · {splashCountdown}s
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div
         className="glass-container admin-login-card"

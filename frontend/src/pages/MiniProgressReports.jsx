@@ -75,7 +75,7 @@ function MiniProgressReports({ onClose }) {
       <div className="panel-header">
         <div>
           <h2>Mini Reports</h2>
-          <p>Generate AOI 1 mini progress slips for parents. Two slips fit on one A4 page.</p>
+          <p>Generate AOI 1 mini progress slips for parents. Two slips fit on one landscape A4 page.</p>
         </div>
         <button className="panel-close" type="button" onClick={() => onClose?.()}>
           ✕ Close
@@ -148,7 +148,7 @@ function MiniProgressReports({ onClose }) {
             Parent Meeting Snapshot
           </div>
           <div style={{ fontSize: "0.9rem", color: "#cbd5e1", lineHeight: 1.6 }}>
-            This mini report uses <strong>AOI 1 only</strong> and prints <strong>2 learners per A4 page</strong>. It is separate from the main report card flow.
+            This mini report uses <strong>AOI 1 only</strong> and prints <strong>2 learners per landscape A4 page</strong>. It is separate from the main report card flow.
           </div>
         </div>
 

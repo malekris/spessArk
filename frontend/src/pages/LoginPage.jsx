@@ -208,6 +208,26 @@ function LoginPage() {
             >
               Teacher Portal Access <span>→</span>
             </button>
+
+            <button
+              type="button"
+              onClick={() => navigate("/ark/boarding-login")}
+              style={{
+                width: "100%",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: "14px 18px",
+                borderRadius: "16px",
+                fontWeight: 800,
+                border: "1px solid rgba(255,255,255,0.22)",
+                background: "rgba(10, 16, 31, 0.48)",
+                color: "#f8fafc",
+                cursor: "pointer",
+              }}
+            >
+              Boarding Admin Access <span style={{ marginLeft: 8 }}>→</span>
+            </button>
           </div>
           </>
         )}

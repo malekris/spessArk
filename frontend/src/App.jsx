@@ -28,6 +28,11 @@ const ALevelLearners = lazy(() => import("./modules/alevel/pages/ALevelLearners"
 const ALevelAssignSubjects = lazy(() => import("./modules/alevel/pages/ALevelAssignSubjects"));
 const ALevelDownloads = lazy(() => import("./modules/alevel/pages/ALevelDownloads"));
 const ALevelReports = lazy(() => import("./modules/alevel/pages/ALevelReports"));
+const BoardingLogin = lazy(() => import("./modules/boarding/pages/BoardingLogin"));
+const BoardingDashboard = lazy(() => import("./modules/boarding/pages/BoardingDashboard"));
+const BoardingLearners = lazy(() => import("./modules/boarding/pages/BoardingLearners"));
+const BoardingMarks = lazy(() => import("./modules/boarding/pages/BoardingMarks"));
+const BoardingReports = lazy(() => import("./modules/boarding/pages/BoardingReports"));
 const VineFeed = lazy(() => import("./modules/vine/pages/VineFeed"));
 const VineProfile = lazy(() => import("./modules/vine/pages/VineProfile"));
 const VineSettings = lazy(() => import("./modules/vine/pages/VineSettings"));
@@ -177,11 +182,16 @@ function App() {
         </ArkLayout>
       }
     />
-   <Route path="/ark/admin/alevel" element={<ArkLayout><ALevelDashboard /></ArkLayout>} />
-<Route path="/ark/admin/alevel/learners" element={<ArkLayout><ALevelLearners /></ArkLayout>} />
-<Route path="/ark/admin/alevel/assign" element={<ArkLayout><ALevelAssignSubjects /></ArkLayout>} />
-<Route path="/ark/admin/alevel/downloads" element={<ArkLayout><ALevelDownloads /></ArkLayout>} />
-<Route path="/ark/admin/alevel/reports" element={<ArkLayout><ALevelReports /></ArkLayout>} />
+    <Route path="/ark/admin/alevel" element={<ArkLayout><ALevelDashboard /></ArkLayout>} />
+    <Route path="/ark/admin/alevel/learners" element={<ArkLayout><ALevelLearners /></ArkLayout>} />
+    <Route path="/ark/admin/alevel/assign" element={<ArkLayout><ALevelAssignSubjects /></ArkLayout>} />
+    <Route path="/ark/admin/alevel/downloads" element={<ArkLayout><ALevelDownloads /></ArkLayout>} />
+    <Route path="/ark/admin/alevel/reports" element={<ArkLayout><ALevelReports /></ArkLayout>} />
+    <Route path="/ark/boarding-login" element={<ArkLayout><BoardingLogin /></ArkLayout>} />
+    <Route path="/ark/boarding" element={<ArkLayout><BoardingDashboard /></ArkLayout>} />
+    <Route path="/ark/boarding/learners" element={<ArkLayout><BoardingLearners /></ArkLayout>} />
+    <Route path="/ark/boarding/marks" element={<ArkLayout><BoardingMarks /></ArkLayout>} />
+    <Route path="/ark/boarding/reports" element={<ArkLayout><BoardingReports /></ArkLayout>} />
 
 {/* 🌱 SPESS VINE */}
 <Route path="/vine/login" element={<VineRouteErrorBoundary><VineLogin /></VineRouteErrorBoundary>} />

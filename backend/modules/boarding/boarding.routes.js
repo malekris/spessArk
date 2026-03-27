@@ -6,6 +6,8 @@ import authBoardingAdmin from "../../middleware/authBoardingAdmin.js";
 const router = express.Router();
 
 const BOARDING_CLASSES = ["S1", "S2", "S3", "S4"];
+const BOARDING_SCORE_MIN = 0.9;
+const BOARDING_SCORE_MAX = 3.0;
 const DEFAULT_BOARDING_SUBJECTS = [
   { name: "English", is_optional: 0 },
   { name: "Mathematics", is_optional: 0 },
@@ -14,9 +16,9 @@ const DEFAULT_BOARDING_SUBJECTS = [
   { name: "Physics", is_optional: 0 },
   { name: "History", is_optional: 0 },
   { name: "Geography", is_optional: 0 },
-  { name: "ICT", is_optional: 0 },
-  { name: "Physical Education", is_optional: 0 },
-  { name: "Christian Religious Education", is_optional: 0 },
+  { name: "ICT", is_optional: 1 },
+  { name: "Physical Education", is_optional: 1 },
+  { name: "Christian Religious Education", is_optional: 1 },
   { name: "Luganda", is_optional: 1 },
   { name: "IRE", is_optional: 1 },
   { name: "Agriculture", is_optional: 1 },
@@ -25,6 +27,45 @@ const DEFAULT_BOARDING_SUBJECTS = [
   { name: "Entrepreneurship", is_optional: 1 },
   { name: "Kiswahili", is_optional: 1 },
 ];
+
+const getBoardingSubjectRemark = (averageScore, submittedCount, missedCount) => {
+  const average = Number(averageScore);
+  const submitted = Number(submittedCount || 0);
+  const missed = Number(missedCount || 0);
+
+  if (!Number.isFinite(average)) {
+    if (missed > 0 && submitted === 0) return "Missed";
+    if (missed > 0) return "Follow Up";
+    return "Pending";
+  }
+  if (average >= 2.5) return "Outstanding";
+  if (average >= 1.5) return "Moderate";
+  return "Basic";
+};
+
+const getBoardingOverallComment = (report) => {
+  const average = Number(report?.overall_average);
+  const missedCount = Number(report?.missed_assessment_count || 0);
+  const registeredCount = Number(report?.registered_subject_count || 0);
+  const scoredCount = Number(report?.scored_subject_count || 0);
+
+  if (!Number.isFinite(average) || scoredCount === 0) {
+    return "Weekend assessment scores are still being captured for this learner this term.";
+  }
+  if (missedCount >= 2) {
+    return "Several weekend assessments were missed. Please follow up on the missed work.";
+  }
+  if (registeredCount > 0 && scoredCount < registeredCount) {
+    return "Some subjects are still pending weekend assessment scores. Please follow up on the remaining subjects.";
+  }
+  if (average >= 2.5) {
+    return "Outstanding weekend assessment performance has been recorded this term. The learner should maintain the same standard.";
+  }
+  if (average >= 1.5) {
+    return "Moderate weekend assessment progress has been shown. Greater consistency can lift the learner further.";
+  }
+  return "Basic weekend assessment performance has been recorded. Closer support and more practice are recommended.";
+};
 
 let boardingSchemaReadyPromise = null;
 
@@ -161,16 +202,58 @@ async function buildBoardingReportPayload(classLevel, term, year) {
     });
   }
 
-  return (students || []).map((student) => {
+  const reports = (students || []).map((student) => {
     const subjectsRegistered = String(student.subject_names || "")
       .split("||")
       .map((value) => value.trim())
       .filter(Boolean);
 
-    const subjectRows = averagesByStudent.get(student.id) || [];
+    const rawRows = averagesByStudent.get(student.id) || [];
+    const subjectLookup = new Map(
+      rawRows.map((row) => [
+        row.subject,
+        {
+          subject: row.subject,
+          average_score: row.average_score === null || row.average_score === undefined ? null : Number(Number(row.average_score).toFixed(2)),
+          missed_count: Number(row.missed_count || 0),
+          submitted_count: Number(row.submitted_count || 0),
+        },
+      ])
+    );
+
+    const subjectRows = subjectsRegistered.map((subjectName) => {
+      const row = subjectLookup.get(subjectName);
+      const averageScore = row?.average_score ?? null;
+      const missedCount = row?.missed_count ?? 0;
+      const submittedCount = row?.submitted_count ?? 0;
+      return {
+        subject: subjectName,
+        average_score: averageScore,
+        missed_count: missedCount,
+        submitted_count: submittedCount,
+        remark: getBoardingSubjectRemark(averageScore, submittedCount, missedCount),
+      };
+    });
+
+    for (const row of rawRows) {
+      if (subjectsRegistered.includes(row.subject)) continue;
+      const averageScore = row.average_score === null || row.average_score === undefined ? null : Number(Number(row.average_score).toFixed(2));
+      const missedCount = Number(row.missed_count || 0);
+      const submittedCount = Number(row.submitted_count || 0);
+      subjectRows.push({
+        subject: row.subject,
+        average_score: averageScore,
+        missed_count: missedCount,
+        submitted_count: submittedCount,
+        remark: getBoardingSubjectRemark(averageScore, submittedCount, missedCount),
+      });
+    }
+
     const numericAverages = subjectRows
       .map((row) => Number(row.average_score))
       .filter((value) => Number.isFinite(value));
+    const missedAssessmentCount = subjectRows.reduce((sum, row) => sum + Number(row.missed_count || 0), 0);
+    const submittedAssessmentCount = subjectRows.reduce((sum, row) => sum + Number(row.submitted_count || 0), 0);
 
     const overallAverage =
       numericAverages.length > 0
@@ -184,10 +267,44 @@ async function buildBoardingReportPayload(classLevel, term, year) {
       dob: student.dob,
       class_level: student.class_level,
       subjects_registered: subjectsRegistered,
+      registered_subject_count: subjectsRegistered.length,
+      scored_subject_count: numericAverages.length,
+      missed_assessment_count: missedAssessmentCount,
+      submitted_assessment_count: submittedAssessmentCount,
       rows: subjectRows,
       overall_average: overallAverage,
+      overall_comment: "",
+      class_position: null,
+      class_total: 0,
     };
   });
+
+  const rankedReports = reports
+    .filter((report) => Number.isFinite(Number(report.overall_average)))
+    .sort((left, right) => {
+      const averageGap = Number(right.overall_average) - Number(left.overall_average);
+      if (Math.abs(averageGap) > 0.0001) return averageGap;
+      return String(left.name || "").localeCompare(String(right.name || ""));
+    });
+
+  let rank = 0;
+  let lastAverage = null;
+  rankedReports.forEach((report, index) => {
+    const currentAverage = Number(report.overall_average);
+    if (lastAverage === null || Math.abs(currentAverage - lastAverage) > 0.0001) {
+      rank = index + 1;
+      lastAverage = currentAverage;
+    }
+    report.class_position = rank;
+  });
+
+  const classTotal = reports.length;
+  for (const report of reports) {
+    report.class_total = classTotal;
+    report.overall_comment = getBoardingOverallComment(report);
+  }
+
+  return reports;
 }
 
 router.post("/login", async (req, res) => {
@@ -338,8 +455,8 @@ router.post("/students", authBoardingAdmin, async (req, res) => {
       ? req.body.subject_ids.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0)
       : [];
 
-    if (!name || !gender || !BOARDING_CLASSES.includes(classLevel)) {
-      return res.status(400).json({ message: "Name, gender, and class are required" });
+    if (!name || !gender || !dob || !BOARDING_CLASSES.includes(classLevel)) {
+      return res.status(400).json({ message: "Name, gender, date of birth, and class are required" });
     }
 
     if (subjectIds.length === 0) {
@@ -389,8 +506,8 @@ router.put("/students/:id", authBoardingAdmin, async (req, res) => {
       ? req.body.subject_ids.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0)
       : [];
 
-    if (!studentId || !name || !gender || !BOARDING_CLASSES.includes(classLevel)) {
-      return res.status(400).json({ message: "Name, gender, and class are required" });
+    if (!studentId || !name || !gender || !dob || !BOARDING_CLASSES.includes(classLevel)) {
+      return res.status(400).json({ message: "Name, gender, date of birth, and class are required" });
     }
 
     if (subjectIds.length === 0) {
@@ -508,6 +625,25 @@ router.post("/marks/save", authBoardingAdmin, async (req, res) => {
 
     if (!BOARDING_CLASSES.includes(classLevel) || !subjectId || !term || !year || !weekendLabel) {
       return res.status(400).json({ message: "class_level, subject_id, term, year and weekend_label are required" });
+    }
+
+    const invalidRows = rows.filter((row) => {
+      const isMissed = String(row.status || "").toLowerCase() === "missed";
+      const rawScore = row.score;
+      if (isMissed || rawScore === "" || rawScore === null || rawScore === undefined) return false;
+      const numericScore = Number(rawScore);
+      return !Number.isFinite(numericScore) || numericScore < BOARDING_SCORE_MIN || numericScore > BOARDING_SCORE_MAX;
+    });
+
+    if (invalidRows.length > 0) {
+      const names = invalidRows
+        .slice(0, 5)
+        .map((row) => String(row.name || `Learner ${row.student_id || ""}`).trim())
+        .filter(Boolean);
+      const suffix = invalidRows.length > 5 ? " and others" : "";
+      return res.status(400).json({
+        message: `Weekend assessment scores must stay between ${BOARDING_SCORE_MIN} and ${BOARDING_SCORE_MAX}. Fix: ${names.join(", ")}${suffix}.`,
+      });
     }
 
     conn = await pool.getConnection();

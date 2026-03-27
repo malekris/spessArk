@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useEffect } from "react";
 import "../../../pages/LoginPage.css";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5001";
@@ -9,6 +10,10 @@ export default function BoardingLogin() {
   const [form, setForm] = useState({ username: "", password: "" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    document.title = "Boarding Login | SPESS ARK";
+  }, []);
 
   const handleLogin = async (event) => {
     event.preventDefault();

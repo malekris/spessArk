@@ -19,6 +19,10 @@ export default function BoardingAdminShell({ title, subtitle, children }) {
     }
   }, [navigate]);
 
+  useEffect(() => {
+    document.title = title ? `${title} | SPESS ARK Boarding` : "SPESS ARK Boarding";
+  }, [title]);
+
   return (
     <div
       style={{
@@ -122,6 +126,7 @@ export default function BoardingAdminShell({ title, subtitle, children }) {
             <NavLink
               key={item.path}
               to={item.path}
+              end={item.path === "/ark/boarding"}
               style={({ isActive }) => ({
                 textDecoration: "none",
                 padding: "0.85rem 1rem",

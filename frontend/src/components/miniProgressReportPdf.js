@@ -218,7 +218,7 @@ const loadBadgeImage = () =>
     img.src = badge;
   });
 
-export default async function generateMiniProgressReportPdf(rows, meta = {}) {
+export default async function generateMiniProgressReportPdf(rows, meta = {}, options = {}) {
   if (!Array.isArray(rows) || rows.length === 0) {
     alert("No AOI 1 mini report data available.");
     return;
@@ -233,6 +233,7 @@ export default async function generateMiniProgressReportPdf(rows, meta = {}) {
   const { jsPDF, autoTable } = await loadPdfTools();
   const badgeImage = await loadBadgeImage();
   const doc = new jsPDF("l", "mm", "a4");
+  const onProgress = typeof options.onProgress === "function" ? options.onProgress : null;
 
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -248,7 +249,13 @@ export default async function generateMiniProgressReportPdf(rows, meta = {}) {
   const streamLabel = meta.stream || "—";
   const classLabel = meta.class_level || "—";
 
-  grouped.forEach((student, index) => {
+  if (onProgress) {
+    onProgress({ completed: 0, total: grouped.length, percent: 5, stage: "Preparing mini reports..." });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
+  for (let index = 0; index < grouped.length; index += 1) {
+    const student = grouped[index];
     const slotIndex = index % 2;
     if (index > 0 && slotIndex === 0) {
       doc.addPage();
@@ -448,10 +455,24 @@ export default async function generateMiniProgressReportPdf(rows, meta = {}) {
       doc.setFontSize(7.1);
       doc.text(noteLines, innerX, noteY);
     }
-  });
+    if (onProgress) {
+      const completed = index + 1;
+      const percent = Math.min(96, Math.round((completed / grouped.length) * 100));
+      onProgress({
+        completed,
+        total: grouped.length,
+        percent,
+        stage: `Generating slip ${completed} of ${grouped.length}`,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+  }
 
   const blob = doc.output("blob");
   const url = URL.createObjectURL(blob);
+  if (onProgress) {
+    onProgress({ completed: grouped.length, total: grouped.length, percent: 100, stage: "Opening PDF..." });
+  }
   window.open(url, "_blank");
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }

@@ -35,6 +35,21 @@ const fieldInputStyle = {
   fontWeight: 600,
 };
 
+const selectInputStyle = {
+  ...fieldInputStyle,
+  appearance: "none",
+  WebkitAppearance: "none",
+  MozAppearance: "none",
+  colorScheme: "dark",
+  backgroundColor: "#0f172a",
+  backgroundImage:
+    "linear-gradient(180deg, rgba(9,14,28,0.98) 0%, rgba(15,23,42,0.92) 100%), url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 20 20' fill='none'%3E%3Cpath d='M5 7.5L10 12.5L15 7.5' stroke='%23bbf7d0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\")",
+  backgroundRepeat: "no-repeat, no-repeat",
+  backgroundPosition: "0 0, right 0.9rem center",
+  backgroundSize: "100% 100%, 14px 14px",
+  paddingRight: "2.5rem",
+};
+
 const filterControlStyle = {
   minHeight: "44px",
   padding: "0.75rem 0.9rem",
@@ -46,6 +61,26 @@ const filterControlStyle = {
   boxShadow: "inset 0 1px 0 rgba(255,255,255,0.04), 0 8px 18px rgba(2,6,23,0.14)",
   fontSize: "0.92rem",
   fontWeight: 600,
+};
+
+const filterSelectStyle = {
+  ...filterControlStyle,
+  appearance: "none",
+  WebkitAppearance: "none",
+  MozAppearance: "none",
+  colorScheme: "dark",
+  backgroundColor: "#0f172a",
+  backgroundImage:
+    "linear-gradient(180deg, rgba(9,14,28,0.96) 0%, rgba(15,23,42,0.9) 100%), url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 20 20' fill='none'%3E%3Cpath d='M5 7.5L10 12.5L15 7.5' stroke='%23bbf7d0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\")",
+  backgroundRepeat: "no-repeat, no-repeat",
+  backgroundPosition: "0 0, right 0.9rem center",
+  backgroundSize: "100% 100%, 14px 14px",
+  paddingRight: "2.5rem",
+};
+
+const selectOptionStyle = {
+  color: "#0f172a",
+  backgroundColor: "#ffffff",
 };
 
 const formatDateOnly = (value) => {
@@ -496,24 +531,24 @@ export default function BoardingLearners() {
               <label style={fieldLabelStyle}>
                 <span>Gender</span>
                 <select
-                  style={fieldInputStyle}
+                  style={selectInputStyle}
                   value={form.gender}
                   onChange={(event) => setForm((previous) => ({ ...previous, gender: event.target.value }))}
                 >
-                  <option value="">Select Gender</option>
-                  <option value="Male">Male</option>
-                  <option value="Female">Female</option>
+                  <option style={selectOptionStyle} value="">Select Gender</option>
+                  <option style={selectOptionStyle} value="Male">Male</option>
+                  <option style={selectOptionStyle} value="Female">Female</option>
                 </select>
               </label>
               <label style={fieldLabelStyle}>
                 <span>Class</span>
                 <select
-                  style={fieldInputStyle}
+                  style={selectInputStyle}
                   value={form.class_level}
                   onChange={(event) => setForm((previous) => ({ ...previous, class_level: event.target.value }))}
                 >
                   {CLASSES.map((value) => (
-                    <option key={value} value={value}>{value}</option>
+                    <option style={selectOptionStyle} key={value} value={value}>{value}</option>
                   ))}
                 </select>
               </label>
@@ -574,12 +609,12 @@ export default function BoardingLearners() {
                 onChange={(event) => setFilters((previous) => ({ ...previous, q: event.target.value }))}
               />
               <select
-                style={{ ...filterControlStyle, minWidth: "150px" }}
+                style={{ ...filterSelectStyle, minWidth: "150px" }}
                 value={filters.class_level}
                 onChange={(event) => setFilters((previous) => ({ ...previous, class_level: event.target.value }))}
               >
-                <option value="">All Classes</option>
-                {CLASSES.map((value) => <option key={value} value={value}>{value}</option>)}
+                <option style={selectOptionStyle} value="">All Classes</option>
+                {CLASSES.map((value) => <option style={selectOptionStyle} key={value} value={value}>{value}</option>)}
               </select>
               <button type="button" className="ghost-btn" onClick={handleDownloadCsv} disabled={exportingCsv || exportingPdf}>
                 {exportingCsv ? "Preparing CSV..." : "Download CSV"}

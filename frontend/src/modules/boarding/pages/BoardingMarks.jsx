@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import BoardingAdminShell from "../components/BoardingAdminShell";
-import { boardingFetch } from "../api";
+import { boardingFetch, logBoardingAction } from "../api";
 import { loadPdfTools } from "../../../utils/loadPdfTools";
 import "../../../pages/AdminDashboard.css";
 
@@ -345,6 +345,11 @@ export default function BoardingMarks() {
       const blob = doc.output("blob");
       const url = URL.createObjectURL(blob);
       window.open(url, "_blank");
+      await logBoardingAction(
+        "EXPORT_MARKS_PDF",
+        `Exported boarding weekend marks PDF for ${filters.class_level} ${selectedSubject?.name || "subject"} (${filters.weekend_label}, ${filters.term} ${filters.year})`,
+        { entityType: "marks", entityId: Number(filters.subject_id) || null }
+      );
       setTimeout(() => URL.revokeObjectURL(url), 60000);
     } catch (err) {
       setError(err.message || "Failed to generate weekend marks PDF");

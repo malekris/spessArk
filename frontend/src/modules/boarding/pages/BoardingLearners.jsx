@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import BoardingAdminShell from "../components/BoardingAdminShell";
-import { boardingFetch } from "../api";
+import { boardingFetch, logBoardingAction } from "../api";
 import { loadPdfTools } from "../../../utils/loadPdfTools";
 import "../../../pages/AdminDashboard.css";
 
@@ -286,6 +286,10 @@ export default function BoardingLearners() {
       link.href = url;
       link.download = `boarding_learners_${exportLabel.replace(/\s+/g, "_").toLowerCase()}.csv`;
       link.click();
+      await logBoardingAction(
+        "EXPORT_LEARNERS_CSV",
+        `Exported boarding learners CSV for ${exportLabel} (${exportRows.length} learners)`
+      );
       setTimeout(() => URL.revokeObjectURL(url), 30000);
     } catch (err) {
       setError(err.message || "Failed to export boarding learners CSV");
@@ -406,6 +410,10 @@ export default function BoardingLearners() {
       const blob = doc.output("blob");
       const url = URL.createObjectURL(blob);
       window.open(url, "_blank");
+      await logBoardingAction(
+        "EXPORT_LEARNERS_PDF",
+        `Exported boarding learners PDF for ${exportLabel} (${exportRows.length} learners)`
+      );
       setTimeout(() => URL.revokeObjectURL(url), 60000);
     } catch (err) {
       setError(err.message || "Failed to export boarding learners PDF");

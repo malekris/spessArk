@@ -60,7 +60,10 @@ router.get("/", authAdmin, async (req, res) => {
       SELECT
         al.id,
         al.user_id AS userId,
-        al.user_role AS role,
+        CASE
+          WHEN al.action LIKE 'BOARDING\_%' THEN 'boarding_admin'
+          ELSE al.user_role
+        END AS role,
         al.action,
         al.entity_type AS entityType,
         al.entity_id AS entityId,
@@ -68,6 +71,7 @@ router.get("/", authAdmin, async (req, res) => {
         al.ip_address AS ipAddress,
         al.created_at AS createdAt,
         CASE
+          WHEN al.action LIKE 'BOARDING\_%' THEN 'Boarding Admin'
           WHEN al.user_role = 'teacher' THEN COALESCE(t.name, CONCAT('Teacher #', al.user_id))
           WHEN al.user_role = 'admin' THEN 'Admin'
           ELSE 'System'
@@ -97,4 +101,3 @@ router.get("/", authAdmin, async (req, res) => {
 });
 
 export default router;
-

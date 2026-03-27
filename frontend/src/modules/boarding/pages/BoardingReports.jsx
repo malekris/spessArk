@@ -1,6 +1,6 @@
 import { useState } from "react";
 import BoardingAdminShell from "../components/BoardingAdminShell";
-import { boardingFetch } from "../api";
+import { boardingFetch, logBoardingAction } from "../api";
 import { loadPdfTools } from "../../../utils/loadPdfTools";
 import badge from "../../../assets/badge.png";
 import "../../../pages/AdminDashboard.css";
@@ -448,6 +448,10 @@ export default function BoardingReports() {
       const blob = doc.output("blob");
       const url = URL.createObjectURL(blob);
       window.open(url, "_blank");
+      await logBoardingAction(
+        "EXPORT_REPORTS_PDF",
+        `Exported boarding reports PDF for ${filters.class_level} (${filters.term} ${filters.year}) • ${reports.length} learners`
+      );
       setTimeout(() => URL.revokeObjectURL(url), 60000);
     } catch (err) {
       setError(err.message || "Failed to generate boarding reports");

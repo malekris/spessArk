@@ -2,6 +2,7 @@ import express from "express";
 import jwt from "jsonwebtoken";
 import { pool } from "../../server.js";
 import authBoardingAdmin from "../../middleware/authBoardingAdmin.js";
+import { extractClientIp, logAuditEvent } from "../../utils/auditLogger.js";
 
 const router = express.Router();
 
@@ -70,6 +71,21 @@ const getBoardingOverallComment = (report) => {
 let boardingSchemaReadyPromise = null;
 
 const normalizeClassLevel = (value = "") => String(value || "").trim().toUpperCase();
+
+async function logBoardingAudit(req, { action, entityType = "system", entityId = null, description = null }) {
+  const normalizedAction = String(action || "").trim();
+  if (!normalizedAction) return;
+
+  await logAuditEvent({
+    userId: Number(req?.boardingAdmin?.id || 1),
+    userRole: "admin",
+    action: normalizedAction.startsWith("BOARDING_") ? normalizedAction : `BOARDING_${normalizedAction}`,
+    entityType,
+    entityId,
+    description,
+    ipAddress: extractClientIp(req),
+  });
+}
 
 async function ensureBoardingSchemaReady() {
   if (!boardingSchemaReadyPromise) {
@@ -326,6 +342,13 @@ router.post("/login", async (req, res) => {
       { expiresIn: "7d" }
     );
 
+    await logBoardingAudit(req, {
+      action: "LOGIN",
+      entityType: "login",
+      entityId: 1,
+      description: `Boarding admin login successful (${expectedUsername})`,
+    });
+
     return res.json({
       token,
       user: {
@@ -482,6 +505,13 @@ router.post("/students", authBoardingAdmin, async (req, res) => {
     conn.release();
     conn = null;
 
+    await logBoardingAudit(req, {
+      action: "CREATE_LEARNER",
+      entityType: "system",
+      entityId: result.insertId,
+      description: `Registered boarding learner ${name} in ${classLevel} with ${subjectIds.length} subjects`,
+    });
+
     return res.status(201).json({ id: result.insertId, message: "Boarding learner created" });
   } catch (err) {
     if (conn) {
@@ -534,6 +564,13 @@ router.put("/students/:id", authBoardingAdmin, async (req, res) => {
     conn.release();
     conn = null;
 
+    await logBoardingAudit(req, {
+      action: "UPDATE_LEARNER",
+      entityType: "system",
+      entityId: studentId,
+      description: `Updated boarding learner ${name} in ${classLevel} with ${subjectIds.length} subjects`,
+    });
+
     return res.json({ message: "Boarding learner updated" });
   } catch (err) {
     if (conn) {
@@ -550,7 +587,23 @@ router.delete("/students/:id", authBoardingAdmin, async (req, res) => {
     await ensureBoardingSchemaReady();
     const studentId = Number(req.params.id);
     if (!studentId) return res.status(400).json({ message: "Invalid learner id" });
-    await pool.query(`DELETE FROM boarding_students WHERE id = ?`, [studentId]);
+    const [[student]] = await pool.query(
+      `SELECT id, name, class_level FROM boarding_students WHERE id = ?`,
+      [studentId]
+    );
+    const [result] = await pool.query(`DELETE FROM boarding_students WHERE id = ?`, [studentId]);
+
+    if (Number(result?.affectedRows || 0) > 0) {
+      await logBoardingAudit(req, {
+        action: "DELETE_LEARNER",
+        entityType: "system",
+        entityId: studentId,
+        description: student
+          ? `Deleted boarding learner ${student.name} from ${student.class_level}`
+          : `Deleted boarding learner #${studentId}`,
+      });
+    }
+
     return res.status(204).end();
   } catch (err) {
     console.error("Boarding student delete error:", err);
@@ -627,6 +680,25 @@ router.post("/marks/save", authBoardingAdmin, async (req, res) => {
       return res.status(400).json({ message: "class_level, subject_id, term, year and weekend_label are required" });
     }
 
+    const [[subject]] = await pool.query(`SELECT id, name FROM boarding_subjects WHERE id = ?`, [subjectId]);
+    if (!subject) {
+      return res.status(404).json({ message: "Subject not found" });
+    }
+
+    const [[existingMeta]] = await pool.query(
+      `
+      SELECT COUNT(*) AS total
+      FROM boarding_marks bm
+      JOIN boarding_students bs ON bs.id = bm.student_id
+      WHERE bs.class_level = ?
+        AND bm.subject_id = ?
+        AND bm.term = ?
+        AND bm.year = ?
+        AND bm.weekend_label = ?
+      `,
+      [classLevel, subjectId, term, year, weekendLabel]
+    );
+
     const invalidRows = rows.filter((row) => {
       const isMissed = String(row.status || "").toLowerCase() === "missed";
       const rawScore = row.score;
@@ -685,6 +757,21 @@ router.post("/marks/save", authBoardingAdmin, async (req, res) => {
     await conn.commit();
     conn.release();
     conn = null;
+
+    const submittedCount = rows.filter((row) => {
+      const isMissed = String(row.status || "").toLowerCase() === "missed";
+      const numericScore = row.score === "" || row.score === null || row.score === undefined ? null : Number(row.score);
+      return !isMissed && Number.isFinite(numericScore);
+    }).length;
+    const missedCount = rows.filter((row) => String(row.status || "").toLowerCase() === "missed").length;
+
+    await logBoardingAudit(req, {
+      action: Number(existingMeta?.total || 0) > 0 ? "UPDATE_MARKS" : "SUBMIT_MARKS",
+      entityType: "marks",
+      entityId: Number(subjectId),
+      description: `${Number(existingMeta?.total || 0) > 0 ? "Updated" : "Submitted"} boarding weekend marks for ${subject.name} in ${classLevel} (${weekendLabel}, ${term} ${year}) • ${submittedCount} scored • ${missedCount} missed`,
+    });
+
     return res.json({ message: "Weekend marks saved" });
   } catch (err) {
     if (conn) {
@@ -708,6 +795,13 @@ router.get("/reports/term", authBoardingAdmin, async (req, res) => {
     }
 
     const reports = await buildBoardingReportPayload(classLevel, term, year);
+
+    await logBoardingAudit(req, {
+      action: "GENERATE_REPORTS",
+      entityType: "system",
+      description: `Generated boarding reports for ${classLevel} (${term} ${year}) • ${reports.length} learners`,
+    });
+
     return res.json({ class_level: classLevel, term, year, reports });
   } catch (err) {
     console.error("Boarding reports error:", err);
@@ -722,6 +816,33 @@ router.get("/meta", authBoardingAdmin, async (req, res) => {
   } catch (err) {
     console.error("Boarding meta error:", err);
     return res.status(500).json({ message: "Failed to load boarding metadata" });
+  }
+});
+
+router.post("/audit-action", authBoardingAdmin, async (req, res) => {
+  try {
+    const action = String(req.body?.action || "").trim();
+    const description = String(req.body?.description || "").trim();
+    const entityType = String(req.body?.entityType || "system").trim().toLowerCase() || "system";
+    const entityId = req.body?.entityId;
+
+    if (!action) {
+      return res.status(400).json({ message: "Action is required" });
+    }
+
+    await logBoardingAudit(req, {
+      action,
+      entityType: ["login", "marks", "subject", "stream", "teacher", "system"].includes(entityType)
+        ? entityType
+        : "system",
+      entityId,
+      description: description || null,
+    });
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("Boarding audit action error:", err);
+    return res.status(500).json({ message: "Failed to log boarding action" });
   }
 });
 

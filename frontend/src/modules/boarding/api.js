@@ -54,3 +54,21 @@ export async function boardingFetch(path, options = {}) {
 
   return body;
 }
+
+export async function logBoardingAction(action, description, options = {}) {
+  try {
+    await boardingFetch("/api/boarding/audit-action", {
+      method: "POST",
+      body: {
+        action,
+        description,
+        entityType: options.entityType || "system",
+        entityId: options.entityId ?? null,
+      },
+    });
+    return true;
+  } catch (err) {
+    console.warn("Boarding audit log failed:", err?.message || err);
+    return false;
+  }
+}

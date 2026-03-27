@@ -49,7 +49,7 @@ export default function BoardingLogin() {
   return (
     <div className="ark-login-wrapper">
       <div className="ark-bg-slideshow">
-        <div className="ark-slide ark-active" style={{ backgroundImage: "url(/cov.jpg)" }} />
+        <div className="ark-slide ark-active" style={{ backgroundImage: "url(/newactivities/covercover.jpeg)" }} />
       </div>
 
       <button className="ark-back-btn" onClick={() => navigate("/ark")}>

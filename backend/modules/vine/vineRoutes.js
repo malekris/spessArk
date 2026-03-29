@@ -4880,6 +4880,22 @@ const normalizeImageBuffer = async (file) => {
   return { buffer: file.buffer, mimetype: file.mimetype || "image/jpeg" };
 };
 
+const buildCommunityAvatarBuffer = async (buffer) => {
+  const out = await sharp(buffer)
+    .resize(400, 400, { fit: "cover", position: sharp.strategy.attention })
+    .jpeg({ quality: 88, mozjpeg: true })
+    .toBuffer();
+  return { buffer: out, mimetype: "image/jpeg" };
+};
+
+const buildCommunityBannerBuffer = async (buffer) => {
+  const out = await sharp(buffer)
+    .resize(1500, 500, { fit: "cover", position: sharp.strategy.attention })
+    .jpeg({ quality: 88, mozjpeg: true })
+    .toBuffer();
+  return { buffer: out, mimetype: "image/jpeg" };
+};
+
 const extractFirstUrl = (text) => {
   if (!text) return null;
   const match = text.match(/https?:\/\/[^\s]+/i);
@@ -5996,15 +6012,23 @@ router.post(
       }
 
       const normalized = await normalizeImageBuffer(req.file);
-      const upload = await cloudinary.uploader.upload(
-        `data:${normalized.mimetype};base64,${normalized.buffer.toString("base64")}`,
-        {
-          folder: "vine/community_avatars",
-          transformation: [{ width: 400, height: 400, crop: "fill", gravity: "face" }],
-        }
+      const prepared = await buildCommunityAvatarBuffer(normalized.buffer);
+      const [[communityRow]] = await db.query(
+        "SELECT avatar_url FROM vine_communities WHERE id = ? LIMIT 1",
+        [communityId]
       );
+      const upload = await uploadBufferToCloudinary(prepared.buffer, {
+          folder: "vine/community_avatars",
+          resource_type: "image",
+          format: "jpg",
+          content_type: prepared.mimetype,
+          transformation: [{ width: 400, height: 400, crop: "fill", gravity: "face" }],
+        });
 
       await db.query("UPDATE vine_communities SET avatar_url = ? WHERE id = ?", [upload.secure_url, communityId]);
+      if (communityRow?.avatar_url && communityRow.avatar_url !== upload.secure_url) {
+        await deleteCloudinaryByUrl(communityRow.avatar_url).catch(() => {});
+      }
       res.json({ avatar_url: upload.secure_url });
     } catch (err) {
       console.error("Community avatar upload error:", err);
@@ -6031,15 +6055,23 @@ router.post(
       }
 
       const normalized = await normalizeImageBuffer(req.file);
-      const upload = await cloudinary.uploader.upload(
-        `data:${normalized.mimetype};base64,${normalized.buffer.toString("base64")}`,
-        {
-          folder: "vine/community_banners",
-          transformation: [{ width: 1500, height: 500, crop: "fill" }],
-        }
+      const prepared = await buildCommunityBannerBuffer(normalized.buffer);
+      const [[communityRow]] = await db.query(
+        "SELECT banner_url FROM vine_communities WHERE id = ? LIMIT 1",
+        [communityId]
       );
+      const upload = await uploadBufferToCloudinary(prepared.buffer, {
+          folder: "vine/community_banners",
+          resource_type: "image",
+          format: "jpg",
+          content_type: prepared.mimetype,
+          transformation: [{ width: 1500, height: 500, crop: "fill" }],
+        });
 
       await db.query("UPDATE vine_communities SET banner_url = ? WHERE id = ?", [upload.secure_url, communityId]);
+      if (communityRow?.banner_url && communityRow.banner_url !== upload.secure_url) {
+        await deleteCloudinaryByUrl(communityRow.banner_url).catch(() => {});
+      }
       res.json({ banner_url: upload.secure_url });
     } catch (err) {
       console.error("Community banner upload error:", err);

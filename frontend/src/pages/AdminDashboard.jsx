@@ -370,6 +370,7 @@ export default function AdminDashboard() {
   const [loadingStudents, setLoadingStudents] = useState(false);
   const [savingStudent, setSavingStudent] = useState(false);
   const [deletingStudentId, setDeletingStudentId] = useState(null);
+  const [pendingStudentDelete, setPendingStudentDelete] = useState(null);
   const [editingStudent, setEditingStudent] = useState(null);
   const savingStudentRef = useRef(false);
   const detailSectionRef = useRef(null);
@@ -1366,13 +1367,14 @@ export default function AdminDashboard() {
     setShowStudentSaveConfirm(true);
   };
 
-  const handleDeleteStudent = async (id) => {
-    if (!window.confirm("Remove this learner?")) return;
-    setDeletingStudentId(id);
+  const handleDeleteStudent = async (student) => {
+    if (!student?.id) return;
+    setDeletingStudentId(student.id);
     setStudentError("");
     try {
-      await adminFetch(`/api/admin/students/${id}`, { method: "DELETE" });
-      setStudents((prev) => prev.filter((s) => s.id !== id));
+      await adminFetch(`/api/admin/students/${student.id}`, { method: "DELETE" });
+      setStudents((prev) => prev.filter((s) => s.id !== student.id));
+      setPendingStudentDelete(null);
     } catch (err) {
       console.error("Error deleting student:", err);
       setStudentError(err.message || "Could not delete student.");
@@ -3173,7 +3175,7 @@ export default function AdminDashboard() {
       <button
         type="button"
         className="danger-link"
-        onClick={() => handleDeleteStudent(s.id)}
+        onClick={() => setPendingStudentDelete(s)}
         disabled={deletingStudentId === s.id}
       >
         {deletingStudentId === s.id ? "Deleting…" : "Delete"}
@@ -5313,6 +5315,99 @@ export default function AdminDashboard() {
                 onClick={() => setShowStudentSaveConfirm(false)}
               >
                 Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pendingStudentDelete && (
+        <div className="modal-backdrop" onClick={() => !deletingStudentId && setPendingStudentDelete(null)}>
+          <div
+            className="modal-card"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              maxWidth: "540px",
+              background: "linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(2, 6, 23, 0.98))",
+              border: "1px solid rgba(248, 113, 113, 0.24)",
+              boxShadow: "0 28px 60px rgba(2, 6, 23, 0.34)",
+            }}
+          >
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "0.45rem",
+                padding: "0.34rem 0.72rem",
+                borderRadius: "999px",
+                background: "rgba(127, 29, 29, 0.2)",
+                border: "1px solid rgba(248, 113, 113, 0.22)",
+                color: "#fecaca",
+                fontSize: "0.72rem",
+                fontWeight: 800,
+                letterSpacing: "0.12em",
+                textTransform: "uppercase",
+                marginBottom: "0.9rem",
+              }}
+            >
+              Remove Learner
+            </div>
+
+            <h2 style={{ color: "#f8fafc", marginBottom: "0.5rem" }}>Delete This Learner?</h2>
+            <p style={{ color: "#cbd5e1", lineHeight: 1.65, marginBottom: "1rem" }}>
+              You are about to remove <strong>{pendingStudentDelete.name}</strong> from the learner register.
+            </p>
+
+            <div
+              style={{
+                padding: "0.95rem 1rem",
+                borderRadius: "1rem",
+                border: "1px solid rgba(148, 163, 184, 0.18)",
+                background: "rgba(15, 23, 42, 0.62)",
+                display: "grid",
+                gap: "0.45rem",
+                marginBottom: "1rem",
+              }}
+            >
+              <div><strong>Name:</strong> {pendingStudentDelete.name}</div>
+              <div><strong>Class:</strong> {pendingStudentDelete.class_level}</div>
+              <div><strong>Stream:</strong> {pendingStudentDelete.stream}</div>
+              <div><strong>Gender:</strong> {pendingStudentDelete.gender}</div>
+              <div><strong>DOB:</strong> {pendingStudentDelete.dob || "—"}</div>
+            </div>
+
+            <div
+              className="panel-alert panel-alert-error"
+              style={{
+                marginBottom: "1rem",
+                background: "rgba(127, 29, 29, 0.16)",
+                borderColor: "rgba(248, 113, 113, 0.24)",
+                color: "#fecaca",
+              }}
+            >
+              This will remove the learner from the current register. Proceed only if you are sure.
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.65rem", flexWrap: "wrap" }}>
+              <button
+                className="ghost-btn"
+                type="button"
+                disabled={deletingStudentId === pendingStudentDelete.id}
+                onClick={() => setPendingStudentDelete(null)}
+              >
+                Cancel
+              </button>
+              <button
+                className="primary-btn"
+                type="button"
+                disabled={deletingStudentId === pendingStudentDelete.id}
+                onClick={() => handleDeleteStudent(pendingStudentDelete)}
+                style={{
+                  background: "linear-gradient(135deg, #991b1b, #dc2626)",
+                  borderColor: "rgba(248, 113, 113, 0.4)",
+                }}
+              >
+                {deletingStudentId === pendingStudentDelete.id ? "Deleting…" : "Delete Learner"}
               </button>
             </div>
           </div>

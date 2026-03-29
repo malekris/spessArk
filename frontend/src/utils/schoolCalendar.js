@@ -222,4 +222,43 @@ export const getSchoolCalendarPreciseCountdown = (calendar, date = new Date()) =
   };
 };
 
+export const getSchoolCalendarTimelineEntries = (calendar, date = new Date()) => {
+  const normalized = normalizeSchoolCalendar(calendar || DEFAULT_SCHOOL_CALENDAR);
+  const dateKey = toLocalDateKey(date);
+
+  return normalized.entries.map((entry) => {
+    const isHoliday = entry.status === "Holiday Break";
+
+    if (!entry.from || !entry.to) {
+      return {
+        ...entry,
+        displayStatus: "Awaiting Dates",
+        phase: "awaiting",
+      };
+    }
+
+    if (dateKey < entry.from) {
+      return {
+        ...entry,
+        displayStatus: isHoliday ? "Upcoming Break" : "Upcoming Term",
+        phase: "upcoming",
+      };
+    }
+
+    if (dateKey > entry.to) {
+      return {
+        ...entry,
+        displayStatus: isHoliday ? "Completed Break" : "Completed Term",
+        phase: "completed",
+      };
+    }
+
+    return {
+      ...entry,
+      displayStatus: entry.status,
+      phase: "active",
+    };
+  });
+};
+
 export { SCHOOL_CALENDAR_ENTRY_DEFINITIONS };

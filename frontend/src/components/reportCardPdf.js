@@ -205,7 +205,7 @@ console.warn = (...args) => {
  * @param {Array} data - API response rows (processed, with average & remark)
  * @param {Object} meta - { term, year, class_level, stream }
  */
-export default async function generateReportCardPDF(data, meta) {
+export default async function generateReportCardPDF(data, meta, options = {}) {
   if (!data || data.length === 0) {
     alert("No report data available");
     return;
@@ -213,6 +213,7 @@ export default async function generateReportCardPDF(data, meta) {
 
   const { jsPDF, autoTable } = await loadPdfTools();
   const isEndOfYear = meta?.reportType === "year";
+  const onProgress = typeof options?.onProgress === "function" ? options.onProgress : null;
   // Unified portrait layout for both term and end-of-year reports.
   const doc = new jsPDF("p", "mm", "a4");
   // ===== PAGE METRICS =====
@@ -336,8 +337,16 @@ let currentY = 95; // below header + student info
 
   let firstPage = true;
   const studentList = Object.values(students);
-  const progress = createReportProgressIndicator(studentList.length);
-  progress.update(0);
+  const progress = onProgress ? null : createReportProgressIndicator(studentList.length);
+  progress?.update(0);
+  if (onProgress) {
+    onProgress({
+      completed: 0,
+      total: studentList.length,
+      percent: 5,
+      stage: `Preparing ${isEndOfYear ? "end-of-year" : "end-of-term"} reports...`,
+    });
+  }
 
   try {
     for (const [index, student] of studentList.entries()) {
@@ -886,7 +895,16 @@ if (showIneligibleFootnote) {
 
 currentY += RHYTHM * 0.4;
 
-    progress.update(index + 1);
+    progress?.update(index + 1);
+    if (onProgress) {
+      const basePercent = studentList.length > 0 ? Math.round(((index + 1) / studentList.length) * 88) : 88;
+      onProgress({
+        completed: index + 1,
+        total: studentList.length,
+        percent: Math.max(8, basePercent),
+        stage: `Generating ${isEndOfYear ? "end-of-year" : "end-of-term"} report ${index + 1} of ${studentList.length}`,
+      });
+    }
     await nextPaint();
   }
   // ✅ ADD FOOTER AFTER ALL CONTENT IS DONE
@@ -896,11 +914,21 @@ const filename = `ReportCard_Term${meta.term}_${meta.year}_${String(meta.class_l
   .replace(/\s+/g, "_")
   .replace(/[^a-zA-Z0-9_.-]/g, "");
 const title = `Report Card - Term ${meta.term} ${meta.year} - ${meta.class_level || "Class"} ${meta.stream || ""}`.trim();
+if (onProgress) {
+  onProgress({
+    completed: studentList.length,
+    total: studentList.length,
+    percent: 100,
+    stage: "Opening PDF...",
+  });
+}
 openNamedPdfPreview(doc, filename, title);
-progress.complete();
-setTimeout(() => progress.destroy(), 1200);
+progress?.complete();
+if (progress) {
+  setTimeout(() => progress.destroy(), 1200);
+}
   } catch (err) {
-    progress.destroy();
+    progress?.destroy();
     throw err;
   }
 

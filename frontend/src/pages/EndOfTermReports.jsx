@@ -15,6 +15,9 @@ import generateReportCardPDF from "../components/reportCardPdf";
   const [studentId, setStudentId] = useState("");
 
   const [loading, setLoading] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState(0);
+  const [downloadStage, setDownloadStage] = useState("");
   const [error, setError] = useState("");
   const [data, setData] = useState([]);
   const [reportDatesCache, setReportDatesCache] = useState(() => {
@@ -139,18 +142,47 @@ import generateReportCardPDF from "../components/reportCardPdf";
   /* ======================
      DOWNLOAD PDF
   ====================== */
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (!validateReportDates("downloading")) return;
 
-    generateReportCardPDF(data, {
-      year,
-      term,
-      class_level: classLevel,
-      stream,
-      reportType: isEndOfYearMode ? "year" : "term",
-      termEndedOn: reportDates.termEndedOn,
-      nextTermBeginsOn: reportDates.nextTermBeginsOn,
-    });
+    setError("");
+    setDownloading(true);
+    setDownloadProgress(0);
+    setDownloadStage(
+      `Preparing ${isEndOfYearMode ? "end-of-year" : "end-of-term"} reports...`
+    );
+
+    try {
+      await generateReportCardPDF(
+        data,
+        {
+          year,
+          term,
+          class_level: classLevel,
+          stream,
+          reportType: isEndOfYearMode ? "year" : "term",
+          termEndedOn: reportDates.termEndedOn,
+          nextTermBeginsOn: reportDates.nextTermBeginsOn,
+        },
+        {
+          onProgress: ({ percent, stage }) => {
+            setDownloadProgress(percent || 0);
+            setDownloadStage(
+              stage ||
+                `Generating ${isEndOfYearMode ? "end-of-year" : "end-of-term"} reports...`
+            );
+          },
+        }
+      );
+    } catch (err) {
+      setError(err.message || "Failed to generate report card PDF.");
+    } finally {
+      setTimeout(() => {
+        setDownloading(false);
+        setDownloadProgress(0);
+        setDownloadStage("");
+      }, 500);
+    }
   };
 
   return (
@@ -200,18 +232,72 @@ import generateReportCardPDF from "../components/reportCardPdf";
 
       {/* ACTIONS */}
       <div style={{ marginTop: "1rem" }}>
-        <button onClick={handlePreview} disabled={loading}>
+        <button onClick={handlePreview} disabled={loading || downloading}>
           {loading ? "Loading…" : "Preview"}
         </button>
 
         <button
           onClick={handleDownload}
-          disabled={data.length === 0}
+          disabled={data.length === 0 || downloading}
           style={{ marginLeft: "1rem" }}
         >
-          Download PDF
+          {downloading ? "Generating PDF…" : "Download PDF"}
         </button>
       </div>
+
+      {downloading && (
+        <div
+          style={{
+            marginTop: "1rem",
+            padding: "0.95rem 1rem",
+            borderRadius: "1rem",
+            border: "1px solid rgba(59, 130, 246, 0.28)",
+            background: "rgba(15, 23, 42, 0.82)",
+            display: "grid",
+            gap: "0.7rem",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: "1rem",
+              color: "#dbeafe",
+              fontSize: "0.92rem",
+            }}
+          >
+            <strong style={{ color: "#93c5fd" }}>
+              Processing {isEndOfYearMode ? "End-of-Year" : "End-of-Term"} Reports
+            </strong>
+            <span>{downloadProgress}%</span>
+          </div>
+          <div
+            style={{
+              width: "100%",
+              height: "12px",
+              borderRadius: "999px",
+              background: "rgba(30, 41, 59, 0.92)",
+              overflow: "hidden",
+              border: "1px solid rgba(148, 163, 184, 0.2)",
+            }}
+          >
+            <div
+              style={{
+                width: `${Math.max(4, downloadProgress)}%`,
+                height: "100%",
+                borderRadius: "999px",
+                background: "linear-gradient(90deg, #38bdf8 0%, #22c55e 100%)",
+                transition: "width 160ms ease",
+              }}
+            />
+          </div>
+          <div style={{ color: "#cbd5e1", fontSize: "0.88rem" }}>
+            {downloadStage ||
+              `Generating ${isEndOfYearMode ? "end-of-year" : "end-of-term"} reports...`}
+          </div>
+        </div>
+      )}
 
       <div
         style={{

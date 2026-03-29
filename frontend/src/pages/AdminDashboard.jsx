@@ -18,6 +18,7 @@ import {
   DEFAULT_SCHOOL_CALENDAR,
   getSchoolCalendarBadge,
   getSchoolCalendarPreciseCountdown,
+  getSchoolCalendarTimelineEntries,
   normalizeSchoolCalendar,
 } from "../utils/schoolCalendar";
 
@@ -324,6 +325,10 @@ export default function AdminDashboard() {
     () => getSchoolCalendarPreciseCountdown(schoolCalendarForm, schoolCalendarPreviewClock),
     [schoolCalendarForm, schoolCalendarPreviewClock]
   );
+  const schoolCalendarTimelineEntries = useMemo(
+    () => getSchoolCalendarTimelineEntries(schoolCalendarForm, schoolCalendarPreviewClock),
+    [schoolCalendarForm, schoolCalendarPreviewClock]
+  );
   const dashboardOperationalTerm = useMemo(
     () => normalizeOperationalTerm(schoolCalendarBadge.termLabel || marksLockForm.term),
     [schoolCalendarBadge.termLabel, marksLockForm.term]
@@ -343,6 +348,9 @@ export default function AdminDashboard() {
   const [loadingNotices, setLoadingNotices] = useState(false);
   const [noticesError, setNoticesError] = useState("");
   const [noticeForm, setNoticeForm] = useState({ title: "", body: "" });
+  const [pendingNoticeDelete, setPendingNoticeDelete] = useState(null);
+  const [deletingNoticeId, setDeletingNoticeId] = useState(null);
+  const [noticeFeedback, setNoticeFeedback] = useState(null);
 
   /* ---------- Teachers ---------- */
   const [teachers, setTeachers] = useState([]);
@@ -351,6 +359,7 @@ export default function AdminDashboard() {
   const [loadingTeachers, setLoadingTeachers] = useState(false);
   const [savingTeacher, setSavingTeacher] = useState(false);
   const [deletingTeacherId, setDeletingTeacherId] = useState(null);
+  const [pendingTeacherDelete, setPendingTeacherDelete] = useState(null);
 
   /* ---------- Students ---------- */
   const [students, setStudents] = useState([]);
@@ -386,6 +395,8 @@ export default function AdminDashboard() {
   const [restoringArchiveKey, setRestoringArchiveKey] = useState("");
   const [selectedGroup, setSelectedGroup] = useState(null);
   const [selectedAoi, setSelectedAoi] = useState(null);
+  const [pendingAoiDelete, setPendingAoiDelete] = useState(null);
+  const [deletingAoiKey, setDeletingAoiKey] = useState("");
   const [scoreSheetLoading, setScoreSheetLoading] = useState(false);
   const [scoreSheetError, setScoreSheetError] = useState("");
   const [scoreSheetFilters, setScoreSheetFilters] = useState({
@@ -603,12 +614,21 @@ export default function AdminDashboard() {
       setNoticesError("Title and message are required.");
       return;
     }
+    const payload = {
+      title: noticeForm.title.trim(),
+      body: noticeForm.body.trim(),
+    };
     setLoadingNotices(true);
     setNoticesError("");
     try {
-      await adminFetch("/api/admin/notices", { method: "POST", body: noticeForm });
+      await adminFetch("/api/admin/notices", { method: "POST", body: payload });
       setNoticeForm({ title: "", body: "" });
-      fetchNotices();
+      await fetchNotices();
+      setNoticeFeedback({
+        mode: "published",
+        title: payload.title,
+        body: payload.body,
+      });
     } catch (err) {
       setNoticesError(err.message || "Failed to create notice.");
     } finally {
@@ -616,13 +636,23 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleDeleteNotice = async (id) => {
-    if (!window.confirm("Delete this notice?")) return;
+  const handleDeleteNotice = async (notice) => {
+    if (!notice?.id) return;
+    setDeletingNoticeId(notice.id);
+    setNoticesError("");
     try {
-      await adminFetch(`/api/admin/notices/${id}`, { method: "DELETE" });
-      setNotices((p) => p.filter((n) => n.id !== id));
+      await adminFetch(`/api/admin/notices/${notice.id}`, { method: "DELETE" });
+      setNotices((p) => p.filter((n) => n.id !== notice.id));
+      setPendingNoticeDelete(null);
+      setNoticeFeedback({
+        mode: "deleted",
+        title: notice.title,
+        body: notice.body,
+      });
     } catch (err) {
-      alert(err.message || "Failed to delete notice");
+      setNoticesError(err.message || "Failed to delete notice.");
+    } finally {
+      setDeletingNoticeId(null);
     }
   };
   const handleDeleteGroup = async (group) => {
@@ -726,12 +756,12 @@ export default function AdminDashboard() {
   };
 
   const handleDeleteTeacher = async (id) => {
-    if (!window.confirm("Remove this teacher?")) return;
     setDeletingTeacherId(id);
     setTeacherError("");
     try {
       await adminFetch(`/api/admin/teachers/${id}`, { method: "DELETE" });
       setTeachers((prev) => prev.filter((t) => t.id !== id));
+      setPendingTeacherDelete(null);
     } catch (err) {
       console.error("Error deleting teacher:", err);
       setTeacherError(err.message || "Could not delete teacher.");
@@ -1377,6 +1407,13 @@ export default function AdminDashboard() {
       row?.component_key || "",
       row?.deleted_at_key || "",
     ].join("__");
+  const getAoiDeleteKey = (row) =>
+    [
+      row?.assignment_id || "0",
+      row?.term || "",
+      row?.year ?? "",
+      row?.aoi_label || "",
+    ].join("__");
 
   const fetchMarksArchiveSets = async () => {
     setLoadingMarksArchive(true);
@@ -1721,15 +1758,17 @@ export default function AdminDashboard() {
 
   /* ---------- Export helpers (CSV / PDF) ---------- */
   const handleDownloadCsv = () => {
-    if (!selectedAoi || marksDetail.length === 0) return;
+    if (!selectedAoi || !marksPreviewMeta || marksDetail.length === 0) return;
   
     const csvEscape = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const isCombinedMarksReport = selectedAoi === "ALL";
   
     const header = [
       "Student ID",
       "Name",
       "Class",
       "Stream",
+      ...(isCombinedMarksReport ? ["AOI"] : []),
       "Score",
       "Subject",
       "AOI",
@@ -1739,21 +1778,22 @@ export default function AdminDashboard() {
       "Submitted At",
     ];
   
-    const submittedAt = formatDateTime(
-      selectedAoi.submitted_at || selectedAoi.created_at
-    );
+    const submittedAt = marksPreviewMeta.submitted_at || marksPreviewMeta.created_at
+      ? formatDateTime(marksPreviewMeta.submitted_at || marksPreviewMeta.created_at)
+      : "Multiple submission times";
   
     const rows = marksDetail.map((row) => [
       csvEscape(row.student_id),
       csvEscape(row.student_name),
       csvEscape(row.class_level),
       csvEscape(row.stream),
+      ...(isCombinedMarksReport ? [csvEscape(row.aoi_label || "")] : []),
       csvEscape(formatMarksDetailScore(row)),
-      csvEscape(selectedAoi.subject),
-      csvEscape(selectedAoi.aoi_label),
-      csvEscape(selectedAoi.term),
-      csvEscape(selectedAoi.year),
-      csvEscape(selectedAoi.teacher_name || ""),
+      csvEscape(marksPreviewMeta.subject),
+      csvEscape(isCombinedMarksReport ? row.aoi_label || "" : marksPreviewMeta.aoi_label),
+      csvEscape(marksPreviewMeta.term),
+      csvEscape(marksPreviewMeta.year),
+      csvEscape(marksPreviewMeta.teacher_name || ""),
       csvEscape(submittedAt),
     ]);
   
@@ -1768,11 +1808,11 @@ export default function AdminDashboard() {
         .replace(/\s+/g, "_")
         .replace(/[^a-z0-9_]/g, "");
   
-    const filename = `marks_${slug(selectedAoi.class_level)}_${slug(
-      selectedAoi.stream
-    )}_${slug(selectedAoi.subject)}_${slug(
-      selectedAoi.aoi_label
-    )}_T${slug(selectedAoi.term)}_${selectedAoi.year}.csv`;
+    const filename = `marks_${slug(marksPreviewMeta.class_level)}_${slug(
+      marksPreviewMeta.stream
+    )}_${slug(marksPreviewMeta.subject)}_${slug(
+      marksPreviewMeta.aoi_label
+    )}_T${slug(marksPreviewMeta.term)}_${marksPreviewMeta.year}.csv`;
   
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -1803,8 +1843,39 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleConfirmDeleteAoi = async () => {
+    if (!pendingAoiDelete?.aoi) return;
+
+    const aoi = pendingAoiDelete.aoi;
+    const deleteKey = getAoiDeleteKey(aoi);
+    setDeletingAoiKey(deleteKey);
+    setMarksError("");
+
+    try {
+      await adminFetch("/api/admin/marks-set", {
+        method: "DELETE",
+        body: {
+          assignmentId: aoi.assignment_id,
+          term: aoi.term,
+          year: aoi.year,
+          aoi: aoi.aoi_label,
+        },
+      });
+
+      await fetchMarksSets();
+      setSelectedAoi(null);
+      setMarksDetail([]);
+      setPendingAoiDelete(null);
+    } catch (err) {
+      console.error("Error deleting AOI:", err);
+      setMarksError(err.message || "Failed to delete AOI.");
+    } finally {
+      setDeletingAoiKey("");
+    }
+  };
+
   const handleDownloadPdf = async () => {
-    if (!selectedAoi || marksDetail.length === 0) return;
+    if (!selectedAoi || !marksPreviewMeta || marksDetail.length === 0) return;
     const { jsPDF } = await loadPdfTools();
     const doc = new jsPDF("p", "mm", "a4");
   
@@ -1812,19 +1883,26 @@ export default function AdminDashboard() {
     const pageH = doc.internal.pageSize.getHeight();
   
     const schoolName = "St. Phillip's Equatorial Secondary School (SPESS)";
-    const title = `${selectedAoi.subject} — ${selectedAoi.aoi_label}`;
+    const isCombinedMarksReport = selectedAoi === "ALL";
+    const title = isCombinedMarksReport
+      ? `${marksPreviewMeta.subject} — Combined AOI Report`
+      : `${marksPreviewMeta.subject} — ${marksPreviewMeta.aoi_label}`;
     const generatedAt = formatDateTime(new Date().toISOString());
   
     const meta = {
-      Class: selectedAoi.class_level,
-      Stream: selectedAoi.stream,
-      Subject: selectedAoi.subject,
-      Term: selectedAoi.term,
-      Year: selectedAoi.year,
-      "Submitted by": selectedAoi.teacher_name || "—",
-      "Submitted at": formatDateTime(
-        selectedAoi.submitted_at || selectedAoi.created_at
-      ),
+      Class: marksPreviewMeta.class_level,
+      Stream: marksPreviewMeta.stream,
+      Subject: marksPreviewMeta.subject,
+      Components: isCombinedMarksReport
+        ? (selectedGroup?.aois || []).map((row) => row.aoi_label).join(", ") || "Combined AOIs"
+        : marksPreviewMeta.aoi_label,
+      Term: marksPreviewMeta.term,
+      Year: marksPreviewMeta.year,
+      "Submitted by": marksPreviewMeta.teacher_name || "—",
+      "Submitted at":
+        marksPreviewMeta.submitted_at || marksPreviewMeta.created_at
+          ? formatDateTime(marksPreviewMeta.submitted_at || marksPreviewMeta.created_at)
+          : "Multiple submission times",
     };
   
     /* ========== HEADER (only drawn on first page) ========== */
@@ -1857,7 +1935,12 @@ export default function AdminDashboard() {
       doc.text("Student Name", 24, y);
       doc.text("Class", 122, y);
       doc.text("Stream", 142, y);
-      doc.text("Score", 168, y);
+      if (isCombinedMarksReport) {
+        doc.text("AOI", 162, y);
+        doc.text("Score", 186, y);
+      } else {
+        doc.text("Score", 168, y);
+      }
   
       doc.setDrawColor(180);
       doc.line(12, y + 2, pageW - 12, y + 2);
@@ -1896,12 +1979,22 @@ export default function AdminDashboard() {
       doc.text(row.student_name || "", 24, y);
       doc.text(row.class_level || "", 122, y);
       doc.text(row.stream || "", 142, y);
-      doc.text(
-        formatMarksDetailScore(row),
-        168,
-        y,
-        { align: "right" }
-      );
+      if (isCombinedMarksReport) {
+        doc.text(String(row.aoi_label || "—"), 162, y);
+        doc.text(
+          formatMarksDetailScore(row),
+          196,
+          y,
+          { align: "right" }
+        );
+      } else {
+        doc.text(
+          formatMarksDetailScore(row),
+          168,
+          y,
+          { align: "right" }
+        );
+      }
   
       y += rowHeight;
     });
@@ -2433,6 +2526,57 @@ export default function AdminDashboard() {
   
     return Object.values(map);
   }, [marksSets]);
+  const getMarksGroupKey = (group) =>
+    group
+      ? [group.class_level, group.stream, group.subject, group.term, group.year].join("|")
+      : "";
+  const selectedGroupKey = getMarksGroupKey(selectedGroup);
+  useEffect(() => {
+    if (!selectedGroupKey) return;
+
+    const refreshedGroup = groupedMarkSets.find((group) => getMarksGroupKey(group) === selectedGroupKey);
+
+    if (!refreshedGroup) {
+      setSelectedGroup(null);
+      setSelectedAoi(null);
+      setMarksDetail([]);
+      return;
+    }
+
+    if (selectedGroup !== refreshedGroup) {
+      setSelectedGroup(refreshedGroup);
+    }
+
+    if (selectedAoi && selectedAoi !== "ALL" && typeof selectedAoi === "object") {
+      const refreshedAoi = refreshedGroup.aois.find(
+        (row) => String(row.aoi_label || "").trim().toUpperCase() === String(selectedAoi.aoi_label || "").trim().toUpperCase()
+      );
+
+      if (!refreshedAoi) {
+        setSelectedAoi(null);
+        setMarksDetail([]);
+      } else if (selectedAoi !== refreshedAoi) {
+        setSelectedAoi(refreshedAoi);
+      }
+    }
+  }, [groupedMarkSets, selectedGroup, selectedGroupKey, selectedAoi]);
+
+  const marksPreviewMeta = useMemo(() => {
+    if (selectedAoi === "ALL" && selectedGroup) {
+      return {
+        class_level: selectedGroup.class_level,
+        stream: selectedGroup.stream,
+        subject: selectedGroup.subject,
+        aoi_label: "Combined AOIs",
+        term: selectedGroup.term,
+        year: selectedGroup.year,
+        teacher_name: selectedGroup.teacher_name || "—",
+        submitted_at: null,
+        created_at: null,
+      };
+    }
+    return selectedAoi && typeof selectedAoi === "object" ? selectedAoi : null;
+  }, [selectedAoi, selectedGroup]);
   
   const classOptions = Array.from(new Set(students.map((s) => s.class_level))).filter(Boolean);
   const classOptionsForMarksheet = classOptions.length > 0 ? classOptions : ["S1", "S2", "S3", "S4"];
@@ -2597,27 +2741,84 @@ export default function AdminDashboard() {
 
           <div className="panel-grid">
             <div className="panel-card">
-              <h3>Add Teacher</h3>
-              <form className="teacher-form" onSubmit={handleAddTeacher}>
-                <div className="form-row">
-                  <label htmlFor="tname">Full name</label>
-                  <input id="tname" name="name" type="text" value={teacherForm.name} onChange={handleTeacherInputChange} placeholder="e.g. Sarah Nambogo" autoComplete="name" />
+              <div className="panel-card-header">
+                <div>
+                  <h3>Teacher Access Snapshot</h3>
+                  <p className="muted-text" style={{ margin: "0.2rem 0 0" }}>
+                    Teacher accounts are now self-registered. This panel is for quick visibility and management only.
+                  </p>
                 </div>
-                <div className="form-row">
-                  <label htmlFor="temail">Email</label>
-                  <input id="temail" name="email" type="email" value={teacherForm.email} onChange={handleTeacherInputChange} placeholder="e.g. sarah@example.com" autoComplete="email" />
-                </div>
-                <div className="form-row">
-                  <label htmlFor="subject1">Subject 1</label>
-                  <input id="subject1" name="subject1" type="text" value={teacherForm.subject1} onChange={handleTeacherInputChange} placeholder="e.g. Mathematics" autoComplete="off" />
-                </div>
-                <div className="form-row">
-                  <label htmlFor="subject2">Subject 2</label>
-                  <input id="subject2" name="subject2" type="text" value={teacherForm.subject2} onChange={handleTeacherInputChange} placeholder="e.g. Physics" autoComplete="off" />
-                </div>
+              </div>
 
-                <button className="primary-btn" type="submit" disabled={savingTeacher}>{savingTeacher ? "Saving…" : "Save Teacher"}</button>
-              </form>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+                  gap: "0.8rem",
+                  marginTop: "0.35rem",
+                }}
+              >
+                {[
+                  { label: "Registered Teachers", value: teachers.length, tone: "#7dd3fc" },
+                  { label: "Assigned Teachers", value: teacherLoadSummary.assignedTeachers, tone: "#86efac" },
+                  { label: "O-Level Loads", value: teacherLoadSummary.oLevelAssignments, tone: "#fcd34d" },
+                  { label: "A-Level Loads", value: teacherLoadSummary.aLevelAssignments, tone: "#fca5a5" },
+                ].map((item) => (
+                  <div
+                    key={item.label}
+                    style={{
+                      borderRadius: "18px",
+                      padding: "0.95rem 1rem",
+                      border: "1px solid rgba(148, 163, 184, 0.18)",
+                      background: "linear-gradient(180deg, rgba(255,255,255,0.06), rgba(15,23,42,0.36))",
+                      boxShadow: "0 14px 28px rgba(2, 6, 23, 0.12)",
+                    }}
+                  >
+                    <div
+                      style={{
+                        color: item.tone,
+                        fontSize: "0.72rem",
+                        fontWeight: 800,
+                        letterSpacing: "0.12em",
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      {item.label}
+                    </div>
+                    <div style={{ marginTop: "0.35rem", color: "#f8fafc", fontSize: "1.35rem", fontWeight: 900 }}>
+                      {item.value}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div
+                style={{
+                  marginTop: "1rem",
+                  padding: "0.95rem 1rem",
+                  borderRadius: "16px",
+                  background: "rgba(15, 23, 42, 0.52)",
+                  border: "1px solid rgba(148, 163, 184, 0.14)",
+                  color: "#cbd5e1",
+                  lineHeight: 1.65,
+                }}
+              >
+                <div
+                  style={{
+                    color: "#e2e8f0",
+                    fontWeight: 800,
+                    marginBottom: "0.35rem",
+                  }}
+                >
+                  What this section is for now
+                </div>
+                <div>
+                  Review registered teacher accounts, export the current register, and remove accounts when necessary.
+                </div>
+                <div style={{ marginTop: "0.35rem" }}>
+                  Total teaching slots currently assigned: <strong>{teacherLoadSummary.totalTeachingSlots}</strong>
+                </div>
+              </div>
             </div>
 
             <div className="panel-card">
@@ -2653,7 +2854,14 @@ export default function AdminDashboard() {
                           <td>{t.email}</td>
                           <td>{t.created_at ? formatDateTime(t.created_at) : "—"}</td>
                           <td className="teachers-actions">
-                            <button type="button" className="danger-link" onClick={() => handleDeleteTeacher(t.id)} disabled={deletingTeacherId === t.id}>{deletingTeacherId === t.id ? "Deleting…" : "Delete"}</button>
+                            <button
+                              type="button"
+                              className="danger-link"
+                              onClick={() => setPendingTeacherDelete(t)}
+                              disabled={deletingTeacherId === t.id}
+                            >
+                              {deletingTeacherId === t.id ? "Deleting…" : "Delete"}
+                            </button>
                           </td>
                         </tr>
                       ))}
@@ -2663,6 +2871,81 @@ export default function AdminDashboard() {
               )}
             </div>
           </div>
+
+          {pendingTeacherDelete && (
+            <div className="modal-backdrop" style={{ zIndex: 120 }}>
+              <div
+                className="modal-card"
+                style={{
+                  maxWidth: "520px",
+                  background: "linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(2, 6, 23, 0.98))",
+                  border: "1px solid rgba(248, 113, 113, 0.24)",
+                  boxShadow: "0 28px 60px rgba(2, 6, 23, 0.34)",
+                }}
+              >
+                <div
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "0.45rem",
+                    padding: "0.34rem 0.72rem",
+                    borderRadius: "999px",
+                    background: "rgba(127, 29, 29, 0.2)",
+                    border: "1px solid rgba(248, 113, 113, 0.22)",
+                    color: "#fecaca",
+                    fontSize: "0.72rem",
+                    fontWeight: 800,
+                    letterSpacing: "0.12em",
+                    textTransform: "uppercase",
+                    marginBottom: "0.9rem",
+                  }}
+                >
+                  Remove Teacher
+                </div>
+
+                <h2 style={{ color: "#f8fafc", marginBottom: "0.5rem" }}>Delete This Teacher?</h2>
+                <p style={{ color: "#cbd5e1", lineHeight: 1.65, marginBottom: "1rem" }}>
+                  You are about to remove <strong>{pendingTeacherDelete.name}</strong>
+                  {pendingTeacherDelete.email ? <> ({pendingTeacherDelete.email})</> : null} from the teacher register.
+                </p>
+
+                <div
+                  className="panel-alert panel-alert-error"
+                  style={{
+                    marginBottom: "1rem",
+                    background: "rgba(127, 29, 29, 0.16)",
+                    borderColor: "rgba(248, 113, 113, 0.24)",
+                    color: "#fecaca",
+                  }}
+                >
+                  This action removes the teacher account from the current register. Proceed only if you are sure.
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.65rem", flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    className="ghost-btn"
+                    onClick={() => setPendingTeacherDelete(null)}
+                    disabled={deletingTeacherId === pendingTeacherDelete.id}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="primary-btn"
+                    onClick={() => handleDeleteTeacher(pendingTeacherDelete.id)}
+                    disabled={deletingTeacherId === pendingTeacherDelete.id}
+                    style={{
+                      background: "linear-gradient(135deg, #991b1b, #dc2626)",
+                      borderColor: "rgba(248, 113, 113, 0.4)",
+                    }}
+                  >
+                    {deletingTeacherId === pendingTeacherDelete.id ? "Deleting…" : "Delete Teacher"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </section>
       );
     }
@@ -2947,7 +3230,13 @@ export default function AdminDashboard() {
                     <div className="notice-item-meta">
                       <small>{formatDateTime(n.created_at)}</small>
                       <div className="notice-item-actions">
-                        <button className="danger-link" onClick={() => handleDeleteNotice(n.id)}>Delete</button>
+                        <button
+                          className="danger-link"
+                          onClick={() => setPendingNoticeDelete(n)}
+                          disabled={deletingNoticeId === n.id}
+                        >
+                          {deletingNoticeId === n.id ? "Deleting…" : "Delete"}
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -2976,6 +3265,165 @@ export default function AdminDashboard() {
               )}
             </div>
           </div>
+
+          {pendingNoticeDelete && (
+            <div className="modal-backdrop" style={{ zIndex: 120 }}>
+              <div
+                className="modal-card"
+                style={{
+                  maxWidth: "540px",
+                  background: "linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(2, 6, 23, 0.98))",
+                  border: "1px solid rgba(248, 113, 113, 0.24)",
+                  boxShadow: "0 28px 60px rgba(2, 6, 23, 0.34)",
+                }}
+              >
+                <div
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "0.45rem",
+                    padding: "0.34rem 0.72rem",
+                    borderRadius: "999px",
+                    background: "rgba(127, 29, 29, 0.2)",
+                    border: "1px solid rgba(248, 113, 113, 0.22)",
+                    color: "#fecaca",
+                    fontSize: "0.72rem",
+                    fontWeight: 800,
+                    letterSpacing: "0.12em",
+                    textTransform: "uppercase",
+                    marginBottom: "0.9rem",
+                  }}
+                >
+                  Delete Notice
+                </div>
+
+                <h2 style={{ color: "#f8fafc", marginBottom: "0.5rem" }}>Remove This Notice?</h2>
+                <p style={{ color: "#cbd5e1", lineHeight: 1.65, marginBottom: "0.95rem" }}>
+                  This notice will be removed from the teacher dashboard immediately.
+                </p>
+
+                <div
+                  style={{
+                    padding: "0.9rem 1rem",
+                    borderRadius: "1rem",
+                    border: "1px solid rgba(148, 163, 184, 0.18)",
+                    background: "rgba(15, 23, 42, 0.62)",
+                    marginBottom: "1rem",
+                    display: "grid",
+                    gap: "0.45rem",
+                  }}
+                >
+                  <div style={{ color: "#f8fafc", fontWeight: 800 }}>{pendingNoticeDelete.title}</div>
+                  <div style={{ color: "#cbd5e1", lineHeight: 1.6 }}>{pendingNoticeDelete.body}</div>
+                  <small style={{ color: "#94a3b8" }}>
+                    {pendingNoticeDelete.created_at
+                      ? formatDateTime(pendingNoticeDelete.created_at)
+                      : "Recently published"}
+                  </small>
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.65rem", flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    className="ghost-btn"
+                    onClick={() => setPendingNoticeDelete(null)}
+                    disabled={deletingNoticeId === pendingNoticeDelete.id}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="primary-btn"
+                    onClick={() => handleDeleteNotice(pendingNoticeDelete)}
+                    disabled={deletingNoticeId === pendingNoticeDelete.id}
+                    style={{
+                      background: "linear-gradient(135deg, #991b1b, #dc2626)",
+                      borderColor: "rgba(248, 113, 113, 0.4)",
+                    }}
+                  >
+                    {deletingNoticeId === pendingNoticeDelete.id ? "Deleting…" : "Delete Notice"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {noticeFeedback && (
+            <div className="modal-backdrop" style={{ zIndex: 121 }}>
+              <div
+                className="modal-card"
+                style={{
+                  maxWidth: "560px",
+                  background: "linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(2, 6, 23, 0.98))",
+                  border: `1px solid ${
+                    noticeFeedback.mode === "published"
+                      ? "rgba(59, 130, 246, 0.24)"
+                      : "rgba(248, 113, 113, 0.24)"
+                  }`,
+                  boxShadow: "0 28px 60px rgba(2, 6, 23, 0.34)",
+                }}
+              >
+                <div
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "0.45rem",
+                    padding: "0.34rem 0.72rem",
+                    borderRadius: "999px",
+                    background:
+                      noticeFeedback.mode === "published"
+                        ? "rgba(30, 64, 175, 0.2)"
+                        : "rgba(127, 29, 29, 0.2)",
+                    border: `1px solid ${
+                      noticeFeedback.mode === "published"
+                        ? "rgba(96, 165, 250, 0.22)"
+                        : "rgba(248, 113, 113, 0.22)"
+                    }`,
+                    color: noticeFeedback.mode === "published" ? "#bfdbfe" : "#fecaca",
+                    fontSize: "0.72rem",
+                    fontWeight: 800,
+                    letterSpacing: "0.12em",
+                    textTransform: "uppercase",
+                    marginBottom: "0.9rem",
+                  }}
+                >
+                  {noticeFeedback.mode === "published" ? "Notice Published" : "Notice Deleted"}
+                </div>
+
+                <h2 style={{ color: "#f8fafc", marginBottom: "0.55rem" }}>
+                  {noticeFeedback.mode === "published"
+                    ? "Notice Posted Successfully"
+                    : "Notice Removed Successfully"}
+                </h2>
+                <p style={{ color: "#cbd5e1", lineHeight: 1.65, marginBottom: "1rem" }}>
+                  {noticeFeedback.mode === "published"
+                    ? "Teachers can now see this notice immediately on their dashboard."
+                    : "This notice is no longer visible on the teacher dashboard."}
+                </p>
+
+                <div
+                  style={{
+                    padding: "0.95rem 1rem",
+                    borderRadius: "1rem",
+                    border: "1px solid rgba(148, 163, 184, 0.18)",
+                    background: "rgba(15, 23, 42, 0.62)",
+                    display: "grid",
+                    gap: "0.45rem",
+                    marginBottom: "1rem",
+                  }}
+                >
+                  <div style={{ color: "#f8fafc", fontWeight: 800 }}>{noticeFeedback.title}</div>
+                  <div style={{ color: "#cbd5e1", lineHeight: 1.6 }}>{noticeFeedback.body}</div>
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                  <button type="button" className="primary-btn" onClick={() => setNoticeFeedback(null)}>
+                    Okay
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </section>
       );
     }
@@ -3212,16 +3660,22 @@ export default function AdminDashboard() {
           <div className="panel-grid">
     
             {/* LEFT PANEL */}
-            <div className="panel-card">
+            <div className="panel-card download-marks-card">
               <div className="panel-card-header">
-                <h3>Available Subjects</h3>
-                <button className="ghost-btn" onClick={fetchMarksSets} disabled={loadingMarksSets}>
-                  {loadingMarksSets ? "Refreshing…" : "Refresh"}
-                </button>
+                <div>
+                  <h3>Available Subjects</h3>
+                  <p className="download-marks-subtitle">Choose a class stream subject block, then drill into the AOIs on the right.</p>
+                </div>
+                <div style={{ display: "flex", gap: "0.55rem", alignItems: "center", flexWrap: "wrap" }}>
+                  <span className="download-marks-pill">{groupedMarkSets.length} subject blocks</span>
+                  <button className="ghost-btn" onClick={fetchMarksSets} disabled={loadingMarksSets}>
+                    {loadingMarksSets ? "Refreshing…" : "Refresh"}
+                  </button>
+                </div>
               </div>
     
-              <div className="teachers-table-wrapper">
-                <table className="teachers-table">
+              <div className="teachers-table-wrapper download-marks-table-shell">
+                <table className="teachers-table download-marks-table">
                   <thead>
                     <tr>
                       <th>Class</th>
@@ -3238,6 +3692,7 @@ export default function AdminDashboard() {
                     {groupedMarkSets.map((group) => (
                       <tr
                         key={`${group.class_level}-${group.stream}-${group.subject}-${group.term}-${group.year}`}
+                        className={selectedGroupKey === getMarksGroupKey(group) ? "download-marks-row-active" : ""}
                         onClick={() => {
                           setSelectedGroup(group);
                           setSelectedAoi(null);
@@ -3245,10 +3700,12 @@ export default function AdminDashboard() {
                         }}
                         style={{ cursor: "pointer" }}
                       >
-                        <td>{group.class_level}</td>
+                        <td><span className="download-marks-pill download-marks-pill-soft">{group.class_level}</span></td>
                         <td>{group.stream}</td>
-                        <td>{group.subject}</td>
-                        <td>{group.aois.length}</td>
+                        <td>
+                          <div className="download-marks-subject-name">{group.subject}</div>
+                        </td>
+                        <td><span className="download-marks-pill">{group.aois.length} AOIs</span></td>
                         <td>{group.term}</td>
                         <td>{group.year}</td>
                         <td>{group.teacher_name || "—"}</td>
@@ -3297,12 +3754,15 @@ export default function AdminDashboard() {
             </div>
     
             {/* RIGHT PANEL */}
-            <div className="panel-card">
+            <div className="panel-card download-marks-card">
               <div className="panel-card-header">
-                <h3>Marks Preview</h3>
+                <div>
+                  <h3>Marks Preview</h3>
+                  <p className="download-marks-subtitle">Preview the scores first, then export the current view cleanly to CSV or PDF.</p>
+                </div>
     
                 {selectedAoi && marksDetail.length > 0 && (
-                  <div style={{ display: "flex", gap: "0.5rem" }}>
+                  <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", justifyContent: "flex-end" }}>
                     <button className="ghost-btn" onClick={handleDownloadCsv}>Download CSV</button>
                     <button className="primary-btn" onClick={handleDownloadPdf}>Download PDF</button>
     
@@ -3319,13 +3779,22 @@ export default function AdminDashboard() {
                 <p className="muted-text">Select a subject on the left.</p>
               ) : (
                 <>
-                  <p className="muted-text">
-                    {selectedGroup.class_level} {selectedGroup.stream} —{" "}
-                    <strong>{selectedGroup.subject}</strong> (Term {selectedGroup.term}, {selectedGroup.year})
-                  </p>
-    
+                  <div className="download-marks-preview-banner">
+                    <div>
+                      <div className="download-marks-banner-label">Current Selection</div>
+                      <div className="download-marks-banner-title">
+                        {selectedGroup.class_level} {selectedGroup.stream} — <strong>{selectedGroup.subject}</strong>
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: "0.45rem", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                      <span className="download-marks-pill download-marks-pill-soft">{selectedGroup.term}</span>
+                      <span className="download-marks-pill download-marks-pill-soft">{selectedGroup.year}</span>
+                      <span className="download-marks-pill">{selectedGroup.aois.length} AOIs</span>
+                    </div>
+                  </div>
+
                   {/* AOI CONTROLS */}
-                  <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap", marginBottom: "0.8rem" }}>
+                  <div className="download-marks-aoi-row">
     
                     {/* ALL AOIs */}
                     <button
@@ -3359,7 +3828,7 @@ export default function AdminDashboard() {
     
                     {/* INDIVIDUAL AOIs */}
                     {selectedGroup.aois.map((aoi) => (
-                      <div key={aoi.aoi_label} style={{ display: "flex", gap: "0.2rem" }}>
+                      <div key={aoi.aoi_label} className="download-marks-aoi-chip">
                         <button
                           className="ghost-btn"
                           onClick={() => {
@@ -3369,37 +3838,23 @@ export default function AdminDashboard() {
                         >
                           {aoi.aoi_label}
                         </button>
-    
+
                         <button
-                          className="danger-link"
-                          onClick={async (e) => {
+                          className="download-marks-aoi-delete"
+                          disabled={deletingAoiKey === getAoiDeleteKey(aoi)}
+                          onClick={(e) => {
                             e.stopPropagation();
-    
-                            const ok = window.confirm(
-                              `Delete AOI?\n\n${aoi.aoi_label}\n${selectedGroup.subject}`
-                            );
-                            if (!ok) return;
-    
-                            try {
-                              await adminFetch("/api/admin/marks-set", {
-                                method: "DELETE",
-                                body: {
-                                  assignmentId: aoi.assignment_id,
-                                  term: aoi.term,
-                                  year: aoi.year,
-                                  aoi: aoi.aoi_label,
-                                },
-                              });
-    
-                              await fetchMarksSets();
-                              setSelectedAoi(null);
-                              setMarksDetail([]);
-                            } catch {
-                              alert("Failed to delete AOI");
-                            }
+                            setPendingAoiDelete({
+                              aoi,
+                              subject: selectedGroup.subject,
+                              class_level: selectedGroup.class_level,
+                              stream: selectedGroup.stream,
+                            });
                           }}
+                          title={`Delete ${aoi.aoi_label}`}
+                          aria-label={`Delete ${aoi.aoi_label}`}
                         >
-                          ✕
+                          {deletingAoiKey === getAoiDeleteKey(aoi) ? "…" : "×"}
                         </button>
                       </div>
                     ))}
@@ -3410,8 +3865,8 @@ export default function AdminDashboard() {
                   ) : marksDetail.length === 0 ? (
                     <p className="muted-text">No marks loaded.</p>
                   ) : (
-                    <div className="teachers-table-wrapper">
-                      <table className="teachers-table">
+                    <div className="teachers-table-wrapper download-marks-table-shell">
+                      <table className="teachers-table download-marks-table">
                         <thead>
                           <tr>
                             <th>Name</th>
@@ -3424,11 +3879,21 @@ export default function AdminDashboard() {
                         <tbody>
                           {marksDetail.map((row, i) => (
                             <tr key={i}>
-                              <td>{row.student_name}</td>
-                              <td>{row.class_level}</td>
+                              <td>
+                                <div className="download-marks-subject-name">{row.student_name}</div>
+                              </td>
+                              <td><span className="download-marks-pill download-marks-pill-soft">{row.class_level}</span></td>
                               <td>{row.stream}</td>
-                              {selectedAoi === "ALL" && <td>{row.aoi_label}</td>}
-                              <td>{formatMarksDetailScore(row)}</td>
+                              {selectedAoi === "ALL" && (
+                                <td>
+                                  <span className="download-marks-pill">{row.aoi_label}</span>
+                                </td>
+                              )}
+                              <td>
+                                <span className="download-marks-score-chip">
+                                  {formatMarksDetailScore(row)}
+                                </span>
+                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -3439,6 +3904,83 @@ export default function AdminDashboard() {
               )}
             </div>
           </div>
+
+          {pendingAoiDelete && (
+            <div className="modal-backdrop" style={{ zIndex: 120 }}>
+              <div
+                className="modal-card"
+                style={{
+                  maxWidth: "520px",
+                  background: "linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(2, 6, 23, 0.98))",
+                  border: "1px solid rgba(248, 113, 113, 0.24)",
+                  boxShadow: "0 28px 60px rgba(2, 6, 23, 0.34)",
+                }}
+              >
+                <div
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "0.45rem",
+                    padding: "0.34rem 0.72rem",
+                    borderRadius: "999px",
+                    background: "rgba(127, 29, 29, 0.2)",
+                    border: "1px solid rgba(248, 113, 113, 0.22)",
+                    color: "#fecaca",
+                    fontSize: "0.72rem",
+                    fontWeight: 800,
+                    letterSpacing: "0.12em",
+                    textTransform: "uppercase",
+                    marginBottom: "0.9rem",
+                  }}
+                >
+                  Delete AOI
+                </div>
+
+                <h2 style={{ color: "#f8fafc", marginBottom: "0.5rem" }}>Remove This AOI?</h2>
+                <p style={{ color: "#cbd5e1", lineHeight: 1.65, marginBottom: "1rem" }}>
+                  This will remove <strong>{pendingAoiDelete.aoi?.aoi_label}</strong> for{" "}
+                  <strong>{pendingAoiDelete.subject}</strong> in{" "}
+                  <strong>{pendingAoiDelete.class_level} {pendingAoiDelete.stream}</strong> for{" "}
+                  <strong>{pendingAoiDelete.aoi?.term} {pendingAoiDelete.aoi?.year}</strong>.
+                </p>
+
+                <div
+                  className="panel-alert panel-alert-error"
+                  style={{
+                    marginBottom: "1rem",
+                    background: "rgba(127, 29, 29, 0.16)",
+                    borderColor: "rgba(248, 113, 113, 0.24)",
+                    color: "#fecaca",
+                  }}
+                >
+                  The marks for this AOI will be removed from teacher and admin views. Use this only when you are sure.
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.65rem", flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    className="ghost-btn"
+                    onClick={() => setPendingAoiDelete(null)}
+                    disabled={Boolean(deletingAoiKey)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="primary-btn"
+                    onClick={handleConfirmDeleteAoi}
+                    disabled={Boolean(deletingAoiKey)}
+                    style={{
+                      background: "linear-gradient(135deg, #991b1b, #dc2626)",
+                      borderColor: "rgba(248, 113, 113, 0.4)",
+                    }}
+                  >
+                    {deletingAoiKey ? "Deleting…" : "Delete AOI"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </section>
       );
     }
@@ -3644,10 +4186,57 @@ export default function AdminDashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {schoolCalendarForm.entries.map((entry) => (
+                    {schoolCalendarTimelineEntries.map((entry) => (
                       <tr key={entry.key}>
                         <td>{entry.label}</td>
-                        <td>{entry.status}</td>
+                        <td>
+                          <span
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              minHeight: "28px",
+                              padding: "0.24rem 0.68rem",
+                              borderRadius: "999px",
+                              fontSize: "0.72rem",
+                              fontWeight: 800,
+                              letterSpacing: "0.08em",
+                              textTransform: "uppercase",
+                              border:
+                                entry.phase === "active"
+                                  ? entry.displayStatus === "Holiday Break"
+                                    ? "1px solid rgba(245, 158, 11, 0.3)"
+                                    : "1px solid rgba(34, 197, 94, 0.28)"
+                                  : entry.phase === "upcoming"
+                                  ? "1px solid rgba(56, 189, 248, 0.26)"
+                                  : entry.phase === "completed"
+                                  ? "1px solid rgba(148, 163, 184, 0.24)"
+                                  : "1px solid rgba(148, 163, 184, 0.18)",
+                              background:
+                                entry.phase === "active"
+                                  ? entry.displayStatus === "Holiday Break"
+                                    ? "rgba(245, 158, 11, 0.12)"
+                                    : "rgba(34, 197, 94, 0.12)"
+                                  : entry.phase === "upcoming"
+                                  ? "rgba(56, 189, 248, 0.12)"
+                                  : entry.phase === "completed"
+                                  ? "rgba(148, 163, 184, 0.1)"
+                                  : "rgba(148, 163, 184, 0.08)",
+                              color:
+                                entry.phase === "active"
+                                  ? entry.displayStatus === "Holiday Break"
+                                    ? "#fef3c7"
+                                    : "#dcfce7"
+                                  : entry.phase === "upcoming"
+                                  ? "#dbeafe"
+                                  : entry.phase === "completed"
+                                  ? "#e2e8f0"
+                                  : "#cbd5e1",
+                            }}
+                          >
+                            {entry.displayStatus}
+                          </span>
+                        </td>
                         <td>{formatDateOnly(entry.from)}</td>
                         <td>{formatDateOnly(entry.to)}</td>
                       </tr>

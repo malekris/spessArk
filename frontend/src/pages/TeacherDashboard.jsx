@@ -120,6 +120,10 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
   const [isMobileTable, setIsMobileTable] = useState(
     typeof window !== "undefined" && window.matchMedia("(max-width: 900px)").matches
   );
+  const [mobileEntryMode, setMobileEntryMode] = useState(
+    typeof window !== "undefined" && window.matchMedia("(max-width: 900px)").matches ? "quick" : "table"
+  );
+  const [quickEntryIndex, setQuickEntryIndex] = useState(0);
 
   useEffect(() => {
     const mq = window.matchMedia("(orientation: portrait)");
@@ -142,6 +146,12 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
       else if (mq.removeListener) mq.removeListener(handler);
     };
   }, []);
+
+  useEffect(() => {
+    if (!isMobileTable) {
+      setMobileEntryMode("table");
+    }
+  }, [isMobileTable]);
 
   useEffect(() => {
     const html = document.documentElement;
@@ -1425,6 +1435,36 @@ useEffect(() => {
         { filled: 0, missed: 0, blank: 0 }
       )
     : { filled: 0, missed: 0, blank: 0 };
+  const quickEntryLearner = students[quickEntryIndex] || null;
+  const quickEntryColumn = activeFocusColumn;
+  const quickEntryStatus = quickEntryLearner
+    ? studentStatus[quickEntryLearner.id]?.[quickEntryColumn] ?? "Present"
+    : "Present";
+  const quickEntryValue = quickEntryLearner
+    ? studentMarks[quickEntryLearner.id]?.[quickEntryColumn]
+    : "";
+  const quickEntryErrorKey = quickEntryLearner && quickEntryColumn ? `${quickEntryLearner.id}_${quickEntryColumn}` : "";
+  const quickEntryError = quickEntryErrorKey ? markErrors[quickEntryErrorKey] : "";
+  const quickEntryLimits = getScoreConstraints(selectedAssignment?.isAlevel === true, quickEntryColumn);
+  const quickEntryLocked = quickEntryColumn ? lockedCurrentComponents.has(quickEntryColumn) : false;
+  const quickEntryProgressText = quickEntryLearner ? `${quickEntryIndex + 1} of ${students.length}` : "0 of 0";
+  const findNextBlankLearnerIndex = (startIndex, column) => {
+    if (!students.length || !column) return -1;
+    for (let step = 1; step <= students.length; step += 1) {
+      const index = (startIndex + step) % students.length;
+      const learner = students[index];
+      const status = studentStatus[learner.id]?.[column] ?? "Present";
+      const score = studentMarks[learner.id]?.[column];
+      const hasScore = score !== undefined && score !== null && score !== "" && score !== "Missed";
+      if (status !== "Missed" && !hasScore) {
+        return index;
+      }
+    }
+    return -1;
+  };
+  const nextBlankQuickEntryIndex = quickEntryColumn
+    ? findNextBlankLearnerIndex(quickEntryIndex, quickEntryColumn)
+    : -1;
   const settingsLabelStyle = {
     color: "#334155",
     fontWeight: 800,
@@ -1494,6 +1534,18 @@ useEffect(() => {
       setFocusedColumn(allAssignableColumns[0]);
     }
   }, [selectedAssignment?.id, focusedColumn, marksTerm, allAssignableColumns]);
+
+  useEffect(() => {
+    setQuickEntryIndex(0);
+  }, [selectedAssignment?.id, marksTerm, marksYear]);
+
+  useEffect(() => {
+    if (!students.length) {
+      setQuickEntryIndex(0);
+      return;
+    }
+    setQuickEntryIndex((previous) => Math.min(previous, students.length - 1));
+  }, [students.length]);
 
   // ============================
   // RENDER
@@ -2375,6 +2427,78 @@ useEffect(() => {
                 </button>
               </div>
 
+              {isMobileTable && (
+                <div
+                  style={{
+                    marginBottom: "0.9rem",
+                    padding: "0.9rem 1rem",
+                    borderRadius: "18px",
+                    border: "1px solid rgba(125, 211, 252, 0.18)",
+                    background: "linear-gradient(135deg, rgba(8, 47, 73, 0.16), rgba(15, 23, 42, 0.88))",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: "0.8rem",
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <div>
+                      <div style={{ color: "#7dd3fc", fontSize: "0.72rem", fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase" }}>
+                        Mobile Marks Entry
+                      </div>
+                      <div style={{ color: "#e2e8f0", marginTop: "0.24rem", lineHeight: 1.5 }}>
+                        Quick Entry gives one learner at a time for faster mobile capture. Table Mode remains available below it.
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        display: "inline-flex",
+                        gap: "0.35rem",
+                        padding: "0.32rem",
+                        borderRadius: "999px",
+                        background: "rgba(15, 23, 42, 0.88)",
+                        border: "1px solid rgba(148, 163, 184, 0.2)",
+                      }}
+                    >
+                      {[
+                        { id: "quick", label: "Quick Entry" },
+                        { id: "table", label: "Table Mode" },
+                      ].map((mode) => {
+                        const active = mobileEntryMode === mode.id;
+                        return (
+                          <button
+                            key={mode.id}
+                            type="button"
+                            onClick={() => setMobileEntryMode(mode.id)}
+                            style={{
+                              border: "none",
+                              borderRadius: "999px",
+                              padding: "0.58rem 0.95rem",
+                              fontWeight: 800,
+                              letterSpacing: "0.06em",
+                              textTransform: "uppercase",
+                              cursor: "pointer",
+                              background: active
+                                ? "linear-gradient(135deg, rgba(56, 189, 248, 0.28), rgba(14, 165, 233, 0.18))"
+                                : "transparent",
+                              color: active ? "#e0f2fe" : "#94a3b8",
+                              boxShadow: active ? "0 10px 24px rgba(2, 132, 199, 0.18)" : "none",
+                            }}
+                          >
+                            {mode.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div
                 style={{
                   display: "grid",
@@ -2410,327 +2534,586 @@ useEffect(() => {
                 ))}
               </div>
 
-              <div
-                className="teachers-table-wrapper"
-                style={{ maxWidth: "100%", maxHeight: "62vh", overflowX: "auto", overflowY: "auto", WebkitOverflowScrolling: "touch" }}
-              >
-                <table className="teachers-table" style={{ minWidth: `${learnersTableMinWidth}px` }}>
-                  <thead>
-                    <tr>
-                      <th
+              {isMobileTable && mobileEntryMode === "quick" ? (
+                <div
+                  style={{
+                    display: "grid",
+                    gap: "0.9rem",
+                    marginBottom: "0.2rem",
+                  }}
+                >
+                  <div
+                    style={{
+                      borderRadius: "18px",
+                      border: "1px solid rgba(125, 211, 252, 0.18)",
+                      background: "linear-gradient(135deg, rgba(15, 23, 42, 0.92), rgba(2, 6, 23, 0.95))",
+                      padding: "0.95rem 1rem",
+                    }}
+                  >
+                    <div style={{ color: "#7dd3fc", fontSize: "0.72rem", fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase" }}>
+                      Quick Entry Mode
+                    </div>
+                    <div style={{ color: "#e2e8f0", marginTop: "0.28rem", lineHeight: 1.55 }}>
+                      Choose the score column first, then move learner by learner without fighting the full table.
+                    </div>
+
+                    <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginTop: "0.9rem" }}>
+                      {allAssignableColumns.map((column) => {
+                        const isLocked = lockedCurrentComponents.has(column);
+                        const active = quickEntryColumn === column;
+                        return (
+                          <button
+                            key={column}
+                            type="button"
+                            onClick={() => setFocusedColumn(column)}
+                            style={{
+                              borderRadius: "999px",
+                              border: isLocked
+                                ? "1px solid rgba(248, 113, 113, 0.28)"
+                                : active
+                                ? "1px solid rgba(125, 211, 252, 0.32)"
+                                : "1px solid rgba(148, 163, 184, 0.22)",
+                              background: isLocked
+                                ? "rgba(127, 29, 29, 0.18)"
+                                : active
+                                ? "linear-gradient(135deg, rgba(56, 189, 248, 0.24), rgba(14, 165, 233, 0.14))"
+                                : "rgba(255,255,255,0.04)",
+                              color: isLocked ? "#fecaca" : active ? "#e0f2fe" : "#cbd5e1",
+                              padding: "0.58rem 0.9rem",
+                              fontWeight: 800,
+                              letterSpacing: "0.08em",
+                              textTransform: "uppercase",
+                              cursor: "pointer",
+                            }}
+                          >
+                            {formatColumnLabel(column)}{isLocked ? " 🔒" : ""}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {quickEntryLearner ? (
+                    <div
+                      style={{
+                        borderRadius: "24px",
+                        border: quickEntryLocked
+                          ? "1px solid rgba(248, 113, 113, 0.24)"
+                          : "1px solid rgba(56, 189, 248, 0.22)",
+                        background: quickEntryLocked
+                          ? "linear-gradient(180deg, rgba(69, 10, 10, 0.26), rgba(15, 23, 42, 0.96))"
+                          : "linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(2, 6, 23, 0.98))",
+                        boxShadow: "0 20px 42px rgba(2, 6, 23, 0.28)",
+                        padding: "1rem",
+                      }}
+                    >
+                      <div
                         style={{
-                          ...(isMobileTable
-                            ? {
-                                position: "sticky",
-                                left: 0,
-                                zIndex: 8,
-                                minWidth: "84px",
-                                maxWidth: "84px",
-                                background: "#0f172a",
-                                borderRight: "1px solid rgba(148, 163, 184, 0.24)",
-                              }
-                            : {
-                                position: "sticky",
-                                left: 0,
-                                zIndex: 8,
-                                minWidth: `${learnerColWidth}px`,
-                                maxWidth: `${learnerColWidth}px`,
-                                background: "#0f172a",
-                                borderRight: "1px solid rgba(148, 163, 184, 0.24)",
-                              }),
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          gap: "0.8rem",
+                          flexWrap: "wrap",
+                          marginBottom: "0.95rem",
                         }}
                       >
-                        Learner
-                      </th>
-                      <th
-                        style={{
-                          ...(isMobileTable
-                            ? {
-                                minWidth: "78px",
-                                maxWidth: "78px",
-                              }
-                            : {
-                                minWidth: `${genderColWidth}px`,
-                                maxWidth: `${genderColWidth}px`,
-                              }),
-                        }}
-                      >
-                        Gender
-                      </th>
-                      {renderAoiColumns.map((c) => (
-                        (() => {
-                          const isColumnLocked = lockedCurrentComponents.has(c);
-                          return (
-                            <th
-                              key={c}
-                              onClick={() => setFocusedColumn(c)}
-                              style={{
-                                cursor: "pointer",
-                                background: isColumnLocked
-                                  ? "linear-gradient(180deg, rgba(127, 29, 29, 0.3), rgba(69, 10, 10, 0.18))"
-                                  : activeFocusColumn === c
-                                  ? "linear-gradient(180deg, rgba(14, 165, 233, 0.26), rgba(56, 189, 248, 0.14))"
-                                  : undefined,
-                                color: isColumnLocked ? "#fecaca" : activeFocusColumn === c ? "#e0f2fe" : undefined,
-                                boxShadow: activeFocusColumn === c
-                                  ? "inset 0 0 0 1px rgba(125, 211, 252, 0.3)"
-                                  : isColumnLocked
-                                  ? "inset 0 0 0 1px rgba(248, 113, 113, 0.18)"
-                                  : undefined,
-                                borderBottom: activeFocusColumn === c
-                                  ? "2px solid rgba(125, 211, 252, 0.8)"
-                                  : isColumnLocked
-                                  ? "2px solid rgba(248, 113, 113, 0.65)"
-                                  : undefined,
-                              }}
-                              title={isColumnLocked ? `${formatColumnLabel(c)} is locked for this term.` : undefined}
-                            >
-                              {formatColumnLabel(c)}{isColumnLocked ? " 🔒" : ""}
-                            </th>
-                          );
-                        })()
-                      ))}
-                      <th>Avg</th>
-                      {hasExam80Column && (
-                        (() => {
-                          const isExam80Locked = lockedCurrentComponents.has("EXAM80");
-                          return (
-                            <th
-                              onClick={() => setFocusedColumn("EXAM80")}
-                              style={{
-                                cursor: "pointer",
-                                background: isExam80Locked
-                                  ? "linear-gradient(180deg, rgba(127, 29, 29, 0.3), rgba(69, 10, 10, 0.18))"
-                                  : activeFocusColumn === "EXAM80"
-                                  ? "linear-gradient(180deg, rgba(14, 165, 233, 0.26), rgba(56, 189, 248, 0.14))"
-                                  : undefined,
-                                color: isExam80Locked
-                                  ? "#fecaca"
-                                  : activeFocusColumn === "EXAM80"
-                                  ? "#e0f2fe"
-                                  : undefined,
-                                boxShadow: activeFocusColumn === "EXAM80"
-                                  ? "inset 0 0 0 1px rgba(125, 211, 252, 0.3)"
-                                  : isExam80Locked
-                                  ? "inset 0 0 0 1px rgba(248, 113, 113, 0.18)"
-                                  : undefined,
-                                borderBottom: activeFocusColumn === "EXAM80"
-                                  ? "2px solid rgba(125, 211, 252, 0.8)"
-                                  : isExam80Locked
-                                  ? "2px solid rgba(248, 113, 113, 0.65)"
-                                  : undefined,
-                              }}
-                              title={isExam80Locked ? "/80 is locked for this term." : undefined}
-                            >
-                              /80{isExam80Locked ? " 🔒" : ""}
-                            </th>
-                          );
-                        })()
+                        <div>
+                          <div style={{ color: "#7dd3fc", fontSize: "0.72rem", fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase" }}>
+                            {formatColumnLabel(quickEntryColumn)} • {quickEntryProgressText}
+                          </div>
+                          <div style={{ color: "#f8fafc", fontSize: "1.18rem", fontWeight: 900, marginTop: "0.25rem" }}>
+                            {quickEntryLearner.name}
+                          </div>
+                          <div style={{ color: "#cbd5e1", marginTop: "0.22rem" }}>
+                            {quickEntryLearner.gender} • Average {calculateAverage(studentMarks[quickEntryLearner.id], averageColumns)}
+                          </div>
+                        </div>
+
+                        <div
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            padding: "0.38rem 0.78rem",
+                            borderRadius: "999px",
+                            border: "1px solid rgba(148, 163, 184, 0.22)",
+                            background: "rgba(255,255,255,0.05)",
+                            color: "#cbd5e1",
+                            fontSize: "0.76rem",
+                            fontWeight: 800,
+                            letterSpacing: "0.08em",
+                            textTransform: "uppercase",
+                          }}
+                        >
+                          Range {quickEntryLimits.min} - {quickEntryLimits.max}
+                        </div>
+                      </div>
+
+                      {quickEntryLocked && (
+                        <div
+                          className="panel-alert panel-alert-error"
+                          style={{
+                            marginBottom: "0.9rem",
+                            background: "rgba(127, 29, 29, 0.18)",
+                            borderColor: "rgba(248, 113, 113, 0.32)",
+                            color: "#fecaca",
+                          }}
+                        >
+                          {formatColumnLabel(quickEntryColumn)} is locked by admin for this term. You can still review learners here, but you cannot edit this component.
+                        </div>
                       )}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {students.map((s, rowIndex) => {
-                      const marksForS = studentMarks[s.id] || {};
-                      const statusForS = studentStatus[s.id] || {};
-                      const stickyRowBg = "#0f172a";
 
-                      return (
-                        <tr key={s.id}>
-                          <td
-                            style={{
-                              ...(isMobileTable
-                                ? {
-                                    position: "sticky",
-                                    left: 0,
-                                    zIndex: 4,
-                                    minWidth: "84px",
-                                    maxWidth: "84px",
-                                    background: stickyRowBg,
-                                    borderRight: "1px solid rgba(148, 163, 184, 0.22)",
-                                  }
-                                : {
-                                    position: "sticky",
-                                    left: 0,
-                                    zIndex: 4,
-                                    minWidth: `${learnerColWidth}px`,
-                                    maxWidth: `${learnerColWidth}px`,
-                                    background: stickyRowBg,
-                                    borderRight: "1px solid rgba(148, 163, 184, 0.22)",
-                                  }),
-                            }}
-                          >
-                            {s.name}
-                          </td>
-                          <td
-                            style={{
-                              ...(isMobileTable
-                                ? {
-                                    minWidth: "78px",
-                                    maxWidth: "78px",
-                                  }
-                                : {
-                                    minWidth: `${genderColWidth}px`,
-                                    maxWidth: `${genderColWidth}px`,
-                                  }),
-                            }}
-                          >
-                            {s.gender}
-                          </td>
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "1fr 1fr",
+                          gap: "0.55rem",
+                          marginBottom: "0.95rem",
+                        }}
+                      >
+                        {["Present", "Missed"].map((option) => {
+                          const active = quickEntryStatus === option;
+                          return (
+                            <button
+                              key={option}
+                              type="button"
+                              disabled={quickEntryLocked}
+                              onClick={() => setAOIStatus(quickEntryLearner.id, quickEntryColumn, option)}
+                              style={{
+                                borderRadius: "16px",
+                                border: active
+                                  ? option === "Missed"
+                                    ? "1px solid rgba(248, 113, 113, 0.4)"
+                                    : "1px solid rgba(74, 222, 128, 0.34)"
+                                  : "1px solid rgba(148, 163, 184, 0.2)",
+                                background: active
+                                  ? option === "Missed"
+                                    ? "linear-gradient(135deg, rgba(127, 29, 29, 0.26), rgba(69, 10, 10, 0.16))"
+                                    : "linear-gradient(135deg, rgba(22, 163, 74, 0.22), rgba(15, 118, 110, 0.14))"
+                                  : "rgba(255,255,255,0.04)",
+                                color: active ? "#f8fafc" : "#cbd5e1",
+                                padding: "0.85rem 0.75rem",
+                                fontWeight: 800,
+                                letterSpacing: "0.08em",
+                                textTransform: "uppercase",
+                                cursor: quickEntryLocked ? "not-allowed" : "pointer",
+                                opacity: quickEntryLocked ? 0.65 : 1,
+                              }}
+                            >
+                              {option}
+                            </button>
+                          );
+                        })}
+                      </div>
 
-                          {renderAoiColumns.map((aoi) => {
-                            const status = statusForS[aoi] ?? "Present";
-                            const value = marksForS[aoi];
-                            const errorKey = `${s.id}_${aoi}`;
-                            const limits = getScoreConstraints(selectedAssignment?.isAlevel === true, aoi);
-                            const isAoiLocked = lockedCurrentComponents.has(aoi);
+                      <div style={{ display: "grid", gap: "0.45rem", marginBottom: "0.95rem" }}>
+                        <div style={{ color: "#94a3b8", fontSize: "0.76rem", fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                          Enter Score
+                        </div>
+                        <input
+                          type="number"
+                          min={quickEntryLimits.min}
+                          max={quickEntryLimits.max}
+                          step={quickEntryLimits.step}
+                          disabled={quickEntryStatus === "Missed" || quickEntryLocked}
+                          value={quickEntryValue === undefined || quickEntryValue === null || quickEntryValue === "Missed" ? "" : quickEntryValue}
+                          onChange={(e) => setAOIScore(quickEntryLearner.id, quickEntryColumn, e.target.value)}
+                          style={{
+                            width: "100%",
+                            minHeight: "72px",
+                            borderRadius: "18px",
+                            padding: "0.95rem 1rem",
+                            fontSize: "1.55rem",
+                            fontWeight: 900,
+                            border: quickEntryError
+                              ? "2px solid #dc2626"
+                              : "1px solid rgba(56, 189, 248, 0.22)",
+                            background: quickEntryLocked
+                              ? "rgba(248, 113, 113, 0.08)"
+                              : "linear-gradient(180deg, rgba(15, 23, 42, 0.86), rgba(8, 47, 73, 0.28))",
+                            color: "#f8fafc",
+                          }}
+                        />
+                        {quickEntryError ? (
+                          <div style={{ color: "#fecaca", fontSize: "0.84rem", lineHeight: 1.5 }}>{quickEntryError}</div>
+                        ) : quickEntryStatus === "Missed" ? (
+                          <div style={{ color: "#fecaca", fontSize: "0.84rem", lineHeight: 1.5 }}>
+                            This learner is marked missed for {formatColumnLabel(quickEntryColumn)}.
+                          </div>
+                        ) : (
+                          <div style={{ color: "#94a3b8", fontSize: "0.82rem", lineHeight: 1.5 }}>
+                            Enter the score, then move to the next learner. Final save still happens when you press <strong>Save Marks</strong>.
+                          </div>
+                        )}
+                      </div>
 
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "1fr 1fr",
+                          gap: "0.6rem",
+                        }}
+                      >
+                        <button
+                          type="button"
+                          className="ghost-btn"
+                          onClick={() => setQuickEntryIndex((previous) => Math.max(0, previous - 1))}
+                          disabled={quickEntryIndex <= 0}
+                          style={{ width: "100%" }}
+                        >
+                          Previous
+                        </button>
+                        <button
+                          type="button"
+                          className="ghost-btn"
+                          onClick={() => setQuickEntryIndex((previous) => Math.min(students.length - 1, previous + 1))}
+                          disabled={quickEntryIndex >= students.length - 1}
+                          style={{ width: "100%" }}
+                        >
+                          Next
+                        </button>
+                        <button
+                          type="button"
+                          className="secondary-btn"
+                          onClick={() => {
+                            if (nextBlankQuickEntryIndex >= 0) setQuickEntryIndex(nextBlankQuickEntryIndex);
+                          }}
+                          disabled={nextBlankQuickEntryIndex < 0}
+                          style={{ width: "100%", gridColumn: "1 / -1" }}
+                        >
+                          {nextBlankQuickEntryIndex >= 0
+                            ? `Jump To Next Blank ${formatColumnLabel(quickEntryColumn)}`
+                            : `All ${formatColumnLabel(quickEntryColumn)} entries reviewed`}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="panel-alert">No learners loaded for this assignment yet.</div>
+                  )}
+                </div>
+              ) : (
+                <div
+                  className="teachers-table-wrapper"
+                  style={{ maxWidth: "100%", maxHeight: "62vh", overflowX: "auto", overflowY: "auto", WebkitOverflowScrolling: "touch" }}
+                >
+                  <table className="teachers-table" style={{ minWidth: `${learnersTableMinWidth}px` }}>
+                    <thead>
+                      <tr>
+                        <th
+                          style={{
+                            ...(isMobileTable
+                              ? {
+                                  position: "sticky",
+                                  left: 0,
+                                  zIndex: 8,
+                                  minWidth: "84px",
+                                  maxWidth: "84px",
+                                  background: "#0f172a",
+                                  borderRight: "1px solid rgba(148, 163, 184, 0.24)",
+                                }
+                              : {
+                                  position: "sticky",
+                                  left: 0,
+                                  zIndex: 8,
+                                  minWidth: `${learnerColWidth}px`,
+                                  maxWidth: `${learnerColWidth}px`,
+                                  background: "#0f172a",
+                                  borderRight: "1px solid rgba(148, 163, 184, 0.24)",
+                                }),
+                          }}
+                        >
+                          Learner
+                        </th>
+                        <th
+                          style={{
+                            ...(isMobileTable
+                              ? {
+                                  minWidth: "78px",
+                                  maxWidth: "78px",
+                                }
+                              : {
+                                  minWidth: `${genderColWidth}px`,
+                                  maxWidth: `${genderColWidth}px`,
+                                }),
+                          }}
+                        >
+                          Gender
+                        </th>
+                        {renderAoiColumns.map((c) => (
+                          (() => {
+                            const isColumnLocked = lockedCurrentComponents.has(c);
                             return (
-                              <td
-                                key={aoi}
+                              <th
+                                key={c}
+                                onClick={() => setFocusedColumn(c)}
                                 style={{
-                                  background: isAoiLocked
-                                    ? "linear-gradient(180deg, rgba(127, 29, 29, 0.18), rgba(69, 10, 10, 0.08))"
-                                    : activeFocusColumn === aoi
-                                    ? "linear-gradient(180deg, rgba(56, 189, 248, 0.12), rgba(14, 165, 233, 0.04))"
+                                  cursor: "pointer",
+                                  background: isColumnLocked
+                                    ? "linear-gradient(180deg, rgba(127, 29, 29, 0.3), rgba(69, 10, 10, 0.18))"
+                                    : activeFocusColumn === c
+                                    ? "linear-gradient(180deg, rgba(14, 165, 233, 0.26), rgba(56, 189, 248, 0.14))"
                                     : undefined,
-                                  boxShadow: isAoiLocked
-                                    ? "inset 0 0 0 1px rgba(248, 113, 113, 0.14)"
-                                    : activeFocusColumn === aoi
-                                    ? "inset 0 0 0 1px rgba(125, 211, 252, 0.2)"
+                                  color: isColumnLocked ? "#fecaca" : activeFocusColumn === c ? "#e0f2fe" : undefined,
+                                  boxShadow: activeFocusColumn === c
+                                    ? "inset 0 0 0 1px rgba(125, 211, 252, 0.3)"
+                                    : isColumnLocked
+                                    ? "inset 0 0 0 1px rgba(248, 113, 113, 0.18)"
+                                    : undefined,
+                                  borderBottom: activeFocusColumn === c
+                                    ? "2px solid rgba(125, 211, 252, 0.8)"
+                                    : isColumnLocked
+                                    ? "2px solid rgba(248, 113, 113, 0.65)"
                                     : undefined,
                                 }}
+                                title={isColumnLocked ? `${formatColumnLabel(c)} is locked for this term.` : undefined}
                               >
-                                <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", whiteSpace: "nowrap" }}>
-                                  <select
-                                    value={status}
-                                    disabled={isAoiLocked}
-                                    onFocus={() => setFocusedColumn(aoi)}
-                                    onChange={(e) => setAOIStatus(s.id, aoi, e.target.value)}
-                                    style={{
-                                      width: "70px",
-                                      opacity: isAoiLocked ? 0.75 : 1,
-                                      cursor: isAoiLocked ? "not-allowed" : "pointer",
-                                    }}
-                                  >
-                                    <option>Present</option>
-                                    <option>Missed</option>
-                                  </select>
-
-                                  <input
-                                    type="number"
-                                    min={limits.min}
-                                    max={limits.max}
-                                    step={limits.step}
-                                    disabled={status === "Missed" || isAoiLocked}
-                                    value={value === undefined || value === null ? "" : (value === "Missed" ? "" : value)}
-                                    onFocus={() => setFocusedColumn(aoi)}
-                                    onChange={(e) => setAOIScore(s.id, aoi, e.target.value)}
-                                    style={{
-                                      width: "46px",
-                                      border: markErrors[errorKey] ? "2px solid #dc2626" : undefined,
-                                      backgroundColor: markErrors[errorKey]
-                                        ? "#fff5f5"
-                                        : isAoiLocked
-                                        ? "rgba(248, 113, 113, 0.08)"
-                                        : undefined,
-                                      opacity: isAoiLocked ? 0.75 : 1,
-                                      cursor: isAoiLocked ? "not-allowed" : "text",
-                                    }}
-                                  />
-                                </div>
-
-                                {isAoiLocked && (
-                                  <div style={{ color: "#fecaca", fontSize: "0.72rem", marginTop: "0.2rem" }}>
-                                    Locked
-                                  </div>
-                                )}
-                                {markErrors[errorKey] && (
-                                  <div style={{ color: "#fecaca", fontSize: "0.75rem", marginTop: "0.2rem" }}>{markErrors[errorKey]}</div>
-                                )}
-                              </td>
+                                {formatColumnLabel(c)}{isColumnLocked ? " 🔒" : ""}
+                              </th>
                             );
-                          })}
-
-                          <td>{calculateAverage(studentMarks[s.id], averageColumns)}</td>
-                          {hasExam80Column && (() => {
-                            const aoi = "EXAM80";
-                            const status = statusForS[aoi] ?? "Present";
-                            const value = marksForS[aoi];
-                            const errorKey = `${s.id}_${aoi}`;
-                            const limits = getScoreConstraints(false, aoi);
+                          })()
+                        ))}
+                        <th>Avg</th>
+                        {hasExam80Column && (
+                          (() => {
                             const isExam80Locked = lockedCurrentComponents.has("EXAM80");
                             return (
-                              <td
+                              <th
+                                onClick={() => setFocusedColumn("EXAM80")}
                                 style={{
+                                  cursor: "pointer",
                                   background: isExam80Locked
-                                    ? "linear-gradient(180deg, rgba(127, 29, 29, 0.18), rgba(69, 10, 10, 0.08))"
+                                    ? "linear-gradient(180deg, rgba(127, 29, 29, 0.3), rgba(69, 10, 10, 0.18))"
                                     : activeFocusColumn === "EXAM80"
-                                    ? "linear-gradient(180deg, rgba(56, 189, 248, 0.12), rgba(14, 165, 233, 0.04))"
+                                    ? "linear-gradient(180deg, rgba(14, 165, 233, 0.26), rgba(56, 189, 248, 0.14))"
                                     : undefined,
-                                  boxShadow: isExam80Locked
-                                    ? "inset 0 0 0 1px rgba(248, 113, 113, 0.14)"
+                                  color: isExam80Locked
+                                    ? "#fecaca"
                                     : activeFocusColumn === "EXAM80"
-                                    ? "inset 0 0 0 1px rgba(125, 211, 252, 0.2)"
+                                    ? "#e0f2fe"
+                                    : undefined,
+                                  boxShadow: activeFocusColumn === "EXAM80"
+                                    ? "inset 0 0 0 1px rgba(125, 211, 252, 0.3)"
+                                    : isExam80Locked
+                                    ? "inset 0 0 0 1px rgba(248, 113, 113, 0.18)"
+                                    : undefined,
+                                  borderBottom: activeFocusColumn === "EXAM80"
+                                    ? "2px solid rgba(125, 211, 252, 0.8)"
+                                    : isExam80Locked
+                                    ? "2px solid rgba(248, 113, 113, 0.65)"
                                     : undefined,
                                 }}
+                                title={isExam80Locked ? "/80 is locked for this term." : undefined}
                               >
-                                <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", whiteSpace: "nowrap" }}>
-                                  <select
-                                    value={status}
-                                    disabled={isExam80Locked}
-                                    onFocus={() => setFocusedColumn("EXAM80")}
-                                    onChange={(e) => setAOIStatus(s.id, aoi, e.target.value)}
-                                    style={{
-                                      width: "70px",
-                                      opacity: isExam80Locked ? 0.75 : 1,
-                                      cursor: isExam80Locked ? "not-allowed" : "pointer",
-                                    }}
-                                  >
-                                    <option>Present</option>
-                                    <option>Missed</option>
-                                  </select>
-
-                                  <input
-                                    type="number"
-                                    min={limits.min}
-                                    max={limits.max}
-                                    step={limits.step}
-                                    disabled={status === "Missed" || isExam80Locked}
-                                    value={value === undefined || value === null ? "" : (value === "Missed" ? "" : value)}
-                                    onFocus={() => setFocusedColumn("EXAM80")}
-                                    onChange={(e) => setAOIScore(s.id, aoi, e.target.value)}
-                                    style={{
-                                      width: "46px",
-                                      border: markErrors[errorKey] ? "2px solid #dc2626" : undefined,
-                                      backgroundColor: markErrors[errorKey]
-                                        ? "#fff5f5"
-                                        : isExam80Locked
-                                        ? "rgba(248, 113, 113, 0.08)"
-                                        : undefined,
-                                      opacity: isExam80Locked ? 0.75 : 1,
-                                      cursor: isExam80Locked ? "not-allowed" : "text",
-                                    }}
-                                  />
-                                </div>
-
-                                {isExam80Locked && (
-                                  <div style={{ color: "#fecaca", fontSize: "0.72rem", marginTop: "0.2rem" }}>
-                                    Locked
-                                  </div>
-                                )}
-                                {markErrors[errorKey] && (
-                                  <div style={{ color: "#fecaca", fontSize: "0.75rem", marginTop: "0.2rem" }}>{markErrors[errorKey]}</div>
-                                )}
-                              </td>
+                                /80{isExam80Locked ? " 🔒" : ""}
+                              </th>
                             );
-                          })()}
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                          })()
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {students.map((s) => {
+                        const marksForS = studentMarks[s.id] || {};
+                        const statusForS = studentStatus[s.id] || {};
+                        const stickyRowBg = "#0f172a";
+
+                        return (
+                          <tr key={s.id}>
+                            <td
+                              style={{
+                                ...(isMobileTable
+                                  ? {
+                                      position: "sticky",
+                                      left: 0,
+                                      zIndex: 4,
+                                      minWidth: "84px",
+                                      maxWidth: "84px",
+                                      background: stickyRowBg,
+                                      borderRight: "1px solid rgba(148, 163, 184, 0.22)",
+                                    }
+                                  : {
+                                      position: "sticky",
+                                      left: 0,
+                                      zIndex: 4,
+                                      minWidth: `${learnerColWidth}px`,
+                                      maxWidth: `${learnerColWidth}px`,
+                                      background: stickyRowBg,
+                                      borderRight: "1px solid rgba(148, 163, 184, 0.22)",
+                                    }),
+                              }}
+                            >
+                              {s.name}
+                            </td>
+                            <td
+                              style={{
+                                ...(isMobileTable
+                                  ? {
+                                      minWidth: "78px",
+                                      maxWidth: "78px",
+                                    }
+                                  : {
+                                      minWidth: `${genderColWidth}px`,
+                                      maxWidth: `${genderColWidth}px`,
+                                    }),
+                              }}
+                            >
+                              {s.gender}
+                            </td>
+
+                            {renderAoiColumns.map((aoi) => {
+                              const status = statusForS[aoi] ?? "Present";
+                              const value = marksForS[aoi];
+                              const errorKey = `${s.id}_${aoi}`;
+                              const limits = getScoreConstraints(selectedAssignment?.isAlevel === true, aoi);
+                              const isAoiLocked = lockedCurrentComponents.has(aoi);
+
+                              return (
+                                <td
+                                  key={aoi}
+                                  style={{
+                                    background: isAoiLocked
+                                      ? "linear-gradient(180deg, rgba(127, 29, 29, 0.18), rgba(69, 10, 10, 0.08))"
+                                      : activeFocusColumn === aoi
+                                      ? "linear-gradient(180deg, rgba(56, 189, 248, 0.12), rgba(14, 165, 233, 0.04))"
+                                      : undefined,
+                                    boxShadow: isAoiLocked
+                                      ? "inset 0 0 0 1px rgba(248, 113, 113, 0.14)"
+                                      : activeFocusColumn === aoi
+                                      ? "inset 0 0 0 1px rgba(125, 211, 252, 0.2)"
+                                      : undefined,
+                                  }}
+                                >
+                                  <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", whiteSpace: "nowrap" }}>
+                                    <select
+                                      value={status}
+                                      disabled={isAoiLocked}
+                                      onFocus={() => setFocusedColumn(aoi)}
+                                      onChange={(e) => setAOIStatus(s.id, aoi, e.target.value)}
+                                      style={{
+                                        width: "70px",
+                                        opacity: isAoiLocked ? 0.75 : 1,
+                                        cursor: isAoiLocked ? "not-allowed" : "pointer",
+                                      }}
+                                    >
+                                      <option>Present</option>
+                                      <option>Missed</option>
+                                    </select>
+
+                                    <input
+                                      type="number"
+                                      min={limits.min}
+                                      max={limits.max}
+                                      step={limits.step}
+                                      disabled={status === "Missed" || isAoiLocked}
+                                      value={value === undefined || value === null ? "" : (value === "Missed" ? "" : value)}
+                                      onFocus={() => setFocusedColumn(aoi)}
+                                      onChange={(e) => setAOIScore(s.id, aoi, e.target.value)}
+                                      style={{
+                                        width: "46px",
+                                        border: markErrors[errorKey] ? "2px solid #dc2626" : undefined,
+                                        backgroundColor: markErrors[errorKey]
+                                          ? "#fff5f5"
+                                          : isAoiLocked
+                                          ? "rgba(248, 113, 113, 0.08)"
+                                          : undefined,
+                                        opacity: isAoiLocked ? 0.75 : 1,
+                                        cursor: isAoiLocked ? "not-allowed" : "text",
+                                      }}
+                                    />
+                                  </div>
+
+                                  {isAoiLocked && (
+                                    <div style={{ color: "#fecaca", fontSize: "0.72rem", marginTop: "0.2rem" }}>
+                                      Locked
+                                    </div>
+                                  )}
+                                  {markErrors[errorKey] && (
+                                    <div style={{ color: "#fecaca", fontSize: "0.75rem", marginTop: "0.2rem" }}>{markErrors[errorKey]}</div>
+                                  )}
+                                </td>
+                              );
+                            })}
+
+                            <td>{calculateAverage(studentMarks[s.id], averageColumns)}</td>
+                            {hasExam80Column && (() => {
+                              const aoi = "EXAM80";
+                              const status = statusForS[aoi] ?? "Present";
+                              const value = marksForS[aoi];
+                              const errorKey = `${s.id}_${aoi}`;
+                              const limits = getScoreConstraints(false, aoi);
+                              const isExam80Locked = lockedCurrentComponents.has("EXAM80");
+                              return (
+                                <td
+                                  style={{
+                                    background: isExam80Locked
+                                      ? "linear-gradient(180deg, rgba(127, 29, 29, 0.18), rgba(69, 10, 10, 0.08))"
+                                      : activeFocusColumn === "EXAM80"
+                                      ? "linear-gradient(180deg, rgba(56, 189, 248, 0.12), rgba(14, 165, 233, 0.04))"
+                                      : undefined,
+                                    boxShadow: isExam80Locked
+                                      ? "inset 0 0 0 1px rgba(248, 113, 113, 0.14)"
+                                      : activeFocusColumn === "EXAM80"
+                                      ? "inset 0 0 0 1px rgba(125, 211, 252, 0.2)"
+                                      : undefined,
+                                  }}
+                                >
+                                  <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", whiteSpace: "nowrap" }}>
+                                    <select
+                                      value={status}
+                                      disabled={isExam80Locked}
+                                      onFocus={() => setFocusedColumn("EXAM80")}
+                                      onChange={(e) => setAOIStatus(s.id, aoi, e.target.value)}
+                                      style={{
+                                        width: "70px",
+                                        opacity: isExam80Locked ? 0.75 : 1,
+                                        cursor: isExam80Locked ? "not-allowed" : "pointer",
+                                      }}
+                                    >
+                                      <option>Present</option>
+                                      <option>Missed</option>
+                                    </select>
+
+                                    <input
+                                      type="number"
+                                      min={limits.min}
+                                      max={limits.max}
+                                      step={limits.step}
+                                      disabled={status === "Missed" || isExam80Locked}
+                                      value={value === undefined || value === null ? "" : (value === "Missed" ? "" : value)}
+                                      onFocus={() => setFocusedColumn("EXAM80")}
+                                      onChange={(e) => setAOIScore(s.id, aoi, e.target.value)}
+                                      style={{
+                                        width: "46px",
+                                        border: markErrors[errorKey] ? "2px solid #dc2626" : undefined,
+                                        backgroundColor: markErrors[errorKey]
+                                          ? "#fff5f5"
+                                          : isExam80Locked
+                                          ? "rgba(248, 113, 113, 0.08)"
+                                          : undefined,
+                                        opacity: isExam80Locked ? 0.75 : 1,
+                                        cursor: isExam80Locked ? "not-allowed" : "text",
+                                      }}
+                                    />
+                                  </div>
+
+                                  {isExam80Locked && (
+                                    <div style={{ color: "#fecaca", fontSize: "0.72rem", marginTop: "0.2rem" }}>
+                                      Locked
+                                    </div>
+                                  )}
+                                  {markErrors[errorKey] && (
+                                    <div style={{ color: "#fecaca", fontSize: "0.75rem", marginTop: "0.2rem" }}>{markErrors[errorKey]}</div>
+                                  )}
+                                </td>
+                              );
+                            })()}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
 
               <div
                 style={{

@@ -3,6 +3,7 @@ import "./AlevelReport.css";
 import { useNavigate } from "react-router-dom";
 import useIdleLogout from "../../../hooks/useIdleLogout";
 import ALevelAdminShell from "../components/ALevelAdminShell";
+import { clearAdminSession } from "../../../utils/adminSecurity";
 import "../../../pages/AdminDashboard.css";
 import "./ALevelAdminTheme.css";
 
@@ -23,10 +24,7 @@ export default function AlevelReport() {
   const IDLE_20_MIN = 20 * 60 * 1000;
 
   useIdleLogout(() => {
-    localStorage.removeItem("SPESS_ADMIN_KEY");
-    localStorage.removeItem("isAdmin");
-    localStorage.removeItem("adminToken");
-    sessionStorage.removeItem("isAdmin");
+    clearAdminSession();
     navigate("/ark", { replace: true });
   }, IDLE_20_MIN);
 

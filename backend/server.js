@@ -13,7 +13,11 @@ import teacherRoutes from "./routes/teachers.js";
 import adminReportsRoutes from "./routes/adminReports.js";
 import adminAuditLogsRoutes from "./routes/adminAuditLogs.js";
 import adminPromotionRoutes from "./routes/adminPromotionRoutes.js";
-import authAdmin from "./middleware/authAdmin.js";
+import authAdmin, {
+  requireAdminReauth,
+  signAdminReauthToken,
+  signAdminSessionToken,
+} from "./middleware/authAdmin.js";
 import studentRoutes from "./routes/students.js";
 import classesRoutes from "./routes/classes.js";
 import streamReadinessRoutes from "./routes/streamReadiness.js";
@@ -185,40 +189,146 @@ function authTeacher(req, res, next) {
 }
 //AdminAuth route//
 app.post("/api/admin/login", async (req, res) => {
-  const { username, password } = req.body;
+  try {
+    const username = String(req.body?.username || "").trim();
+    const password = String(req.body?.password || "");
 
-  // Example static admin (you can later move to DB)
-  if (username !== "admin" || password !== "admin") {
-    return res.status(401).json({ message: "Invalid credentials" });
+    if (!username || !password) {
+      return res.status(400).json({ message: "Username and password are required" });
+    }
+
+    const admin = await readAdminCredentials();
+    if (!admin) {
+      return res.status(500).json({ message: "Admin account is not ready" });
+    }
+
+    const usernameMatches = username.toLowerCase() === String(admin.username || "").trim().toLowerCase();
+    const passwordMatches = usernameMatches
+      ? await bcrypt.compare(password, admin.password_hash)
+      : false;
+
+    if (!usernameMatches || !passwordMatches) {
+      return res.status(401).json({ message: "Invalid credentials" });
+    }
+
+    const token = signAdminSessionToken(admin);
+
+    await logAuditEvent({
+      userId: Number(admin.id) || 1,
+      userRole: "admin",
+      action: "LOGIN",
+      entityType: "login",
+      entityId: Number(admin.id) || 1,
+      description: `Admin login successful (${admin.username})`,
+      ipAddress: extractClientIp(req),
+    });
+
+    return res.json({
+      token,
+      username: admin.username,
+      idleTimeoutMinutes: 15,
+    });
+  } catch (err) {
+    console.error("Admin login error:", err);
+    return res.status(500).json({ message: "Admin login failed" });
   }
-
-  const token = jwt.sign(
-    { id: 1, username: "admin", role: "admin" },
-    process.env.JWT_SECRET || "dev_secret",
-    { expiresIn: "1d" }
-  );
-
-  await logAuditEvent({
-    userId: 1,
-    userRole: "admin",
-    action: "LOGIN",
-    entityType: "login",
-    entityId: 1,
-    description: `Admin login successful (${username})`,
-    ipAddress: extractClientIp(req),
-  });
-
-  res.json({ token });
 });
 app.get("/api/admin/me", authAdmin, (req, res) => {
   try {
     res.json({
-      id: req.admin?.id || null,
+      id: Number(req.admin?.id) || null,
       username: req.admin?.username || null,
     });
   } catch (err) {
     console.error("admin/me error:", err);
     res.status(500).json({ message: "Failed to verify admin" });
+  }
+});
+
+app.post("/api/admin/reauth", authAdmin, async (req, res) => {
+  try {
+    const password = String(req.body?.password || "");
+    if (!password) {
+      return res.status(400).json({ message: "Admin password is required" });
+    }
+
+    const admin = await readAdminCredentials();
+    if (!admin) {
+      return res.status(500).json({ message: "Admin account is not ready" });
+    }
+
+    const usernameMatches =
+      String(admin.username || "").trim().toLowerCase() ===
+      String(req.admin?.username || "").trim().toLowerCase();
+    const passwordMatches = usernameMatches
+      ? await bcrypt.compare(password, admin.password_hash)
+      : false;
+
+    if (!usernameMatches || !passwordMatches) {
+      return res.status(401).json({ message: "Incorrect admin password" });
+    }
+
+    const token = signAdminReauthToken(admin);
+    return res.json({
+      token,
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+    });
+  } catch (err) {
+    console.error("Admin reauth error:", err);
+    return res.status(500).json({ message: "Admin confirmation failed" });
+  }
+});
+
+app.post("/api/admin/change-password", authAdmin, async (req, res) => {
+  try {
+    const currentPassword = String(req.body?.currentPassword || "");
+    const newPassword = String(req.body?.newPassword || "");
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ message: "Current and new passwords are required" });
+    }
+
+    if (newPassword.length < 8) {
+      return res.status(400).json({ message: "New password must be at least 8 characters" });
+    }
+
+    const admin = await readAdminCredentials();
+    if (!admin) {
+      return res.status(500).json({ message: "Admin account is not ready" });
+    }
+
+    const currentMatches = await bcrypt.compare(currentPassword, admin.password_hash);
+    if (!currentMatches) {
+      return res.status(401).json({ message: "Incorrect current password" });
+    }
+
+    const isSamePassword = await bcrypt.compare(newPassword, admin.password_hash);
+    if (isSamePassword) {
+      return res.status(400).json({ message: "New password must be different from the current password" });
+    }
+
+    const nextHash = await bcrypt.hash(newPassword, 10);
+    await pool.query(
+      `UPDATE admin_credentials
+       SET password_hash = ?
+       WHERE id = 1`,
+      [nextHash]
+    );
+
+    await logAuditEvent({
+      userId: Number(admin.id) || 1,
+      userRole: "admin",
+      action: "CHANGE_PASSWORD",
+      entityType: "system",
+      entityId: Number(admin.id) || 1,
+      description: `Admin password changed for ${admin.username}`,
+      ipAddress: extractClientIp(req),
+    });
+
+    return res.json({ message: "Admin password updated successfully" });
+  } catch (err) {
+    console.error("Admin change password error:", err);
+    return res.status(500).json({ message: "Failed to update admin password" });
   }
 });
 
@@ -263,6 +373,59 @@ if (dbUrl) {
 
 export const pool = mysql.createPool(poolConfig);
 export const db = pool;//alias, no behavior change
+
+let adminCredentialsReadyPromise = null;
+
+async function ensureAdminCredentialsTable() {
+  if (!adminCredentialsReadyPromise) {
+    adminCredentialsReadyPromise = (async () => {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS admin_credentials (
+          id TINYINT UNSIGNED NOT NULL PRIMARY KEY,
+          username VARCHAR(120) NOT NULL,
+          password_hash VARCHAR(255) NOT NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+      `);
+
+      const [rows] = await pool.query(
+        `SELECT id FROM admin_credentials WHERE id = 1 LIMIT 1`
+      );
+
+      if (!rows.length) {
+        const seedUsername =
+          String(process.env.ADMIN_USERNAME || "admin").trim() || "admin";
+        const seedPassword =
+          String(process.env.ADMIN_PASSWORD || process.env.ADMIN_KEY || "admin").trim() ||
+          "admin";
+        const passwordHash = await bcrypt.hash(seedPassword, 10);
+
+        await pool.query(
+          `INSERT INTO admin_credentials (id, username, password_hash)
+           VALUES (1, ?, ?)`,
+          [seedUsername, passwordHash]
+        );
+      }
+    })().catch((err) => {
+      adminCredentialsReadyPromise = null;
+      throw err;
+    });
+  }
+
+  return adminCredentialsReadyPromise;
+}
+
+async function readAdminCredentials() {
+  await ensureAdminCredentialsTable();
+  const [[row]] = await pool.query(
+    `SELECT id, username, password_hash, updated_at
+     FROM admin_credentials
+     WHERE id = 1
+     LIMIT 1`
+  );
+  return row || null;
+}
 
 const SCHOOL_CALENDAR_ENTRY_DEFINITIONS = [
   { key: "term1", label: "Term I", status: "In Session" },
@@ -914,7 +1077,7 @@ app.get("/api/students", async (req, res) => {
   }
 });
       // DELETE /api/students/:id  (admin only)
-      app.delete("/api/admin/students/:id", authAdmin, async (req, res) => {
+      app.delete("/api/admin/students/:id", authAdmin, requireAdminReauth, async (req, res) => {
         try {
           const { id } = req.params;
       
@@ -1025,7 +1188,7 @@ app.post("/api/teachers", authAdmin, async (req, res) => {
   }
 });
 // ADMIN → DELETE TEACHER
-app.delete("/api/admin/teachers/:id", authAdmin, async (req, res) => {
+app.delete("/api/admin/teachers/:id", authAdmin, requireAdminReauth, async (req, res) => {
   const conn = await pool.getConnection();
   try {
     const { id } = req.params;
@@ -1298,7 +1461,7 @@ app.post("/api/admin/assignments", authAdmin, async (req, res) => {
   }
 });
 // delete assignment 
-app.delete("/api/admin/assignments/:id", authAdmin, async (req, res) => {
+app.delete("/api/admin/assignments/:id", authAdmin, requireAdminReauth, async (req, res) => {
   let conn;
   try {
     const assignmentId = Number(req.params.id);
@@ -2162,7 +2325,7 @@ app.post("/api/teachers/marks", authTeacher, async (req, res) => {
 });
 
 // DELETE /api/admin/marks-set
-app.delete("/api/admin/marks-set", authAdmin, async (req, res) => {
+app.delete("/api/admin/marks-set", authAdmin, requireAdminReauth, async (req, res) => {
   let conn;
   try {
     const { assignmentId, term, year, aoi } = req.body;
@@ -2807,7 +2970,7 @@ app.post("/api/admin/notices", authAdmin, async (req, res) => {
   }
 });
 // DELETE /api/admin/notices/:id
-app.delete("/api/admin/notices/:id", authAdmin, async (req, res) => {
+app.delete("/api/admin/notices/:id", authAdmin, requireAdminReauth, async (req, res) => {
   try {
     const { id } = req.params;
 

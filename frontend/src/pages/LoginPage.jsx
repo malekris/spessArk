@@ -89,6 +89,9 @@ function LoginPage() {
       }
 
       localStorage.setItem("adminToken", data.token);
+      localStorage.setItem("adminUsername", data.username || form.username);
+      sessionStorage.removeItem("SPESS_ADMIN_REAUTH_TOKEN");
+      localStorage.removeItem("SPESS_ADMIN_REAUTH_TOKEN");
       navigate("/ark/admin");
     } catch (err) {
       setError("Server error. Try again.");

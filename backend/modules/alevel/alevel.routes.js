@@ -1,7 +1,7 @@
 import express from "express";
 import { db, getMarksLockComponents, readMarksEntryLocks } from "../../server.js";
 import authTeacher from "../../middleware/authTeacher.js";
-import authAdmin from "../../middleware/authAdmin.js";
+import authAdmin, { requireAdminReauth } from "../../middleware/authAdmin.js";
 import { pool } from "../../server.js";
 import { extractClientIp, logAuditEvent } from "../../utils/auditLogger.js";
 import { ensureMarksArchiveTablesReady, archiveALevelMarks } from "../../utils/marksArchive.js";
@@ -251,7 +251,7 @@ router.post("/admin/assignments", authAdmin, async (req, res) => {
 });
 
 // delete assignment
-router.delete("/admin/assignments/:id", authAdmin, async (req, res) => {
+router.delete("/admin/assignments/:id", authAdmin, requireAdminReauth, async (req, res) => {
   let conn;
   try {
     const assignmentId = Number(req.params.id);

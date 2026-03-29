@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { clearAdminSession } from "../../../utils/adminSecurity";
 import "../../../pages/AdminDashboard.css";
 import "../pages/ALevelAdminTheme.css";
 
@@ -75,10 +76,7 @@ export default function ALevelAdminShell({
   const isSidebarCompact = sidebarCollapsed || isCompactViewport;
 
   const handleLogout = () => {
-    localStorage.removeItem("SPESS_ADMIN_KEY");
-    localStorage.removeItem("isAdmin");
-    localStorage.removeItem("adminToken");
-    sessionStorage.removeItem("isAdmin");
+    clearAdminSession();
     navigate("/ark", { replace: true });
   };
 

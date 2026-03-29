@@ -4,6 +4,12 @@ import { useNavigate } from "react-router-dom";
 import useIdleLogout from "../../../hooks/useIdleLogout";
 import { loadPdfTools } from "../../../utils/loadPdfTools";
 import ALevelAdminShell from "../components/ALevelAdminShell";
+import {
+  clearAdminReauthToken,
+  clearAdminSession,
+  getStoredAdminReauthToken,
+  storeAdminReauthToken,
+} from "../../../utils/adminSecurity";
 import "../../../pages/AdminDashboard.css";
 import "./ALevelAdminTheme.css";
 
@@ -32,6 +38,8 @@ export default function ALevelAssignSubjects() {
   const [success, setSuccess] = useState("");
   const [assignmentPendingDelete, setAssignmentPendingDelete] = useState(null);
   const [deleteSaving, setDeleteSaving] = useState(false);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deleteError, setDeleteError] = useState("");
   const [createdAssignmentNotice, setCreatedAssignmentNotice] = useState(null);
 
   /* ======================================================
@@ -62,10 +70,7 @@ export default function ALevelAssignSubjects() {
   }, []);
 
   useIdleLogout(() => {
-    localStorage.removeItem("SPESS_ADMIN_KEY");
-    localStorage.removeItem("isAdmin");
-    localStorage.removeItem("adminToken");
-    sessionStorage.removeItem("isAdmin");
+    clearAdminSession();
     navigate("/ark", { replace: true });
   }, IDLE_20_MIN);
 
@@ -162,6 +167,21 @@ export default function ALevelAssignSubjects() {
     if (!assignmentPendingDelete?.id) return;
     try {
       setDeleteSaving(true);
+      setDeleteError("");
+
+      if (!getStoredAdminReauthToken()) {
+        if (!deletePassword.trim()) {
+          setDeleteError("Enter your admin password before deleting this assignment.");
+          return;
+        }
+
+        const reauth = await adminFetch("/api/admin/reauth", {
+          method: "POST",
+          body: { password: deletePassword },
+        });
+        storeAdminReauthToken(reauth?.token, reauth?.expiresAt);
+      }
+
       await adminFetch(`/api/alevel/admin/assignments/${assignmentPendingDelete.id}`, {
         method: "DELETE",
       });
@@ -169,8 +189,15 @@ export default function ALevelAssignSubjects() {
       setSuccess("Assignment deleted successfully");
       setError("");
       setAssignmentPendingDelete(null);
+      setDeletePassword("");
+      setDeleteError("");
     } catch (err) {
-      setError(err?.message || "Delete failed");
+      if (err?.code === "ADMIN_REAUTH_REQUIRED") {
+        clearAdminReauthToken();
+        setDeleteError("Admin password confirmation expired. Enter your password again to continue.");
+      } else {
+        setDeleteError(err?.message || "Delete failed");
+      }
     } finally {
       setDeleteSaving(false);
     }
@@ -382,7 +409,14 @@ export default function ALevelAssignSubjects() {
                     <td>{a.paper_label || "Single"}</td>
                     <td>{a.teacher_name}</td>
                     <td>
-                      <button className="danger-link" onClick={() => setAssignmentPendingDelete(a)}>
+                      <button
+                        className="danger-link"
+                        onClick={() => {
+                          setAssignmentPendingDelete(a);
+                          setDeletePassword("");
+                          setDeleteError("");
+                        }}
+                      >
                         Delete
                       </button>
                     </td>
@@ -429,8 +463,26 @@ export default function ALevelAssignSubjects() {
                 lineHeight: 1.65,
               }}
             >
-              Deleting this assignment will also remove the captured marks attached to it. This action should only be used when you are sure.
+              Assignment deletion is admin-protected. If marks are already attached, the backend will block the delete. If recent admin confirmation has expired, enter your password below to continue.
             </div>
+
+            {!getStoredAdminReauthToken() && (
+              <div className="form-row" style={{ marginBottom: "1rem" }}>
+                <label>Admin Password</label>
+                <input
+                  type="password"
+                  value={deletePassword}
+                  onChange={(e) => setDeletePassword(e.target.value)}
+                  placeholder="Re-enter admin password"
+                />
+              </div>
+            )}
+
+            {deleteError && (
+              <div className="panel-alert panel-alert-error" style={{ marginBottom: "1rem" }}>
+                {deleteError}
+              </div>
+            )}
 
             <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.65rem", flexWrap: "wrap" }}>
               <button

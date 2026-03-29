@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import useIdleLogout from "../../../hooks/useIdleLogout";
 import AssessmentSubmissionTracker from "../../../components/AssessmentSubmissionTracker";
 import ALevelAdminShell from "../components/ALevelAdminShell";
+import { clearAdminSession } from "../../../utils/adminSecurity";
 import "../../../pages/AdminDashboard.css";
 import "./ALevelAdminTheme.css";
 
@@ -115,10 +116,7 @@ export default function ALevelDashboard() {
   }, [API_BASE, adminHeaders, readinessSelectionSeeded]);
 
   useIdleLogout(() => {
-    localStorage.removeItem("SPESS_ADMIN_KEY");
-    localStorage.removeItem("isAdmin");
-    localStorage.removeItem("adminToken");
-    sessionStorage.removeItem("isAdmin");
+    clearAdminSession();
     navigate("/ark", { replace: true });
   }, IDLE_20_MIN);
 

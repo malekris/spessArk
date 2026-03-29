@@ -226,6 +226,20 @@ const buildStreamReadinessFromAssignments = (assignments = []) => {
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
+  const ADMIN_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
+  const ADMIN_REAUTH_STORAGE_KEY = "SPESS_ADMIN_REAUTH_TOKEN";
+  const ADMIN_REAUTH_EXPIRY_KEY = "SPESS_ADMIN_REAUTH_EXPIRES_AT";
+  const clearAdminSession = () => {
+    localStorage.removeItem("SPESS_ADMIN_KEY");
+    localStorage.removeItem("isAdmin");
+    localStorage.removeItem("adminToken");
+    localStorage.removeItem("adminUsername");
+    localStorage.removeItem(ADMIN_REAUTH_STORAGE_KEY);
+    localStorage.removeItem(ADMIN_REAUTH_EXPIRY_KEY);
+    sessionStorage.removeItem("isAdmin");
+    sessionStorage.removeItem(ADMIN_REAUTH_STORAGE_KEY);
+    sessionStorage.removeItem(ADMIN_REAUTH_EXPIRY_KEY);
+  };
 
   // Auth / navigation
   useEffect(() => {
@@ -239,34 +253,196 @@ export default function AdminDashboard() {
   
     // Verify token with backend
     fetch(`${API_BASE}/api/admin/me`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
     })
       .then((res) => {
         if (!res.ok) {
           throw new Error("Unauthorized");
         }
+        return res.json();
+      })
+      .then((body) => {
+        if (body?.username) {
+          localStorage.setItem("adminUsername", body.username);
+          setAdminIdentity({ username: body.username });
+        }
       })
       .catch(() => {
         // Token is invalid or expired
-        localStorage.removeItem("adminToken");
-        localStorage.removeItem("isAdmin");
+        clearAdminSession();
         navigate("/", { replace: true });
       });
   }, [navigate]);
   
   useIdleLogout(() => {
-    // remove admin-related keys (non-destructive)
-    localStorage.removeItem("SPESS_ADMIN_KEY");
-    localStorage.removeItem("isAdmin");
-    sessionStorage.removeItem("isAdmin");
+    clearAdminSession();
     navigate("/", { replace: true });
-  });
+  }, ADMIN_IDLE_TIMEOUT_MS);
 
   const handleLogout = () => {
-    sessionStorage.removeItem("isAdmin");
+    clearAdminSession();
     navigate("/ark", { replace: true });
+  };
+
+  const getStoredAdminReauthToken = () => {
+    const expiryRaw =
+      sessionStorage.getItem(ADMIN_REAUTH_EXPIRY_KEY) ||
+      localStorage.getItem(ADMIN_REAUTH_EXPIRY_KEY) ||
+      "";
+    const token =
+      sessionStorage.getItem(ADMIN_REAUTH_STORAGE_KEY) ||
+      localStorage.getItem(ADMIN_REAUTH_STORAGE_KEY) ||
+      "";
+
+    if (!token || !expiryRaw) return "";
+
+    const expiry = new Date(expiryRaw).getTime();
+    if (!Number.isFinite(expiry) || expiry <= Date.now()) {
+      sessionStorage.removeItem(ADMIN_REAUTH_STORAGE_KEY);
+      sessionStorage.removeItem(ADMIN_REAUTH_EXPIRY_KEY);
+      localStorage.removeItem(ADMIN_REAUTH_STORAGE_KEY);
+      localStorage.removeItem(ADMIN_REAUTH_EXPIRY_KEY);
+      return "";
+    }
+
+    return token;
+  };
+
+  const storeAdminReauthToken = (token, expiresAt) => {
+    if (!token || !expiresAt) return;
+    sessionStorage.setItem(ADMIN_REAUTH_STORAGE_KEY, token);
+    sessionStorage.setItem(ADMIN_REAUTH_EXPIRY_KEY, expiresAt);
+    localStorage.removeItem(ADMIN_REAUTH_STORAGE_KEY);
+    localStorage.removeItem(ADMIN_REAUTH_EXPIRY_KEY);
+  };
+
+  const requestAdminReauth = ({ title, description, onApproved }) => {
+    const activeToken = getStoredAdminReauthToken();
+    if (activeToken) {
+      return Promise.resolve(onApproved?.());
+    }
+
+    reauthActionRef.current = typeof onApproved === "function" ? onApproved : null;
+    setReauthPassword("");
+    setReauthError("");
+    setReauthPrompt({
+      title: title || "Confirm Admin Password",
+      description:
+        description ||
+        "Please confirm your admin password before continuing with this sensitive action.",
+    });
+    return Promise.resolve();
+  };
+
+  const closeReauthPrompt = () => {
+    if (reauthLoading) return;
+    reauthActionRef.current = null;
+    setReauthPrompt(null);
+    setReauthPassword("");
+    setReauthError("");
+  };
+
+  const handleConfirmReauth = async () => {
+    if (!reauthPassword.trim()) {
+      setReauthError("Enter your admin password to continue.");
+      return;
+    }
+
+    setReauthLoading(true);
+    setReauthError("");
+
+    try {
+      const result = await adminFetch("/api/admin/reauth", {
+        method: "POST",
+        body: { password: reauthPassword },
+      });
+
+      storeAdminReauthToken(result?.token, result?.expiresAt);
+      const pendingAction = reauthActionRef.current;
+      reauthActionRef.current = null;
+      setReauthPrompt(null);
+      setReauthPassword("");
+
+      if (pendingAction) {
+        await pendingAction();
+      }
+    } catch (err) {
+      setReauthError(err.message || "Admin confirmation failed.");
+    } finally {
+      setReauthLoading(false);
+    }
+  };
+
+  const openAdminSettings = (mode = "password") => {
+    setAdminSettingsMode(mode);
+    setAdminSettingsForm({
+      currentPassword: "",
+      newPassword: "",
+      confirmPassword: "",
+    });
+    setAdminSettingsError("");
+    setAdminSettingsNotice("");
+    setAdminSettingsOpen(true);
+  };
+
+  const closeAdminSettings = () => {
+    if (savingAdminSettings) return;
+    setAdminSettingsOpen(false);
+    setAdminSettingsError("");
+    setAdminSettingsNotice("");
+    setAdminSettingsForm({
+      currentPassword: "",
+      newPassword: "",
+      confirmPassword: "",
+    });
+  };
+
+  const handleChangeAdminPassword = async () => {
+    const currentPassword = adminSettingsForm.currentPassword.trim();
+    const newPassword = adminSettingsForm.newPassword.trim();
+    const confirmPassword = adminSettingsForm.confirmPassword.trim();
+
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      setAdminSettingsError("Fill in all password fields.");
+      return;
+    }
+
+    if (newPassword.length < 8) {
+      setAdminSettingsError("New password must be at least 8 characters.");
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setAdminSettingsError("New password and confirmation do not match.");
+      return;
+    }
+
+    setSavingAdminSettings(true);
+    setAdminSettingsError("");
+    setAdminSettingsNotice("");
+
+    try {
+      await adminFetch("/api/admin/change-password", {
+        method: "POST",
+        body: {
+          currentPassword,
+          newPassword,
+        },
+      });
+
+      sessionStorage.removeItem(ADMIN_REAUTH_STORAGE_KEY);
+      sessionStorage.removeItem(ADMIN_REAUTH_EXPIRY_KEY);
+      setAdminSettingsNotice("Admin password updated successfully.");
+      setAdminSettingsForm({
+        currentPassword: "",
+        newPassword: "",
+        confirmPassword: "",
+      });
+    } catch (err) {
+      setAdminSettingsError(err.message || "Failed to update admin password.");
+    } finally {
+      setSavingAdminSettings(false);
+    }
   };
   
 
@@ -278,6 +454,24 @@ export default function AdminDashboard() {
   const [activeSection, setActiveSection] = useState("");
   const [showEnrollmentChartsModal, setShowEnrollmentChartsModal] = useState(false);
   const [dashboardClock, setDashboardClock] = useState(() => new Date());
+  const [adminSettingsOpen, setAdminSettingsOpen] = useState(false);
+  const [adminSettingsMode, setAdminSettingsMode] = useState("password");
+  const [adminSettingsForm, setAdminSettingsForm] = useState({
+    currentPassword: "",
+    newPassword: "",
+    confirmPassword: "",
+  });
+  const [adminSettingsError, setAdminSettingsError] = useState("");
+  const [adminSettingsNotice, setAdminSettingsNotice] = useState("");
+  const [savingAdminSettings, setSavingAdminSettings] = useState(false);
+  const [adminIdentity, setAdminIdentity] = useState(() => ({
+    username: localStorage.getItem("adminUsername") || "admin",
+  }));
+  const [reauthPrompt, setReauthPrompt] = useState(null);
+  const [reauthPassword, setReauthPassword] = useState("");
+  const [reauthError, setReauthError] = useState("");
+  const [reauthLoading, setReauthLoading] = useState(false);
+  const reauthActionRef = useRef(null);
   const [schoolCalendarPreviewClock, setSchoolCalendarPreviewClock] = useState(() => new Date());
   const [schoolCalendarForm, setSchoolCalendarForm] = useState(() =>
     normalizeSchoolCalendar(DEFAULT_SCHOOL_CALENDAR)
@@ -2935,7 +3129,13 @@ export default function AdminDashboard() {
                   <button
                     type="button"
                     className="primary-btn"
-                    onClick={() => handleDeleteTeacher(pendingTeacherDelete.id)}
+                    onClick={() =>
+                      requestAdminReauth({
+                        title: "Confirm Teacher Deletion",
+                        description: "Re-enter your admin password to delete this teacher account.",
+                        onApproved: () => handleDeleteTeacher(pendingTeacherDelete.id),
+                      })
+                    }
                     disabled={deletingTeacherId === pendingTeacherDelete.id}
                     style={{
                       background: "linear-gradient(135deg, #991b1b, #dc2626)",
@@ -3336,7 +3536,13 @@ export default function AdminDashboard() {
                   <button
                     type="button"
                     className="primary-btn"
-                    onClick={() => handleDeleteNotice(pendingNoticeDelete)}
+                    onClick={() =>
+                      requestAdminReauth({
+                        title: "Confirm Notice Deletion",
+                        description: "Re-enter your admin password to remove this notice from teacher dashboards.",
+                        onApproved: () => handleDeleteNotice(pendingNoticeDelete),
+                      })
+                    }
                     disabled={deletingNoticeId === pendingNoticeDelete.id}
                     style={{
                       background: "linear-gradient(135deg, #991b1b, #dc2626)",
@@ -3714,35 +3920,35 @@ export default function AdminDashboard() {
                         <td>
                           <button
                             className="danger-link"
-                            onClick={async (e) => {
+                            onClick={(e) => {
                               e.stopPropagation();
-    
-                              const ok = window.confirm(
-                                `Delete ALL marks for:\n\n${group.subject}\n${group.class_level} ${group.stream}\nTerm ${group.term}, ${group.year}`
-                              );
-    
-                              if (!ok) return;
-    
-                              try {
-                                for (const aoi of group.aois) {
-                                  await adminFetch("/api/admin/marks-set", {
-                                    method: "DELETE",
-                                    body: {
-                                      assignmentId: aoi.assignment_id,
-                                      term: aoi.term,
-                                      year: aoi.year,
-                                      aoi: aoi.aoi_label,
-                                    },
-                                  });
-                                }
-    
-                                await fetchMarksSets();
-                                setSelectedGroup(null);
-                                setSelectedAoi(null);
-                                setMarksDetail([]);
-                              } catch {
-                                alert("Failed to delete subject");
-                              }
+
+                              requestAdminReauth({
+                                title: "Confirm Subject Marks Deletion",
+                                description: `Re-enter your admin password to delete all AOIs for ${group.subject} in ${group.class_level} ${group.stream}.`,
+                                onApproved: async () => {
+                                  try {
+                                    for (const aoi of group.aois) {
+                                      await adminFetch("/api/admin/marks-set", {
+                                        method: "DELETE",
+                                        body: {
+                                          assignmentId: aoi.assignment_id,
+                                          term: aoi.term,
+                                          year: aoi.year,
+                                          aoi: aoi.aoi_label,
+                                        },
+                                      });
+                                    }
+
+                                    await fetchMarksSets();
+                                    setSelectedGroup(null);
+                                    setSelectedAoi(null);
+                                    setMarksDetail([]);
+                                  } catch (err) {
+                                    setMarksError(err.message || "Failed to delete subject marks.");
+                                  }
+                                },
+                              });
                             }}
                           >
                             Delete
@@ -3970,7 +4176,13 @@ export default function AdminDashboard() {
                   <button
                     type="button"
                     className="primary-btn"
-                    onClick={handleConfirmDeleteAoi}
+                    onClick={() =>
+                      requestAdminReauth({
+                        title: "Confirm AOI Deletion",
+                        description: "Re-enter your admin password to delete this AOI mark set.",
+                        onApproved: () => handleConfirmDeleteAoi(),
+                      })
+                    }
                     disabled={Boolean(deletingAoiKey)}
                     style={{
                       background: "linear-gradient(135deg, #991b1b, #dc2626)",
@@ -4720,6 +4932,14 @@ export default function AdminDashboard() {
   <button
     type="button"
     className="ghost-btn"
+    onClick={() => openAdminSettings("password")}
+  >
+    Settings
+  </button>
+
+  <button
+    type="button"
+    className="ghost-btn"
     onClick={() => navigate("/ark/admin/alevel")}
   >
     A-Level
@@ -5401,13 +5621,287 @@ export default function AdminDashboard() {
                 className="primary-btn"
                 type="button"
                 disabled={deletingStudentId === pendingStudentDelete.id}
-                onClick={() => handleDeleteStudent(pendingStudentDelete)}
+                onClick={() =>
+                  requestAdminReauth({
+                    title: "Confirm Learner Deletion",
+                    description: "Re-enter your admin password to remove this learner from the register.",
+                    onApproved: () => handleDeleteStudent(pendingStudentDelete),
+                  })
+                }
                 style={{
                   background: "linear-gradient(135deg, #991b1b, #dc2626)",
                   borderColor: "rgba(248, 113, 113, 0.4)",
                 }}
               >
                 {deletingStudentId === pendingStudentDelete.id ? "Deleting…" : "Delete Learner"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {adminSettingsOpen && (
+        <div className="modal-backdrop" onClick={closeAdminSettings}>
+          <div
+            className="modal-card"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              maxWidth: "640px",
+              background: "linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(2, 6, 23, 0.98))",
+              border: "1px solid rgba(96, 165, 250, 0.18)",
+              boxShadow: "0 28px 60px rgba(2, 6, 23, 0.34)",
+            }}
+          >
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "0.45rem",
+                padding: "0.34rem 0.72rem",
+                borderRadius: "999px",
+                background: "rgba(30, 64, 175, 0.18)",
+                border: "1px solid rgba(96, 165, 250, 0.22)",
+                color: "#bfdbfe",
+                fontSize: "0.72rem",
+                fontWeight: 800,
+                letterSpacing: "0.12em",
+                textTransform: "uppercase",
+                marginBottom: "0.9rem",
+              }}
+            >
+              Admin Settings
+            </div>
+
+            <h2 style={{ color: "#f8fafc", marginBottom: "0.45rem" }}>Protect Your Admin Session</h2>
+            <p style={{ color: "#cbd5e1", lineHeight: 1.65, marginBottom: "1rem" }}>
+              Update the admin password here. Destructive actions now require a recent password confirmation, and idle logout is set to <strong>15 minutes</strong>.
+            </p>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
+                gap: "0.8rem",
+                marginBottom: "1rem",
+              }}
+            >
+              {[
+                { label: "Admin Username", value: adminIdentity.username || "admin" },
+                { label: "Idle Logout", value: "15 minutes" },
+                { label: "Re-auth Window", value: "10 minutes" },
+              ].map((item) => (
+                <div
+                  key={item.label}
+                  style={{
+                    borderRadius: "16px",
+                    padding: "0.85rem 0.95rem",
+                    border: "1px solid rgba(148, 163, 184, 0.18)",
+                    background: "rgba(15, 23, 42, 0.58)",
+                  }}
+                >
+                  <div style={{ color: "#93c5fd", fontSize: "0.73rem", fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase" }}>
+                    {item.label}
+                  </div>
+                  <div style={{ color: "#f8fafc", fontSize: "1rem", fontWeight: 800, marginTop: "0.35rem" }}>
+                    {item.value}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div
+              style={{
+                display: "inline-flex",
+                gap: "0.45rem",
+                padding: "0.28rem",
+                borderRadius: "999px",
+                background: "rgba(15, 23, 42, 0.52)",
+                border: "1px solid rgba(148, 163, 184, 0.18)",
+                marginBottom: "1rem",
+              }}
+            >
+              <button
+                type="button"
+                className={adminSettingsMode === "password" ? "primary-btn" : "ghost-btn"}
+                onClick={() => {
+                  setAdminSettingsMode("password");
+                  setAdminSettingsError("");
+                  setAdminSettingsNotice("");
+                }}
+              >
+                Change Password
+              </button>
+            </div>
+
+            {adminSettingsError && (
+              <div className="panel-alert panel-alert-error" style={{ marginBottom: "0.9rem" }}>
+                {adminSettingsError}
+              </div>
+            )}
+            {adminSettingsNotice && (
+              <div className="panel-alert panel-alert-success" style={{ marginBottom: "0.9rem" }}>
+                {adminSettingsNotice}
+              </div>
+            )}
+
+            <div
+              style={{
+                padding: "1rem",
+                borderRadius: "1rem",
+                border: "1px solid rgba(148, 163, 184, 0.18)",
+                background: "rgba(15, 23, 42, 0.62)",
+                display: "grid",
+                gap: "0.85rem",
+              }}
+            >
+              <label style={{ display: "grid", gap: "0.35rem" }}>
+                <span style={{ color: "#cbd5e1", fontSize: "0.82rem", fontWeight: 700 }}>Current Password</span>
+                <input
+                  type="password"
+                  value={adminSettingsForm.currentPassword}
+                  onChange={(e) =>
+                    setAdminSettingsForm((prev) => ({ ...prev, currentPassword: e.target.value }))
+                  }
+                  style={{
+                    minHeight: "46px",
+                    borderRadius: "0.95rem",
+                    border: "1px solid rgba(148, 163, 184, 0.3)",
+                    background: "rgba(2, 6, 23, 0.92)",
+                    color: "#f8fafc",
+                    padding: "0.78rem 0.9rem",
+                    outline: "none",
+                  }}
+                />
+              </label>
+
+              <label style={{ display: "grid", gap: "0.35rem" }}>
+                <span style={{ color: "#cbd5e1", fontSize: "0.82rem", fontWeight: 700 }}>New Password</span>
+                <input
+                  type="password"
+                  value={adminSettingsForm.newPassword}
+                  onChange={(e) =>
+                    setAdminSettingsForm((prev) => ({ ...prev, newPassword: e.target.value }))
+                  }
+                  style={{
+                    minHeight: "46px",
+                    borderRadius: "0.95rem",
+                    border: "1px solid rgba(148, 163, 184, 0.3)",
+                    background: "rgba(2, 6, 23, 0.92)",
+                    color: "#f8fafc",
+                    padding: "0.78rem 0.9rem",
+                    outline: "none",
+                  }}
+                />
+              </label>
+
+              <label style={{ display: "grid", gap: "0.35rem" }}>
+                <span style={{ color: "#cbd5e1", fontSize: "0.82rem", fontWeight: 700 }}>Confirm New Password</span>
+                <input
+                  type="password"
+                  value={adminSettingsForm.confirmPassword}
+                  onChange={(e) =>
+                    setAdminSettingsForm((prev) => ({ ...prev, confirmPassword: e.target.value }))
+                  }
+                  style={{
+                    minHeight: "46px",
+                    borderRadius: "0.95rem",
+                    border: "1px solid rgba(148, 163, 184, 0.3)",
+                    background: "rgba(2, 6, 23, 0.92)",
+                    color: "#f8fafc",
+                    padding: "0.78rem 0.9rem",
+                    outline: "none",
+                  }}
+                />
+              </label>
+            </div>
+
+            <div style={{ marginTop: "1rem", display: "flex", justifyContent: "flex-end", gap: "0.7rem", flexWrap: "wrap" }}>
+              <button type="button" className="ghost-btn" onClick={closeAdminSettings} disabled={savingAdminSettings}>
+                Close
+              </button>
+              <button type="button" className="primary-btn" onClick={handleChangeAdminPassword} disabled={savingAdminSettings}>
+                {savingAdminSettings ? "Saving…" : "Update Password"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {reauthPrompt && (
+        <div className="modal-backdrop" onClick={closeReauthPrompt}>
+          <div
+            className="modal-card"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              maxWidth: "520px",
+              background: "linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(2, 6, 23, 0.98))",
+              border: "1px solid rgba(96, 165, 250, 0.18)",
+              boxShadow: "0 28px 60px rgba(2, 6, 23, 0.34)",
+            }}
+          >
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "0.45rem",
+                padding: "0.34rem 0.72rem",
+                borderRadius: "999px",
+                background: "rgba(30, 64, 175, 0.18)",
+                border: "1px solid rgba(96, 165, 250, 0.22)",
+                color: "#bfdbfe",
+                fontSize: "0.72rem",
+                fontWeight: 800,
+                letterSpacing: "0.12em",
+                textTransform: "uppercase",
+                marginBottom: "0.9rem",
+              }}
+            >
+              Admin Re-authentication
+            </div>
+
+            <h2 style={{ color: "#f8fafc", marginBottom: "0.55rem" }}>
+              {reauthPrompt.title || "Confirm Admin Password"}
+            </h2>
+            <p style={{ color: "#cbd5e1", lineHeight: 1.65, marginBottom: "1rem" }}>
+              {reauthPrompt.description}
+            </p>
+
+            {reauthError && (
+              <div className="panel-alert panel-alert-error" style={{ marginBottom: "0.9rem" }}>
+                {reauthError}
+              </div>
+            )}
+
+            <label style={{ display: "grid", gap: "0.35rem" }}>
+              <span style={{ color: "#cbd5e1", fontSize: "0.82rem", fontWeight: 700 }}>Admin Password</span>
+              <input
+                type="password"
+                value={reauthPassword}
+                onChange={(e) => setReauthPassword(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleConfirmReauth();
+                  }
+                }}
+                style={{
+                  minHeight: "46px",
+                  borderRadius: "0.95rem",
+                  border: "1px solid rgba(148, 163, 184, 0.3)",
+                  background: "rgba(2, 6, 23, 0.92)",
+                  color: "#f8fafc",
+                  padding: "0.78rem 0.9rem",
+                  outline: "none",
+                }}
+              />
+            </label>
+
+            <div style={{ marginTop: "1rem", display: "flex", justifyContent: "flex-end", gap: "0.7rem", flexWrap: "wrap" }}>
+              <button type="button" className="ghost-btn" onClick={closeReauthPrompt} disabled={reauthLoading}>
+                Cancel
+              </button>
+              <button type="button" className="primary-btn" onClick={handleConfirmReauth} disabled={reauthLoading}>
+                {reauthLoading ? "Confirming…" : "Confirm Password"}
               </button>
             </div>
           </div>

@@ -1,7 +1,12 @@
 // src/components/AssignSubjectsPanel.jsx
 import React, { useEffect, useState } from "react";
-import { plainFetch } from "../lib/api";
+import { plainFetch, adminFetch } from "../lib/api";
 import { loadPdfTools } from "../utils/loadPdfTools";
+import {
+  clearAdminReauthToken,
+  getStoredAdminReauthToken,
+  storeAdminReauthToken,
+} from "../utils/adminSecurity";
 
 
 // fallback master subjects
@@ -33,6 +38,10 @@ export default function AssignSubjectsPanel({ active }) {
   });
   const [error, setError] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
+  const [pendingDeleteAssignment, setPendingDeleteAssignment] = useState(null);
+  const [deleteSaving, setDeleteSaving] = useState(false);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deleteError, setDeleteError] = useState("");
 
   // 🔹 PRINT FILTER STATE (MOVE UP)
   const [printClass, setPrintClass] = useState("");
@@ -61,7 +70,7 @@ export default function AssignSubjectsPanel({ active }) {
         plainFetch("/api/classes").catch(() => []),
         plainFetch("/api/subjects").catch(() => []),
         plainFetch("/api/teachers").catch(() => []),
-        plainFetch("/api/admin/assignments").catch(() => [])
+        adminFetch("/api/admin/assignments").catch(() => [])
       ]);
       
 
@@ -160,9 +169,9 @@ export default function AssignSubjectsPanel({ active }) {
 
       const payload = { class_level: classLabel, subject: subjectLabel, teacherId, stream };
 
-      await plainFetch("/api/admin/assignments", { method: "POST", body: payload });
+      await adminFetch("/api/admin/assignments", { method: "POST", body: payload });
 
-      const assigns = await plainFetch("/api/admin/assignments").catch(() => []);
+      const assigns = await adminFetch("/api/admin/assignments").catch(() => []);
       setAssignments(assigns || []);
       setSuccessMsg("Assignment created.");
       setForm({ classId: "", subjectId: "", teacherId: "", stream: "" });
@@ -341,16 +350,41 @@ export default function AssignSubjectsPanel({ active }) {
     window.open(blobUrl, "_blank");
   }
 
-  async function deleteAssignment(id) {
-    if (!window.confirm("Delete this assignment?")) return;
+  async function deleteAssignment() {
+    if (!pendingDeleteAssignment?.id) return;
     setError("");
+    setDeleteError("");
+    setDeleteSaving(true);
     try {
-      await plainFetch(`/api/admin/assignments/${id}`, { method: "DELETE" });
-      setAssignments((p) => p.filter(a => String(a.id) !== String(id)));
+      if (!getStoredAdminReauthToken()) {
+        if (!deletePassword.trim()) {
+          setDeleteError("Enter your admin password before deleting this assignment.");
+          return;
+        }
+
+        const reauth = await adminFetch("/api/admin/reauth", {
+          method: "POST",
+          body: { password: deletePassword },
+        });
+        storeAdminReauthToken(reauth?.token, reauth?.expiresAt);
+      }
+
+      await adminFetch(`/api/admin/assignments/${pendingDeleteAssignment.id}`, { method: "DELETE" });
+      setAssignments((p) => p.filter((a) => String(a.id) !== String(pendingDeleteAssignment.id)));
       setSuccessMsg("Assignment deleted.");
+      setPendingDeleteAssignment(null);
+      setDeletePassword("");
+      setDeleteError("");
     } catch (err) {
       console.error("delete assignment", err);
-      setError("Failed to delete assignment");
+      if (err?.code === "ADMIN_REAUTH_REQUIRED") {
+        clearAdminReauthToken();
+        setDeleteError("Admin password confirmation expired. Enter your password again to delete this assignment.");
+      } else {
+        setDeleteError(err?.message || "Failed to delete assignment");
+      }
+    } finally {
+      setDeleteSaving(false);
     }
   }
 
@@ -438,7 +472,17 @@ export default function AssignSubjectsPanel({ active }) {
                           <td>{a.teacher_name || a.teacher_id || "—"}</td>
                           <td>{formatDateTime(a.created_at)}</td>
                           <td>
-                            <button type="button" onClick={() => deleteAssignment(a.id)} className="danger-link">Delete</button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPendingDeleteAssignment(a);
+                                setDeletePassword("");
+                                setDeleteError("");
+                              }}
+                              className="danger-link"
+                            >
+                              Delete
+                            </button>
                           </td>
                         </tr>
                       ))}
@@ -497,6 +541,83 @@ export default function AssignSubjectsPanel({ active }) {
             )}
           </div>
         </>
+      )}
+
+      {pendingDeleteAssignment && (
+        <div className="modal-backdrop" onClick={() => !deleteSaving && setPendingDeleteAssignment(null)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "560px" }}>
+            <h2>Delete Assignment</h2>
+            <p style={{ marginTop: "-0.15rem", marginBottom: "1rem", color: "#475569", lineHeight: 1.6 }}>
+              This assignment controls who captures marks for the selected class, stream, and subject.
+            </p>
+
+            <div
+              style={{
+                border: "1px solid rgba(148, 163, 184, 0.22)",
+                background: "rgba(248, 250, 252, 0.95)",
+                borderRadius: "16px",
+                padding: "1rem",
+                marginBottom: "1rem",
+                color: "#0f172a",
+                lineHeight: 1.7,
+              }}
+            >
+              <div><strong>Class:</strong> {pendingDeleteAssignment.class_level || pendingDeleteAssignment.class || "—"}</div>
+              <div><strong>Stream:</strong> {pendingDeleteAssignment.stream || "—"}</div>
+              <div><strong>Subject:</strong> {pendingDeleteAssignment.subject || "—"}</div>
+              <div><strong>Teacher:</strong> {pendingDeleteAssignment.teacher_name || pendingDeleteAssignment.teacher_id || "—"}</div>
+            </div>
+
+            <div
+              className="panel-alert"
+              style={{
+                marginBottom: "1rem",
+                background: "rgba(239, 68, 68, 0.10)",
+                border: "1px solid rgba(239, 68, 68, 0.28)",
+                color: "#991b1b",
+                lineHeight: 1.65,
+              }}
+            >
+              Assignment deletion is admin-protected. If marks are already tied to this assignment, the system will block the delete. If recent admin confirmation has expired, enter your password below to continue.
+            </div>
+
+            {!getStoredAdminReauthToken() && (
+              <div className="form-row" style={{ marginBottom: "1rem" }}>
+                <label>Admin Password</label>
+                <input
+                  type="password"
+                  value={deletePassword}
+                  onChange={(e) => setDeletePassword(e.target.value)}
+                  placeholder="Re-enter admin password"
+                />
+              </div>
+            )}
+
+            {deleteError && (
+              <div className="panel-alert panel-alert-error" style={{ marginBottom: "1rem" }}>
+                {deleteError}
+              </div>
+            )}
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.65rem", flexWrap: "wrap" }}>
+              <button
+                className="ghost-btn"
+                disabled={deleteSaving}
+                onClick={() => setPendingDeleteAssignment(null)}
+              >
+                Cancel
+              </button>
+              <button
+                className="primary-btn"
+                disabled={deleteSaving}
+                onClick={deleteAssignment}
+                style={{ background: "#b91c1c", borderColor: "#b91c1c" }}
+              >
+                {deleteSaving ? "Deleting…" : "Delete Assignment"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

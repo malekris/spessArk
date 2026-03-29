@@ -8,7 +8,17 @@ const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 export function getAdminHeaders() {
   try {
     const key = window?.localStorage?.getItem?.("SPESS_ADMIN_KEY") || "";
-    return key ? { "x-admin-key": key } : {};
+    const token = window?.localStorage?.getItem?.("adminToken") || "";
+    const reauthToken =
+      window?.sessionStorage?.getItem?.("SPESS_ADMIN_REAUTH_TOKEN") ||
+      window?.localStorage?.getItem?.("SPESS_ADMIN_REAUTH_TOKEN") ||
+      "";
+
+    const headers = {};
+    if (key) headers["x-admin-key"] = key;
+    if (token) headers.Authorization = `Bearer ${token}`;
+    if (reauthToken) headers["x-admin-reauth"] = reauthToken;
+    return headers;
   } catch (e) {
     return {};
   }
@@ -66,12 +76,18 @@ export async function adminFetch(path, opts = {}) {
   } catch (err) {
     // if 401, provide friendly message
     if (err && err.status === 401) {
-      const e = new Error("Admin authorization required (401). Set admin key or disable dev auth.");
+      const e = new Error("Admin authorization required (401). Please sign in again.");
       e.status = 401;
+      throw e;
+    }
+    if (err && err.status === 403 && err?.body?.code === "ADMIN_REAUTH_REQUIRED") {
+      const e = new Error(
+        err?.body?.message || "Recent admin password confirmation is required for this action."
+      );
+      e.status = 403;
+      e.code = "ADMIN_REAUTH_REQUIRED";
       throw e;
     }
     throw err;
   }
 }
-
-

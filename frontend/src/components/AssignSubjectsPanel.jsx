@@ -4,7 +4,6 @@ import { plainFetch, adminFetch } from "../lib/api";
 import { loadPdfTools } from "../utils/loadPdfTools";
 import {
   clearAdminReauthToken,
-  getStoredAdminReauthToken,
   storeAdminReauthToken,
 } from "../utils/adminSecurity";
 
@@ -17,6 +16,8 @@ const FALLBACK_SUBJECTS = [
 ];
 
 export default function AssignSubjectsPanel({ active }) {
+  const normalizeFilterValue = (value) => String(value || "").trim().toLowerCase();
+
   const formatDateTime = (value) => {
     if (!value) return "—";
     const d = new Date(value);
@@ -38,6 +39,7 @@ export default function AssignSubjectsPanel({ active }) {
   });
   const [error, setError] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
+  const [createdAssignment, setCreatedAssignment] = useState(null);
   const [pendingDeleteAssignment, setPendingDeleteAssignment] = useState(null);
   const [deleteSaving, setDeleteSaving] = useState(false);
   const [deletePassword, setDeletePassword] = useState("");
@@ -48,9 +50,20 @@ export default function AssignSubjectsPanel({ active }) {
   const [printStream, setPrintStream] = useState("");
 
   // 2️⃣ DERIVED DATA (NOW SAFE)
+  const availablePrintStreams = Array.from(
+    new Map(
+      assignments
+        .map((a) => String(a?.stream || "").trim())
+        .filter(Boolean)
+        .map((stream) => [normalizeFilterValue(stream), stream])
+    ).values()
+  );
+
   const filteredAssignments = assignments.filter(a => {
-    const classMatch = !printClass || a.class_level === printClass;
-    const streamMatch = !printStream || a.stream === printStream;
+    const classMatch =
+      !printClass || normalizeFilterValue(a.class_level || a.class) === normalizeFilterValue(printClass);
+    const streamMatch =
+      !printStream || normalizeFilterValue(a.stream) === normalizeFilterValue(printStream);
     return classMatch && streamMatch;
   });
 
@@ -149,6 +162,7 @@ export default function AssignSubjectsPanel({ active }) {
     setForm((p) => ({ ...p, [field]: value }));
     setError("");
     setSuccessMsg("");
+    setCreatedAssignment(null);
   }
 
   const canAssign = form.classId && form.subjectId && form.teacherId && form.stream;
@@ -164,6 +178,7 @@ export default function AssignSubjectsPanel({ active }) {
     try {
       const classLabel = (classes.find(c => String(c.id) === String(form.classId)) || {}).name || String(form.classId);
       const subjectLabel = (subjects.find(s => String(s.id) === String(form.subjectId)) || {}).name || String(form.subjectId);
+      const teacherLabel = (teachers.find(t => String(t.id) === String(form.teacherId)) || {}).name || String(form.teacherId);
       const teacherId = Number(form.teacherId);
       const stream = form.stream;
 
@@ -173,7 +188,13 @@ export default function AssignSubjectsPanel({ active }) {
 
       const assigns = await adminFetch("/api/admin/assignments").catch(() => []);
       setAssignments(assigns || []);
-      setSuccessMsg("Assignment created.");
+      setCreatedAssignment({
+        classLabel,
+        stream,
+        subjectLabel,
+        teacherLabel,
+        createdAt: new Date().toLocaleString(),
+      });
       setForm({ classId: "", subjectId: "", teacherId: "", stream: "" });
     } catch (err) {
       console.error("assign error", err);
@@ -183,7 +204,7 @@ export default function AssignSubjectsPanel({ active }) {
   function handlePrintAssignments() {
     const printWindow = window.open("", "_blank", "width=900,height=650");
   
-    const rows = assignments.map(a => `
+    const rows = filteredAssignments.map(a => `
       <tr>
         <td>${a.class_level || "—"}</td>
         <td>${a.stream || "—"}</td>
@@ -222,6 +243,7 @@ export default function AssignSubjectsPanel({ active }) {
         </head>
         <body>
           <h2>Teacher Assignments</h2>
+          <p><strong>Class:</strong> ${printClass || "All"} &nbsp;&nbsp; <strong>Stream:</strong> ${printStream || "All"} &nbsp;&nbsp; <strong>Records:</strong> ${filteredAssignments.length}</p>
           <table>
             <thead>
               <tr>
@@ -356,18 +378,17 @@ export default function AssignSubjectsPanel({ active }) {
     setDeleteError("");
     setDeleteSaving(true);
     try {
-      if (!getStoredAdminReauthToken()) {
-        if (!deletePassword.trim()) {
-          setDeleteError("Enter your admin password before deleting this assignment.");
-          return;
-        }
-
-        const reauth = await adminFetch("/api/admin/reauth", {
-          method: "POST",
-          body: { password: deletePassword },
-        });
-        storeAdminReauthToken(reauth?.token, reauth?.expiresAt);
+      clearAdminReauthToken();
+      if (!deletePassword.trim()) {
+        setDeleteError("Enter your admin password before deleting this assignment.");
+        return;
       }
+
+      const reauth = await adminFetch("/api/admin/reauth", {
+        method: "POST",
+        body: { password: deletePassword },
+      });
+      storeAdminReauthToken(reauth?.token, reauth?.expiresAt);
 
       await adminFetch(`/api/admin/assignments/${pendingDeleteAssignment.id}`, { method: "DELETE" });
       setAssignments((p) => p.filter((a) => String(a.id) !== String(pendingDeleteAssignment.id)));
@@ -375,6 +396,7 @@ export default function AssignSubjectsPanel({ active }) {
       setPendingDeleteAssignment(null);
       setDeletePassword("");
       setDeleteError("");
+      clearAdminReauthToken();
     } catch (err) {
       console.error("delete assignment", err);
       if (err?.code === "ADMIN_REAUTH_REQUIRED") {
@@ -404,10 +426,21 @@ export default function AssignSubjectsPanel({ active }) {
         <div className="muted-text">Loading…</div>
       ) : (
         <>
-          <form onSubmit={handleAssign} style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, alignItems: "center", marginBottom: 18 }}>
+          <form
+            onSubmit={handleAssign}
+            className="assign-subjects-form"
+            style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, alignItems: "center", marginBottom: 18 }}
+          >
             <div>
-              <label htmlFor="assign-teacher" className="muted-text" style={{ display: "block", marginBottom: 6 }}>Teacher</label>
-              <select id="assign-teacher" name="assign-teacher" autoComplete="off" value={form.teacherId} onChange={e => onChange("teacherId", e.target.value)}>
+              <label htmlFor="assign-teacher" className="admin-assign-label">Teacher</label>
+              <select
+                id="assign-teacher"
+                name="assign-teacher"
+                className="admin-assign-select"
+                autoComplete="off"
+                value={form.teacherId}
+                onChange={e => onChange("teacherId", e.target.value)}
+              >
                 <option value=''>Choose teacher</option>
                 {teachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
@@ -415,8 +448,15 @@ export default function AssignSubjectsPanel({ active }) {
             </div>
 
             <div>
-              <label htmlFor="assign-class" className="muted-text" style={{ display: "block", marginBottom: 6 }}>Class</label>
-              <select id="assign-class" name="assign-class" autoComplete="off" value={form.classId} onChange={e => onChange("classId", e.target.value)}>
+              <label htmlFor="assign-class" className="admin-assign-label">Class</label>
+              <select
+                id="assign-class"
+                name="assign-class"
+                className="admin-assign-select"
+                autoComplete="off"
+                value={form.classId}
+                onChange={e => onChange("classId", e.target.value)}
+              >
                 <option value=''>Choose class</option>
                 {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
@@ -424,16 +464,30 @@ export default function AssignSubjectsPanel({ active }) {
             </div>
 
             <div>
-              <label htmlFor="assign-subject" className="muted-text" style={{ display: "block", marginBottom: 6 }}>Subject</label>
-              <select id="assign-subject" name="assign-subject" autoComplete="off" value={form.subjectId} onChange={e => onChange("subjectId", e.target.value)}>
+              <label htmlFor="assign-subject" className="admin-assign-label">Subject</label>
+              <select
+                id="assign-subject"
+                name="assign-subject"
+                className="admin-assign-select"
+                autoComplete="off"
+                value={form.subjectId}
+                onChange={e => onChange("subjectId", e.target.value)}
+              >
                 <option value=''>Choose subject</option>
                 {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             </div>
 
             <div>
-              <label htmlFor="assign-stream" className="muted-text" style={{ display: "block", marginBottom: 6 }}>Stream</label>
-              <select id="assign-stream" name="assign-stream" autoComplete="off" value={form.stream} onChange={e => onChange("stream", e.target.value)}>
+              <label htmlFor="assign-stream" className="admin-assign-label">Stream</label>
+              <select
+                id="assign-stream"
+                name="assign-stream"
+                className="admin-assign-select"
+                autoComplete="off"
+                value={form.stream}
+                onChange={e => onChange("stream", e.target.value)}
+              >
                 <option value=''>Choose stream</option>
                 <option value='North'>North</option>
                 <option value='South'>South</option>
@@ -503,17 +557,25 @@ export default function AssignSubjectsPanel({ active }) {
                   }}
                 >
                   <div style={{ display: "flex", gap: 12, marginTop: 12 }}>
-                    <select value={printClass} onChange={e => setPrintClass(e.target.value)}>
+                    <select className="admin-assign-select admin-assign-select-compact" value={printClass} onChange={e => setPrintClass(e.target.value)}>
                       <option value="">All Classes</option>
                       {classes.map(c => (
                         <option key={c.id} value={c.name}>{c.name}</option>
                       ))}
                     </select>
 
-                    <select value={printStream} onChange={e => setPrintStream(e.target.value)}>
+                    <select className="admin-assign-select admin-assign-select-compact" value={printStream} onChange={e => setPrintStream(e.target.value)}>
                       <option value="">All Streams</option>
-                      <option value="North">North</option>
-                      <option value="South">South</option>
+                      {availablePrintStreams.length > 0 ? (
+                        availablePrintStreams.map((stream) => (
+                          <option key={stream} value={stream}>{stream}</option>
+                        ))
+                      ) : (
+                        <>
+                          <option value="North">North</option>
+                          <option value="South">South</option>
+                        </>
+                      )}
                     </select>
                   </div>
 
@@ -581,17 +643,15 @@ export default function AssignSubjectsPanel({ active }) {
               Assignment deletion is admin-protected. If marks are already tied to this assignment, the system will block the delete. If recent admin confirmation has expired, enter your password below to continue.
             </div>
 
-            {!getStoredAdminReauthToken() && (
-              <div className="form-row" style={{ marginBottom: "1rem" }}>
-                <label>Admin Password</label>
-                <input
-                  type="password"
-                  value={deletePassword}
-                  onChange={(e) => setDeletePassword(e.target.value)}
-                  placeholder="Re-enter admin password"
-                />
-              </div>
-            )}
+            <div className="form-row" style={{ marginBottom: "1rem" }}>
+              <label>Admin Password</label>
+              <input
+                type="password"
+                value={deletePassword}
+                onChange={(e) => setDeletePassword(e.target.value)}
+                placeholder="Re-enter admin password"
+              />
+            </div>
 
             {deleteError && (
               <div className="panel-alert panel-alert-error" style={{ marginBottom: "1rem" }}>
@@ -614,6 +674,50 @@ export default function AssignSubjectsPanel({ active }) {
                 style={{ background: "#b91c1c", borderColor: "#b91c1c" }}
               >
                 {deleteSaving ? "Deleting…" : "Delete Assignment"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {createdAssignment && (
+        <div className="modal-backdrop" onClick={() => setCreatedAssignment(null)}>
+          <div className="modal-card assignment-created-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "620px" }}>
+            <div className="assignment-created-hero">
+              <span className="assignment-created-badge">Assignment Created</span>
+              <h2>Teacher assignment is now live.</h2>
+              <p>
+                The selected teacher can now capture marks for this class, stream, and subject from the teacher dashboard.
+              </p>
+            </div>
+
+            <div className="assignment-created-grid">
+              <div className="assignment-created-item">
+                <span>Class</span>
+                <strong>{createdAssignment.classLabel}</strong>
+              </div>
+              <div className="assignment-created-item">
+                <span>Stream</span>
+                <strong>{createdAssignment.stream}</strong>
+              </div>
+              <div className="assignment-created-item">
+                <span>Subject</span>
+                <strong>{createdAssignment.subjectLabel}</strong>
+              </div>
+              <div className="assignment-created-item">
+                <span>Teacher</span>
+                <strong>{createdAssignment.teacherLabel}</strong>
+              </div>
+            </div>
+
+            <div className="assignment-created-note">
+              <span className="assignment-created-note-pill">Ready for marks capture</span>
+              <span>Created {createdAssignment.createdAt}</span>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "1.1rem" }}>
+              <button className="primary-btn" onClick={() => setCreatedAssignment(null)}>
+                Continue
               </button>
             </div>
           </div>

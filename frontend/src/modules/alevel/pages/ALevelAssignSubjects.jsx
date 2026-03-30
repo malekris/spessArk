@@ -7,7 +7,6 @@ import ALevelAdminShell from "../components/ALevelAdminShell";
 import {
   clearAdminReauthToken,
   clearAdminSession,
-  getStoredAdminReauthToken,
   storeAdminReauthToken,
 } from "../../../utils/adminSecurity";
 import "../../../pages/AdminDashboard.css";
@@ -168,19 +167,18 @@ export default function ALevelAssignSubjects() {
     try {
       setDeleteSaving(true);
       setDeleteError("");
+      clearAdminReauthToken();
 
-      if (!getStoredAdminReauthToken()) {
-        if (!deletePassword.trim()) {
-          setDeleteError("Enter your admin password before deleting this assignment.");
-          return;
-        }
-
-        const reauth = await adminFetch("/api/admin/reauth", {
-          method: "POST",
-          body: { password: deletePassword },
-        });
-        storeAdminReauthToken(reauth?.token, reauth?.expiresAt);
+      if (!deletePassword.trim()) {
+        setDeleteError("Enter your admin password before deleting this assignment.");
+        return;
       }
+
+      const reauth = await adminFetch("/api/admin/reauth", {
+        method: "POST",
+        body: { password: deletePassword },
+      });
+      storeAdminReauthToken(reauth?.token, reauth?.expiresAt);
 
       await adminFetch(`/api/alevel/admin/assignments/${assignmentPendingDelete.id}`, {
         method: "DELETE",
@@ -191,6 +189,7 @@ export default function ALevelAssignSubjects() {
       setAssignmentPendingDelete(null);
       setDeletePassword("");
       setDeleteError("");
+      clearAdminReauthToken();
     } catch (err) {
       if (err?.code === "ADMIN_REAUTH_REQUIRED") {
         clearAdminReauthToken();
@@ -466,17 +465,15 @@ export default function ALevelAssignSubjects() {
               Assignment deletion is admin-protected. If marks are already attached, the backend will block the delete. If recent admin confirmation has expired, enter your password below to continue.
             </div>
 
-            {!getStoredAdminReauthToken() && (
-              <div className="form-row" style={{ marginBottom: "1rem" }}>
-                <label>Admin Password</label>
-                <input
-                  type="password"
-                  value={deletePassword}
-                  onChange={(e) => setDeletePassword(e.target.value)}
-                  placeholder="Re-enter admin password"
-                />
-              </div>
-            )}
+            <div className="form-row" style={{ marginBottom: "1rem" }}>
+              <label>Admin Password</label>
+              <input
+                type="password"
+                value={deletePassword}
+                onChange={(e) => setDeletePassword(e.target.value)}
+                placeholder="Re-enter admin password"
+              />
+            </div>
 
             {deleteError && (
               <div className="panel-alert panel-alert-error" style={{ marginBottom: "1rem" }}>

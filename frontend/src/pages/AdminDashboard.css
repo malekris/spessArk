@@ -331,6 +331,240 @@
   color: #f8fafc;
 }
 
+.admin-assign-label {
+  display: block;
+  margin-bottom: 0.4rem;
+  color: #dbeafe;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.admin-assign-select {
+  width: 100%;
+  min-height: 50px;
+  border-radius: 1rem;
+  border: 1px solid rgba(30, 41, 59, 0.92);
+  background-image:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(17, 24, 39, 0.96)),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14' fill='none'%3E%3Cpath d='M3 5.25L7 9.25L11 5.25' stroke='%2394A3B8' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat, no-repeat;
+  background-position: center, right 1rem center;
+  background-size: auto, 14px 14px;
+  color: #f8fafc;
+  padding: 0.82rem 2.9rem 0.82rem 1rem;
+  font-size: 0.94rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  outline: none;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  box-shadow:
+    inset 0 1px 0 rgba(148, 163, 184, 0.06),
+    inset 0 0 0 1px rgba(15, 23, 42, 0.35),
+    0 14px 28px rgba(2, 6, 23, 0.22);
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.admin-assign-select:hover {
+  border-color: rgba(51, 65, 85, 0.95);
+  box-shadow:
+    inset 0 1px 0 rgba(148, 163, 184, 0.08),
+    inset 0 0 0 1px rgba(30, 41, 59, 0.48),
+    0 18px 30px rgba(2, 6, 23, 0.25);
+}
+
+.admin-assign-select:focus {
+  border-color: rgba(71, 85, 105, 0.96);
+  box-shadow:
+    inset 0 1px 0 rgba(148, 163, 184, 0.12),
+    inset 0 0 0 1px rgba(51, 65, 85, 0.28),
+    0 0 0 3px rgba(148, 163, 184, 0.1),
+    0 18px 34px rgba(2, 6, 23, 0.26);
+  transform: translateY(-1px);
+}
+
+.admin-assign-select option {
+  background: #0f172a;
+  color: #f8fafc;
+}
+
+.admin-assign-select-compact {
+  min-width: 170px;
+  min-height: 46px;
+  border-radius: 0.95rem;
+  padding-top: 0.72rem;
+  padding-bottom: 0.72rem;
+}
+
+.enrollment-insights-filter-row {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.enrollment-insights-select {
+  min-width: 158px;
+  min-height: 44px;
+  border-radius: 0.9rem;
+  border: 1px solid rgba(51, 65, 85, 0.85);
+  background-image:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.94), rgba(15, 23, 42, 0.9)),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14' fill='none'%3E%3Cpath d='M3 5.25L7 9.25L11 5.25' stroke='%2394A3B8' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat, no-repeat;
+  background-position: center, right 0.95rem center;
+  background-size: auto, 14px 14px;
+  color: #e5e7eb;
+  padding: 0.68rem 2.65rem 0.68rem 0.9rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  appearance: none;
+  -webkit-appearance: none;
+  outline: none;
+  cursor: pointer;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.03),
+    0 10px 22px rgba(2, 6, 23, 0.16);
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.enrollment-insights-select:hover {
+  border-color: rgba(71, 85, 105, 0.92);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 14px 24px rgba(2, 6, 23, 0.18);
+}
+
+.enrollment-insights-select:focus {
+  border-color: rgba(71, 85, 105, 0.92);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 0 0 3px rgba(148, 163, 184, 0.08),
+    0 14px 24px rgba(2, 6, 23, 0.18);
+  transform: translateY(-1px);
+}
+
+.enrollment-insights-select option {
+  background: #0f172a;
+  color: #e5e7eb;
+}
+
+.enrollment-insights-select-wide {
+  min-width: 188px;
+}
+
+.assignment-created-modal {
+  background:
+    radial-gradient(circle at top right, rgba(59, 130, 246, 0.15), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.98));
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  box-shadow: 0 28px 80px rgba(15, 23, 42, 0.26);
+}
+
+.assignment-created-hero {
+  padding: 1.2rem 1.2rem 1rem;
+  border-radius: 1rem;
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.09), rgba(37, 99, 235, 0.07));
+  border: 1px solid rgba(59, 130, 246, 0.14);
+}
+
+.assignment-created-hero h2 {
+  margin: 0.45rem 0 0.35rem;
+  color: #0f172a;
+  font-size: 1.45rem;
+  line-height: 1.2;
+}
+
+.assignment-created-hero p {
+  margin: 0;
+  color: #334155;
+  line-height: 1.65;
+}
+
+.assignment-created-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.38rem 0.72rem;
+  border-radius: 999px;
+  background: rgba(15, 118, 110, 0.12);
+  color: #0f766e;
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.assignment-created-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+  margin-top: 1rem;
+}
+
+.assignment-created-item {
+  padding: 0.95rem 1rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.assignment-created-item span {
+  display: block;
+  margin-bottom: 0.32rem;
+  color: #64748b;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.assignment-created-item strong {
+  display: block;
+  color: #0f172a;
+  font-size: 1rem;
+  line-height: 1.35;
+}
+
+.assignment-created-note {
+  margin-top: 1rem;
+  padding: 0.9rem 1rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(15, 118, 110, 0.14);
+  background: rgba(240, 253, 250, 0.9);
+  color: #0f172a;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+  font-weight: 600;
+}
+
+.assignment-created-note-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.35rem 0.72rem;
+  border-radius: 999px;
+  background: rgba(15, 118, 110, 0.14);
+  color: #0f766e;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .admin-ops-inline-meters {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1675,6 +1909,81 @@
   background: rgba(255, 255, 255, 0.96);
   border-color: rgba(15, 23, 42, 0.2);
   color: #0f172a;
+}
+
+.admin-root.mode-light .admin-assign-label {
+  color: #1e3a8a;
+}
+
+.admin-root.mode-light .admin-assign-select {
+  border-color: rgba(148, 163, 184, 0.52);
+  background-image:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.97)),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14' fill='none'%3E%3Cpath d='M3 5.25L7 9.25L11 5.25' stroke='%2364758B' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  color: #0f172a;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    inset 0 0 0 1px rgba(226, 232, 240, 0.78),
+    0 12px 24px rgba(148, 163, 184, 0.14);
+}
+
+.admin-root.mode-light .admin-assign-select:hover {
+  border-color: rgba(100, 116, 139, 0.58);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.78),
+    inset 0 0 0 1px rgba(226, 232, 240, 0.9),
+    0 16px 28px rgba(148, 163, 184, 0.16);
+}
+
+.admin-root.mode-light .admin-assign-select:focus {
+  border-color: rgba(100, 116, 139, 0.58);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    inset 0 0 0 1px rgba(226, 232, 240, 0.92),
+    0 0 0 3px rgba(148, 163, 184, 0.1),
+    0 18px 30px rgba(148, 163, 184, 0.18);
+}
+
+.admin-root.mode-light .admin-assign-select option {
+  background: #ffffff;
+  color: #0f172a;
+}
+
+.admin-root.mode-light .enrollment-insights-select {
+  border-color: rgba(148, 163, 184, 0.48);
+  background-image:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 250, 252, 0.97)),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 14 14' fill='none'%3E%3Cpath d='M3 5.25L7 9.25L11 5.25' stroke='%2364758B' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  color: #0f172a;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.74),
+    0 10px 20px rgba(148, 163, 184, 0.12);
+}
+
+.admin-root.mode-light .enrollment-insights-select:hover {
+  border-color: rgba(100, 116, 139, 0.52);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    0 12px 22px rgba(148, 163, 184, 0.14);
+}
+
+.admin-root.mode-light .enrollment-insights-select:focus {
+  border-color: rgba(100, 116, 139, 0.5);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.84),
+    0 0 0 3px rgba(148, 163, 184, 0.08),
+    0 12px 24px rgba(148, 163, 184, 0.16);
+}
+
+.admin-root.mode-light .enrollment-insights-select option {
+  background: #ffffff;
+  color: #0f172a;
+}
+
+@media (max-width: 720px) {
+  .assignment-created-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .admin-root.mode-light .teachers-table thead {

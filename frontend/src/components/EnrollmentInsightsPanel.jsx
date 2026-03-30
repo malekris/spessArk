@@ -308,18 +308,33 @@ export default function EnrollmentInsightsPanel({ students = [] }) {
 
       {/* FILTERS */}
       <div className="panel-card" style={{ marginBottom: "0.8rem" }}>
-        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-          <select value={classLevel} onChange={(e) => setClassLevel(e.target.value)}>
+        <div className="enrollment-insights-filter-row">
+          <select
+            className="enrollment-insights-select"
+            aria-label="Filter by class"
+            value={classLevel}
+            onChange={(e) => setClassLevel(e.target.value)}
+          >
             <option value="">All classes</option>
             {classOptions.map((c) => <option key={c}>{c}</option>)}
           </select>
 
-          <select value={stream} onChange={(e) => setStream(e.target.value)}>
+          <select
+            className="enrollment-insights-select"
+            aria-label="Filter by stream"
+            value={stream}
+            onChange={(e) => setStream(e.target.value)}
+          >
             <option value="">All streams</option>
             {streamOptions.map((s) => <option key={s}>{s}</option>)}
           </select>
 
-          <select value={subject} onChange={(e) => setSubject(e.target.value)}>
+          <select
+            className="enrollment-insights-select enrollment-insights-select-wide"
+            aria-label="Filter by subject"
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+          >
             <option value="">All subjects</option>
             {subjectOptions.map((s) => <option key={s}>{s}</option>)}
           </select>

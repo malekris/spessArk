@@ -21,6 +21,11 @@ import {
   getSchoolCalendarTimelineEntries,
   normalizeSchoolCalendar,
 } from "../utils/schoolCalendar";
+import {
+  clearAdminReauthToken,
+  clearAdminSession,
+  storeAdminReauthToken,
+} from "../utils/adminSecurity";
 
 // API base (fallback for local dev)
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5001";
@@ -227,19 +232,6 @@ const buildStreamReadinessFromAssignments = (assignments = []) => {
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const ADMIN_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
-  const ADMIN_REAUTH_STORAGE_KEY = "SPESS_ADMIN_REAUTH_TOKEN";
-  const ADMIN_REAUTH_EXPIRY_KEY = "SPESS_ADMIN_REAUTH_EXPIRES_AT";
-  const clearAdminSession = () => {
-    localStorage.removeItem("SPESS_ADMIN_KEY");
-    localStorage.removeItem("isAdmin");
-    localStorage.removeItem("adminToken");
-    localStorage.removeItem("adminUsername");
-    localStorage.removeItem(ADMIN_REAUTH_STORAGE_KEY);
-    localStorage.removeItem(ADMIN_REAUTH_EXPIRY_KEY);
-    sessionStorage.removeItem("isAdmin");
-    sessionStorage.removeItem(ADMIN_REAUTH_STORAGE_KEY);
-    sessionStorage.removeItem(ADMIN_REAUTH_EXPIRY_KEY);
-  };
 
   // Auth / navigation
   useEffect(() => {
@@ -284,44 +276,8 @@ export default function AdminDashboard() {
     navigate("/ark", { replace: true });
   };
 
-  const getStoredAdminReauthToken = () => {
-    const expiryRaw =
-      sessionStorage.getItem(ADMIN_REAUTH_EXPIRY_KEY) ||
-      localStorage.getItem(ADMIN_REAUTH_EXPIRY_KEY) ||
-      "";
-    const token =
-      sessionStorage.getItem(ADMIN_REAUTH_STORAGE_KEY) ||
-      localStorage.getItem(ADMIN_REAUTH_STORAGE_KEY) ||
-      "";
-
-    if (!token || !expiryRaw) return "";
-
-    const expiry = new Date(expiryRaw).getTime();
-    if (!Number.isFinite(expiry) || expiry <= Date.now()) {
-      sessionStorage.removeItem(ADMIN_REAUTH_STORAGE_KEY);
-      sessionStorage.removeItem(ADMIN_REAUTH_EXPIRY_KEY);
-      localStorage.removeItem(ADMIN_REAUTH_STORAGE_KEY);
-      localStorage.removeItem(ADMIN_REAUTH_EXPIRY_KEY);
-      return "";
-    }
-
-    return token;
-  };
-
-  const storeAdminReauthToken = (token, expiresAt) => {
-    if (!token || !expiresAt) return;
-    sessionStorage.setItem(ADMIN_REAUTH_STORAGE_KEY, token);
-    sessionStorage.setItem(ADMIN_REAUTH_EXPIRY_KEY, expiresAt);
-    localStorage.removeItem(ADMIN_REAUTH_STORAGE_KEY);
-    localStorage.removeItem(ADMIN_REAUTH_EXPIRY_KEY);
-  };
-
   const requestAdminReauth = ({ title, description, onApproved }) => {
-    const activeToken = getStoredAdminReauthToken();
-    if (activeToken) {
-      return Promise.resolve(onApproved?.());
-    }
-
+    clearAdminReauthToken();
     reauthActionRef.current = typeof onApproved === "function" ? onApproved : null;
     setReauthPassword("");
     setReauthError("");
@@ -366,6 +322,7 @@ export default function AdminDashboard() {
       if (pendingAction) {
         await pendingAction();
       }
+      clearAdminReauthToken();
     } catch (err) {
       setReauthError(err.message || "Admin confirmation failed.");
     } finally {

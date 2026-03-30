@@ -188,6 +188,9 @@ const buildStreamReadinessFromAssignments = (assignments = []) => {
     const assignedOptionalSubjects = OPTIONAL_SUBJECTS.filter((s) =>
       subjectKeys.has(s.toLowerCase())
     );
+    const missingOptionalSubjects = OPTIONAL_SUBJECTS.filter(
+      (s) => !subjectKeys.has(s.toLowerCase())
+    );
     const unknownSubjects = Array.from(group.subjects.entries())
       .filter(([key]) => !compulsoryKeys.has(key) && !optionalKeys.has(key))
       .map(([, label]) => label)
@@ -204,6 +207,7 @@ const buildStreamReadinessFromAssignments = (assignments = []) => {
       missingCompulsorySubjects,
       assignedOptionalSubjects,
       optionalCount: assignedOptionalSubjects.length,
+      missingOptionalSubjects,
       unknownSubjects,
     };
   });
@@ -442,6 +446,8 @@ export default function AdminDashboard() {
   const [aLevelMarksSets, setALevelMarksSets] = useState([]);
   const [overviewMarksLocks, setOverviewMarksLocks] = useState([]);
   const [reportReadinessSummary, setReportReadinessSummary] = useState(null);
+  const [reportReadinessError, setReportReadinessError] = useState("");
+  const [readinessPdfLoadingLevel, setReadinessPdfLoadingLevel] = useState("");
   const [assessmentComplianceAoi, setAssessmentComplianceAoi] = useState("AOI1");
   const [marksLockForm, setMarksLockForm] = useState(() => createEmptyMarksLockForm());
   const [marksLockLoading, setMarksLockLoading] = useState(false);
@@ -712,6 +718,7 @@ export default function AdminDashboard() {
     year = dashboardOperationalYear
   ) => {
     try {
+      setReportReadinessError("");
       const params = new URLSearchParams({
         term,
         year: String(year),
@@ -720,7 +727,138 @@ export default function AdminDashboard() {
       setReportReadinessSummary(data || null);
     } catch (err) {
       console.error("Error loading report readiness summary:", err);
+      setReportReadinessError(err.message || "Could not load report readiness.");
       setReportReadinessSummary(null);
+    }
+  };
+
+  const handleDownloadReadinessDetailsPdf = async (levelName) => {
+    const normalizedLevel = levelName === "aLevel" ? "aLevel" : "oLevel";
+    setReadinessPdfLoadingLevel(normalizedLevel);
+    setReportReadinessError("");
+
+    try {
+      const params = new URLSearchParams({
+        level: normalizedLevel,
+        term: reportReadinessCard.term || dashboardOperationalTerm,
+        year: String(reportReadinessCard.year || dashboardOperationalYear),
+      });
+
+      const data = await adminFetch(`/api/admin/reports/readiness-incomplete-details?${params.toString()}`);
+      const rows = Array.isArray(data?.rows) ? data.rows : [];
+
+      if (rows.length === 0) {
+        setReportReadinessError(`No incomplete ${normalizedLevel === "aLevel" ? "A-Level" : "O-Level"} learners found for ${reportReadinessCard.term}.`);
+        return;
+      }
+
+      const { jsPDF, autoTable } = await loadPdfTools();
+      const doc = new jsPDF("l", "mm", "a4");
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const generatedAt = new Date().toLocaleString();
+      const levelLabel = normalizedLevel === "aLevel" ? "A-Level" : "O-Level";
+      const flattenedRows = [];
+
+      rows.forEach((learner) => {
+        const learnerMeta = normalizedLevel === "aLevel"
+          ? `${learner.classLevel || "A-Level"} • ${learner.stream || "—"}${learner.combination && learner.combination !== "—" ? ` • ${learner.combination}` : ""}`
+          : `${learner.classLevel || "—"} • ${learner.stream || "—"}`;
+
+        (learner.missingItems || []).forEach((item, index) => {
+          flattenedRows.push([
+            String(flattenedRows.length + 1),
+            index === 0 ? learner.learnerName || "—" : "",
+            index === 0 ? learnerMeta : "",
+            item.itemLabel || "—",
+            item.teacherName || "—",
+            item.missingComponents || "—",
+            item.reason || "—",
+          ]);
+        });
+      });
+
+      const drawHeader = () => {
+        doc.setFillColor(245, 247, 250);
+        doc.rect(10, 8, pageWidth - 20, 24, "F");
+        doc.setDrawColor(180, 188, 200);
+        doc.rect(10, 8, pageWidth - 20, 24, "S");
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(13);
+        doc.setTextColor(23, 37, 84);
+        doc.text("SPESS ARK • Report Readiness Gaps", pageWidth / 2, 17, { align: "center" });
+
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(10);
+        doc.setTextColor(51, 65, 85);
+        doc.text(
+          `${levelLabel} incomplete learners • ${data.term} ${data.year} • Ready means at least one submitted score this term`,
+          pageWidth / 2,
+          24,
+          { align: "center" }
+        );
+
+        doc.setFontSize(9);
+        doc.text(`Generated: ${generatedAt}`, 12, 38);
+        doc.text(`Incomplete learners: ${rows.length}`, pageWidth - 12, 38, { align: "right" });
+        doc.setDrawColor(203, 213, 225);
+        doc.line(10, 42, pageWidth - 10, 42);
+      };
+
+      const drawFooter = () => {
+        doc.setDrawColor(203, 213, 225);
+        doc.line(10, pageHeight - 12, pageWidth - 10, pageHeight - 12);
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(8.5);
+        doc.setTextColor(71, 85, 105);
+        doc.text(`Generated from SPESS ARK • ${generatedAt}`, pageWidth / 2, pageHeight - 7, { align: "center" });
+      };
+
+      drawHeader();
+
+      autoTable(doc, {
+        startY: 46,
+        margin: { left: 10, right: 10, top: 46, bottom: 16 },
+        head: [["No.", "Learner", "Class / Stream", "Subject / Paper", "Teacher", "Missing Scores", "Why Unready"]],
+        body: flattenedRows,
+        styles: {
+          font: "helvetica",
+          fontSize: 8.5,
+          cellPadding: { top: 2.4, right: 2.1, bottom: 2.4, left: 2.1 },
+          textColor: [30, 41, 59],
+          lineColor: [203, 213, 225],
+          lineWidth: 0.18,
+          valign: "top",
+        },
+        headStyles: {
+          fillColor: [226, 232, 240],
+          textColor: [15, 23, 42],
+          fontStyle: "bold",
+        },
+        alternateRowStyles: {
+          fillColor: [248, 250, 252],
+        },
+        columnStyles: {
+          0: { cellWidth: 10, halign: "center" },
+          1: { cellWidth: 34 },
+          2: { cellWidth: 36 },
+          3: { cellWidth: 44 },
+          4: { cellWidth: 35 },
+          5: { cellWidth: 30 },
+          6: { cellWidth: 82 },
+        },
+        theme: "grid",
+        willDrawPage: drawHeader,
+        didDrawPage: drawFooter,
+      });
+
+      window.open(doc.output("bloburl"), "_blank");
+    } catch (err) {
+      console.error("Error generating readiness details PDF:", err);
+      setReportReadinessError(err.message || "Failed to generate readiness details PDF.");
+    } finally {
+      setReadinessPdfLoadingLevel("");
     }
   };
 
@@ -4745,8 +4883,8 @@ export default function AdminDashboard() {
                     <th>Stream</th>
                     <th>Status</th>
                     <th>Missing Compulsory</th>
-                    <th>Optionals ({OPTIONAL_SUBJECTS.length})</th>
-                    <th>Unknown Subjects</th>
+                    <th>Assigned Optionals ({OPTIONAL_SUBJECTS.length})</th>
+                    <th>Missing Optional Subjects</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -4777,8 +4915,8 @@ export default function AdminDashboard() {
                         </span>
                       </td>
                       <td>{row.missingCompulsorySubjects.length ? row.missingCompulsorySubjects.join(", ") : "—"}</td>
-                      <td>{row.optionalCount} • {row.assignedOptionalSubjects.join(", ") || "—"}</td>
-                      <td>{row.unknownSubjects.length ? row.unknownSubjects.join(", ") : "—"}</td>
+                      <td>{row.optionalCount} • {row.assignedOptionalSubjects.join(", ") || "No optional subjects assigned"}</td>
+                      <td>{row.missingOptionalSubjects?.length ? row.missingOptionalSubjects.join(", ") : "All optionals assigned"}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -5305,9 +5443,16 @@ export default function AdminDashboard() {
         <div className="admin-ops-meter">
           <div style={{ width: `${reportReadinessCard.oLevel.readinessPercent}%` }} />
         </div>
-        <small className="admin-ops-subnote">
-          {reportReadinessCard.oLevel.incompleteLearners} learners still incomplete
-        </small>
+        <button
+          type="button"
+          className="admin-ops-subnote-button"
+          disabled={reportReadinessCard.oLevel.incompleteLearners === 0 || readinessPdfLoadingLevel === "oLevel"}
+          onClick={() => handleDownloadReadinessDetailsPdf("oLevel")}
+        >
+          {readinessPdfLoadingLevel === "oLevel"
+            ? "Opening O-Level readiness PDF…"
+            : `${reportReadinessCard.oLevel.incompleteLearners} learners still incomplete • Open PDF`}
+        </button>
       </div>
       <div className="admin-ops-meter-block">
         <div className="admin-ops-meter-label">
@@ -5317,10 +5462,22 @@ export default function AdminDashboard() {
         <div className="admin-ops-meter admin-ops-meter-cyan">
           <div style={{ width: `${reportReadinessCard.aLevel.readinessPercent}%` }} />
         </div>
-        <small className="admin-ops-subnote">
-          {reportReadinessCard.aLevel.incompleteLearners} learners still incomplete
-        </small>
+        <button
+          type="button"
+          className="admin-ops-subnote-button"
+          disabled={reportReadinessCard.aLevel.incompleteLearners === 0 || readinessPdfLoadingLevel === "aLevel"}
+          onClick={() => handleDownloadReadinessDetailsPdf("aLevel")}
+        >
+          {readinessPdfLoadingLevel === "aLevel"
+            ? "Opening A-Level readiness PDF…"
+            : `${reportReadinessCard.aLevel.incompleteLearners} learners still incomplete • Open PDF`}
+        </button>
       </div>
+      {reportReadinessError && (
+        <p className="admin-ops-note" style={{ color: "#fca5a5", marginTop: "0.15rem" }}>
+          {reportReadinessError}
+        </p>
+      )}
     </article>
 
     <article className="admin-ops-card">

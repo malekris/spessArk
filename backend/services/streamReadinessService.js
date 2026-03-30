@@ -89,6 +89,9 @@ export function buildStreamReadiness(assignments = []) {
       const assignedOptionalSubjects = Array.from(group.optional).sort(
         bySubjectOrder(OPTIONAL_SUBJECTS)
       );
+      const missingOptionalSubjects = OPTIONAL_SUBJECTS.filter(
+        (s) => !group.optional.has(s)
+      );
       const unknownSubjects = Array.from(group.unknown).sort((a, b) =>
         a.localeCompare(b)
       );
@@ -105,6 +108,7 @@ export function buildStreamReadiness(assignments = []) {
         missingCompulsorySubjects,
         assignedOptionalSubjects,
         optionalCount: assignedOptionalSubjects.length,
+        missingOptionalSubjects,
         unknownSubjects,
       };
     })
@@ -112,4 +116,3 @@ export function buildStreamReadiness(assignments = []) {
 }
 
 export { COMPULSORY_SUBJECTS, OPTIONAL_SUBJECTS };
-

@@ -39,6 +39,39 @@ const normalizeTermLabel = (term) => {
   return String(term || "").trim();
 };
 
+const O_LEVEL_COMPONENTS_BY_TERM = {
+  "Term 1": ["AOI 1", "AOI 2", "AOI 3"],
+  "Term 2": ["AOI 1", "AOI 2", "AOI 3"],
+  "Term 3": ["/80"],
+};
+
+const parseStoredSubjects = (value) => {
+  if (!value) return [];
+  if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed)) {
+      return parsed.map((item) => String(item).trim()).filter(Boolean);
+    }
+  } catch {
+    // fall through
+  }
+  return String(value)
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+};
+
+const normalizeSubjectKey = (value) => String(value || "").trim().toLowerCase();
+
+const normalizePaperLabel = (value = "") => {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "paper 1" || raw === "paper1" || raw === "p1") return "Paper 1";
+  if (raw === "paper 2" || raw === "paper2" || raw === "p2") return "Paper 2";
+  if (raw === "single" || raw === "single paper") return "Single";
+  return String(value || "").trim();
+};
+
 const formatMiniRemark = (score, status) => {
   if (isMissedStatus(status)) return "MISSED";
   if (!hasRecordedScore(score)) return "PENDING";
@@ -697,6 +730,261 @@ router.get("/readiness-summary", authAdmin, async (req, res) => {
   } catch (err) {
     console.error("Admin readiness summary error:", err);
     res.status(500).json({ message: "Failed to load report readiness summary" });
+  }
+});
+
+router.get("/readiness-incomplete-details", authAdmin, async (req, res) => {
+  try {
+    const term = normalizeTermLabel(req.query.term || "Term 1");
+    const year = Number(req.query.year) || new Date().getFullYear();
+    const level = String(req.query.level || "oLevel").trim();
+
+    if (level === "aLevel") {
+      const [learners] = await pool.query(
+        `
+          SELECT
+            l.id,
+            TRIM(CONCAT(COALESCE(l.first_name, ''), ' ', COALESCE(l.last_name, ''))) AS learner_name,
+            l.gender,
+            l.dob,
+            l.stream,
+            l.combination
+          FROM alevel_learners l
+          WHERE NOT EXISTS (
+            SELECT 1
+            FROM alevel_marks am
+            WHERE am.learner_id = l.id
+              AND am.term = ?
+              AND YEAR(am.created_at) = ?
+          )
+          ORDER BY l.stream, learner_name
+        `,
+        [term, year]
+      );
+
+      if (learners.length === 0) {
+        return res.json({ level: "aLevel", term, year, incompleteLearners: 0, rows: [] });
+      }
+
+      const learnerIds = learners.map((row) => row.id);
+      const uniqueStreams = Array.from(new Set(learners.map((row) => String(row.stream || "").trim()).filter(Boolean)));
+
+      const [learnerSubjects] = await pool.query(
+        `
+          SELECT
+            als.learner_id,
+            s.name AS subject
+          FROM alevel_learner_subjects als
+          JOIN alevel_subjects s ON s.id = als.subject_id
+          WHERE als.learner_id IN (?)
+          ORDER BY s.name
+        `,
+        [learnerIds]
+      );
+
+      const [streamAssignments] = uniqueStreams.length
+        ? await pool.query(
+            `
+              SELECT
+                ats.stream,
+                s.name AS subject,
+                ats.paper_label,
+                t.name AS teacher_name
+              FROM alevel_teacher_subjects ats
+              JOIN alevel_subjects s ON s.id = ats.subject_id
+              LEFT JOIN teachers t ON t.id = ats.teacher_id
+              WHERE ats.stream IN (?)
+              ORDER BY ats.stream, s.name, ats.paper_label
+            `,
+            [uniqueStreams]
+          )
+        : [[]];
+
+      const subjectsByLearner = new Map();
+      learnerSubjects.forEach((row) => {
+        if (!subjectsByLearner.has(row.learner_id)) subjectsByLearner.set(row.learner_id, []);
+        subjectsByLearner.get(row.learner_id).push(row.subject);
+      });
+
+      const assignmentsByStreamSubject = new Map();
+      streamAssignments.forEach((row) => {
+        const key = `${String(row.stream || "").trim().toLowerCase()}__${normalizeSubjectKey(row.subject)}`;
+        if (!assignmentsByStreamSubject.has(key)) assignmentsByStreamSubject.set(key, []);
+        assignmentsByStreamSubject.get(key).push({
+          paperLabel: normalizePaperLabel(row.paper_label) || "Single",
+          teacherName: row.teacher_name || "Unassigned teacher",
+        });
+      });
+
+      const rows = learners.map((learner) => {
+        const registeredSubjects = subjectsByLearner.get(learner.id) || [];
+        const missingItems = [];
+
+        if (registeredSubjects.length === 0) {
+          missingItems.push({
+            itemLabel: "No registered subjects",
+            teacherName: "—",
+            missingComponents: "MID, EOT",
+            reason: "Learner has no registered A-Level subjects on file.",
+          });
+        } else {
+          registeredSubjects.forEach((subject) => {
+            const key = `${String(learner.stream || "").trim().toLowerCase()}__${normalizeSubjectKey(subject)}`;
+            const assignmentPapers = assignmentsByStreamSubject.get(key) || [];
+
+            if (assignmentPapers.length === 0) {
+              missingItems.push({
+                itemLabel: subject,
+                teacherName: "—",
+                missingComponents: "MID, EOT",
+                reason: "No paper assignment exists for this subject in the learner's stream.",
+              });
+              return;
+            }
+
+            assignmentPapers.forEach((paper) => {
+              missingItems.push({
+                itemLabel:
+                  paper.paperLabel && paper.paperLabel !== "Single"
+                    ? `${subject} — ${paper.paperLabel}`
+                    : subject,
+                teacherName: paper.teacherName || "Unassigned teacher",
+                missingComponents: "MID, EOT",
+                reason: `No ${term} A-Level marks have been submitted for this paper.`,
+              });
+            });
+          });
+        }
+
+        return {
+          learnerId: learner.id,
+          learnerName: learner.learner_name || `Learner ${learner.id}`,
+          gender: learner.gender || "—",
+          classLevel: String(learner.stream || "").trim().split(" ")[0] || "A-Level",
+          stream: learner.stream || "—",
+          combination: learner.combination || "—",
+          missingItems,
+        };
+      });
+
+      return res.json({
+        level: "aLevel",
+        term,
+        year,
+        incompleteLearners: rows.length,
+        rows,
+      });
+    }
+
+    const [learners] = await pool.query(
+      `
+        SELECT
+          s.id,
+          s.name,
+          s.gender,
+          s.dob,
+          s.class_level,
+          s.stream,
+          s.subjects
+        FROM students s
+        WHERE s.class_level IN ('S1', 'S2', 'S3', 'S4')
+          AND COALESCE(s.status, 'active') = 'active'
+          AND NOT EXISTS (
+            SELECT 1
+            FROM marks m
+            WHERE m.student_id = s.id
+              AND m.term = ?
+              AND m.year = ?
+          )
+        ORDER BY FIELD(s.class_level, 'S1', 'S2', 'S3', 'S4'), s.stream, s.name
+      `,
+      [term, year]
+    );
+
+    if (learners.length === 0) {
+      return res.json({ level: "oLevel", term, year, incompleteLearners: 0, rows: [] });
+    }
+
+    const [assignments] = await pool.query(
+      `
+        SELECT
+          ta.class_level,
+          ta.stream,
+          ta.subject,
+          t.name AS teacher_name
+        FROM teacher_assignments ta
+        LEFT JOIN teachers t ON t.id = ta.teacher_id
+        ORDER BY ta.class_level, ta.stream, ta.subject
+      `
+    );
+
+    const assignmentMap = new Map();
+    assignments.forEach((row) => {
+      const groupKey = `${String(row.class_level || "").trim().toLowerCase()}__${String(row.stream || "").trim().toLowerCase()}`;
+      if (!assignmentMap.has(groupKey)) assignmentMap.set(groupKey, new Map());
+      assignmentMap.get(groupKey).set(normalizeSubjectKey(row.subject), {
+        subjectLabel: row.subject,
+        teacherName: row.teacher_name || "Unassigned teacher",
+      });
+    });
+
+    const expectedComponents = O_LEVEL_COMPONENTS_BY_TERM[term] || ["AOI 1", "AOI 2", "AOI 3"];
+
+    const rows = learners.map((learner) => {
+      const registeredSubjects = parseStoredSubjects(learner.subjects);
+      const groupKey = `${String(learner.class_level || "").trim().toLowerCase()}__${String(learner.stream || "").trim().toLowerCase()}`;
+      const subjectAssignments = assignmentMap.get(groupKey) || new Map();
+      const missingItems = [];
+
+      if (registeredSubjects.length === 0) {
+        missingItems.push({
+          itemLabel: "No registered subjects",
+          teacherName: "—",
+          missingComponents: expectedComponents.join(", "),
+          reason: "Learner has no registered subjects on file.",
+        });
+      } else {
+        registeredSubjects.forEach((subject) => {
+          const assignmentMeta = subjectAssignments.get(normalizeSubjectKey(subject));
+          if (!assignmentMeta) {
+            missingItems.push({
+              itemLabel: subject,
+              teacherName: "—",
+              missingComponents: expectedComponents.join(", "),
+              reason: `No teacher assignment exists for ${subject} in ${learner.class_level} ${learner.stream}.`,
+            });
+            return;
+          }
+
+          missingItems.push({
+            itemLabel: assignmentMeta.subjectLabel || subject,
+            teacherName: assignmentMeta.teacherName || "Unassigned teacher",
+            missingComponents: expectedComponents.join(", "),
+            reason: `No ${term} scores have been submitted for this learner in this subject.`,
+          });
+        });
+      }
+
+      return {
+        learnerId: learner.id,
+        learnerName: learner.name || `Learner ${learner.id}`,
+        gender: learner.gender || "—",
+        classLevel: learner.class_level || "—",
+        stream: learner.stream || "—",
+        missingItems,
+      };
+    });
+
+    return res.json({
+      level: "oLevel",
+      term,
+      year,
+      incompleteLearners: rows.length,
+      rows,
+    });
+  } catch (err) {
+    console.error("Admin readiness incomplete details error:", err);
+    res.status(500).json({ message: "Failed to load incomplete readiness details" });
   }
 });
 

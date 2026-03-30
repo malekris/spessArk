@@ -1,11 +1,12 @@
-import React, { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useEffect, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import "./LoginPage.css";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 
 function LoginPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [form, setForm] = useState({ username: "", password: "" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -15,7 +16,6 @@ function LoginPage() {
   const [useLiteBackground, setUseLiteBackground] = useState(false);
   const [isDesktop, setIsDesktop] = useState(false);
   const [showDesktopForm, setShowDesktopForm] = useState(false);
-  const wasDesktopRef = useRef(null);
 
   const backgroundImages = [
     "/slide1.jpg", "/slide2.jpg", "/slide3.jpg", "/slide4.jpg",
@@ -48,15 +48,18 @@ function LoginPage() {
     const updateViewport = () => {
       const desktop = window.matchMedia("(min-width: 901px)").matches;
       setIsDesktop(desktop);
-      if (wasDesktopRef.current === null || wasDesktopRef.current !== desktop) {
-        setShowDesktopForm(!desktop);
-      }
-      wasDesktopRef.current = desktop;
     };
     updateViewport();
     window.addEventListener("resize", updateViewport);
     return () => window.removeEventListener("resize", updateViewport);
   }, []);
+
+  useEffect(() => {
+    if (location.state?.openAdminLogin) {
+      setShowDesktopForm(true);
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+  }, [location.pathname, location.state, navigate]);
 
   const triggerShake = () => {
     setIsShaking(true);
@@ -146,94 +149,107 @@ function LoginPage() {
         - unfolded/mobile: full login form
       */}
       {(() => {
-        const isFoldedDesktop = isDesktop && !showDesktopForm;
         return (
       <div
-        className={`glass-container admin-login-card ${isShaking ? "shake-error" : ""} ${
-          isFoldedDesktop ? "admin-card-folded" : ""
-        }`}
+        className={`glass-container admin-login-card ${isShaking ? "shake-error" : ""}`}
       >
-        {isFoldedDesktop ? (
-          <div className="admin-fold-pill-shell">
-            <div className="admin-fold-pill-label">SPESS ARK</div>
-            <button
-              type="button"
-              className="admin-login-scroll-trigger"
-              onClick={() => setShowDesktopForm(true)}
-            >
-              Click To Login
-            </button>
-          </div>
-        ) : (
-          <>
-            <div className="ark-header">
-              <h1>SPESS’S ARK</h1>
-              <h2>Portal Access</h2>
-              <p className="ark-subtitle">St. Phillip's Academic Records Kit</p>
-            </div>
+        <div className="ark-header">
+          <h1>SPESS’S ARK</h1>
+          <h2>Portal Access</h2>
+          <p className="ark-subtitle">St. Phillip's Academic Records Kit</p>
+        </div>
 
-          <div className={`login-actions ${isDesktop ? "admin-login-scroll-unfold" : ""}`}>
-            <form onSubmit={handleAdminLogin}>
-              <div className="input-group">
-                <label>Admin Username</label>
-                <input
-                  type="text"
-                  name="username"
-                  autoComplete="off"
-                  value={form.username}
-                  onChange={(e) => setForm((prev) => ({ ...prev, username: e.target.value }))}
-                />
-              </div>
-
-              <div className="input-group">
-                <label>Admin Password</label>
-                <input
-                  type="password"
-                  name="password"
-                  value={form.password}
-                  onChange={(e) => setForm((prev) => ({ ...prev, password: e.target.value }))}
-                />
-              </div>
-
-              {error && <div className="login-error">{error}</div>}
-
-              <button type="submit" className="admin-btn-hot" disabled={loading}>
-                {loading ? "Verifying..." : "Sign in as Admin"}
+        <div className="login-actions">
+          {!showDesktopForm ? (
+            <>
+              <button
+                type="button"
+                className="auth-green-btn"
+                onClick={() => navigate("/ark/teacher-login")}
+              >
+                Teacher Portal Access <span>→</span>
               </button>
-            </form>
 
-            <div className="divider"><span>OR</span></div>
+              <div className="divider"><span>ADMIN ACCESS</span></div>
 
-            <button
-              type="button"
-              className="auth-green-btn"
-              onClick={() => navigate("/ark/teacher-login")}
-            >
-              Teacher Portal Access <span>→</span>
-            </button>
+              <button
+                type="button"
+                className="auth-black-btn"
+                onClick={() => {
+                  setError("");
+                  setShowDesktopForm(true);
+                }}
+              >
+                Admin Login
+              </button>
+            </>
+          ) : (
+            <div className={isDesktop ? "admin-login-scroll-unfold" : ""}>
+              <form onSubmit={handleAdminLogin}>
+                <div className="input-group">
+                  <label>Admin Username</label>
+                  <input
+                    type="text"
+                    name="username"
+                    autoComplete="off"
+                    value={form.username}
+                    onChange={(e) => setForm((prev) => ({ ...prev, username: e.target.value }))}
+                  />
+                </div>
 
-            <button
-              type="button"
-              onClick={() => navigate("/ark/boarding-login")}
-              style={{
-                width: "100%",
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                padding: "14px 18px",
-                borderRadius: "16px",
-                fontWeight: 800,
-                border: "1px solid rgba(255,255,255,0.22)",
-                background: "rgba(10, 16, 31, 0.48)",
-                color: "#f8fafc",
-                cursor: "pointer",
-              }}
-            >
-              Boarding Admin Access <span style={{ marginLeft: 8 }}>→</span>
-            </button>
-          </div>
-          </>
-        )}
+                <div className="input-group">
+                  <label>Admin Password</label>
+                  <input
+                    type="password"
+                    name="password"
+                    value={form.password}
+                    onChange={(e) => setForm((prev) => ({ ...prev, password: e.target.value }))}
+                  />
+                </div>
+
+                {error && <div className="login-error">{error}</div>}
+
+                <button type="submit" className="admin-btn-hot" disabled={loading}>
+                  {loading ? "Verifying..." : "Sign in as Admin"}
+                </button>
+              </form>
+
+              <div className="divider"><span>BOARDING ACCESS</span></div>
+
+              <button
+                type="button"
+                onClick={() => navigate("/ark/boarding-login")}
+                style={{
+                  width: "100%",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: "14px 18px",
+                  borderRadius: "16px",
+                  fontWeight: 800,
+                  border: "1px solid rgba(255,255,255,0.22)",
+                  background: "rgba(10, 16, 31, 0.48)",
+                  color: "#f8fafc",
+                  cursor: "pointer",
+                }}
+              >
+                Boarding Admin Access <span style={{ marginLeft: 8 }}>→</span>
+              </button>
+
+              <button
+                type="button"
+                className="link-btn"
+                onClick={() => {
+                  setError("");
+                  setShowDesktopForm(false);
+                }}
+                style={{ marginTop: "14px" }}
+              >
+                Back to Main Access
+              </button>
+            </div>
+          )}
+        </div>
       </div>
         );
       })()}

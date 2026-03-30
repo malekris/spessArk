@@ -7,7 +7,7 @@ import EditStudentModal from "../components/EditStudentModal";
 import EndOfTermReports from "./EndOfTermReports";
 import MiniProgressReports from "./MiniProgressReports";
 import { useNavigate } from "react-router-dom";
-import useIdleLogout from "../hooks/useIdleLogout";
+import useIdleSessionPrompt from "../hooks/useIdleSessionPrompt";
 import EnrollmentInsightsPanel from "../components/EnrollmentInsightsPanel";
 import EnrollmentCharts from "../components/EnrollmentCharts";
 import AssessmentSubmissionTracker from "../components/AssessmentSubmissionTracker";
@@ -22,8 +22,10 @@ import {
   normalizeSchoolCalendar,
 } from "../utils/schoolCalendar";
 import {
+  ADMIN_SESSION_EXPIRED_EVENT,
   clearAdminReauthToken,
   clearAdminSession,
+  forceAdminLogout,
   storeAdminReauthToken,
 } from "../utils/adminSecurity";
 
@@ -290,6 +292,12 @@ const buildStreamReadinessFromAssignments = (assignments = []) => {
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const ADMIN_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
+  const ADMIN_IDLE_WARNING_MS = 90 * 1000;
+  const { promptVisible, secondsRemaining, renewSession, logoutNow } = useIdleSessionPrompt({
+    onTimeout: () => forceAdminLogout("/ark"),
+    idleMs: ADMIN_IDLE_TIMEOUT_MS,
+    warningMs: ADMIN_IDLE_WARNING_MS,
+  });
 
   // Auth / navigation
   useEffect(() => {
@@ -297,7 +305,7 @@ export default function AdminDashboard() {
   
     // No token at all → kick out immediately
     if (!token) {
-      navigate("/", { replace: true });
+      navigate("/ark", { replace: true });
       return;
     }
   
@@ -320,14 +328,18 @@ export default function AdminDashboard() {
       .catch(() => {
         // Token is invalid or expired
         clearAdminSession();
-        navigate("/", { replace: true });
+        navigate("/ark", { replace: true });
       });
   }, [navigate]);
-  
-  useIdleLogout(() => {
-    clearAdminSession();
-    navigate("/", { replace: true });
-  }, ADMIN_IDLE_TIMEOUT_MS);
+
+  useEffect(() => {
+    const handleAdminSessionExpired = () => {
+      forceAdminLogout("/ark");
+    };
+
+    window.addEventListener(ADMIN_SESSION_EXPIRED_EVENT, handleAdminSessionExpired);
+    return () => window.removeEventListener(ADMIN_SESSION_EXPIRED_EVENT, handleAdminSessionExpired);
+  }, []);
 
   const handleLogout = () => {
     clearAdminSession();
@@ -6372,6 +6384,56 @@ export default function AdminDashboard() {
               <button type="button" className="primary-btn" onClick={handleChangeAdminPassword} disabled={savingAdminSettings}>
                 {savingAdminSettings ? "Saving…" : "Update Password"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {promptVisible && (
+        <div className="modal-backdrop" onClick={logoutNow}>
+          <div
+            className="modal-card session-timeout-card"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="session-timeout-body">
+              <div className="session-timeout-badge">
+                <span className="session-timeout-badge-dot" />
+                Secure Session Monitor
+              </div>
+
+              <h2 className="session-timeout-title">Still working in Admin Dashboard?</h2>
+              <p className="session-timeout-copy">
+                You have been inactive for a while. Choose <strong>Stay Signed In</strong> to renew this admin
+                session, or we will sign you out automatically in <strong>{secondsRemaining}s</strong>.
+              </p>
+
+              <div className="session-timeout-meta">
+                <strong>{secondsRemaining}s remaining</strong>
+                <span>Automatic sign-out armed</span>
+              </div>
+
+              <div className="session-timeout-meter">
+                <div
+                  className="session-timeout-meter-fill"
+                  style={{
+                    width: `${Math.max(0, Math.min(100, (secondsRemaining / (ADMIN_IDLE_WARNING_MS / 1000)) * 100))}%`,
+                  }}
+                />
+              </div>
+
+              <p className="session-timeout-note">
+                <strong>Why this matters:</strong> if this session is left unattended, someone could access school
+                records or trigger destructive actions. Renew only if you are still actively working.
+              </p>
+
+              <div className="session-timeout-actions">
+                <button type="button" className="ghost-btn" onClick={logoutNow}>
+                  Log Out
+                </button>
+                <button type="button" className="primary-btn" onClick={renewSession}>
+                  Stay Signed In
+                </button>
+              </div>
             </div>
           </div>
         </div>

@@ -1706,6 +1706,133 @@
   margin-top: 1rem;
 }
 
+.session-timeout-card {
+  max-width: 560px;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.988), rgba(2, 6, 23, 0.988));
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  box-shadow:
+    0 28px 60px rgba(2, 6, 23, 0.46),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  position: relative;
+  overflow: hidden;
+}
+
+.session-timeout-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 140px;
+  background:
+    radial-gradient(circle at top left, rgba(56, 189, 248, 0.16), transparent 52%),
+    linear-gradient(180deg, rgba(14, 165, 233, 0.08), transparent);
+  pointer-events: none;
+}
+
+.session-timeout-body {
+  position: relative;
+  z-index: 1;
+}
+
+.session-timeout-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.36rem 0.8rem;
+  border-radius: 999px;
+  background: rgba(8, 47, 73, 0.56);
+  border: 1px solid rgba(56, 189, 248, 0.24);
+  color: #bae6fd;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-bottom: 0.95rem;
+}
+
+.session-timeout-badge-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #67e8f9, #0ea5e9);
+  box-shadow: 0 0 0 4px rgba(14, 165, 233, 0.14);
+  flex-shrink: 0;
+}
+
+.session-timeout-title {
+  margin: 0 0 0.55rem;
+  color: #f8fafc;
+  font-size: 1.45rem;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+
+.session-timeout-copy {
+  margin: 0 0 1rem;
+  color: #cbd5e1;
+  line-height: 1.7;
+  font-size: 0.96rem;
+}
+
+.session-timeout-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.session-timeout-meta strong {
+  color: #f8fafc;
+  font-size: 0.9rem;
+  letter-spacing: 0.03em;
+}
+
+.session-timeout-meta span {
+  color: #94a3b8;
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.session-timeout-meter {
+  width: 100%;
+  height: 12px;
+  border-radius: 999px;
+  background: rgba(30, 41, 59, 0.92);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  overflow: hidden;
+  margin-bottom: 1rem;
+}
+
+.session-timeout-meter-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(245, 158, 11, 0.9), rgba(251, 191, 36, 0.98));
+}
+
+.session-timeout-note {
+  margin: 0 0 1rem;
+  padding: 0.78rem 0.9rem;
+  border-radius: 0.95rem;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  background: rgba(15, 23, 42, 0.52);
+  color: #cbd5e1;
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
+.session-timeout-note strong {
+  color: #e2e8f0;
+}
+
+.session-timeout-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+}
+
 .subjects-grid {
   display: grid;
   grid-template-columns: repeat(2,1fr);

@@ -1,9 +1,6 @@
 import { useState } from "react";
 import "./AlevelReport.css";
-import { useNavigate } from "react-router-dom";
-import useIdleLogout from "../../../hooks/useIdleLogout";
 import ALevelAdminShell from "../components/ALevelAdminShell";
-import { clearAdminSession } from "../../../utils/adminSecurity";
 import "../../../pages/AdminDashboard.css";
 import "./ALevelAdminTheme.css";
 
@@ -20,13 +17,6 @@ export default function AlevelReport() {
   const [loading, setLoading] = useState(false);
   const [previewData, setPreviewData] = useState(null);
   const [error, setError] = useState("");
-  const navigate = useNavigate(); // 👈 THIS WAS MISSING
-  const IDLE_20_MIN = 20 * 60 * 1000;
-
-  useIdleLogout(() => {
-    clearAdminSession();
-    navigate("/ark", { replace: true });
-  }, IDLE_20_MIN);
 
   const handlePreview = async () => {
     setError("");

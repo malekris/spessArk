@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import useIdleLogout from "../../../hooks/useIdleLogout";
 import AssessmentSubmissionTracker from "../../../components/AssessmentSubmissionTracker";
 import ALevelAdminShell from "../components/ALevelAdminShell";
-import { clearAdminSession } from "../../../utils/adminSecurity";
+import { adminFetch, plainFetch } from "../../../lib/api";
 import "../../../pages/AdminDashboard.css";
 import "./ALevelAdminTheme.css";
 
@@ -40,8 +39,6 @@ const getLatestAlevelPeriod = (sets = []) => {
 
 export default function ALevelDashboard() {
   const navigate = useNavigate();
-  const API_BASE = import.meta.env.VITE_API_BASE;
-  const IDLE_20_MIN = 20 * 60 * 1000;
 
   const [stats, setStats] = useState(null);
   const [hoveredStat, setHoveredStat] = useState(null);
@@ -59,44 +56,24 @@ export default function ALevelDashboard() {
   const [selectedReadinessYear, setSelectedReadinessYear] = useState(new Date().getFullYear());
   const [readinessSelectionSeeded, setReadinessSelectionSeeded] = useState(false);
 
-  const adminHeaders = useMemo(
-    () => ({
-      "x-admin-key": localStorage.getItem("SPESS_ADMIN_KEY") || "",
-      Authorization: `Bearer ${localStorage.getItem("adminToken") || ""}`,
-    }),
-    []
-  );
-
   useEffect(() => {
-    fetch(`${API_BASE}/api/alevel/stats`)
-      .then((res) => res.json())
+    plainFetch("/api/alevel/stats")
       .then(setStats)
       .catch(console.error);
-  }, [API_BASE]);
+  }, []);
 
   useEffect(() => {
     const loadReadinessData = async () => {
       setReadinessLoading(true);
       setReadinessError("");
       try {
-        const [assignmentsRes, marksSetsRes] = await Promise.all([
-          fetch(`${API_BASE}/api/alevel/admin/assignments`, { headers: adminHeaders }),
-          fetch(`${API_BASE}/api/alevel/admin/marks-sets`, { headers: adminHeaders }),
+        const [assignments, marksSets] = await Promise.all([
+          adminFetch("/api/alevel/admin/assignments"),
+          adminFetch("/api/alevel/admin/marks-sets"),
         ]);
 
-        if (!assignmentsRes.ok) throw new Error("Failed to load A-Level assignments");
-        if (!marksSetsRes.ok) throw new Error("Failed to load A-Level submissions");
-
-        const [assignmentsData, marksSetsData] = await Promise.all([
-          assignmentsRes.json(),
-          marksSetsRes.json(),
-        ]);
-
-        const assignments = Array.isArray(assignmentsData) ? assignmentsData : [];
-        const marksSets = Array.isArray(marksSetsData) ? marksSetsData : [];
-
-        setReadinessAssignments(assignments);
-        setReadinessMarksSets(marksSets);
+        setReadinessAssignments(Array.isArray(assignments) ? assignments : []);
+        setReadinessMarksSets(Array.isArray(marksSets) ? marksSets : []);
 
         if (!readinessSelectionSeeded) {
           const latest = getLatestAlevelPeriod(marksSets);
@@ -113,29 +90,16 @@ export default function ALevelDashboard() {
     };
 
     loadReadinessData();
-  }, [API_BASE, adminHeaders, readinessSelectionSeeded]);
-
-  useIdleLogout(() => {
-    clearAdminSession();
-    navigate("/ark", { replace: true });
-  }, IDLE_20_MIN);
+  }, [readinessSelectionSeeded]);
 
   const fetchAlevelTrackerData = async () => {
     setTrackerLoading(true);
     setTrackerError("");
     try {
-      const [setsRes, subjectsRes] = await Promise.all([
-        fetch(`${API_BASE}/api/alevel/admin/marks-sets`),
-        fetch(`${API_BASE}/api/alevel/subjects`),
-      ]);
-
       const [setsData, subjectsData] = await Promise.all([
-        setsRes.json(),
-        subjectsRes.json(),
+        adminFetch("/api/alevel/admin/marks-sets"),
+        plainFetch("/api/alevel/subjects"),
       ]);
-
-      if (!setsRes.ok) throw new Error("Failed to load A-Level marks sets");
-      if (!subjectsRes.ok) throw new Error("Failed to load A-Level subjects");
 
       setTrackerMarksSets(Array.isArray(setsData) ? setsData : []);
       setTrackerSubjects(

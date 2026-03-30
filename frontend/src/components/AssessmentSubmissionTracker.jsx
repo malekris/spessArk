@@ -1,5 +1,6 @@
 import { useMemo, useState, useEffect } from "react";
 import { loadPdfTools } from "../utils/loadPdfTools";
+import { adminFetch } from "../lib/api";
 
 const OFFICIAL_SUBJECTS = [
   "ICT",
@@ -60,17 +61,7 @@ export default function AssessmentSubmissionTracker({
   useEffect(() => {
     const loadExpectedSubjects = async () => {
       try {
-        const res = await fetch(
-          `${import.meta.env.VITE_API_BASE || "http://localhost:5001"}${assignmentsEndpoint}`,
-          {
-            headers: {
-              "x-admin-key": localStorage.getItem("SPESS_ADMIN_KEY") || "",
-              Authorization: `Bearer ${localStorage.getItem("adminToken") || ""}`,
-            },
-          }
-        );
-        if (!res.ok) throw new Error("Failed to load assignments");
-        const rows = await res.json();
+        const rows = await adminFetch(assignmentsEndpoint);
         const map = {};
         (Array.isArray(rows) ? rows : []).forEach((r) => {
           const stream = r.stream || "";

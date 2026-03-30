@@ -1,12 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { clearAdminSession } from "../../../utils/adminSecurity";
+import useIdleSessionPrompt from "../../../hooks/useIdleSessionPrompt";
+import {
+  ADMIN_SESSION_EXPIRED_EVENT,
+  clearAdminSession,
+  forceAdminLogout,
+} from "../../../utils/adminSecurity";
 import "../../../pages/AdminDashboard.css";
 import "../pages/ALevelAdminTheme.css";
 
 const STORAGE_THEME_KEY = "alevelDashboardTheme";
 const STORAGE_SIDEBAR_KEY = "alevelSidebarCollapsed";
 const COMPACT_VIEWPORT_WIDTH = 1180;
+const ADMIN_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
+const ADMIN_IDLE_WARNING_MS = 90 * 1000;
 
 const NAV_ITEMS = [
   { label: "Overview", shortLabel: "OV", path: "/ark/admin/alevel" },
@@ -74,6 +81,20 @@ export default function ALevelAdminShell({
   const isDark = themeMode !== "light";
   const isCompactViewport = viewportWidth <= COMPACT_VIEWPORT_WIDTH;
   const isSidebarCompact = sidebarCollapsed || isCompactViewport;
+  const { promptVisible, secondsRemaining, renewSession, logoutNow } = useIdleSessionPrompt({
+    onTimeout: () => forceAdminLogout("/ark"),
+    idleMs: ADMIN_IDLE_TIMEOUT_MS,
+    warningMs: ADMIN_IDLE_WARNING_MS,
+  });
+
+  useEffect(() => {
+    const handleAdminSessionExpired = () => {
+      forceAdminLogout("/ark");
+    };
+
+    window.addEventListener(ADMIN_SESSION_EXPIRED_EVENT, handleAdminSessionExpired);
+    return () => window.removeEventListener(ADMIN_SESSION_EXPIRED_EVENT, handleAdminSessionExpired);
+  }, []);
 
   const handleLogout = () => {
     clearAdminSession();
@@ -274,6 +295,56 @@ export default function ALevelAdminShell({
           {content}
         </main>
       </div>
+
+      {promptVisible && (
+        <div className="modal-backdrop" onClick={logoutNow}>
+          <div
+            className="modal-card session-timeout-card"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="session-timeout-body">
+              <div className="session-timeout-badge">
+                <span className="session-timeout-badge-dot" />
+                Secure Session Monitor
+              </div>
+
+              <h2 className="session-timeout-title">Still working in A-Level?</h2>
+              <p className="session-timeout-copy">
+                You have been inactive for a while. Choose <strong>Stay Signed In</strong> to renew this admin
+                session, or we will sign you out automatically in <strong>{secondsRemaining}s</strong>.
+              </p>
+
+              <div className="session-timeout-meta">
+                <strong>{secondsRemaining}s remaining</strong>
+                <span>Automatic sign-out armed</span>
+              </div>
+
+              <div className="session-timeout-meter">
+                <div
+                  className="session-timeout-meter-fill"
+                  style={{
+                    width: `${Math.max(0, Math.min(100, (secondsRemaining / (ADMIN_IDLE_WARNING_MS / 1000)) * 100))}%`,
+                  }}
+                />
+              </div>
+
+              <p className="session-timeout-note">
+                <strong>Why this matters:</strong> A-Level records stay protected when an unattended session is
+                closed cleanly. Renew only if you are still actively working.
+              </p>
+
+              <div className="session-timeout-actions">
+                <button type="button" className="ghost-btn" onClick={logoutNow}>
+                  Log Out
+                </button>
+                <button type="button" className="primary-btn" onClick={renewSession}>
+                  Stay Signed In
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,9 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import useIdleLogout from "../../../hooks/useIdleLogout";
 import { loadPdfTools } from "../../../utils/loadPdfTools";
 import ALevelAdminShell from "../components/ALevelAdminShell";
-import { clearAdminSession } from "../../../utils/adminSecurity";
 import "../../../pages/AdminDashboard.css";
 import "./ALevelAdminTheme.css";
 
@@ -32,9 +29,6 @@ const formatScoreCell = (row = {}) => {
 };
 
 export default function ALevelDownload() {
-  const navigate = useNavigate();
-  const IDLE_20_MIN = 20 * 60 * 1000;
-
   const [sets, setSets] = useState([]);
   const [selected, setSelected] = useState(null);
   const [contents, setContents] = useState({ columns: [], rows: [] });
@@ -76,11 +70,6 @@ export default function ALevelDownload() {
       year: previous.year || Number(latest.year) || new Date().getFullYear(),
     }));
   }, [sets]);
-
-  useIdleLogout(() => {
-    clearAdminSession();
-    navigate("/ark", { replace: true });
-  }, IDLE_20_MIN);
 
   async function fetchSets() {
     setError("");

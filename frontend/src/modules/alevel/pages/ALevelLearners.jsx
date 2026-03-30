@@ -7,11 +7,8 @@
 // -------------------------
 import { useEffect, useState } from "react";
 import { plainFetch } from "../../../lib/api";
-import { useNavigate } from "react-router-dom";
-import useIdleLogout from "../../../hooks/useIdleLogout";
 import { loadPdfTools } from "../../../utils/loadPdfTools";
 import ALevelAdminShell from "../components/ALevelAdminShell";
-import { clearAdminSession } from "../../../utils/adminSecurity";
 import "../../../pages/AdminDashboard.css";
 import "./ALevelAdminTheme.css";
 
@@ -93,12 +90,6 @@ function formatDateForInput(raw) {
 // -------------------------
 export default function ALevelLearners() {
   // -----------------------
-  // Navigation
-  // -----------------------
-  const navigate = useNavigate();
-  const IDLE_20_MIN = 20 * 60 * 1000;
-
-  // -----------------------
   // Local state
   // -----------------------
   const [learners, setLearners] = useState([]);
@@ -126,11 +117,6 @@ export default function ALevelLearners() {
   const [search, setSearch] = useState("");
   const [filterStream, setFilterStream] = useState("");
   const [filterClass, setFilterClass] = useState("");
-
-  useIdleLogout(() => {
-    clearAdminSession();
-    navigate("/ark", { replace: true });
-  }, IDLE_20_MIN);
 
   // -----------------------
   // Derived values

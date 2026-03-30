@@ -298,6 +298,19 @@ export default function BoardingLogin() {
               >
                 Weekend marks, learners, and reports
               </span>
+              <button
+                type="button"
+                className="link-btn"
+                onClick={() => navigate("/ark", { state: { openAdminLogin: true } })}
+                style={{
+                  marginTop: "0.2rem",
+                  textAlign: "left",
+                  color: "#bbf7d0",
+                  textDecoration: "none",
+                }}
+              >
+                ← Back to Admin Login
+              </button>
             </div>
 
             <button
@@ -349,6 +362,18 @@ export default function BoardingLogin() {
               <p className="ark-subtitle" style={{ color: "rgba(220, 252, 231, 0.72)" }}>
                 Separate boarding workspace for learners, marks, and reports.
               </p>
+              <button
+                type="button"
+                className="link-btn"
+                onClick={() => navigate("/ark", { state: { openAdminLogin: true } })}
+                style={{
+                  marginTop: "0.2rem",
+                  color: "#bbf7d0",
+                  textDecoration: "none",
+                }}
+              >
+                ← Back to Admin Login
+              </button>
             </div>
 
             <div

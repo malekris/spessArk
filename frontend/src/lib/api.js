@@ -1,6 +1,7 @@
 // src/lib/api.js
 // Minimal, robust client helper used by the admin UI.
 // Keeps dev-friendly behaviour (localStorage admin key) and throws friendly errors.
+import { notifyAdminSessionExpired } from "../utils/adminSecurity";
 
 // revert back before export
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5001";
@@ -59,6 +60,12 @@ export async function plainFetch(path, opts = {}) {
 
   const res = await fetch(url, fetchOpts);
   if (!res.ok) {
+    const isAdminScopedPath =
+      String(path || "").includes("/api/admin/") ||
+      String(path || "").includes("/api/alevel/admin/");
+    if (res.status === 401 && isAdminScopedPath) {
+      notifyAdminSessionExpired({ source: "plainFetch", path });
+    }
     const body = await handleJson(res).catch(() => null);
     const message = body && body.message ? body.message : `Request failed (${res.status})`;
     const err = new Error(message);

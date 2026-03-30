@@ -1,5 +1,6 @@
 export const ADMIN_REAUTH_STORAGE_KEY = "SPESS_ADMIN_REAUTH_TOKEN";
 export const ADMIN_REAUTH_EXPIRY_KEY = "SPESS_ADMIN_REAUTH_EXPIRES_AT";
+export const ADMIN_SESSION_EXPIRED_EVENT = "spess-admin-session-expired";
 
 export function clearAdminReauthToken() {
   try {
@@ -61,4 +62,20 @@ export function clearAdminSession() {
   }
 
   clearAdminReauthToken();
+}
+
+export function notifyAdminSessionExpired(detail = {}) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent(ADMIN_SESSION_EXPIRED_EVENT, {
+      detail,
+    })
+  );
+}
+
+export function forceAdminLogout(redirectPath = "/ark") {
+  clearAdminSession();
+  if (typeof window !== "undefined") {
+    window.location.replace(redirectPath);
+  }
 }

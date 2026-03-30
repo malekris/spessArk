@@ -1,21 +1,15 @@
 import React, { useEffect, useState } from "react";
 import { plainFetch, adminFetch } from "../../../lib/api";
-import { useNavigate } from "react-router-dom";
-import useIdleLogout from "../../../hooks/useIdleLogout";
 import { loadPdfTools } from "../../../utils/loadPdfTools";
 import ALevelAdminShell from "../components/ALevelAdminShell";
 import {
   clearAdminReauthToken,
-  clearAdminSession,
   storeAdminReauthToken,
 } from "../../../utils/adminSecurity";
 import "../../../pages/AdminDashboard.css";
 import "./ALevelAdminTheme.css";
 
 export default function ALevelAssignSubjects() {
-  const navigate = useNavigate();
-  const IDLE_20_MIN = 20 * 60 * 1000;
-
   /* ======================================================
      1. STATE
   ====================================================== */
@@ -67,11 +61,6 @@ export default function ALevelAssignSubjects() {
   useEffect(() => {
     loadAll();
   }, []);
-
-  useIdleLogout(() => {
-    clearAdminSession();
-    navigate("/ark", { replace: true });
-  }, IDLE_20_MIN);
 
   async function loadAll() {
     setLoading(true);

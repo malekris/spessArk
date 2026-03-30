@@ -71,6 +71,15 @@ const O_LEVEL_AOI_OPTIONS = [
   { value: "AOI2", label: "AOI 2" },
   { value: "AOI3", label: "AOI 3" },
 ];
+const O_LEVEL_HEATMAP_OPTIONS = [
+  ...O_LEVEL_AOI_OPTIONS,
+  { value: "EXAM80", label: "/80" },
+];
+const A_LEVEL_HEATMAP_OPTIONS = [
+  { value: "MID", label: "MID" },
+  { value: "EOT", label: "EOT" },
+];
+const A_LEVEL_CLASS_SORT_ORDER = ["S5", "S6"];
 
 const formatMarksLockComponentLabel = (component) => {
   const raw = String(component || "").trim().toUpperCase();
@@ -113,6 +122,51 @@ const normalizeOperationalTerm = (value) => {
 const toPercent = (value, total) => {
   if (!total) return 0;
   return Math.max(0, Math.min(100, Math.round((Number(value || 0) / Number(total || 0)) * 100)));
+};
+
+const deriveALevelClass = (stream) => {
+  const raw = String(stream || "").trim().toUpperCase();
+  const match = raw.match(/\bS[56]\b/);
+  return match ? match[0] : "A-Level";
+};
+
+const sortClasses = (values = [], preferredOrder = []) => {
+  const order = new Map(preferredOrder.map((value, index) => [value, index]));
+  return Array.from(new Set(values.filter(Boolean))).sort((a, b) => {
+    const aIndex = order.has(a) ? order.get(a) : 999;
+    const bIndex = order.has(b) ? order.get(b) : 999;
+    if (aIndex !== bIndex) return aIndex - bIndex;
+    return String(a).localeCompare(String(b));
+  });
+};
+
+const getHeatmapCellStyle = (rate, tone = "green") => {
+  const safeRate = Math.max(0, Math.min(100, Number(rate || 0)));
+  const palette =
+    tone === "amber"
+      ? {
+          background: "245, 158, 11",
+          border: "251, 191, 36",
+        }
+      : tone === "cyan"
+      ? {
+          background: "14, 165, 233",
+          border: "34, 211, 238",
+        }
+      : {
+          background: "34, 197, 94",
+          border: "74, 222, 128",
+        };
+
+  const backgroundAlpha =
+    safeRate >= 90 ? 0.28 : safeRate >= 70 ? 0.22 : safeRate >= 45 ? 0.16 : safeRate > 0 ? 0.1 : 0.04;
+  const borderAlpha =
+    safeRate >= 90 ? 0.38 : safeRate >= 70 ? 0.3 : safeRate >= 45 ? 0.24 : safeRate > 0 ? 0.18 : 0.1;
+
+  return {
+    background: `rgba(${palette.background}, ${backgroundAlpha})`,
+    borderColor: `rgba(${palette.border}, ${borderAlpha})`,
+  };
 };
 
 const createEmptyMarksLockForm = (term = "Term 1", year = new Date().getFullYear()) => ({
@@ -445,6 +499,7 @@ export default function AdminDashboard() {
   const [aLevelAssignmentsOverview, setALevelAssignmentsOverview] = useState([]);
   const [aLevelMarksSets, setALevelMarksSets] = useState([]);
   const [overviewMarksLocks, setOverviewMarksLocks] = useState([]);
+  const [showMoreInsights, setShowMoreInsights] = useState(false);
   const [reportReadinessSummary, setReportReadinessSummary] = useState(null);
   const [reportReadinessError, setReportReadinessError] = useState("");
   const [readinessPdfLoadingLevel, setReadinessPdfLoadingLevel] = useState("");
@@ -3025,6 +3080,115 @@ export default function AdminDashboard() {
     totalStudents,
   ]);
 
+  const criticalFollowUp = useMemo(() => {
+    const pendingTeacherSubmissions =
+      Number(assessmentCompliance.oLevelPending || 0) +
+      Number(assessmentCompliance.aLevelPending || 0);
+    const streamsWithoutOptionals = streamReadiness.filter(
+      (row) => Number(row.optionalCount || 0) === 0
+    );
+    const lowReadinessClasses = (reportReadinessCard.oLevel.byClass || []).filter(
+      (row) => Number(row.totalLearners || 0) > 0 && Number(row.readinessPercent || 0) < 70
+    );
+    const openIssueCount = [
+      reportReadinessCard.combined.incompleteLearners > 0,
+      pendingTeacherSubmissions > 0,
+      streamsWithoutOptionals.length > 0,
+      lowReadinessClasses.length > 0,
+    ].filter(Boolean).length;
+
+    return {
+      openIssueCount,
+      pendingTeacherSubmissions,
+      streamsWithoutOptionals,
+      lowReadinessClasses,
+    };
+  }, [assessmentCompliance, reportReadinessCard, streamReadiness]);
+
+  const teacherSubmissionHeatmap = useMemo(() => {
+    const buildRows = (classLevels, assignments, marksRows, componentOptions) =>
+      classLevels.map((classLevel) => {
+        const expectedAssignments = assignments.filter((row) => row.classLevel === classLevel);
+        const totalAssignments = expectedAssignments.length;
+        const cells = componentOptions.map((component) => {
+          const submitted = new Set(
+            marksRows
+              .filter(
+                (row) =>
+                  row.classLevel === classLevel &&
+                  String(row.aoi_label || "").trim().toUpperCase() === component.value
+              )
+              .map((row) => row.assignment_id)
+          ).size;
+
+          return {
+            ...component,
+            submitted,
+            total: totalAssignments,
+            rate: toPercent(submitted, totalAssignments),
+          };
+        });
+
+        return {
+          classLevel,
+          totalAssignments,
+          cells,
+        };
+      });
+
+    const filteredOLevelMarks = marksSets
+      .filter(
+        (row) =>
+          normalizeOperationalTerm(row.term) === dashboardOperationalTerm &&
+          Number(row.year) === Number(dashboardOperationalYear)
+      )
+      .map((row) => ({
+        ...row,
+        classLevel: row.class_level,
+      }));
+
+    const filteredALevelMarks = aLevelMarksSets
+      .filter(
+        (row) =>
+          normalizeOperationalTerm(row.term) === dashboardOperationalTerm &&
+          Number(row.year) === Number(dashboardOperationalYear)
+      )
+      .map((row) => ({
+        ...row,
+        classLevel: deriveALevelClass(row.stream),
+      }));
+
+    const oLevelAssignments = oLevelAssignmentsOverview.map((row) => ({
+      ...row,
+      classLevel: row.class_level,
+    }));
+    const aLevelAssignments = aLevelAssignmentsOverview.map((row) => ({
+      ...row,
+      classLevel: deriveALevelClass(row.stream),
+    }));
+
+    const aLevelClasses = sortClasses(
+      [
+        ...A_LEVEL_CLASS_SORT_ORDER,
+        ...aLevelAssignments.map((row) => row.classLevel),
+        ...filteredALevelMarks.map((row) => row.classLevel),
+      ],
+      A_LEVEL_CLASS_SORT_ORDER
+    );
+
+    return {
+      oLevelRows: buildRows(CLASS_SORT_ORDER, oLevelAssignments, filteredOLevelMarks, O_LEVEL_HEATMAP_OPTIONS),
+      aLevelRows: buildRows(aLevelClasses, aLevelAssignments, filteredALevelMarks, A_LEVEL_HEATMAP_OPTIONS),
+    };
+  }, [
+    aLevelAssignmentsOverview,
+    aLevelMarksSets,
+    dashboardOperationalTerm,
+    dashboardOperationalYear,
+    marksSets,
+    oLevelAssignmentsOverview,
+  ]);
+
   const s1Students = students.filter((s) => s.class_level === "S1").length;
   const s2Students = students.filter((s) => s.class_level === "S2").length;
   const s3Students = students.filter((s) => s.class_level === "S3").length;
@@ -5365,218 +5529,427 @@ export default function AdminDashboard() {
         </div>
       </div>
     </article>
+  </div>
 
-    <article className="admin-ops-card">
-      <div className="admin-ops-card-head">
-        <div>
-          <h3>Ready-To-Print Center</h3>
-          <p>Fast PTA and office print shortcuts</p>
-        </div>
-        <span className="admin-ops-badge admin-ops-badge-gold">Print</span>
+  <div className="admin-ops-expand-shell">
+    <button
+      type="button"
+      className="admin-ops-expand-trigger"
+      onClick={() => setShowMoreInsights((prev) => !prev)}
+    >
+      <div>
+        <strong>More Insights</strong>
+        <span>Open the next layer of executive dashboard cards without crowding the main view.</span>
       </div>
-      <div className="admin-ops-action-grid">
-        <button type="button" className="ghost-btn" onClick={() => setActiveSection("Mini Reports")}>
-          Mini Reports
-        </button>
-        <button type="button" className="ghost-btn" onClick={() => setActiveSection("Download Marks")}>
-          Download Marks
-        </button>
-        <button type="button" className="ghost-btn" onClick={() => setActiveSection("End of Term Reports")}>
-          Term Reports
-        </button>
-        <button type="button" className="ghost-btn" onClick={() => setActiveSection("End of Year Reports")}>
-          Year Reports
-        </button>
-        <button type="button" className="ghost-btn" onClick={() => setShowEnrollmentChartsModal(true)}>
-          Enrollment PDF
-        </button>
-      </div>
-      <p className="admin-ops-note">
-        Use this as the quick office desk for parent meetings, marksheets and summary exports.
-      </p>
-    </article>
+      <span className="admin-ops-expand-meta">
+        {criticalFollowUp.openIssueCount} live follow-up areas • {showMoreInsights ? "Hide" : "Open"}
+      </span>
+    </button>
 
-    <article className="admin-ops-card">
-      <div className="admin-ops-card-head">
-        <div>
-          <h3>School Status</h3>
-          <p>Shared live calendar and marks control</p>
-        </div>
-        <span
-          className={`admin-ops-badge ${
-            schoolCalendarBadge.status === "In Session"
-              ? "admin-ops-badge-green"
-              : schoolCalendarBadge.status === "Holiday Break"
-              ? "admin-ops-badge-gold"
-              : "admin-ops-badge-neutral"
-          }`}
-        >
-          {schoolCalendarBadge.status}
-        </span>
-      </div>
-      <div className="admin-ops-pill-row">
-        <span className="calendar-pill calendar-pill-year">AY {schoolCalendarBadge.academicYear}</span>
-        <span className="calendar-pill">{schoolCalendarBadge.termLabel}</span>
-      </div>
-      <div className="admin-ops-countdown">
-        {schoolCalendarPreciseCountdown.label || "Waiting for active calendar window"}
-      </div>
-      <div className="admin-ops-kpi-grid">
-        <div className="admin-ops-kpi">
-          <span>Today</span>
-          <strong>{formatDateOnly(schoolCalendarPreviewClock)}</strong>
-          <small>{dashboardOperationalTerm}</small>
-        </div>
-        <div className="admin-ops-kpi">
-          <span>Locked Components</span>
-          <strong>{activeSchoolStatusLocks.length}</strong>
-          <small>
-            {activeSchoolStatusLocks.length
-              ? activeSchoolStatusLocks
-                  .slice(0, 3)
-                  .map((row) => formatMarksLockComponentLabel(row.aoi_label))
-                  .join(", ")
-              : "All entry windows open"}
-          </small>
-        </div>
-      </div>
-    </article>
+    {showMoreInsights && (
+      <div className="admin-ops-grid admin-ops-grid-secondary">
+        <article className="admin-ops-card">
+          <div className="admin-ops-card-head">
+            <div>
+              <h3>Critical Follow-Up</h3>
+              <p>Fast action desk for the issues most likely to block reports, submissions, and stream readiness.</p>
+            </div>
+            <span className="admin-ops-badge admin-ops-badge-rose">
+              {criticalFollowUp.openIssueCount} open
+            </span>
+          </div>
 
-    <article className="admin-ops-card">
-      <div className="admin-ops-card-head">
-        <div>
-          <h3>Report Readiness</h3>
-          <p>Ready = learner has at least one submitted score this term</p>
-        </div>
-        <span className="admin-ops-badge admin-ops-badge-rose">{reportReadinessCard.combined.readinessPercent}%</span>
-      </div>
-      <div className="admin-ops-meter-block">
-        <div className="admin-ops-meter-label">
-          <span>O-Level</span>
-          <strong>{reportReadinessCard.oLevel.readyLearners} / {reportReadinessCard.oLevel.totalLearners}</strong>
-        </div>
-        <div className="admin-ops-meter">
-          <div style={{ width: `${reportReadinessCard.oLevel.readinessPercent}%` }} />
-        </div>
-        <button
-          type="button"
-          className="admin-ops-subnote-button"
-          disabled={reportReadinessCard.oLevel.incompleteLearners === 0 || readinessPdfLoadingLevel === "oLevel"}
-          onClick={() => handleDownloadReadinessDetailsPdf("oLevel")}
-        >
-          {readinessPdfLoadingLevel === "oLevel"
-            ? "Opening O-Level readiness PDF…"
-            : `${reportReadinessCard.oLevel.incompleteLearners} learners still incomplete • Open PDF`}
-        </button>
-      </div>
-      <div className="admin-ops-meter-block">
-        <div className="admin-ops-meter-label">
-          <span>A-Level</span>
-          <strong>{reportReadinessCard.aLevel.readyLearners} / {reportReadinessCard.aLevel.totalLearners}</strong>
-        </div>
-        <div className="admin-ops-meter admin-ops-meter-cyan">
-          <div style={{ width: `${reportReadinessCard.aLevel.readinessPercent}%` }} />
-        </div>
-        <button
-          type="button"
-          className="admin-ops-subnote-button"
-          disabled={reportReadinessCard.aLevel.incompleteLearners === 0 || readinessPdfLoadingLevel === "aLevel"}
-          onClick={() => handleDownloadReadinessDetailsPdf("aLevel")}
-        >
-          {readinessPdfLoadingLevel === "aLevel"
-            ? "Opening A-Level readiness PDF…"
-            : `${reportReadinessCard.aLevel.incompleteLearners} learners still incomplete • Open PDF`}
-        </button>
-      </div>
-      {reportReadinessError && (
-        <p className="admin-ops-note" style={{ color: "#fca5a5", marginTop: "0.15rem" }}>
-          {reportReadinessError}
-        </p>
-      )}
-    </article>
-
-    <article className="admin-ops-card">
-      <div className="admin-ops-card-head">
-        <div>
-          <h3>Class Readiness Snapshot</h3>
-          <p>O-Level class-by-class view of report readiness for {reportReadinessCard.term}</p>
-        </div>
-        <span className="admin-ops-badge admin-ops-badge-blue">S1–S4</span>
-      </div>
-
-      <div className="admin-ops-class-readiness-list">
-        {(reportReadinessCard.oLevel.byClass || []).map((row) => {
-          const toneClass =
-            row.readinessPercent >= 85
-              ? "is-strong"
-              : row.readinessPercent >= 60
-              ? "is-watch"
-              : "is-attention";
-          const toneLabel =
-            row.readinessPercent >= 85
-              ? "Strong"
-              : row.readinessPercent >= 60
-              ? "Watch"
-              : "Needs Attention";
-
-          return (
-            <div key={row.classLevel} className="admin-ops-class-readiness-row">
-              <div className="admin-ops-class-readiness-top">
-                <div>
-                  <strong>{row.classLevel}</strong>
-                  <span>
-                    {row.readyLearners} ready • {row.incompleteLearners} incomplete • {row.totalLearners} total
-                  </span>
-                </div>
-                <span className={`admin-ops-class-status ${toneClass}`}>{toneLabel}</span>
+          <div className="admin-ops-followup-list">
+            <div className="admin-ops-followup-item">
+              <div>
+                <strong>Learners Not Report-Ready</strong>
+                <span>
+                  O-Level {reportReadinessCard.oLevel.incompleteLearners} • A-Level {reportReadinessCard.aLevel.incompleteLearners}
+                </span>
               </div>
-              <div className="admin-ops-meter admin-ops-meter-class">
-                <div style={{ width: `${row.readinessPercent}%` }} />
-              </div>
-              <div className="admin-ops-class-readiness-foot">
-                <span>{row.readinessPercent}% ready</span>
-                <span>{row.incompleteLearners} learners still need completion</span>
+              <div className="admin-ops-followup-actions">
+                <span className="admin-ops-followup-count">{reportReadinessCard.combined.incompleteLearners}</span>
+                <button
+                  type="button"
+                  className="ghost-btn"
+                  disabled={readinessPdfLoadingLevel === "oLevel" || reportReadinessCard.oLevel.incompleteLearners === 0}
+                  onClick={() => handleDownloadReadinessDetailsPdf("oLevel")}
+                >
+                  O-Level PDF
+                </button>
+                <button
+                  type="button"
+                  className="ghost-btn"
+                  disabled={readinessPdfLoadingLevel === "aLevel" || reportReadinessCard.aLevel.incompleteLearners === 0}
+                  onClick={() => handleDownloadReadinessDetailsPdf("aLevel")}
+                >
+                  A-Level PDF
+                </button>
               </div>
             </div>
-          );
-        })}
-      </div>
-    </article>
 
-    <article className="admin-ops-card">
-      <div className="admin-ops-card-head">
-        <div>
-          <h3>Teacher Load Summary</h3>
-          <p>Quick staffing and teaching slot picture</p>
-        </div>
-        <span className="admin-ops-badge admin-ops-badge-purple">Staff</span>
+            <div className="admin-ops-followup-item">
+              <div>
+                <strong>Teacher Submissions Pending</strong>
+                <span>
+                  {assessmentCompliance.oLevelPending} O-Level assignments • {assessmentCompliance.aLevelPending} A-Level papers
+                </span>
+              </div>
+              <div className="admin-ops-followup-actions">
+                <span className="admin-ops-followup-count">{criticalFollowUp.pendingTeacherSubmissions}</span>
+                <button type="button" className="ghost-btn" onClick={() => setActiveSection("Assessment Submission Tracker")}>
+                  Open Tracker
+                </button>
+              </div>
+            </div>
+
+            <div className="admin-ops-followup-item">
+              <div>
+                <strong>Streams Without Optionals</strong>
+                <span>
+                  {criticalFollowUp.streamsWithoutOptionals.length
+                    ? criticalFollowUp.streamsWithoutOptionals
+                        .slice(0, 3)
+                        .map((row) => `${row.class} ${row.stream}`)
+                        .join(", ")
+                    : "All tracked streams have at least one optional subject assigned"}
+                </span>
+              </div>
+              <div className="admin-ops-followup-actions">
+                <span className="admin-ops-followup-count">{criticalFollowUp.streamsWithoutOptionals.length}</span>
+                <button type="button" className="ghost-btn" onClick={() => setActiveSection("Stream Readiness")}>
+                  Open Card
+                </button>
+              </div>
+            </div>
+
+            <div className="admin-ops-followup-item">
+              <div>
+                <strong>Classes Below 70% Readiness</strong>
+                <span>
+                  {criticalFollowUp.lowReadinessClasses.length
+                    ? criticalFollowUp.lowReadinessClasses
+                        .map((row) => `${row.classLevel} (${row.readinessPercent}%)`)
+                        .join(", ")
+                    : "All O-Level classes are above the watch threshold"}
+                </span>
+              </div>
+              <div className="admin-ops-followup-actions">
+                <span className="admin-ops-followup-count">{criticalFollowUp.lowReadinessClasses.length}</span>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article className="admin-ops-card">
+          <div className="admin-ops-card-head">
+            <div>
+              <h3>Teacher Submission Heatmap</h3>
+              <p>Compact class-by-class view of submission coverage for {dashboardOperationalTerm} {dashboardOperationalYear}.</p>
+            </div>
+            <span className="admin-ops-badge admin-ops-badge-green">Heatmap</span>
+          </div>
+
+          <div className="admin-ops-heatmap-stack">
+            <section className="admin-ops-heatmap-panel">
+              <div className="admin-ops-heatmap-panel-head">
+                <strong>O-Level</strong>
+                <span>AOI /80 submission coverage by class</span>
+              </div>
+              <div className="admin-ops-heatmap-table-shell">
+                <table className="admin-ops-heatmap-table">
+                  <thead>
+                    <tr>
+                      <th>Class</th>
+                      {O_LEVEL_HEATMAP_OPTIONS.map((component) => (
+                        <th key={component.value}>{component.label}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {teacherSubmissionHeatmap.oLevelRows.map((row) => (
+                      <tr key={`olevel-${row.classLevel}`}>
+                        <th className="admin-ops-heatmap-class">
+                          <strong>{row.classLevel}</strong>
+                          <span>{row.totalAssignments} slots</span>
+                        </th>
+                        {row.cells.map((cell) => (
+                          <td key={`${row.classLevel}-${cell.value}`}>
+                            <div
+                              className={`admin-ops-heatmap-cell ${cell.total === 0 ? "is-empty" : ""}`}
+                              style={getHeatmapCellStyle(cell.rate, "green")}
+                            >
+                              <strong>{cell.total ? `${cell.rate}%` : "—"}</strong>
+                              <small>{cell.total ? `${cell.submitted}/${cell.total}` : "No slots"}</small>
+                            </div>
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section className="admin-ops-heatmap-panel">
+              <div className="admin-ops-heatmap-panel-head">
+                <strong>A-Level</strong>
+                <span>MID and EOT coverage by paper-assignment class</span>
+              </div>
+              <div className="admin-ops-heatmap-table-shell">
+                <table className="admin-ops-heatmap-table">
+                  <thead>
+                    <tr>
+                      <th>Class</th>
+                      {A_LEVEL_HEATMAP_OPTIONS.map((component) => (
+                        <th key={component.value}>{component.label}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {teacherSubmissionHeatmap.aLevelRows.map((row) => (
+                      <tr key={`alevel-${row.classLevel}`}>
+                        <th className="admin-ops-heatmap-class">
+                          <strong>{row.classLevel}</strong>
+                          <span>{row.totalAssignments} papers</span>
+                        </th>
+                        {row.cells.map((cell) => (
+                          <td key={`${row.classLevel}-${cell.value}`}>
+                            <div
+                              className={`admin-ops-heatmap-cell ${cell.total === 0 ? "is-empty" : ""}`}
+                              style={getHeatmapCellStyle(cell.rate, "cyan")}
+                            >
+                              <strong>{cell.total ? `${cell.rate}%` : "—"}</strong>
+                              <small>{cell.total ? `${cell.submitted}/${cell.total}` : "No papers"}</small>
+                            </div>
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+
+          <p className="admin-ops-note">
+            Each cell shows submitted teaching slots against expected slots for that class and assessment component.
+          </p>
+        </article>
+
+        <article className="admin-ops-card">
+          <div className="admin-ops-card-head">
+            <div>
+              <h3>Report Readiness</h3>
+              <p>Ready = learner has at least one submitted score this term</p>
+            </div>
+            <span className="admin-ops-badge admin-ops-badge-rose">{reportReadinessCard.combined.readinessPercent}%</span>
+          </div>
+          <div className="admin-ops-meter-block">
+            <div className="admin-ops-meter-label">
+              <span>O-Level</span>
+              <strong>{reportReadinessCard.oLevel.readyLearners} / {reportReadinessCard.oLevel.totalLearners}</strong>
+            </div>
+            <div className="admin-ops-meter">
+              <div style={{ width: `${reportReadinessCard.oLevel.readinessPercent}%` }} />
+            </div>
+            <button
+              type="button"
+              className="admin-ops-subnote-button"
+              disabled={reportReadinessCard.oLevel.incompleteLearners === 0 || readinessPdfLoadingLevel === "oLevel"}
+              onClick={() => handleDownloadReadinessDetailsPdf("oLevel")}
+            >
+              {readinessPdfLoadingLevel === "oLevel"
+                ? "Opening O-Level readiness PDF…"
+                : `${reportReadinessCard.oLevel.incompleteLearners} learners still incomplete • Open PDF`}
+            </button>
+          </div>
+          <div className="admin-ops-meter-block">
+            <div className="admin-ops-meter-label">
+              <span>A-Level</span>
+              <strong>{reportReadinessCard.aLevel.readyLearners} / {reportReadinessCard.aLevel.totalLearners}</strong>
+            </div>
+            <div className="admin-ops-meter admin-ops-meter-cyan">
+              <div style={{ width: `${reportReadinessCard.aLevel.readinessPercent}%` }} />
+            </div>
+            <button
+              type="button"
+              className="admin-ops-subnote-button"
+              disabled={reportReadinessCard.aLevel.incompleteLearners === 0 || readinessPdfLoadingLevel === "aLevel"}
+              onClick={() => handleDownloadReadinessDetailsPdf("aLevel")}
+            >
+              {readinessPdfLoadingLevel === "aLevel"
+                ? "Opening A-Level readiness PDF…"
+                : `${reportReadinessCard.aLevel.incompleteLearners} learners still incomplete • Open PDF`}
+            </button>
+          </div>
+          {reportReadinessError && (
+            <p className="admin-ops-note" style={{ color: "#fca5a5", marginTop: "0.15rem" }}>
+              {reportReadinessError}
+            </p>
+          )}
+        </article>
+
+        <article className="admin-ops-card">
+          <div className="admin-ops-card-head">
+            <div>
+              <h3>Class Readiness Snapshot</h3>
+              <p>O-Level class-by-class view of report readiness for {dashboardOperationalTerm} {dashboardOperationalYear}</p>
+            </div>
+            <span className="admin-ops-badge admin-ops-badge-blue">S1–S4</span>
+          </div>
+
+          <div className="admin-ops-class-readiness-list">
+            {(reportReadinessCard.oLevel.byClass || []).map((row) => {
+              const toneClass =
+                row.readinessPercent >= 85
+                  ? "is-strong"
+                  : row.readinessPercent >= 60
+                  ? "is-watch"
+                  : "is-attention";
+              const toneLabel =
+                row.readinessPercent >= 85
+                  ? "Strong"
+                  : row.readinessPercent >= 60
+                  ? "Watch"
+                  : "Needs Attention";
+
+              return (
+                <div key={row.classLevel} className="admin-ops-class-readiness-row">
+                  <div className="admin-ops-class-readiness-top">
+                    <div>
+                      <strong>{row.classLevel}</strong>
+                      <span>
+                        {row.readyLearners} ready • {row.incompleteLearners} incomplete • {row.totalLearners} total
+                      </span>
+                    </div>
+                    <span className={`admin-ops-class-status ${toneClass}`}>{toneLabel}</span>
+                  </div>
+                  <div className="admin-ops-meter admin-ops-meter-class">
+                    <div style={{ width: `${row.readinessPercent}%` }} />
+                  </div>
+                  <div className="admin-ops-class-readiness-foot">
+                    <span>{row.readinessPercent}% ready</span>
+                    <span>{row.incompleteLearners} learners still need completion</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </article>
+
+        <article className="admin-ops-card">
+          <div className="admin-ops-card-head">
+            <div>
+              <h3>School Status</h3>
+              <p>Shared live calendar and marks control</p>
+            </div>
+            <span
+              className={`admin-ops-badge ${
+                schoolCalendarBadge.status === "In Session"
+                  ? "admin-ops-badge-green"
+                  : schoolCalendarBadge.status === "Holiday Break"
+                  ? "admin-ops-badge-gold"
+                  : "admin-ops-badge-neutral"
+              }`}
+            >
+              {schoolCalendarBadge.status}
+            </span>
+          </div>
+          <div className="admin-ops-pill-row">
+            <span className="calendar-pill calendar-pill-year">AY {schoolCalendarBadge.academicYear}</span>
+            <span className="calendar-pill">{schoolCalendarBadge.termLabel}</span>
+          </div>
+          <div className="admin-ops-countdown">
+            {schoolCalendarPreciseCountdown.label || "Waiting for active calendar window"}
+          </div>
+          <div className="admin-ops-kpi-grid">
+            <div className="admin-ops-kpi">
+              <span>Today</span>
+              <strong>{formatDateOnly(schoolCalendarPreviewClock)}</strong>
+              <small>{dashboardOperationalTerm}</small>
+            </div>
+            <div className="admin-ops-kpi">
+              <span>Locked Components</span>
+              <strong>{activeSchoolStatusLocks.length}</strong>
+              <small>
+                {activeSchoolStatusLocks.length
+                  ? activeSchoolStatusLocks
+                      .slice(0, 3)
+                      .map((row) => formatMarksLockComponentLabel(row.aoi_label))
+                      .join(", ")
+                  : "All entry windows open"}
+              </small>
+            </div>
+          </div>
+        </article>
+
+        <article className="admin-ops-card">
+          <div className="admin-ops-card-head">
+            <div>
+              <h3>Ready-To-Print Center</h3>
+              <p>Fast PTA and office print shortcuts</p>
+            </div>
+            <span className="admin-ops-badge admin-ops-badge-gold">Print</span>
+          </div>
+          <div className="admin-ops-action-grid">
+            <button type="button" className="ghost-btn" onClick={() => setActiveSection("Mini Reports")}>
+              Mini Reports
+            </button>
+            <button type="button" className="ghost-btn" onClick={() => setActiveSection("Download Marks")}>
+              Download Marks
+            </button>
+            <button type="button" className="ghost-btn" onClick={() => setActiveSection("End of Term Reports")}>
+              Term Reports
+            </button>
+            <button type="button" className="ghost-btn" onClick={() => setActiveSection("End of Year Reports")}>
+              Year Reports
+            </button>
+            <button type="button" className="ghost-btn" onClick={() => setShowEnrollmentChartsModal(true)}>
+              Enrollment PDF
+            </button>
+          </div>
+          <p className="admin-ops-note">
+            Use this as the quick office desk for parent meetings, marksheets and summary exports.
+          </p>
+        </article>
+
+        <article className="admin-ops-card">
+          <div className="admin-ops-card-head">
+            <div>
+              <h3>Teacher Load Summary</h3>
+              <p>Quick staffing and teaching slot picture</p>
+            </div>
+            <span className="admin-ops-badge admin-ops-badge-purple">Staff</span>
+          </div>
+          <div className="admin-ops-kpi-grid">
+            <div className="admin-ops-kpi">
+              <span>Total Teachers</span>
+              <strong>{totalTeachers}</strong>
+              <small>Registered accounts</small>
+            </div>
+            <div className="admin-ops-kpi">
+              <span>Assigned Teachers</span>
+              <strong>{teacherLoadSummary.assignedTeachers}</strong>
+              <small>Currently carrying loads</small>
+            </div>
+            <div className="admin-ops-kpi">
+              <span>O-Level Loads</span>
+              <strong>{teacherLoadSummary.oLevelAssignments}</strong>
+              <small>Active class assignments</small>
+            </div>
+            <div className="admin-ops-kpi">
+              <span>A-Level Loads</span>
+              <strong>{teacherLoadSummary.aLevelAssignments}</strong>
+              <small>Active paper assignments</small>
+            </div>
+          </div>
+          <p className="admin-ops-note">
+            Total teaching slots in the system: <strong>{teacherLoadSummary.totalTeachingSlots}</strong>
+          </p>
+        </article>
       </div>
-      <div className="admin-ops-kpi-grid">
-        <div className="admin-ops-kpi">
-          <span>Total Teachers</span>
-          <strong>{totalTeachers}</strong>
-          <small>Registered accounts</small>
-        </div>
-        <div className="admin-ops-kpi">
-          <span>Assigned Teachers</span>
-          <strong>{teacherLoadSummary.assignedTeachers}</strong>
-          <small>Currently carrying loads</small>
-        </div>
-        <div className="admin-ops-kpi">
-          <span>O-Level Loads</span>
-          <strong>{teacherLoadSummary.oLevelAssignments}</strong>
-          <small>Active class assignments</small>
-        </div>
-        <div className="admin-ops-kpi">
-          <span>A-Level Loads</span>
-          <strong>{teacherLoadSummary.aLevelAssignments}</strong>
-          <small>Active paper assignments</small>
-        </div>
-      </div>
-      <p className="admin-ops-note">
-        Total teaching slots in the system: <strong>{teacherLoadSummary.totalTeachingSlots}</strong>
-      </p>
-    </article>
+    )}
   </div>
 </section>
 

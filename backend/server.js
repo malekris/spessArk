@@ -3168,7 +3168,7 @@ app.get("/api/teachers/analytics/subject", authTeacher, async (req, res) => {
   }
 });
 // Put this in server.js (or your admin router) where `app` and `db` are available
-app.put("/api/admin/students/:id", async (req, res) => {
+app.put("/api/admin/students/:id", authAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const payload = req.body;
@@ -3181,7 +3181,7 @@ app.put("/api/admin/students/:id", async (req, res) => {
       return res.status(400).json({ message: "Invalid request body" });
     }
 
-    const { name, gender, class_level, stream, subjects } = payload;
+    const { name, gender, dob, class_level, stream, subjects } = payload;
 
     if (!name || !gender || !class_level || !stream) {
       console.warn("[UPDATE STUDENT] validation failed", { name, gender, class_level, stream });
@@ -3191,9 +3191,9 @@ app.put("/api/admin/students/:id", async (req, res) => {
     const subjectsJson = JSON.stringify(Array.isArray(subjects) ? subjects : []);
 
     const sql =
-      "UPDATE students SET name = ?, gender = ?, class_level = ?, stream = ?, subjects = ? WHERE id = ?";
+      "UPDATE students SET name = ?, gender = ?, dob = ?, class_level = ?, stream = ?, subjects = ? WHERE id = ?";
 
-    const params = [name, gender, class_level, stream, subjectsJson, id];
+    const params = [name, gender, dob || null, class_level, stream, subjectsJson, id];
 
     // Promise-based mysql2 pool (current backend setup)
     const [result] = await db.query(sql, params);

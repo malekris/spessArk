@@ -25,10 +25,17 @@ const OPTIONAL_SUBJECTS = [
   "Kiswahili",
 ];
 
+const formatDateForInput = (value) => {
+  if (!value) return "";
+  const raw = String(value).trim();
+  return raw.length >= 10 ? raw.slice(0, 10) : raw;
+};
+
 function EditStudentModal({ student, onClose, onSaved }) {
   const [form, setForm] = useState({
     name: "",
     gender: "",
+    dob: "",
     class_level: "",
     stream: "",
     subjects: [],
@@ -37,6 +44,7 @@ function EditStudentModal({ student, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [savedLearner, setSavedLearner] = useState(null);
 
   // synchronous submission lock to avoid race conditions
   const submittingRef = useRef(false);
@@ -46,12 +54,14 @@ function EditStudentModal({ student, onClose, onSaved }) {
     setForm({
       name: student.name || "",
       gender: student.gender || "",
+      dob: formatDateForInput(student.dob),
       class_level: student.class_level || "",
       stream: student.stream || "",
       subjects: Array.isArray(student.subjects) ? student.subjects : [],
     });
     setError("");
     setSuccess("");
+    setSavedLearner(null);
     // reset any previous submitting lock (safe)
     submittingRef.current = false;
     setSaving(false);
@@ -123,16 +133,15 @@ function EditStudentModal({ student, onClose, onSaved }) {
 
       // update local UI first while still mounted
       setSuccess("Learner updated successfully ✔");
+      setSavedLearner(updated);
       setSaving(false);
       submittingRef.current = false;
 
-      // inform parent (may update parent state and unmount modal)
-      onSaved && onSaved(updated);
-
       // close modal after small delay so user sees success
       setTimeout(() => {
+        onSaved && onSaved(updated);
         onClose && onClose();
-      }, 800);
+      }, 1200);
     } catch (err) {
       console.error("Edit student error:", err);
       // surface meaningful message if backend provided one
@@ -146,56 +155,115 @@ function EditStudentModal({ student, onClose, onSaved }) {
   if (!student) return null;
 
   return (
-    <div className="modal-backdrop">
-      <div className="modal-card">
-        <h2>Edit Learner</h2>
+    <div
+      className="modal-backdrop"
+      onClick={() => {
+        if (saving) return;
+        onClose && onClose();
+      }}
+    >
+      <div
+        className="modal-card learner-edit-modal"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="learner-edit-header">
+          <div>
+            <span className="learner-edit-kicker">Learner Editor</span>
+            <h2>Edit Learner</h2>
+            <p>Refresh learner bio details and optional subjects without leaving the register.</p>
+          </div>
+          <button
+            type="button"
+            className="ghost-btn learner-edit-close"
+            onClick={() => {
+              if (saving) return;
+              onClose && onClose();
+            }}
+          >
+            Close
+          </button>
+        </div>
 
-        {success && <div className="panel-alert panel-alert-success">{success}</div>}
+        {success && (
+          <div className="learner-edit-success-card">
+            <div className="learner-edit-success-icon">✓</div>
+            <div className="learner-edit-success-copy">
+              <strong>{success}</strong>
+              <span>
+                {savedLearner?.name || form.name || "Learner"} • {savedLearner?.class_level || form.class_level || "—"}{" "}
+                {savedLearner?.stream || form.stream || "—"}
+              </span>
+            </div>
+          </div>
+        )}
         {error && <div className="panel-alert panel-alert-error">{error}</div>}
 
         <form onSubmit={handleSubmit}>
           {/* Disable the entire form while saving */}
-          <fieldset disabled={saving} style={{ border: "none", padding: 0 }}>
-            <label>Name</label>
-            <input name="name" value={form.name} onChange={handleChange} />
-
-            <label>Gender</label>
-            <select name="gender" value={form.gender} onChange={handleChange}>
-              <option value="">Select</option>
-              <option value="Male">Male</option>
-              <option value="Female">Female</option>
-              <option value="Other">Other</option>
-            </select>
-
-            <label>Class</label>
-            <select name="class_level" value={form.class_level} onChange={handleChange}>
-              <option value="">Select</option>
-              <option value="S1">S1</option>
-              <option value="S2">S2</option>
-              <option value="S3">S3</option>
-              <option value="S4">S4</option>
-            </select>
-
-            <label>Stream</label>
-            <select name="stream" value={form.stream} onChange={handleChange}>
-              <option value="">Select</option>
-              <option value="North">North</option>
-              <option value="South">South</option>
-            </select>
-
-            <strong style={{ marginTop: "0.8rem", display: "block" }}>Optional Subjects</strong>
-            {OPTIONAL_SUBJECTS.map((s) => (
-              <label key={s} style={{ display: "flex", gap: "0.4rem" }}>
-                <input
-                  type="checkbox"
-                  checked={form.subjects.includes(s)}
-                  onChange={() => handleToggleSubject(s)}
-                />
-                {s}
+          <fieldset disabled={saving} style={{ border: "none", padding: 0, margin: 0 }}>
+            <div className="learner-edit-grid">
+              <label className="learner-edit-field">
+                <span>Name</span>
+                <input name="name" value={form.name} onChange={handleChange} />
               </label>
-            ))}
 
-            <div style={{ marginTop: "1rem", display: "flex", gap: "0.6rem" }}>
+              <label className="learner-edit-field">
+                <span>Gender</span>
+                <select name="gender" value={form.gender} onChange={handleChange}>
+                  <option value="">Select Gender</option>
+                  <option value="Male">Male</option>
+                  <option value="Female">Female</option>
+                  <option value="Other">Other</option>
+                </select>
+              </label>
+
+              <label className="learner-edit-field">
+                <span>Date of Birth</span>
+                <input name="dob" type="date" value={form.dob} onChange={handleChange} />
+              </label>
+
+              <label className="learner-edit-field">
+                <span>Class</span>
+                <select name="class_level" value={form.class_level} onChange={handleChange}>
+                  <option value="">Select Class</option>
+                  <option value="S1">S1</option>
+                  <option value="S2">S2</option>
+                  <option value="S3">S3</option>
+                  <option value="S4">S4</option>
+                </select>
+              </label>
+
+              <label className="learner-edit-field">
+                <span>Stream</span>
+                <select name="stream" value={form.stream} onChange={handleChange}>
+                  <option value="">Select Stream</option>
+                  <option value="North">North</option>
+                  <option value="South">South</option>
+                </select>
+              </label>
+            </div>
+
+            <div className="learner-edit-subject-shell">
+              <div className="learner-edit-subject-head">
+                <strong>Optional Subjects</strong>
+                <small>Compulsory subjects remain attached automatically.</small>
+              </div>
+
+              <div className="learner-edit-subject-grid">
+                {OPTIONAL_SUBJECTS.map((subjectName) => (
+                  <label key={subjectName} className="learner-edit-subject-chip">
+                    <input
+                      type="checkbox"
+                      checked={form.subjects.includes(subjectName)}
+                      onChange={() => handleToggleSubject(subjectName)}
+                    />
+                    <span>{subjectName}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="learner-edit-actions">
               <button type="submit" className="primary-btn" disabled={saving}>
                 {saving ? "Saving…" : "Save Changes"}
               </button>

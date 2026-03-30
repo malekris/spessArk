@@ -657,6 +657,7 @@ router.get("/readiness-summary", authAdmin, async (req, res) => {
   try {
     const term = normalizeTermLabel(req.query.term || "Term 1");
     const year = Number(req.query.year) || new Date().getFullYear();
+    const classOrder = ["S1", "S2", "S3", "S4"];
 
     const [[oLevelTotalRow]] = await pool.query(
       `
@@ -676,6 +677,30 @@ router.get("/readiness-summary", authAdmin, async (req, res) => {
           AND m.year = ?
           AND s.class_level IN ('S1', 'S2', 'S3', 'S4')
           AND COALESCE(s.status, 'active') = 'active'
+      `,
+      [term, year]
+    );
+
+    const [oLevelTotalsByClassRows] = await pool.query(
+      `
+        SELECT s.class_level, COUNT(*) AS total
+        FROM students s
+        WHERE s.class_level IN ('S1', 'S2', 'S3', 'S4')
+          AND COALESCE(s.status, 'active') = 'active'
+        GROUP BY s.class_level
+      `
+    );
+
+    const [oLevelReadyByClassRows] = await pool.query(
+      `
+        SELECT s.class_level, COUNT(DISTINCT m.student_id) AS total
+        FROM marks m
+        JOIN students s ON s.id = m.student_id
+        WHERE m.term = ?
+          AND m.year = ?
+          AND s.class_level IN ('S1', 'S2', 'S3', 'S4')
+          AND COALESCE(s.status, 'active') = 'active'
+        GROUP BY s.class_level
       `,
       [term, year]
     );
@@ -705,6 +730,26 @@ router.get("/readiness-summary", authAdmin, async (req, res) => {
     const percentOf = (value, total) =>
       total > 0 ? Math.round((Number(value || 0) / Number(total || 0)) * 100) : 0;
 
+    const oLevelTotalByClass = new Map(
+      (oLevelTotalsByClassRows || []).map((row) => [String(row.class_level || "").trim(), Number(row.total || 0)])
+    );
+    const oLevelReadyByClass = new Map(
+      (oLevelReadyByClassRows || []).map((row) => [String(row.class_level || "").trim(), Number(row.total || 0)])
+    );
+
+    const oLevelByClass = classOrder.map((classLevel) => {
+      const totalLearners = oLevelTotalByClass.get(classLevel) || 0;
+      const readyLearners = oLevelReadyByClass.get(classLevel) || 0;
+      const incompleteLearners = Math.max(0, totalLearners - readyLearners);
+      return {
+        classLevel,
+        totalLearners,
+        readyLearners,
+        incompleteLearners,
+        readinessPercent: percentOf(readyLearners, totalLearners),
+      };
+    });
+
     res.json({
       term,
       year,
@@ -713,6 +758,7 @@ router.get("/readiness-summary", authAdmin, async (req, res) => {
         readyLearners: oLevelReady,
         incompleteLearners: Math.max(0, oLevelTotal - oLevelReady),
         readinessPercent: percentOf(oLevelReady, oLevelTotal),
+        byClass: oLevelByClass,
       },
       aLevel: {
         totalLearners: aLevelTotal,

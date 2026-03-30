@@ -2986,7 +2986,22 @@ export default function AdminDashboard() {
     const empty = {
       term: dashboardOperationalTerm,
       year: dashboardOperationalYear,
-      oLevel: { totalLearners: totalStudents, readyLearners: 0, incompleteLearners: totalStudents, readinessPercent: 0 },
+      oLevel: {
+        totalLearners: totalStudents,
+        readyLearners: 0,
+        incompleteLearners: totalStudents,
+        readinessPercent: 0,
+        byClass: CLASS_SORT_ORDER.map((classLevel) => {
+          const totalLearners = students.filter((student) => student.class_level === classLevel).length;
+          return {
+            classLevel,
+            totalLearners,
+            readyLearners: 0,
+            incompleteLearners: totalLearners,
+            readinessPercent: 0,
+          };
+        }),
+      },
       aLevel: {
         totalLearners: aLevelLearners.length,
         readyLearners: 0,
@@ -5478,6 +5493,54 @@ export default function AdminDashboard() {
           {reportReadinessError}
         </p>
       )}
+    </article>
+
+    <article className="admin-ops-card">
+      <div className="admin-ops-card-head">
+        <div>
+          <h3>Class Readiness Snapshot</h3>
+          <p>O-Level class-by-class view of report readiness for {reportReadinessCard.term}</p>
+        </div>
+        <span className="admin-ops-badge admin-ops-badge-blue">S1–S4</span>
+      </div>
+
+      <div className="admin-ops-class-readiness-list">
+        {(reportReadinessCard.oLevel.byClass || []).map((row) => {
+          const toneClass =
+            row.readinessPercent >= 85
+              ? "is-strong"
+              : row.readinessPercent >= 60
+              ? "is-watch"
+              : "is-attention";
+          const toneLabel =
+            row.readinessPercent >= 85
+              ? "Strong"
+              : row.readinessPercent >= 60
+              ? "Watch"
+              : "Needs Attention";
+
+          return (
+            <div key={row.classLevel} className="admin-ops-class-readiness-row">
+              <div className="admin-ops-class-readiness-top">
+                <div>
+                  <strong>{row.classLevel}</strong>
+                  <span>
+                    {row.readyLearners} ready • {row.incompleteLearners} incomplete • {row.totalLearners} total
+                  </span>
+                </div>
+                <span className={`admin-ops-class-status ${toneClass}`}>{toneLabel}</span>
+              </div>
+              <div className="admin-ops-meter admin-ops-meter-class">
+                <div style={{ width: `${row.readinessPercent}%` }} />
+              </div>
+              <div className="admin-ops-class-readiness-foot">
+                <span>{row.readinessPercent}% ready</span>
+                <span>{row.incompleteLearners} learners still need completion</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </article>
 
     <article className="admin-ops-card">

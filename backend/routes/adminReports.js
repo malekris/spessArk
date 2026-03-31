@@ -1,6 +1,12 @@
 import express from "express";
 import authAdmin from "../middleware/authAdmin.js";
-import { pool } from "../server.js";
+import { pool, readMarksEntryLocks } from "../server.js";
+import {
+  buildLiveAdminYearSnapshot,
+  getCurrentAcademicYear,
+  listAdminSnapshotYears,
+  readAdminYearSnapshot,
+} from "../services/adminYearSnapshotService.js";
 
 const router = express.Router();
 
@@ -70,6 +76,257 @@ const normalizePaperLabel = (value = "") => {
   if (raw === "paper 2" || raw === "paper2" || raw === "p2") return "Paper 2";
   if (raw === "single" || raw === "single paper") return "Single";
   return String(value || "").trim();
+};
+
+const toPercent = (value, total) =>
+  total > 0 ? Math.max(0, Math.min(100, Math.round((Number(value || 0) / Number(total || 0)) * 100))) : 0;
+
+const normalizeAoiKey = (value = "") => {
+  const raw = String(value || "").trim().toUpperCase();
+  if (raw === "AOI 1" || raw === "AOI1") return "AOI1";
+  if (raw === "AOI 2" || raw === "AOI2") return "AOI2";
+  if (raw === "AOI 3" || raw === "AOI3") return "AOI3";
+  if (raw === "/80" || raw === "80" || raw === "EXAM80") return "EXAM80";
+  if (raw === "MID" || raw === "MIDTERM") return "MID";
+  if (raw === "EOT" || raw === "END OF TERM") return "EOT";
+  return raw;
+};
+
+const safeAnalyticsQuery = async (executor, sql, params = []) => {
+  try {
+    const [rows] = await executor.query(sql, params);
+    return rows || [];
+  } catch (err) {
+    if (err?.code === "ER_NO_SUCH_TABLE" || err?.code === "ER_BAD_FIELD_ERROR") {
+      return [];
+    }
+    throw err;
+  }
+};
+
+const deriveALevelClass = (stream = "") => {
+  const raw = String(stream || "").trim();
+  if (!raw) return "A-Level";
+  const [firstToken] = raw.split(/\s+/);
+  return firstToken || "A-Level";
+};
+
+const sortClassLevels = (classLevels = [], preferredOrder = []) => {
+  const preferred = new Map(preferredOrder.map((value, index) => [value, index]));
+  return Array.from(new Set(classLevels.filter(Boolean))).sort((a, b) => {
+    const aRank = preferred.has(a) ? preferred.get(a) : Number.MAX_SAFE_INTEGER;
+    const bRank = preferred.has(b) ? preferred.get(b) : Number.MAX_SAFE_INTEGER;
+    if (aRank !== bRank) return aRank - bRank;
+    return String(a).localeCompare(String(b), undefined, { numeric: true });
+  });
+};
+
+const O_LEVEL_HEATMAP_OPTIONS = [
+  { value: "AOI1", label: "AOI 1" },
+  { value: "AOI2", label: "AOI 2" },
+  { value: "AOI3", label: "AOI 3" },
+  { value: "EXAM80", label: "/80" },
+];
+
+const A_LEVEL_HEATMAP_OPTIONS = [
+  { value: "MID", label: "MID" },
+  { value: "EOT", label: "EOT" },
+];
+
+const buildDashboardAssessmentCompliance = ({
+  oLevelAssignments = [],
+  aLevelAssignments = [],
+  marksSets = [],
+  aLevelMarksSets = [],
+  term,
+  year,
+}) => {
+  const filteredOLevelRows = marksSets.filter(
+    (row) => normalizeTermLabel(row.term) === normalizeTermLabel(term) && Number(row.year) === Number(year)
+  );
+  const filteredALevelRows = aLevelMarksSets.filter(
+    (row) => normalizeTermLabel(row.term) === normalizeTermLabel(term) && Number(row.year) === Number(year)
+  );
+
+  const oLevelSubmittedAssignments = new Set(filteredOLevelRows.map((row) => row.assignment_id));
+  const oLevelTotal = oLevelAssignments.length;
+  const aLevelSubmittedAssignments = new Set(filteredALevelRows.map((row) => row.assignment_id));
+  const aLevelTotal = aLevelAssignments.length;
+  const aLevelExpectedComponents = aLevelTotal * 2;
+
+  const oLevelAoiCounts = Object.fromEntries(
+    O_LEVEL_HEATMAP_OPTIONS.map(({ value }) => [
+      value,
+      new Set(
+        filteredOLevelRows
+          .filter((row) => normalizeAoiKey(row.aoi_label) === value)
+          .map((row) => row.assignment_id)
+      ).size,
+    ])
+  );
+
+  const oLevelAoiRates = Object.fromEntries(
+    O_LEVEL_HEATMAP_OPTIONS.map(({ value }) => [value, toPercent(oLevelAoiCounts[value], oLevelTotal)])
+  );
+
+  const aLevelSubmittedComponents = new Set(
+    filteredALevelRows
+      .filter((row) => ["MID", "EOT"].includes(normalizeAoiKey(row.aoi_label)))
+      .map((row) => `${row.assignment_id}__${normalizeAoiKey(row.aoi_label)}`)
+  );
+
+  return {
+    oLevelSubmitted: oLevelSubmittedAssignments.size,
+    oLevelPending: Math.max(0, oLevelTotal - oLevelSubmittedAssignments.size),
+    oLevelAoiCounts,
+    oLevelAoiRates,
+    aLevelSubmitted: aLevelSubmittedAssignments.size,
+    aLevelPending: Math.max(0, aLevelTotal - aLevelSubmittedAssignments.size),
+    aLevelMidEotRate: toPercent(aLevelSubmittedComponents.size, aLevelExpectedComponents),
+    oLevelTotal,
+    aLevelTotal,
+    aLevelExpectedComponents,
+  };
+};
+
+const buildTeacherSubmissionHeatmap = ({
+  oLevelAssignments = [],
+  aLevelAssignments = [],
+  marksSets = [],
+  aLevelMarksSets = [],
+  term,
+  year,
+}) => {
+  const buildRows = (classLevels, assignments, marksRows, componentOptions) =>
+    classLevels.map((classLevel) => {
+      const expectedAssignments = assignments.filter((row) => row.classLevel === classLevel);
+      const totalAssignments = expectedAssignments.length;
+      const cells = componentOptions.map((component) => {
+        const submitted = new Set(
+          marksRows
+            .filter(
+              (row) =>
+                row.classLevel === classLevel && normalizeAoiKey(row.aoi_label) === component.value
+            )
+            .map((row) => row.assignment_id)
+        ).size;
+
+        return {
+          ...component,
+          submitted,
+          total: totalAssignments,
+          rate: toPercent(submitted, totalAssignments),
+        };
+      });
+
+      return { classLevel, totalAssignments, cells };
+    });
+
+  const filteredOLevelMarks = marksSets
+    .filter((row) => normalizeTermLabel(row.term) === normalizeTermLabel(term) && Number(row.year) === Number(year))
+    .map((row) => ({ ...row, classLevel: row.class_level }));
+
+  const filteredALevelMarks = aLevelMarksSets
+    .filter((row) => normalizeTermLabel(row.term) === normalizeTermLabel(term) && Number(row.year) === Number(year))
+    .map((row) => ({ ...row, classLevel: deriveALevelClass(row.stream) }));
+
+  const oLevelAssignmentRows = oLevelAssignments.map((row) => ({ ...row, classLevel: row.class_level }));
+  const aLevelAssignmentRows = aLevelAssignments.map((row) => ({ ...row, classLevel: deriveALevelClass(row.stream) }));
+  const aLevelClassLevels = sortClassLevels(
+    [
+      "S5",
+      "S6",
+      ...aLevelAssignmentRows.map((row) => row.classLevel),
+      ...filteredALevelMarks.map((row) => row.classLevel),
+    ],
+    ["S5", "S6"]
+  );
+
+  return {
+    oLevelRows: buildRows(["S1", "S2", "S3", "S4"], oLevelAssignmentRows, filteredOLevelMarks, O_LEVEL_HEATMAP_OPTIONS),
+    aLevelRows: buildRows(aLevelClassLevels, aLevelAssignmentRows, filteredALevelMarks, A_LEVEL_HEATMAP_OPTIONS),
+  };
+};
+
+const buildReportReadinessSummaryFromSources = async ({
+  executor,
+  term,
+  year,
+  students = [],
+  aLevelLearners = [],
+}) => {
+  const activeStudents = students.filter(
+    (student) =>
+      ["S1", "S2", "S3", "S4"].includes(String(student.class_level || "").trim()) &&
+      String(student.status || "active").trim().toLowerCase() === "active"
+  );
+
+  const oLevelReadyRows = await safeAnalyticsQuery(
+    executor,
+    `
+      SELECT DISTINCT student_id
+      FROM marks
+      WHERE term = ?
+        AND year = ?
+    `,
+    [normalizeTermLabel(term), Number(year)]
+  );
+
+  const aLevelReadyRows = await safeAnalyticsQuery(
+    executor,
+    `
+      SELECT DISTINCT learner_id
+      FROM alevel_marks
+      WHERE term = ?
+        AND YEAR(created_at) = ?
+    `,
+    [normalizeTermLabel(term), Number(year)]
+  );
+
+  const readyStudentIds = new Set((oLevelReadyRows || []).map((row) => Number(row.student_id)));
+  const readyALevelIds = new Set((aLevelReadyRows || []).map((row) => Number(row.learner_id)));
+
+  const oLevelByClass = ["S1", "S2", "S3", "S4"].map((classLevel) => {
+    const classStudents = activeStudents.filter((student) => student.class_level === classLevel);
+    const readyLearners = classStudents.filter((student) => readyStudentIds.has(Number(student.id))).length;
+    const totalLearners = classStudents.length;
+    return {
+      classLevel,
+      totalLearners,
+      readyLearners,
+      incompleteLearners: Math.max(0, totalLearners - readyLearners),
+      readinessPercent: toPercent(readyLearners, totalLearners),
+    };
+  });
+
+  const oLevelReady = activeStudents.filter((student) => readyStudentIds.has(Number(student.id))).length;
+  const aLevelReady = aLevelLearners.filter((learner) => readyALevelIds.has(Number(learner.id))).length;
+  const oLevelTotal = activeStudents.length;
+  const aLevelTotal = aLevelLearners.length;
+
+  return {
+    term: normalizeTermLabel(term),
+    year: Number(year),
+    oLevel: {
+      totalLearners: oLevelTotal,
+      readyLearners: oLevelReady,
+      incompleteLearners: Math.max(0, oLevelTotal - oLevelReady),
+      readinessPercent: toPercent(oLevelReady, oLevelTotal),
+      byClass: oLevelByClass,
+    },
+    aLevel: {
+      totalLearners: aLevelTotal,
+      readyLearners: aLevelReady,
+      incompleteLearners: Math.max(0, aLevelTotal - aLevelReady),
+      readinessPercent: toPercent(aLevelReady, aLevelTotal),
+    },
+    combined: {
+      totalLearners: oLevelTotal + aLevelTotal,
+      readyLearners: oLevelReady + aLevelReady,
+      incompleteLearners: Math.max(0, oLevelTotal + aLevelTotal - (oLevelReady + aLevelReady)),
+      readinessPercent: toPercent(oLevelReady + aLevelReady, oLevelTotal + aLevelTotal),
+    },
+  };
 };
 
 const formatMiniRemark = (score, status) => {
@@ -653,126 +910,206 @@ router.get("/mini-aoi1", authAdmin, async (req, res) => {
   }
 });
 
+router.get("/dashboard-years", authAdmin, async (req, res) => {
+  try {
+    const currentAcademicYear = await getCurrentAcademicYear(pool);
+    const years = await listAdminSnapshotYears(pool);
+
+    res.json({
+      currentAcademicYear,
+      years: years.map((year) => ({
+        value: year,
+        label: `${year}`,
+        mode: Number(year) === Number(currentAcademicYear) ? "live" : "snapshot",
+      })),
+    });
+  } catch (err) {
+    console.error("Admin dashboard years error:", err);
+    res.status(500).json({ message: "Failed to load dashboard years" });
+  }
+});
+
+router.get("/dashboard-snapshot", authAdmin, async (req, res) => {
+  try {
+    const requestedYear = Number(req.query.year);
+    const currentAcademicYear = await getCurrentAcademicYear(pool);
+    const targetYear =
+      Number.isInteger(requestedYear) && requestedYear > 0 ? requestedYear : currentAcademicYear;
+
+    let snapshotSource = null;
+    let mode = "snapshot";
+
+    if (Number(targetYear) === Number(currentAcademicYear)) {
+      snapshotSource = await buildLiveAdminYearSnapshot(pool, currentAcademicYear);
+      mode = "live";
+    } else {
+      snapshotSource = await readAdminYearSnapshot(pool, targetYear);
+      if (!snapshotSource) {
+        return res.status(404).json({
+          message: `No frozen admin snapshot is available for ${targetYear}. Snapshot history starts from the years captured after this feature was introduced.`,
+        });
+      }
+    }
+
+    const term = normalizeTermLabel(snapshotSource.operationalTerm || "Term 1");
+    const year = Number(snapshotSource.academicYear || targetYear);
+
+    const marksSets = await safeAnalyticsQuery(
+      pool,
+      `
+        SELECT
+          m.assignment_id,
+          ta.class_level,
+          ta.stream,
+          ta.subject,
+          t.name AS teacher_name,
+          m.term,
+          m.year,
+          m.aoi_label,
+          COUNT(m.id) AS marks_count,
+          MAX(m.updated_at) AS submitted_at
+        FROM marks m
+        JOIN teacher_assignments ta ON m.assignment_id = ta.id
+        LEFT JOIN teachers t ON m.teacher_id = t.id
+        WHERE m.year = ?
+        GROUP BY
+          m.assignment_id,
+          ta.class_level,
+          ta.stream,
+          ta.subject,
+          t.name,
+          m.term,
+          m.year,
+          m.aoi_label
+        ORDER BY m.year DESC, m.term DESC
+      `,
+      [year]
+    );
+
+    const aLevelMarksSets = await safeAnalyticsQuery(
+      pool,
+      `
+        SELECT
+          am.assignment_id,
+          ats.stream,
+          ats.paper_label,
+          s.name AS subject,
+          t.name AS teacher_name,
+          am.term,
+          YEAR(am.created_at) AS year,
+          CASE
+            WHEN UPPER(TRIM(et.name)) IN ('MID', 'MIDTERM') THEN 'MID'
+            ELSE 'EOT'
+          END AS aoi_label,
+          COUNT(am.id) AS marks_count,
+          MAX(am.created_at) AS submitted_at
+        FROM alevel_marks am
+        JOIN alevel_teacher_subjects ats ON ats.id = am.assignment_id
+        JOIN alevel_subjects s ON s.id = ats.subject_id
+        JOIN alevel_exam_types et ON et.id = am.exam_id
+        LEFT JOIN teachers t ON t.id = ats.teacher_id
+        WHERE YEAR(am.created_at) = ?
+        GROUP BY
+          am.assignment_id,
+          ats.stream,
+          ats.paper_label,
+          s.name,
+          t.name,
+          am.term,
+          YEAR(am.created_at),
+          CASE
+            WHEN UPPER(TRIM(et.name)) IN ('MID', 'MIDTERM') THEN 'MID'
+            ELSE 'EOT'
+          END
+        ORDER BY YEAR(am.created_at) DESC, am.term DESC
+      `,
+      [year]
+    );
+
+    const overviewMarksLocks = await readMarksEntryLocks(term, year);
+    const reportReadinessSummary = await buildReportReadinessSummaryFromSources({
+      executor: pool,
+      term,
+      year,
+      students: snapshotSource.students || [],
+      aLevelLearners: snapshotSource.aLevelLearners || [],
+    });
+
+    const assessmentCompliance = buildDashboardAssessmentCompliance({
+      oLevelAssignments: snapshotSource.oLevelAssignments || [],
+      aLevelAssignments: snapshotSource.aLevelAssignments || [],
+      marksSets,
+      aLevelMarksSets,
+      term,
+      year,
+    });
+
+    const teacherSubmissionHeatmap = buildTeacherSubmissionHeatmap({
+      oLevelAssignments: snapshotSource.oLevelAssignments || [],
+      aLevelAssignments: snapshotSource.aLevelAssignments || [],
+      marksSets,
+      aLevelMarksSets,
+      term,
+      year,
+    });
+
+    res.json({
+      academicYear: year,
+      currentAcademicYear,
+      mode,
+      capturedAt: snapshotSource.capturedAt || null,
+      operationalTerm: term,
+      students: snapshotSource.students || [],
+      teachers: snapshotSource.teachers || [],
+      oLevelAssignments: snapshotSource.oLevelAssignments || [],
+      aLevelLearners: snapshotSource.aLevelLearners || [],
+      aLevelAssignments: snapshotSource.aLevelAssignments || [],
+      marksSets,
+      aLevelMarksSets,
+      overviewMarksLocks,
+      reportReadinessSummary,
+      assessmentCompliance,
+      teacherSubmissionHeatmap,
+    });
+  } catch (err) {
+    console.error("Admin dashboard snapshot error:", err);
+    res.status(500).json({ message: "Failed to load dashboard snapshot" });
+  }
+});
+
 router.get("/readiness-summary", authAdmin, async (req, res) => {
   try {
     const term = normalizeTermLabel(req.query.term || "Term 1");
     const year = Number(req.query.year) || new Date().getFullYear();
-    const classOrder = ["S1", "S2", "S3", "S4"];
+    const currentAcademicYear = await getCurrentAcademicYear(pool);
 
-    const [[oLevelTotalRow]] = await pool.query(
-      `
-        SELECT COUNT(*) AS total
-        FROM students
-        WHERE class_level IN ('S1', 'S2', 'S3', 'S4')
-          AND COALESCE(status, 'active') = 'active'
-      `
-    );
+    let students = [];
+    let aLevelLearners = [];
 
-    const [[oLevelReadyRow]] = await pool.query(
-      `
-        SELECT COUNT(DISTINCT m.student_id) AS total
-        FROM marks m
-        JOIN students s ON s.id = m.student_id
-        WHERE m.term = ?
-          AND m.year = ?
-          AND s.class_level IN ('S1', 'S2', 'S3', 'S4')
-          AND COALESCE(s.status, 'active') = 'active'
-      `,
-      [term, year]
-    );
+    if (Number(year) === Number(currentAcademicYear)) {
+      const liveSnapshot = await buildLiveAdminYearSnapshot(pool, currentAcademicYear);
+      students = liveSnapshot.students || [];
+      aLevelLearners = liveSnapshot.aLevelLearners || [];
+    } else {
+      const archivedSnapshot = await readAdminYearSnapshot(pool, year);
+      if (!archivedSnapshot) {
+        return res.status(404).json({
+          message: `No frozen admin snapshot is available for ${year}.`,
+        });
+      }
+      students = archivedSnapshot.students || [];
+      aLevelLearners = archivedSnapshot.aLevelLearners || [];
+    }
 
-    const [oLevelTotalsByClassRows] = await pool.query(
-      `
-        SELECT s.class_level, COUNT(*) AS total
-        FROM students s
-        WHERE s.class_level IN ('S1', 'S2', 'S3', 'S4')
-          AND COALESCE(s.status, 'active') = 'active'
-        GROUP BY s.class_level
-      `
-    );
-
-    const [oLevelReadyByClassRows] = await pool.query(
-      `
-        SELECT s.class_level, COUNT(DISTINCT m.student_id) AS total
-        FROM marks m
-        JOIN students s ON s.id = m.student_id
-        WHERE m.term = ?
-          AND m.year = ?
-          AND s.class_level IN ('S1', 'S2', 'S3', 'S4')
-          AND COALESCE(s.status, 'active') = 'active'
-        GROUP BY s.class_level
-      `,
-      [term, year]
-    );
-
-    const [[aLevelTotalRow]] = await pool.query(
-      `
-        SELECT COUNT(*) AS total
-        FROM alevel_learners
-      `
-    );
-
-    const [[aLevelReadyRow]] = await pool.query(
-      `
-        SELECT COUNT(DISTINCT am.learner_id) AS total
-        FROM alevel_marks am
-        WHERE am.term = ?
-          AND YEAR(am.created_at) = ?
-      `,
-      [term, year]
-    );
-
-    const oLevelTotal = Number(oLevelTotalRow?.total || 0);
-    const oLevelReady = Number(oLevelReadyRow?.total || 0);
-    const aLevelTotal = Number(aLevelTotalRow?.total || 0);
-    const aLevelReady = Number(aLevelReadyRow?.total || 0);
-
-    const percentOf = (value, total) =>
-      total > 0 ? Math.round((Number(value || 0) / Number(total || 0)) * 100) : 0;
-
-    const oLevelTotalByClass = new Map(
-      (oLevelTotalsByClassRows || []).map((row) => [String(row.class_level || "").trim(), Number(row.total || 0)])
-    );
-    const oLevelReadyByClass = new Map(
-      (oLevelReadyByClassRows || []).map((row) => [String(row.class_level || "").trim(), Number(row.total || 0)])
-    );
-
-    const oLevelByClass = classOrder.map((classLevel) => {
-      const totalLearners = oLevelTotalByClass.get(classLevel) || 0;
-      const readyLearners = oLevelReadyByClass.get(classLevel) || 0;
-      const incompleteLearners = Math.max(0, totalLearners - readyLearners);
-      return {
-        classLevel,
-        totalLearners,
-        readyLearners,
-        incompleteLearners,
-        readinessPercent: percentOf(readyLearners, totalLearners),
-      };
-    });
-
-    res.json({
+    const summary = await buildReportReadinessSummaryFromSources({
+      executor: pool,
       term,
       year,
-      oLevel: {
-        totalLearners: oLevelTotal,
-        readyLearners: oLevelReady,
-        incompleteLearners: Math.max(0, oLevelTotal - oLevelReady),
-        readinessPercent: percentOf(oLevelReady, oLevelTotal),
-        byClass: oLevelByClass,
-      },
-      aLevel: {
-        totalLearners: aLevelTotal,
-        readyLearners: aLevelReady,
-        incompleteLearners: Math.max(0, aLevelTotal - aLevelReady),
-        readinessPercent: percentOf(aLevelReady, aLevelTotal),
-      },
-      combined: {
-        totalLearners: oLevelTotal + aLevelTotal,
-        readyLearners: oLevelReady + aLevelReady,
-        incompleteLearners: Math.max(0, oLevelTotal + aLevelTotal - (oLevelReady + aLevelReady)),
-        readinessPercent: percentOf(oLevelReady + aLevelReady, oLevelTotal + aLevelTotal),
-      },
+      students,
+      aLevelLearners,
     });
+
+    res.json(summary);
   } catch (err) {
     console.error("Admin readiness summary error:", err);
     res.status(500).json({ message: "Failed to load report readiness summary" });
@@ -784,76 +1121,40 @@ router.get("/readiness-incomplete-details", authAdmin, async (req, res) => {
     const term = normalizeTermLabel(req.query.term || "Term 1");
     const year = Number(req.query.year) || new Date().getFullYear();
     const level = String(req.query.level || "oLevel").trim();
+    const currentAcademicYear = await getCurrentAcademicYear(pool);
+    let snapshotSource = null;
+
+    if (Number(year) === Number(currentAcademicYear)) {
+      snapshotSource = await buildLiveAdminYearSnapshot(pool, currentAcademicYear);
+    } else {
+      snapshotSource = await readAdminYearSnapshot(pool, year);
+      if (!snapshotSource) {
+        return res.status(404).json({ message: `No frozen admin snapshot is available for ${year}.` });
+      }
+    }
 
     if (level === "aLevel") {
-      const [learners] = await pool.query(
+      const [readyRows] = await pool.query(
         `
-          SELECT
-            l.id,
-            TRIM(CONCAT(COALESCE(l.first_name, ''), ' ', COALESCE(l.last_name, ''))) AS learner_name,
-            l.gender,
-            l.dob,
-            l.stream,
-            l.combination
-          FROM alevel_learners l
-          WHERE NOT EXISTS (
-            SELECT 1
-            FROM alevel_marks am
-            WHERE am.learner_id = l.id
-              AND am.term = ?
-              AND YEAR(am.created_at) = ?
-          )
-          ORDER BY l.stream, learner_name
+          SELECT DISTINCT learner_id
+          FROM alevel_marks
+          WHERE term = ?
+            AND YEAR(created_at) = ?
         `,
         [term, year]
+      );
+
+      const readyLearnerIds = new Set((readyRows || []).map((row) => Number(row.learner_id)));
+      const learners = (snapshotSource.aLevelLearners || []).filter(
+        (learner) => !readyLearnerIds.has(Number(learner.id))
       );
 
       if (learners.length === 0) {
         return res.json({ level: "aLevel", term, year, incompleteLearners: 0, rows: [] });
       }
 
-      const learnerIds = learners.map((row) => row.id);
-      const uniqueStreams = Array.from(new Set(learners.map((row) => String(row.stream || "").trim()).filter(Boolean)));
-
-      const [learnerSubjects] = await pool.query(
-        `
-          SELECT
-            als.learner_id,
-            s.name AS subject
-          FROM alevel_learner_subjects als
-          JOIN alevel_subjects s ON s.id = als.subject_id
-          WHERE als.learner_id IN (?)
-          ORDER BY s.name
-        `,
-        [learnerIds]
-      );
-
-      const [streamAssignments] = uniqueStreams.length
-        ? await pool.query(
-            `
-              SELECT
-                ats.stream,
-                s.name AS subject,
-                ats.paper_label,
-                t.name AS teacher_name
-              FROM alevel_teacher_subjects ats
-              JOIN alevel_subjects s ON s.id = ats.subject_id
-              LEFT JOIN teachers t ON t.id = ats.teacher_id
-              WHERE ats.stream IN (?)
-              ORDER BY ats.stream, s.name, ats.paper_label
-            `,
-            [uniqueStreams]
-          )
-        : [[]];
-
-      const subjectsByLearner = new Map();
-      learnerSubjects.forEach((row) => {
-        if (!subjectsByLearner.has(row.learner_id)) subjectsByLearner.set(row.learner_id, []);
-        subjectsByLearner.get(row.learner_id).push(row.subject);
-      });
-
       const assignmentsByStreamSubject = new Map();
-      streamAssignments.forEach((row) => {
+      (snapshotSource.aLevelAssignments || []).forEach((row) => {
         const key = `${String(row.stream || "").trim().toLowerCase()}__${normalizeSubjectKey(row.subject)}`;
         if (!assignmentsByStreamSubject.has(key)) assignmentsByStreamSubject.set(key, []);
         assignmentsByStreamSubject.get(key).push({
@@ -863,7 +1164,7 @@ router.get("/readiness-incomplete-details", authAdmin, async (req, res) => {
       });
 
       const rows = learners.map((learner) => {
-        const registeredSubjects = subjectsByLearner.get(learner.id) || [];
+        const registeredSubjects = parseStoredSubjects(learner.subjects);
         const missingItems = [];
 
         if (registeredSubjects.length === 0) {
@@ -904,9 +1205,9 @@ router.get("/readiness-incomplete-details", authAdmin, async (req, res) => {
 
         return {
           learnerId: learner.id,
-          learnerName: learner.learner_name || `Learner ${learner.id}`,
+          learnerName: learner.name || `Learner ${learner.id}`,
           gender: learner.gender || "—",
-          classLevel: String(learner.stream || "").trim().split(" ")[0] || "A-Level",
+          classLevel: deriveALevelClass(learner.stream),
           stream: learner.stream || "—",
           combination: learner.combination || "—",
           missingItems,
@@ -922,50 +1223,30 @@ router.get("/readiness-incomplete-details", authAdmin, async (req, res) => {
       });
     }
 
-    const [learners] = await pool.query(
+    const [readyRows] = await pool.query(
       `
-        SELECT
-          s.id,
-          s.name,
-          s.gender,
-          s.dob,
-          s.class_level,
-          s.stream,
-          s.subjects
-        FROM students s
-        WHERE s.class_level IN ('S1', 'S2', 'S3', 'S4')
-          AND COALESCE(s.status, 'active') = 'active'
-          AND NOT EXISTS (
-            SELECT 1
-            FROM marks m
-            WHERE m.student_id = s.id
-              AND m.term = ?
-              AND m.year = ?
-          )
-        ORDER BY FIELD(s.class_level, 'S1', 'S2', 'S3', 'S4'), s.stream, s.name
+        SELECT DISTINCT student_id
+        FROM marks
+        WHERE term = ?
+          AND year = ?
       `,
       [term, year]
+    );
+
+    const readyStudentIds = new Set((readyRows || []).map((row) => Number(row.student_id)));
+    const learners = (snapshotSource.students || []).filter(
+      (student) =>
+        ["S1", "S2", "S3", "S4"].includes(String(student.class_level || "").trim()) &&
+        String(student.status || "active").trim().toLowerCase() === "active" &&
+        !readyStudentIds.has(Number(student.id))
     );
 
     if (learners.length === 0) {
       return res.json({ level: "oLevel", term, year, incompleteLearners: 0, rows: [] });
     }
 
-    const [assignments] = await pool.query(
-      `
-        SELECT
-          ta.class_level,
-          ta.stream,
-          ta.subject,
-          t.name AS teacher_name
-        FROM teacher_assignments ta
-        LEFT JOIN teachers t ON t.id = ta.teacher_id
-        ORDER BY ta.class_level, ta.stream, ta.subject
-      `
-    );
-
     const assignmentMap = new Map();
-    assignments.forEach((row) => {
+    (snapshotSource.oLevelAssignments || []).forEach((row) => {
       const groupKey = `${String(row.class_level || "").trim().toLowerCase()}__${String(row.stream || "").trim().toLowerCase()}`;
       if (!assignmentMap.has(groupKey)) assignmentMap.set(groupKey, new Map());
       assignmentMap.get(groupKey).set(normalizeSubjectKey(row.subject), {

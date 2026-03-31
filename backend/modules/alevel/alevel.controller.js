@@ -2,6 +2,7 @@
 import { db } from "../../server.js";
 import express from "express";
 import { extractClientIp, logAuditEvent } from "../../utils/auditLogger.js";
+import { queueAdminYearSnapshotRefresh } from "../../services/adminYearSnapshotService.js";
 
 const router = express.Router();
 const AUDIT_ADMIN_USER_ID = 1;
@@ -105,6 +106,7 @@ export async function createLearner(req, res) {
       description: `Created A-Level learner ${name} in ${stream}${combination ? ` (${combination})` : ""}`,
       ipAddress: extractClientIp(req),
     });
+    queueAdminYearSnapshotRefresh(db, "alevel-learner-create");
     res.json({ success: true, id: learnerId });
   } catch (err) {
     await conn.rollback();
@@ -160,6 +162,7 @@ export async function deleteLearner(req, res) {
       description: `Deleted A-Level learner ${String(learner.name || "").trim()} from ${learner.stream}${learner.combination ? ` (${learner.combination})` : ""}`,
       ipAddress: extractClientIp(req),
     });
+    queueAdminYearSnapshotRefresh(db, "alevel-learner-delete");
     res.json({ success: true });
   } catch (err) {
     console.error("deleteLearner error:", err);
@@ -213,6 +216,7 @@ export async function updateLearner(req, res) {
       description: `Updated A-Level learner ${name} in ${stream}${combination ? ` (${combination})` : ""}`,
       ipAddress: extractClientIp(req),
     });
+    queueAdminYearSnapshotRefresh(db, "alevel-learner-update");
     res.json({ success: true });
   } catch (err) {
     await conn.rollback();

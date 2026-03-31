@@ -5,6 +5,7 @@ import authAdmin, { requireAdminReauth } from "../../middleware/authAdmin.js";
 import { pool } from "../../server.js";
 import { extractClientIp, logAuditEvent } from "../../utils/auditLogger.js";
 import { ensureMarksArchiveTablesReady, archiveALevelMarks } from "../../utils/marksArchive.js";
+import { queueAdminYearSnapshotRefresh } from "../../services/adminYearSnapshotService.js";
 
 import {
   getLearners,
@@ -243,6 +244,7 @@ router.post("/admin/assignments", authAdmin, async (req, res) => {
       ipAddress: extractClientIp(req),
     });
 
+    queueAdminYearSnapshotRefresh(db, "alevel-assignment-create");
     res.json({ success: true });
   } catch (err) {
     console.error("POST assignment error:", err);
@@ -311,6 +313,7 @@ router.delete("/admin/assignments/:id", authAdmin, requireAdminReauth, async (re
       description: `Removed A-Level assignment ${buildSubjectDisplay(assignment.subject, assignment.paper_label)} from ${assignment.stream} (teacher #${assignment.teacher_id})`,
       ipAddress: extractClientIp(req),
     });
+    queueAdminYearSnapshotRefresh(db, "alevel-assignment-delete");
     res.json({ success: true });
   } catch (err) {
     if (conn) {

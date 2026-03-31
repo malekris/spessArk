@@ -132,6 +132,25 @@ const deriveALevelClass = (stream) => {
   return match ? match[0] : "A-Level";
 };
 
+const parseStoredLearnerSubjects = (value) => {
+  if (!value) return [];
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item || "").trim()).filter(Boolean);
+  }
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed)) {
+      return parsed.map((item) => String(item || "").trim()).filter(Boolean);
+    }
+  } catch {
+    // Fall back to comma-separated strings.
+  }
+  return String(value)
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+};
+
 const sortClasses = (values = [], preferredOrder = []) => {
   const order = new Map(preferredOrder.map((value, index) => [value, index]));
   return Array.from(new Set(values.filter(Boolean))).sort((a, b) => {
@@ -503,6 +522,15 @@ export default function AdminDashboard() {
   const [schoolCalendarForm, setSchoolCalendarForm] = useState(() =>
     normalizeSchoolCalendar(DEFAULT_SCHOOL_CALENDAR)
   );
+  const [dashboardYearOptions, setDashboardYearOptions] = useState([]);
+  const [selectedDashboardYear, setSelectedDashboardYear] = useState("");
+  const [dashboardYearFollowsLive, setDashboardYearFollowsLive] = useState(true);
+  const [dashboardSnapshot, setDashboardSnapshot] = useState(null);
+  const [dashboardSnapshotLoading, setDashboardSnapshotLoading] = useState(false);
+  const [dashboardSnapshotError, setDashboardSnapshotError] = useState("");
+  const [portalLearnerSearchQuery, setPortalLearnerSearchQuery] = useState("");
+  const [portalLearnerSearchLevel, setPortalLearnerSearchLevel] = useState("all");
+  const [selectedPortalLearnerKey, setSelectedPortalLearnerKey] = useState("");
   const [schoolCalendarLoading, setSchoolCalendarLoading] = useState(false);
   const [schoolCalendarSaving, setSchoolCalendarSaving] = useState(false);
   const [schoolCalendarError, setSchoolCalendarError] = useState("");
@@ -561,6 +589,21 @@ export default function AdminDashboard() {
     const parsed = Number(schoolCalendarForm.academicYear);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : new Date().getFullYear();
   }, [schoolCalendarForm.academicYear]);
+
+  useEffect(() => {
+    if (dashboardYearFollowsLive) {
+      setSelectedDashboardYear(String(dashboardOperationalYear));
+    }
+  }, [dashboardOperationalYear, dashboardYearFollowsLive]);
+
+  useEffect(() => {
+    fetchDashboardYearOptions(dashboardOperationalYear);
+  }, [dashboardOperationalYear]);
+
+  useEffect(() => {
+    if (!selectedDashboardYear) return;
+    fetchDashboardSnapshot(selectedDashboardYear);
+  }, [selectedDashboardYear]);
   useEffect(() => {
     if (!promotionWindowOpen && activeSection === "Learner Promotion") {
       setActiveSection("");
@@ -706,6 +749,73 @@ export default function AdminDashboard() {
       setSchoolCalendarError(err.message || "Could not load school calendar.");
     } finally {
       setSchoolCalendarLoading(false);
+    }
+  };
+
+  const fetchDashboardYearOptions = async (currentYear = dashboardOperationalYear) => {
+    try {
+      const data = await adminFetch("/api/admin/reports/dashboard-years");
+      const rows = Array.isArray(data?.years) ? data.years : [];
+      setDashboardYearOptions(rows);
+
+      const normalizedCurrentYear = String(data?.currentAcademicYear || currentYear || "");
+      setSelectedDashboardYear((prev) => {
+        if (dashboardYearFollowsLive) return normalizedCurrentYear;
+        if (prev && rows.some((row) => String(row.value) === String(prev))) return prev;
+        return normalizedCurrentYear;
+      });
+    } catch (err) {
+      console.error("Error loading dashboard year options:", err);
+      setDashboardYearOptions([
+        {
+          value: currentYear,
+          label: `${currentYear}`,
+          mode: "live",
+        },
+      ]);
+      setSelectedDashboardYear((prev) => {
+        if (dashboardYearFollowsLive) return String(currentYear);
+        return prev || String(currentYear);
+      });
+    }
+  };
+
+  const fetchDashboardSnapshot = async (yearValue) => {
+    const normalizedYear = Number(yearValue);
+    if (!Number.isInteger(normalizedYear) || normalizedYear <= 0) {
+      setDashboardSnapshot(null);
+      return;
+    }
+
+    setDashboardSnapshotLoading(true);
+    setDashboardSnapshotError("");
+    try {
+      const data = await adminFetch(
+        `/api/admin/reports/dashboard-snapshot?year=${encodeURIComponent(normalizedYear)}`
+      );
+      setDashboardSnapshot(data || null);
+    } catch (err) {
+      console.error("Error loading dashboard snapshot:", err);
+      setDashboardSnapshot(
+        normalizedYear === Number(dashboardOperationalYear)
+          ? null
+          : {
+              academicYear: normalizedYear,
+              mode: "snapshot",
+              operationalTerm: "Term 1",
+              students: [],
+              teachers: [],
+              oLevelAssignments: [],
+              aLevelLearners: [],
+              aLevelAssignments: [],
+              marksSets: [],
+              aLevelMarksSets: [],
+              overviewMarksLocks: [],
+            }
+      );
+      setDashboardSnapshotError(err.message || "Could not load the selected admin year snapshot.");
+    } finally {
+      setDashboardSnapshotLoading(false);
     }
   };
 
@@ -2965,27 +3075,91 @@ export default function AdminDashboard() {
     }
   }, [scoreSheetStreamOptions, scoreSheetFilters.stream]);
 
+  const dashboardViewYear = Number(dashboardSnapshot?.academicYear || selectedDashboardYear || dashboardOperationalYear);
+  const dashboardViewTerm = dashboardSnapshot?.operationalTerm || dashboardOperationalTerm;
+  const dashboardViewMode = dashboardSnapshot?.mode || (dashboardViewYear === dashboardOperationalYear ? "live" : "snapshot");
+  const dashboardViewCapturedAt = dashboardSnapshot?.capturedAt || null;
+  const isHistoricalDashboardView = Number(dashboardViewYear) !== Number(dashboardOperationalYear);
+
+  const dashboardStudents = Array.isArray(dashboardSnapshot?.students) ? dashboardSnapshot.students : students;
+  const dashboardTeachers = Array.isArray(dashboardSnapshot?.teachers) ? dashboardSnapshot.teachers : teachers;
+  const dashboardALevelLearners = Array.isArray(dashboardSnapshot?.aLevelLearners)
+    ? dashboardSnapshot.aLevelLearners
+    : aLevelLearners;
+  const dashboardOLevelAssignmentsOverview = Array.isArray(dashboardSnapshot?.oLevelAssignments)
+    ? dashboardSnapshot.oLevelAssignments
+    : oLevelAssignmentsOverview;
+  const dashboardALevelAssignmentsOverview = Array.isArray(dashboardSnapshot?.aLevelAssignments)
+    ? dashboardSnapshot.aLevelAssignments
+    : aLevelAssignmentsOverview;
+  const dashboardMarksSets = Array.isArray(dashboardSnapshot?.marksSets)
+    ? dashboardSnapshot.marksSets
+    : marksSets;
+  const dashboardALevelMarksSets = Array.isArray(dashboardSnapshot?.aLevelMarksSets)
+    ? dashboardSnapshot.aLevelMarksSets
+    : aLevelMarksSets;
+  const dashboardOverviewMarksLocks = Array.isArray(dashboardSnapshot?.overviewMarksLocks)
+    ? dashboardSnapshot.overviewMarksLocks
+    : overviewMarksLocks;
+
   const totalStudents = students.length;
   const totalBoys = students.filter((s) => s.gender === "Male").length;
   const totalGirls = students.filter((s) => s.gender === "Female").length;
   const totalTeachers = teachers.length;
-  const activeSchoolStatusLocks = overviewMarksLocks.filter((row) => row.effective_locked);
+  const activeSchoolStatusLocks = dashboardOverviewMarksLocks.filter((row) => row.effective_locked);
+
+  const dashboardTotalStudents = dashboardStudents.length;
+  const dashboardTotalBoys = dashboardStudents.filter((s) => s.gender === "Male").length;
+  const dashboardTotalGirls = dashboardStudents.filter((s) => s.gender === "Female").length;
+  const dashboardTotalTeachers = dashboardTeachers.length;
+  const dashboardEnrollmentByStreamClassGender = buildEnrollmentByStreamClassGenderMap(dashboardStudents);
+  const dashboardEnrollmentByClassWithOrderedStreams = React.useMemo(() => {
+    const byClass = {};
+    Object.entries(dashboardEnrollmentByStreamClassGender).forEach(([stream, classes]) => {
+      Object.entries(classes || {}).forEach(([cls, stats]) => {
+        if (!byClass[cls]) byClass[cls] = {};
+        byClass[cls][stream] = stats;
+      });
+    });
+
+    const classOrder = Object.keys(byClass).sort((a, b) => {
+      const na = Number(String(a).replace(/[^\d]/g, ""));
+      const nb = Number(String(b).replace(/[^\d]/g, ""));
+      if (Number.isNaN(na) || Number.isNaN(nb)) return String(a).localeCompare(String(b));
+      return na - nb;
+    });
+
+    return classOrder.map((cls) => ({
+      cls,
+      streams: byClass[cls] || {},
+    }));
+  }, [dashboardEnrollmentByStreamClassGender]);
+  const dashboardStreamReadiness = useMemo(() => {
+    if (Array.isArray(dashboardSnapshot?.streamReadiness)) {
+      return dashboardSnapshot.streamReadiness;
+    }
+    return buildStreamReadinessFromAssignments(dashboardOLevelAssignmentsOverview);
+  }, [dashboardSnapshot, dashboardOLevelAssignmentsOverview]);
 
   const assessmentCompliance = useMemo(() => {
-    const oLevelRows = marksSets.filter(
+    if (dashboardSnapshot?.assessmentCompliance) {
+      return dashboardSnapshot.assessmentCompliance;
+    }
+
+    const oLevelRows = dashboardMarksSets.filter(
       (row) =>
-        normalizeOperationalTerm(row.term) === dashboardOperationalTerm &&
-        Number(row.year) === Number(dashboardOperationalYear)
+        normalizeOperationalTerm(row.term) === dashboardViewTerm &&
+        Number(row.year) === Number(dashboardViewYear)
     );
-    const aLevelRows = aLevelMarksSets.filter(
+    const aLevelRows = dashboardALevelMarksSets.filter(
       (row) =>
-        normalizeOperationalTerm(row.term) === dashboardOperationalTerm &&
-        Number(row.year) === Number(dashboardOperationalYear)
+        normalizeOperationalTerm(row.term) === dashboardViewTerm &&
+        Number(row.year) === Number(dashboardViewYear)
     );
 
     const oLevelSubmittedAssignments = new Set(oLevelRows.map((row) => row.assignment_id));
-    const oLevelTotal = oLevelAssignmentsOverview.length;
-    const aLevelTotal = aLevelAssignmentsOverview.length;
+    const oLevelTotal = dashboardOLevelAssignmentsOverview.length;
+    const aLevelTotal = dashboardALevelAssignmentsOverview.length;
     const aLevelExpectedComponents = aLevelTotal * 2;
     const oLevelAoiCounts = Object.fromEntries(
       O_LEVEL_AOI_OPTIONS.map(({ value }) => [
@@ -3021,12 +3195,13 @@ export default function AdminDashboard() {
       aLevelExpectedComponents,
     };
   }, [
-    aLevelAssignmentsOverview,
-    aLevelMarksSets,
-    dashboardOperationalTerm,
-    dashboardOperationalYear,
-    marksSets,
-    oLevelAssignmentsOverview,
+    dashboardALevelAssignmentsOverview,
+    dashboardALevelMarksSets,
+    dashboardMarksSets,
+    dashboardOLevelAssignmentsOverview,
+    dashboardSnapshot,
+    dashboardViewTerm,
+    dashboardViewYear,
   ]);
   const selectedAssessmentAoiLabel =
     O_LEVEL_AOI_OPTIONS.find((option) => option.value === assessmentComplianceAoi)?.label || "AOI 1";
@@ -3049,17 +3224,160 @@ export default function AdminDashboard() {
     };
   }, [oLevelAssignmentsOverview, aLevelAssignmentsOverview]);
 
+  const dashboardTeacherLoadSummary = useMemo(() => {
+    const assignedTeacherIds = new Set(
+      [...dashboardOLevelAssignmentsOverview, ...dashboardALevelAssignmentsOverview]
+        .map((row) => row.teacher_id)
+        .filter((value) => value !== null && value !== undefined && value !== "")
+        .map((value) => String(value))
+    );
+
+    return {
+      assignedTeachers: assignedTeacherIds.size,
+      totalTeachingSlots:
+        dashboardOLevelAssignmentsOverview.length + dashboardALevelAssignmentsOverview.length,
+      oLevelAssignments: dashboardOLevelAssignmentsOverview.length,
+      aLevelAssignments: dashboardALevelAssignmentsOverview.length,
+    };
+  }, [dashboardOLevelAssignmentsOverview, dashboardALevelAssignmentsOverview]);
+
+  const portalLearnerSearchRows = useMemo(() => {
+    const oLevelRows = dashboardStudents.map((student) => {
+      const subjects = parseStoredLearnerSubjects(student.subjects);
+      const classLevel = String(student.class_level || "").trim() || "S1";
+      const stream = String(student.stream || "").trim() || "—";
+      const name = String(student.name || "").trim() || `Learner ${student.id}`;
+      const searchText = [
+        name,
+        classLevel,
+        stream,
+        student.gender,
+        student.dob,
+        student.status,
+        ...subjects,
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      return {
+        key: `olevel-${student.id}`,
+        id: student.id,
+        levelKey: "oLevel",
+        levelLabel: "O-Level",
+        name,
+        classLevel,
+        stream,
+        gender: student.gender || "—",
+        dob: student.dob || "",
+        status: String(student.status || "active").trim() || "active",
+        subjectCount: subjects.length,
+        subjects,
+        combination: "",
+        house: "",
+        searchText,
+      };
+    });
+
+    const aLevelRows = dashboardALevelLearners.map((learner) => {
+      const subjects = parseStoredLearnerSubjects(learner.subjects);
+      const stream = String(learner.stream || "").trim() || "—";
+      const classLevel = deriveALevelClass(stream);
+      const name = String(learner.name || "").trim() || `Learner ${learner.id}`;
+      const combination = String(learner.combination || "").trim();
+      const house = String(learner.house || "").trim();
+      const searchText = [
+        name,
+        classLevel,
+        stream,
+        learner.gender,
+        learner.dob,
+        combination,
+        house,
+        ...subjects,
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      return {
+        key: `alevel-${learner.id}`,
+        id: learner.id,
+        levelKey: "aLevel",
+        levelLabel: "A-Level",
+        name,
+        classLevel,
+        stream,
+        gender: learner.gender || "—",
+        dob: learner.dob || "",
+        status: "active",
+        subjectCount: subjects.length,
+        subjects,
+        combination,
+        house,
+        searchText,
+      };
+    });
+
+    return [...oLevelRows, ...aLevelRows].sort((a, b) => {
+      if (a.levelKey !== b.levelKey) return a.levelKey.localeCompare(b.levelKey);
+      if (a.classLevel !== b.classLevel) {
+        return sortClasses([a.classLevel, b.classLevel], [...CLASS_SORT_ORDER, ...A_LEVEL_CLASS_SORT_ORDER])[0] === a.classLevel
+          ? -1
+          : 1;
+      }
+      return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+    });
+  }, [dashboardALevelLearners, dashboardStudents]);
+
+  const portalLearnerSearchResults = useMemo(() => {
+    const query = String(portalLearnerSearchQuery || "").trim().toLowerCase();
+
+    return portalLearnerSearchRows
+      .filter((row) => portalLearnerSearchLevel === "all" || row.levelKey === portalLearnerSearchLevel)
+      .filter((row) => !query || row.searchText.includes(query))
+      .slice(0, 24);
+  }, [portalLearnerSearchLevel, portalLearnerSearchQuery, portalLearnerSearchRows]);
+
+  const portalLearnerSearchCounts = useMemo(
+    () => ({
+      all: portalLearnerSearchRows.length,
+      oLevel: portalLearnerSearchRows.filter((row) => row.levelKey === "oLevel").length,
+      aLevel: portalLearnerSearchRows.filter((row) => row.levelKey === "aLevel").length,
+    }),
+    [portalLearnerSearchRows]
+  );
+
+  useEffect(() => {
+    if (!portalLearnerSearchResults.length) {
+      setSelectedPortalLearnerKey("");
+      return;
+    }
+
+    const stillVisible = portalLearnerSearchResults.some((row) => row.key === selectedPortalLearnerKey);
+    if (!stillVisible) {
+      setSelectedPortalLearnerKey(portalLearnerSearchResults[0].key);
+    }
+  }, [portalLearnerSearchResults, selectedPortalLearnerKey]);
+
+  const selectedPortalLearner = useMemo(() => {
+    if (!portalLearnerSearchResults.length) return null;
+    return (
+      portalLearnerSearchResults.find((row) => row.key === selectedPortalLearnerKey) ||
+      portalLearnerSearchResults[0] ||
+      null
+    );
+  }, [portalLearnerSearchResults, selectedPortalLearnerKey]);
+
   const reportReadinessCard = useMemo(() => {
     const empty = {
-      term: dashboardOperationalTerm,
-      year: dashboardOperationalYear,
+      term: dashboardViewTerm,
+      year: dashboardViewYear,
       oLevel: {
-        totalLearners: totalStudents,
+        totalLearners: dashboardTotalStudents,
         readyLearners: 0,
-        incompleteLearners: totalStudents,
+        incompleteLearners: dashboardTotalStudents,
         readinessPercent: 0,
         byClass: CLASS_SORT_ORDER.map((classLevel) => {
-          const totalLearners = students.filter((student) => student.class_level === classLevel).length;
+          const totalLearners = dashboardStudents.filter((student) => student.class_level === classLevel).length;
           return {
             classLevel,
             totalLearners,
@@ -3070,33 +3388,35 @@ export default function AdminDashboard() {
         }),
       },
       aLevel: {
-        totalLearners: aLevelLearners.length,
+        totalLearners: dashboardALevelLearners.length,
         readyLearners: 0,
-        incompleteLearners: aLevelLearners.length,
+        incompleteLearners: dashboardALevelLearners.length,
         readinessPercent: 0,
       },
       combined: {
-        totalLearners: totalStudents + aLevelLearners.length,
+        totalLearners: dashboardTotalStudents + dashboardALevelLearners.length,
         readyLearners: 0,
-        incompleteLearners: totalStudents + aLevelLearners.length,
+        incompleteLearners: dashboardTotalStudents + dashboardALevelLearners.length,
         readinessPercent: 0,
       },
     };
 
-    return reportReadinessSummary || empty;
+    return dashboardSnapshot?.reportReadinessSummary || reportReadinessSummary || empty;
   }, [
-    aLevelLearners.length,
-    dashboardOperationalTerm,
-    dashboardOperationalYear,
+    dashboardALevelLearners.length,
+    dashboardSnapshot,
+    dashboardStudents,
+    dashboardTotalStudents,
+    dashboardViewTerm,
+    dashboardViewYear,
     reportReadinessSummary,
-    totalStudents,
   ]);
 
   const criticalFollowUp = useMemo(() => {
     const pendingTeacherSubmissions =
       Number(assessmentCompliance.oLevelPending || 0) +
       Number(assessmentCompliance.aLevelPending || 0);
-    const streamsWithoutOptionals = streamReadiness.filter(
+    const streamsWithoutOptionals = dashboardStreamReadiness.filter(
       (row) => Number(row.optionalCount || 0) === 0
     );
     const lowReadinessClasses = (reportReadinessCard.oLevel.byClass || []).filter(
@@ -3115,9 +3435,12 @@ export default function AdminDashboard() {
       streamsWithoutOptionals,
       lowReadinessClasses,
     };
-  }, [assessmentCompliance, reportReadinessCard, streamReadiness]);
+  }, [assessmentCompliance, dashboardStreamReadiness, reportReadinessCard]);
 
   const teacherSubmissionHeatmap = useMemo(() => {
+    if (dashboardSnapshot?.teacherSubmissionHeatmap) {
+      return dashboardSnapshot.teacherSubmissionHeatmap;
+    }
     const buildRows = (classLevels, assignments, marksRows, componentOptions) =>
       classLevels.map((classLevel) => {
         const expectedAssignments = assignments.filter((row) => row.classLevel === classLevel);
@@ -3148,33 +3471,33 @@ export default function AdminDashboard() {
         };
       });
 
-    const filteredOLevelMarks = marksSets
+    const filteredOLevelMarks = dashboardMarksSets
       .filter(
         (row) =>
-          normalizeOperationalTerm(row.term) === dashboardOperationalTerm &&
-          Number(row.year) === Number(dashboardOperationalYear)
+          normalizeOperationalTerm(row.term) === dashboardViewTerm &&
+          Number(row.year) === Number(dashboardViewYear)
       )
       .map((row) => ({
         ...row,
         classLevel: row.class_level,
       }));
 
-    const filteredALevelMarks = aLevelMarksSets
+    const filteredALevelMarks = dashboardALevelMarksSets
       .filter(
         (row) =>
-          normalizeOperationalTerm(row.term) === dashboardOperationalTerm &&
-          Number(row.year) === Number(dashboardOperationalYear)
+          normalizeOperationalTerm(row.term) === dashboardViewTerm &&
+          Number(row.year) === Number(dashboardViewYear)
       )
       .map((row) => ({
         ...row,
         classLevel: deriveALevelClass(row.stream),
       }));
 
-    const oLevelAssignments = oLevelAssignmentsOverview.map((row) => ({
+    const oLevelAssignments = dashboardOLevelAssignmentsOverview.map((row) => ({
       ...row,
       classLevel: row.class_level,
     }));
-    const aLevelAssignments = aLevelAssignmentsOverview.map((row) => ({
+    const aLevelAssignments = dashboardALevelAssignmentsOverview.map((row) => ({
       ...row,
       classLevel: deriveALevelClass(row.stream),
     }));
@@ -3193,12 +3516,13 @@ export default function AdminDashboard() {
       aLevelRows: buildRows(aLevelClasses, aLevelAssignments, filteredALevelMarks, A_LEVEL_HEATMAP_OPTIONS),
     };
   }, [
-    aLevelAssignmentsOverview,
-    aLevelMarksSets,
-    dashboardOperationalTerm,
-    dashboardOperationalYear,
-    marksSets,
-    oLevelAssignmentsOverview,
+    dashboardALevelAssignmentsOverview,
+    dashboardALevelMarksSets,
+    dashboardMarksSets,
+    dashboardOLevelAssignmentsOverview,
+    dashboardSnapshot,
+    dashboardViewTerm,
+    dashboardViewYear,
   ]);
 
   const s1Students = students.filter((s) => s.class_level === "S1").length;
@@ -5214,27 +5538,58 @@ export default function AdminDashboard() {
           <span className="brand-tag">Admin</span>
         </div>
 
-        <div style={{ display: "flex", gap: "0.6rem", alignItems: "center" }}>
-  <button
-    type="button"
-    className="ghost-btn"
-    onClick={() => openAdminSettings("password")}
-  >
-    Settings
-  </button>
+        <div className="admin-nav-actions">
+          <label className="admin-year-select-shell" htmlFor="admin-dashboard-year">
+            <span className="admin-year-select-label">Portal Year</span>
+            <select
+              id="admin-dashboard-year"
+              className="admin-year-select"
+              value={selectedDashboardYear || ""}
+              onChange={(event) => {
+                const nextYear = event.target.value;
+                setSelectedDashboardYear(nextYear);
+                setDashboardYearFollowsLive(Number(nextYear) === Number(dashboardOperationalYear));
+              }}
+              disabled={dashboardSnapshotLoading && !selectedDashboardYear}
+            >
+              {dashboardYearOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <span
+              className={`admin-year-live-indicator ${
+                Number(selectedDashboardYear) === Number(dashboardOperationalYear)
+                  ? "is-live"
+                  : "is-snapshot"
+              }`}
+            >
+              <span className="admin-year-live-indicator-dot" />
+              {Number(selectedDashboardYear) === Number(dashboardOperationalYear) ? "Live" : "Snapshot"}
+            </span>
+          </label>
 
-  <button
-    type="button"
-    className="ghost-btn"
-    onClick={() => navigate("/ark/admin/alevel")}
-  >
-    A-Level
-  </button>
+          <button
+            type="button"
+            className="ghost-btn"
+            onClick={() => openAdminSettings("password")}
+          >
+            Settings
+          </button>
 
-  <button type="button" className="nav-logout" onClick={handleLogout}>
-    Logout
-  </button>
-</div>
+          <button
+            type="button"
+            className="ghost-btn"
+            onClick={() => navigate("/ark/admin/alevel")}
+          >
+            A-Level
+          </button>
+
+          <button type="button" className="nav-logout" onClick={handleLogout}>
+            Logout
+          </button>
+        </div>
 
       </header>
 
@@ -5245,6 +5600,34 @@ export default function AdminDashboard() {
     Quick actions for managing students, teachers and marks. Select a card below
     to open its detailed view.
   </p>
+  <div className="admin-year-snapshot-strip">
+    <div>
+      <strong>
+        {dashboardViewMode === "live" ? "Live Academic Year" : "Historical Snapshot"} • {dashboardViewYear}
+      </strong>
+      <span>
+        {dashboardViewMode === "live"
+          ? `${dashboardViewTerm} is driving the operational cards right now.`
+          : `Frozen ${dashboardViewTerm} dashboard view for ${dashboardViewYear}. Management panels below stay live to avoid editing archived years.`}
+      </span>
+    </div>
+    <div className="admin-year-snapshot-meta">
+      <span className={`admin-year-mode-pill ${dashboardViewMode === "live" ? "is-live" : "is-snapshot"}`}>
+        {dashboardViewMode === "live" ? "Live" : "Snapshot"}
+      </span>
+      {dashboardSnapshotLoading && <small>Refreshing year view…</small>}
+      {dashboardViewCapturedAt && (
+        <small>
+          Captured {new Date(dashboardViewCapturedAt).toLocaleString()}
+        </small>
+      )}
+    </div>
+  </div>
+  {dashboardSnapshotError && (
+    <div className="panel-alert panel-alert-error" style={{ marginTop: "0.9rem" }}>
+      {dashboardSnapshotError}
+    </div>
+  )}
 
   {/* ================= OVERVIEW CARDS ================= */}
   <div
@@ -5279,11 +5662,11 @@ export default function AdminDashboard() {
         Total O level Population
       </div>
       <div style={{ fontSize: "2.3rem", fontWeight: 700 }}>
-        {totalStudents}
+        {dashboardTotalStudents}
       </div>
       <div style={{ marginTop: "0.4rem", fontSize: "0.85rem" }}>
-        Boys: <strong>{totalBoys}</strong> • Girls:{" "}
-        <strong>{totalGirls}</strong>
+        Boys: <strong>{dashboardTotalBoys}</strong> • Girls:{" "}
+        <strong>{dashboardTotalGirls}</strong>
       </div>
     </div>
 
@@ -5310,7 +5693,7 @@ export default function AdminDashboard() {
         Teachers Enrolled
       </div>
       <div style={{ fontSize: "2rem", fontWeight: 600 }}>
-        {totalTeachers}
+        {dashboardTotalTeachers}
       </div>
     </div>
   </div>
@@ -5339,10 +5722,10 @@ export default function AdminDashboard() {
       Enrollment Breakdown by Stream • Class • Gender
     </div>
 
-    {Object.keys(enrollmentByStreamClassGender).length === 0 ? (
+    {Object.keys(dashboardEnrollmentByStreamClassGender).length === 0 ? (
       <p className="muted-text">No enrollment data available.</p>
     ) : (
-      enrollmentByClassWithOrderedStreams.map(({ cls, streams }) => {
+      dashboardEnrollmentByClassWithOrderedStreams.map(({ cls, streams }) => {
         const north = streams.North || streams.NORTH || { Male: 0, Female: 0, total: 0 };
         const south = streams.South || streams.SOUTH || { Male: 0, Female: 0, total: 0 };
         const classCombinedTotal = (north.total || 0) + (south.total || 0);
@@ -5468,9 +5851,11 @@ export default function AdminDashboard() {
       <div className="admin-ops-card-head">
         <div>
           <h3>Assessment Compliance</h3>
-          <p>{dashboardOperationalTerm} {dashboardOperationalYear} snapshot</p>
+          <p>{dashboardViewTerm} {dashboardViewYear} snapshot</p>
         </div>
-        <span className="admin-ops-badge admin-ops-badge-blue">Live</span>
+        <span className={`admin-ops-badge ${dashboardViewMode === "live" ? "admin-ops-badge-blue" : "admin-ops-badge-neutral"}`}>
+          {dashboardViewMode === "live" ? "Live" : "Snapshot"}
+        </span>
       </div>
       <div className="admin-ops-control-row">
         <label className="admin-ops-select-label" htmlFor="assessment-compliance-aoi">
@@ -5554,7 +5939,7 @@ export default function AdminDashboard() {
         <span>Open the next layer of executive dashboard cards without crowding the main view.</span>
       </div>
       <span className="admin-ops-expand-meta">
-        {criticalFollowUp.openIssueCount} live follow-up areas • {showMoreInsights ? "Hide" : "Open"}
+        {criticalFollowUp.openIssueCount} {dashboardViewMode === "live" ? "live " : ""}follow-up areas • {showMoreInsights ? "Hide" : "Open"}
       </span>
     </button>
 
@@ -5609,8 +5994,13 @@ export default function AdminDashboard() {
               </div>
               <div className="admin-ops-followup-actions">
                 <span className="admin-ops-followup-count">{criticalFollowUp.pendingTeacherSubmissions}</span>
-                <button type="button" className="ghost-btn" onClick={() => setActiveSection("Assessment Submission Tracker")}>
-                  Open Tracker
+                <button
+                  type="button"
+                  className="ghost-btn"
+                  disabled={isHistoricalDashboardView}
+                  onClick={() => setActiveSection("Assessment Submission Tracker")}
+                >
+                  {isHistoricalDashboardView ? "Live Only" : "Open Tracker"}
                 </button>
               </div>
             </div>
@@ -5629,8 +6019,13 @@ export default function AdminDashboard() {
               </div>
               <div className="admin-ops-followup-actions">
                 <span className="admin-ops-followup-count">{criticalFollowUp.streamsWithoutOptionals.length}</span>
-                <button type="button" className="ghost-btn" onClick={() => setActiveSection("Stream Readiness")}>
-                  Open Card
+                <button
+                  type="button"
+                  className="ghost-btn"
+                  disabled={isHistoricalDashboardView}
+                  onClick={() => setActiveSection("Stream Readiness")}
+                >
+                  {isHistoricalDashboardView ? "Live Only" : "Open Card"}
                 </button>
               </div>
             </div>
@@ -5656,8 +6051,156 @@ export default function AdminDashboard() {
         <article className="admin-ops-card">
           <div className="admin-ops-card-head">
             <div>
+              <h3>Learner Search</h3>
+              <p>
+                Search the {dashboardViewMode === "live" ? "live" : "archived"} learner register for{" "}
+                {dashboardViewYear} without leaving the dashboard.
+              </p>
+            </div>
+            <span className="admin-ops-badge admin-ops-badge-purple">
+              {portalLearnerSearchResults.length} shown
+            </span>
+          </div>
+
+          <div className="admin-ops-control-row admin-ops-learner-search-controls">
+            <label className="admin-ops-learner-search-field">
+              <span className="admin-ops-select-label">Search Learner</span>
+              <input
+                type="text"
+                className="admin-ops-search-input"
+                placeholder="Type learner name, class, stream, subject or combination"
+                value={portalLearnerSearchQuery}
+                onChange={(event) => setPortalLearnerSearchQuery(event.target.value)}
+              />
+            </label>
+
+            <label className="admin-ops-learner-search-field admin-ops-learner-search-filter">
+              <span className="admin-ops-select-label">Portal View</span>
+              <select
+                className="admin-ops-select"
+                value={portalLearnerSearchLevel}
+                onChange={(event) => setPortalLearnerSearchLevel(event.target.value)}
+              >
+                <option value="all">All Learners</option>
+                <option value="oLevel">O-Level Only</option>
+                <option value="aLevel">A-Level Only</option>
+              </select>
+            </label>
+          </div>
+
+          <div className="admin-ops-pill-row admin-ops-learner-search-pills">
+            <span className="calendar-pill calendar-pill-year">All {portalLearnerSearchCounts.all}</span>
+            <span className="calendar-pill">O-Level {portalLearnerSearchCounts.oLevel}</span>
+            <span className="calendar-pill">A-Level {portalLearnerSearchCounts.aLevel}</span>
+          </div>
+
+          <div className="admin-ops-learner-search-grid">
+            <div className="admin-ops-learner-results">
+              {portalLearnerSearchResults.length ? (
+                portalLearnerSearchResults.map((row) => (
+                  <button
+                    key={row.key}
+                    type="button"
+                    className={`admin-ops-learner-result ${selectedPortalLearner?.key === row.key ? "is-active" : ""}`}
+                    onClick={() => setSelectedPortalLearnerKey(row.key)}
+                  >
+                    <div className="admin-ops-learner-result-top">
+                      <strong>{row.name}</strong>
+                      <span className={`admin-ops-badge ${row.levelKey === "aLevel" ? "admin-ops-badge-cyan" : "admin-ops-badge-blue"}`}>
+                        {row.levelLabel}
+                      </span>
+                    </div>
+                    <span>
+                      {row.classLevel} • {row.stream}
+                      {row.combination ? ` • ${row.combination}` : ""}
+                    </span>
+                    <small>
+                      {row.subjectCount} subjects • {row.gender}
+                    </small>
+                  </button>
+                ))
+              ) : (
+                <div className="admin-ops-learner-empty">
+                  No learner matched this search in the {dashboardViewYear} {dashboardViewMode} view.
+                </div>
+              )}
+            </div>
+
+            <div className="admin-ops-learner-detail">
+              {selectedPortalLearner ? (
+                <>
+                  <div className="admin-ops-learner-detail-head">
+                    <div>
+                      <h4>{selectedPortalLearner.name}</h4>
+                      <p>
+                        {selectedPortalLearner.levelLabel} • {selectedPortalLearner.classLevel} • {selectedPortalLearner.stream}
+                        {selectedPortalLearner.combination ? ` • ${selectedPortalLearner.combination}` : ""}
+                      </p>
+                    </div>
+                    <span className={`admin-ops-badge ${dashboardViewMode === "live" ? "admin-ops-badge-green" : "admin-ops-badge-neutral"}`}>
+                      {dashboardViewMode === "live" ? "Live Register" : `${dashboardViewYear} Snapshot`}
+                    </span>
+                  </div>
+
+                  <div className="admin-ops-kpi-grid">
+                    <div className="admin-ops-kpi">
+                      <span>DOB</span>
+                      <strong>{formatDateOnly(selectedPortalLearner.dob)}</strong>
+                      <small>Recorded date of birth</small>
+                    </div>
+                    <div className="admin-ops-kpi">
+                      <span>Gender</span>
+                      <strong>{selectedPortalLearner.gender}</strong>
+                      <small>Learner profile field</small>
+                    </div>
+                    <div className="admin-ops-kpi">
+                      <span>Subjects</span>
+                      <strong>{selectedPortalLearner.subjectCount}</strong>
+                      <small>Registered subjects in this portal year</small>
+                    </div>
+                    <div className="admin-ops-kpi">
+                      <span>Status</span>
+                      <strong>{selectedPortalLearner.status || "active"}</strong>
+                      <small>{selectedPortalLearner.house ? `House: ${selectedPortalLearner.house}` : "Registration record"}</small>
+                    </div>
+                  </div>
+
+                  <div className="admin-ops-learner-subject-shell">
+                    <div className="admin-ops-learner-subject-head">
+                      <strong>Registered Subjects</strong>
+                      <span>{selectedPortalLearner.subjectCount} captured</span>
+                    </div>
+                    <div className="admin-ops-learner-subject-list">
+                      {selectedPortalLearner.subjects.length ? (
+                        selectedPortalLearner.subjects.map((subject) => (
+                          <span key={`${selectedPortalLearner.key}-${subject}`} className="admin-ops-learner-subject-chip">
+                            {subject}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="admin-ops-learner-empty-chip">No subjects stored in this year view.</span>
+                      )}
+                    </div>
+                  </div>
+
+                  <p className="admin-ops-note">
+                    This search respects the selected portal year. Switch the year at the top to compare the learner register across academic years.
+                  </p>
+                </>
+              ) : (
+                <div className="admin-ops-learner-empty admin-ops-learner-empty-detail">
+                  Start typing a learner name to open a year-specific record snapshot.
+                </div>
+              )}
+            </div>
+          </div>
+        </article>
+
+        <article className="admin-ops-card">
+          <div className="admin-ops-card-head">
+            <div>
               <h3>Teacher Submission Heatmap</h3>
-              <p>Compact class-by-class view of submission coverage for {dashboardOperationalTerm} {dashboardOperationalYear}.</p>
+              <p>Compact class-by-class view of submission coverage for {dashboardViewTerm} {dashboardViewYear}.</p>
             </div>
             <span className="admin-ops-badge admin-ops-badge-green">Heatmap</span>
           </div>
@@ -5806,7 +6349,7 @@ export default function AdminDashboard() {
           <div className="admin-ops-card-head">
             <div>
               <h3>Class Readiness Snapshot</h3>
-              <p>O-Level class-by-class view of report readiness for {dashboardOperationalTerm} {dashboardOperationalYear}</p>
+              <p>O-Level class-by-class view of report readiness for {dashboardViewTerm} {dashboardViewYear}</p>
             </div>
             <span className="admin-ops-badge admin-ops-badge-blue">S1–S4</span>
           </div>
@@ -5869,17 +6412,19 @@ export default function AdminDashboard() {
             </span>
           </div>
           <div className="admin-ops-pill-row">
-            <span className="calendar-pill calendar-pill-year">AY {schoolCalendarBadge.academicYear}</span>
-            <span className="calendar-pill">{schoolCalendarBadge.termLabel}</span>
+            <span className="calendar-pill calendar-pill-year">AY {isHistoricalDashboardView ? dashboardViewYear : schoolCalendarBadge.academicYear}</span>
+            <span className="calendar-pill">{isHistoricalDashboardView ? dashboardViewTerm : schoolCalendarBadge.termLabel}</span>
           </div>
           <div className="admin-ops-countdown">
-            {schoolCalendarPreciseCountdown.label || "Waiting for active calendar window"}
+            {isHistoricalDashboardView
+              ? `Historical year snapshot • frozen at ${dashboardViewTerm} ${dashboardViewYear}`
+              : schoolCalendarPreciseCountdown.label || "Waiting for active calendar window"}
           </div>
           <div className="admin-ops-kpi-grid">
             <div className="admin-ops-kpi">
               <span>Today</span>
               <strong>{formatDateOnly(schoolCalendarPreviewClock)}</strong>
-              <small>{dashboardOperationalTerm}</small>
+              <small>{isHistoricalDashboardView ? `${dashboardViewTerm} snapshot` : dashboardOperationalTerm}</small>
             </div>
             <div className="admin-ops-kpi">
               <span>Locked Components</span>
@@ -5905,24 +6450,26 @@ export default function AdminDashboard() {
             <span className="admin-ops-badge admin-ops-badge-gold">Print</span>
           </div>
           <div className="admin-ops-action-grid">
-            <button type="button" className="ghost-btn" onClick={() => setActiveSection("Mini Reports")}>
-              Mini Reports
+            <button type="button" className="ghost-btn" disabled={isHistoricalDashboardView} onClick={() => setActiveSection("Mini Reports")}>
+              {isHistoricalDashboardView ? "Mini Reports (Live)" : "Mini Reports"}
             </button>
-            <button type="button" className="ghost-btn" onClick={() => setActiveSection("Download Marks")}>
-              Download Marks
+            <button type="button" className="ghost-btn" disabled={isHistoricalDashboardView} onClick={() => setActiveSection("Download Marks")}>
+              {isHistoricalDashboardView ? "Download Marks (Live)" : "Download Marks"}
             </button>
-            <button type="button" className="ghost-btn" onClick={() => setActiveSection("End of Term Reports")}>
-              Term Reports
+            <button type="button" className="ghost-btn" disabled={isHistoricalDashboardView} onClick={() => setActiveSection("End of Term Reports")}>
+              {isHistoricalDashboardView ? "Term Reports (Live)" : "Term Reports"}
             </button>
-            <button type="button" className="ghost-btn" onClick={() => setActiveSection("End of Year Reports")}>
-              Year Reports
+            <button type="button" className="ghost-btn" disabled={isHistoricalDashboardView} onClick={() => setActiveSection("End of Year Reports")}>
+              {isHistoricalDashboardView ? "Year Reports (Live)" : "Year Reports"}
             </button>
-            <button type="button" className="ghost-btn" onClick={() => setShowEnrollmentChartsModal(true)}>
-              Enrollment PDF
+            <button type="button" className="ghost-btn" disabled={isHistoricalDashboardView} onClick={() => setShowEnrollmentChartsModal(true)}>
+              {isHistoricalDashboardView ? "Enrollment PDF (Live)" : "Enrollment PDF"}
             </button>
           </div>
           <p className="admin-ops-note">
-            Use this as the quick office desk for parent meetings, marksheets and summary exports.
+            {isHistoricalDashboardView
+              ? "Historical snapshots are read-only. Printing and management shortcuts stay on the live year to protect archived views."
+              : "Use this as the quick office desk for parent meetings, marksheets and summary exports."}
           </p>
         </article>
 
@@ -5937,27 +6484,27 @@ export default function AdminDashboard() {
           <div className="admin-ops-kpi-grid">
             <div className="admin-ops-kpi">
               <span>Total Teachers</span>
-              <strong>{totalTeachers}</strong>
+              <strong>{dashboardTotalTeachers}</strong>
               <small>Registered accounts</small>
             </div>
             <div className="admin-ops-kpi">
               <span>Assigned Teachers</span>
-              <strong>{teacherLoadSummary.assignedTeachers}</strong>
+              <strong>{dashboardTeacherLoadSummary.assignedTeachers}</strong>
               <small>Currently carrying loads</small>
             </div>
             <div className="admin-ops-kpi">
               <span>O-Level Loads</span>
-              <strong>{teacherLoadSummary.oLevelAssignments}</strong>
+              <strong>{dashboardTeacherLoadSummary.oLevelAssignments}</strong>
               <small>Active class assignments</small>
             </div>
             <div className="admin-ops-kpi">
               <span>A-Level Loads</span>
-              <strong>{teacherLoadSummary.aLevelAssignments}</strong>
+              <strong>{dashboardTeacherLoadSummary.aLevelAssignments}</strong>
               <small>Active paper assignments</small>
             </div>
           </div>
           <p className="admin-ops-note">
-            Total teaching slots in the system: <strong>{teacherLoadSummary.totalTeachingSlots}</strong>
+            Total teaching slots in the system: <strong>{dashboardTeacherLoadSummary.totalTeachingSlots}</strong>
           </p>
         </article>
       </div>
@@ -6062,7 +6609,7 @@ export default function AdminDashboard() {
               </div>
             </div>
 
-            <EnrollmentCharts enrollmentData={enrollmentByStreamClassGender} />
+            <EnrollmentCharts enrollmentData={dashboardEnrollmentByStreamClassGender} />
           </div>
         </div>
       )}

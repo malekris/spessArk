@@ -33,6 +33,7 @@ import { fileURLToPath } from "url";
 import { extractClientIp, logAuditEvent } from "./utils/auditLogger.js";
 import { sendTeacherPasswordChangedEmail } from "./utils/email.js";
 import { ensureMarksArchiveTablesReady, archiveOLevelMarks } from "./utils/marksArchive.js";
+import { captureAdminYearSnapshot, queueAdminYearSnapshotRefresh } from "./services/adminYearSnapshotService.js";
 
 
 const app = express();
@@ -1089,7 +1090,8 @@ app.get("/api/students", async (req, res) => {
           if (result.affectedRows === 0) {
             return res.status(404).json({ message: "Student not found" });
           }
-      
+
+          queueAdminYearSnapshotRefresh(pool, "student-delete");
           res.json({
             message: "Student deleted successfully",
             deletedId: id,
@@ -1181,6 +1183,7 @@ app.post("/api/teachers", authAdmin, async (req, res) => {
       [result.insertId]
     );
 
+    queueAdminYearSnapshotRefresh(pool, "teacher-create");
     res.status(201).json(rows[0]);
   } catch (err) {
     console.error("Error adding teacher:", err);
@@ -1231,6 +1234,7 @@ app.delete("/api/admin/teachers/:id", authAdmin, requireAdminReauth, async (req,
     }
 
     await conn.commit();
+    queueAdminYearSnapshotRefresh(pool, "teacher-delete");
 
     return res.json({
       message: "Teacher deleted successfully",
@@ -1307,6 +1311,7 @@ app.post("/api/students", async (req, res) => {
       [result.insertId]
     );
 
+    queueAdminYearSnapshotRefresh(pool, "student-create");
     res.status(201).json(rows[0]);
   } catch (err) {
     console.error("Error adding student:", err);
@@ -1448,6 +1453,7 @@ app.post("/api/admin/assignments", authAdmin, async (req, res) => {
       ipAddress: extractClientIp(req),
     });
 
+    queueAdminYearSnapshotRefresh(pool, "olevel-assignment-create");
     res.status(201).json({
       id: result.insertId,
       teacherId,
@@ -1520,6 +1526,7 @@ app.delete("/api/admin/assignments/:id", authAdmin, requireAdminReauth, async (r
       ipAddress: extractClientIp(req),
     });
 
+    queueAdminYearSnapshotRefresh(pool, "olevel-assignment-delete");
     res.json({ message: "Assignment deleted successfully" });
   } catch (err) {
     if (conn) {
@@ -2796,6 +2803,7 @@ app.get("/api/admin/school-calendar", authAdmin, async (req, res) => {
 
 app.put("/api/admin/school-calendar", authAdmin, async (req, res) => {
   try {
+    const existingCalendar = await readSchoolCalendarSettings();
     const normalized = normalizeSchoolCalendarPayload(req.body || {});
     const missingDates = normalized.entries.filter((entry) => !entry.from || !entry.to);
     if (missingDates.length) {
@@ -2809,6 +2817,19 @@ app.put("/api/admin/school-calendar", authAdmin, async (req, res) => {
       return res.status(400).json({
         message: `${invalidRange.label} has an end date before its start date.`,
       });
+    }
+
+    const previousAcademicYear = Number(existingCalendar?.academicYear);
+    const nextAcademicYear = Number(normalized.academicYear);
+    const isAcademicYearRollover =
+      Number.isInteger(previousAcademicYear) &&
+      previousAcademicYear > 0 &&
+      Number.isInteger(nextAcademicYear) &&
+      nextAcademicYear > 0 &&
+      previousAcademicYear !== nextAcademicYear;
+
+    if (isAcademicYearRollover) {
+      await captureAdminYearSnapshot(pool, previousAcademicYear);
     }
 
     await ensureSchoolCalendarSettingsTable();
@@ -2833,6 +2854,7 @@ app.put("/api/admin/school-calendar", authAdmin, async (req, res) => {
       ipAddress: extractClientIp(req),
     });
 
+    queueAdminYearSnapshotRefresh(pool, "school-calendar-save");
     res.json(saved);
   } catch (err) {
     console.error("Save school calendar error:", err);
@@ -3211,6 +3233,7 @@ app.put("/api/admin/students/:id", authAdmin, async (req, res) => {
       console.warn("[UPDATE STUDENT] subjects JSON parse failed:", e);
       row.subjects = [];
     }
+    queueAdminYearSnapshotRefresh(pool, "student-update");
     return res.json(row);
   } catch (err) {
     console.error("[UPDATE STUDENT] Unexpected server error:", err && err.stack ? err.stack : err);

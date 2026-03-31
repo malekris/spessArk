@@ -12,6 +12,7 @@ import {
 import { pool } from "../server.js";
 import authTeacher from "../middleware/authTeacher.js";
 import { extractClientIp, logAuditEvent } from "../utils/auditLogger.js";
+import { queueAdminYearSnapshotRefresh } from "../services/adminYearSnapshotService.js";
 
 dotenv.config();
 const router = express.Router();
@@ -83,6 +84,7 @@ router.post("/register", async (req, res) => {
       .catch((err) => console.warn("⚠️ Welcome email failed:", err.message));
 
     // ✅ Respond immediately
+    queueAdminYearSnapshotRefresh(pool, "teacher-self-register");
     return res.status(201).json({
       success: true,
       message: "Account created successfully. Please check your email for further information.",

@@ -8554,71 +8554,178 @@ router.get("/news/health", authenticate, async (req, res) => {
   }
 });
 
+const fetchSharedPostRow = async (postId) => {
+  const [[post]] = await db.query(
+    `
+    SELECT
+      p.id,
+      p.content,
+      p.image_url,
+      p.link_preview,
+      p.created_at,
+      (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id) AS likes,
+      (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comments,
+      (SELECT COUNT(*) FROM vine_revines WHERE post_id = p.id) AS revines,
+      u.username,
+      u.display_name,
+      u.avatar_url
+    FROM vine_posts p
+    JOIN vine_users u ON u.id = p.user_id
+    WHERE p.id = ?
+    LIMIT 1
+    `,
+    [postId]
+  );
+  return post || null;
+};
+
+const resolveVineFrontendBase = (req) => {
+  const requestProto = String(req.get("x-forwarded-proto") || req.protocol || "https")
+    .split(",")[0]
+    .trim() || "https";
+  const requestHost = String(req.get("x-forwarded-host") || req.get("host") || "")
+    .split(",")[0]
+    .trim();
+  const explicitBase = String(process.env.VINE_PUBLIC_BASE_URL || "")
+    .trim()
+    .replace(/\/+$/, "");
+  if (explicitBase) return explicitBase;
+
+  const hostName = String(requestHost || "")
+    .split(":")[0]
+    .trim()
+    .toLowerCase();
+
+  if (hostName === "localhost" || hostName === "127.0.0.1") {
+    return "http://localhost:5173";
+  }
+
+  if (hostName === "api.stphillipsequatorial.com") {
+    return "https://www.stphillipsequatorial.com";
+  }
+
+  if (hostName.startsWith("api.")) {
+    return `https://www.${hostName.slice(4)}`;
+  }
+
+  if (
+    hostName === "stphillipsequatorial.com" ||
+    hostName === "www.stphillipsequatorial.com"
+  ) {
+    return "https://www.stphillipsequatorial.com";
+  }
+
+  return `${requestProto}://${requestHost}`.replace(/\/+$/, "");
+};
+
+const absolutizeVinePreviewUrl = (value, frontendBase) => {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (/^https?:\/\//i.test(raw)) return raw;
+  return `${frontendBase}${raw.startsWith("/") ? "" : "/"}${raw}`;
+};
+
+const extractSharedPreviewImage = (post, frontendBase) => {
+  let previewImage = "";
+  try {
+    const arr = JSON.parse(post?.image_url || "[]");
+    if (Array.isArray(arr)) {
+      previewImage =
+        arr.find((u) => typeof u === "string" && isLikelyImageUrl(u)) || "";
+    }
+  } catch {
+    previewImage = "";
+  }
+  if (!previewImage && post?.link_preview) {
+    try {
+      const link = typeof post.link_preview === "string"
+        ? JSON.parse(post.link_preview)
+        : post.link_preview;
+      const candidate = String(link?.image || "").trim();
+      previewImage = isLikelyImageUrl(candidate) ? candidate : "";
+    } catch {
+      previewImage = "";
+    }
+  }
+  return absolutizeVinePreviewUrl(previewImage, frontendBase);
+};
+
+const resolveSharePreviewImageType = (value) => {
+  const raw = String(value || "").toLowerCase();
+  if (!raw) return "image/png";
+  if (/\.avif(\?|$)/i.test(raw)) return "image/avif";
+  if (/\.gif(\?|$)/i.test(raw)) return "image/gif";
+  if (/\.webp(\?|$)/i.test(raw)) return "image/webp";
+  if (/\.svg(\?|$)/i.test(raw)) return "image/svg+xml";
+  if (/\.jpe?g(\?|$)/i.test(raw)) return "image/jpeg";
+  return "image/png";
+};
+
+const fetchPreviewImagePayload = async (imageUrl) => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 4500);
+  try {
+    const imageRes = await fetch(imageUrl, {
+      signal: controller.signal,
+      redirect: "follow",
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; VinePreviewBot/1.0)",
+      },
+    });
+    if (!imageRes.ok) {
+      throw new Error(`image fetch failed (${imageRes.status})`);
+    }
+    const contentType = String(imageRes.headers.get("content-type") || "").toLowerCase();
+    if (!contentType.startsWith("image/")) {
+      throw new Error("preview source is not an image");
+    }
+    const body = Buffer.from(await imageRes.arrayBuffer());
+    return { body, contentType };
+  } finally {
+    clearTimeout(timeout);
+  }
+};
+
+router.get("/share/:id/image", async (req, res) => {
+  try {
+    const postId = Number(req.params.id);
+    if (!postId) return res.status(400).send("Invalid post");
+
+    const post = await fetchSharedPostRow(postId);
+    if (!post) return res.status(404).send("Post not found");
+
+    const frontendBase = resolveVineFrontendBase(req);
+    const previewImage = extractSharedPreviewImage(post, frontendBase);
+    if (!previewImage) {
+      return res.redirect(302, `${frontendBase}/vine-og-badge.png`);
+    }
+
+    try {
+      const payload = await fetchPreviewImagePayload(previewImage);
+      res.setHeader("Content-Type", payload.contentType || resolveSharePreviewImageType(previewImage));
+      res.setHeader("Cache-Control", "public, max-age=900, s-maxage=900");
+      return res.send(payload.body);
+    } catch (err) {
+      console.warn("Share preview image fallback:", err?.message || err);
+      return res.redirect(302, `${frontendBase}/vine-og-badge.png`);
+    }
+  } catch (err) {
+    console.error("Share preview image error:", err);
+    return res.status(500).send("Failed to load preview image");
+  }
+});
+
 router.get("/share/:id", async (req, res) => {
   try {
     const postId = Number(req.params.id);
     if (!postId) return res.status(400).send("Invalid post");
 
-    const [[post]] = await db.query(
-      `
-      SELECT
-        p.id,
-        p.content,
-        p.image_url,
-        p.link_preview,
-        p.created_at,
-        (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id) AS likes,
-        (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comments,
-        (SELECT COUNT(*) FROM vine_revines WHERE post_id = p.id) AS revines,
-        u.username,
-        u.display_name,
-        u.avatar_url
-      FROM vine_posts p
-      JOIN vine_users u ON u.id = p.user_id
-      WHERE p.id = ?
-      LIMIT 1
-      `,
-      [postId]
-    );
+    const post = await fetchSharedPostRow(postId);
     if (!post) return res.status(404).send("Post not found");
 
     const requestProto = String(req.get("x-forwarded-proto") || req.protocol || "https").split(",")[0].trim() || "https";
     const requestHost = String(req.get("x-forwarded-host") || req.get("host") || "").split(",")[0].trim();
-
-    const resolveFrontendBase = () => {
-      const explicitBase = String(process.env.VINE_PUBLIC_BASE_URL || "")
-        .trim()
-        .replace(/\/+$/, "");
-      if (explicitBase) return explicitBase;
-
-      const hostName = String(requestHost || "")
-        .split(":")[0]
-        .trim()
-        .toLowerCase();
-
-      if (hostName === "localhost" || hostName === "127.0.0.1") {
-        return "http://localhost:5173";
-      }
-
-      if (hostName === "api.stphillipsequatorial.com") {
-        return "https://www.stphillipsequatorial.com";
-      }
-
-      if (hostName.startsWith("api.")) {
-        return `https://www.${hostName.slice(4)}`;
-      }
-
-      if (
-        hostName === "stphillipsequatorial.com" ||
-        hostName === "www.stphillipsequatorial.com"
-      ) {
-        return "https://www.stphillipsequatorial.com";
-      }
-
-      return `${requestProto}://${requestHost}`.replace(/\/+$/, "");
-    };
-
-    const frontendBase = resolveFrontendBase();
+    const frontendBase = resolveVineFrontendBase(req);
     const appTarget = `${frontendBase}/vine/post/${postId}`;
     const requestPath = String(req.originalUrl || `/api/vine/share/${postId}`);
     const shareUrl = `${requestProto}://${requestHost}${
@@ -8629,60 +8736,22 @@ router.get("/share/:id", async (req, res) => {
       userAgent
     );
 
-    const absolutizeUrl = (value) => {
-      const raw = String(value || "").trim();
-      if (!raw) return "";
-      if (/^https?:\/\//i.test(raw)) return raw;
-      return `${frontendBase}${raw.startsWith("/") ? "" : "/"}${raw}`;
-    };
-
-    const resolveImageType = (value) => {
-      const raw = String(value || "").toLowerCase();
-      if (!raw) return "image/png";
-      if (/\.avif(\?|$)/i.test(raw)) return "image/avif";
-      if (/\.gif(\?|$)/i.test(raw)) return "image/gif";
-      if (/\.webp(\?|$)/i.test(raw)) return "image/webp";
-      if (/\.svg(\?|$)/i.test(raw)) return "image/svg+xml";
-      if (/\.jpe?g(\?|$)/i.test(raw)) return "image/jpeg";
-      return "image/png";
-    };
-
     const rawText = String(post.content || "")
       .replace(/^\s*\[\[feeling:[^\]]+\]\]\s*/i, "")
       .replace(/^\s*\[\[postbg:[^\]]+\]\]\s*/i, "")
       .replace(/\s+/g, " ")
       .trim();
 
-    let previewImage = "";
-    try {
-      const arr = JSON.parse(post.image_url || "[]");
-      if (Array.isArray(arr)) {
-        previewImage =
-          arr.find((u) => typeof u === "string" && isLikelyImageUrl(u)) || "";
-      }
-    } catch {
-      previewImage = "";
-    }
-    if (!previewImage && post.link_preview) {
-      try {
-        const link = typeof post.link_preview === "string"
-          ? JSON.parse(post.link_preview)
-          : post.link_preview;
-        const candidate = String(link?.image || "").trim();
-        previewImage = isLikelyImageUrl(candidate) ? candidate : "";
-      } catch {
-        previewImage = "";
-      }
-    }
-    previewImage = absolutizeUrl(previewImage);
-    const hasVisualPreview = Boolean(previewImage);
+    const sourcePreviewImage = extractSharedPreviewImage(post, frontendBase);
+    const hasVisualPreview = Boolean(sourcePreviewImage);
+    let previewImage = `${requestProto}://${requestHost}${String(req.baseUrl || "/api/vine")}/share/${postId}/image`;
     if (!previewImage) {
       previewImage = `${frontendBase}/vine-og-badge.png`;
     }
     if (!previewImage) {
       previewImage = `${frontendBase}/og-image.png`;
     }
-    const previewImageType = resolveImageType(previewImage);
+    const previewImageType = resolveSharePreviewImageType(previewImage);
 
     const countsLine = `${Number(post.likes || 0)} likes · ${Number(post.comments || 0)} comments · ${Number(post.revines || 0)} revines`;
     const displayName = String(post.display_name || "").trim();

@@ -14,7 +14,7 @@ import useNearScreen from "../../../hooks/useNearScreen";
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const DEFAULT_AVATAR = "/default-avatar.png";
 const ORIGIN = API.replace(/\/api$/, "");
-const SHARE_PREVIEW_VERSION = "20260315";
+const SHARE_PREVIEW_VERSION = "20260402";
 const POST_REACTIONS = [
   { key: "love", emoji: "❤️", label: "Love" },
   { key: "happy", emoji: "😄", label: "Happy" },

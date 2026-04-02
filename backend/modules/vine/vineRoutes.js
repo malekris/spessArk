@@ -8802,6 +8802,7 @@ router.get("/share/:id", async (req, res) => {
   <meta property="og:description" content="${esc(previewDescription)}" />
   <meta property="og:url" content="${esc(shareUrl)}" />
   <meta property="og:image" content="${esc(previewImage)}" />
+  <meta property="og:image:url" content="${esc(previewImage)}" />
   <meta property="og:image:secure_url" content="${esc(previewImage)}" />
   <meta property="og:image:type" content="${esc(previewImageType)}" />
   <meta property="og:image:width" content="1200" />
@@ -8813,6 +8814,7 @@ router.get("/share/:id", async (req, res) => {
   <meta name="twitter:title" content="${esc(title)}" />
   <meta name="twitter:description" content="${esc(previewDescription)}" />
   <meta name="twitter:image" content="${esc(previewImage)}" />
+  <meta name="twitter:image:src" content="${esc(previewImage)}" />
   <meta name="twitter:image:alt" content="${esc(imageAlt)}" />
   <meta name="image" content="${esc(previewImage)}" />
   <meta itemprop="image" content="${esc(previewImage)}" />

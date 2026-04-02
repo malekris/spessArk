@@ -6052,154 +6052,6 @@ export default function AdminDashboard() {
         <article className="admin-ops-card">
           <div className="admin-ops-card-head">
             <div>
-              <h3>Learner Search</h3>
-              <p>
-                Search the {dashboardViewMode === "live" ? "live" : "archived"} learner register for{" "}
-                {dashboardViewYear} without leaving the dashboard.
-              </p>
-            </div>
-            <span className="admin-ops-badge admin-ops-badge-purple">
-              {portalLearnerSearchResults.length} shown
-            </span>
-          </div>
-
-          <div className="admin-ops-control-row admin-ops-learner-search-controls">
-            <label className="admin-ops-learner-search-field">
-              <span className="admin-ops-select-label">Search Learner</span>
-              <input
-                type="text"
-                className="admin-ops-search-input"
-                placeholder="Type learner name, class, stream, subject or combination"
-                value={portalLearnerSearchQuery}
-                onChange={(event) => setPortalLearnerSearchQuery(event.target.value)}
-              />
-            </label>
-
-            <label className="admin-ops-learner-search-field admin-ops-learner-search-filter">
-              <span className="admin-ops-select-label">Portal View</span>
-              <select
-                className="admin-ops-select"
-                value={portalLearnerSearchLevel}
-                onChange={(event) => setPortalLearnerSearchLevel(event.target.value)}
-              >
-                <option value="all">All Learners</option>
-                <option value="oLevel">O-Level Only</option>
-                <option value="aLevel">A-Level Only</option>
-              </select>
-            </label>
-          </div>
-
-          <div className="admin-ops-pill-row admin-ops-learner-search-pills">
-            <span className="calendar-pill calendar-pill-year">All {portalLearnerSearchCounts.all}</span>
-            <span className="calendar-pill">O-Level {portalLearnerSearchCounts.oLevel}</span>
-            <span className="calendar-pill">A-Level {portalLearnerSearchCounts.aLevel}</span>
-          </div>
-
-          <div className="admin-ops-learner-search-grid">
-            <div className="admin-ops-learner-results">
-              {portalLearnerSearchResults.length ? (
-                portalLearnerSearchResults.map((row) => (
-                  <button
-                    key={row.key}
-                    type="button"
-                    className={`admin-ops-learner-result ${selectedPortalLearner?.key === row.key ? "is-active" : ""}`}
-                    onClick={() => setSelectedPortalLearnerKey(row.key)}
-                  >
-                    <div className="admin-ops-learner-result-top">
-                      <strong>{row.name}</strong>
-                      <span className={`admin-ops-badge ${row.levelKey === "aLevel" ? "admin-ops-badge-cyan" : "admin-ops-badge-blue"}`}>
-                        {row.levelLabel}
-                      </span>
-                    </div>
-                    <span>
-                      {row.classLevel} • {row.stream}
-                      {row.combination ? ` • ${row.combination}` : ""}
-                    </span>
-                    <small>
-                      {row.subjectCount} subjects • {row.gender}
-                    </small>
-                  </button>
-                ))
-              ) : (
-                <div className="admin-ops-learner-empty">
-                  No learner matched this search in the {dashboardViewYear} {dashboardViewMode} view.
-                </div>
-              )}
-            </div>
-
-            <div className="admin-ops-learner-detail">
-              {selectedPortalLearner ? (
-                <>
-                  <div className="admin-ops-learner-detail-head">
-                    <div>
-                      <h4>{selectedPortalLearner.name}</h4>
-                      <p>
-                        {selectedPortalLearner.levelLabel} • {selectedPortalLearner.classLevel} • {selectedPortalLearner.stream}
-                        {selectedPortalLearner.combination ? ` • ${selectedPortalLearner.combination}` : ""}
-                      </p>
-                    </div>
-                    <span className={`admin-ops-badge ${dashboardViewMode === "live" ? "admin-ops-badge-green" : "admin-ops-badge-neutral"}`}>
-                      {dashboardViewMode === "live" ? "Live Register" : `${dashboardViewYear} Snapshot`}
-                    </span>
-                  </div>
-
-                  <div className="admin-ops-kpi-grid">
-                    <div className="admin-ops-kpi">
-                      <span>DOB</span>
-                      <strong>{formatDateOnly(selectedPortalLearner.dob)}</strong>
-                      <small>Recorded date of birth</small>
-                    </div>
-                    <div className="admin-ops-kpi">
-                      <span>Gender</span>
-                      <strong>{selectedPortalLearner.gender}</strong>
-                      <small>Learner profile field</small>
-                    </div>
-                    <div className="admin-ops-kpi">
-                      <span>Subjects</span>
-                      <strong>{selectedPortalLearner.subjectCount}</strong>
-                      <small>Registered subjects in this portal year</small>
-                    </div>
-                    <div className="admin-ops-kpi">
-                      <span>Status</span>
-                      <strong>{selectedPortalLearner.status || "active"}</strong>
-                      <small>{selectedPortalLearner.house ? `House: ${selectedPortalLearner.house}` : "Registration record"}</small>
-                    </div>
-                  </div>
-
-                  <div className="admin-ops-learner-subject-shell">
-                    <div className="admin-ops-learner-subject-head">
-                      <strong>Registered Subjects</strong>
-                      <span>{selectedPortalLearner.subjectCount} captured</span>
-                    </div>
-                    <div className="admin-ops-learner-subject-list">
-                      {selectedPortalLearner.subjects.length ? (
-                        selectedPortalLearner.subjects.map((subject) => (
-                          <span key={`${selectedPortalLearner.key}-${subject}`} className="admin-ops-learner-subject-chip">
-                            {subject}
-                          </span>
-                        ))
-                      ) : (
-                        <span className="admin-ops-learner-empty-chip">No subjects stored in this year view.</span>
-                      )}
-                    </div>
-                  </div>
-
-                  <p className="admin-ops-note">
-                    This search respects the selected portal year. Switch the year at the top to compare the learner register across academic years.
-                  </p>
-                </>
-              ) : (
-                <div className="admin-ops-learner-empty admin-ops-learner-empty-detail">
-                  Start typing a learner name to open a year-specific record snapshot.
-                </div>
-              )}
-            </div>
-          </div>
-        </article>
-
-        <article className="admin-ops-card">
-          <div className="admin-ops-card-head">
-            <div>
               <h3>Teacher Submission Heatmap</h3>
               <p>Compact class-by-class view of submission coverage for {dashboardViewTerm} {dashboardViewYear}.</p>
             </div>
@@ -6507,6 +6359,154 @@ export default function AdminDashboard() {
           <p className="admin-ops-note">
             Total teaching slots in the system: <strong>{dashboardTeacherLoadSummary.totalTeachingSlots}</strong>
           </p>
+        </article>
+
+        <article className="admin-ops-card admin-ops-card-wide">
+          <div className="admin-ops-card-head">
+            <div>
+              <h3>Learner Search</h3>
+              <p>
+                Search the {dashboardViewMode === "live" ? "live" : "archived"} learner register for{" "}
+                {dashboardViewYear} without leaving the dashboard.
+              </p>
+            </div>
+            <span className="admin-ops-badge admin-ops-badge-purple">
+              {portalLearnerSearchResults.length} shown
+            </span>
+          </div>
+
+          <div className="admin-ops-control-row admin-ops-learner-search-controls">
+            <label className="admin-ops-learner-search-field">
+              <span className="admin-ops-select-label">Search Learner</span>
+              <input
+                type="text"
+                className="admin-ops-search-input"
+                placeholder="Type learner name, class, stream, subject or combination"
+                value={portalLearnerSearchQuery}
+                onChange={(event) => setPortalLearnerSearchQuery(event.target.value)}
+              />
+            </label>
+
+            <label className="admin-ops-learner-search-field admin-ops-learner-search-filter">
+              <span className="admin-ops-select-label">Portal View</span>
+              <select
+                className="admin-ops-select"
+                value={portalLearnerSearchLevel}
+                onChange={(event) => setPortalLearnerSearchLevel(event.target.value)}
+              >
+                <option value="all">All Learners</option>
+                <option value="oLevel">O-Level Only</option>
+                <option value="aLevel">A-Level Only</option>
+              </select>
+            </label>
+          </div>
+
+          <div className="admin-ops-pill-row admin-ops-learner-search-pills">
+            <span className="calendar-pill calendar-pill-year">All {portalLearnerSearchCounts.all}</span>
+            <span className="calendar-pill">O-Level {portalLearnerSearchCounts.oLevel}</span>
+            <span className="calendar-pill">A-Level {portalLearnerSearchCounts.aLevel}</span>
+          </div>
+
+          <div className="admin-ops-learner-search-grid">
+            <div className="admin-ops-learner-results">
+              {portalLearnerSearchResults.length ? (
+                portalLearnerSearchResults.map((row) => (
+                  <button
+                    key={row.key}
+                    type="button"
+                    className={`admin-ops-learner-result ${selectedPortalLearner?.key === row.key ? "is-active" : ""}`}
+                    onClick={() => setSelectedPortalLearnerKey(row.key)}
+                  >
+                    <div className="admin-ops-learner-result-top">
+                      <strong>{row.name}</strong>
+                      <span className={`admin-ops-badge ${row.levelKey === "aLevel" ? "admin-ops-badge-cyan" : "admin-ops-badge-blue"}`}>
+                        {row.levelLabel}
+                      </span>
+                    </div>
+                    <span>
+                      {row.classLevel} • {row.stream}
+                      {row.combination ? ` • ${row.combination}` : ""}
+                    </span>
+                    <small>
+                      {row.subjectCount} subjects • {row.gender}
+                    </small>
+                  </button>
+                ))
+              ) : (
+                <div className="admin-ops-learner-empty">
+                  No learner matched this search in the {dashboardViewYear} {dashboardViewMode} view.
+                </div>
+              )}
+            </div>
+
+            <div className="admin-ops-learner-detail">
+              {selectedPortalLearner ? (
+                <>
+                  <div className="admin-ops-learner-detail-head">
+                    <div>
+                      <h4>{selectedPortalLearner.name}</h4>
+                      <p>
+                        {selectedPortalLearner.levelLabel} • {selectedPortalLearner.classLevel} • {selectedPortalLearner.stream}
+                        {selectedPortalLearner.combination ? ` • ${selectedPortalLearner.combination}` : ""}
+                      </p>
+                    </div>
+                    <span className={`admin-ops-badge ${dashboardViewMode === "live" ? "admin-ops-badge-green" : "admin-ops-badge-neutral"}`}>
+                      {dashboardViewMode === "live" ? "Live Register" : `${dashboardViewYear} Snapshot`}
+                    </span>
+                  </div>
+
+                  <div className="admin-ops-kpi-grid">
+                    <div className="admin-ops-kpi">
+                      <span>DOB</span>
+                      <strong>{formatDateOnly(selectedPortalLearner.dob)}</strong>
+                      <small>Recorded date of birth</small>
+                    </div>
+                    <div className="admin-ops-kpi">
+                      <span>Gender</span>
+                      <strong>{selectedPortalLearner.gender}</strong>
+                      <small>Learner profile field</small>
+                    </div>
+                    <div className="admin-ops-kpi">
+                      <span>Subjects</span>
+                      <strong>{selectedPortalLearner.subjectCount}</strong>
+                      <small>Registered subjects in this portal year</small>
+                    </div>
+                    <div className="admin-ops-kpi">
+                      <span>Status</span>
+                      <strong>{selectedPortalLearner.status || "active"}</strong>
+                      <small>{selectedPortalLearner.house ? `House: ${selectedPortalLearner.house}` : "Registration record"}</small>
+                    </div>
+                  </div>
+
+                  <div className="admin-ops-learner-subject-shell">
+                    <div className="admin-ops-learner-subject-head">
+                      <strong>Registered Subjects</strong>
+                      <span>{selectedPortalLearner.subjectCount} captured</span>
+                    </div>
+                    <div className="admin-ops-learner-subject-list">
+                      {selectedPortalLearner.subjects.length ? (
+                        selectedPortalLearner.subjects.map((subject) => (
+                          <span key={`${selectedPortalLearner.key}-${subject}`} className="admin-ops-learner-subject-chip">
+                            {subject}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="admin-ops-learner-empty-chip">No subjects stored in this year view.</span>
+                      )}
+                    </div>
+                  </div>
+
+                  <p className="admin-ops-note">
+                    This search respects the selected portal year. Switch the year at the top to compare the learner register across academic years.
+                  </p>
+                </>
+              ) : (
+                <div className="admin-ops-learner-empty admin-ops-learner-empty-detail">
+                  Start typing a learner name to open a year-specific record snapshot.
+                </div>
+              )}
+            </div>
+          </div>
         </article>
       </div>
     )}

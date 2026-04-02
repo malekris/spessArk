@@ -298,6 +298,10 @@
   gap: 0.8rem;
 }
 
+.admin-ops-card-wide {
+  grid-column: 1 / -1;
+}
+
 .admin-ops-expand-shell {
   margin-top: 1rem;
 }
@@ -907,8 +911,8 @@
 
 .admin-ops-learner-search-grid {
   display: grid;
-  grid-template-columns: minmax(0, 0.94fr) minmax(0, 1.06fr);
-  gap: 0.9rem;
+  grid-template-columns: minmax(320px, 0.92fr) minmax(360px, 1.08fr);
+  gap: 1rem;
 }
 
 .admin-ops-learner-results {

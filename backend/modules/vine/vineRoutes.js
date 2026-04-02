@@ -8662,7 +8662,7 @@ const resolveSharePreviewImageType = (value) => {
   return "image/png";
 };
 
-const fetchPreviewImagePayload = async (imageUrl) => {
+const buildSharePreviewImagePayload = async (imageUrl) => {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 4500);
   try {
@@ -8680,8 +8680,22 @@ const fetchPreviewImagePayload = async (imageUrl) => {
     if (!contentType.startsWith("image/")) {
       throw new Error("preview source is not an image");
     }
-    const body = Buffer.from(await imageRes.arrayBuffer());
-    return { body, contentType };
+    const sourceBody = Buffer.from(await imageRes.arrayBuffer());
+    try {
+      const body = await sharp(sourceBody)
+        .rotate()
+        .resize(1200, 630, {
+          fit: "cover",
+          position: sharp.strategy.attention,
+          withoutEnlargement: false,
+        })
+        .jpeg({ quality: 80, mozjpeg: true, chromaSubsampling: "4:2:0" })
+        .toBuffer();
+      return { body, contentType: "image/jpeg" };
+    } catch (err) {
+      console.warn("Share preview image transform fallback:", err?.message || err);
+      return { body: sourceBody, contentType };
+    }
   } finally {
     clearTimeout(timeout);
   }
@@ -8702,7 +8716,7 @@ const handleSharePreviewImage = async (req, res) => {
     }
 
     try {
-      const payload = await fetchPreviewImagePayload(previewImage);
+      const payload = await buildSharePreviewImagePayload(previewImage);
       res.setHeader("Content-Type", payload.contentType || resolveSharePreviewImageType(previewImage));
       res.setHeader("Cache-Control", "public, max-age=900, s-maxage=900");
       res.setHeader("Content-Disposition", 'inline; filename="spess-vine-share.jpg"');

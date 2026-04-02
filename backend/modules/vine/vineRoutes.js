@@ -8687,7 +8687,7 @@ const fetchPreviewImagePayload = async (imageUrl) => {
   }
 };
 
-router.get("/share/:id/image", async (req, res) => {
+const handleSharePreviewImage = async (req, res) => {
   try {
     const postId = Number(req.params.id);
     if (!postId) return res.status(400).send("Invalid post");
@@ -8705,6 +8705,7 @@ router.get("/share/:id/image", async (req, res) => {
       const payload = await fetchPreviewImagePayload(previewImage);
       res.setHeader("Content-Type", payload.contentType || resolveSharePreviewImageType(previewImage));
       res.setHeader("Cache-Control", "public, max-age=900, s-maxage=900");
+      res.setHeader("Content-Disposition", 'inline; filename="spess-vine-share.jpg"');
       return res.send(payload.body);
     } catch (err) {
       console.warn("Share preview image fallback:", err?.message || err);
@@ -8714,7 +8715,10 @@ router.get("/share/:id/image", async (req, res) => {
     console.error("Share preview image error:", err);
     return res.status(500).send("Failed to load preview image");
   }
-});
+};
+
+router.get("/share/:id/image", handleSharePreviewImage);
+router.get("/share/:id/image.jpg", handleSharePreviewImage);
 
 router.get("/share/:id", async (req, res) => {
   try {
@@ -8745,14 +8749,14 @@ router.get("/share/:id", async (req, res) => {
 
     const sourcePreviewImage = extractSharedPreviewImage(post, frontendBase);
     const hasVisualPreview = Boolean(sourcePreviewImage);
-    let previewImage = `${requestProto}://${requestHost}${String(req.baseUrl || "/api/vine")}/share/${postId}/image`;
+    let previewImage = `${requestProto}://${requestHost}${String(req.baseUrl || "/api/vine")}/share/${postId}/image.jpg`;
     if (!previewImage) {
       previewImage = `${frontendBase}/vine-og-badge.png`;
     }
     if (!previewImage) {
       previewImage = `${frontendBase}/og-image.png`;
     }
-    const previewImageType = resolveSharePreviewImageType(previewImage);
+    const previewImageType = resolveSharePreviewImageType(sourcePreviewImage || previewImage);
 
     const countsLine = `${Number(post.likes || 0)} likes · ${Number(post.comments || 0)} comments · ${Number(post.revines || 0)} revines`;
     const displayName = String(post.display_name || "").trim();

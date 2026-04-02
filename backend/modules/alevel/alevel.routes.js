@@ -35,6 +35,17 @@ const normalizePaperLabel = (value = "") => {
   return "";
 };
 
+const normalizeAlevelTerm = (value = "") => {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw.includes("1")) return "Term 1";
+  if (raw.includes("2")) return "Term 2";
+  if (raw.includes("3")) return "Term 3";
+  return String(value || "").trim() || "Term 1";
+};
+
+const normalizeAlevelComponent = (value = "") =>
+  String(value || "").trim().toUpperCase();
+
 const resolvePaperLabel = (subjectName = "", requestedPaper = "") => {
   const allowed = getPaperOptionsForSubject(subjectName);
   if (allowed.length === 1) return "Single";
@@ -955,6 +966,470 @@ router.get("/stats", async (req, res) => {
     res.status(500).json({ message: "Failed to load stats" });
   }
 });
+
+const buildAlevelDashboardInsights = async ({ term, year }, executor = db) => {
+  await ensureALevelMarksSchemaReady(pool);
+
+  const normalizedTerm = normalizeAlevelTerm(term || "Term 1");
+  const normalizedYear =
+    Number.isFinite(Number(year)) && Number(year) > 0
+      ? Number(year)
+      : new Date().getFullYear();
+
+  const [registrationRows] = await executor.query(
+    `
+    SELECT
+      l.id AS learner_id,
+      CONCAT(l.first_name, ' ', l.last_name) AS learner_name,
+      l.stream,
+      COALESCE(l.combination, '—') AS combination,
+      s.id AS subject_id,
+      s.name AS subject_name
+    FROM alevel_learners l
+    JOIN alevel_learner_subjects als ON als.learner_id = l.id
+    JOIN alevel_subjects s ON s.id = als.subject_id
+    ORDER BY l.stream ASC, l.first_name ASC, l.last_name ASC, s.name ASC
+    `
+  );
+
+  const [assignmentRows] = await executor.query(
+    `
+    SELECT
+      ats.id AS assignment_id,
+      ats.stream,
+      ats.subject_id,
+      ats.paper_label,
+      COALESCE(t.name, 'Unassigned') AS teacher_name
+    FROM alevel_teacher_subjects ats
+    LEFT JOIN teachers t ON t.id = ats.teacher_id
+    `
+  );
+
+  const hasCreatedAt = await getAlevelMarksHasCreatedAt(executor);
+  const markParams = [normalizedTerm];
+  let markYearClause = "";
+  if (hasCreatedAt) {
+    markYearClause = "AND YEAR(COALESCE(am.created_at, NOW())) = ?";
+    markParams.push(normalizedYear);
+  }
+
+  const [markRows] = await executor.query(
+    `
+    SELECT
+      am.id,
+      am.learner_id,
+      am.subject_id,
+      s.name AS subject_name,
+      ae.name AS component,
+      ats.paper_label,
+      am.score
+    FROM alevel_marks am
+    JOIN alevel_exams ae ON ae.id = am.exam_id
+    JOIN alevel_subjects s ON s.id = am.subject_id
+    LEFT JOIN alevel_teacher_subjects ats ON ats.id = am.assignment_id
+    WHERE am.term = ?
+      ${markYearClause}
+      AND ae.name IN ('MID', 'EOT')
+    ORDER BY am.id DESC
+    `,
+    markParams
+  );
+
+  const assignmentsByKey = new Map();
+  for (const row of assignmentRows || []) {
+    const paperLabel = normalizePaperLabel(row.paper_label) || "Single";
+    const key = `${row.stream}|${row.subject_id}|${paperLabel}`;
+    assignmentsByKey.set(key, {
+      assignmentId: row.assignment_id,
+      teacherName: row.teacher_name || "Unassigned",
+      paperLabel,
+    });
+  }
+
+  const marksByKey = new Map();
+  for (const row of markRows || []) {
+    const resolvedPaper = normalizePaperLabel(row.paper_label) ||
+      (isSinglePaperSubject(row.subject_name) ? "Single" : "");
+    if (!resolvedPaper) continue;
+
+    const key = `${row.learner_id}|${row.subject_id}|${resolvedPaper}|${normalizeAlevelComponent(row.component)}`;
+    if (!marksByKey.has(key)) {
+      marksByKey.set(key, {
+        score: row.score,
+        component: normalizeAlevelComponent(row.component),
+      });
+    }
+  }
+
+  const candidateMap = new Map();
+  const coverageMap = new Map();
+  const assignmentCoverageMap = new Map();
+
+  for (const row of assignmentRows || []) {
+    const paperLabel = normalizePaperLabel(row.paper_label) || "Single";
+    const subjectName =
+      (registrationRows || []).find((entry) => Number(entry.subject_id) === Number(row.subject_id))?.subject_name ||
+      "";
+    const subjectDisplay = buildSubjectDisplay(subjectName || "Subject", paperLabel);
+    const assignmentKey = `${row.stream}|${row.subject_id}|${paperLabel}`;
+    if (!assignmentCoverageMap.has(assignmentKey)) {
+      assignmentCoverageMap.set(assignmentKey, {
+        stream: row.stream || "—",
+        subjectId: Number(row.subject_id),
+        subject: subjectName || "Subject",
+        paperLabel,
+        subjectDisplay,
+        teacherName: row.teacher_name || "Unassigned",
+        expectedCount: 0,
+        midCapturedCount: 0,
+        eotCapturedCount: 0,
+      });
+    }
+  }
+
+  for (const row of registrationRows || []) {
+    const learnerId = Number(row.learner_id);
+    if (!candidateMap.has(learnerId)) {
+      candidateMap.set(learnerId, {
+        learnerId,
+        learnerName: row.learner_name || "—",
+        stream: row.stream || "—",
+        combination: row.combination || "—",
+        missingMid: false,
+        missingEot: false,
+        missingPaper1: false,
+        missingPaper2: false,
+        missingDetails: [],
+      });
+    }
+
+    const candidate = candidateMap.get(learnerId);
+    const paperOptions = getPaperOptionsForSubject(row.subject_name);
+
+    for (const paperLabel of paperOptions) {
+      const assignment = assignmentsByKey.get(`${row.stream}|${row.subject_id}|${paperLabel}`);
+      const subjectDisplay = buildSubjectDisplay(row.subject_name, paperLabel);
+      const coverageKey = `${row.subject_id}|${paperLabel}`;
+      const assignmentKey = `${row.stream}|${row.subject_id}|${paperLabel}`;
+
+      if (!coverageMap.has(coverageKey)) {
+        coverageMap.set(coverageKey, {
+          subject: row.subject_name,
+          paperLabel,
+          subjectDisplay,
+          expectedCount: 0,
+          midCapturedCount: 0,
+          eotCapturedCount: 0,
+          teachers: new Set(),
+          streams: new Set(),
+        });
+      }
+      if (!assignmentCoverageMap.has(assignmentKey)) {
+        assignmentCoverageMap.set(assignmentKey, {
+          stream: row.stream || "—",
+          subjectId: Number(row.subject_id),
+          subject: row.subject_name,
+          paperLabel,
+          subjectDisplay,
+          teacherName: assignment?.teacherName || "Unassigned",
+          expectedCount: 0,
+          midCapturedCount: 0,
+          eotCapturedCount: 0,
+        });
+      }
+
+      const coverage = coverageMap.get(coverageKey);
+      const assignmentCoverage = assignmentCoverageMap.get(assignmentKey);
+      coverage.expectedCount += 1;
+      coverage.streams.add(row.stream || "—");
+      coverage.teachers.add(assignment?.teacherName || "Unassigned");
+      assignmentCoverage.expectedCount += 1;
+      assignmentCoverage.subject = row.subject_name;
+      assignmentCoverage.subjectDisplay = subjectDisplay;
+      assignmentCoverage.teacherName = assignment?.teacherName || assignmentCoverage.teacherName || "Unassigned";
+
+      const midMark = marksByKey.get(`${learnerId}|${row.subject_id}|${paperLabel}|MID`);
+      const eotMark = marksByKey.get(`${learnerId}|${row.subject_id}|${paperLabel}|EOT`);
+
+      if (midMark) {
+        coverage.midCapturedCount += 1;
+        assignmentCoverage.midCapturedCount += 1;
+      }
+      if (eotMark) {
+        coverage.eotCapturedCount += 1;
+        assignmentCoverage.eotCapturedCount += 1;
+      }
+
+      const missingComponents = [];
+      const hasMidScore = midMark && midMark.score !== null && midMark.score !== undefined;
+      const hasEotScore = eotMark && eotMark.score !== null && eotMark.score !== undefined;
+
+      if (!hasMidScore) {
+        candidate.missingMid = true;
+        missingComponents.push("MID");
+      }
+      if (!hasEotScore) {
+        candidate.missingEot = true;
+        missingComponents.push("EOT");
+      }
+      if (missingComponents.length > 0) {
+        if (paperLabel === "Paper 1") candidate.missingPaper1 = true;
+        if (paperLabel === "Paper 2") candidate.missingPaper2 = true;
+        candidate.missingDetails.push({
+          subject: row.subject_name,
+          paperLabel,
+          subjectDisplay,
+          components: missingComponents,
+          teacherName: assignment?.teacherName || "Assignment missing",
+        });
+      }
+    }
+  }
+
+  const candidates = Array.from(candidateMap.values())
+    .map((candidate) => ({
+      ...candidate,
+      isReady: candidate.missingDetails.length === 0,
+      missingCount: candidate.missingDetails.reduce(
+        (sum, detail) => sum + detail.components.length,
+        0
+      ),
+    }))
+    .sort((a, b) => {
+      if (b.missingCount !== a.missingCount) return b.missingCount - a.missingCount;
+      return String(a.learnerName || "").localeCompare(String(b.learnerName || ""));
+    });
+
+  const totalCandidates = candidates.length;
+  const readyCandidates = candidates.filter((candidate) => candidate.isReady).length;
+  const missingMidCandidates = candidates.filter((candidate) => candidate.missingMid).length;
+  const missingEotCandidates = candidates.filter((candidate) => candidate.missingEot).length;
+  const missingPaper1Candidates = candidates.filter((candidate) => candidate.missingPaper1).length;
+  const missingPaper2Candidates = candidates.filter((candidate) => candidate.missingPaper2).length;
+
+  const paperCoverage = Array.from(coverageMap.values())
+    .map((row) => ({
+      subject: row.subject,
+      paperLabel: row.paperLabel,
+      subjectDisplay: row.subjectDisplay,
+      expectedCount: row.expectedCount,
+      midCapturedCount: row.midCapturedCount,
+      midPendingCount: Math.max(0, row.expectedCount - row.midCapturedCount),
+      midRate: row.expectedCount > 0 ? Math.round((row.midCapturedCount / row.expectedCount) * 100) : 0,
+      eotCapturedCount: row.eotCapturedCount,
+      eotPendingCount: Math.max(0, row.expectedCount - row.eotCapturedCount),
+      eotRate: row.expectedCount > 0 ? Math.round((row.eotCapturedCount / row.expectedCount) * 100) : 0,
+      streams: Array.from(row.streams).sort(),
+      teachers: Array.from(row.teachers).sort(),
+    }))
+    .sort((a, b) => {
+      const subjectCompare = String(a.subject || "").localeCompare(String(b.subject || ""));
+      if (subjectCompare !== 0) return subjectCompare;
+      return String(a.paperLabel || "").localeCompare(String(b.paperLabel || ""));
+    });
+
+  const combinationReadiness = Array.from(
+    candidates.reduce((acc, candidate) => {
+      const key = candidate.combination || "—";
+      if (!acc.has(key)) {
+        acc.set(key, {
+          combination: key,
+          totalCandidates: 0,
+          readyCandidates: 0,
+          incompleteCandidates: 0,
+        });
+      }
+      const bucket = acc.get(key);
+      bucket.totalCandidates += 1;
+      if (candidate.isReady) {
+        bucket.readyCandidates += 1;
+      } else {
+        bucket.incompleteCandidates += 1;
+      }
+      return acc;
+    }, new Map())
+      .values()
+  )
+    .map((row) => ({
+      ...row,
+      readinessRate:
+        row.totalCandidates > 0
+          ? Math.round((row.readyCandidates / row.totalCandidates) * 100)
+          : 0,
+    }))
+    .sort((a, b) => {
+      if (b.incompleteCandidates !== a.incompleteCandidates) return b.incompleteCandidates - a.incompleteCandidates;
+      return String(a.combination || "").localeCompare(String(b.combination || ""));
+    });
+
+  const streamPerformance = Array.from(
+    candidates.reduce((acc, candidate) => {
+      const key = candidate.stream || "—";
+      if (!acc.has(key)) {
+        acc.set(key, {
+          stream: key,
+          totalCandidates: 0,
+          readyCandidates: 0,
+          incompleteCandidates: 0,
+          missingMidCandidates: 0,
+          missingEotCandidates: 0,
+        });
+      }
+      const bucket = acc.get(key);
+      bucket.totalCandidates += 1;
+      if (candidate.isReady) {
+        bucket.readyCandidates += 1;
+      } else {
+        bucket.incompleteCandidates += 1;
+      }
+      if (candidate.missingMid) bucket.missingMidCandidates += 1;
+      if (candidate.missingEot) bucket.missingEotCandidates += 1;
+      return acc;
+    }, new Map())
+      .values()
+  )
+    .map((row) => ({
+      ...row,
+      readinessRate:
+        row.totalCandidates > 0
+          ? Math.round((row.readyCandidates / row.totalCandidates) * 100)
+          : 0,
+    }))
+    .sort((a, b) => String(a.stream || "").localeCompare(String(b.stream || "")));
+
+  const assignmentCoverageRows = Array.from(assignmentCoverageMap.values())
+    .map((row) => {
+      const midPendingCount = Math.max(0, row.expectedCount - row.midCapturedCount);
+      const eotPendingCount = Math.max(0, row.expectedCount - row.eotCapturedCount);
+      const midRate = row.expectedCount > 0 ? Math.round((row.midCapturedCount / row.expectedCount) * 100) : 0;
+      const eotRate = row.expectedCount > 0 ? Math.round((row.eotCapturedCount / row.expectedCount) * 100) : 0;
+      return {
+        ...row,
+        midPendingCount,
+        eotPendingCount,
+        midRate,
+        eotRate,
+        pendingTotal: midPendingCount + eotPendingCount,
+      };
+    })
+    .sort((a, b) => {
+      const streamCompare = String(a.stream || "").localeCompare(String(b.stream || ""));
+      if (streamCompare !== 0) return streamCompare;
+      return String(a.subjectDisplay || "").localeCompare(String(b.subjectDisplay || ""));
+    });
+
+  const teacherPaperOwnership = Array.from(
+    assignmentCoverageRows.reduce((acc, row) => {
+      const teacherKey = row.teacherName || "Unassigned";
+      if (!acc.has(teacherKey)) {
+        acc.set(teacherKey, {
+          teacherName: teacherKey,
+          papersAssigned: 0,
+          fullySubmitted: 0,
+          pendingPapers: 0,
+          expectedSlots: 0,
+          capturedSlots: 0,
+          streams: new Set(),
+        });
+      }
+      const bucket = acc.get(teacherKey);
+      const isFullySubmitted =
+        row.expectedCount > 0 &&
+        row.midCapturedCount >= row.expectedCount &&
+        row.eotCapturedCount >= row.expectedCount;
+      bucket.papersAssigned += 1;
+      bucket.fullySubmitted += isFullySubmitted ? 1 : 0;
+      bucket.pendingPapers += isFullySubmitted ? 0 : 1;
+      bucket.expectedSlots += row.expectedCount * 2;
+      bucket.capturedSlots += row.midCapturedCount + row.eotCapturedCount;
+      bucket.streams.add(row.stream || "—");
+      return acc;
+    }, new Map())
+      .values()
+  )
+    .map((row) => ({
+      teacherName: row.teacherName,
+      papersAssigned: row.papersAssigned,
+      fullySubmitted: row.fullySubmitted,
+      pendingPapers: row.pendingPapers,
+      coverageRate: row.expectedSlots > 0 ? Math.round((row.capturedSlots / row.expectedSlots) * 100) : 0,
+      streams: Array.from(row.streams).sort(),
+    }))
+    .sort((a, b) => {
+      if (b.pendingPapers !== a.pendingPapers) return b.pendingPapers - a.pendingPapers;
+      return String(a.teacherName || "").localeCompare(String(b.teacherName || ""));
+    });
+
+  const subjectLoadRisks = assignmentCoverageRows
+    .map((row) => {
+      const unassigned = row.teacherName === "Unassigned";
+      const weakestRate = Math.min(row.midRate, row.eotRate);
+      let riskLabel = "Stable";
+      let riskPriority = 0;
+
+      if (unassigned) {
+        riskLabel = "Unassigned";
+        riskPriority = 3;
+      } else if (weakestRate < 50 || row.pendingTotal >= Math.max(6, row.expectedCount)) {
+        riskLabel = "Critical";
+        riskPriority = 2;
+      } else if (weakestRate < 85 || row.pendingTotal > 0) {
+        riskLabel = "Watch";
+        riskPriority = 1;
+      }
+
+      return {
+        ...row,
+        weakestRate,
+        riskLabel,
+        riskPriority,
+      };
+    })
+    .sort((a, b) => {
+      if (b.riskPriority !== a.riskPriority) return b.riskPriority - a.riskPriority;
+      if (b.pendingTotal !== a.pendingTotal) return b.pendingTotal - a.pendingTotal;
+      return String(a.subjectDisplay || "").localeCompare(String(b.subjectDisplay || ""));
+    });
+
+  return {
+    term: normalizedTerm,
+    year: normalizedYear,
+    generatedAt: new Date().toISOString(),
+    summary: {
+      totalCandidates,
+      readyCandidates,
+      incompleteCandidates: Math.max(0, totalCandidates - readyCandidates),
+      missingMidCandidates,
+      missingEotCandidates,
+      missingPaper1Candidates,
+      missingPaper2Candidates,
+    },
+    candidates,
+    paperCoverage,
+    combinationReadiness,
+    streamPerformance,
+    teacherPaperOwnership,
+    subjectLoadRisks,
+  };
+};
+
+router.get("/admin/dashboard-insights", authAdmin, async (req, res) => {
+  try {
+    const insights = await buildAlevelDashboardInsights(
+      {
+        term: req.query.term,
+        year: req.query.year,
+      },
+      db
+    );
+
+    res.json(insights);
+  } catch (err) {
+    console.error("A-Level dashboard insights error:", err);
+    res.status(500).json({ message: "Failed to load A-Level dashboard insights" });
+  }
+});
+
 router.get("/download/sets", async (req, res) => {
   try {
     const [rows] = await pool.query(`

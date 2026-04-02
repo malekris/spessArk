@@ -452,6 +452,49 @@
   color: #f8fafc;
 }
 
+.admin-ops-kpi-inline {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.admin-ops-age-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  padding: 0.28rem 0.78rem;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  border: 1px solid transparent;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 10px 20px rgba(2, 6, 23, 0.18);
+}
+
+.admin-ops-age-pill.is-adult {
+  color: #dcfce7;
+  background: rgba(34, 197, 94, 0.16);
+  border-color: rgba(34, 197, 94, 0.28);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 0 0 1px rgba(34, 197, 94, 0.08),
+    0 12px 26px rgba(22, 163, 74, 0.18);
+}
+
+.admin-ops-age-pill.is-underage {
+  color: #fecaca;
+  background: rgba(239, 68, 68, 0.16);
+  border-color: rgba(239, 68, 68, 0.28);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 0 0 1px rgba(239, 68, 68, 0.08),
+    0 12px 26px rgba(185, 28, 28, 0.18);
+}
+
 .admin-ops-kpi small,
 .admin-ops-subnote {
   color: #cbd5e1;
@@ -3280,6 +3323,24 @@
 .admin-root.mode-light .admin-ops-learner-result > small,
 .admin-root.mode-light .admin-ops-learner-subject-head span {
   color: #64748b;
+}
+
+.admin-root.mode-light .admin-ops-age-pill.is-adult {
+  color: #166534;
+  background: rgba(187, 247, 208, 0.88);
+  border-color: rgba(34, 197, 94, 0.22);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    0 10px 18px rgba(34, 197, 94, 0.12);
+}
+
+.admin-root.mode-light .admin-ops-age-pill.is-underage {
+  color: #b91c1c;
+  background: rgba(254, 226, 226, 0.92);
+  border-color: rgba(239, 68, 68, 0.2);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    0 10px 18px rgba(239, 68, 68, 0.1);
 }
 
 .admin-root.mode-light .admin-ops-learner-subject-chip {

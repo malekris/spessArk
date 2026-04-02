@@ -112,6 +112,23 @@ const formatDateOnly = (value) => {
   });
 };
 
+const calculateLearnerAge = (value, referenceDate = new Date()) => {
+  if (!value) return null;
+  const dob = new Date(value);
+  const reference = new Date(referenceDate);
+  if (Number.isNaN(dob.getTime()) || Number.isNaN(reference.getTime())) return null;
+
+  let age = reference.getFullYear() - dob.getFullYear();
+  const monthDifference = reference.getMonth() - dob.getMonth();
+  const dayDifference = reference.getDate() - dob.getDate();
+
+  if (monthDifference < 0 || (monthDifference === 0 && dayDifference < 0)) {
+    age -= 1;
+  }
+
+  return age >= 0 ? age : null;
+};
+
 const normalizeOperationalTerm = (value) => {
   const raw = String(value || "").trim().toLowerCase();
   if (/\b(term\s*3|iii|3)\b/.test(raw)) return "Term 3";
@@ -3334,8 +3351,7 @@ export default function AdminDashboard() {
 
     return portalLearnerSearchRows
       .filter((row) => portalLearnerSearchLevel === "all" || row.levelKey === portalLearnerSearchLevel)
-      .filter((row) => !query || row.searchText.includes(query))
-      .slice(0, 24);
+      .filter((row) => !query || row.searchText.includes(query));
   }, [portalLearnerSearchLevel, portalLearnerSearchQuery, portalLearnerSearchRows]);
 
   const portalLearnerSearchCounts = useMemo(
@@ -3367,6 +3383,11 @@ export default function AdminDashboard() {
       null
     );
   }, [portalLearnerSearchResults, selectedPortalLearnerKey]);
+
+  const selectedPortalLearnerAge = useMemo(
+    () => calculateLearnerAge(selectedPortalLearner?.dob),
+    [selectedPortalLearner?.dob]
+  );
 
   const reportReadinessCard = useMemo(() => {
     const empty = {
@@ -6458,8 +6479,25 @@ export default function AdminDashboard() {
                   <div className="admin-ops-kpi-grid">
                     <div className="admin-ops-kpi">
                       <span>DOB</span>
-                      <strong>{formatDateOnly(selectedPortalLearner.dob)}</strong>
-                      <small>Recorded date of birth</small>
+                      <div className="admin-ops-kpi-inline">
+                        <strong>{formatDateOnly(selectedPortalLearner.dob)}</strong>
+                        {selectedPortalLearnerAge !== null && (
+                          <span
+                            className={`admin-ops-age-pill ${
+                              selectedPortalLearnerAge >= 18 ? "is-adult" : "is-underage"
+                            }`}
+                          >
+                            Age {selectedPortalLearnerAge}
+                          </span>
+                        )}
+                      </div>
+                      <small>
+                        {selectedPortalLearnerAge !== null
+                          ? selectedPortalLearnerAge >= 18
+                            ? "18 and above"
+                            : "Below 18 years"
+                          : "Recorded date of birth"}
+                      </small>
                     </div>
                     <div className="admin-ops-kpi">
                       <span>Gender</span>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import "./AlevelReport.css";
 import ALevelAdminShell from "../components/ALevelAdminShell";
 import "../../../pages/AdminDashboard.css";
@@ -6,7 +6,53 @@ import "./ALevelAdminTheme.css";
 
 import badge from "../../../assets/badge.png";
 import { loadPdfTools } from "../../../utils/loadPdfTools";
+import { normalizeSchoolCalendar } from "../../../utils/schoolCalendar";
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5001";
+const ALEVEL_REPORT_DATES_STORAGE_KEY = "spess_alevel_report_dates";
+
+const formatReportDateValue = (value) => {
+  if (!value) return "__________";
+  const raw = String(value).trim();
+  if (!raw) return "__________";
+  const parsed = new Date(`${raw}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return raw;
+  return parsed.toLocaleDateString("en-GB");
+};
+
+const addDaysToDateKey = (dateKey, days) => {
+  const parsed = new Date(`${String(dateKey || "").trim()}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return "";
+  parsed.setDate(parsed.getDate() + days);
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, "0");
+  const day = String(parsed.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const getCalendarDrivenReportDates = (calendar, term, year) => {
+  const normalized = normalizeSchoolCalendar(calendar || {});
+  if (String(normalized.academicYear || "").trim() !== String(year || "").trim()) {
+    return { termEndedOn: "", nextTermBeginsOn: "" };
+  }
+
+  const normalizedTerm = String(term || "").trim().toLowerCase();
+  const termIndex =
+    normalizedTerm === "term 1" ? 1 : normalizedTerm === "term 2" ? 2 : normalizedTerm === "term 3" ? 3 : null;
+
+  if (!termIndex) {
+    return { termEndedOn: "", nextTermBeginsOn: "" };
+  }
+
+  const termEntry = normalized.entries.find((entry) => entry.key === `term${termIndex}`);
+  const nextTermEntry = normalized.entries.find((entry) => entry.key === `term${termIndex + 1}`);
+  const holidayAfterEntry = normalized.entries.find((entry) => entry.key === `holiday${termIndex}`);
+
+  const termEndedOn = termEntry?.to || "";
+  const nextTermBeginsOn =
+    nextTermEntry?.from || (termIndex === 3 && holidayAfterEntry?.to ? addDaysToDateKey(holidayAfterEntry.to, 1) : "");
+
+  return { termEndedOn, nextTermBeginsOn };
+};
 
 export default function AlevelReport() {
   const [term, setTerm] = useState("");
@@ -17,6 +63,76 @@ export default function AlevelReport() {
   const [loading, setLoading] = useState(false);
   const [previewData, setPreviewData] = useState(null);
   const [error, setError] = useState("");
+  const [schoolCalendar, setSchoolCalendar] = useState(null);
+  const [reportDatesCache, setReportDatesCache] = useState(() => {
+    try {
+      const raw = window.localStorage.getItem(ALEVEL_REPORT_DATES_STORAGE_KEY);
+      const parsed = raw ? JSON.parse(raw) : {};
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const reportDatesKey = useMemo(
+    () => `alevel_${year}_${term || "pending"}`,
+    [year, term]
+  );
+  const derivedReportDates = useMemo(
+    () => getCalendarDrivenReportDates(schoolCalendar, term, year),
+    [schoolCalendar, term, year]
+  );
+  const reportDates = useMemo(
+    () => ({
+      ...derivedReportDates,
+      ...(reportDatesCache[reportDatesKey] || {}),
+    }),
+    [derivedReportDates, reportDatesCache, reportDatesKey]
+  );
+
+  useEffect(() => {
+    let active = true;
+    fetch(`${API_BASE}/api/school-calendar`)
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to load school calendar");
+        return res.json();
+      })
+      .then((data) => {
+        if (active) setSchoolCalendar(data);
+      })
+      .catch((err) => {
+        console.error("Error loading school calendar for A-Level reports:", err);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const updateReportDate = (field, value) => {
+    setReportDatesCache((prev) => {
+      const next = {
+        ...prev,
+        [reportDatesKey]: {
+          ...(prev[reportDatesKey] || {}),
+          [field]: value,
+        },
+      };
+      try {
+        window.localStorage.setItem(ALEVEL_REPORT_DATES_STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        // ignore localStorage write issues
+      }
+      return next;
+    });
+    setError("");
+  };
+
+  const validateReportDates = (actionLabel) => {
+    if (reportDates.termEndedOn && reportDates.nextTermBeginsOn) return true;
+    setError(`Set both report dates before ${actionLabel} A-Level reports.`);
+    return false;
+  };
 
   const handlePreview = async () => {
     setError("");
@@ -26,6 +142,8 @@ export default function AlevelReport() {
       setError("Please select all fields before previewing.");
       return;
     }
+
+    if (!validateReportDates("previewing")) return;
 
     try {
       setLoading(true);
@@ -50,6 +168,8 @@ export default function AlevelReport() {
 
   const handleDownload = async () => {
     try {
+      if (!validateReportDates("downloading")) return;
+
       const res = await fetch(`${API_BASE}/api/alevel/reports/download`, {
 
       method: "POST",
@@ -60,7 +180,14 @@ export default function AlevelReport() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Download failed");
 
-      await generateAlevelPDF(data, { term, year, cls, stream });
+      await generateAlevelPDF(data, {
+        term,
+        year,
+        cls,
+        stream,
+        termEndedOn: reportDates.termEndedOn,
+        nextTermBeginsOn: reportDates.nextTermBeginsOn,
+      });
     } catch (err) {
       console.error(err);
       alert("Failed to download report");
@@ -228,6 +355,59 @@ export default function AlevelReport() {
                     </p>
                   )}
                 </div>
+
+                <div
+                  style={{
+                    marginTop: "1.4rem",
+                    padding: "1rem 1.1rem",
+                    borderRadius: "1rem",
+                    border: `1px solid ${isDark ? "rgba(148, 163, 184, 0.2)" : "rgba(15, 23, 42, 0.1)"}`,
+                    background: isDark ? "rgba(2, 6, 23, 0.72)" : "rgba(248, 250, 252, 0.88)",
+                    display: "grid",
+                    gap: "0.9rem",
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: "0.74rem", fontWeight: "800", letterSpacing: "0.14em", textTransform: "uppercase", color: amethyst }}>
+                      Report Dates
+                    </div>
+                    <div style={{ fontSize: "0.88rem", color: softText, marginTop: "0.28rem", lineHeight: 1.55 }}>
+                      Auto-filled from the shared school calendar when available. You can still adjust them here before generating reports.
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                      gap: "0.85rem",
+                    }}
+                  >
+                    <label style={{ display: "grid", gap: "0.35rem" }}>
+                      <span style={{ fontSize: "0.75rem", fontWeight: "700", letterSpacing: "0.12em", textTransform: "uppercase", color: softText }}>
+                        This Term Ended On
+                      </span>
+                      <input
+                        type="date"
+                        style={themedInputStyle}
+                        value={reportDates.termEndedOn || ""}
+                        onChange={(e) => updateReportDate("termEndedOn", e.target.value)}
+                      />
+                    </label>
+
+                    <label style={{ display: "grid", gap: "0.35rem" }}>
+                      <span style={{ fontSize: "0.75rem", fontWeight: "700", letterSpacing: "0.12em", textTransform: "uppercase", color: softText }}>
+                        Next Term Begins On
+                      </span>
+                      <input
+                        type="date"
+                        style={themedInputStyle}
+                        value={reportDates.nextTermBeginsOn || ""}
+                        onChange={(e) => updateReportDate("nextTermBeginsOn", e.target.value)}
+                      />
+                    </label>
+                  </div>
+                </div>
               </div>
 
               {previewData && (
@@ -297,6 +477,75 @@ async function generateAlevelPDF(data, meta) {
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
 
+  const formatPaperScore = (value) => {
+    if (value === null || value === undefined || value === "") return "Missing";
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed.toFixed(1).replace(/\.0$/, "") : String(value);
+  };
+
+  const formatAverage = (value) => {
+    if (value === null || value === undefined || value === "") return "Missing";
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed.toFixed(1) : String(value);
+  };
+
+  const buildSubjectRows = (subjects = [], includeScore = true) => {
+    const rows = [];
+
+    subjects.forEach((subjectGroup) => {
+      const papers = Array.isArray(subjectGroup?.papers) && subjectGroup.papers.length > 0
+        ? subjectGroup.papers
+        : [
+            {
+              paper: "Single",
+              mid: subjectGroup?.mid,
+              eot: subjectGroup?.eot,
+              avg: subjectGroup?.avg,
+              teacher: subjectGroup?.teacher || "—",
+            },
+          ];
+
+      papers.forEach((paperRow, index) => {
+        const row = [];
+
+        if (index === 0) {
+          row.push({
+            content: subjectGroup.subject || "—",
+            rowSpan: papers.length,
+            styles: {
+              fontStyle: "bold",
+              valign: "middle",
+            },
+          });
+        }
+
+        row.push(paperRow.paper || "Single");
+        row.push(formatPaperScore(paperRow.mid));
+        row.push(formatPaperScore(paperRow.eot));
+        row.push(formatAverage(paperRow.avg));
+        row.push(paperRow.paperScore || "Missing");
+
+        if (index === 0) {
+          row.push({
+            content: subjectGroup.grade || "—",
+            rowSpan: papers.length,
+            styles: { valign: "middle", fontStyle: "bold" },
+          });
+          row.push({
+            content: subjectGroup.grade === "Missing" ? "Missing" : String(subjectGroup.points ?? "—"),
+            rowSpan: papers.length,
+            styles: { valign: "middle", fontStyle: "bold" },
+          });
+        }
+
+        row.push(paperRow.teacher || "—");
+        rows.push(row);
+      });
+    });
+
+    return rows;
+  };
+
   data.forEach((student, index) => {
     if (index > 0) doc.addPage();
 
@@ -319,7 +568,7 @@ doc.setFont("helvetica", "normal");
 doc.setFontSize(10);
 
 doc.text(
-  "P.O. BOX 53 Kayabwe Mpigi | Tel: 0776532417",
+  "P.O. BOX 53 Kayabwe Mpigi | Tel: 0701976787",
   pageWidth / 2,
   24,
   { align: "center" }
@@ -403,12 +652,25 @@ doc.text(learner.combination, 110 + w + gap, y + 12);
 
     autoTable(doc, {
       startY: y + 20,
-      head: [["Subject", "MID", "EOT", "Avg", "Score", "Grade", "Points", "Teacher"]],
-      body: principals.map(p => [
-        p.subject, p.mid ?? "-", p.eot ?? "-", p.avg ?? "-", p.score, p.grade, p.points, p.teacher
-      ]),
-      styles: { fontSize: 9 },
-      headStyles: { fillColor: [230, 230, 230], textColor: 0 }
+      head: [["Subject", "Paper", "MID", "EOT", "Paper Avg", "Score", "Grade", "Points", "Teacher"]],
+      body: buildSubjectRows(principals, true),
+      theme: "grid",
+      styles: {
+        fontSize: 8.4,
+        cellPadding: 1.8,
+        lineColor: [15, 23, 42],
+        lineWidth: 0.15,
+        textColor: 0,
+        fillColor: [255, 255, 255],
+      },
+      headStyles: {
+        fillColor: [255, 255, 255],
+        textColor: 0,
+        fontStyle: "bold",
+        lineColor: [15, 23, 42],
+        lineWidth: 0.18,
+      },
+      alternateRowStyles: { fillColor: [255, 255, 255] }
 
     });
 
@@ -419,20 +681,33 @@ doc.text(learner.combination, 110 + w + gap, y + 12);
 
     autoTable(doc, {
       startY: nextY + 6,
-      head: [["Subject", "MID", "EOT", "Avg", "Grade", "Points", "Teacher"]],
-      body: subsidiaries.map(s => [
-        s.subject, s.mid ?? "-", s.eot ?? "-", s.avg ?? "-", s.grade, s.points, s.teacher
-      ]),
-      styles: { fontSize: 9 },
-      headStyles: { fillColor: [230, 230, 230], textColor: 0 }
+      head: [["Subject", "Paper", "MID", "EOT", "Paper Avg", "Score", "Grade", "Points", "Teacher"]],
+      body: buildSubjectRows(subsidiaries, false),
+      theme: "grid",
+      styles: {
+        fontSize: 8.4,
+        cellPadding: 1.8,
+        lineColor: [15, 23, 42],
+        lineWidth: 0.15,
+        textColor: 0,
+        fillColor: [255, 255, 255],
+      },
+      headStyles: {
+        fillColor: [255, 255, 255],
+        textColor: 0,
+        fontStyle: "bold",
+        lineColor: [15, 23, 42],
+        lineWidth: 0.18,
+      },
+      alternateRowStyles: { fillColor: [255, 255, 255] }
 
     });
 
     nextY = doc.lastAutoTable.finalY + 6;
     doc.setFont("helvetica", "bold");
     doc.text(`Total Subsidiary Points: ${totals.subsidiary}`, 15, nextY);
-    doc.text(`TOTAL POINTS: ${totals.overall}`, 15, nextY + 6);
-    let commentY = nextY + 16;
+    doc.text(`TOTAL POINTS: ${totals.overall}`, 110, nextY);
+    let commentY = nextY + 10;
     doc.setFont("helvetica", "normal"); // reset after
 
     doc.setFontSize(10);
@@ -460,19 +735,29 @@ doc.text("Signature: ____________________________", 15, commentY + 22);
 let tableStartY = commentY + 32;
 
 /* =========================
-   MARKS → SCORES TABLE (COMPACT)
+   PAPER GRADING TABLE
 ========================= */
 autoTable(doc, {
   startY: tableStartY,
-  head: [[
-    "Mark", "00–34", "35–44", "45–49", "50–54", "55–59", "60–64", "65–74", "75–79", "80–100"
-  ]],
-  body: [[
-    "Score", "F9", "P8", "P7", "C6", "C5", "C4", "C3", "D2", "D1"
-  ]],
-  styles: { fontSize: 8, halign: "center" },
-  headStyles: { fillColor: [230, 230, 230], textColor: 0 },
+  head: [["Paper Grading", "D1", "D2", "C3", "C4", "C5", "C6", "P7", "P8", "F9"]],
+  body: [["Score", "85-100", "80-84", "75-79", "70-74", "65-69", "60-64", "50-59", "40-49", "0-39"]],
   theme: "grid",
+  styles: {
+    fontSize: 8,
+    halign: "center",
+    lineColor: [15, 23, 42],
+    lineWidth: 0.15,
+    textColor: 0,
+    fillColor: [255, 255, 255],
+  },
+  headStyles: {
+    fillColor: [255, 255, 255],
+    textColor: 0,
+    fontStyle: "bold",
+    lineColor: [15, 23, 42],
+    lineWidth: 0.18,
+  },
+  alternateRowStyles: { fillColor: [255, 255, 255] },
   margin: { left: 15 },
 });
 
@@ -483,26 +768,39 @@ autoTable(doc, {
   startY: doc.lastAutoTable.finalY + 4,
   head: [["Grade Points", "F", "O", "E", "D", "C", "B", "A"]],
   body: [["", "0", "1", "2", "3", "4", "5", "6"]],
-  styles: { fontSize: 8, halign: "center" },
-  headStyles: { fillColor: [230, 230, 230], textColor: 0 },
   theme: "grid",
+  styles: {
+    fontSize: 8,
+    halign: "center",
+    lineColor: [15, 23, 42],
+    lineWidth: 0.15,
+    textColor: 0,
+    fillColor: [255, 255, 255],
+  },
+  headStyles: {
+    fillColor: [255, 255, 255],
+    textColor: 0,
+    fontStyle: "bold",
+    lineColor: [15, 23, 42],
+    lineWidth: 0.18,
+  },
+  alternateRowStyles: { fillColor: [255, 255, 255] },
   margin: { left: 15 },
 });
 
-// Final Y after both tables
-let afterTablesY = doc.lastAutoTable.finalY + 8;
+const subsidiaryNoteY = doc.lastAutoTable.finalY + 6;
+doc.setFont("helvetica", "bold");
+doc.text("Subsidiary subjects:", 15, subsidiaryNoteY);
+doc.setFont("helvetica", "normal");
+doc.text("1, 2, 3, 4, 5, 6 = Pass (O); 7, 8, 9 = Fail (F)", 51, subsidiaryNoteY);
+
+// Final Y after all grading reference tables / notes
+let afterTablesY = subsidiaryNoteY + 8;
 
 doc.setFontSize(9);
 
-doc.text("This term ended on: ____________________", 15, afterTablesY);
-
-doc.text("Next term begins on: ____________________", 110, afterTablesY);
-
-doc.setFont("helvetica", "bold");
-doc.text("Requirements:", 15, afterTablesY + 16);
-
-doc.setFont("helvetica", "normal");
-doc.text("Toilet paper, brooms, books", 45, afterTablesY + 16);
+doc.text(`This term ended on: ${formatReportDateValue(meta?.termEndedOn)}`, 15, afterTablesY);
+doc.text(`Next term begins on: ${formatReportDateValue(meta?.nextTermBeginsOn)}`, 110, afterTablesY);
 
     doc.setFontSize(8);
     doc.text(

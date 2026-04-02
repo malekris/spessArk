@@ -24,7 +24,6 @@ import {
 import {
   ADMIN_SESSION_EXPIRED_EVENT,
   clearAdminReauthToken,
-  clearAdminSession,
   forceAdminLogout,
   storeAdminReauthToken,
 } from "../utils/adminSecurity";
@@ -346,14 +345,17 @@ export default function AdminDashboard() {
       })
       .catch(() => {
         // Token is invalid or expired
-        clearAdminSession();
-        navigate("/ark", { replace: true });
+        forceAdminLogout("/ark", { reason: "token-invalid" });
       });
   }, [navigate]);
 
   useEffect(() => {
-    const handleAdminSessionExpired = () => {
-      forceAdminLogout("/ark");
+    const handleAdminSessionExpired = (event) => {
+      const shouldBroadcast = event?.detail?.source !== "storage-logout-signal";
+      forceAdminLogout("/ark", {
+        broadcast: shouldBroadcast,
+        reason: "session-expired",
+      });
     };
 
     window.addEventListener(ADMIN_SESSION_EXPIRED_EVENT, handleAdminSessionExpired);
@@ -361,8 +363,7 @@ export default function AdminDashboard() {
   }, []);
 
   const handleLogout = () => {
-    clearAdminSession();
-    navigate("/ark", { replace: true });
+    forceAdminLogout("/ark", { reason: "manual-logout" });
   };
 
   const requestAdminReauth = ({ title, description, onApproved }) => {

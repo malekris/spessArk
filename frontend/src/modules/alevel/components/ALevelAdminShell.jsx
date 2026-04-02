@@ -3,7 +3,6 @@ import { useLocation, useNavigate } from "react-router-dom";
 import useIdleSessionPrompt from "../../../hooks/useIdleSessionPrompt";
 import {
   ADMIN_SESSION_EXPIRED_EVENT,
-  clearAdminSession,
   forceAdminLogout,
 } from "../../../utils/adminSecurity";
 import "../../../pages/AdminDashboard.css";
@@ -88,8 +87,12 @@ export default function ALevelAdminShell({
   });
 
   useEffect(() => {
-    const handleAdminSessionExpired = () => {
-      forceAdminLogout("/ark");
+    const handleAdminSessionExpired = (event) => {
+      const shouldBroadcast = event?.detail?.source !== "storage-logout-signal";
+      forceAdminLogout("/ark", {
+        broadcast: shouldBroadcast,
+        reason: "session-expired",
+      });
     };
 
     window.addEventListener(ADMIN_SESSION_EXPIRED_EVENT, handleAdminSessionExpired);
@@ -97,8 +100,7 @@ export default function ALevelAdminShell({
   }, []);
 
   const handleLogout = () => {
-    clearAdminSession();
-    navigate("/ark", { replace: true });
+    forceAdminLogout("/ark", { reason: "manual-logout" });
   };
 
   const activePath = useMemo(() => {

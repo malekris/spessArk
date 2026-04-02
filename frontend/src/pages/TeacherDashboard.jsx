@@ -2,10 +2,20 @@
 import React, { useEffect, useState, useCallback } from "react";
 import "./AdminDashboard.css";
 import badge from "../assets/badge.png";
-import useIdleLogout from "../hooks/useIdleLogout";
+import useIdleSessionPrompt from "../hooks/useIdleSessionPrompt";
 import { useNavigate } from "react-router-dom";
 import { plainFetch } from "../lib/api";
 import { loadPdfTools } from "../utils/loadPdfTools";
+import {
+  TEACHER_SESSION_EXPIRED_EVENT,
+  TEACHER_SESSION_IDLE_EXPIRES_AT_KEY,
+  TEACHER_SESSION_LOGOUT_SIGNAL_KEY,
+  clearTeacherSession,
+  forceTeacherLogout,
+  notifyTeacherSessionExpired,
+  readTeacherIdleExpiry,
+  writeTeacherIdleExpiry,
+} from "../utils/teacherSecurity";
 import {
   DEFAULT_SCHOOL_CALENDAR,
   getSchoolCalendarBadge,
@@ -91,25 +101,39 @@ const matchesAssignmentSearch = (assignment, rawQuery) => {
 // ============================
 export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) {
   const navigate = useNavigate();
+  const TEACHER_IDLE_TIMEOUT_MS = 60 * 60 * 1000;
+  const TEACHER_IDLE_WARNING_MS = 90 * 1000;
 
   // ----------------------------
   // Session / Idle logout
   // ----------------------------
   const handleLogout = useCallback(() => {
-    localStorage.removeItem("teacherToken");
-    localStorage.removeItem("teacherProfile");
-
     if (typeof onLogout === "function") {
+      clearTeacherSession();
       onLogout();
     } else {
-      window.location.href = "/ark/teacher-login";
+      forceTeacherLogout("/ark/teacher-login", { reason: "manual-logout" });
     }
   }, [onLogout]);
 
-  const resetIdleTimer = useIdleLogout(() => {
-    localStorage.clear();
-    navigate("/", { replace: true });
-  }, 60 * 60 * 1000);
+  const { promptVisible, secondsRemaining, renewSession, logoutNow } = useIdleSessionPrompt({
+    onTimeout: () => {
+      if (typeof onLogout === "function") {
+        clearTeacherSession();
+        onLogout();
+        return;
+      }
+      forceTeacherLogout("/ark/teacher-login", { reason: "idle-timeout" });
+    },
+    idleMs: TEACHER_IDLE_TIMEOUT_MS,
+    warningMs: TEACHER_IDLE_WARNING_MS,
+    idleExpiryKey: TEACHER_SESSION_IDLE_EXPIRES_AT_KEY,
+    logoutSignalKey: TEACHER_SESSION_LOGOUT_SIGNAL_KEY,
+    readIdleExpiry: readTeacherIdleExpiry,
+    writeIdleExpiry: writeTeacherIdleExpiry,
+    notifySessionExpired: notifyTeacherSessionExpired,
+  });
+  const resetIdleTimer = renewSession;
 
   // ----------------------------
   // Orientation hint (mobile)
@@ -213,6 +237,56 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
       return null;
     }
   });
+
+  useEffect(() => {
+    const token = localStorage.getItem("teacherToken");
+    if (!token) {
+      if (typeof onLogout === "function") {
+        clearTeacherSession();
+        onLogout();
+      } else {
+        forceTeacherLogout("/ark/teacher-login", { reason: "token-missing" });
+      }
+    }
+  }, [onLogout]);
+
+  useEffect(() => {
+    const handleTeacherSessionExpired = (event) => {
+      const shouldBroadcast = event?.detail?.source !== "storage-logout-signal";
+      if (typeof onLogout === "function") {
+        if (shouldBroadcast) {
+          forceTeacherLogout("/ark/teacher-login", {
+            broadcast: true,
+            reason: event?.detail?.reason || "session-expired",
+          });
+          return;
+        }
+        clearTeacherSession();
+        onLogout();
+        return;
+      }
+
+      forceTeacherLogout("/ark/teacher-login", {
+        broadcast: shouldBroadcast,
+        reason: event?.detail?.reason || "session-expired",
+      });
+    };
+
+    window.addEventListener(TEACHER_SESSION_EXPIRED_EVENT, handleTeacherSessionExpired);
+    return () => window.removeEventListener(TEACHER_SESSION_EXPIRED_EVENT, handleTeacherSessionExpired);
+  }, [onLogout]);
+
+  const fetchWithTeacherAuth = useCallback(async (input, init = {}) => {
+    const res = await fetch(input, init);
+    if (res.status === 401) {
+      notifyTeacherSessionExpired({
+        source: "teacher-fetch",
+        reason: "token-invalid",
+      });
+      throw new Error("Teacher session expired. Please sign in again.");
+    }
+    return res;
+  }, []);
 
   // ----------------------------
   // Assignments / Notices / Analytics state
@@ -322,7 +396,7 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
       year: String(marksYear),
     });
 
-    fetch(`${API_BASE}/api/teachers/marks-entry-locks?${params.toString()}`, {
+    fetchWithTeacherAuth(`${API_BASE}/api/teachers/marks-entry-locks?${params.toString()}`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then(async (res) => {
@@ -347,7 +421,7 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
     return () => {
       isCancelled = true;
     };
-  }, [marksTerm, marksYear]);
+  }, [fetchWithTeacherAuth, marksTerm, marksYear]);
 
   const loadAssignmentStatuses = useCallback(async () => {
     const token = localStorage.getItem("teacherToken");
@@ -375,13 +449,13 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
 
           try {
             const [studentsRes, marksRes] = await Promise.all([
-              fetch(
+              fetchWithTeacherAuth(
                 `${API_BASE}${assignment.isAlevel
                   ? `/api/alevel/teachers/alevel-assignments/${assignment.id}/students`
                   : `/api/teachers/assignments/${assignment.id}/students`}`,
                 { headers: { Authorization: `Bearer ${token}` } }
               ),
-              fetch(
+              fetchWithTeacherAuth(
                 `${API_BASE}${assignment.isAlevel
                   ? `/api/alevel/teachers/alevel-marks?${params}`
                   : `/api/teachers/marks?${params}`}`,
@@ -460,7 +534,7 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
     } finally {
       setAssignmentStatusesLoading(false);
     }
-  }, [aLevelAssignments, assignments, marksTerm, marksYear]);
+  }, [aLevelAssignments, assignments, fetchWithTeacherAuth, marksTerm, marksYear]);
 
   // ----------------------------
   // Initial data fetches
@@ -470,7 +544,7 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
     if (!token) return;
 
     // O-Level assignments
-    fetch(`${API_BASE}/api/teachers/assignments`, {
+    fetchWithTeacherAuth(`${API_BASE}/api/teachers/assignments`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((r) => r.json())
@@ -490,7 +564,7 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
         const collected = [];
         for (const ep of endpoints) {
           try {
-            const res = await fetch(`${API_BASE}${ep}`, {
+            const res = await fetchWithTeacherAuth(`${API_BASE}${ep}`, {
               headers: { Authorization: `Bearer ${token}` },
             });
             if (!res.ok) continue;
@@ -557,7 +631,7 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
         setALevelAssignments([]);
       }
     })();
-  }, [teacher?.id, teacher?.name, teacher?.email]);
+  }, [fetchWithTeacherAuth, teacher?.id, teacher?.name, teacher?.email]);
 
   useEffect(() => {
     document.title = "Teacher Dashboard | SPESS ARK";
@@ -641,7 +715,7 @@ useEffect(() => {
         ? "/api/alevel/alevel-analytics/subject"
         : "/api/teachers/analytics/subject";
 
-      const res = await fetch(`${API_BASE}${endpoint}?${params}`, {
+      const res = await fetchWithTeacherAuth(`${API_BASE}${endpoint}?${params}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -669,7 +743,7 @@ useEffect(() => {
       setMarksError("");
 
       // 1) fetch students
-      const studentsRes = await fetch(
+      const studentsRes = await fetchWithTeacherAuth(
         `${API_BASE}${isAlevel ? 
           `/api/alevel/teachers/alevel-assignments/${assignment.id}/students` :
           `/api/teachers/assignments/${assignment.id}/students`
@@ -694,12 +768,12 @@ useEffect(() => {
       let marks = [];
       if (isAlevel) {
         const params = new URLSearchParams({ assignmentId: assignment.id, year: marksYear,term:marksTerm });
-        const resMarks = await fetch(`${API_BASE}/api/alevel/teachers/alevel-marks?${params}`, { headers: { Authorization: `Bearer ${token}` } });
+        const resMarks = await fetchWithTeacherAuth(`${API_BASE}/api/alevel/teachers/alevel-marks?${params}`, { headers: { Authorization: `Bearer ${token}` } });
         if (resMarks.ok) marks = await resMarks.json();
         else console.warn("A-Level marks warning:", await resMarks.text());
       } else {
         const params = new URLSearchParams({ assignmentId: assignment.id, year: marksYear, term: marksTerm });
-        const resMarks = await fetch(`${API_BASE}/api/teachers/marks?${params}`, { headers: { Authorization: `Bearer ${token}` } });
+        const resMarks = await fetchWithTeacherAuth(`${API_BASE}/api/teachers/marks?${params}`, { headers: { Authorization: `Bearer ${token}` } });
         if (resMarks.ok) marks = await resMarks.json();
         else console.warn("O-Level marks warning:", await resMarks.text());
       }
@@ -798,7 +872,7 @@ useEffect(() => {
         ? { newPassword: passwordForm.next }
         : { currentPassword: passwordForm.current, newPassword: passwordForm.next };
 
-      const res = await fetch(`${API_BASE}${endpoint}`, {
+      const res = await fetchWithTeacherAuth(`${API_BASE}${endpoint}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -851,7 +925,7 @@ useEffect(() => {
       setEmailSaving(true);
       const token = localStorage.getItem("teacherToken");
 
-      const res = await fetch(`${API_BASE}/api/teachers/change-email`, {
+      const res = await fetchWithTeacherAuth(`${API_BASE}/api/teachers/change-email`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -1100,7 +1174,7 @@ useEffect(() => {
         ? { assignmentId: selectedAssignment.id, year: Number(marksYear),term:marksTerm, examType, marks: payload, clearMarks }
         : { assignmentId: selectedAssignment.id, year: Number(marksYear), term: marksTerm, marks: payload, clearMarks };
 
-      const res = await fetch(`${API_BASE}${endpoint}`, {
+      const res = await fetchWithTeacherAuth(`${API_BASE}${endpoint}`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify(payloadBody),
@@ -3432,6 +3506,56 @@ useEffect(() => {
           </div>
         )}
 
+        {promptVisible && (
+          <div className="modal-backdrop" onClick={logoutNow}>
+            <div
+              className="modal-card session-timeout-card"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="session-timeout-body">
+                <div className="session-timeout-badge">
+                  <span className="session-timeout-badge-dot" />
+                  Secure Session Monitor
+                </div>
+
+                <h2 className="session-timeout-title">Still working in Teacher Dashboard?</h2>
+                <p className="session-timeout-copy">
+                  You have been inactive for a while. Choose <strong>Stay Signed In</strong> to keep this
+                  marks-entry session alive, or we will sign you out automatically in <strong>{secondsRemaining}s</strong>.
+                </p>
+
+                <div className="session-timeout-meta">
+                  <strong>{secondsRemaining}s remaining</strong>
+                  <span>Automatic sign-out armed</span>
+                </div>
+
+                <div className="session-timeout-meter">
+                  <div
+                    className="session-timeout-meter-fill"
+                    style={{
+                      width: `${Math.max(0, Math.min(100, (secondsRemaining / (TEACHER_IDLE_WARNING_MS / 1000)) * 100))}%`,
+                    }}
+                  />
+                </div>
+
+                <p className="session-timeout-note">
+                  <strong>Why this matters:</strong> unattended teacher sessions can expose learner records or
+                  interrupt mark capture. Renew only if you are still actively working.
+                </p>
+
+                <div className="session-timeout-actions">
+                  <button type="button" className="ghost-btn" onClick={logoutNow}>
+                    Log Out
+                  </button>
+                  <button type="button" className="primary-btn" onClick={renewSession}>
+                    Stay Signed In
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {showHelpModal && (
           <div
             className="modal-backdrop"
@@ -3768,6 +3892,7 @@ useEffect(() => {
           isMobileTable &&
           !pendingMissedConfirmation &&
           !showMarksSavedModal &&
+          !promptVisible &&
           !showChangePassword &&
           !showHelpModal && (
           <div

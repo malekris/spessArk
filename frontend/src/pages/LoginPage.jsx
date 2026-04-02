@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { writeAdminIdleExpiry } from "../utils/adminSecurity";
 import "./LoginPage.css";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5001";
@@ -95,6 +96,7 @@ function LoginPage() {
       localStorage.setItem("adminUsername", data.username || form.username);
       sessionStorage.removeItem("SPESS_ADMIN_REAUTH_TOKEN");
       localStorage.removeItem("SPESS_ADMIN_REAUTH_TOKEN");
+      writeAdminIdleExpiry(Date.now() + 15 * 60 * 1000);
       navigate("/ark/admin");
     } catch (err) {
       setError("Server error. Try again.");

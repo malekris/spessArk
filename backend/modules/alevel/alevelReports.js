@@ -11,6 +11,16 @@ function normalizePaperLabel(value = "") {
   return "";
 }
 
+const SINGLE_PAPER_SUBJECTS = new Set(["general paper", "sub math", "submath"]);
+
+function isSinglePaperSubject(subjectName = "") {
+  return SINGLE_PAPER_SUBJECTS.has(String(subjectName || "").trim().toLowerCase());
+}
+
+function getPaperOptionsForSubject(subjectName = "") {
+  return isSinglePaperSubject(subjectName) ? ["Single"] : ["Paper 1", "Paper 2"];
+}
+
 function displaySubjectWithPaper(subject, paperLabel) {
   const resolvedPaper = normalizePaperLabel(paperLabel);
   if (!subject) return "";
@@ -18,15 +28,26 @@ function displaySubjectWithPaper(subject, paperLabel) {
   return `${subject} — ${resolvedPaper}`;
 }
 
+function paperSortValue(paperLabel = "") {
+  const normalized = normalizePaperLabel(paperLabel);
+  if (normalized === "Paper 1") return 1;
+  if (normalized === "Paper 2") return 2;
+  return 0;
+}
+
 /* ------------------------------
    HELPERS
 --------------------------------*/
 
 function calcAverage(mid, eot) {
-  // Strict rule: average is always (MID + EOT) / 2.
-  // Missing papers are treated as 0.
-  const midScore = mid == null ? 0 : Number(mid);
-  const eotScore = eot == null ? 0 : Number(eot);
+  if (mid === null || mid === undefined || eot === null || eot === undefined) {
+    return null;
+  }
+  const midScore = Number(mid);
+  const eotScore = Number(eot);
+  if (!Number.isFinite(midScore) || !Number.isFinite(eotScore)) {
+    return null;
+  }
   return Math.round(((midScore + eotScore) / 2) * 10) / 10;
 }
 function getAge(dob) {
@@ -46,15 +67,29 @@ function getAge(dob) {
   }
 function scoreFromAverage(avg) {
   if (avg === null) return "";
-  if (avg <= 34) return "F9";
-  if (avg <= 44) return "P8";
-  if (avg <= 49) return "P7";
-  if (avg <= 54) return "C6";
-  if (avg <= 59) return "C5";
-  if (avg <= 64) return "C4";
-  if (avg <= 74) return "C3";
-  if (avg <= 79) return "D2";
+  if (avg <= 39) return "F9";
+  if (avg <= 49) return "P8";
+  if (avg <= 59) return "P7";
+  if (avg <= 64) return "C6";
+  if (avg <= 69) return "C5";
+  if (avg <= 74) return "C4";
+  if (avg <= 79) return "C3";
+  if (avg <= 84) return "D2";
   return "D1";
+}
+
+function paperGradeNumber(score = "") {
+  return {
+    D1: 1,
+    D2: 2,
+    C3: 3,
+    C4: 4,
+    C5: 5,
+    C6: 6,
+    P7: 7,
+    P8: 8,
+    F9: 9,
+  }[String(score || "").trim().toUpperCase()] ?? null;
 }
 
 function gradeFromScore(score) {
@@ -71,10 +106,41 @@ function pointsFromGrade(grade) {
   return { A: 6, B: 5, C: 4, D: 3, E: 2, O: 1, F: 0 }[grade] ?? 0;
 }
 
-function subsidiaryGrade(avg) {
-  if (avg === null) return { grade: "", points: 0 };
-  if (avg >= 50) return { grade: "O", points: 1 };
-  return { grade: "F", points: 0 };
+function deriveSubsidiarySubjectGrade(papers = []) {
+  if (!Array.isArray(papers) || papers.length === 0) {
+    return { grade: "Missing", points: 0 };
+  }
+
+  const paperGrades = papers.map((paper) => paperGradeNumber(paper.paperScore));
+  if (paperGrades.some((gradeNumber) => !Number.isFinite(gradeNumber))) {
+    return { grade: "Missing", points: 0 };
+  }
+
+  return paperGrades.every((gradeNumber) => gradeNumber <= 6)
+    ? { grade: "O", points: 1 }
+    : { grade: "F", points: 0 };
+}
+
+function deriveTwoPaperSubjectGrade(firstPaperScore, secondPaperScore) {
+  const first = paperGradeNumber(firstPaperScore);
+  const second = paperGradeNumber(secondPaperScore);
+
+  if (!Number.isFinite(first) || !Number.isFinite(second)) {
+    return "Missing";
+  }
+
+  const [better, weaker] = [first, second].sort((a, b) => a - b);
+  const aggregate = better + weaker;
+  const hasSubjectPass = better === 7 || better === 8 || weaker === 7 || weaker === 8;
+
+  if (weaker <= 2) return "A";
+  if (weaker === 3) return "B";
+  if (weaker === 4) return "C";
+  if (weaker === 5) return "D";
+  if (weaker === 6 || (weaker <= 8 && aggregate <= 12)) return "E";
+  if ((hasSubjectPass && aggregate <= 16) || (weaker === 9 && better <= 6)) return "O";
+  if ((better === 8 && weaker === 9) || (better === 9 && weaker === 9)) return "F";
+  return "F";
 }
 
 const COMMENT_BANK = {
@@ -187,6 +253,92 @@ function pickComments(total) {
   return { headTeacher, classTeacher };
 }
 
+function groupRowsBySubject(rows = []) {
+  const grouped = new Map();
+
+  rows.forEach((row) => {
+    const subjectName = String(row.subject || "").trim();
+    const key = subjectName.toLowerCase();
+    if (!grouped.has(key)) {
+      grouped.set(key, {
+        subject: subjectName,
+        isSubsidiary:
+          subjectName.toLowerCase().includes("sub") ||
+          subjectName.toLowerCase().includes("general"),
+        papers: [],
+      });
+    }
+
+    const group = grouped.get(key);
+    const paperAverage = calcAverage(row.mid, row.eot);
+    const paperScore = paperAverage === null ? "Missing" : scoreFromAverage(paperAverage);
+    group.papers.push({
+      paper: normalizePaperLabel(row.paper_label) || "Single",
+      teacher: row.teacher || "—",
+      mid: row.mid,
+      eot: row.eot,
+      avg: paperAverage,
+      paperScore,
+    });
+  });
+
+  return Array.from(grouped.values())
+    .map((group) => {
+      const papers = group.papers.sort((a, b) => {
+        const paperDiff = paperSortValue(a.paper) - paperSortValue(b.paper);
+        if (paperDiff !== 0) return paperDiff;
+        return String(a.paper || "").localeCompare(String(b.paper || ""));
+      });
+
+      const hasMissingPaper = papers.some((paper) => paper.avg === null || paper.avg === undefined);
+      const availablePaperAverages = papers
+        .map((paper) => Number(paper.avg))
+        .filter((value) => Number.isFinite(value));
+      const mergedAverage = !hasMissingPaper && availablePaperAverages.length
+        ? Math.round(
+            (availablePaperAverages.reduce((sum, value) => sum + value, 0) /
+              availablePaperAverages.length) *
+              10
+          ) / 10
+        : null;
+
+      const isTwoPaperSubject = papers.length >= 2 && papers.some((paper) => paper.paper !== "Single");
+      const score = scoreFromAverage(mergedAverage);
+
+      if (group.isSubsidiary) {
+        const subsidiary = hasMissingPaper
+          ? { grade: "Missing", points: 0 }
+          : deriveSubsidiarySubjectGrade(papers);
+        return {
+          subject: group.subject,
+          isSubsidiary: true,
+          papers,
+          mergedAverage,
+          score,
+          grade: subsidiary.grade,
+          points: subsidiary.points,
+        };
+      }
+
+      const grade = isTwoPaperSubject
+        ? deriveTwoPaperSubjectGrade(papers[0]?.paperScore, papers[1]?.paperScore)
+        : mergedAverage === null
+        ? "Missing"
+        : gradeFromScore(score);
+      const points = pointsFromGrade(grade);
+      return {
+        subject: group.subject,
+        isSubsidiary: false,
+        papers,
+        mergedAverage,
+        score: isTwoPaperSubject ? "—" : mergedAverage === null ? "Missing" : score,
+        grade,
+        points,
+      };
+    })
+    .sort((a, b) => a.subject.localeCompare(b.subject));
+}
+
 function random(arr) {
   return arr[Math.floor(Math.random() * arr.length)];
 }
@@ -242,49 +394,100 @@ router.post("/download", async (req, res) => {
       for (const learner of learners) {
         const age = getAge(learner.dob);
         const { cls, stream: streamName } = splitStream(learner.stream);
-  
-        const [rows] = await db.query(`
-          SELECT 
-            s.name AS subject,
-            ats.paper_label,
-            t.name AS teacher,
-            MAX(CASE WHEN e.name = 'MID' THEN m.score END) AS mid,
-            MAX(CASE WHEN e.name = 'EOT' THEN m.score END) AS eot
-          FROM alevel_marks m
-          JOIN alevel_subjects s ON s.id = m.subject_id
-          JOIN alevel_exams e ON e.id = m.exam_id
-          JOIN teachers t ON t.id = m.teacher_id
-          LEFT JOIN alevel_teacher_subjects ats ON ats.id = m.assignment_id
-          WHERE m.learner_id = ?
-            AND m.term = ?
-            AND YEAR(m.created_at) = ?
-          GROUP BY s.id, s.name, ats.paper_label, t.name
-          ORDER BY s.name ASC, ats.paper_label ASC
-        `, [learner.id, term, year]);
+        const [registeredSubjects] = await db.query(
+          `
+          SELECT
+            s.id AS subject_id,
+            s.name AS subject
+          FROM alevel_learner_subjects als
+          JOIN alevel_subjects s ON s.id = als.subject_id
+          WHERE als.learner_id = ?
+          ORDER BY s.name ASC
+          `,
+          [learner.id]
+        );
+
+        const subjectIds = registeredSubjects.map((row) => Number(row.subject_id)).filter(Number.isFinite);
+
+        const [assignmentRows] = subjectIds.length
+          ? await db.query(
+              `
+              SELECT
+                ats.subject_id,
+                ats.paper_label,
+                COALESCE(t.name, '—') AS teacher
+              FROM alevel_teacher_subjects ats
+              LEFT JOIN teachers t ON t.id = ats.teacher_id
+              WHERE ats.stream = ?
+                AND ats.subject_id IN (?)
+              ORDER BY ats.subject_id ASC, ats.paper_label ASC
+              `,
+              [learner.stream, subjectIds]
+            )
+          : [[]];
+
+        const [markRows] = subjectIds.length
+          ? await db.query(
+              `
+              SELECT
+                m.subject_id,
+                ats.paper_label,
+                COALESCE(t.name, '—') AS teacher,
+                MAX(CASE WHEN e.name = 'MID' THEN m.score END) AS mid,
+                MAX(CASE WHEN e.name = 'EOT' THEN m.score END) AS eot
+              FROM alevel_marks m
+              JOIN alevel_exams e ON e.id = m.exam_id
+              LEFT JOIN alevel_teacher_subjects ats ON ats.id = m.assignment_id
+              LEFT JOIN teachers t ON t.id = COALESCE(ats.teacher_id, m.teacher_id)
+              WHERE m.learner_id = ?
+                AND m.term = ?
+                AND YEAR(m.created_at) = ?
+                AND m.subject_id IN (?)
+              GROUP BY m.subject_id, ats.paper_label, t.name
+              ORDER BY m.subject_id ASC, ats.paper_label ASC
+              `,
+              [learner.id, term, year, subjectIds]
+            )
+          : [[]];
+
+        const expectedRows = [];
+
+        registeredSubjects.forEach((subjectRow) => {
+          const paperOptions = getPaperOptionsForSubject(subjectRow.subject);
+
+          paperOptions.forEach((paperLabel) => {
+            const normalizedPaper = normalizePaperLabel(paperLabel) || paperLabel;
+            const assignment = (assignmentRows || []).find(
+              (row) =>
+                Number(row.subject_id) === Number(subjectRow.subject_id) &&
+                (normalizePaperLabel(row.paper_label) || "Single") === normalizedPaper
+            );
+            const mark = (markRows || []).find(
+              (row) =>
+                Number(row.subject_id) === Number(subjectRow.subject_id) &&
+                (normalizePaperLabel(row.paper_label) || "Single") === normalizedPaper
+            );
+
+            expectedRows.push({
+              subject_id: Number(subjectRow.subject_id),
+              subject: subjectRow.subject,
+              paper_label: normalizedPaper,
+              teacher: mark?.teacher || assignment?.teacher || "—",
+              mid: mark?.mid ?? null,
+              eot: mark?.eot ?? null,
+            });
+          });
+        });
 
         // Only generate reports for learners with at least one recorded mark.
-        const hasAnyMark = rows.some(
+        const hasAnyMark = expectedRows.some(
           (r) => r.mid !== null || r.eot !== null
         );
         if (!hasAnyMark) continue;
   
-        let principals = [];
-        let subsidiaries = [];
-  
-        rows.forEach(r => {
-          const subjectLabel = displaySubjectWithPaper(r.subject, r.paper_label);
-          const avg = calcAverage(r.mid, r.eot);
-          const score = scoreFromAverage(avg);
-  
-          if (r.subject.toLowerCase().includes("sub") || r.subject.toLowerCase().includes("general")) {
-            const sg = subsidiaryGrade(avg);
-            subsidiaries.push({ ...r, subject: subjectLabel, avg, score, grade: sg.grade, points: sg.points });
-          } else {
-            const grade = gradeFromScore(score);
-            const points = pointsFromGrade(grade);
-            principals.push({ ...r, subject: subjectLabel, avg, score, grade, points });
-          }
-        });
+        const groupedSubjects = groupRowsBySubject(expectedRows);
+        const principals = groupedSubjects.filter((row) => !row.isSubsidiary);
+        const subsidiaries = groupedSubjects.filter((row) => row.isSubsidiary);
   
         const totalP = principals.reduce((s, x) => s + x.points, 0);
         const totalS = subsidiaries.reduce((s, x) => s + x.points, 0);

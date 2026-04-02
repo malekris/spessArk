@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { writeTeacherIdleExpiry } from "../utils/teacherSecurity";
 import "./LoginPage.css";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "https://spessark.onrender.com";
@@ -74,6 +75,7 @@ function TeacherForgotPassword() {
 
       localStorage.setItem("teacherToken", data.token);
       localStorage.setItem("teacherProfile", JSON.stringify(data.teacher));
+      writeTeacherIdleExpiry(Date.now() + 60 * 60 * 1000);
       sessionStorage.setItem("teacherResetMode", "1");
       navigate("/ark/teacher?reset=1", { replace: true });
     } catch {

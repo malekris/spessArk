@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { writeTeacherIdleExpiry } from "../utils/teacherSecurity";
 import "./LoginPage.css"; // Make sure this matches your new isolated CSS filename
 
 const API_BASE = import.meta.env.VITE_API_BASE || "https://spessark.onrender.com";
@@ -81,6 +82,7 @@ function TeacherLogin() {
       const { token, teacher } = await res.json();
       localStorage.setItem("teacherToken", token);
       localStorage.setItem("teacherProfile", JSON.stringify(teacher));
+      writeTeacherIdleExpiry(Date.now() + 60 * 60 * 1000);
 
       navigate("/ark/teacher");
     } catch (err) {

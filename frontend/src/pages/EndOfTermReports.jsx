@@ -1,9 +1,51 @@
 // src/pages/EndOfTermReports.jsx
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import generateReportCardPDF from "../components/reportCardPdf";
+import { normalizeSchoolCalendar } from "../utils/schoolCalendar";
 
   const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5001";
   const REPORT_DATES_STORAGE_KEY = "spess_report_card_dates";
+
+  const addDaysToDateKey = (dateKey, days) => {
+    const parsed = new Date(`${String(dateKey || "").trim()}T00:00:00`);
+    if (Number.isNaN(parsed.getTime())) return "";
+    parsed.setDate(parsed.getDate() + days);
+    const year = parsed.getFullYear();
+    const month = String(parsed.getMonth() + 1).padStart(2, "0");
+    const day = String(parsed.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+
+  const getCalendarDrivenReportDates = (calendar, term, year) => {
+    const normalized = normalizeSchoolCalendar(calendar || {});
+    if (String(normalized.academicYear || "").trim() !== String(year || "").trim()) {
+      return { termEndedOn: "", nextTermBeginsOn: "" };
+    }
+
+    const normalizedTerm = String(term || "").trim().toLowerCase();
+    const termIndex =
+      normalizedTerm === "1" || normalizedTerm === "term 1"
+        ? 1
+        : normalizedTerm === "2" || normalizedTerm === "term 2"
+        ? 2
+        : normalizedTerm === "3" || normalizedTerm === "term 3"
+        ? 3
+        : null;
+
+    if (!termIndex) {
+      return { termEndedOn: "", nextTermBeginsOn: "" };
+    }
+
+    const termEntry = normalized.entries.find((entry) => entry.key === `term${termIndex}`);
+    const nextTermEntry = normalized.entries.find((entry) => entry.key === `term${termIndex + 1}`);
+    const holidayAfterEntry = normalized.entries.find((entry) => entry.key === `holiday${termIndex}`);
+
+    const termEndedOn = termEntry?.to || "";
+    const nextTermBeginsOn =
+      nextTermEntry?.from || (termIndex === 3 && holidayAfterEntry?.to ? addDaysToDateKey(holidayAfterEntry.to, 1) : "");
+
+    return { termEndedOn, nextTermBeginsOn };
+  };
 
   function EndOfTermReports({ mode = "term" }) {
   const isEndOfYearMode = mode === "year";
@@ -20,6 +62,7 @@ import generateReportCardPDF from "../components/reportCardPdf";
   const [downloadStage, setDownloadStage] = useState("");
   const [error, setError] = useState("");
   const [data, setData] = useState([]);
+  const [schoolCalendar, setSchoolCalendar] = useState(null);
   const [reportDatesCache, setReportDatesCache] = useState(() => {
     try {
       const raw = window.localStorage.getItem(REPORT_DATES_STORAGE_KEY);
@@ -40,10 +83,36 @@ import generateReportCardPDF from "../components/reportCardPdf";
     () => `${mode}_${year}_${term}`,
     [mode, year, term]
   );
-  const reportDates = reportDatesCache[reportDatesKey] || {
-    termEndedOn: "",
-    nextTermBeginsOn: "",
-  };
+  const derivedReportDates = useMemo(
+    () => getCalendarDrivenReportDates(schoolCalendar, term, year),
+    [schoolCalendar, term, year]
+  );
+  const reportDates = useMemo(
+    () => ({
+      ...derivedReportDates,
+      ...(reportDatesCache[reportDatesKey] || {}),
+    }),
+    [derivedReportDates, reportDatesCache, reportDatesKey]
+  );
+
+  useEffect(() => {
+    let active = true;
+    fetch(`${API_BASE}/api/school-calendar`)
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to load school calendar");
+        return res.json();
+      })
+      .then((calendar) => {
+        if (active) setSchoolCalendar(calendar);
+      })
+      .catch((err) => {
+        console.error("Error loading shared school calendar for report dates:", err);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const updateReportDate = (field, value) => {
     setReportDatesCache((prev) => {

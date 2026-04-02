@@ -168,6 +168,7 @@ const isLikelyImageUrl = (url) => {
   if (!value) return false;
   if (isLikelyVideoUrl(value) || isLikelyRawUrl(value)) return false;
   return (
+    isR2Url(value) ||
     /\/image\/upload\//i.test(value) ||
     /\.(avif|bmp|gif|ico|jpe?g|png|svg|webp)(\?|$)/i.test(value)
   );

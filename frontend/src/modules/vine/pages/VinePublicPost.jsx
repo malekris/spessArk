@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import ImageCarousel from "./ImageCarousel";
 import { getVineToken, isVineTokenExpired } from "../utils/vineAuth";
-import useNearScreen from "../../../hooks/useNearScreen";
 import "./VinePublicPost.css";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
@@ -181,10 +180,6 @@ export default function VinePublicPost() {
   const [error, setError] = useState("");
   const [joinPromptOpen, setJoinPromptOpen] = useState(false);
   const [joinAction, setJoinAction] = useState("comment");
-  const [mediaMountRef, shouldMountMedia] = useNearScreen({
-    rootMargin: "720px 0px",
-    once: true,
-  });
   const targetCommentId = searchParams.get("comment");
 
   const redirectTarget = useMemo(() => {
@@ -351,28 +346,22 @@ export default function VinePublicPost() {
               ) : null}
 
               {post.image_url ? (
-                <div ref={mediaMountRef} className="vine-public-media-shell">
-                  {shouldMountMedia ? (
-                    <ImageCarousel
-                      imageUrl={post.image_url}
-                      onLike={() => openJoinPrompt("like")}
-                      onRevine={() => openJoinPrompt("revine")}
-                      onComments={() => openJoinPrompt("comment")}
-                      likeCount={post.likes}
-                      revineCount={post.revines}
-                      commentCount={post.comments}
-                      userLiked={false}
-                      userRevined={false}
-                      displayName={post.display_name}
-                      username={post.username}
-                      timeLabel={formatPostDate(post.created_at)}
-                      caption={post.content}
-                    />
-                  ) : (
-                    <div className="vine-public-media-placeholder" aria-hidden="true">
-                      <span>Preparing media…</span>
-                    </div>
-                  )}
+                <div className="vine-public-media-shell">
+                  <ImageCarousel
+                    imageUrl={post.image_url}
+                    onLike={() => openJoinPrompt("like")}
+                    onRevine={() => openJoinPrompt("revine")}
+                    onComments={() => openJoinPrompt("comment")}
+                    likeCount={post.likes}
+                    revineCount={post.revines}
+                    commentCount={post.comments}
+                    userLiked={false}
+                    userRevined={false}
+                    displayName={post.display_name}
+                    username={post.username}
+                    timeLabel={formatPostDate(post.created_at)}
+                    caption={post.content}
+                  />
                 </div>
               ) : null}
 

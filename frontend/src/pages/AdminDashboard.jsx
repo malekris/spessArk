@@ -129,6 +129,17 @@ const calculateLearnerAge = (value, referenceDate = new Date()) => {
   return age >= 0 ? age : null;
 };
 
+const formatRegisterState = (value) => {
+  const raw = String(value || "active").trim().toLowerCase();
+  if (!raw || raw === "active") return "In Register";
+
+  return raw
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+};
+
 const normalizeOperationalTerm = (value) => {
   const raw = String(value || "").trim().toLowerCase();
   if (/\b(term\s*3|iii|3)\b/.test(raw)) return "Term 3";
@@ -6510,9 +6521,9 @@ export default function AdminDashboard() {
                       <small>Registered subjects in this portal year</small>
                     </div>
                     <div className="admin-ops-kpi">
-                      <span>Status</span>
-                      <strong>{selectedPortalLearner.status || "active"}</strong>
-                      <small>{selectedPortalLearner.house ? `House: ${selectedPortalLearner.house}` : "Registration record"}</small>
+                      <span>Register State</span>
+                      <strong>{formatRegisterState(selectedPortalLearner.status)}</strong>
+                      <small>{selectedPortalLearner.house ? `House: ${selectedPortalLearner.house}` : "Portal-year register record"}</small>
                     </div>
                   </div>
 

@@ -225,18 +225,34 @@ router.post("/admin/assignments", authAdmin, async (req, res) => {
     const resolvedPaper = resolvePaperLabel(subjectRow.name, paperLabel);
 
     const [[existing]] = await db.query(
-      `SELECT id
-       FROM alevel_teacher_subjects
-       WHERE teacher_id = ?
-         AND subject_id = ?
-         AND stream = ?
-         AND paper_label = ?
+      `SELECT ats.id, ats.teacher_id, COALESCE(t.name, 'Another teacher') AS teacher_name
+       FROM alevel_teacher_subjects ats
+       LEFT JOIN teachers t ON t.id = ats.teacher_id
+       WHERE ats.subject_id = ?
+         AND ats.stream = ?
+         AND ats.paper_label = ?
        LIMIT 1`,
-      [teacherId, subjectId, stream, resolvedPaper]
+      [subjectId, stream, resolvedPaper]
     );
 
     if (existing) {
-      return res.status(409).json({ message: "Assignment already exists for this paper" });
+      const teacherName = String(existing.teacher_name || "Another teacher").trim() || "Another teacher";
+      const teacherSpecificMessage =
+        Number(existing.teacher_id) === Number(teacherId)
+          ? `${buildSubjectDisplay(subjectRow.name, resolvedPaper)} is already assigned to you in ${stream}.`
+          : `${buildSubjectDisplay(subjectRow.name, resolvedPaper)} is already assigned to ${teacherName} in ${stream}.`;
+
+      return res.status(409).json({
+        message: teacherSpecificMessage,
+        existingAssignment: {
+          id: Number(existing.id),
+          teacherId: Number(existing.teacher_id),
+          teacherName,
+          subject: subjectRow.name,
+          stream,
+          paperLabel: resolvedPaper,
+        },
+      });
     }
 
     const [result] = await db.query(

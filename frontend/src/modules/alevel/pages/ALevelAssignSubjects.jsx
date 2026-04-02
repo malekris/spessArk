@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { plainFetch, adminFetch } from "../../../lib/api";
 import { loadPdfTools } from "../../../utils/loadPdfTools";
 import ALevelAdminShell from "../components/ALevelAdminShell";
@@ -54,6 +54,26 @@ export default function ALevelAssignSubjects() {
     ? selectedSubject.paper_options
     : ["Single"];
   const isSinglePaperOnly = paperOptions.length === 1;
+  const selectedSubjectName = String(selectedSubject?.name || "").trim();
+  const resolvedFormPaperLabel = String(form.paperLabel || paperOptions[0] || "Single").trim() || "Single";
+
+  const existingAssignmentConflict = useMemo(() => {
+    if (!selectedSubjectName || !form.stream || !resolvedFormPaperLabel) return null;
+
+    return (
+      assignments.find((assignment) => {
+        const assignmentSubject = String(assignment.subject || "").trim().toLowerCase();
+        const assignmentStream = String(assignment.stream || "").trim().toLowerCase();
+        const assignmentPaper = String(assignment.paper_label || "Single").trim().toLowerCase();
+
+        return (
+          assignmentSubject === selectedSubjectName.toLowerCase() &&
+          assignmentStream === String(form.stream || "").trim().toLowerCase() &&
+          assignmentPaper === resolvedFormPaperLabel.toLowerCase()
+        );
+      }) || null
+    );
+  }, [assignments, form.stream, resolvedFormPaperLabel, selectedSubjectName]);
 
   /* ======================================================
      3. LOAD DATA
@@ -118,6 +138,15 @@ export default function ALevelAssignSubjects() {
       return;
     }
 
+    if (existingAssignmentConflict) {
+      setError(
+        `${existingAssignmentConflict.subject_display || `${selectedSubjectName} — ${resolvedFormPaperLabel}`} is already assigned to ${
+          existingAssignmentConflict.teacher_name || "another teacher"
+        } in ${existingAssignmentConflict.stream || form.stream}.`
+      );
+      return;
+    }
+
     try {
       const teacherLabel =
         teachers.find((teacher) => String(teacher.id) === String(form.teacherId))?.name || "Selected teacher";
@@ -139,7 +168,7 @@ export default function ALevelAssignSubjects() {
         teacher: teacherLabel,
         subject: subjectLabel,
         stream: form.stream,
-        paperLabel: form.paperLabel || "Single",
+        paperLabel: resolvedFormPaperLabel,
       });
       setForm({ teacherId: "", subject: "", stream: "", paperLabel: "" });
       loadAll();
@@ -344,11 +373,22 @@ export default function ALevelAssignSubjects() {
           </div>
 
           <div className="alevel-assign-action">
-            <button className="primary-btn" disabled={!canAssign}>
+            <button className="primary-btn" disabled={!canAssign || Boolean(existingAssignmentConflict)}>
               Assign Subject
             </button>
           </div>
         </form>
+
+        {existingAssignmentConflict && (
+          <div
+            className="panel-alert panel-alert-error"
+            style={{ marginTop: "0.9rem", marginBottom: 0 }}
+          >
+            {existingAssignmentConflict.subject_display || `${selectedSubjectName} — ${resolvedFormPaperLabel}`} is already assigned to{" "}
+            <strong>{existingAssignmentConflict.teacher_name || "another teacher"}</strong> in{" "}
+            <strong>{existingAssignmentConflict.stream || form.stream}</strong>.
+          </div>
+        )}
       </div>
 
       {/* ===========================

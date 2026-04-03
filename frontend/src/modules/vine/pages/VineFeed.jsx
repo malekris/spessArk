@@ -329,6 +329,7 @@ export default function VineFeed() {
   const feedNextCursorRef = useRef(null);
   const createInputRef = useRef(null);
   const checkedNewsTargetRef = useRef("");
+  const injectedTargetPostRef = useRef("");
   const draftPostRequestIdRef = useRef("");
   const draftPostFingerprintRef = useRef("");
 
@@ -487,6 +488,10 @@ export default function VineFeed() {
     checkedNewsTargetRef.current = "";
   }, [targetPostId, targetCommentId, activeFeedTab]);
 
+  useEffect(() => {
+    injectedTargetPostRef.current = "";
+  }, [targetPostId, activeFeedTab]);
+
   // ── Deep Link Handling (post & comment highlight) ──
   useEffect(() => {
     if (handledDeepLink) return;
@@ -554,6 +559,41 @@ export default function VineFeed() {
     resolveNewsLane();
     return () => controller.abort();
   }, [feedLoading, isNewsTab, posts, setParams, targetCommentId, targetPostId, token]);
+
+  useEffect(() => {
+    if (!targetPostId || isNewsTab || feedLoading) return;
+    if (posts.some((row) => String(row?.id) === String(targetPostId))) return;
+
+    const injectKey = `${activeFeedTab}:${targetPostId}`;
+    if (injectedTargetPostRef.current === injectKey) return;
+    injectedTargetPostRef.current = injectKey;
+
+    const controller = new AbortController();
+
+    const injectTargetPost = async () => {
+      try {
+        const res = await fetch(`${API}/api/vine/posts/${targetPostId}/public`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          signal: controller.signal,
+          cache: "no-store",
+        });
+        const data = await res.json().catch(() => null);
+        if (!res.ok || !data || controller.signal.aborted) return;
+
+        setPosts((prev) => {
+          if (prev.some((row) => String(row?.id) === String(targetPostId))) return prev;
+          return [data, ...prev];
+        });
+      } catch (err) {
+        if (err?.name !== "AbortError") {
+          console.error("Failed to inject target post into feed", err);
+        }
+      }
+    };
+
+    injectTargetPost();
+    return () => controller.abort();
+  }, [activeFeedTab, feedLoading, isNewsTab, posts, targetPostId, token]);
 
   // ── Feed Loading + Polling ──────────────────────
   const loadFeed = useCallback(async (signal, { append = false, cursorOverride = null } = {}) => {
@@ -2145,7 +2185,7 @@ export default function VineFeed() {
                   <div
                     key={`trend-${p.id}`}
                     className="trending-card"
-                    onClick={() => navigate(`/vine/post/${p.id}`)}
+                    onClick={() => navigate(`/vine/feed?post=${p.id}`)}
                   >
                     <div className="trending-top">
                           <img

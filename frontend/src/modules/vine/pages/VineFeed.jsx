@@ -2145,7 +2145,7 @@ export default function VineFeed() {
                   <div
                     key={`trend-${p.id}`}
                     className="trending-card"
-                    onClick={() => navigate(`/vine/feed?post=${p.id}`)}
+                    onClick={() => navigate(`/vine/post/${p.id}`)}
                   >
                     <div className="trending-top">
                           <img

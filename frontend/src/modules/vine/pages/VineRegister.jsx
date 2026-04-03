@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import loginCover from "../../../assets/newloginpic.jpeg";
+import VineAuthFlorals from "../components/VineAuthFlorals";
+import { buildVineAuthThemeClasses, shouldRenderVineAuthFlorals, useVineAuthTheme } from "../utils/authTheme";
 import "./VineLogin.css";
 import "./VineRegister.css";  // ← this one line adds the styles
 
@@ -8,6 +9,7 @@ const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 
 export default function VineRegister() {
   const navigate = useNavigate();
+  const authTheme = useVineAuthTheme();
   const [searchParams] = useSearchParams();
   const redirectParam = searchParams.get("redirect") || "";
   const safeRedirect = typeof redirectParam === "string" && redirectParam.startsWith("/")
@@ -129,15 +131,10 @@ if (name === "username") {
 
   return (
     <div
-      className="vine-auth-bg vine-auth-bg-login vine-auth-bg-register"
-      style={{ "--vine-login-cover": `url(${loginCover})` }}
+      className={buildVineAuthThemeClasses(authTheme, "vine-auth-bg-register")}
+      style={{ "--vine-login-cover": `url(${authTheme.cover_url})` }}
     >
-      <div className="vine-login-florals" aria-hidden="true">
-        <span className="vine-flower vine-flower-top" />
-        <span className="vine-flower vine-flower-bottom" />
-        <span className="vine-leaf-arc vine-leaf-arc-left" />
-        <span className="vine-leaf-arc vine-leaf-arc-right" />
-      </div>
+      {shouldRenderVineAuthFlorals(authTheme) && <VineAuthFlorals />}
       <form className="vine-auth-card vine-auth-card-login vine-form vine-register-card" onSubmit={handleSubmit}>
         <div className="vine-register-seed">🌱</div>
         <p className="vine-register-brand">SPESS VINE</p>

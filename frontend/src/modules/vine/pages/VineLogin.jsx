@@ -1,12 +1,14 @@
 import { useState, useEffect } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { touchVineActivity } from "../utils/vineAuth";
-import loginCover from "../../../assets/newloginpic.jpeg";
+import VineAuthFlorals from "../components/VineAuthFlorals";
+import { buildVineAuthThemeClasses, shouldRenderVineAuthFlorals, useVineAuthTheme } from "../utils/authTheme";
 import "./VineLogin.css"; // 🔥 Pointing to the new file
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 
 export default function VineLogin() {
   const location = useLocation();
+  const authTheme = useVineAuthTheme();
   const [searchParams] = useSearchParams();
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
@@ -81,26 +83,16 @@ export default function VineLogin() {
 
   return (
     <div
-      className="vine-auth-bg vine-auth-bg-login"
-      style={{ "--vine-login-cover": `url(${loginCover})` }}
+      className={buildVineAuthThemeClasses(authTheme)}
+      style={{ "--vine-login-cover": `url(${authTheme.cover_url})` }}
     >
-      <div className="vine-login-florals" aria-hidden="true">
-        <span className="vine-flower vine-flower-top" />
-        <span className="vine-flower vine-flower-bottom" />
-        <span className="vine-leaf-arc vine-leaf-arc-left" />
-        <span className="vine-leaf-arc vine-leaf-arc-right" />
-      </div>
+      {shouldRenderVineAuthFlorals(authTheme) && <VineAuthFlorals />}
       <div className="vine-auth-card vine-auth-card-login">
       <Link to="/" className="back-home-btn">
     ← Back to website
   </Link>
-        <div className="vine-login-kicker">
-          <span className="vine-login-kicker-line" />
-          <span className="vine-login-kicker-bloom">Bloom into Vine</span>
-          <span className="vine-login-kicker-line" />
-        </div>
         <h2 className="vine-title">Welcome to SPESS VINE 🌱</h2>
-        <p className="vine-login-subcopy">Forest calm, mint light, and a little floral grace before you step in.</p>
+        <p className="vine-login-subcopy">Forest calm and mint light before you step in.</p>
 
         {isDesktop && !showDesktopForm ? (
           <button

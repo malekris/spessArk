@@ -188,6 +188,18 @@ const VINE_SYSTEM_NOTICE_MESSAGE = String(
 const VINE_SYSTEM_NOTICE_ENABLED = !["0", "false", "off"].includes(
   String(process.env.VINE_SYSTEM_NOTICE_ENABLED || "true").trim().toLowerCase()
 );
+const VINE_AUTH_THEME_DEFAULT_COVER_URL = String(
+  process.env.VINE_AUTH_THEME_DEFAULT_COVER_URL || "/newactivities/fffffffffff.jpg"
+).trim();
+const VINE_AUTH_THEME_EFFECT_OPTIONS = new Set([
+  "clean",
+  "cinematic",
+  "floral",
+  "botanical",
+  "dawn",
+  "noir",
+]);
+const VINE_AUTH_THEME_ALIGNMENT_OPTIONS = new Set(["left", "center", "right"]);
 
 const deleteCloudinaryByUrl = async (url) => {
   if (isR2Url(url) && r2Client && r2Ready) {
@@ -2628,6 +2640,105 @@ const saveSystemNoticeSettings = async (payload = {}, updatedBy = null) => {
   return saved;
 };
 
+let authThemeSchemaReady = false;
+let authThemeCache = null;
+let authThemeLoadedAt = 0;
+const AUTH_THEME_CACHE_MS = 60 * 1000;
+
+const normalizeVineAuthThemeSettings = (value = {}) => {
+  const coverUrl = String(value.cover_url || VINE_AUTH_THEME_DEFAULT_COVER_URL || "").trim();
+  const effectPresetRaw = String(value.effect_preset || "clean").trim().toLowerCase();
+  const formAlignmentRaw = String(value.form_alignment || "right").trim().toLowerCase();
+
+  return {
+    cover_url: coverUrl || VINE_AUTH_THEME_DEFAULT_COVER_URL,
+    effect_preset: VINE_AUTH_THEME_EFFECT_OPTIONS.has(effectPresetRaw) ? effectPresetRaw : "clean",
+    form_alignment: VINE_AUTH_THEME_ALIGNMENT_OPTIONS.has(formAlignmentRaw)
+      ? formAlignmentRaw
+      : "right",
+    updated_by: value.updated_by ? Number(value.updated_by) : null,
+    updated_at: value.updated_at || null,
+  };
+};
+
+const ensureAuthThemeSchema = async () => {
+  if (authThemeSchemaReady) return;
+  await ensureAdvancedSettingsSchema();
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_auth_theme_settings (
+      id TINYINT PRIMARY KEY,
+      cover_url VARCHAR(1000) NOT NULL,
+      effect_preset VARCHAR(32) NOT NULL DEFAULT 'clean',
+      form_alignment VARCHAR(16) NOT NULL DEFAULT 'right',
+      updated_by INT NULL,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  authThemeSchemaReady = true;
+};
+
+const getCurrentVineAuthTheme = async ({ force = false } = {}) => {
+  await ensureAuthThemeSchema();
+  if (!force && authThemeCache && Date.now() - authThemeLoadedAt < AUTH_THEME_CACHE_MS) {
+    return authThemeCache;
+  }
+
+  const [[row]] = await db.query(
+    `
+    SELECT cover_url, effect_preset, form_alignment, updated_by, updated_at
+    FROM vine_auth_theme_settings
+    WHERE id = 1
+    LIMIT 1
+    `
+  );
+
+  const next = normalizeVineAuthThemeSettings(row || {});
+  authThemeCache = next;
+  authThemeLoadedAt = Date.now();
+  return next;
+};
+
+const saveVineAuthThemeSettings = async (payload = {}, updatedBy = null) => {
+  await ensureAuthThemeSchema();
+  const current = await getCurrentVineAuthTheme({ force: true });
+  const merged = normalizeVineAuthThemeSettings({
+    ...current,
+    cover_url: payload.cover_url,
+    effect_preset: payload.effect_preset,
+    form_alignment: payload.form_alignment,
+  });
+
+  await db.query(
+    `
+    INSERT INTO vine_auth_theme_settings
+      (id, cover_url, effect_preset, form_alignment, updated_by, updated_at)
+    VALUES
+      (1, ?, ?, ?, ?, NOW())
+    ON DUPLICATE KEY UPDATE
+      cover_url = VALUES(cover_url),
+      effect_preset = VALUES(effect_preset),
+      form_alignment = VALUES(form_alignment),
+      updated_by = VALUES(updated_by),
+      updated_at = NOW()
+    `,
+    [merged.cover_url, merged.effect_preset, merged.form_alignment, updatedBy ? Number(updatedBy) : null]
+  );
+
+  const [[savedRow]] = await db.query(
+    `
+    SELECT cover_url, effect_preset, form_alignment, updated_by, updated_at
+    FROM vine_auth_theme_settings
+    WHERE id = 1
+    LIMIT 1
+    `
+  );
+
+  const saved = normalizeVineAuthThemeSettings(savedRow || merged);
+  authThemeCache = saved;
+  authThemeLoadedAt = Date.now();
+  return saved;
+};
+
 let followRequestSchemaReady = false;
 const ensureFollowRequestSchema = async () => {
   if (followRequestSchemaReady) return;
@@ -4892,6 +5003,15 @@ const buildCommunityAvatarBuffer = async (buffer) => {
 const buildCommunityBannerBuffer = async (buffer) => {
   const out = await sharp(buffer)
     .resize(1500, 500, { fit: "cover", position: sharp.strategy.attention })
+    .jpeg({ quality: 88, mozjpeg: true })
+    .toBuffer();
+  return { buffer: out, mimetype: "image/jpeg" };
+};
+
+const buildAuthThemeCoverBuffer = async (buffer) => {
+  const out = await sharp(buffer)
+    .rotate()
+    .resize({ width: 2200, height: 2200, fit: "inside", withoutEnlargement: true })
     .jpeg({ quality: 88, mozjpeg: true })
     .toBuffer();
   return { buffer: out, mimetype: "image/jpeg" };
@@ -8440,6 +8560,107 @@ router.get("/system-notice/settings", authenticate, async (req, res) => {
   } catch (err) {
     console.error("System notice settings fetch error:", err);
     res.status(500).json({ message: "Failed to load login notice" });
+  }
+});
+
+router.get("/auth-theme/settings/public", async (_req, res) => {
+  try {
+    const settings = await getCurrentVineAuthTheme();
+    res.json(settings);
+  } catch (err) {
+    console.error("Auth theme public fetch error:", err);
+    res.status(500).json({ message: "Failed to load auth theme" });
+  }
+});
+
+router.get("/auth-theme/settings", authenticate, async (req, res) => {
+  try {
+    const user = req.user || {};
+    if (!isModeratorAccount(user)) {
+      return res.status(403).json({ message: "Only moderators can view the auth theme." });
+    }
+
+    const settings = await getCurrentVineAuthTheme();
+    res.json(settings);
+  } catch (err) {
+    console.error("Auth theme settings fetch error:", err);
+    res.status(500).json({ message: "Failed to load auth theme" });
+  }
+});
+
+router.post(
+  "/auth-theme/cover",
+  authenticate,
+  uploadBannerMemory.single("cover"),
+  async (req, res) => {
+    try {
+      const user = req.user || {};
+      if (!isModeratorAccount(user)) {
+        return res.status(403).json({ message: "Only moderators can update the auth cover." });
+      }
+      if (!req.file) {
+        return res.status(400).json({ message: "Please choose a cover image." });
+      }
+
+      const current = await getCurrentVineAuthTheme({ force: true });
+      const normalized = await normalizeImageBuffer(req.file);
+      const prepared = await buildAuthThemeCoverBuffer(normalized.buffer);
+      const upload = await uploadBufferToCloudinary(prepared.buffer, {
+        folder: "vine/auth-theme",
+        public_id: `cover-${Date.now()}-${crypto.randomUUID()}`,
+        resource_type: "image",
+        format: "jpg",
+      });
+
+      const saved = await saveVineAuthThemeSettings(
+        {
+          ...current,
+          cover_url: upload.secure_url,
+        },
+        user.id || null
+      );
+
+      if (current?.cover_url && current.cover_url !== saved.cover_url) {
+        await deleteCloudinaryByUrl(current.cover_url);
+      }
+
+      res.json({ success: true, settings: saved });
+    } catch (err) {
+      console.error("Auth theme cover upload error:", err);
+      res.status(500).json({ message: "Failed to upload auth cover" });
+    }
+  }
+);
+
+router.put("/auth-theme/settings", authenticate, async (req, res) => {
+  try {
+    const user = req.user || {};
+    if (!isModeratorAccount(user)) {
+      return res.status(403).json({ message: "Only moderators can update the auth theme." });
+    }
+
+    const current = await getCurrentVineAuthTheme({ force: true });
+    const nextCoverUrl =
+      req.body?.cover_url === undefined ? current?.cover_url : String(req.body?.cover_url || "").trim();
+    const settings = await saveVineAuthThemeSettings(
+      {
+        cover_url: nextCoverUrl,
+        effect_preset: req.body?.effect_preset,
+        form_alignment: req.body?.form_alignment,
+      },
+      user.id || null
+    );
+
+    if (current?.cover_url && current.cover_url !== settings.cover_url) {
+      await deleteCloudinaryByUrl(current.cover_url);
+    }
+
+    res.json({ success: true, settings });
+  } catch (err) {
+    console.error("Auth theme settings update error:", err);
+    res.status(err?.statusCode || 500).json({
+      message: err?.message || "Failed to save auth theme",
+    });
   }
 });
 

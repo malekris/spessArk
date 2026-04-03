@@ -23,6 +23,24 @@ const ACTIVITY_FILTER_OPTIONS = [
   ["follows", "Follows"],
   ["communities", "Communities"],
 ];
+const AUTH_THEME_EFFECT_OPTIONS = [
+  ["clean", "Clean"],
+  ["cinematic", "Cinematic"],
+  ["floral", "Floral"],
+  ["botanical", "Botanical"],
+  ["dawn", "Dawn"],
+  ["noir", "Noir"],
+];
+const AUTH_THEME_ALIGNMENT_OPTIONS = [
+  ["left", "Left"],
+  ["center", "Center"],
+  ["right", "Right"],
+];
+const DEFAULT_AUTH_THEME_FORM = {
+  cover_url: "/newactivities/fffffffffff.jpg",
+  effect_preset: "clean",
+  form_alignment: "right",
+};
 
 const isGuardianUser = (user) => {
   if (!user) return false;
@@ -94,6 +112,11 @@ export default function VineGuardianAnalytics() {
       "We have polished a few things across Vine to keep it lighter, cleaner, and easier to use. Tap okay to continue.",
   });
   const [noticeSaving, setNoticeSaving] = useState(false);
+  const [authThemeForm, setAuthThemeForm] = useState(DEFAULT_AUTH_THEME_FORM);
+  const [authThemeCoverFile, setAuthThemeCoverFile] = useState(null);
+  const [authThemeCoverPreview, setAuthThemeCoverPreview] = useState("");
+  const [authThemeSaving, setAuthThemeSaving] = useState(false);
+  const [authThemeNotice, setAuthThemeNotice] = useState(null);
   const [from, setFrom] = useState(() => {
     const d = new Date(Date.now() - 6 * 86400000);
     return d.toISOString().slice(0, 10);
@@ -123,7 +146,15 @@ export default function VineGuardianAnalytics() {
         setLoading(true);
         setError("");
         const q = new URLSearchParams({ from, to }).toString();
-        const [overviewResult, perfResult, activityResult, newsHealthResult, newsSettingsResult, noticeSettingsResult] =
+        const [
+          overviewResult,
+          perfResult,
+          activityResult,
+          newsHealthResult,
+          newsSettingsResult,
+          noticeSettingsResult,
+          authThemeSettingsResult,
+        ] =
           await Promise.allSettled([
           fetch(`${API}/api/vine/analytics/overview?${q}`, {
             headers: { Authorization: `Bearer ${token}` },
@@ -141,6 +172,9 @@ export default function VineGuardianAnalytics() {
             headers: { Authorization: `Bearer ${token}` },
           }),
           fetch(`${API}/api/vine/system-notice/settings`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          fetch(`${API}/api/vine/auth-theme/settings`, {
             headers: { Authorization: `Bearer ${token}` },
           }),
         ]);
@@ -204,6 +238,15 @@ export default function VineGuardianAnalytics() {
           }
         }
 
+        let authThemeSettingsBody = null;
+        if (authThemeSettingsResult?.status === "fulfilled") {
+          const authThemeSettingsRes = authThemeSettingsResult.value;
+          const parsed = await authThemeSettingsRes.json().catch(() => null);
+          if (authThemeSettingsRes.ok) {
+            authThemeSettingsBody = parsed;
+          }
+        }
+
         setData({
           ...overviewBody,
           performance: perfBody,
@@ -211,6 +254,7 @@ export default function VineGuardianAnalytics() {
           newsHealth: newsHealthBody,
           newsSettings: newsSettingsBody,
           noticeSettings: noticeSettingsBody,
+          authThemeSettings: authThemeSettingsBody,
         });
       } catch (err) {
         setError("Failed to load analytics");
@@ -334,6 +378,38 @@ export default function VineGuardianAnalytics() {
       ),
     });
   }, [data?.noticeSettings]);
+
+  useEffect(() => {
+    const source = data?.authThemeSettings;
+    if (!source) return;
+    setAuthThemeForm({
+      cover_url: String(source.cover_url || "/newactivities/fffffffffff.jpg"),
+      effect_preset: ["clean", "cinematic", "floral", "botanical", "dawn", "noir"].includes(String(source.effect_preset || "").toLowerCase())
+        ? String(source.effect_preset || "").toLowerCase()
+        : "clean",
+      form_alignment: ["left", "center", "right"].includes(String(source.form_alignment || "").toLowerCase())
+        ? String(source.form_alignment || "").toLowerCase()
+        : "right",
+    });
+  }, [data?.authThemeSettings]);
+
+  useEffect(() => {
+    if (!authThemeCoverFile) {
+      setAuthThemeCoverPreview("");
+      return undefined;
+    }
+    const objectUrl = URL.createObjectURL(authThemeCoverFile);
+    setAuthThemeCoverPreview(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [authThemeCoverFile]);
+
+  useEffect(() => {
+    if (!authThemeNotice) return undefined;
+    const timer = window.setTimeout(() => {
+      setAuthThemeNotice(null);
+    }, 4500);
+    return () => window.clearTimeout(timer);
+  }, [authThemeNotice]);
 
   const exportCsv = (filename, rows) => {
     if (!rows?.length) return;
@@ -633,6 +709,107 @@ export default function VineGuardianAnalytics() {
     }
   };
 
+  const saveAuthTheme = async () => {
+    try {
+      setAuthThemeSaving(true);
+      setAuthThemeNotice(null);
+      let nextCoverUrl = authThemeForm.cover_url;
+
+      if (authThemeCoverFile) {
+        const formData = new FormData();
+        formData.append("cover", authThemeCoverFile);
+        const uploadRes = await fetch(`${API}/api/vine/auth-theme/cover`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          body: formData,
+        });
+        const uploadBody = await uploadRes.json().catch(() => ({}));
+        if (!uploadRes.ok) {
+          setAuthThemeNotice({
+            kind: "error",
+            message: uploadBody?.message || "Failed to upload auth cover.",
+          });
+          return;
+        }
+        nextCoverUrl = String(uploadBody?.settings?.cover_url || nextCoverUrl || "").trim();
+      }
+
+      const res = await fetch(`${API}/api/vine/auth-theme/settings`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          cover_url: nextCoverUrl,
+          effect_preset: authThemeForm.effect_preset,
+          form_alignment: authThemeForm.form_alignment,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setAuthThemeNotice({
+          kind: "error",
+          message: body?.message || "Failed to save auth theme.",
+        });
+        return;
+      }
+
+      setData((prev) => (prev ? { ...prev, authThemeSettings: body.settings } : prev));
+      setAuthThemeCoverFile(null);
+      setAuthThemeNotice({
+        kind: "success",
+        message: "Auth theme published.",
+      });
+    } catch {
+      setAuthThemeNotice({
+        kind: "error",
+        message: "Failed to save auth theme.",
+      });
+    } finally {
+      setAuthThemeSaving(false);
+    }
+  };
+
+  const resetAuthTheme = async () => {
+    try {
+      setAuthThemeSaving(true);
+      setAuthThemeNotice(null);
+      const res = await fetch(`${API}/api/vine/auth-theme/settings`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(DEFAULT_AUTH_THEME_FORM),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setAuthThemeNotice({
+          kind: "error",
+          message: body?.message || "Failed to reset auth theme.",
+        });
+        return;
+      }
+      setData((prev) => (prev ? { ...prev, authThemeSettings: body.settings } : prev));
+      setAuthThemeForm(DEFAULT_AUTH_THEME_FORM);
+      setAuthThemeCoverFile(null);
+      setAuthThemeNotice({
+        kind: "success",
+        message: "Auth theme reset to default.",
+      });
+    } catch {
+      setAuthThemeNotice({
+        kind: "error",
+        message: "Failed to reset auth theme.",
+      });
+    } finally {
+      setAuthThemeSaving(false);
+    }
+  };
+
   const releaseNow = async (userId) => {
     if (!userId) return;
     try {
@@ -719,6 +896,8 @@ export default function VineGuardianAnalytics() {
   const newsHealth = data?.newsHealth || null;
   const newsRuntime = newsHealth?.runtime || {};
   const noticeSettings = data?.noticeSettings || null;
+  const authThemeSettings = data?.authThemeSettings || null;
+  const authThemePreviewUrl = authThemeCoverPreview || authThemeForm.cover_url || "/newactivities/fffffffffff.jpg";
   const recentLogins = activity?.recent_logins || [];
   const recentActions = activity?.recent_actions || [];
   const perfRuntime = perf?.runtime || {};
@@ -983,6 +1162,144 @@ export default function VineGuardianAnalytics() {
                 {noticeSaving ? "Saving..." : noticeForm.enabled ? "Publish notice" : "Save disabled state"}
               </button>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="guardian-section">
+        <h3>Auth Theme</h3>
+        <div className="guardian-news-grid">
+          <div className="guardian-news-card guardian-auth-theme-card">
+            <span className="guardian-news-label">Cover</span>
+            <div
+              className={`guardian-auth-theme-preview guardian-auth-effect-${authThemeForm.effect_preset} guardian-auth-align-${authThemeForm.form_alignment}`}
+              style={{ "--guardian-auth-cover": `url(${authThemePreviewUrl})` }}
+            >
+              {authThemeForm.effect_preset === "floral" && (
+                <div className="guardian-auth-florals" aria-hidden="true">
+                  <span className="guardian-auth-flower guardian-auth-flower-top" />
+                  <span className="guardian-auth-flower guardian-auth-flower-bottom" />
+                </div>
+              )}
+              <div className="guardian-auth-preview-card">
+                <strong>SPESS Vine</strong>
+                <span>Login, signup, and reset all use this scene.</span>
+              </div>
+            </div>
+            <label className="guardian-auth-upload-shell">
+              <span className="guardian-auth-upload-label">Upload a new cover</span>
+              <input
+                className="guardian-auth-upload-input"
+                type="file"
+                accept="image/*"
+                onChange={(e) => setAuthThemeCoverFile(e.target.files?.[0] || null)}
+              />
+              <span className="guardian-auth-upload-cta">Choose cover</span>
+              <span className="guardian-auth-upload-copy">
+                {authThemeCoverFile ? authThemeCoverFile.name : "No new file selected yet"}
+              </span>
+            </label>
+            {authThemeCoverFile && (
+              <button
+                type="button"
+                className="guardian-csv-btn guardian-auth-clear"
+                onClick={() => setAuthThemeCoverFile(null)}
+              >
+                Clear selection
+              </button>
+            )}
+            <small>
+              {authThemeCoverFile
+                ? `Ready to publish: ${authThemeCoverFile.name}`
+                : "Upload once here and it will flow into login, signup, and forgot password."}
+            </small>
+          </div>
+
+          <div className="guardian-news-card guardian-auth-theme-card">
+            <span className="guardian-news-label">Look & Layout</span>
+            <div className="guardian-auth-field-stack">
+              <label>
+                <span className="guardian-auth-field-label">Effect preset</span>
+                <select
+                  className="guardian-news-time"
+                  value={authThemeForm.effect_preset}
+                  onChange={(e) =>
+                    setAuthThemeForm((prev) => ({
+                      ...prev,
+                      effect_preset: e.target.value,
+                    }))
+                  }
+                >
+                  {AUTH_THEME_EFFECT_OPTIONS.map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                <span className="guardian-auth-field-label">Form alignment</span>
+                <select
+                  className="guardian-news-time"
+                  value={authThemeForm.form_alignment}
+                  onChange={(e) =>
+                    setAuthThemeForm((prev) => ({
+                      ...prev,
+                      form_alignment: e.target.value,
+                    }))
+                  }
+                >
+                  {AUTH_THEME_ALIGNMENT_OPTIONS.map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className="guardian-news-runtime">
+              <span>
+                Current effect: <strong>{authThemeSettings?.effect_preset || authThemeForm.effect_preset}</strong>
+              </span>
+              <span>
+                Current alignment: <strong>{authThemeSettings?.form_alignment || authThemeForm.form_alignment}</strong>
+              </span>
+              <span>
+                Last updated: <strong>{authThemeSettings?.updated_at ? formatAgo(authThemeSettings.updated_at) : "Not yet"}</strong>
+              </span>
+            </div>
+            <div className="guardian-news-actions">
+              <button
+                type="button"
+                className="guardian-csv-btn guardian-news-save"
+                disabled={authThemeSaving}
+                onClick={saveAuthTheme}
+              >
+                {authThemeSaving ? "Publishing..." : "Publish auth theme"}
+              </button>
+              <button
+                type="button"
+                className="guardian-csv-btn guardian-auth-reset"
+                disabled={authThemeSaving}
+                onClick={resetAuthTheme}
+              >
+                Reset to default
+              </button>
+            </div>
+            {authThemeNotice && (
+              <div className={`guardian-auth-notice ${authThemeNotice.kind}`}>
+                <span>{authThemeNotice.kind === "success" ? "Done" : "Heads up"}</span>
+                <strong>{authThemeNotice.message}</strong>
+                <button
+                  type="button"
+                  className="guardian-auth-notice-close"
+                  onClick={() => setAuthThemeNotice(null)}
+                >
+                  Okay
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>

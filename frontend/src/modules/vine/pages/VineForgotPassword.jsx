@@ -1,12 +1,14 @@
 import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
-import loginCover from "../../../assets/newloginpic.jpeg";
+import VineAuthFlorals from "../components/VineAuthFlorals";
+import { buildVineAuthThemeClasses, shouldRenderVineAuthFlorals, useVineAuthTheme } from "../utils/authTheme";
 import "./VineLogin.css";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 
 
 export default function VineForgotPassword() {
+  const authTheme = useVineAuthTheme();
   useEffect(() => {
     document.title = "Vine — Forgot Password";
   }, []);
@@ -66,15 +68,10 @@ export default function VineForgotPassword() {
   };
   return (
     <div
-      className="vine-auth-bg vine-auth-bg-login"
-      style={{ "--vine-login-cover": `url(${loginCover})` }}
+      className={buildVineAuthThemeClasses(authTheme)}
+      style={{ "--vine-login-cover": `url(${authTheme.cover_url})` }}
     >
-      <div className="vine-login-florals" aria-hidden="true">
-        <span className="vine-flower vine-flower-top" />
-        <span className="vine-flower vine-flower-bottom" />
-        <span className="vine-leaf-arc vine-leaf-arc-left" />
-        <span className="vine-leaf-arc vine-leaf-arc-right" />
-      </div>
+      {shouldRenderVineAuthFlorals(authTheme) && <VineAuthFlorals />}
       <div className="vine-auth-card vine-auth-card-login">
         <h2 className="vine-title">Forgot Password</h2>
         <p className="vine-subtitle">

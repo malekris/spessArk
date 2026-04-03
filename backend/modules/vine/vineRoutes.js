@@ -486,6 +486,177 @@ const getDbName = async () => {
   return cachedDbName;
 };
 
+const VINE_ANALYTICS_TIMEZONE = String(
+  process.env.VINE_ANALYTICS_TIMEZONE || "Africa/Kampala"
+).trim() || "Africa/Kampala";
+const parsedAnalyticsOffsetHours = Number(process.env.VINE_ANALYTICS_TZ_OFFSET_HOURS || 3);
+const VINE_ANALYTICS_TZ_OFFSET_HOURS = Number.isFinite(parsedAnalyticsOffsetHours)
+  ? parsedAnalyticsOffsetHours
+  : 3;
+
+const analyticsDaySql = (expression) =>
+  `DATE(DATE_ADD(${expression}, INTERVAL ${VINE_ANALYTICS_TZ_OFFSET_HOURS} HOUR))`;
+
+const analyticsTodaySql = `DATE(DATE_ADD(UTC_TIMESTAMP(), INTERVAL ${VINE_ANALYTICS_TZ_OFFSET_HOURS} HOUR))`;
+
+// Sessions do not always end with an explicit logout, so last_seen_at is our passive close marker.
+const analyticsSessionDurationSql = (createdExpression, endedExpression) =>
+  `GREATEST(TIMESTAMPDIFF(SECOND, ${createdExpression}, COALESCE(${endedExpression}, ${createdExpression})), 0)`;
+
+const getAnalyticsDayKey = (date = new Date(), timeZone = VINE_ANALYTICS_TIMEZONE) => {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const year = String(map.year || "").padStart(4, "0");
+  const month = String(map.month || "").padStart(2, "0");
+  const day = String(map.day || "").padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const parseGuardianAnalyticsDateInput = (value, isEnd = false) => {
+  if (!value) return null;
+  const raw = String(value).trim();
+  if (!raw) return null;
+  if (raw.length <= 10) {
+    const base = new Date(`${raw}${isEnd ? "T23:59:59.999Z" : "T00:00:00.000Z"}`);
+    if (Number.isNaN(base.getTime())) return null;
+    base.setUTCHours(base.getUTCHours() - VINE_ANALYTICS_TZ_OFFSET_HOURS);
+    return base;
+  }
+  const normalized = raw;
+  const parsed = new Date(normalized);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed;
+};
+
+const getGuardianAnalyticsRange = (query = {}, defaultDays = 6) => {
+  const now = new Date();
+  const rangeEnd = parseGuardianAnalyticsDateInput(query.to, true) || now;
+  const rangeStart =
+    parseGuardianAnalyticsDateInput(query.from, false) ||
+    new Date(rangeEnd.getTime() - defaultDays * 86400000);
+  if (rangeStart > rangeEnd) {
+    const err = new Error("Invalid date range");
+    err.status = 400;
+    throw err;
+  }
+  const rangeMs = Math.max(1, rangeEnd.getTime() - rangeStart.getTime());
+  const prevEnd = new Date(rangeStart.getTime() - 1);
+  const prevStart = new Date(prevEnd.getTime() - rangeMs);
+  return {
+    now,
+    rangeStart,
+    rangeEnd,
+    prevStart,
+    prevEnd,
+  };
+};
+
+const buildAnalyticsUnionSql = (sources = [], { rangeStart = null, rangeEnd = null, selectBuilder } = {}) => {
+  const params = [];
+  const sql = sources
+    .map((source) => {
+      const where = [];
+      if (source.extraWhere) where.push(source.extraWhere);
+      if (rangeStart) {
+        where.push(`${source.timeCol} >= ?`);
+        params.push(rangeStart);
+      }
+      if (rangeEnd) {
+        where.push(`${source.timeCol} <= ?`);
+        params.push(rangeEnd);
+      }
+      return `
+        SELECT ${selectBuilder(source)}
+        FROM ${source.table} ${source.alias}
+        ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+      `;
+    })
+    .join("\nUNION ALL\n");
+  return { sql, params };
+};
+
+const calculatePct = (part, whole, decimals = 1) => {
+  const safeWhole = Number(whole || 0);
+  if (!safeWhole) return 0;
+  return Number(((Number(part || 0) / safeWhole) * 100).toFixed(decimals));
+};
+
+const ANALYTICS_ACTIVITY_SOURCES = [
+  {
+    table: "vine_login_events",
+    alias: "e",
+    userCol: "e.user_id",
+    timeCol: "e.created_at",
+    label: "login",
+  },
+  {
+    table: "vine_user_events",
+    alias: "e",
+    userCol: "e.user_id",
+    timeCol: "e.created_at",
+    label: "feed_view",
+    extraWhere: "e.event_type = 'feed_view'",
+  },
+  {
+    table: "vine_posts",
+    alias: "e",
+    userCol: "e.user_id",
+    timeCol: "e.created_at",
+    label: "post",
+  },
+  {
+    table: "vine_comments",
+    alias: "e",
+    userCol: "e.user_id",
+    timeCol: "e.created_at",
+    label: "comment",
+  },
+  {
+    table: "vine_likes",
+    alias: "e",
+    userCol: "e.user_id",
+    timeCol: "e.created_at",
+    label: "like",
+  },
+  {
+    table: "vine_revines",
+    alias: "e",
+    userCol: "e.user_id",
+    timeCol: "e.created_at",
+    label: "revine",
+  },
+  {
+    table: "vine_messages",
+    alias: "e",
+    userCol: "e.sender_id",
+    timeCol: "e.created_at",
+    label: "dm",
+  },
+  {
+    table: "vine_follows",
+    alias: "e",
+    userCol: "e.follower_id",
+    timeCol: "e.created_at",
+    label: "follow",
+  },
+  {
+    table: "vine_community_submissions",
+    alias: "e",
+    userCol: "e.user_id",
+    timeCol: "e.submitted_at",
+    label: "assignment_submit",
+  },
+];
+
+const ANALYTICS_ENGAGEMENT_SOURCES = ANALYTICS_ACTIVITY_SOURCES.filter(
+  (source) => !["login", "feed_view"].includes(source.label)
+);
+
 const VINE_READ_CACHE_MAX = 600;
 const VINE_CACHE_TTLS = {
   feed: 8_000,
@@ -2491,6 +2662,113 @@ const ensureAdvancedSettingsSchema = async () => {
   `);
 
   advancedSettingsSchemaReady = true;
+};
+
+let lifecycleAnalyticsSchemaReady = false;
+const ensureLifecycleAnalyticsSchema = async () => {
+  if (lifecycleAnalyticsSchemaReady) return;
+  const dbName = await getDbName();
+  if (!dbName) return;
+
+  await ensureAdvancedSettingsSchema();
+
+  const addColumnIfMissing = async (tableName, columnName, definition) => {
+    if (!(await hasTable(dbName, tableName))) return;
+    if (await hasColumn(dbName, tableName, columnName)) return;
+    await db.query(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
+  };
+
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_login_events (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      user_id INT NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_vine_login_events_created (created_at),
+      INDEX idx_vine_login_events_user_created (user_id, created_at)
+    )
+  `);
+
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_user_events (
+      id BIGINT AUTO_INCREMENT PRIMARY KEY,
+      user_id INT NOT NULL,
+      event_type VARCHAR(40) NOT NULL,
+      event_value VARCHAR(80) NULL,
+      session_jti VARCHAR(64) NULL,
+      metadata JSON NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  await addColumnIfMissing("vine_login_events", "created_at", "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP");
+  await addColumnIfMissing("vine_user_events", "event_value", "VARCHAR(80) NULL");
+  await addColumnIfMissing("vine_user_events", "session_jti", "VARCHAR(64) NULL");
+  await addColumnIfMissing("vine_user_events", "metadata", "JSON NULL");
+  await addColumnIfMissing("vine_user_events", "created_at", "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP");
+  await addColumnIfMissing("vine_user_sessions", "created_at", "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP");
+  await addColumnIfMissing("vine_user_sessions", "last_seen_at", "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP");
+  await addColumnIfMissing("vine_user_sessions", "revoked_at", "DATETIME NULL");
+
+  await ensureUniqueIndexExists(
+    dbName,
+    "vine_user_events",
+    "uniq_vine_user_events_session_scope",
+    ["user_id", "session_jti", "event_type", "event_value"]
+  );
+  await ensureIndexExists(
+    dbName,
+    "vine_user_events",
+    "idx_vine_user_events_type_created",
+    ["event_type", "created_at"]
+  );
+  await ensureIndexExists(
+    dbName,
+    "vine_user_events",
+    "idx_vine_user_events_user_created",
+    ["user_id", "created_at"]
+  );
+  await ensureIndexExists(
+    dbName,
+    "vine_user_sessions",
+    "idx_vine_user_sessions_created",
+    ["created_at"]
+  );
+
+  lifecycleAnalyticsSchemaReady = true;
+};
+
+const recordVineUserEvent = async ({
+  userId,
+  sessionJti,
+  eventType,
+  eventValue = null,
+  metadata = null,
+} = {}) => {
+  const numericUserId = Number(userId || 0);
+  const normalizedType = String(eventType || "").trim().toLowerCase().slice(0, 40);
+  if (!numericUserId || !normalizedType) return;
+  await ensureLifecycleAnalyticsSchema();
+  const normalizedSessionJti = String(sessionJti || "").trim().slice(0, 64) || null;
+  const normalizedValue = String(eventValue || "").trim().slice(0, 80) || null;
+  let metadataJson = null;
+  if (metadata && typeof metadata === "object") {
+    try {
+      metadataJson = JSON.stringify(metadata);
+    } catch {
+      metadataJson = null;
+    }
+  }
+
+  await db.query(
+    `
+    INSERT INTO vine_user_events (user_id, event_type, event_value, session_jti, metadata, created_at)
+    VALUES (?, ?, ?, ?, ?, NOW())
+    ON DUPLICATE KEY UPDATE
+      metadata = COALESCE(VALUES(metadata), metadata),
+      created_at = created_at
+    `,
+    [numericUserId, normalizedType, normalizedValue, normalizedSessionJti, metadataJson]
+  );
 };
 
 let postTagSchemaReady = false;
@@ -5486,7 +5764,7 @@ router.post("/auth/login", async (req, res) => {
     console.log("BODY:", req.body);
 
     try {
-      await ensureAdvancedSettingsSchema();
+      await ensureLifecycleAnalyticsSchema();
       const { identifier, password } = req.body;
   
       if (!identifier || !password) {
@@ -8604,6 +8882,7 @@ router.get("/communities/:slug/posts", authOptional, async (req, res) => {
 router.get("/posts", authOptional, async (req, res) => {
     try {
       const viewerId = req.user?.id || null;
+      const sessionJti = req.user?.jti || null;
       const feedTag = String(req.query.tag || "").trim().replace(/^#/, "").toLowerCase();
       const feedTab = String(req.query.tab || "for-you").trim().toLowerCase() === "news" ? "news" : "for-you";
       const cursor = parseFeedCursor(req.query);
@@ -8644,6 +8923,21 @@ router.get("/posts", authOptional, async (req, res) => {
           });
         }
       );
+
+      if (viewerId && !cursor.time && !cursor.feedId) {
+        void recordVineUserEvent({
+          userId: viewerId,
+          sessionJti,
+          eventType: "feed_view",
+          eventValue: getAnalyticsDayKey(),
+          metadata: {
+            tab: feedTab,
+            tag: feedTag || null,
+          },
+        }).catch((err) => {
+          console.warn("Feed view analytics event failed:", err?.message || err);
+        });
+      }
 
       if (rows?.nextCursor?.time && rows?.nextCursor?.feedId) {
         res.set("X-Vine-Next-Cursor-Time", rows.nextCursor.time);
@@ -12903,11 +13197,456 @@ router.get("/users/:username/following", authOptional, async (req, res) => {
 });
 
 // Guardian-only analytics overview
+const fetchGuardianRetentionStats = async () => {
+  await ensureLifecycleAnalyticsSchema();
+  const now = new Date();
+  const retentionWindowStart = new Date(now.getTime() - 15 * 86400000);
+  const activityUnion = buildAnalyticsUnionSql(ANALYTICS_ACTIVITY_SOURCES, {
+    rangeStart: retentionWindowStart,
+    rangeEnd: now,
+    selectBuilder: (source) =>
+      `${source.userCol} AS user_id, ${analyticsDaySql(source.timeCol)} AS activity_day`,
+  });
+
+  const [[row]] = await db.query(
+    `
+    WITH activity_days AS (
+      SELECT DISTINCT user_id, activity_day
+      FROM (
+        ${activityUnion.sql}
+      ) activity_events
+    ),
+    bounds AS (
+      SELECT ${analyticsTodaySql} AS today_day
+    )
+    SELECT
+      DATE_SUB(today_day, INTERVAL 1 DAY) AS day1_cohort_day,
+      (
+        SELECT COUNT(DISTINCT cohort.user_id)
+        FROM activity_days cohort
+        WHERE cohort.activity_day = DATE_SUB(today_day, INTERVAL 1 DAY)
+      ) AS day1_cohort_users,
+      (
+        SELECT COUNT(DISTINCT cohort.user_id)
+        FROM activity_days cohort
+        WHERE cohort.activity_day = DATE_SUB(today_day, INTERVAL 1 DAY)
+          AND EXISTS (
+            SELECT 1
+            FROM activity_days returned
+            WHERE returned.user_id = cohort.user_id
+              AND returned.activity_day = today_day
+          )
+      ) AS day1_retained_users,
+      DATE_SUB(today_day, INTERVAL 7 DAY) AS day7_cohort_day,
+      (
+        SELECT COUNT(DISTINCT cohort.user_id)
+        FROM activity_days cohort
+        WHERE cohort.activity_day = DATE_SUB(today_day, INTERVAL 7 DAY)
+      ) AS day7_cohort_users,
+      (
+        SELECT COUNT(DISTINCT cohort.user_id)
+        FROM activity_days cohort
+        WHERE cohort.activity_day = DATE_SUB(today_day, INTERVAL 7 DAY)
+          AND EXISTS (
+            SELECT 1
+            FROM activity_days returned
+            WHERE returned.user_id = cohort.user_id
+              AND returned.activity_day BETWEEN DATE_SUB(today_day, INTERVAL 6 DAY) AND today_day
+          )
+      ) AS day7_retained_users
+    FROM bounds
+    `,
+    activityUnion.params
+  );
+
+  const day1CohortUsers = Number(row?.day1_cohort_users || 0);
+  const day1RetainedUsers = Number(row?.day1_retained_users || 0);
+  const day7CohortUsers = Number(row?.day7_cohort_users || 0);
+  const day7RetainedUsers = Number(row?.day7_retained_users || 0);
+
+  return {
+    timezone: VINE_ANALYTICS_TIMEZONE,
+    day1: {
+      cohort_day: row?.day1_cohort_day || null,
+      cohort_users: day1CohortUsers,
+      retained_users: day1RetainedUsers,
+      retention_pct: calculatePct(day1RetainedUsers, day1CohortUsers),
+    },
+    day7: {
+      cohort_day: row?.day7_cohort_day || null,
+      cohort_users: day7CohortUsers,
+      retained_users: day7RetainedUsers,
+      retention_pct: calculatePct(day7RetainedUsers, day7CohortUsers),
+    },
+  };
+};
+
+const fetchGuardianLifecycleSummary = async () => {
+  await ensureLifecycleAnalyticsSchema();
+  const now = new Date();
+  const activityWindowStart = new Date(now.getTime() - 40 * 86400000);
+  const activityUnion = buildAnalyticsUnionSql(ANALYTICS_ACTIVITY_SOURCES, {
+    rangeStart: activityWindowStart,
+    rangeEnd: now,
+    selectBuilder: (source) =>
+      `${source.userCol} AS user_id, ${analyticsDaySql(source.timeCol)} AS activity_day`,
+  });
+
+  const [[summaryRow]] = await db.query(
+    `
+    WITH activity_days AS (
+      SELECT DISTINCT user_id, activity_day
+      FROM (
+        ${activityUnion.sql}
+      ) activity_events
+    ),
+    bounds AS (
+      SELECT ${analyticsTodaySql} AS today_day
+    )
+    SELECT
+      (
+        SELECT COUNT(DISTINCT ad.user_id)
+        FROM activity_days ad, bounds b
+        WHERE ad.activity_day = b.today_day
+      ) AS dau,
+      (
+        SELECT COUNT(DISTINCT ad.user_id)
+        FROM activity_days ad, bounds b
+        WHERE ad.activity_day BETWEEN DATE_SUB(b.today_day, INTERVAL 29 DAY) AND b.today_day
+      ) AS mau,
+      (
+        SELECT COUNT(DISTINCT ad.user_id)
+        FROM activity_days ad, bounds b
+        WHERE ad.activity_day = b.today_day
+          AND EXISTS (
+            SELECT 1
+            FROM activity_days earlier
+            WHERE earlier.user_id = ad.user_id
+              AND earlier.activity_day < b.today_day
+          )
+      ) AS returning_users_today
+    FROM bounds
+    `,
+    activityUnion.params
+  );
+
+  const [trendRows] = await db.query(
+    `
+    WITH activity_days AS (
+      SELECT DISTINCT user_id, activity_day
+      FROM (
+        ${activityUnion.sql}
+      ) activity_events
+    )
+    SELECT
+      activity_day,
+      COUNT(DISTINCT user_id) AS active_users
+    FROM activity_days
+    WHERE activity_day BETWEEN DATE_SUB(${analyticsTodaySql}, INTERVAL 6 DAY) AND ${analyticsTodaySql}
+    GROUP BY activity_day
+    ORDER BY activity_day ASC
+    `,
+    activityUnion.params
+  );
+
+  const [[sessionTodayRow]] = await db.query(
+    `
+    SELECT
+      ROUND(AVG(duration_seconds), 0) AS avg_session_seconds,
+      COUNT(*) AS total_sessions
+    FROM (
+      SELECT
+        ${analyticsSessionDurationSql("s.created_at", "COALESCE(s.revoked_at, s.last_seen_at)")} AS duration_seconds
+      FROM vine_user_sessions s
+      WHERE ${analyticsDaySql("s.created_at")} = ${analyticsTodaySql}
+    ) session_rows
+    `
+  );
+
+  const retention = await fetchGuardianRetentionStats();
+  const dau = Number(summaryRow?.dau || 0);
+  const mau = Number(summaryRow?.mau || 0);
+
+  return {
+    timezone: VINE_ANALYTICS_TIMEZONE,
+    dau,
+    mau,
+    stickiness_pct: calculatePct(dau, mau),
+    avg_session_seconds_today: Number(sessionTodayRow?.avg_session_seconds || 0),
+    total_sessions_today: Number(sessionTodayRow?.total_sessions || 0),
+    returning_users_today: Number(summaryRow?.returning_users_today || 0),
+    retention_snapshot: retention,
+    dau_trend_7d: (trendRows || []).map((row) => ({
+      day: row.activity_day,
+      active_users: Number(row.active_users || 0),
+    })),
+  };
+};
+
+const fetchGuardianLoginFrequencyStats = async ({ rangeStart, rangeEnd }) => {
+  await ensureLifecycleAnalyticsSchema();
+  const now = new Date();
+  const trailingWeekStart = new Date(now.getTime() - 6 * 86400000);
+  const queryStart = new Date(Math.min(rangeStart.getTime(), trailingWeekStart.getTime()));
+  const activityUnion = buildAnalyticsUnionSql(ANALYTICS_ACTIVITY_SOURCES, {
+    rangeStart: trailingWeekStart,
+    rangeEnd: now,
+    selectBuilder: (source) =>
+      `${source.userCol} AS user_id, ${analyticsDaySql(source.timeCol)} AS activity_day`,
+  });
+
+  const [[activeTodayRow]] = await db.query(
+    `
+    WITH activity_days AS (
+      SELECT DISTINCT user_id, activity_day
+      FROM (
+        ${activityUnion.sql}
+      ) activity_events
+    )
+    SELECT COUNT(DISTINCT user_id) AS total
+    FROM activity_days
+    WHERE activity_day = ${analyticsTodaySql}
+    `,
+    activityUnion.params
+  );
+
+  const [[loginTodayRow]] = await db.query(
+    `
+    SELECT COUNT(*) AS total
+    FROM vine_login_events
+    WHERE ${analyticsDaySql("created_at")} = ${analyticsTodaySql}
+    `
+  );
+
+  const [[loginWeekRow]] = await db.query(
+    `
+    SELECT COUNT(*) AS total
+    FROM vine_login_events
+    WHERE ${analyticsDaySql("created_at")} BETWEEN DATE_SUB(${analyticsTodaySql}, INTERVAL 6 DAY) AND ${analyticsTodaySql}
+    `
+  );
+
+  const [topRows] = await db.query(
+    `
+    SELECT
+      le.user_id,
+      u.username,
+      u.display_name,
+      u.avatar_url,
+      SUM(CASE WHEN ${analyticsDaySql("le.created_at")} = ${analyticsTodaySql} THEN 1 ELSE 0 END) AS logins_today,
+      SUM(
+        CASE
+          WHEN ${analyticsDaySql("le.created_at")} BETWEEN DATE_SUB(${analyticsTodaySql}, INTERVAL 6 DAY) AND ${analyticsTodaySql}
+          THEN 1
+          ELSE 0
+        END
+      ) AS logins_week,
+      SUM(CASE WHEN le.created_at >= ? AND le.created_at <= ? THEN 1 ELSE 0 END) AS logins_range
+    FROM vine_login_events le
+    JOIN vine_users u ON u.id = le.user_id
+    WHERE le.created_at >= ? AND le.created_at <= ?
+    GROUP BY le.user_id, u.username, u.display_name, u.avatar_url
+    HAVING logins_today > 0 OR logins_week > 0 OR logins_range > 0
+    ORDER BY logins_today DESC, logins_week DESC, logins_range DESC, u.username ASC
+    LIMIT 12
+    `,
+    [rangeStart, rangeEnd, queryStart, now]
+  );
+
+  const activeUsersToday = Number(activeTodayRow?.total || 0);
+  const totalLoginsToday = Number(loginTodayRow?.total || 0);
+
+  return {
+    timezone: VINE_ANALYTICS_TIMEZONE,
+    average_logins_per_active_user_today:
+      activeUsersToday > 0 ? Number((totalLoginsToday / activeUsersToday).toFixed(2)) : 0,
+    total_logins_today: totalLoginsToday,
+    total_logins_last_7d: Number(loginWeekRow?.total || 0),
+    active_users_today: activeUsersToday,
+    top_users: (topRows || []).map((row) => ({
+      user_id: Number(row.user_id || 0),
+      username: row.username,
+      display_name: row.display_name,
+      avatar_url: row.avatar_url,
+      logins_today: Number(row.logins_today || 0),
+      logins_week: Number(row.logins_week || 0),
+      logins_range: Number(row.logins_range || 0),
+    })),
+  };
+};
+
+const fetchGuardianSessionStats = async ({ rangeStart, rangeEnd }) => {
+  await ensureLifecycleAnalyticsSchema();
+  const durationSql = analyticsSessionDurationSql(
+    "s.created_at",
+    "COALESCE(s.revoked_at, s.last_seen_at)"
+  );
+
+  const [[todayRow]] = await db.query(
+    `
+    SELECT
+      ROUND(AVG(duration_seconds), 0) AS avg_session_seconds,
+      COUNT(*) AS total_sessions_today
+    FROM (
+      SELECT
+        ${durationSql} AS duration_seconds
+      FROM vine_user_sessions s
+      WHERE ${analyticsDaySql("s.created_at")} = ${analyticsTodaySql}
+    ) session_rows
+    `
+  );
+
+  const [[rangeRow]] = await db.query(
+    `
+    SELECT
+      ROUND(AVG(duration_seconds), 0) AS avg_session_seconds,
+      COUNT(*) AS total_sessions
+    FROM (
+      SELECT
+        ${durationSql} AS duration_seconds
+      FROM vine_user_sessions s
+      WHERE s.created_at >= ? AND s.created_at <= ?
+    ) session_rows
+    `,
+    [rangeStart, rangeEnd]
+  );
+
+  const [topRows] = await db.query(
+    `
+    SELECT
+      s.user_id,
+      u.username,
+      u.display_name,
+      u.avatar_url,
+      COUNT(*) AS session_count,
+      ROUND(AVG(${durationSql}), 0) AS avg_session_seconds,
+      SUM(${durationSql}) AS total_session_seconds
+    FROM vine_user_sessions s
+    JOIN vine_users u ON u.id = s.user_id
+    WHERE s.created_at >= ? AND s.created_at <= ?
+    GROUP BY s.user_id, u.username, u.display_name, u.avatar_url
+    HAVING session_count > 0
+    ORDER BY avg_session_seconds DESC, total_session_seconds DESC, session_count DESC
+    LIMIT 10
+    `,
+    [rangeStart, rangeEnd]
+  );
+
+  const topUsers = (topRows || []).map((row) => ({
+    user_id: Number(row.user_id || 0),
+    username: row.username,
+    display_name: row.display_name,
+    avatar_url: row.avatar_url,
+    session_count: Number(row.session_count || 0),
+    avg_session_seconds: Number(row.avg_session_seconds || 0),
+    total_session_seconds: Number(row.total_session_seconds || 0),
+  }));
+
+  return {
+    timezone: VINE_ANALYTICS_TIMEZONE,
+    avg_session_seconds_today: Number(todayRow?.avg_session_seconds || 0),
+    total_sessions_today: Number(todayRow?.total_sessions_today || 0),
+    avg_session_seconds_range: Number(rangeRow?.avg_session_seconds || 0),
+    total_sessions_range: Number(rangeRow?.total_sessions || 0),
+    longest_average_user_session: topUsers[0] || null,
+    top_users: topUsers,
+  };
+};
+
+const fetchGuardianDropoffStats = async ({ rangeStart, rangeEnd }) => {
+  await ensureLifecycleAnalyticsSchema();
+  const feedUnion = buildAnalyticsUnionSql(
+    ANALYTICS_ACTIVITY_SOURCES.filter((source) => source.label === "feed_view"),
+    {
+      rangeStart,
+      rangeEnd,
+      selectBuilder: (source) => `${source.userCol} AS user_id`,
+    }
+  );
+  const engagementUnion = buildAnalyticsUnionSql(ANALYTICS_ENGAGEMENT_SOURCES, {
+    rangeStart,
+    rangeEnd,
+    selectBuilder: (source) => `${source.userCol} AS user_id`,
+  });
+
+  const [[row]] = await db.query(
+    `
+    WITH logged_in AS (
+      SELECT DISTINCT user_id
+      FROM vine_login_events
+      WHERE created_at >= ? AND created_at <= ?
+    ),
+    reached_feed AS (
+      SELECT DISTINCT event_rows.user_id
+      FROM (
+        ${feedUnion.sql}
+      ) event_rows
+      JOIN logged_in li ON li.user_id = event_rows.user_id
+    ),
+    engaged AS (
+      SELECT DISTINCT action_rows.user_id
+      FROM (
+        ${engagementUnion.sql}
+      ) action_rows
+      JOIN reached_feed rf ON rf.user_id = action_rows.user_id
+    )
+    SELECT
+      (SELECT COUNT(*) FROM logged_in) AS logged_in_users,
+      (SELECT COUNT(*) FROM reached_feed) AS reached_feed_users,
+      (SELECT COUNT(*) FROM engaged) AS engaged_users
+    `,
+    [rangeStart, rangeEnd, ...feedUnion.params, ...engagementUnion.params]
+  );
+
+  const [[feedTrackingRow]] = await db.query(
+    `
+    SELECT COUNT(*) AS total
+    FROM vine_user_events
+    WHERE event_type = 'feed_view'
+      AND created_at >= ? AND created_at <= ?
+    `,
+    [rangeStart, rangeEnd]
+  );
+
+  const loggedInUsers = Number(row?.logged_in_users || 0);
+  const reachedFeedUsers = Number(row?.reached_feed_users || 0);
+  const engagedUsers = Number(row?.engaged_users || 0);
+
+  return {
+    timezone: VINE_ANALYTICS_TIMEZONE,
+    steps: [
+      {
+        key: "logged_in",
+        label: "Logged in",
+        users: loggedInUsers,
+      },
+      {
+        key: "reached_feed",
+        label: "Reached Vine feed",
+        users: reachedFeedUsers,
+        conversion_pct_from_previous: calculatePct(reachedFeedUsers, loggedInUsers),
+        dropoff_pct_from_previous: calculatePct(loggedInUsers - reachedFeedUsers, loggedInUsers),
+      },
+      {
+        key: "engaged",
+        label: "Performed engagement action",
+        users: engagedUsers,
+        conversion_pct_from_previous: calculatePct(engagedUsers, reachedFeedUsers),
+        dropoff_pct_from_previous: calculatePct(reachedFeedUsers - engagedUsers, reachedFeedUsers),
+      },
+    ],
+    overall_conversion_pct: calculatePct(engagedUsers, loggedInUsers),
+    feed_tracking_events: Number(feedTrackingRow?.total || 0),
+  };
+};
+
 router.get("/analytics/overview", authenticate, async (req, res) => {
   try {
     if (!isModeratorAccount(req.user)) {
       return res.status(403).json({ message: "Moderator access required" });
     }
+
+    await ensureLifecycleAnalyticsSchema();
 
     const [[dbMeta]] = await db.query("SELECT DATABASE() AS dbName");
     const dbName = dbMeta?.dbName;
@@ -13570,6 +14309,106 @@ router.get("/analytics/overview", authenticate, async (req, res) => {
   } catch (err) {
     console.error("Guardian analytics error:", err);
     return res.status(500).json({ message: "Failed to load analytics" });
+  }
+});
+
+router.get("/analytics/adoption-summary", authenticate, async (req, res) => {
+  try {
+    if (!isModeratorAccount(req.user)) {
+      return res.status(403).json({ message: "Moderator access required" });
+    }
+
+    const summary = await fetchGuardianLifecycleSummary();
+    return res.json(summary);
+  } catch (err) {
+    console.error("Guardian adoption summary error:", err);
+    return res.status(500).json({ message: "Failed to load adoption summary" });
+  }
+});
+
+router.get("/analytics/retention", authenticate, async (req, res) => {
+  try {
+    if (!isModeratorAccount(req.user)) {
+      return res.status(403).json({ message: "Moderator access required" });
+    }
+
+    const retention = await fetchGuardianRetentionStats();
+    return res.json(retention);
+  } catch (err) {
+    console.error("Guardian retention analytics error:", err);
+    return res.status(500).json({ message: "Failed to load retention analytics" });
+  }
+});
+
+router.get("/analytics/login-frequency", authenticate, async (req, res) => {
+  try {
+    if (!isModeratorAccount(req.user)) {
+      return res.status(403).json({ message: "Moderator access required" });
+    }
+
+    const { rangeStart, rangeEnd } = getGuardianAnalyticsRange(req.query);
+    const payload = await fetchGuardianLoginFrequencyStats({ rangeStart, rangeEnd });
+    return res.json({
+      range: {
+        from: rangeStart.toISOString(),
+        to: rangeEnd.toISOString(),
+      },
+      ...payload,
+    });
+  } catch (err) {
+    if (err?.status) {
+      return res.status(err.status).json({ message: err.message || "Invalid date range" });
+    }
+    console.error("Guardian login frequency analytics error:", err);
+    return res.status(500).json({ message: "Failed to load login frequency analytics" });
+  }
+});
+
+router.get("/analytics/session-stats", authenticate, async (req, res) => {
+  try {
+    if (!isModeratorAccount(req.user)) {
+      return res.status(403).json({ message: "Moderator access required" });
+    }
+
+    const { rangeStart, rangeEnd } = getGuardianAnalyticsRange(req.query);
+    const payload = await fetchGuardianSessionStats({ rangeStart, rangeEnd });
+    return res.json({
+      range: {
+        from: rangeStart.toISOString(),
+        to: rangeEnd.toISOString(),
+      },
+      ...payload,
+    });
+  } catch (err) {
+    if (err?.status) {
+      return res.status(err.status).json({ message: err.message || "Invalid date range" });
+    }
+    console.error("Guardian session analytics error:", err);
+    return res.status(500).json({ message: "Failed to load session analytics" });
+  }
+});
+
+router.get("/analytics/dropoff", authenticate, async (req, res) => {
+  try {
+    if (!isModeratorAccount(req.user)) {
+      return res.status(403).json({ message: "Moderator access required" });
+    }
+
+    const { rangeStart, rangeEnd } = getGuardianAnalyticsRange(req.query);
+    const payload = await fetchGuardianDropoffStats({ rangeStart, rangeEnd });
+    return res.json({
+      range: {
+        from: rangeStart.toISOString(),
+        to: rangeEnd.toISOString(),
+      },
+      ...payload,
+    });
+  } catch (err) {
+    if (err?.status) {
+      return res.status(err.status).json({ message: err.message || "Invalid date range" });
+    }
+    console.error("Guardian drop-off analytics error:", err);
+    return res.status(500).json({ message: "Failed to load drop-off analytics" });
   }
 });
 

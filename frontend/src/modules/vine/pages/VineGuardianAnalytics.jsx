@@ -93,6 +93,22 @@ const getInitials = (value) => {
     .join("") || text.slice(0, 2).toUpperCase();
 };
 
+const createLifecycleAnalyticsState = () => ({
+  summary: null,
+  retention: null,
+  logins: null,
+  sessions: null,
+  dropoff: null,
+  loading: {
+    summary: true,
+    retention: true,
+    logins: true,
+    sessions: true,
+    dropoff: true,
+  },
+  errors: {},
+});
+
 export default function VineGuardianAnalytics() {
   const navigate = useNavigate();
   const token = localStorage.getItem("vine_token");
@@ -131,6 +147,7 @@ export default function VineGuardianAnalytics() {
   const [siteSlideFiles, setSiteSlideFiles] = useState([]);
   const [siteVisualSaving, setSiteVisualSaving] = useState(false);
   const [siteVisualNotice, setSiteVisualNotice] = useState(null);
+  const [lifecycleAnalytics, setLifecycleAnalytics] = useState(createLifecycleAnalyticsState);
   const [from, setFrom] = useState(() => {
     const d = new Date(Date.now() - 6 * 86400000);
     return d.toISOString().slice(0, 10);
@@ -380,6 +397,85 @@ export default function VineGuardianAnalytics() {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [token, currentUser]);
+
+  useEffect(() => {
+    if (!token || !isGuardianUser(currentUser)) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    const query = new URLSearchParams({ from, to }).toString();
+
+    const loadLifecycleAnalytics = async () => {
+      setLifecycleAnalytics(createLifecycleAnalyticsState());
+      const endpoints = {
+        summary: `${API}/api/vine/analytics/adoption-summary`,
+        retention: `${API}/api/vine/analytics/retention`,
+        logins: `${API}/api/vine/analytics/login-frequency?${query}`,
+        sessions: `${API}/api/vine/analytics/session-stats?${query}`,
+        dropoff: `${API}/api/vine/analytics/dropoff?${query}`,
+      };
+
+      const entries = Object.entries(endpoints);
+      const settled = await Promise.allSettled(
+        entries.map(([, url]) =>
+          fetch(url, {
+            headers: { Authorization: `Bearer ${token}` },
+          })
+        )
+      );
+
+      if (cancelled) return;
+
+      const nextState = createLifecycleAnalyticsState();
+      for (let index = 0; index < entries.length; index += 1) {
+        const [key] = entries[index];
+        const result = settled[index];
+        nextState.loading[key] = false;
+
+        if (result.status !== "fulfilled") {
+          nextState.errors[key] = "Request failed";
+          continue;
+        }
+
+        const response = result.value;
+        const body = await response.json().catch(() => null);
+        if (!response.ok) {
+          nextState.errors[key] = body?.message || "Unavailable";
+          continue;
+        }
+
+        nextState[key] = body;
+      }
+
+      setLifecycleAnalytics(nextState);
+    };
+
+    loadLifecycleAnalytics().catch(() => {
+      if (cancelled) return;
+      setLifecycleAnalytics((prev) => ({
+        ...prev,
+        loading: {
+          summary: false,
+          retention: false,
+          logins: false,
+          sessions: false,
+          dropoff: false,
+        },
+        errors: {
+          summary: "Failed to load lifecycle analytics",
+          retention: "Failed to load lifecycle analytics",
+          logins: "Failed to load lifecycle analytics",
+          sessions: "Failed to load lifecycle analytics",
+          dropoff: "Failed to load lifecycle analytics",
+        },
+      }));
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [token, currentUser, from, to]);
 
   useEffect(() => {
     const source = data?.newsSettings || data?.newsHealth?.runtime;
@@ -668,6 +764,31 @@ export default function VineGuardianAnalytics() {
     if (hours < 24) return `${hours}h ago`;
     const days = Math.floor(hours / 24);
     return `${days}d ago`;
+  };
+
+  const formatCount = (value) => Number(value || 0).toLocaleString("en-UG");
+
+  const formatPercent = (value) => `${Number(value || 0).toFixed(1)}%`;
+
+  const formatDurationCompact = (value) => {
+    const totalSeconds = Math.max(0, Math.round(Number(value || 0)));
+    if (!totalSeconds) return "0s";
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    if (hours > 0) return `${hours}h ${minutes}m`;
+    if (minutes > 0) return `${minutes}m ${seconds}s`;
+    return `${seconds}s`;
+  };
+
+  const formatDateLabel = (value) => {
+    if (!value) return "—";
+    const date = new Date(`${value}T12:00:00Z`);
+    if (Number.isNaN(date.getTime())) return "—";
+    return date.toLocaleDateString("en-UG", {
+      month: "short",
+      day: "numeric",
+    });
   };
 
   const formatTimeOfDay = (hour, minute) =>
@@ -1142,6 +1263,11 @@ export default function VineGuardianAnalytics() {
   const vinePrison = data?.vinePrison || [];
   const perf = data?.performance || null;
   const activity = data?.activity || null;
+  const lifecycleSummary = lifecycleAnalytics.summary;
+  const lifecycleRetention = lifecycleAnalytics.retention || lifecycleSummary?.retention_snapshot || null;
+  const lifecycleLogins = lifecycleAnalytics.logins;
+  const lifecycleSessions = lifecycleAnalytics.sessions;
+  const lifecycleDropoff = lifecycleAnalytics.dropoff;
   const newsHealth = data?.newsHealth || null;
   const newsRuntime = newsHealth?.runtime || {};
   const noticeSettings = data?.noticeSettings || null;
@@ -1160,6 +1286,13 @@ export default function VineGuardianAnalytics() {
   const perfQueries = perf?.top_queries || [];
   const perfRecentRoutes = perf?.recent_routes || [];
   const perfRecentQueries = perf?.recent_queries || [];
+  const dauTrend = lifecycleSummary?.dau_trend_7d || [];
+  const maxDauTrend = Math.max(1, ...dauTrend.map((point) => Number(point.active_users || 0)));
+  const retentionSnapshotText = lifecycleRetention
+    ? `D1 ${formatPercent(lifecycleRetention?.day1?.retention_pct)} • D7 ${formatPercent(
+        lifecycleRetention?.day7?.retention_pct
+      )}`
+    : "Loading...";
   const maxVolume = Math.max(
     1,
     ...usage.map((d) => d.posts + d.comments + d.likes + d.revines + d.follows + d.dms)
@@ -1212,39 +1345,418 @@ export default function VineGuardianAnalytics() {
         </div>
       </div>
 
-      <div className="guardian-kpi-grid">
-        <div className="guardian-kpi-card">
-          <span>Total Users</span>
-          <strong>{k.totalUsers ?? 0}</strong>
+      <section className="guardian-kpi-board">
+        <div className="guardian-kpi-board-head">
+          <div className="guardian-kpi-heading">
+            <span className="guardian-kpi-eyebrow">Vine Pulse</span>
+            <h3>App heartbeat at a glance</h3>
+          </div>
+          <div className="guardian-kpi-spotlight">
+            <span className="guardian-kpi-spotlight-label">Today&apos;s spotlight</span>
+            <strong>{k.activeUsersToday ?? 0} active users</strong>
+            <small>{k.loginsToday ?? 0} logins recorded today</small>
+          </div>
         </div>
-        <div className="guardian-kpi-card">
-          <span>Active Users Today</span>
-          <strong>{k.activeUsersToday ?? 0}</strong>
+
+        <div className="guardian-kpi-grid guardian-kpi-grid-advanced">
+          <div className="guardian-kpi-card guardian-kpi-card-accent">
+            <span className="guardian-kpi-icon" aria-hidden="true">📈</span>
+            <span>DAU</span>
+            <strong>
+              {lifecycleAnalytics.errors.summary
+                ? "Unavailable"
+                : lifecycleAnalytics.loading.summary && !lifecycleSummary
+                ? "Loading..."
+                : formatCount(lifecycleSummary?.dau)}
+            </strong>
+            <small>Unique users active today</small>
+          </div>
+          <div className="guardian-kpi-card guardian-kpi-card-accent">
+            <span className="guardian-kpi-icon" aria-hidden="true">🗓️</span>
+            <span>MAU</span>
+            <strong>
+              {lifecycleAnalytics.errors.summary
+                ? "Unavailable"
+                : lifecycleAnalytics.loading.summary && !lifecycleSummary
+                ? "Loading..."
+                : formatCount(lifecycleSummary?.mau)}
+            </strong>
+            <small>Unique users active in the last 30 days</small>
+          </div>
+          <div className="guardian-kpi-card guardian-kpi-card-accent">
+            <span className="guardian-kpi-icon" aria-hidden="true">🧲</span>
+            <span>Stickiness</span>
+            <strong>
+              {lifecycleAnalytics.errors.summary
+                ? "Unavailable"
+                : lifecycleAnalytics.loading.summary && !lifecycleSummary
+                ? "Loading..."
+                : formatPercent(lifecycleSummary?.stickiness_pct)}
+            </strong>
+            <small>DAU divided by MAU</small>
+          </div>
+          <div className="guardian-kpi-card guardian-kpi-card-accent">
+            <span className="guardian-kpi-icon" aria-hidden="true">⌛</span>
+            <span>Avg Session Time Today</span>
+            <strong>
+              {lifecycleAnalytics.errors.summary
+                ? "Unavailable"
+                : lifecycleAnalytics.loading.summary && !lifecycleSummary
+                ? "Loading..."
+                : formatDurationCompact(lifecycleSummary?.avg_session_seconds_today)}
+            </strong>
+            <small>Based on session start and last activity</small>
+          </div>
+          <div className="guardian-kpi-card guardian-kpi-card-accent">
+            <span className="guardian-kpi-icon" aria-hidden="true">🔁</span>
+            <span>Returning Users</span>
+            <strong>
+              {lifecycleAnalytics.errors.summary
+                ? "Unavailable"
+                : lifecycleAnalytics.loading.summary && !lifecycleSummary
+                ? "Loading..."
+                : formatCount(lifecycleSummary?.returning_users_today)}
+            </strong>
+            <small>Active today after a previous visit</small>
+          </div>
+          <div className="guardian-kpi-card guardian-kpi-card-wide guardian-kpi-card-accent">
+            <span className="guardian-kpi-icon" aria-hidden="true">🪴</span>
+            <span>Retention Snapshot</span>
+            <strong>
+              {lifecycleAnalytics.errors.retention
+                ? "Unavailable"
+                : lifecycleAnalytics.loading.retention && !lifecycleRetention
+                ? "Loading..."
+                : retentionSnapshotText}
+            </strong>
+            <small>
+              {lifecycleRetention
+                ? `${formatDateLabel(lifecycleRetention?.day1?.cohort_day)} cohort for D1, ${formatDateLabel(
+                    lifecycleRetention?.day7?.cohort_day
+                  )} cohort for D7`
+                : "Recent retention windows"}
+            </small>
+          </div>
         </div>
-        <div className="guardian-kpi-card">
-          <span>Logins Today</span>
-          <strong>{k.loginsToday ?? 0}</strong>
+
+        <div className="guardian-kpi-grid">
+          <div className="guardian-kpi-card">
+            <span className="guardian-kpi-icon" aria-hidden="true">👥</span>
+            <span>Total Users</span>
+            <strong>{k.totalUsers ?? 0}</strong>
+          </div>
+          <div className="guardian-kpi-card">
+            <span className="guardian-kpi-icon" aria-hidden="true">🟢</span>
+            <span>Active Users Today</span>
+            <strong>{k.activeUsersToday ?? 0}</strong>
+          </div>
+          <div className="guardian-kpi-card">
+            <span className="guardian-kpi-icon" aria-hidden="true">🔐</span>
+            <span>Logins Today</span>
+            <strong>{k.loginsToday ?? 0}</strong>
+          </div>
+          <div className="guardian-kpi-card">
+            <span className="guardian-kpi-icon" aria-hidden="true">⏱️</span>
+            <span>Estimated Active Hours Today</span>
+            <strong>{k.estimatedActiveHoursToday ?? 0}</strong>
+          </div>
+          <div className="guardian-kpi-card">
+            <span className="guardian-kpi-icon" aria-hidden="true">🌱</span>
+            <span>Joined This Week</span>
+            <strong>{k.joinedThisWeek ?? k.newUsersWeek ?? 0}</strong>
+          </div>
+          <div className="guardian-kpi-card">
+            <span className="guardian-kpi-icon" aria-hidden="true">📝</span>
+            <span>Posts This Week</span>
+            <strong>{k.postsWeek ?? 0}</strong>
+          </div>
+          <div className="guardian-kpi-card">
+            <span className="guardian-kpi-icon" aria-hidden="true">⚡</span>
+            <span>Total Interactions This Week</span>
+            <strong>{k.totalInteractionsWeek ?? 0}</strong>
+          </div>
         </div>
-        <div className="guardian-kpi-card">
-          <span>Estimated Active Hours Today</span>
-          <strong>{k.estimatedActiveHoursToday ?? 0}</strong>
+
+        <div className="guardian-kpi-actions">
+          <button className="guardian-csv-btn" onClick={() => exportCsv("kpis.csv", [k])}>
+            Export KPI CSV
+          </button>
         </div>
-        <div className="guardian-kpi-card">
-          <span>Joined This Week</span>
-          <strong>{k.joinedThisWeek ?? k.newUsersWeek ?? 0}</strong>
+      </section>
+
+      <div className="guardian-section">
+        <h3>DAU vs MAU</h3>
+        <div className="guardian-actions">
+          <button
+            className="guardian-csv-btn"
+            onClick={() =>
+              exportCsv("dau_mau_summary.csv", [
+                {
+                  dau: lifecycleSummary?.dau ?? 0,
+                  mau: lifecycleSummary?.mau ?? 0,
+                  stickiness_pct: lifecycleSummary?.stickiness_pct ?? 0,
+                  returning_users_today: lifecycleSummary?.returning_users_today ?? 0,
+                },
+              ])
+            }
+          >
+            Export CSV
+          </button>
         </div>
-        <div className="guardian-kpi-card">
-          <span>Posts This Week</span>
-          <strong>{k.postsWeek ?? 0}</strong>
-        </div>
-        <div className="guardian-kpi-card">
-          <span>Total Interactions This Week</span>
-          <strong>{k.totalInteractionsWeek ?? 0}</strong>
-        </div>
+        {lifecycleAnalytics.loading.summary && !lifecycleSummary ? (
+          <div className="guardian-empty">Loading DAU and MAU...</div>
+        ) : lifecycleAnalytics.errors.summary ? (
+          <div className="guardian-empty">{lifecycleAnalytics.errors.summary}</div>
+        ) : (
+          <>
+            <div className="guardian-compare-grid guardian-compare-grid-lifecycle">
+              <div className="guardian-compare-card guardian-compare-card-premium">
+                <span className="guardian-stat-label">Today&apos;s DAU</span>
+                <strong>{formatCount(lifecycleSummary?.dau)}</strong>
+                <small>Unique active users today</small>
+              </div>
+              <div className="guardian-compare-card guardian-compare-card-premium">
+                <span className="guardian-stat-label">30-Day MAU</span>
+                <strong>{formatCount(lifecycleSummary?.mau)}</strong>
+                <small>Unique active users in the last 30 days</small>
+              </div>
+              <div className="guardian-compare-card guardian-compare-card-premium">
+                <span className="guardian-stat-label">Stickiness</span>
+                <strong>{formatPercent(lifecycleSummary?.stickiness_pct)}</strong>
+                <small>DAU / MAU</small>
+              </div>
+            </div>
+            <div className="guardian-mini-trend">
+              {(dauTrend || []).length === 0 ? (
+                <div className="guardian-empty">No 7-day trend yet.</div>
+              ) : (
+                (dauTrend || []).map((point) => (
+                  <div key={`dau-trend-${point.day}`} className="guardian-mini-trend-col">
+                    <div className="guardian-mini-trend-track">
+                      <div
+                        className="guardian-mini-trend-bar"
+                        style={{
+                          height: `${Math.max(
+                            12,
+                            Math.round((Number(point.active_users || 0) / maxDauTrend) * 96)
+                          )}px`,
+                        }}
+                      />
+                    </div>
+                    <strong>{formatCount(point.active_users)}</strong>
+                    <span>{String(point.day || "").slice(5)}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          </>
+        )}
       </div>
-      <button className="guardian-csv-btn" onClick={() => exportCsv("kpis.csv", [k])}>
-        Export KPI CSV
-      </button>
+
+      <div className="guardian-section">
+        <h3>Retention Snapshot</h3>
+        {lifecycleAnalytics.loading.retention && !lifecycleRetention ? (
+          <div className="guardian-empty">Loading retention...</div>
+        ) : lifecycleAnalytics.errors.retention ? (
+          <div className="guardian-empty">{lifecycleAnalytics.errors.retention}</div>
+        ) : (
+          <>
+            <div className="guardian-compare-grid guardian-compare-grid-lifecycle">
+              <div className="guardian-compare-card guardian-compare-card-premium">
+                <span className="guardian-stat-label">Day 1 Retention</span>
+                <strong>{formatPercent(lifecycleRetention?.day1?.retention_pct)}</strong>
+                <small>
+                  {formatCount(lifecycleRetention?.day1?.retained_users)} of{" "}
+                  {formatCount(lifecycleRetention?.day1?.cohort_users)} from the {formatDateLabel(
+                    lifecycleRetention?.day1?.cohort_day
+                  )} cohort returned the next day.
+                </small>
+              </div>
+              <div className="guardian-compare-card guardian-compare-card-premium">
+                <span className="guardian-stat-label">Day 7 Retention</span>
+                <strong>{formatPercent(lifecycleRetention?.day7?.retention_pct)}</strong>
+                <small>
+                  {formatCount(lifecycleRetention?.day7?.retained_users)} of{" "}
+                  {formatCount(lifecycleRetention?.day7?.cohort_users)} from the {formatDateLabel(
+                    lifecycleRetention?.day7?.cohort_day
+                  )} cohort came back within seven days.
+                </small>
+              </div>
+            </div>
+            <p className="guardian-panel-note">
+              Day 1 retention checks whether a cohort returned the next day. Day 7 retention checks whether that cohort
+              returned at least once within the next seven days.
+            </p>
+          </>
+        )}
+      </div>
+
+      <div className="guardian-section">
+        <h3>Logins Per User</h3>
+        <div className="guardian-actions">
+          <button
+            className="guardian-csv-btn"
+            onClick={() => exportCsv("logins_per_user.csv", lifecycleLogins?.top_users || [])}
+          >
+            Export CSV
+          </button>
+        </div>
+        {lifecycleAnalytics.loading.logins && !lifecycleLogins ? (
+          <div className="guardian-empty">Loading login frequency...</div>
+        ) : lifecycleAnalytics.errors.logins ? (
+          <div className="guardian-empty">{lifecycleAnalytics.errors.logins}</div>
+        ) : (
+          <>
+            <div className="guardian-compare-grid guardian-compare-grid-lifecycle">
+              <div className="guardian-compare-card guardian-compare-card-premium">
+                <span className="guardian-stat-label">Avg Logins Per Active User Today</span>
+                <strong>{Number(lifecycleLogins?.average_logins_per_active_user_today || 0).toFixed(2)}</strong>
+                <small>
+                  {formatCount(lifecycleLogins?.total_logins_today)} logins across{" "}
+                  {formatCount(lifecycleLogins?.active_users_today)} active users today
+                </small>
+              </div>
+              <div className="guardian-compare-card guardian-compare-card-premium">
+                <span className="guardian-stat-label">Logins Today</span>
+                <strong>{formatCount(lifecycleLogins?.total_logins_today)}</strong>
+                <small>Fresh sign-ins recorded today</small>
+              </div>
+              <div className="guardian-compare-card guardian-compare-card-premium">
+                <span className="guardian-stat-label">Logins Last 7 Days</span>
+                <strong>{formatCount(lifecycleLogins?.total_logins_last_7d)}</strong>
+                <small>Rolling weekly login volume</small>
+              </div>
+            </div>
+            <div className="guardian-table">
+              {(lifecycleLogins?.top_users || []).length === 0 ? (
+                <div className="guardian-empty">No login events in this range.</div>
+              ) : (
+                (lifecycleLogins?.top_users || []).map((user, index) => (
+                  <button
+                    key={`login-top-${user.user_id}`}
+                    className="guardian-row"
+                    onClick={() => navigate(`/vine/profile/${user.username}`)}
+                  >
+                    <span className="guardian-rank">#{index + 1}</span>
+                    <span className="guardian-row-main">{user.display_name || user.username}</span>
+                    <span className="guardian-row-meta">
+                      Today {formatCount(user.logins_today)} • 7d {formatCount(user.logins_week)} • Range{" "}
+                      {formatCount(user.logins_range)}
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
+          </>
+        )}
+      </div>
+
+      <div className="guardian-section">
+        <h3>Session Time</h3>
+        <div className="guardian-actions">
+          <button
+            className="guardian-csv-btn"
+            onClick={() => exportCsv("session_stats.csv", lifecycleSessions?.top_users || [])}
+          >
+            Export CSV
+          </button>
+        </div>
+        {lifecycleAnalytics.loading.sessions && !lifecycleSessions ? (
+          <div className="guardian-empty">Loading session time...</div>
+        ) : lifecycleAnalytics.errors.sessions ? (
+          <div className="guardian-empty">{lifecycleAnalytics.errors.sessions}</div>
+        ) : (
+          <>
+            <div className="guardian-compare-grid guardian-compare-grid-lifecycle">
+              <div className="guardian-compare-card guardian-compare-card-premium">
+                <span className="guardian-stat-label">Avg Session Time Today</span>
+                <strong>{formatDurationCompact(lifecycleSessions?.avg_session_seconds_today)}</strong>
+                <small>Approximation from session start to last activity</small>
+              </div>
+              <div className="guardian-compare-card guardian-compare-card-premium">
+                <span className="guardian-stat-label">Longest Average User Session</span>
+                <strong>
+                  {lifecycleSessions?.longest_average_user_session
+                    ? formatDurationCompact(lifecycleSessions.longest_average_user_session.avg_session_seconds)
+                    : "0s"}
+                </strong>
+                <small>
+                  {lifecycleSessions?.longest_average_user_session
+                    ? lifecycleSessions.longest_average_user_session.display_name ||
+                      lifecycleSessions.longest_average_user_session.username
+                    : "No session leader yet"}
+                </small>
+              </div>
+              <div className="guardian-compare-card guardian-compare-card-premium">
+                <span className="guardian-stat-label">Total Sessions Today</span>
+                <strong>{formatCount(lifecycleSessions?.total_sessions_today)}</strong>
+                <small>
+                  Range average: {formatDurationCompact(lifecycleSessions?.avg_session_seconds_range)} across{" "}
+                  {formatCount(lifecycleSessions?.total_sessions_range)} sessions
+                </small>
+              </div>
+            </div>
+            <div className="guardian-table">
+              {(lifecycleSessions?.top_users || []).length === 0 ? (
+                <div className="guardian-empty">No sessions recorded in this range.</div>
+              ) : (
+                (lifecycleSessions?.top_users || []).map((user, index) => (
+                  <button
+                    key={`session-top-${user.user_id}`}
+                    className="guardian-row"
+                    onClick={() => navigate(`/vine/profile/${user.username}`)}
+                  >
+                    <span className="guardian-rank">#{index + 1}</span>
+                    <span className="guardian-row-main">{user.display_name || user.username}</span>
+                    <span className="guardian-row-meta">
+                      Avg {formatDurationCompact(user.avg_session_seconds)} • Total{" "}
+                      {formatDurationCompact(user.total_session_seconds)} • Sessions {formatCount(user.session_count)}
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
+          </>
+        )}
+      </div>
+
+      <div className="guardian-section">
+        <h3>Drop-Off Funnel</h3>
+        {lifecycleAnalytics.loading.dropoff && !lifecycleDropoff ? (
+          <div className="guardian-empty">Loading funnel analytics...</div>
+        ) : lifecycleAnalytics.errors.dropoff ? (
+          <div className="guardian-empty">{lifecycleAnalytics.errors.dropoff}</div>
+        ) : (
+          <>
+            <div className="guardian-dropoff-grid">
+              {(lifecycleDropoff?.steps || []).map((step, index) => (
+                <div key={step.key} className="guardian-dropoff-card">
+                  <span className="guardian-stat-label">{step.label}</span>
+                  <strong>{formatCount(step.users)}</strong>
+                  {index > 0 ? (
+                    <small>
+                      Conversion {formatPercent(step.conversion_pct_from_previous)} • Drop-off{" "}
+                      {formatPercent(step.dropoff_pct_from_previous)}
+                    </small>
+                  ) : (
+                    <small>Distinct users with a login event in the selected range</small>
+                  )}
+                </div>
+              ))}
+            </div>
+            <p className="guardian-panel-note">
+              Overall conversion from login to engagement:{" "}
+              <strong>{formatPercent(lifecycleDropoff?.overall_conversion_pct)}</strong>
+            </p>
+            {Number(lifecycleDropoff?.feed_tracking_events || 0) === 0 && (
+              <div className="guardian-empty">
+                Feed reach tracking has not recorded any events in this range yet, so the middle funnel step may stay
+                empty until the new tracking starts collecting.
+              </div>
+            )}
+          </>
+        )}
+      </div>
 
       <div className="guardian-section">
         <h3>Vine News Scheduler</h3>

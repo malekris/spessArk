@@ -70,6 +70,9 @@ export default function ConversationList() {
     overscan: 5,
     enabled: conversations.length > 24,
   });
+  const unreadMessages = conversations.reduce((sum, item) => sum + Number(item?.unread_count || 0), 0);
+  const unreadChats = conversations.filter((item) => Number(item?.unread_count || 0) > 0).length;
+  const pinnedChats = conversations.filter((item) => Number(item?.is_pinned) === 1).length;
 
   /* ---------------------------
      FETCH CONVERSATIONS
@@ -199,6 +202,24 @@ export default function ConversationList() {
         />
       </div>
 
+      <div className="dm-summary-strip" aria-label="Inbox summary">
+        <div className="dm-summary-card">
+          <span className="dm-summary-label">Inbox</span>
+          <strong className="dm-summary-value">{conversations.length}</strong>
+          <span className="dm-summary-meta">active chats</span>
+        </div>
+        <div className="dm-summary-card">
+          <span className="dm-summary-label">Unread</span>
+          <strong className="dm-summary-value">{unreadMessages}</strong>
+          <span className="dm-summary-meta">{unreadChats} chats waiting</span>
+        </div>
+        <div className="dm-summary-card">
+          <span className="dm-summary-label">Pinned</span>
+          <strong className="dm-summary-value">{pinnedChats}</strong>
+          <span className="dm-summary-meta">quick access</span>
+        </div>
+      </div>
+
       {/* EMPTY STATE */}
       {conversations.length === 0 && (
         <div className="dm-empty">No conversations yet</div>
@@ -221,18 +242,21 @@ export default function ConversationList() {
             onClick={() => navigate(`/vine/dms/${c.conversation_id}`)}
           >
             {/* AVATAR */}
-            <img
-              src={avatar}
-              className="dm-avatar"
-              alt=""
-              onClick={(e) => {
-                e.stopPropagation();
-                navigate(`/vine/profile/${c.username}`);
-              }}
-              onError={(e) => {
-                e.currentTarget.src = DEFAULT_AVATAR;
-              }}
-            />
+            <div className="dm-avatar-shell">
+              <img
+                src={avatar}
+                className="dm-avatar"
+                alt=""
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigate(`/vine/profile/${c.username}`);
+                }}
+                onError={(e) => {
+                  e.currentTarget.src = DEFAULT_AVATAR;
+                }}
+              />
+              {c.unread_count > 0 ? <span className="dm-avatar-unread-dot" aria-hidden="true" /> : null}
+            </div>
 
             {/* META */}
             <div className="dm-meta">

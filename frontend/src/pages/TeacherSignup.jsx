@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useSiteVisuals } from "../utils/siteVisuals";
 import "./LoginPage.css"; // Ensure spelling matches your src/pages/ folder
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5001";
@@ -16,6 +17,7 @@ const formatName = (name) => {
 
 function TeacherSignup() {
   const navigate = useNavigate();
+  const siteVisuals = useSiteVisuals();
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -32,11 +34,7 @@ function TeacherSignup() {
   const [activeIndex, setActiveIndex] = useState(0);
   const [previousIndex, setPreviousIndex] = useState(null);
   const [useLiteBackground, setUseLiteBackground] = useState(false);
-  const backgroundImages = [
-    "/slide1.jpg", "/slide2.jpg", "/slide3.jpg", "/slide4.jpg",
-    "/slide5.jpg", "/slide6.jpg", "/slide7.jpg", "/slide8.jpg",
-    "/slide9.jpg", "/slide10.jpg", "/slide11.jpg"
-  ];
+  const backgroundImages = siteVisuals.ark_auth_slides || [];
 
   useEffect(() => {
     const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;

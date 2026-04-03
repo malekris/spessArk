@@ -644,7 +644,7 @@ export default function VineFeed() {
 
   const loadTrending = useCallback(async (signal) => {
     try {
-      const res = await fetch(`${API}/api/vine/posts/trending?limit=3`, {
+      const res = await fetch(`${API}/api/vine/posts/trending?limit=10`, {
         headers: { Authorization: `Bearer ${token}` },
         signal,
       });
@@ -2124,7 +2124,10 @@ export default function VineFeed() {
 
         {!isNewsTab && (trendingLoading || trendingPosts.length > 0) && (
           <div className="vine-trending">
-            <div className="trending-header">🔥 Trending on Vine</div>
+            <div className="trending-header">Vine latest posts</div>
+            <div className="trending-subtitle">
+              The latest stories across Vine that you can currently view. Scroll through the newest ten.
+            </div>
             <div className="trending-track">
               {trendingLoading && trendingPosts.length === 0
                 ? TRENDING_SKELETON_ROWS.map((idx) => <VineTrendingSkeleton key={`trend-skeleton-${idx}`} />)
@@ -2136,6 +2139,8 @@ export default function VineFeed() {
                   (p.content || "").trim().length > 0
                     ? (p.content.length > 90 ? `${p.content.slice(0, 90)}…` : p.content)
                     : "Photo post";
+                const statLikes = Number(p.like_count ?? p.likes ?? 0);
+                const statComments = Number(p.comment_count ?? p.comments ?? 0);
                 return (
                   <div
                     key={`trend-${p.id}`}
@@ -2183,7 +2188,7 @@ export default function VineFeed() {
                     </div>
                     <div className="trending-snippet">{snippet}</div>
                     <div className="trending-stats">
-                      ❤️ {p.like_count || 0} · 💬 {p.comment_count || 0}
+                      ❤️ {statLikes} · 💬 {statComments}
                     </div>
                   </div>
                 );

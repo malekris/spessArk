@@ -1,8 +1,11 @@
 import "./HomeSection.css";
 import useScrollReveal from "../hooks/useScrollReveal";
+import { useSiteVisuals } from "../utils/siteVisuals";
 
 export default function HomeSection() {
-  useScrollReveal(); 
+  useScrollReveal();
+  const siteVisuals = useSiteVisuals();
+  const heroImage = siteVisuals.home_hero_url || "/newhome.jpg";
 
   return (
     <section id="home" className="home-section">
@@ -10,7 +13,7 @@ export default function HomeSection() {
       <div className="hero">
         <div className="hero-media" aria-hidden="true">
           <img
-            src="/newhome.jpg"
+            src={heroImage}
             alt=""
             className="hero-backdrop-image"
           />
@@ -18,7 +21,7 @@ export default function HomeSection() {
         </div>
 
         <img
-          src="/newhome.jpg"
+          src={heroImage}
           alt="Students of St. Phillip’s Equatorial Secondary School"
           className="hero-main-image"
           loading="eager"

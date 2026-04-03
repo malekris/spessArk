@@ -316,10 +316,16 @@ function VinePostCard({
   const [showMini, setShowMini] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const avatarRef = useRef(null);
+  const postMenuRef = useRef(null);
+  const postMenuButtonRef = useRef(null);
   const [commentLikes, setCommentLikes] = useState({});
   const [commentUserLiked, setCommentUserLiked] = useState({});
   const [commentUserReaction, setCommentUserReaction] = useState({});
   const [isDeleted, setIsDeleted] = useState(false);
+  const [showPostMenu, setShowPostMenu] = useState(false);
+  const [postMenuPosition, setPostMenuPosition] = useState({ top: 0, left: 0 });
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [commentDeleteTarget, setCommentDeleteTarget] = useState(null);
   const [bookmarked, setBookmarked] = useState(post.user_bookmarked || false);
   const [mentionResults, setMentionResults] = useState([]);
   const [mentionAnchor, setMentionAnchor] = useState(null);
@@ -395,6 +401,41 @@ function VinePostCard({
   useEffect(() => {
     if (open) fetchComments();
   }, [open]);
+
+  useEffect(() => {
+    if (!showPostMenu) return undefined;
+    const handleOutside = (event) => {
+      const target = event.target;
+      if (postMenuRef.current?.contains(target) || postMenuButtonRef.current?.contains(target)) {
+        return;
+      }
+      setShowPostMenu(false);
+    };
+    document.addEventListener("pointerdown", handleOutside);
+    return () => document.removeEventListener("pointerdown", handleOutside);
+  }, [showPostMenu]);
+
+  useEffect(() => {
+    if (!showPostMenu) return undefined;
+    const updateMenuPosition = () => {
+      const rect = postMenuButtonRef.current?.getBoundingClientRect?.();
+      if (!rect) return;
+      const menuWidth = Math.min(220, Math.max(180, window.innerWidth - 16));
+      const left = Math.min(
+        Math.max(8, rect.right - menuWidth),
+        Math.max(8, window.innerWidth - menuWidth - 8)
+      );
+      const top = Math.min(rect.bottom + 8, Math.max(8, window.innerHeight - 72));
+      setPostMenuPosition({ top, left });
+    };
+    updateMenuPosition();
+    window.addEventListener("resize", updateMenuPosition);
+    window.addEventListener("scroll", updateMenuPosition, true);
+    return () => {
+      window.removeEventListener("resize", updateMenuPosition);
+      window.removeEventListener("scroll", updateMenuPosition, true);
+    };
+  }, [showPostMenu]);
 
   useEffect(() => {
     if (!post?.has_poll) {
@@ -755,7 +796,7 @@ function VinePostCard({
   };
  
   const deleteMainPost = async () => {
-    if (!window.confirm("Delete this post forever?")) return;
+    setShowDeleteConfirm(false);
     const res = await fetch(`${API}/api/vine/posts/${post.id}`, {
       method: "DELETE",
       headers: { Authorization: `Bearer ${token}` },
@@ -766,9 +807,37 @@ function VinePostCard({
     }
   };
 
+  const togglePostMenu = (e) => {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
+    if (showPostMenu) {
+      setShowPostMenu(false);
+      return;
+    }
+    const rect = postMenuButtonRef.current?.getBoundingClientRect?.();
+    if (rect) {
+      const menuWidth = Math.min(220, Math.max(180, window.innerWidth - 16));
+      const left = Math.min(
+        Math.max(8, rect.right - menuWidth),
+        Math.max(8, window.innerWidth - menuWidth - 8)
+      );
+      const top = Math.min(rect.bottom + 8, Math.max(8, window.innerHeight - 72));
+      setPostMenuPosition({ top, left });
+    }
+    setShowPostMenu(true);
+  };
+
+  const openDeleteConfirm = (e) => {
+    e?.preventDefault?.();
+    e?.stopPropagation?.();
+    setShowPostMenu(false);
+    setShowDeleteConfirm(true);
+  };
+
   const openPostReport = (e) => {
     e?.preventDefault?.();
     e?.stopPropagation?.();
+    setShowPostMenu(false);
     reportOpenedAtRef.current = Date.now();
     setReportTarget({ postId: post.id, commentId: null });
     setReportCategory("abuse");
@@ -860,13 +929,27 @@ function VinePostCard({
     }
   };
 
-  const deleteComment = async (cid) => {
-    if (!window.confirm("Delete this reply?")) return;
-    const res = await fetch(`${API}/api/vine/comments/${cid}`, {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (res.ok) fetchComments();
+  const requestDeleteComment = (cid) => {
+    setCommentDeleteTarget(cid);
+  };
+
+  const confirmDeleteComment = async () => {
+    if (!commentDeleteTarget) return;
+    try {
+      const res = await fetch(`${API}/api/vine/comments/${commentDeleteTarget}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || "Failed to delete comment");
+        return;
+      }
+      setCommentDeleteTarget(null);
+      fetchComments();
+    } catch {
+      alert("Failed to delete comment");
+    }
   };
 
   const [mediaMountRef, shouldMountCarousel] = useNearScreen({
@@ -984,13 +1067,11 @@ function VinePostCard({
             </div>
             <div className="post-kebab-wrap">
               <button
+                ref={postMenuButtonRef}
                 className="post-kebab-btn"
                 title="More"
-                onPointerDown={(e) => openPostReport(e)}
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                }}
+                aria-expanded={showPostMenu ? "true" : "false"}
+                onClick={togglePostMenu}
               >
                 ⋯
               </button>
@@ -1372,7 +1453,7 @@ function VinePostCard({
     setCommentUserLiked={setCommentUserLiked}
     setCommentUserReaction={setCommentUserReaction}
     onReply={sendComment}
-    onDelete={deleteComment}
+    onDelete={requestDeleteComment}
     canReply={!isCommunityInteractionLocked}
     isPostOwner={isPostAuthor}
     currentUserId={current_user_id}
@@ -1434,11 +1515,6 @@ function VinePostCard({
                 </>
               )}
               <div className="report-modal-actions">
-                {(isPostAuthor || isModerator) && !reportTarget.commentId && (
-                  <button className="danger" onClick={deleteMainPost}>
-                    Delete Post
-                  </button>
-                )}
                 <button className="secondary" onClick={() => setShowReportModal(false)}>
                   Cancel
                 </button>
@@ -1449,6 +1525,94 @@ function VinePostCard({
                 )}
               </div>
             </div>
+          </div>,
+          document.body
+        )}
+      {showDeleteConfirm && typeof document !== "undefined" &&
+        createPortal(
+          <div
+            className="report-modal-backdrop"
+            onPointerDown={() => setShowDeleteConfirm(false)}
+          >
+            <div
+              className="report-modal"
+              onPointerDown={(e) => {
+                e.stopPropagation();
+              }}
+            >
+              <div className="report-modal-title">Delete this post?</div>
+              <div className="report-modal-subtitle">
+                This will permanently remove it from Vine. You can&apos;t undo this.
+              </div>
+              <div className="report-modal-actions">
+                <button className="secondary" onClick={() => setShowDeleteConfirm(false)}>
+                  Keep post
+                </button>
+                <button className="danger" onClick={deleteMainPost}>
+                  Delete post
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+      {commentDeleteTarget && typeof document !== "undefined" &&
+        createPortal(
+          <div
+            className="report-modal-backdrop"
+            onPointerDown={() => setCommentDeleteTarget(null)}
+          >
+            <div
+              className="report-modal"
+              onPointerDown={(e) => {
+                e.stopPropagation();
+              }}
+            >
+              <div className="report-modal-title">Delete this comment?</div>
+              <div className="report-modal-subtitle">
+                This will remove it from the conversation for everyone.
+              </div>
+              <div className="report-modal-actions">
+                <button className="secondary" onClick={() => setCommentDeleteTarget(null)}>
+                  Keep comment
+                </button>
+                <button className="danger" onClick={confirmDeleteComment}>
+                  Delete comment
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+      {showPostMenu && typeof document !== "undefined" &&
+        createPortal(
+          <div
+            ref={postMenuRef}
+            className="post-kebab-menu"
+            style={{
+              top: `${postMenuPosition.top}px`,
+              left: `${postMenuPosition.left}px`,
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            {(isPostAuthor || isModerator) && (
+              <button
+                type="button"
+                className="post-kebab-item danger"
+                onClick={openDeleteConfirm}
+              >
+                Delete post
+              </button>
+            )}
+            {!isPostAuthor && (
+              <button
+                type="button"
+                className="post-kebab-item"
+                onClick={openPostReport}
+              >
+                Report to Guardian
+              </button>
+            )}
           </div>,
           document.body
         )}

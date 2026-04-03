@@ -1972,16 +1972,28 @@
 .trending-header {
   font-weight: 800;
   color: #064e3b;
-  margin-bottom: 10px;
+  margin-bottom: 4px;
+}
+
+.trending-subtitle {
+  margin: 0 0 12px;
+  color: #2f6f64;
+  font-size: 0.92rem;
+  line-height: 1.45;
 }
 
 .trending-track {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  display: flex;
   gap: 12px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  scrollbar-width: thin;
+  scroll-snap-type: x proximity;
 }
 
 .trending-card {
+  flex: 0 0 240px;
+  min-width: 240px;
   background: #f0fdf4;
   border: 1px solid #dcfce7;
   border-radius: 16px;
@@ -1990,6 +2002,7 @@
   flex-direction: column;
   gap: 8px;
   cursor: pointer;
+  scroll-snap-align: start;
 }
 
 .trending-card-skeleton {
@@ -2131,11 +2144,19 @@
 }
 
 .theme-dark .trending-header,
+.theme-dark .trending-subtitle,
 .theme-dark .trending-name,
 .theme-dark .trending-handle,
 .theme-dark .trending-snippet,
 .theme-dark .trending-stats {
   color: #ffffff;
+}
+
+@media (max-width: 768px) {
+  .trending-card {
+    flex-basis: 220px;
+    min-width: 220px;
+  }
 }
 
 /* ── Suggestions Carousel ── */

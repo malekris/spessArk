@@ -191,6 +191,13 @@ const VINE_SYSTEM_NOTICE_ENABLED = !["0", "false", "off"].includes(
 const VINE_AUTH_THEME_DEFAULT_COVER_URL = String(
   process.env.VINE_AUTH_THEME_DEFAULT_COVER_URL || "/newactivities/fffffffffff.jpg"
 ).trim();
+const VINE_SITE_VISUAL_DEFAULT_HOME_HERO_URL = String(
+  process.env.VINE_SITE_VISUAL_DEFAULT_HOME_HERO_URL || "/newhome.jpg"
+).trim();
+const VINE_SITE_VISUAL_DEFAULT_BOARDING_LOGIN_URL = String(
+  process.env.VINE_SITE_VISUAL_DEFAULT_BOARDING_LOGIN_URL || "/newactivities/covercover.jpeg"
+).trim();
+const VINE_SITE_VISUAL_DEFAULT_ARK_AUTH_SLIDES = Array.from({ length: 11 }, (_, index) => `/slide${index + 1}.jpg`);
 const VINE_AUTH_THEME_EFFECT_OPTIONS = new Set([
   "clean",
   "cinematic",
@@ -2100,15 +2107,15 @@ const getFeedPageData = async ({ viewerId, feedTag = "", feedTab = "for-you", cu
   return { items: enrichedItems, nextCursor };
 };
 
-const getTrendingPostRows = async ({ viewerId, limit }, perfCtx = null) => {
+const getLatestNetworkPostRows = async ({ viewerId, limit }, perfCtx = null) => {
   const safeViewerId = Number(viewerId || 0);
-  const safeLimit = Math.max(1, Math.min(Number(limit || 8) || 8, 20));
+  const safeLimit = Math.max(1, Math.min(Number(limit || 10) || 10, 20));
   const candidateLimit = Math.max(safeLimit * 8, 80);
   const viewerState = await loadViewerFeedState(safeViewerId, perfCtx);
 
   const [candidateRows] = await timedVineQuery(
     perfCtx,
-    "trending.source.candidates",
+    "latest-posts.source.candidates",
     `
     SELECT
       p.id,
@@ -2119,7 +2126,6 @@ const getTrendingPostRows = async ({ viewerId, limit }, perfCtx = null) => {
       p.link_preview,
       p.created_at
     FROM vine_posts p
-    WHERE p.created_at >= NOW() - INTERVAL 1 DAY
     ORDER BY p.created_at DESC, p.id DESC
     LIMIT ?
     `,
@@ -2136,7 +2142,7 @@ const getTrendingPostRows = async ({ viewerId, limit }, perfCtx = null) => {
     const placeholders = authorIds.map(() => "?").join(", ");
     [authorRows] = await timedVineQuery(
       perfCtx,
-      "trending.source.authors",
+      "latest-posts.source.authors",
       `
       SELECT
         id,
@@ -2159,6 +2165,7 @@ const getTrendingPostRows = async ({ viewerId, limit }, perfCtx = null) => {
     const authorId = Number(row.user_id || 0);
     const authorRow = authorMap.get(authorId);
     if (!authorId || !authorRow) return false;
+    if (isNewsUserRow(authorRow)) return false;
     if (viewerState.blockedIds.has(authorId) || viewerState.mutedIds.has(authorId)) return false;
     if (!safeViewerId) return Number(authorRow.is_private || 0) === 0;
     if (authorId === safeViewerId) return true;
@@ -2196,16 +2203,17 @@ const getTrendingPostRows = async ({ viewerId, limit }, perfCtx = null) => {
   const enrichedRows = await enrichVinePostRows(baseRows, safeViewerId, perfCtx);
   return enrichedRows
     .sort((a, b) => {
-      const likeDelta = Number(b.likes || 0) - Number(a.likes || 0);
-      if (likeDelta !== 0) return likeDelta;
-      const commentDelta = Number(b.comments || 0) - Number(a.comments || 0);
-      if (commentDelta !== 0) return commentDelta;
       const aTime = new Date(a.created_at || 0).getTime();
       const bTime = new Date(b.created_at || 0).getTime();
       if (aTime !== bTime) return bTime - aTime;
       return Number(b.id || 0) - Number(a.id || 0);
     })
-    .slice(0, safeLimit);
+    .slice(0, safeLimit)
+    .map((row) => ({
+      ...row,
+      like_count: Number(row.likes || 0),
+      comment_count: Number(row.comments || 0),
+    }));
 };
 
 const getGuardianRecipientIds = async () => {
@@ -2736,6 +2744,138 @@ const saveVineAuthThemeSettings = async (payload = {}, updatedBy = null) => {
   const saved = normalizeVineAuthThemeSettings(savedRow || merged);
   authThemeCache = saved;
   authThemeLoadedAt = Date.now();
+  return saved;
+};
+
+let siteVisualSettingsSchemaReady = false;
+let siteVisualSettingsCache = null;
+let siteVisualSettingsLoadedAt = 0;
+const SITE_VISUAL_SETTINGS_CACHE_MS = 60 * 1000;
+
+const normalizeSiteVisualSettings = (value = {}) => {
+  const homeHeroUrl = String(
+    value.home_hero_url || VINE_SITE_VISUAL_DEFAULT_HOME_HERO_URL || ""
+  ).trim();
+  const boardingLoginUrl = String(
+    value.boarding_login_url || VINE_SITE_VISUAL_DEFAULT_BOARDING_LOGIN_URL || ""
+  ).trim();
+  let arkAuthSlides = value.ark_auth_slides;
+  if (typeof arkAuthSlides === "string") {
+    try {
+      arkAuthSlides = JSON.parse(arkAuthSlides);
+    } catch {
+      arkAuthSlides = [];
+    }
+  }
+  if (!Array.isArray(arkAuthSlides)) {
+    arkAuthSlides = [];
+  }
+  const cleanedSlides = arkAuthSlides
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .slice(0, 12);
+
+  return {
+    home_hero_url: homeHeroUrl || VINE_SITE_VISUAL_DEFAULT_HOME_HERO_URL,
+    boarding_login_url:
+      boardingLoginUrl || VINE_SITE_VISUAL_DEFAULT_BOARDING_LOGIN_URL,
+    ark_auth_slides: cleanedSlides.length ? cleanedSlides : [...VINE_SITE_VISUAL_DEFAULT_ARK_AUTH_SLIDES],
+    updated_by: value.updated_by ? Number(value.updated_by) : null,
+    updated_at: value.updated_at || null,
+  };
+};
+
+const ensureSiteVisualSettingsSchema = async () => {
+  if (siteVisualSettingsSchemaReady) return;
+  await ensureAdvancedSettingsSchema();
+  const dbName = await getDbName();
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_site_visual_settings (
+      id TINYINT PRIMARY KEY,
+      home_hero_url VARCHAR(1000) NOT NULL,
+      boarding_login_url VARCHAR(1000) NOT NULL,
+      ark_auth_slides_json LONGTEXT NOT NULL,
+      updated_by INT NULL,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await ensureColumnExists(
+    dbName,
+    "vine_site_visual_settings",
+    "boarding_login_url",
+    `VARCHAR(1000) NOT NULL DEFAULT '${VINE_SITE_VISUAL_DEFAULT_BOARDING_LOGIN_URL.replace(/'/g, "''")}'`
+  );
+  siteVisualSettingsSchemaReady = true;
+};
+
+const getCurrentSiteVisualSettings = async ({ force = false } = {}) => {
+  await ensureSiteVisualSettingsSchema();
+  if (
+    !force &&
+    siteVisualSettingsCache &&
+    Date.now() - siteVisualSettingsLoadedAt < SITE_VISUAL_SETTINGS_CACHE_MS
+  ) {
+    return siteVisualSettingsCache;
+  }
+
+  const [[row]] = await db.query(
+    `
+    SELECT home_hero_url, boarding_login_url, ark_auth_slides_json AS ark_auth_slides, updated_by, updated_at
+    FROM vine_site_visual_settings
+    WHERE id = 1
+    LIMIT 1
+    `
+  );
+
+  const next = normalizeSiteVisualSettings(row || {});
+  siteVisualSettingsCache = next;
+  siteVisualSettingsLoadedAt = Date.now();
+  return next;
+};
+
+const saveSiteVisualSettings = async (payload = {}, updatedBy = null) => {
+  await ensureSiteVisualSettingsSchema();
+  const current = await getCurrentSiteVisualSettings({ force: true });
+  const merged = normalizeSiteVisualSettings({
+    ...current,
+    home_hero_url: payload.home_hero_url,
+    boarding_login_url: payload.boarding_login_url,
+    ark_auth_slides: payload.ark_auth_slides,
+  });
+
+  await db.query(
+    `
+    INSERT INTO vine_site_visual_settings
+      (id, home_hero_url, boarding_login_url, ark_auth_slides_json, updated_by, updated_at)
+    VALUES
+      (1, ?, ?, ?, ?, NOW())
+    ON DUPLICATE KEY UPDATE
+      home_hero_url = VALUES(home_hero_url),
+      boarding_login_url = VALUES(boarding_login_url),
+      ark_auth_slides_json = VALUES(ark_auth_slides_json),
+      updated_by = VALUES(updated_by),
+      updated_at = NOW()
+    `,
+    [
+      merged.home_hero_url,
+      merged.boarding_login_url,
+      JSON.stringify(merged.ark_auth_slides),
+      updatedBy ? Number(updatedBy) : null,
+    ]
+  );
+
+  const [[savedRow]] = await db.query(
+    `
+    SELECT home_hero_url, boarding_login_url, ark_auth_slides_json AS ark_auth_slides, updated_by, updated_at
+    FROM vine_site_visual_settings
+    WHERE id = 1
+    LIMIT 1
+    `
+  );
+
+  const saved = normalizeSiteVisualSettings(savedRow || merged);
+  siteVisualSettingsCache = saved;
+  siteVisualSettingsLoadedAt = Date.now();
   return saved;
 };
 
@@ -5013,6 +5153,33 @@ const buildAuthThemeCoverBuffer = async (buffer) => {
     .rotate()
     .resize({ width: 2200, height: 2200, fit: "inside", withoutEnlargement: true })
     .jpeg({ quality: 88, mozjpeg: true })
+    .toBuffer();
+  return { buffer: out, mimetype: "image/jpeg" };
+};
+
+const buildSiteHeroBuffer = async (buffer) => {
+  const out = await sharp(buffer)
+    .rotate()
+    .resize({ width: 2600, height: 2600, fit: "inside", withoutEnlargement: true })
+    .jpeg({ quality: 88, mozjpeg: true })
+    .toBuffer();
+  return { buffer: out, mimetype: "image/jpeg" };
+};
+
+const buildSiteAuthSlideBuffer = async (buffer) => {
+  const out = await sharp(buffer)
+    .rotate()
+    .resize({ width: 2200, height: 2200, fit: "inside", withoutEnlargement: true })
+    .jpeg({ quality: 86, mozjpeg: true })
+    .toBuffer();
+  return { buffer: out, mimetype: "image/jpeg" };
+};
+
+const buildBoardingLoginBuffer = async (buffer) => {
+  const out = await sharp(buffer)
+    .rotate()
+    .resize({ width: 2200, height: 2200, fit: "inside", withoutEnlargement: true })
+    .jpeg({ quality: 86, mozjpeg: true })
     .toBuffer();
   return { buffer: out, mimetype: "image/jpeg" };
 };
@@ -8664,6 +8831,181 @@ router.put("/auth-theme/settings", authenticate, async (req, res) => {
   }
 });
 
+router.get("/site-visuals/public", async (_req, res) => {
+  try {
+    const settings = await getCurrentSiteVisualSettings();
+    res.json(settings);
+  } catch (err) {
+    console.error("Site visuals public fetch error:", err);
+    res.status(500).json({ message: "Failed to load site visuals" });
+  }
+});
+
+router.get("/site-visuals/settings", authenticate, async (req, res) => {
+  try {
+    const user = req.user || {};
+    if (!isModeratorAccount(user)) {
+      return res.status(403).json({ message: "Only moderators can view site visuals." });
+    }
+    const settings = await getCurrentSiteVisualSettings();
+    res.json(settings);
+  } catch (err) {
+    console.error("Site visuals settings fetch error:", err);
+    res.status(500).json({ message: "Failed to load site visuals" });
+  }
+});
+
+router.post(
+  "/site-visuals/home-hero",
+  authenticate,
+  uploadBannerMemory.single("hero"),
+  async (req, res) => {
+    try {
+      const user = req.user || {};
+      if (!isModeratorAccount(user)) {
+        return res.status(403).json({ message: "Only moderators can upload the homepage hero." });
+      }
+      if (!req.file) {
+        return res.status(400).json({ message: "Please choose a homepage image." });
+      }
+
+      const normalized = await normalizeImageBuffer(req.file);
+      const prepared = await buildSiteHeroBuffer(normalized.buffer);
+      const upload = await uploadBufferToCloudinary(prepared.buffer, {
+        folder: "vine/site-visuals",
+        public_id: `home-hero-${Date.now()}-${crypto.randomUUID()}`,
+        resource_type: "image",
+        format: "jpg",
+      });
+
+      res.json({ success: true, url: upload.secure_url || upload.url });
+    } catch (err) {
+      console.error("Site hero upload error:", err);
+      res.status(500).json({ message: "Failed to upload homepage image" });
+    }
+  }
+);
+
+router.post(
+  "/site-visuals/boarding-login",
+  authenticate,
+  uploadBannerMemory.single("boarding"),
+  async (req, res) => {
+    try {
+      const user = req.user || {};
+      if (!isModeratorAccount(user)) {
+        return res.status(403).json({ message: "Only moderators can upload the Boarding login cover." });
+      }
+      if (!req.file) {
+        return res.status(400).json({ message: "Please choose a Boarding login image." });
+      }
+
+      const normalized = await normalizeImageBuffer(req.file);
+      const prepared = await buildBoardingLoginBuffer(normalized.buffer);
+      const upload = await uploadBufferToCloudinary(prepared.buffer, {
+        folder: "vine/site-visuals",
+        public_id: `boarding-login-${Date.now()}-${crypto.randomUUID()}`,
+        resource_type: "image",
+        format: "jpg",
+      });
+
+      res.json({ success: true, url: upload.secure_url || upload.url });
+    } catch (err) {
+      console.error("Boarding login upload error:", err);
+      res.status(500).json({ message: "Failed to upload Boarding login image" });
+    }
+  }
+);
+
+router.post(
+  "/site-visuals/ark-auth-slides",
+  authenticate,
+  uploadBannerMemory.array("slides", 12),
+  async (req, res) => {
+    try {
+      const user = req.user || {};
+      if (!isModeratorAccount(user)) {
+        return res.status(403).json({ message: "Only moderators can upload Ark auth slides." });
+      }
+      const files = Array.isArray(req.files) ? req.files : [];
+      if (!files.length) {
+        return res.status(400).json({ message: "Please choose at least one slide image." });
+      }
+
+      const uploadedUrls = [];
+      for (const file of files) {
+        const normalized = await normalizeImageBuffer(file);
+        const prepared = await buildSiteAuthSlideBuffer(normalized.buffer);
+        const upload = await uploadBufferToCloudinary(prepared.buffer, {
+          folder: "vine/site-visuals",
+          public_id: `ark-auth-slide-${Date.now()}-${crypto.randomUUID()}`,
+          resource_type: "image",
+          format: "jpg",
+        });
+        uploadedUrls.push(upload.secure_url || upload.url);
+      }
+
+      res.json({ success: true, urls: uploadedUrls });
+    } catch (err) {
+      console.error("Ark auth slides upload error:", err);
+      res.status(500).json({ message: "Failed to upload Ark auth slides" });
+    }
+  }
+);
+
+router.put("/site-visuals/settings", authenticate, async (req, res) => {
+  try {
+    const user = req.user || {};
+    if (!isModeratorAccount(user)) {
+      return res.status(403).json({ message: "Only moderators can update site visuals." });
+    }
+
+    const current = await getCurrentSiteVisualSettings({ force: true });
+    const nextSlides = Array.isArray(req.body?.ark_auth_slides)
+      ? req.body.ark_auth_slides
+      : current.ark_auth_slides;
+    const settings = await saveSiteVisualSettings(
+      {
+        home_hero_url:
+          req.body?.home_hero_url === undefined
+            ? current.home_hero_url
+            : String(req.body?.home_hero_url || "").trim(),
+        boarding_login_url:
+          req.body?.boarding_login_url === undefined
+            ? current.boarding_login_url
+            : String(req.body?.boarding_login_url || "").trim(),
+        ark_auth_slides: nextSlides,
+      },
+      user.id || null
+    );
+
+    const removedUrls = [
+      ...new Set(
+        [
+          ...(current.home_hero_url && current.home_hero_url !== settings.home_hero_url
+            ? [current.home_hero_url]
+            : []),
+          ...(current.boarding_login_url &&
+          current.boarding_login_url !== settings.boarding_login_url
+            ? [current.boarding_login_url]
+            : []),
+          ...current.ark_auth_slides.filter((url) => !settings.ark_auth_slides.includes(url)),
+        ].filter(Boolean)
+      ),
+    ];
+    for (const url of removedUrls) {
+      await deleteCloudinaryByUrl(url);
+    }
+
+    res.json({ success: true, settings });
+  } catch (err) {
+    console.error("Site visuals settings update error:", err);
+    res.status(err?.statusCode || 500).json({
+      message: err?.message || "Failed to save site visuals",
+    });
+  }
+});
+
 router.put("/system-notice/settings", authenticate, async (req, res) => {
   try {
     const user = req.user || {};
@@ -10512,29 +10854,29 @@ router.get("/posts/:id/comments", authOptional, async (req, res) => {
   }
 });
 
-// 🔥 Trending posts (last 24h)
+// Latest public/follower-visible posts strip
 router.get("/posts/trending", authOptional, async (req, res) => {
   try {
     const viewerId = req.user?.id || null;
-    const limit = Math.min(Number(req.query.limit || 8), 20);
+    const limit = Math.min(Number(req.query.limit || 10), 20);
     const rows = await runVinePerfRoute(
-      "trending",
+      "latest-posts",
       {
         viewer_id: Number(viewerId || 0),
         limit,
       },
       async (perfCtx) => {
         await ensureVinePerformanceSchema();
-        const cacheKey = buildVineCacheKey("trending", viewerId || 0, limit);
+        const cacheKey = buildVineCacheKey("latest-posts", viewerId || 0, limit);
         return readThroughVineCache(cacheKey, VINE_CACHE_TTLS.trending, async () =>
-          getTrendingPostRows({ viewerId, limit }, perfCtx)
+          getLatestNetworkPostRows({ viewerId, limit }, perfCtx)
         );
       }
     );
 
     res.json(rows);
   } catch (err) {
-    console.error("Trending posts error:", err);
+    console.error("Latest posts strip error:", err);
     res.status(500).json([]);
   }
 });
@@ -11328,7 +11670,7 @@ router.patch("/posts/:id", requireVineAuth, async (req, res) => {
   }
 });
 
-// avatars (Cloudinary)
+// avatars
 const uploadAvatarMiddleware = (req, res, next) => {
   uploadAvatarMemory.single("avatar")(req, res, (err) => {
     if (err) {
@@ -11372,21 +11714,28 @@ router.post("/users/avatar", authenticate, uploadAvatarMiddleware, async (req, r
     }
 
     const normalized = await normalizeImageBuffer(req.file);
-    const upload = await cloudinary.uploader.upload(
-      `data:${normalized.mimetype};base64,${normalized.buffer.toString("base64")}`,
-      {
-        folder: "vine/avatars",
-        transformation: [
-          { width: 400, height: 400, crop: "fill", gravity: "face" },
-        ],
-      }
+    const prepared = await buildCommunityAvatarBuffer(normalized.buffer);
+    const [[userRow]] = await db.query(
+      "SELECT avatar_url FROM vine_users WHERE id = ? LIMIT 1",
+      [req.user.id]
     );
+    const upload = await uploadBufferToCloudinary(prepared.buffer, {
+      folder: "vine/avatars",
+      resource_type: "image",
+      format: "jpg",
+      content_type: prepared.mimetype,
+      transformation: [{ width: 400, height: 400, crop: "fill", gravity: "face" }],
+    });
     const avatarUrl = upload.secure_url;
 
     await db.query(
       "UPDATE vine_users SET avatar_url = ? WHERE id = ?",
       [avatarUrl, req.user.id]
     );
+
+    if (userRow?.avatar_url && userRow.avatar_url !== avatarUrl) {
+      await deleteCloudinaryByUrl(userRow.avatar_url).catch(() => {});
+    }
 
     clearVineReadCache();
     res.json({ avatar_url: avatarUrl });
@@ -11396,7 +11745,7 @@ router.post("/users/avatar", authenticate, uploadAvatarMiddleware, async (req, r
   }
 });
 
-// banners (NEW)
+// banners
 router.post(
   "/users/banner",
   authenticate,
@@ -11412,22 +11761,28 @@ router.post(
       }
 
       const normalized = await normalizeImageBuffer(req.file);
-      const upload = await cloudinary.uploader.upload(
-        `data:${normalized.mimetype};base64,${normalized.buffer.toString("base64")}`,
-        {
-          folder: "vine/banners",
-          transformation: [
-            { width: 1500, height: 500, crop: "fill" },
-          ],
-        }
+      const prepared = await buildCommunityBannerBuffer(normalized.buffer);
+      const [[userRow]] = await db.query(
+        "SELECT banner_url FROM vine_users WHERE id = ? LIMIT 1",
+        [req.user.id]
       );
+      const upload = await uploadBufferToCloudinary(prepared.buffer, {
+        folder: "vine/banners",
+        resource_type: "image",
+        format: "jpg",
+        content_type: prepared.mimetype,
+        transformation: [{ width: 1500, height: 500, crop: "fill" }],
+      });
       const bannerUrl = upload.secure_url;
-
 
       await db.query(
         "UPDATE vine_users SET banner_url = ? WHERE id = ?",
         [bannerUrl, req.user.id]
       );
+
+      if (userRow?.banner_url && userRow.banner_url !== bannerUrl) {
+        await deleteCloudinaryByUrl(userRow.banner_url).catch(() => {});
+      }
 
       clearVineReadCache();
       res.json({ banner_url: bannerUrl });

@@ -1,12 +1,14 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { writeTeacherIdleExpiry } from "../utils/teacherSecurity";
+import { useSiteVisuals } from "../utils/siteVisuals";
 import "./LoginPage.css";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "https://spessark.onrender.com";
 
 function TeacherForgotPassword() {
   const navigate = useNavigate();
+  const siteVisuals = useSiteVisuals();
   const [step, setStep] = useState(1);
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
@@ -15,11 +17,7 @@ function TeacherForgotPassword() {
 
   const [activeIndex, setActiveIndex] = useState(0);
   const [previousIndex, setPreviousIndex] = useState(null);
-  const backgroundImages = [
-    "/slide1.jpg", "/slide2.jpg", "/slide3.jpg", "/slide4.jpg",
-    "/slide5.jpg", "/slide6.jpg", "/slide7.jpg", "/slide8.jpg",
-    "/slide9.jpg", "/slide10.jpg", "/slide11.jpg"
-  ];
+  const backgroundImages = siteVisuals.ark_auth_slides || [];
 
   useEffect(() => {
     document.title = "Teacher - Forgot Password";

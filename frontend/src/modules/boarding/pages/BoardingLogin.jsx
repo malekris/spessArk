@@ -1,22 +1,36 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useEffect } from "react";
 import "../../../pages/LoginPage.css";
+import { useSiteVisuals } from "../../../utils/siteVisuals";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const emeraldGlow = "rgba(52, 211, 153, 0.24)";
 
 export default function BoardingLogin() {
   const navigate = useNavigate();
+  const siteVisuals = useSiteVisuals();
   const [form, setForm] = useState({ username: "", password: "" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const [showSplash, setShowSplash] = useState(false);
   const [splashCountdown, setSplashCountdown] = useState(10);
+  const [useLiteBackground, setUseLiteBackground] = useState(false);
+
+  const boardingCoverUrl =
+    siteVisuals.boarding_login_url || "/newactivities/covercover.jpeg";
 
   useEffect(() => {
     document.title = "Boarding Login | SPESS ARK";
+  }, []);
+
+  useEffect(() => {
+    const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    const isMobile = window.matchMedia("(max-width: 900px)").matches;
+    const lowMemory = typeof navigator.deviceMemory === "number" ? navigator.deviceMemory <= 4 : false;
+    const saveData = Boolean(conn?.saveData);
+    const slowNet = /(^|[^0-9])(2g|3g)/i.test(String(conn?.effectiveType || ""));
+    setUseLiteBackground(isMobile && (lowMemory || saveData || slowNet));
   }, []);
 
   useEffect(() => {
@@ -89,7 +103,14 @@ export default function BoardingLogin() {
       `}</style>
 
       <div className="ark-bg-slideshow">
-        <div className="ark-slide ark-active" style={{ backgroundImage: "url(/newactivities/covercover.jpeg)" }} />
+        {useLiteBackground ? (
+          <div className="ark-bg-pattern" />
+        ) : (
+          <div
+            className="ark-slide ark-active"
+            style={{ backgroundImage: `url(${boardingCoverUrl})` }}
+          />
+        )}
         <div
           style={{
             position: "absolute",

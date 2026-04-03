@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { loadPdfTools } from "../../../utils/loadPdfTools";
+import { convertHeicFileToJpeg, isHeicLikeFile } from "../utils/heic";
 import "./VineGuardianAnalytics.css";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
@@ -40,6 +41,11 @@ const DEFAULT_AUTH_THEME_FORM = {
   cover_url: "/newactivities/fffffffffff.jpg",
   effect_preset: "clean",
   form_alignment: "right",
+};
+const DEFAULT_SITE_VISUAL_FORM = {
+  home_hero_url: "/newhome.jpg",
+  boarding_login_url: "/newactivities/covercover.jpeg",
+  ark_auth_slides: Array.from({ length: 11 }, (_, index) => `/slide${index + 1}.jpg`),
 };
 
 const isGuardianUser = (user) => {
@@ -117,6 +123,14 @@ export default function VineGuardianAnalytics() {
   const [authThemeCoverPreview, setAuthThemeCoverPreview] = useState("");
   const [authThemeSaving, setAuthThemeSaving] = useState(false);
   const [authThemeNotice, setAuthThemeNotice] = useState(null);
+  const [siteVisualForm, setSiteVisualForm] = useState(DEFAULT_SITE_VISUAL_FORM);
+  const [siteHeroFile, setSiteHeroFile] = useState(null);
+  const [siteHeroPreview, setSiteHeroPreview] = useState("");
+  const [siteBoardingFile, setSiteBoardingFile] = useState(null);
+  const [siteBoardingPreview, setSiteBoardingPreview] = useState("");
+  const [siteSlideFiles, setSiteSlideFiles] = useState([]);
+  const [siteVisualSaving, setSiteVisualSaving] = useState(false);
+  const [siteVisualNotice, setSiteVisualNotice] = useState(null);
   const [from, setFrom] = useState(() => {
     const d = new Date(Date.now() - 6 * 86400000);
     return d.toISOString().slice(0, 10);
@@ -154,6 +168,7 @@ export default function VineGuardianAnalytics() {
           newsSettingsResult,
           noticeSettingsResult,
           authThemeSettingsResult,
+          siteVisualSettingsResult,
         ] =
           await Promise.allSettled([
           fetch(`${API}/api/vine/analytics/overview?${q}`, {
@@ -175,6 +190,9 @@ export default function VineGuardianAnalytics() {
             headers: { Authorization: `Bearer ${token}` },
           }),
           fetch(`${API}/api/vine/auth-theme/settings`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          fetch(`${API}/api/vine/site-visuals/settings`, {
             headers: { Authorization: `Bearer ${token}` },
           }),
         ]);
@@ -247,6 +265,15 @@ export default function VineGuardianAnalytics() {
           }
         }
 
+        let siteVisualSettingsBody = null;
+        if (siteVisualSettingsResult?.status === "fulfilled") {
+          const siteVisualSettingsRes = siteVisualSettingsResult.value;
+          const parsed = await siteVisualSettingsRes.json().catch(() => null);
+          if (siteVisualSettingsRes.ok) {
+            siteVisualSettingsBody = parsed;
+          }
+        }
+
         setData({
           ...overviewBody,
           performance: perfBody,
@@ -255,6 +282,7 @@ export default function VineGuardianAnalytics() {
           newsSettings: newsSettingsBody,
           noticeSettings: noticeSettingsBody,
           authThemeSettings: authThemeSettingsBody,
+          siteVisualSettings: siteVisualSettingsBody,
         });
       } catch (err) {
         setError("Failed to load analytics");
@@ -394,6 +422,18 @@ export default function VineGuardianAnalytics() {
   }, [data?.authThemeSettings]);
 
   useEffect(() => {
+    const source = data?.siteVisualSettings;
+    if (!source) return;
+    setSiteVisualForm({
+      home_hero_url: String(source.home_hero_url || "/newhome.jpg"),
+      boarding_login_url: String(source.boarding_login_url || "/newactivities/covercover.jpeg"),
+      ark_auth_slides: Array.isArray(source.ark_auth_slides) && source.ark_auth_slides.length
+        ? source.ark_auth_slides.map((item) => String(item || "").trim()).filter(Boolean)
+        : DEFAULT_SITE_VISUAL_FORM.ark_auth_slides,
+    });
+  }, [data?.siteVisualSettings]);
+
+  useEffect(() => {
     if (!authThemeCoverFile) {
       setAuthThemeCoverPreview("");
       return undefined;
@@ -404,12 +444,40 @@ export default function VineGuardianAnalytics() {
   }, [authThemeCoverFile]);
 
   useEffect(() => {
+    if (!siteHeroFile) {
+      setSiteHeroPreview("");
+      return undefined;
+    }
+    const objectUrl = URL.createObjectURL(siteHeroFile);
+    setSiteHeroPreview(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [siteHeroFile]);
+
+  useEffect(() => {
+    if (!siteBoardingFile) {
+      setSiteBoardingPreview("");
+      return undefined;
+    }
+    const objectUrl = URL.createObjectURL(siteBoardingFile);
+    setSiteBoardingPreview(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [siteBoardingFile]);
+
+  useEffect(() => {
     if (!authThemeNotice) return undefined;
     const timer = window.setTimeout(() => {
       setAuthThemeNotice(null);
     }, 4500);
     return () => window.clearTimeout(timer);
   }, [authThemeNotice]);
+
+  useEffect(() => {
+    if (!siteVisualNotice) return undefined;
+    const timer = window.setTimeout(() => {
+      setSiteVisualNotice(null);
+    }, 4500);
+    return () => window.clearTimeout(timer);
+  }, [siteVisualNotice]);
 
   const exportCsv = (filename, rows) => {
     if (!rows?.length) return;
@@ -810,6 +878,187 @@ export default function VineGuardianAnalytics() {
     }
   };
 
+  const removeArkAuthSlide = (targetUrl) => {
+    setSiteVisualForm((prev) => ({
+      ...prev,
+      ark_auth_slides: (prev.ark_auth_slides || []).filter((url) => url !== targetUrl),
+    }));
+  };
+
+  const normalizeVisualFile = async (file, label) => {
+    if (!file) return null;
+    if (!isHeicLikeFile(file)) return file;
+    try {
+      const converted = await convertHeicFileToJpeg(file);
+      if (converted) return converted;
+    } catch (err) {
+      console.warn(`${label} HEIC conversion failed`, err);
+    }
+    setSiteVisualNotice({
+      kind: "error",
+      message: `${label} HEIC image could not be prepared. Please try JPG, PNG, or WebP.`,
+    });
+    return null;
+  };
+
+  const handleSiteHeroPick = async (event) => {
+    const file = event.target.files?.[0] || null;
+    event.target.value = "";
+    if (!file) {
+      setSiteHeroFile(null);
+      return;
+    }
+    const normalized = await normalizeVisualFile(file, "Homepage");
+    if (!normalized) return;
+    setSiteHeroFile(normalized);
+  };
+
+  const handleBoardingPick = async (event) => {
+    const file = event.target.files?.[0] || null;
+    event.target.value = "";
+    if (!file) {
+      setSiteBoardingFile(null);
+      return;
+    }
+    const normalized = await normalizeVisualFile(file, "Boarding");
+    if (!normalized) return;
+    setSiteBoardingFile(normalized);
+  };
+
+  const handleSiteSlidesPick = async (event) => {
+    const files = Array.from(event.target.files || []);
+    event.target.value = "";
+    if (!files.length) {
+      setSiteSlideFiles([]);
+      return;
+    }
+    const normalizedFiles = [];
+    for (const file of files) {
+      const normalized = await normalizeVisualFile(file, "ARK auth slide");
+      if (!normalized) return;
+      normalizedFiles.push(normalized);
+    }
+    setSiteSlideFiles(normalizedFiles);
+  };
+
+  const saveSiteVisuals = async () => {
+    try {
+      setSiteVisualSaving(true);
+      setSiteVisualNotice(null);
+      let nextHomeHeroUrl = siteVisualForm.home_hero_url;
+      let nextBoardingLoginUrl = siteVisualForm.boarding_login_url;
+      let nextArkSlides = [...(siteVisualForm.ark_auth_slides || [])];
+
+      if (siteHeroFile) {
+        const formData = new FormData();
+        formData.append("hero", siteHeroFile);
+        const uploadRes = await fetch(`${API}/api/vine/site-visuals/home-hero`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          body: formData,
+        });
+        const uploadBody = await uploadRes.json().catch(() => ({}));
+        if (!uploadRes.ok) {
+          setSiteVisualNotice({
+            kind: "error",
+            message: uploadBody?.message || "Failed to upload homepage hero.",
+          });
+          return;
+        }
+        nextHomeHeroUrl = String(uploadBody?.url || nextHomeHeroUrl || "").trim();
+      }
+
+      if (siteBoardingFile) {
+        const formData = new FormData();
+        formData.append("boarding", siteBoardingFile);
+        const uploadRes = await fetch(`${API}/api/vine/site-visuals/boarding-login`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          body: formData,
+        });
+        const uploadBody = await uploadRes.json().catch(() => ({}));
+        if (!uploadRes.ok) {
+          setSiteVisualNotice({
+            kind: "error",
+            message: uploadBody?.message || "Failed to upload Boarding login image.",
+          });
+          return;
+        }
+        nextBoardingLoginUrl = String(uploadBody?.url || nextBoardingLoginUrl || "").trim();
+      }
+
+      if (siteSlideFiles.length) {
+        const formData = new FormData();
+        siteSlideFiles.forEach((file) => formData.append("slides", file));
+        const uploadRes = await fetch(`${API}/api/vine/site-visuals/ark-auth-slides`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          body: formData,
+        });
+        const uploadBody = await uploadRes.json().catch(() => ({}));
+        if (!uploadRes.ok) {
+          setSiteVisualNotice({
+            kind: "error",
+            message: uploadBody?.message || "Failed to upload ARK auth slides.",
+          });
+          return;
+        }
+        nextArkSlides = [...nextArkSlides, ...((uploadBody?.urls || []).map((item) => String(item || "").trim()).filter(Boolean))];
+      }
+
+      if (!nextArkSlides.length) {
+        setSiteVisualNotice({
+          kind: "error",
+          message: "Please keep at least one ARK auth slide.",
+        });
+        return;
+      }
+
+      const res = await fetch(`${API}/api/vine/site-visuals/settings`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          home_hero_url: nextHomeHeroUrl,
+          boarding_login_url: nextBoardingLoginUrl,
+          ark_auth_slides: nextArkSlides,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setSiteVisualNotice({
+          kind: "error",
+          message: body?.message || "Failed to save site visuals.",
+        });
+        return;
+      }
+
+      setData((prev) => (prev ? { ...prev, siteVisualSettings: body.settings } : prev));
+      setSiteHeroFile(null);
+      setSiteBoardingFile(null);
+      setSiteSlideFiles([]);
+      setSiteVisualNotice({
+        kind: "success",
+        message: "Website, ARK, and Boarding visuals published.",
+      });
+    } catch {
+      setSiteVisualNotice({
+        kind: "error",
+        message: "Failed to save site visuals.",
+      });
+    } finally {
+      setSiteVisualSaving(false);
+    }
+  };
+
   const releaseNow = async (userId) => {
     if (!userId) return;
     try {
@@ -898,6 +1147,12 @@ export default function VineGuardianAnalytics() {
   const noticeSettings = data?.noticeSettings || null;
   const authThemeSettings = data?.authThemeSettings || null;
   const authThemePreviewUrl = authThemeCoverPreview || authThemeForm.cover_url || "/newactivities/fffffffffff.jpg";
+  const siteVisualSettings = data?.siteVisualSettings || null;
+  const siteHeroPreviewUrl = siteHeroPreview || siteVisualForm.home_hero_url || "/newhome.jpg";
+  const siteBoardingPreviewUrl =
+    siteBoardingPreview ||
+    siteVisualForm.boarding_login_url ||
+    "/newactivities/covercover.jpeg";
   const recentLogins = activity?.recent_logins || [];
   const recentActions = activity?.recent_actions || [];
   const perfRuntime = perf?.runtime || {};
@@ -1272,7 +1527,7 @@ export default function VineGuardianAnalytics() {
             <div className="guardian-news-actions">
               <button
                 type="button"
-                className="guardian-csv-btn guardian-news-save"
+                className="guardian-csv-btn guardian-news-save-hot"
                 disabled={authThemeSaving}
                 onClick={saveAuthTheme}
               >
@@ -1295,6 +1550,194 @@ export default function VineGuardianAnalytics() {
                   type="button"
                   className="guardian-auth-notice-close"
                   onClick={() => setAuthThemeNotice(null)}
+                >
+                  Okay
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="guardian-section">
+        <h3>Website, Ark & Boarding Visuals</h3>
+        <div className="guardian-site-visual-layout">
+          <div className="guardian-site-visual-stack">
+            <div className="guardian-news-card guardian-auth-theme-card">
+              <span className="guardian-news-label">Homepage Hero</span>
+              <div
+                className="guardian-site-hero-preview"
+                style={{ "--guardian-site-hero": `url(${siteHeroPreviewUrl})` }}
+              >
+                <div className="guardian-site-hero-copy">
+                  <strong>Website front door</strong>
+                  <span>This drives the very first school homepage image.</span>
+                </div>
+              </div>
+              <label className="guardian-auth-upload-shell">
+                <span className="guardian-auth-upload-label">Upload homepage hero</span>
+                <input
+                  className="guardian-auth-upload-input"
+                  type="file"
+                  accept="image/*,.heic,.heif"
+                  onChange={handleSiteHeroPick}
+                />
+                <span className="guardian-auth-upload-cta">Choose hero image</span>
+                <span className="guardian-auth-upload-copy">
+                  {siteHeroFile ? siteHeroFile.name : "No new homepage image selected"}
+                </span>
+              </label>
+              <div className="guardian-news-actions guardian-site-card-actions">
+                {siteHeroFile && (
+                  <button
+                    type="button"
+                    className="guardian-csv-btn guardian-auth-clear"
+                    onClick={() => setSiteHeroFile(null)}
+                  >
+                    Clear selection
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="guardian-csv-btn guardian-news-save-hot"
+                  disabled={siteVisualSaving}
+                  onClick={saveSiteVisuals}
+                >
+                  {siteVisualSaving ? "Publishing..." : "Publish visuals"}
+                </button>
+              </div>
+            </div>
+
+            <div className="guardian-news-card guardian-auth-theme-card">
+              <span className="guardian-news-label">Boarding Login Cover</span>
+              <div
+                className="guardian-site-hero-preview guardian-site-boarding-preview"
+                style={{ "--guardian-site-hero": `url(${siteBoardingPreviewUrl})` }}
+              >
+                <div className="guardian-site-hero-copy">
+                  <strong>Boarding manager entry</strong>
+                  <span>This controls the standalone Boarding login screen.</span>
+                </div>
+              </div>
+              <label className="guardian-auth-upload-shell">
+                <span className="guardian-auth-upload-label">Upload Boarding login cover</span>
+                <input
+                  className="guardian-auth-upload-input"
+                  type="file"
+                  accept="image/*,.heic,.heif"
+                  onChange={handleBoardingPick}
+                />
+                <span className="guardian-auth-upload-cta">Choose Boarding image</span>
+                <span className="guardian-auth-upload-copy">
+                  {siteBoardingFile ? siteBoardingFile.name : "No new Boarding image selected"}
+                </span>
+              </label>
+              <div className="guardian-news-actions guardian-site-card-actions">
+                {siteBoardingFile && (
+                  <button
+                    type="button"
+                    className="guardian-csv-btn guardian-auth-clear"
+                    onClick={() => setSiteBoardingFile(null)}
+                  >
+                    Clear selection
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="guardian-csv-btn guardian-news-save-hot"
+                  disabled={siteVisualSaving}
+                  onClick={saveSiteVisuals}
+                >
+                  {siteVisualSaving ? "Publishing..." : "Publish visuals"}
+                </button>
+              </div>
+              <div className="guardian-news-runtime">
+                <span>
+                  Boarding cover: <strong>{siteVisualForm.boarding_login_url ? "Live" : "Default"}</strong>
+                </span>
+                <span>
+                  Covers: <strong>Boarding login</strong>
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="guardian-news-card guardian-auth-theme-card">
+            <span className="guardian-news-label">ARK Auth Slideshow</span>
+            <div className="guardian-visual-usage">
+              <span className="guardian-visual-usage-pill">Admin Login</span>
+              <span className="guardian-visual-usage-pill">Teacher Login</span>
+              <span className="guardian-visual-usage-pill">Teacher Signup</span>
+              <span className="guardian-visual-usage-pill">Teacher Reset</span>
+            </div>
+            <div className="guardian-slide-grid">
+              {(siteVisualForm.ark_auth_slides || []).map((slideUrl, index) => (
+                <div key={`${slideUrl}-${index}`} className="guardian-slide-chip">
+                  <img src={slideUrl} alt={`Ark slide ${index + 1}`} loading="lazy" />
+                  <button
+                    type="button"
+                    className="guardian-slide-remove"
+                    onClick={() => removeArkAuthSlide(slideUrl)}
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+            </div>
+            <label className="guardian-auth-upload-shell">
+              <span className="guardian-auth-upload-label">Add slides for ARK admin and teacher auth screens</span>
+              <input
+                className="guardian-auth-upload-input"
+                type="file"
+                accept="image/*,.heic,.heif"
+                multiple
+                onChange={handleSiteSlidesPick}
+              />
+              <span className="guardian-auth-upload-cta">Choose slideshow images</span>
+              <span className="guardian-auth-upload-copy">
+                {siteSlideFiles.length
+                  ? `${siteSlideFiles.length} new slide${siteSlideFiles.length === 1 ? "" : "s"} ready`
+                  : "No new slideshow images selected"}
+              </span>
+            </label>
+            {siteSlideFiles.length > 0 && (
+              <button
+                type="button"
+                className="guardian-csv-btn guardian-auth-clear"
+                onClick={() => setSiteSlideFiles([])}
+              >
+                Clear new slides
+              </button>
+            )}
+            <div className="guardian-news-runtime">
+              <span>
+                ARK visuals updated: <strong>{siteVisualSettings?.updated_at ? formatAgo(siteVisualSettings.updated_at) : "Not yet"}</strong>
+              </span>
+              <span>
+                ARK slides live: <strong>{(siteVisualForm.ark_auth_slides || []).length}</strong>
+              </span>
+              <span>
+                Covers: <strong>ARK admin / teacher auth</strong>
+              </span>
+            </div>
+            <div className="guardian-news-actions">
+              <button
+                type="button"
+                className="guardian-csv-btn guardian-news-save-hot"
+                disabled={siteVisualSaving}
+                onClick={saveSiteVisuals}
+              >
+                {siteVisualSaving ? "Publishing..." : "Publish visuals"}
+              </button>
+            </div>
+            {siteVisualNotice && (
+              <div className={`guardian-auth-notice ${siteVisualNotice.kind}`}>
+                <span>{siteVisualNotice.kind === "success" ? "Done" : "Heads up"}</span>
+                <strong>{siteVisualNotice.message}</strong>
+                <button
+                  type="button"
+                  className="guardian-auth-notice-close"
+                  onClick={() => setSiteVisualNotice(null)}
                 >
                   Okay
                 </button>

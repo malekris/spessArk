@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { writeAdminIdleExpiry } from "../utils/adminSecurity";
+import { useSiteVisuals } from "../utils/siteVisuals";
 import "./LoginPage.css";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5001";
@@ -8,6 +9,7 @@ const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
+  const siteVisuals = useSiteVisuals();
   const [form, setForm] = useState({ username: "", password: "" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -18,11 +20,7 @@ function LoginPage() {
   const [isDesktop, setIsDesktop] = useState(false);
   const [showDesktopForm, setShowDesktopForm] = useState(false);
 
-  const backgroundImages = [
-    "/slide1.jpg", "/slide2.jpg", "/slide3.jpg", "/slide4.jpg",
-    "/slide5.jpg", "/slide6.jpg", "/slide7.jpg", "/slide8.jpg",
-    "/slide9.jpg", "/slide10.jpg", "/slide11.jpg"
-  ];
+  const backgroundImages = siteVisuals.ark_auth_slides || [];
 
   // Slideshow Logic
   useEffect(() => {

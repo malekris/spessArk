@@ -1,12 +1,14 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { writeTeacherIdleExpiry } from "../utils/teacherSecurity";
+import { useSiteVisuals } from "../utils/siteVisuals";
 import "./LoginPage.css"; // Make sure this matches your new isolated CSS filename
 
 const API_BASE = import.meta.env.VITE_API_BASE || "https://spessark.onrender.com";
 
 function TeacherLogin() {
   const navigate = useNavigate();
+  const siteVisuals = useSiteVisuals();
   
   // --- 1. Form & UI State ---
   const [form, setForm] = useState({ email: "", password: "" });
@@ -18,11 +20,7 @@ function TeacherLogin() {
   const [activeIndex, setActiveIndex] = useState(0);
   const [previousIndex, setPreviousIndex] = useState(null);
   const [useLiteBackground, setUseLiteBackground] = useState(false);
-  const backgroundImages = [
-    "/slide1.jpg", "/slide2.jpg", "/slide3.jpg", "/slide4.jpg",
-    "/slide5.jpg", "/slide6.jpg", "/slide7.jpg", "/slide8.jpg",
-    "/slide9.jpg", "/slide10.jpg", "/slide11.jpg"
-  ];
+  const backgroundImages = siteVisuals.ark_auth_slides || [];
 
   useEffect(() => {
     const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;

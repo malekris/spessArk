@@ -1,12 +1,37 @@
 import express from "express";
+import crypto from "crypto";
 import { db, io, getOnlineUserIds } from "../../server.js";
 import { authenticate } from "../auth.js";
 import multer from "multer";
 import cloudinary from "../../config/cloudinary.js";
+import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { recordPerfQuery, recordPerfRoute } from "./perfStore.js";
 
 const router = express.Router();
 const DISAPPEARING_MODES = new Set(["after_read", "1h", "24h"]);
+const USE_R2_UPLOADS = String(process.env.USE_R2_UPLOADS || "").toLowerCase() === "true";
+const R2_ACCOUNT_ID = String(process.env.R2_ACCOUNT_ID || "").trim();
+const R2_BUCKET = String(process.env.R2_BUCKET || "").trim();
+const R2_ACCESS_KEY_ID = String(process.env.R2_ACCESS_KEY_ID || "").trim();
+const R2_SECRET_ACCESS_KEY = String(process.env.R2_SECRET_ACCESS_KEY || "").trim();
+const R2_PUBLIC_BASE_URL = String(process.env.R2_PUBLIC_BASE_URL || "").trim().replace(/\/+$/, "");
+const R2_ENDPOINT =
+  R2_ACCOUNT_ID
+    ? `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`
+    : String(process.env.R2_ENDPOINT || "").trim();
+const r2Ready = Boolean(
+  R2_BUCKET && R2_ACCESS_KEY_ID && R2_SECRET_ACCESS_KEY && R2_ENDPOINT && R2_PUBLIC_BASE_URL
+);
+const r2Client = r2Ready
+  ? new S3Client({
+      region: "auto",
+      endpoint: R2_ENDPOINT,
+      credentials: {
+        accessKeyId: R2_ACCESS_KEY_ID,
+        secretAccessKey: R2_SECRET_ACCESS_KEY,
+      },
+    })
+  : null;
 const uploadDmMedia = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 25 * 1024 * 1024 },
@@ -114,6 +139,8 @@ const clearDmReadCache = (...prefixes) => {
 const DM_PERF_LOGS_ENABLED = process.env.VINE_PERF_LOGS !== "0";
 const DM_SLOW_ROUTE_MS = Math.max(50, Number(process.env.DM_SLOW_ROUTE_MS || process.env.VINE_SLOW_ROUTE_MS || 500));
 const DM_SLOW_QUERY_MS = Math.max(25, Number(process.env.DM_SLOW_QUERY_MS || process.env.VINE_SLOW_QUERY_MS || 150));
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const createDmPerfContext = (routeKey, meta = {}) => ({
   routeKey,
@@ -394,7 +421,104 @@ const ensureDmPerformanceSchema = async () => {
   return dmPerformancePromise;
 };
 
-const uploadBufferToCloudinary = (buffer, options = {}) =>
+const isR2Url = (rawUrl) => {
+  const asString = String(rawUrl || "").trim();
+  if (!asString) return false;
+  if (R2_PUBLIC_BASE_URL && asString.startsWith(R2_PUBLIC_BASE_URL)) return true;
+  return /\.r2\.dev\//i.test(asString) || /\.r2\.cloudflarestorage\.com\//i.test(asString);
+};
+
+const extractR2KeyFromUrl = (rawUrl) => {
+  const asString = String(rawUrl || "").trim();
+  if (!asString) return null;
+  if (R2_PUBLIC_BASE_URL && asString.startsWith(R2_PUBLIC_BASE_URL)) {
+    return asString.slice(R2_PUBLIC_BASE_URL.length).replace(/^\/+/, "");
+  }
+  try {
+    const parsed = new URL(asString);
+    return parsed.pathname.replace(/^\/+/, "");
+  } catch {
+    return null;
+  }
+};
+
+const shouldRetryCloudinaryUpload = (err) => {
+  const name = String(err?.name || "").toLowerCase();
+  const code = Number(err?.http_code || 0);
+  return name.includes("timeout") || code === 499 || code === 500 || code === 503;
+};
+
+const inferDmUploadExtAndMime = (options = {}) => {
+  const providedMime = String(options?.content_type || options?.mime_type || "").trim().toLowerCase();
+  const originalName = String(options?.original_name || "").trim().toLowerCase();
+  const extFromName = originalName.includes(".") ? originalName.split(".").pop() : "";
+
+  if (providedMime.includes("jpeg") || extFromName === "jpg" || extFromName === "jpeg") {
+    return { ext: "jpg", mime: providedMime || "image/jpeg" };
+  }
+  if (providedMime.includes("png") || extFromName === "png") {
+    return { ext: "png", mime: providedMime || "image/png" };
+  }
+  if (providedMime.includes("webp") || extFromName === "webp") {
+    return { ext: "webp", mime: providedMime || "image/webp" };
+  }
+  if (providedMime.includes("webm") || extFromName === "webm") {
+    return { ext: "webm", mime: providedMime || "audio/webm" };
+  }
+  if (providedMime.includes("mpeg") || extFromName === "mp3") {
+    return { ext: "mp3", mime: providedMime || "audio/mpeg" };
+  }
+  if (providedMime.includes("ogg") || extFromName === "ogg") {
+    return { ext: "ogg", mime: providedMime || "audio/ogg" };
+  }
+  if (providedMime.includes("wav") || extFromName === "wav") {
+    return { ext: "wav", mime: providedMime || "audio/wav" };
+  }
+  if (providedMime.startsWith("audio/")) {
+    return { ext: extFromName || "webm", mime: providedMime };
+  }
+  if (providedMime.startsWith("image/")) {
+    return { ext: extFromName || "jpg", mime: providedMime };
+  }
+  return { ext: extFromName || "bin", mime: providedMime || "application/octet-stream" };
+};
+
+const buildDmR2ObjectKey = (options = {}) => {
+  const folder = String(options?.folder || "vine/dms").replace(/^\/+|\/+$/g, "");
+  const publicIdRaw = String(options?.public_id || "").trim();
+  const { ext } = inferDmUploadExtAndMime(options);
+  const seed = `${Date.now()}-${crypto.randomUUID()}`;
+  const publicIdBase = publicIdRaw
+    ? publicIdRaw.replace(/^\/+|\/+$/g, "").replace(/\.[a-z0-9]+$/i, "")
+    : seed;
+  return `${folder}/${publicIdBase}.${ext}`;
+};
+
+const uploadBufferToR2 = async (buffer, options = {}) => {
+  if (!r2Client || !r2Ready) {
+    throw new Error("R2 is not configured");
+  }
+  const key = buildDmR2ObjectKey(options);
+  const { mime } = inferDmUploadExtAndMime(options);
+  await r2Client.send(
+    new PutObjectCommand({
+      Bucket: R2_BUCKET,
+      Key: key,
+      Body: buffer,
+      ContentType: mime,
+      CacheControl: "public, max-age=31536000, immutable",
+    })
+  );
+  const url = `${R2_PUBLIC_BASE_URL}/${key}`;
+  return {
+    secure_url: url,
+    url,
+    public_id: key,
+    provider: "r2",
+  };
+};
+
+const uploadBufferToCloudinaryOnce = (buffer, options = {}) =>
   new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
       { timeout: 180000, ...options },
@@ -405,6 +529,25 @@ const uploadBufferToCloudinary = (buffer, options = {}) =>
     );
     stream.end(buffer);
   });
+
+const uploadBufferToStorage = async (buffer, options = {}) => {
+  if (USE_R2_UPLOADS && r2Ready) {
+    return uploadBufferToR2(buffer, options);
+  }
+  let attempt = 0;
+  let lastErr = null;
+  while (attempt < 3) {
+    try {
+      return await uploadBufferToCloudinaryOnce(buffer, options);
+    } catch (err) {
+      lastErr = err;
+      attempt += 1;
+      if (attempt >= 3 || !shouldRetryCloudinaryUpload(err)) break;
+      await sleep(500 * attempt);
+    }
+  }
+  throw lastErr;
+};
 
 const extractCloudinaryPublicId = (rawUrl) => {
   const asString = String(rawUrl || "").trim();
@@ -429,6 +572,21 @@ const extractCloudinaryPublicId = (rawUrl) => {
 };
 
 const deleteCloudinaryByUrl = async (url, mediaType) => {
+  if (isR2Url(url) && r2Client && r2Ready) {
+    const key = extractR2KeyFromUrl(url);
+    if (!key) return;
+    try {
+      await r2Client.send(
+        new DeleteObjectCommand({
+          Bucket: R2_BUCKET,
+          Key: key,
+        })
+      );
+    } catch {
+      // best effort
+    }
+    return;
+  }
   const publicId = extractCloudinaryPublicId(url);
   if (!publicId) return;
   const resourceTypes =
@@ -830,6 +988,7 @@ router.get("/conversations", authenticate, async (req, res) => {
 
               u.id AS user_id,
               u.username,
+              u.display_name,
               u.avatar_url,
               u.last_active_at,
               u.show_last_active,
@@ -905,7 +1064,18 @@ router.get("/conversations", authenticate, async (req, res) => {
       }
     );
 
-    res.json(rows);
+    const onlineUserIds = new Set(
+      getOnlineUserIds()
+        .map((id) => Number(id))
+        .filter(Boolean)
+    );
+
+    res.json(
+      (Array.isArray(rows) ? rows : []).map((row) => ({
+        ...row,
+        is_online_now: onlineUserIds.has(Number(row?.user_id || 0)) ? 1 : 0,
+      }))
+    );
   } catch (err) {
     console.error("Get conversations error:", err);
     res.status(500).json({ error: "Failed to load conversations" });
@@ -1082,6 +1252,66 @@ router.get("/conversations/:id/settings", authenticate, async (req, res) => {
   } catch (err) {
     console.error("Get conversation settings error:", err);
     res.status(500).json({ error: "Failed to load chat settings" });
+  }
+});
+
+router.get("/conversations/:id/presence", authenticate, async (req, res) => {
+  const userId = Number(req.user.id);
+  const conversationId = Number(req.params.id);
+  if (!conversationId) {
+    return res.status(400).json({ error: "Invalid conversation" });
+  }
+
+  try {
+    const result = await runDmPerfRoute(
+      "dm-conversation-presence",
+      { conversation_id: conversationId, user_id: userId },
+      async (perfCtx) => {
+        const [rows] = await timedDmQuery(
+          perfCtx,
+          "dm-conversation-presence.row",
+          `
+          SELECT
+            u.id AS user_id,
+            u.username,
+            u.display_name,
+            u.avatar_url,
+            u.last_active_at,
+            u.show_last_active,
+            u.is_verified
+          FROM vine_conversations c
+          JOIN vine_users u
+            ON u.id = IF(c.user1_id = ?, c.user2_id, c.user1_id)
+          WHERE c.id = ?
+            AND (c.user1_id = ? OR c.user2_id = ?)
+          LIMIT 1
+          `,
+          [userId, conversationId, userId, userId]
+        );
+
+        if (!rows.length) {
+          return { status: 404, body: { error: "Conversation not found" } };
+        }
+
+        const partner = rows[0];
+        return {
+          status: 200,
+          body: {
+            ...partner,
+            is_online_now: getOnlineUserIds()
+              .map((id) => Number(id))
+              .includes(Number(partner.user_id))
+              ? 1
+              : 0,
+          },
+        };
+      }
+    );
+
+    return res.status(result.status).json(result.body);
+  } catch (err) {
+    console.error("Get conversation presence error:", err);
+    return res.status(500).json({ error: "Failed to load conversation presence" });
   }
 });
 
@@ -1361,9 +1591,12 @@ router.post("/upload-media", authenticate, uploadDmMedia.single("file"), async (
     if (!isImage && !isAudio) {
       return res.status(400).json({ error: "Only image or audio allowed" });
     }
-    const uploaded = await uploadBufferToCloudinary(file.buffer, {
+    const uploaded = await uploadBufferToStorage(file.buffer, {
       folder: isImage ? "vine/dms/images" : "vine/dms/voice",
-      resource_type: isImage ? "image" : "video",
+      resource_type: isImage ? "image" : "raw",
+      original_name: file.originalname || (isImage ? `image-${Date.now()}.jpg` : `voice-${Date.now()}.webm`),
+      content_type: mime,
+      mime_type: mime,
     });
     res.json({
       url: uploaded?.secure_url || uploaded?.url || null,

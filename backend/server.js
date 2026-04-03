@@ -3273,11 +3273,20 @@ io.on("connection", (socket) => {
   socket.on("register", (userId) => {
     const uid = Number(userId);
     if (!uid) return;
+    const existingSockets = userIdToSockets.get(uid);
+    const wasOnline = Boolean(existingSockets && existingSockets.size > 0);
     socket.join(`user-${uid}`);
     socketToUserId.set(socket.id, uid);
     if (!userIdToSockets.has(uid)) userIdToSockets.set(uid, new Set());
     userIdToSockets.get(uid).add(socket.id);
     console.log("👤 User joined room:", uid);
+    if (!wasOnline) {
+      io.emit("user_presence_changed", {
+        userId: uid,
+        is_online_now: true,
+        last_active_at: new Date().toISOString(),
+      });
+    }
   });
 
   socket.on("join_conversation", (conversationId) => {
@@ -3311,7 +3320,15 @@ io.on("connection", (socket) => {
       const set = userIdToSockets.get(uid);
       if (set) {
         set.delete(socket.id);
-        if (set.size === 0) userIdToSockets.delete(uid);
+        if (set.size === 0) {
+          userIdToSockets.delete(uid);
+          db.query("UPDATE vine_users SET last_active_at = NOW() WHERE id = ?", [uid]).catch(() => {});
+          io.emit("user_presence_changed", {
+            userId: uid,
+            is_online_now: false,
+            last_active_at: new Date().toISOString(),
+          });
+        }
       }
       socketToUserId.delete(socket.id);
     }

@@ -7,6 +7,48 @@ import useWindowedList from "../../hooks/useWindowedList";
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const DEFAULT_AVATAR = "/default-avatar.png";
 
+const formatConversationTime = (dateString) => {
+  if (!dateString) return "";
+  const parsed = new Date(dateString);
+  if (Number.isNaN(parsed.getTime())) return "";
+
+  const now = new Date();
+  const sameDay =
+    parsed.getFullYear() === now.getFullYear() &&
+    parsed.getMonth() === now.getMonth() &&
+    parsed.getDate() === now.getDate();
+
+  if (sameDay) {
+    return parsed.toLocaleTimeString([], {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  }
+
+  const sameYear = parsed.getFullYear() === now.getFullYear();
+  return parsed.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    ...(sameYear ? {} : { year: "numeric" }),
+    hour: "numeric",
+    minute: "2-digit",
+  });
+};
+
+const formatConversationTimeTitle = (dateString) => {
+  if (!dateString) return "";
+  const parsed = new Date(dateString);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return parsed.toLocaleString([], {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+};
+
 export default function ConversationList() {
   /* ---------------------------
      STATE & GLOBALS
@@ -169,6 +211,8 @@ export default function ConversationList() {
         const avatar = c.avatar_url
           ? (c.avatar_url.startsWith("http") ? c.avatar_url : `${API}${c.avatar_url}`)
           : DEFAULT_AVATAR;
+        const timestampLabel = formatConversationTime(c.last_message_time);
+        const timestampTitle = formatConversationTimeTitle(c.last_message_time);
 
         return (
           <div
@@ -217,6 +261,17 @@ export default function ConversationList() {
                   )}
                 </strong>
 
+                <div className="dm-actions">
+                  {timestampLabel && (
+                    <time
+                      className="dm-time"
+                      dateTime={c.last_message_time || ""}
+                      title={timestampTitle}
+                    >
+                      {timestampLabel}
+                    </time>
+                  )}
+
                 {c.unread_count > 0 && (
                   <span className="dm-badge">{c.unread_count}</span>
                 )}
@@ -242,6 +297,7 @@ export default function ConversationList() {
                 >
                   🗑️
                 </button>
+                </div>
               </div>
 
               <div className="dm-preview">

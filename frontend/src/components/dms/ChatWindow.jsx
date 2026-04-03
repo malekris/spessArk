@@ -28,6 +28,13 @@ const formatLastSeenAgo = (dateString) => {
   return `${days}d ago`;
 };
 
+const getPartnerStatusLabel = (partner) => {
+  if (!partner || Number(partner.show_last_active) === 0) return "";
+  if (Number(partner.is_online_now) === 1) return "Online";
+  if (partner.last_active_at) return `Last seen ${formatLastSeenAgo(partner.last_active_at)}`;
+  return "";
+};
+
 const isSameDay = (a, b) => {
   if (!a || !b) return false;
   const da = new Date(a);
@@ -72,6 +79,52 @@ const buildPendingMessageKey = ({ conversationId, receiverId, content, mediaFile
     ? `${mediaFile.name || ""}:${mediaFile.size || 0}:${mediaFile.lastModified || 0}`
     : "no-media",
 ].join("::");
+
+const revokeObjectUrlIfNeeded = (rawUrl) => {
+  const asString = String(rawUrl || "").trim();
+  if (asString.startsWith("blob:")) {
+    try {
+      URL.revokeObjectURL(asString);
+    } catch {
+      // ignore local preview cleanup failures
+    }
+  }
+};
+
+const upsertDmMessage = (prevMessages = [], incomingMessage) => {
+  if (!incomingMessage) return prevMessages;
+
+  const incomingId = Number(incomingMessage.id || 0);
+  const incomingClientRequestId = String(incomingMessage.client_request_id || "").trim();
+  let merged = false;
+  const next = [];
+
+  for (const message of prevMessages) {
+    const sameId =
+      incomingId > 0 &&
+      Number(message?.id || 0) > 0 &&
+      Number(message.id) === incomingId;
+    const sameClientRequest =
+      incomingClientRequestId &&
+      String(message?.client_request_id || "").trim() === incomingClientRequestId;
+
+    if (sameId || sameClientRequest) {
+      if (!merged) {
+        next.push({ ...message, ...incomingMessage });
+        merged = true;
+      }
+      continue;
+    }
+
+    next.push(message);
+  }
+
+  if (!merged) {
+    next.push(incomingMessage);
+  }
+
+  return next;
+};
 
 export default function ChatWindow() {
   const { conversationId: routeConversationId, userId: routeReceiverId } = useParams();
@@ -286,6 +339,7 @@ export default function ChatWindow() {
     const content = String(payload?.content || "").trim();
     const mediaFile = payload?.mediaFile || null;
     const mediaType = payload?.mediaType || null;
+    const localPreviewUrl = payload?.localPreview || null;
     const replyToId = payload?.replyToId || null;
     let uploaded = null;
     if (!content && !mediaFile) return;
@@ -315,7 +369,7 @@ export default function ChatWindow() {
       expires_at: chatSettings.disappearing_enabled
         ? getTempExpiry(chatSettings.disappear_mode || "after_read")
         : null,
-      media_url: payload?.localPreview || null,
+      media_url: localPreviewUrl,
       media_type: mediaType || null,
       reply_to_id: replyToId || null,
       reply_to_message: replyTarget || null,
@@ -366,20 +420,21 @@ export default function ChatWindow() {
         navigate(`/vine/dms/${savedConversationId}`, { replace: true });
       }
 
-      // replace temp message with real one
-      setMessages(prev =>
-        prev.map(m =>
-          m.id === tempId
-            ? { ...m, ...saved, sender_id: myId }
-            : m
+      // replace optimistic temp or merge with any realtime echo of the same message
+      setMessages((prev) =>
+        upsertDmMessage(
+          prev.map((m) => (m.id === tempId ? { ...m, ...saved, sender_id: myId } : m)),
+          { ...saved, sender_id: myId }
         )
       );
+      revokeObjectUrlIfNeeded(localPreviewUrl);
       inFlightMessageKeysRef.current.delete(pendingKey);
       inFlightRequestIdsRef.current.delete(pendingKey);
       setReplyTarget(null);
     } catch (err) {
       console.error("Send message failed:", err);
       setMessages(prev => prev.filter(m => m.id !== tempId));
+      revokeObjectUrlIfNeeded(localPreviewUrl);
       inFlightMessageKeysRef.current.delete(pendingKey);
       inFlightRequestIdsRef.current.delete(pendingKey);
     }
@@ -433,7 +488,8 @@ export default function ChatWindow() {
     const loadPartner = async () => {
       try {
         const res = await fetch(`${API}/api/dms/conversations`, {
-          headers: { Authorization: `Bearer ${token}` }
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
         });
 
         const data = await res.json();
@@ -449,6 +505,50 @@ export default function ChatWindow() {
     loadPartner();
   }, [conversationId, receiverId, location.search]);
 
+  useEffect(() => {
+    if (!conversationId || !token) return;
+
+    let cancelled = false;
+
+    const loadPartnerPresence = async () => {
+      try {
+        const res = await fetch(`${API}/api/dms/conversations/${conversationId}/presence`, {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        });
+        const data = await res.json().catch(() => null);
+        if (!res.ok || !data || cancelled) return;
+        setPartner((prev) => {
+          if (!prev) return data;
+          return {
+            ...prev,
+            ...data,
+          };
+        });
+      } catch {
+        // ignore lightweight presence refresh issues
+      }
+    };
+
+    loadPartnerPresence();
+    const interval = setInterval(loadPartnerPresence, 15000);
+    const onFocus = () => loadPartnerPresence();
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        loadPartnerPresence();
+      }
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [conversationId, token]);
+
   /* -----------------------------
      Socket realtime
   ------------------------------ */
@@ -463,10 +563,7 @@ export default function ChatWindow() {
   
     const handleNewMessage = (msg) => {
       if (String(msg.conversation_id) === String(conversationId)) {
-        setMessages(prev => {
-          if (prev.some(m => m.id === msg.id)) return prev;
-          return [...prev, msg];
-        });
+        setMessages((prev) => upsertDmMessage(prev, msg));
         if (Number(msg.sender_id) !== Number(myId)) {
           setTimeout(() => {
             markConversationRead();
@@ -529,6 +626,16 @@ export default function ChatWindow() {
         disappear_mode: disappear_mode || "after_read",
       });
     });
+    socket.on("user_presence_changed", ({ userId, is_online_now, last_active_at }) => {
+      setPartner((prev) => {
+        if (!prev || Number(prev.user_id) !== Number(userId)) return prev;
+        return {
+          ...prev,
+          is_online_now: is_online_now ? 1 : 0,
+          last_active_at: last_active_at || prev.last_active_at,
+        };
+      });
+    });
   
     return () => {
       socket.off("dm_received", handleNewMessage);
@@ -539,6 +646,7 @@ export default function ChatWindow() {
       socket.off("dm_typing_stop");
       socket.off("dm_reaction_updated");
       socket.off("dm_settings_updated");
+      socket.off("user_presence_changed");
     };
   }, [conversationId, myId]);
 
@@ -727,13 +835,10 @@ export default function ChatWindow() {
                 )}
               </strong>
               <div className="chat-status-stack">
-                {partner.show_last_active !== 0 && partner.last_active_at && (
-                  <div className="chat-lastseen">
-                    Last seen {formatLastSeenAgo(partner.last_active_at)}
+                {getPartnerStatusLabel(partner) && (
+                  <div className={`chat-lastseen ${Number(partner?.is_online_now) === 1 ? "online" : ""}`}>
+                    {getPartnerStatusLabel(partner)}
                   </div>
-                )}
-                {partnerTyping && (
-                  <div className="chat-lastseen typing">typing…</div>
                 )}
                 {chatSettings.disappearing_enabled && (
                   <div className="chat-vanish-pill">{getDisappearingLabel(chatSettings.disappear_mode)}</div>
@@ -791,12 +896,26 @@ export default function ChatWindow() {
 
       {/* INPUT */}
       <div className="chat-footer">
-      <MessageInput
-        onSend={handleSendMessage}
-        replyTarget={replyTarget}
-        onCancelReply={() => setReplyTarget(null)}
-        onTyping={handleTyping}
-      />
+        {partnerTyping && (
+          <div
+            className="chat-typing-pill chat-typing-pill-footer"
+            aria-live="polite"
+            aria-label={`${partner.display_name || partner.username || "Someone"} is typing`}
+          >
+            <span className="chat-typing-bubble" aria-hidden="true">
+              <span className="chat-typing-dot" />
+              <span className="chat-typing-dot" />
+              <span className="chat-typing-dot" />
+            </span>
+            <span className="chat-typing-label">{partner.display_name || partner.username || "Someone"} is typing…</span>
+          </div>
+        )}
+        <MessageInput
+          onSend={handleSendMessage}
+          replyTarget={replyTarget}
+          onCancelReply={() => setReplyTarget(null)}
+          onTyping={handleTyping}
+        />
       </div>
 
       {profileSheetOpen && partner && (
@@ -843,9 +962,9 @@ export default function ChatWindow() {
                   )}
                 </div>
                 <div className="dm-profile-sheet-username">@{partner.username}</div>
-                {partner.show_last_active !== 0 && partner.last_active_at && (
-                  <div className="dm-profile-sheet-status">
-                    Last seen {formatLastSeenAgo(partner.last_active_at)}
+                {getPartnerStatusLabel(partner) && (
+                  <div className={`dm-profile-sheet-status ${Number(partner?.is_online_now) === 1 ? "online" : ""}`}>
+                    {getPartnerStatusLabel(partner)}
                   </div>
                 )}
               </div>

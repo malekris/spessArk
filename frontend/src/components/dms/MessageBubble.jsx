@@ -3,7 +3,6 @@ import { createPortal } from "react-dom";
 import "./MessageBubbles.css"; // Import the new styles
 
 const REACTION_SET = ["👍", "❤️", "😂", "🔥", "😮", "😢"];
-const LONG_PRESS_MS = 360;
 
 const getMessageDisappearingLabel = (mode) => {
   if (mode === "1h") return "Disappears in 1 hour";
@@ -16,15 +15,16 @@ function MessageBubble({ message, onReply, onReact, onDelete }) {
   const myId = currentUser?.id;
   const isMine = Number(message.sender_id) === Number(myId);
   const reactions = message?.reactions || {};
+  const [menuOpen, setMenuOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const reactionControlRef = useRef(null);
+  const actionButtonRef = useRef(null);
+  const menuRef = useRef(null);
   const pickerRef = useRef(null);
-  const holdTimerRef = useRef(null);
-  const longPressTriggeredRef = useRef(false);
+  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
   const [pickerPosition, setPickerPosition] = useState({ top: 0, left: 0 });
 
   const updatePickerPosition = () => {
-    const trigger = reactionControlRef.current;
+    const trigger = actionButtonRef.current;
     if (!trigger) return;
     const rect = trigger.getBoundingClientRect();
     const pickerWidth = pickerRef.current?.offsetWidth || 300;
@@ -38,13 +38,32 @@ function MessageBubble({ message, onReply, onReact, onDelete }) {
     setPickerPosition({ top, left });
   };
 
+  const updateMenuPosition = () => {
+    const trigger = actionButtonRef.current;
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    const menuWidth = menuRef.current?.offsetWidth || 170;
+    const menuHeight = menuRef.current?.offsetHeight || 140;
+    const left = Math.min(
+      window.innerWidth - menuWidth - 8,
+      Math.max(8, rect.right - menuWidth)
+    );
+    let top = rect.bottom + 8;
+    if (top + menuHeight > window.innerHeight - 8) {
+      top = Math.max(8, rect.top - menuHeight - 8);
+    }
+    setMenuPosition({ top, left });
+  };
+
   useEffect(() => {
     const handleOutside = (event) => {
       if (
-        !reactionControlRef.current?.contains(event.target) &&
-        !pickerRef.current?.contains(event.target)
+        !actionButtonRef.current?.contains(event.target) &&
+        !pickerRef.current?.contains(event.target) &&
+        !menuRef.current?.contains(event.target)
       ) {
         setPickerOpen(false);
+        setMenuOpen(false);
       }
     };
     document.addEventListener("mousedown", handleOutside);
@@ -56,53 +75,34 @@ function MessageBubble({ message, onReply, onReact, onDelete }) {
   }, []);
 
   useEffect(() => {
-    return () => {
-      if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!pickerOpen) return;
-    const raf = requestAnimationFrame(updatePickerPosition);
+    if (!pickerOpen && !menuOpen) return;
+    const raf = requestAnimationFrame(() => {
+      if (menuOpen) updateMenuPosition();
+      if (pickerOpen) updatePickerPosition();
+    });
     const handleReposition = () => updatePickerPosition();
+    const handleMenuReposition = () => updateMenuPosition();
     window.addEventListener("resize", handleReposition);
     window.addEventListener("scroll", handleReposition, true);
+    window.addEventListener("resize", handleMenuReposition);
+    window.addEventListener("scroll", handleMenuReposition, true);
     return () => {
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", handleReposition);
       window.removeEventListener("scroll", handleReposition, true);
+      window.removeEventListener("resize", handleMenuReposition);
+      window.removeEventListener("scroll", handleMenuReposition, true);
     };
-  }, [pickerOpen]);
-
-  const beginLongPress = () => {
-    if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
-    longPressTriggeredRef.current = false;
-    holdTimerRef.current = setTimeout(() => {
-      longPressTriggeredRef.current = true;
-      setPickerOpen(true);
-    }, LONG_PRESS_MS);
-  };
-
-  const endLongPress = () => {
-    if (holdTimerRef.current) {
-      clearTimeout(holdTimerRef.current);
-      holdTimerRef.current = null;
-    }
-  };
-
-  const handleReactionTriggerClick = () => {
-    if (longPressTriggeredRef.current) {
-      longPressTriggeredRef.current = false;
-      return;
-    }
-    const nextReaction = message.viewer_reaction ? "" : "👍";
-    onReact?.(message, nextReaction);
-    setPickerOpen(false);
-  };
+  }, [menuOpen, pickerOpen]);
 
   const selectReaction = (emoji) => {
     onReact?.(message, message.viewer_reaction === emoji ? "" : emoji);
     setPickerOpen(false);
+  };
+
+  const openReactionPicker = () => {
+    setMenuOpen(false);
+    setPickerOpen(true);
   };
 
   return (
@@ -114,53 +114,95 @@ function MessageBubble({ message, onReply, onReact, onDelete }) {
             <span>{message.reply_to_message.content}</span>
           </div>
         )}
-        <div className="msg-bubble">
-          {message.media_url && message.media_type === "image" && (
-            <img className="dm-media-img" src={message.media_url} alt="sent media" />
-          )}
-          {message.media_url && message.media_type === "voice" && (
-            <audio className="dm-media-audio" controls src={message.media_url} />
-          )}
-          {message.content}
-        </div>
-
-        <div className="dm-message-actions">
-          <button type="button" onClick={() => onReply?.(message)}>↩️ Reply</button>
-          {isMine && !String(message.id || "").startsWith("temp-") && (
+        <div className="msg-shell">
+          {isMine && (
             <button
               type="button"
-              className="delete-icon"
-              onClick={() => onDelete?.(message)}
-              aria-label="Delete message"
-              title="Delete message"
-            >
-              🗑️
-            </button>
-          )}
-          <div className="dm-reaction-control" ref={reactionControlRef}>
-            <button
-              type="button"
-              className={`dm-react-trigger ${message.viewer_reaction ? "active" : ""}`}
-              aria-label="React to message"
-              title="Tap for thumbs up, hold for more reactions"
-              onMouseDown={beginLongPress}
-              onMouseUp={endLongPress}
-              onMouseLeave={endLongPress}
-              onTouchStart={beginLongPress}
-              onTouchEnd={endLongPress}
-              onTouchCancel={endLongPress}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                endLongPress();
-                setPickerOpen(true);
+              className="dm-message-menu-trigger"
+              ref={actionButtonRef}
+              aria-label="Message options"
+              title="Message options"
+              onClick={() => {
+                setPickerOpen(false);
+                setMenuOpen((prev) => !prev);
               }}
-              onClick={handleReactionTriggerClick}
             >
-              {message.viewer_reaction || "🙂"}
+              <span />
+              <span />
+              <span />
             </button>
+          )}
 
+          <div className="msg-bubble">
+            {message.media_url && message.media_type === "image" && (
+              <img className="dm-media-img" src={message.media_url} alt="sent media" />
+            )}
+            {message.media_url && message.media_type === "voice" && (
+              <audio className="dm-media-audio" controls src={message.media_url} />
+            )}
+            {message.content}
           </div>
+
+          {!isMine && (
+            <button
+              type="button"
+              className="dm-message-menu-trigger"
+              ref={actionButtonRef}
+              aria-label="Message options"
+              title="Message options"
+              onClick={() => {
+                setPickerOpen(false);
+                setMenuOpen((prev) => !prev);
+              }}
+            >
+              <span />
+              <span />
+              <span />
+            </button>
+          )}
         </div>
+
+        {menuOpen &&
+          createPortal(
+            <div
+              ref={menuRef}
+              className="dm-message-menu"
+              role="menu"
+              aria-label="Message options"
+              style={{ top: `${menuPosition.top}px`, left: `${menuPosition.left}px` }}
+            >
+              <button
+                type="button"
+                className="dm-message-menu-item"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onReply?.(message);
+                }}
+              >
+                Reply
+              </button>
+              <button
+                type="button"
+                className="dm-message-menu-item"
+                onClick={openReactionPicker}
+              >
+                Reactions
+              </button>
+              {isMine && !String(message.id || "").startsWith("temp-") && (
+                <button
+                  type="button"
+                  className="dm-message-menu-item danger"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onDelete?.(message);
+                  }}
+                >
+                  Delete
+                </button>
+              )}
+            </div>,
+            document.body
+          )}
 
         {pickerOpen &&
           createPortal(

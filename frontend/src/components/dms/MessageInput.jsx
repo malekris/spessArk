@@ -1,6 +1,45 @@
 import { useRef, useState } from "react";
 import "./MessageInput.css";
 
+const VOICE_RECORDER_MIME_CANDIDATES = [
+  "audio/webm;codecs=opus",
+  "audio/webm",
+  "audio/mp4",
+  "audio/aac",
+  "audio/ogg;codecs=opus",
+  "audio/ogg",
+];
+
+const pickVoiceRecorderMimeType = () => {
+  if (typeof MediaRecorder === "undefined" || typeof MediaRecorder.isTypeSupported !== "function") {
+    return "";
+  }
+  for (const mimeType of VOICE_RECORDER_MIME_CANDIDATES) {
+    if (MediaRecorder.isTypeSupported(mimeType)) {
+      return mimeType;
+    }
+  }
+  return "";
+};
+
+const normalizeVoiceFileMime = (rawMime) => {
+  const mime = String(rawMime || "").toLowerCase();
+  if (mime.includes("mp4") || mime.includes("aac")) return "audio/mp4";
+  if (mime.includes("mpeg") || mime.includes("mp3")) return "audio/mpeg";
+  if (mime.includes("ogg")) return "audio/ogg";
+  if (mime.includes("wav")) return "audio/wav";
+  return "audio/webm";
+};
+
+const voiceFileExtensionForMime = (rawMime) => {
+  const mime = normalizeVoiceFileMime(rawMime);
+  if (mime === "audio/mp4") return "m4a";
+  if (mime === "audio/mpeg") return "mp3";
+  if (mime === "audio/ogg") return "ogg";
+  if (mime === "audio/wav") return "wav";
+  return "webm";
+};
+
 export default function MessageInput({ onSend, replyTarget, onCancelReply, onTyping }) {
   const [text, setText] = useState("");
   const [mediaFile, setMediaFile] = useState(null);
@@ -10,6 +49,11 @@ export default function MessageInput({ onSend, replyTarget, onCancelReply, onTyp
   const recorderRef = useRef(null);
   const chunksRef = useRef([]);
   const fileInputRef = useRef(null);
+
+  const syncText = (nextValue) => {
+    setText(nextValue);
+    onTyping?.(nextValue);
+  };
 
   const resetMedia = () => {
     setMediaFile(null);
@@ -37,14 +81,25 @@ export default function MessageInput({ onSend, replyTarget, onCancelReply, onTyp
         return;
       }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const rec = new MediaRecorder(stream);
+      const preferredMimeType = pickVoiceRecorderMimeType();
+      const rec = preferredMimeType
+        ? new MediaRecorder(stream, { mimeType: preferredMimeType })
+        : new MediaRecorder(stream);
       chunksRef.current = [];
       rec.ondataavailable = (e) => {
         if (e.data?.size > 0) chunksRef.current.push(e.data);
       };
       rec.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: "audio/webm" });
-        const file = new File([blob], `voice-${Date.now()}.webm`, { type: "audio/webm" });
+        const chunkMime =
+          chunksRef.current.find((chunk) => String(chunk?.type || "").trim())?.type ||
+          rec.mimeType ||
+          preferredMimeType ||
+          "audio/webm";
+        const fileMime = normalizeVoiceFileMime(chunkMime);
+        const blob = new Blob(chunksRef.current, { type: fileMime });
+        const file = new File([blob], `voice-${Date.now()}.${voiceFileExtensionForMime(fileMime)}`, {
+          type: fileMime,
+        });
         resetMedia();
         setMediaFile(file);
         setMediaType("voice");
@@ -69,14 +124,18 @@ export default function MessageInput({ onSend, replyTarget, onCancelReply, onTyp
   const send = () => {
     const content = String(text || "").trim();
     if (!content && !mediaFile) return;
+    const retainedPreview =
+      mediaFile && previewUrl?.startsWith("blob:")
+        ? URL.createObjectURL(mediaFile)
+        : previewUrl;
     onSend({
       content,
       mediaFile,
       mediaType,
-      localPreview: previewUrl,
+      localPreview: retainedPreview,
       replyToId: replyTarget?.id || null,
     });
-    setText("");
+    syncText("");
     resetMedia();
   };
 
@@ -130,10 +189,14 @@ export default function MessageInput({ onSend, replyTarget, onCancelReply, onTyp
         <input
           value={text}
           onChange={(e) => {
-            const next = e.target.value;
-            setText(next);
-            onTyping?.(next);
+            syncText(e.target.value);
           }}
+          onInput={(e) => syncText(e.currentTarget.value)}
+          onPaste={(e) => {
+            queueMicrotask(() => syncText(e.currentTarget.value));
+          }}
+          onCompositionEnd={(e) => syncText(e.currentTarget.value)}
+          onBlur={() => onTyping?.("")}
           placeholder="Type a message..."
           className="chat-input"
           onKeyDown={(e) => {

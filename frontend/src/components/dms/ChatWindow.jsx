@@ -69,14 +69,16 @@ const getTempExpiry = (mode) => {
   return null;
 };
 
-const buildPendingMessageKey = ({ conversationId, receiverId, content, mediaFile, mediaType, replyToId }) => [
+const buildPendingMessageKey = ({ conversationId, receiverId, content, mediaFiles, mediaType, replyToId }) => [
   String(conversationId || "new"),
   String(receiverId || "0"),
   String(content || "").trim(),
   String(mediaType || ""),
   String(replyToId || ""),
-  mediaFile
-    ? `${mediaFile.name || ""}:${mediaFile.size || 0}:${mediaFile.lastModified || 0}`
+  Array.isArray(mediaFiles) && mediaFiles.length
+    ? mediaFiles
+        .map((mediaFile) => `${mediaFile?.name || ""}:${mediaFile?.size || 0}:${mediaFile?.lastModified || 0}`)
+        .join("|")
     : "no-media",
 ].join("::");
 
@@ -89,6 +91,13 @@ const revokeObjectUrlIfNeeded = (rawUrl) => {
       // ignore local preview cleanup failures
     }
   }
+};
+
+const getDraftMessageLabel = (mediaType, mediaCount = 1) => {
+  if (mediaType === "voice") return "Voice note";
+  if (mediaType === "image" && mediaCount > 1) return `${mediaCount} photos`;
+  if (mediaType === "video") return "Video";
+  return "Attachment";
 };
 
 const upsertDmMessage = (prevMessages = [], incomingMessage) => {
@@ -337,17 +346,19 @@ export default function ChatWindow() {
     if (!conversationId && !receiverId) return;
     stickToBottomRef.current = true;
     const content = String(payload?.content || "").trim();
-    const mediaFile = payload?.mediaFile || null;
+    const mediaFiles = Array.isArray(payload?.mediaFiles) ? payload.mediaFiles.filter(Boolean) : [];
     const mediaType = payload?.mediaType || null;
-    const localPreviewUrl = payload?.localPreview || null;
+    const localPreviewItems = Array.isArray(payload?.localPreviews)
+      ? payload.localPreviews.filter((item) => item?.url)
+      : [];
     const replyToId = payload?.replyToId || null;
     let uploaded = null;
-    if (!content && !mediaFile) return;
+    if (!content && !mediaFiles.length) return;
     const pendingKey = buildPendingMessageKey({
       conversationId,
       receiverId,
       content,
-      mediaFile,
+      mediaFiles,
       mediaType,
       replyToId,
     });
@@ -362,15 +373,19 @@ export default function ChatWindow() {
     const tempMessage = {
       id: tempId,
       sender_id: myId,
-      content: content || (mediaType === "voice" ? "Voice note" : "Attachment"),
+      content: content || getDraftMessageLabel(mediaType, mediaFiles.length),
       created_at: new Date().toISOString(),
       is_disappearing: chatSettings.disappearing_enabled ? 1 : 0,
       disappear_mode: chatSettings.disappear_mode || "after_read",
       expires_at: chatSettings.disappearing_enabled
         ? getTempExpiry(chatSettings.disappear_mode || "after_read")
         : null,
-      media_url: localPreviewUrl,
+      media_url: localPreviewItems[0]?.url || null,
       media_type: mediaType || null,
+      media_items: localPreviewItems.map((item) => ({
+        media_url: item.url,
+        media_type: item.media_type || mediaType || null,
+      })),
       reply_to_id: replyToId || null,
       reply_to_message: replyTarget || null,
       reactions: {},
@@ -382,8 +397,8 @@ export default function ChatWindow() {
     setMessages(prev => [...prev, tempMessage]);
   
     try {
-      if (mediaFile) {
-        uploaded = await uploadDmMedia(mediaFile);
+      if (mediaFiles.length) {
+        uploaded = await Promise.all(mediaFiles.map((file) => uploadDmMedia(file)));
       }
       const res = await fetch(`${API}/api/dms/send`, {
         method: "POST",
@@ -396,16 +411,28 @@ export default function ChatWindow() {
             ? {
                 conversationId,
                 content,
-                media_url: uploaded?.url || null,
-                media_type: uploaded?.media_type || null,
+                media_url: uploaded?.[0]?.url || null,
+                media_type: uploaded?.[0]?.media_type || null,
+                media_items: Array.isArray(uploaded)
+                  ? uploaded.map((item) => ({
+                      url: item?.url || null,
+                      media_type: item?.media_type || null,
+                    }))
+                  : [],
                 reply_to_id: replyToId || null,
                 client_request_id: clientRequestId,
               }
             : {
                 receiverId,
                 content,
-                media_url: uploaded?.url || null,
-                media_type: uploaded?.media_type || null,
+                media_url: uploaded?.[0]?.url || null,
+                media_type: uploaded?.[0]?.media_type || null,
+                media_items: Array.isArray(uploaded)
+                  ? uploaded.map((item) => ({
+                      url: item?.url || null,
+                      media_type: item?.media_type || null,
+                    }))
+                  : [],
                 reply_to_id: replyToId || null,
                 client_request_id: clientRequestId,
               }
@@ -427,14 +454,14 @@ export default function ChatWindow() {
           { ...saved, sender_id: myId }
         )
       );
-      revokeObjectUrlIfNeeded(localPreviewUrl);
+      localPreviewItems.forEach((item) => revokeObjectUrlIfNeeded(item?.url));
       inFlightMessageKeysRef.current.delete(pendingKey);
       inFlightRequestIdsRef.current.delete(pendingKey);
       setReplyTarget(null);
     } catch (err) {
       console.error("Send message failed:", err);
       setMessages(prev => prev.filter(m => m.id !== tempId));
-      revokeObjectUrlIfNeeded(localPreviewUrl);
+      localPreviewItems.forEach((item) => revokeObjectUrlIfNeeded(item?.url));
       inFlightMessageKeysRef.current.delete(pendingKey);
       inFlightRequestIdsRef.current.delete(pendingKey);
     }

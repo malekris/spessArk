@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import "./MessageBubbles.css"; // Import the new styles
 
@@ -17,11 +17,34 @@ function MessageBubble({ message, onReply, onReact, onDelete }) {
   const reactions = message?.reactions || {};
   const [menuOpen, setMenuOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const [viewerIndex, setViewerIndex] = useState(0);
   const actionButtonRef = useRef(null);
   const menuRef = useRef(null);
   const pickerRef = useRef(null);
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
   const [pickerPosition, setPickerPosition] = useState({ top: 0, left: 0 });
+  const mediaItems = useMemo(() => {
+    if (Array.isArray(message?.media_items) && message.media_items.length) {
+      return message.media_items
+        .filter((item) => item?.media_url && item?.media_type)
+        .map((item) => ({
+          media_url: item.media_url,
+          media_type: item.media_type,
+        }));
+    }
+    if (message?.media_url && message?.media_type) {
+      return [{ media_url: message.media_url, media_type: message.media_type }];
+    }
+    return [];
+  }, [message]);
+  const imageItems = mediaItems.filter((item) => item.media_type === "image");
+  const primaryVideo = mediaItems.find((item) => item.media_type === "video");
+  const primaryVoice = mediaItems.find((item) => item.media_type === "voice");
+  const hasAutoMediaLabel =
+    mediaItems.length > 0 &&
+    (/^\d+\sphotos$/i.test(String(message?.content || "").trim()) ||
+      ["attachment", "video", "voice note"].includes(String(message?.content || "").trim().toLowerCase()));
 
   const updatePickerPosition = () => {
     const trigger = actionButtonRef.current;
@@ -105,6 +128,32 @@ function MessageBubble({ message, onReply, onReact, onDelete }) {
     setPickerOpen(true);
   };
 
+  const openViewer = (index = 0) => {
+    setViewerIndex(index);
+    setViewerOpen(true);
+  };
+
+  const downloadCurrentImage = async () => {
+    const current = imageItems[viewerIndex];
+    if (!current?.media_url) return;
+    try {
+      const response = await fetch(current.media_url, { cache: "no-store" });
+      if (!response.ok) throw new Error("Download failed");
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = blobUrl;
+      link.download = `vine-dm-photo-${viewerIndex + 1}.jpg`;
+      link.rel = "noopener";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 1200);
+    } catch {
+      window.open(current.media_url, "_blank", "noopener,noreferrer");
+    }
+  };
+
   return (
     <div className={`msg-row ${isMine ? "mine" : "theirs"}`}>
       <div className="msg-content-wrapper">
@@ -134,13 +183,35 @@ function MessageBubble({ message, onReply, onReact, onDelete }) {
           )}
 
           <div className="msg-bubble">
-            {message.media_url && message.media_type === "image" && (
-              <img className="dm-media-img" src={message.media_url} alt="sent media" />
+            {imageItems.length > 1 && (
+              <div className={`dm-media-grid dm-media-grid-${Math.min(imageItems.length, 4)}`}>
+                {imageItems.slice(0, 4).map((item, index) => (
+                  <button
+                    key={`${message.id}-img-${index}`}
+                    type="button"
+                    className="dm-media-grid-item"
+                    onClick={() => openViewer(index)}
+                  >
+                    <img className="dm-media-grid-img" src={item.media_url} alt={`shared photo ${index + 1}`} />
+                    {index === 3 && imageItems.length > 4 ? (
+                      <span className="dm-media-grid-more">+{imageItems.length - 4}</span>
+                    ) : null}
+                  </button>
+                ))}
+              </div>
             )}
-            {message.media_url && message.media_type === "voice" && (
-              <audio className="dm-media-audio" controls src={message.media_url} />
+            {imageItems.length === 1 && (
+              <button type="button" className="dm-media-single-btn" onClick={() => openViewer(0)}>
+                <img className="dm-media-img" src={imageItems[0].media_url} alt="sent media" />
+              </button>
             )}
-            {message.content}
+            {primaryVideo && (
+              <video className="dm-media-video" controls playsInline preload="metadata" src={primaryVideo.media_url} />
+            )}
+            {primaryVoice && (
+              <audio className="dm-media-audio" controls src={primaryVoice.media_url} />
+            )}
+            {!hasAutoMediaLabel ? message.content : null}
           </div>
 
           {!isMine && (
@@ -223,6 +294,69 @@ function MessageBubble({ message, onReply, onReact, onDelete }) {
                   {emoji}
                 </button>
               ))}
+            </div>,
+            document.body
+          )}
+
+        {viewerOpen && imageItems.length > 0 &&
+          createPortal(
+            <div className="dm-media-viewer" onClick={() => setViewerOpen(false)}>
+              <button
+                type="button"
+                className="dm-media-viewer-close"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setViewerOpen(false);
+                }}
+              >
+                ✕
+              </button>
+              <button
+                type="button"
+                className="dm-media-viewer-save"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  downloadCurrentImage();
+                }}
+              >
+                Save to device
+              </button>
+              {imageItems.length > 1 && (
+                <button
+                  type="button"
+                  className="dm-media-viewer-nav prev"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setViewerIndex((prev) => (prev - 1 + imageItems.length) % imageItems.length);
+                  }}
+                >
+                  ‹
+                </button>
+              )}
+              <div className="dm-media-viewer-stage" onClick={(event) => event.stopPropagation()}>
+                <img
+                  src={imageItems[viewerIndex]?.media_url}
+                  alt={`shared photo ${viewerIndex + 1}`}
+                  className="dm-media-viewer-img"
+                />
+                {imageItems.length > 1 ? (
+                  <div className="dm-media-viewer-count">
+                    {viewerIndex + 1} / {imageItems.length}
+                  </div>
+                ) : null}
+              </div>
+              {imageItems.length > 1 && (
+                <button
+                  type="button"
+                  className="dm-media-viewer-nav next"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setViewerIndex((prev) => (prev + 1) % imageItems.length);
+                  }}
+                >
+                  ›
+                </button>
+              )}
             </div>,
             document.body
           )}

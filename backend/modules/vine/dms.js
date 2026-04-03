@@ -299,6 +299,47 @@ const normalizeDmClientRequestId = (value) => {
   if (!trimmed) return "";
   return trimmed.slice(0, 80);
 };
+
+const parseDmMediaItems = (rawMediaItems, fallbackUrl = "", fallbackType = "") => {
+  const baseItems = [];
+
+  if (Array.isArray(rawMediaItems)) {
+    baseItems.push(...rawMediaItems);
+  } else if (typeof rawMediaItems === "string" && rawMediaItems.trim()) {
+    try {
+      const parsed = JSON.parse(rawMediaItems);
+      if (Array.isArray(parsed)) baseItems.push(...parsed);
+    } catch {
+      // ignore malformed payloads; fallback item may still exist
+    }
+  } else if (rawMediaItems && typeof rawMediaItems === "object") {
+    baseItems.push(rawMediaItems);
+  }
+
+  if (fallbackUrl) {
+    baseItems.push({ url: fallbackUrl, media_type: fallbackType || "" });
+  }
+
+  const cleaned = [];
+  const seen = new Set();
+
+  for (const item of baseItems) {
+    const url = String(item?.url || item?.media_url || "").trim();
+    const mediaType = String(item?.media_type || item?.type || "").trim().toLowerCase();
+    if (!url) continue;
+    if (!["image", "video", "voice"].includes(mediaType)) continue;
+    const key = `${mediaType}::${url}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    cleaned.push({ url, media_type: mediaType });
+  }
+
+  if (cleaned.length > 9) {
+    return cleaned.slice(0, 9);
+  }
+
+  return cleaned;
+};
 const addColumnIfMissing = async (tableName, columnName, definitionSql) => {
   const [rows] = await db.query(
     `
@@ -324,6 +365,17 @@ const ensureDmSchema = async () => {
       media_url TEXT NULL,
       media_type VARCHAR(20) NULL,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_message_media (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      message_id INT NOT NULL,
+      media_url TEXT NOT NULL,
+      media_type VARCHAR(20) NOT NULL,
+      sort_order INT NOT NULL DEFAULT 0,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_vine_message_media_message_sort (message_id, sort_order)
     )
   `);
   await db.query(`
@@ -401,6 +453,7 @@ const ensureDmPerformanceSchema = async () => {
       ["vine_conversation_deletes", "idx_vine_conv_deletes_user_conversation", ["user_id", "conversation_id"]],
       ["vine_conversation_deletes", "idx_vine_conv_deletes_conversation_user", ["conversation_id", "user_id"]],
       ["vine_message_meta", "idx_vine_message_meta_reply", ["reply_to_id"]],
+      ["vine_message_media", "idx_vine_message_media_message_sort", ["message_id", "sort_order"]],
       ["vine_message_reactions", "idx_vine_message_reactions_user_message", ["user_id", "message_id"]],
       ["vine_conversation_settings", "idx_vine_conv_settings_updated", ["updated_at"]],
     ];
@@ -462,8 +515,24 @@ const inferDmUploadExtAndMime = (options = {}) => {
   if (providedMime.includes("webp") || extFromName === "webp") {
     return { ext: "webp", mime: providedMime || "image/webp" };
   }
+  if (providedMime.includes("quicktime") || extFromName === "mov") {
+    return { ext: "mov", mime: providedMime || "video/quicktime" };
+  }
+  if (providedMime.includes("mp4") || extFromName === "mp4" || extFromName === "m4v") {
+    return { ext: extFromName || "mp4", mime: providedMime || "video/mp4" };
+  }
   if (providedMime.includes("webm") || extFromName === "webm") {
-    return { ext: "webm", mime: providedMime || "audio/webm" };
+    return {
+      ext: "webm",
+      mime:
+        providedMime ||
+        (String(options?.media_type || "").trim().toLowerCase() === "video"
+          ? "video/webm"
+          : "audio/webm"),
+    };
+  }
+  if (providedMime.includes("ogg") || extFromName === "ogv") {
+    return { ext: extFromName || "ogv", mime: providedMime || "video/ogg" };
   }
   if (providedMime.includes("mpeg") || extFromName === "mp3") {
     return { ext: "mp3", mime: providedMime || "audio/mpeg" };
@@ -473,6 +542,9 @@ const inferDmUploadExtAndMime = (options = {}) => {
   }
   if (providedMime.includes("wav") || extFromName === "wav") {
     return { ext: "wav", mime: providedMime || "audio/wav" };
+  }
+  if (providedMime.startsWith("video/")) {
+    return { ext: extFromName || "mp4", mime: providedMime };
   }
   if (providedMime.startsWith("audio/")) {
     return { ext: extFromName || "webm", mime: providedMime };
@@ -590,7 +662,13 @@ const deleteCloudinaryByUrl = async (url, mediaType) => {
   const publicId = extractCloudinaryPublicId(url);
   if (!publicId) return;
   const resourceTypes =
-    mediaType === "voice" ? ["video", "raw"] : mediaType === "image" ? ["image"] : ["image", "video", "raw"];
+    mediaType === "voice"
+      ? ["video", "raw"]
+      : mediaType === "image"
+        ? ["image"]
+        : mediaType === "video"
+          ? ["video", "raw"]
+          : ["image", "video", "raw"];
   for (const resourceType of resourceTypes) {
     try {
       const result = await cloudinary.uploader.destroy(publicId, {
@@ -674,8 +752,16 @@ const removeMessagesPermanently = async (conversationId, messageIds = []) => {
     `,
     ids
   );
+  const [attachmentRows] = await db.query(
+    `
+    SELECT message_id, media_url, media_type
+    FROM vine_message_media
+    WHERE message_id IN (${placeholders})
+    `,
+    ids
+  );
 
-  for (const row of mediaRows) {
+  for (const row of [...mediaRows, ...attachmentRows]) {
     if (row?.media_url) {
       await deleteCloudinaryByUrl(row.media_url, row.media_type).catch(() => {});
     }
@@ -687,6 +773,10 @@ const removeMessagesPermanently = async (conversationId, messageIds = []) => {
   );
   await db.query(
     `DELETE FROM vine_message_meta WHERE message_id IN (${placeholders})`,
+    ids
+  );
+  await db.query(
+    `DELETE FROM vine_message_media WHERE message_id IN (${placeholders})`,
     ids
   );
   await db.query(
@@ -804,6 +894,15 @@ const hydrateMessages = async (messages, viewerId) => {
     `,
     ids
   );
+  const [attachmentRows] = await db.query(
+    `
+    SELECT message_id, media_url, media_type, sort_order
+    FROM vine_message_media
+    WHERE message_id IN (${placeholders})
+    ORDER BY message_id ASC, sort_order ASC, id ASC
+    `,
+    ids
+  );
 
   const [reactionRows] = await db.query(
     `
@@ -826,6 +925,17 @@ const hydrateMessages = async (messages, viewerId) => {
 
   const metaMap = new Map();
   metaRows.forEach((r) => metaMap.set(Number(r.message_id), r));
+  const attachmentMap = new Map();
+  attachmentRows.forEach((row) => {
+    const messageId = Number(row.message_id);
+    const current = attachmentMap.get(messageId) || [];
+    current.push({
+      media_url: row.media_url || null,
+      media_type: row.media_type || null,
+      sort_order: Number(row.sort_order || 0),
+    });
+    attachmentMap.set(messageId, current);
+  });
 
   const reactionMap = new Map();
   reactionRows.forEach((r) => {
@@ -877,10 +987,21 @@ const hydrateMessages = async (messages, viewerId) => {
     const id = Number(m.id);
     const meta = metaMap.get(id);
     const replyToId = Number(meta?.reply_to_id || 0) || null;
+    const attachments = attachmentMap.get(id) || [];
+    const legacyAttachment =
+      meta?.media_url && !attachments.length
+        ? [{ media_url: meta.media_url || null, media_type: meta.media_type || null, sort_order: 0 }]
+        : [];
+    const mediaItems = [...attachments, ...legacyAttachment].filter((item) => item?.media_url);
+    const primaryMedia = mediaItems[0] || null;
     return {
       ...m,
-      media_url: meta?.media_url || null,
-      media_type: meta?.media_type || null,
+      media_url: primaryMedia?.media_url || null,
+      media_type: primaryMedia?.media_type || null,
+      media_items: mediaItems.map((item) => ({
+        media_url: item.media_url,
+        media_type: item.media_type,
+      })),
       reply_to_id: replyToId,
       reply_to_message: replyToId ? replyMap.get(replyToId) || null : null,
       reactions: reactionMap.get(id) || {},
@@ -1363,15 +1484,22 @@ router.patch("/conversations/:id/settings", authenticate, async (req, res) => {
 ========================= */
 router.post("/send", authenticate, async (req, res) => {
   const senderId = req.user.id;
-  const { conversationId, receiverId, content, media_url, media_type, reply_to_id } = req.body;
+  const { conversationId, receiverId, content, media_url, media_type, reply_to_id, media_items } = req.body;
   const clientRequestId = normalizeDmClientRequestId(req.body?.client_request_id);
   const safeContent = String(content || "").trim();
   const safeMediaUrl = String(media_url || "").trim();
   const safeMediaType = String(media_type || "").trim().toLowerCase();
+  const safeMediaItems = parseDmMediaItems(media_items, safeMediaUrl, safeMediaType);
   const replyToId = Number(reply_to_id) || null;
 
-  if (!safeContent && !safeMediaUrl) {
+  if (!safeContent && !safeMediaItems.length) {
     return res.status(400).json({ error: "Message empty" });
+  }
+  if (safeMediaItems.length > 1 && safeMediaItems.some((item) => item.media_type !== "image")) {
+    return res.status(400).json({ error: "Only photos can be sent in batches" });
+  }
+  if (safeMediaItems.length > 9) {
+    return res.status(400).json({ error: "You can send up to 9 photos at once" });
   }
 
   try {
@@ -1521,7 +1649,15 @@ router.post("/send", authenticate, async (req, res) => {
         [
           activeConversationId,
           senderId,
-          safeContent || (safeMediaType === "voice" ? "Voice note" : "Attachment"),
+          safeContent ||
+            (safeMediaItems.length > 1 && safeMediaItems.every((item) => item.media_type === "image")
+              ? `${safeMediaItems.length} photos`
+              :
+            (safeMediaType === "voice"
+              ? "Voice note"
+              : safeMediaType === "video"
+                ? "Video"
+                : "Attachment")),
           isDisappearing,
           disappearMode,
           expiresAt,
@@ -1546,7 +1682,9 @@ router.post("/send", authenticate, async (req, res) => {
       return res.json({ message: fullMessage, conversationId: fullMessage?.conversation_id || activeConversationId });
     }
 
-    if (replyToId || safeMediaUrl) {
+    const primaryMedia = safeMediaItems[0] || null;
+
+    if (replyToId || primaryMedia?.url) {
       await db.query(
         `
         INSERT INTO vine_message_meta (message_id, reply_to_id, media_url, media_type, created_at)
@@ -1555,9 +1693,25 @@ router.post("/send", authenticate, async (req, res) => {
         [
           result.insertId,
           replyToId || null,
-          safeMediaUrl || null,
-          safeMediaType || null,
+          primaryMedia?.url || null,
+          primaryMedia?.media_type || null,
         ]
+      );
+    }
+
+    if (safeMediaItems.length) {
+      const values = [];
+      const params = [];
+      safeMediaItems.forEach((item, index) => {
+        values.push("(?, ?, ?, ?, NOW())");
+        params.push(result.insertId, item.url, item.media_type, index);
+      });
+      await db.query(
+        `
+        INSERT INTO vine_message_media (message_id, media_url, media_type, sort_order, created_at)
+        VALUES ${values.join(", ")}
+        `,
+        params
       );
     }
 
@@ -1587,20 +1741,28 @@ router.post("/upload-media", authenticate, uploadDmMedia.single("file"), async (
     if (!file) return res.status(400).json({ error: "No file uploaded" });
     const mime = String(file.mimetype || "").toLowerCase();
     const isImage = mime.startsWith("image/");
+    const isVideo = mime.startsWith("video/");
     const isAudio = mime.startsWith("audio/");
-    if (!isImage && !isAudio) {
-      return res.status(400).json({ error: "Only image or audio allowed" });
+    if (!isImage && !isAudio && !isVideo) {
+      return res.status(400).json({ error: "Only photo, video, or audio allowed" });
     }
     const uploaded = await uploadBufferToStorage(file.buffer, {
-      folder: isImage ? "vine/dms/images" : "vine/dms/voice",
-      resource_type: isImage ? "image" : "raw",
-      original_name: file.originalname || (isImage ? `image-${Date.now()}.jpg` : `voice-${Date.now()}.webm`),
+      folder: isImage ? "vine/dms/images" : isVideo ? "vine/dms/videos" : "vine/dms/voice",
+      resource_type: isImage ? "image" : isVideo ? "video" : "raw",
+      media_type: isImage ? "image" : isVideo ? "video" : "voice",
+      original_name:
+        file.originalname ||
+        (isImage
+          ? `image-${Date.now()}.jpg`
+          : isVideo
+            ? `video-${Date.now()}.mp4`
+            : `voice-${Date.now()}.webm`),
       content_type: mime,
       mime_type: mime,
     });
     res.json({
       url: uploaded?.secure_url || uploaded?.url || null,
-      media_type: isImage ? "image" : "voice",
+      media_type: isImage ? "image" : isVideo ? "video" : "voice",
       mime_type: file.mimetype || null,
     });
   } catch (err) {

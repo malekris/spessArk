@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import "./MessageInput.css";
+import { convertHeicFileToJpeg, isHeicLikeFile } from "../../modules/vine/utils/heic";
 
 const VOICE_RECORDER_MIME_CANDIDATES = [
   "audio/webm;codecs=opus",
@@ -40,11 +41,21 @@ const voiceFileExtensionForMime = (rawMime) => {
   return "webm";
 };
 
+const buildPreviewItems = (files, mediaType) => {
+  const list = Array.from(files || []);
+  return list.map((file) => ({
+    url: URL.createObjectURL(file),
+    type: mediaType,
+    name: file?.name || "",
+    revoke: true,
+  }));
+};
+
 export default function MessageInput({ onSend, replyTarget, onCancelReply, onTyping }) {
   const [text, setText] = useState("");
-  const [mediaFile, setMediaFile] = useState(null);
+  const [mediaFiles, setMediaFiles] = useState([]);
   const [mediaType, setMediaType] = useState(null);
-  const [previewUrl, setPreviewUrl] = useState("");
+  const [previewItems, setPreviewItems] = useState([]);
   const [recording, setRecording] = useState(false);
   const recorderRef = useRef(null);
   const chunksRef = useRef([]);
@@ -56,22 +67,65 @@ export default function MessageInput({ onSend, replyTarget, onCancelReply, onTyp
   };
 
   const resetMedia = () => {
-    setMediaFile(null);
+    setMediaFiles([]);
     setMediaType(null);
-    if (previewUrl?.startsWith("blob:")) URL.revokeObjectURL(previewUrl);
-    setPreviewUrl("");
+    previewItems.forEach((item) => {
+      if (item?.revoke && String(item?.url || "").startsWith("blob:")) {
+        URL.revokeObjectURL(item.url);
+      }
+    });
+    setPreviewItems([]);
   };
 
-  const onPickImage = (file) => {
-    if (!file) return;
-    if (!String(file.type || "").startsWith("image/")) {
-      alert("Only images are allowed here.");
+  const onPickMedia = async (fileList) => {
+    const rawFiles = Array.from(fileList || []).filter(Boolean);
+    if (!rawFiles.length) return;
+
+    const normalizedFiles = (
+      await Promise.all(
+        rawFiles.map(async (file) => {
+          if (!isHeicLikeFile(file)) return file;
+          const convertedFile = await convertHeicFileToJpeg(file);
+          if (convertedFile) return convertedFile;
+          alert("HEIC image could not be prepared here. Please use JPG/PNG/WebP.");
+          return null;
+        })
+      )
+    ).filter(Boolean);
+
+    const files = normalizedFiles;
+    if (!files.length) return;
+    const allImages = files.every((entry) => String(entry.type || "").toLowerCase().startsWith("image/"));
+    const allVideos = files.every((entry) => String(entry.type || "").toLowerCase().startsWith("video/"));
+
+    if (!allImages && !allVideos && files.length !== 1) {
+      alert("Only photos can be sent in batches.");
+      return;
+    }
+
+    if (allImages && files.length > 9) {
+      alert("You can send up to 9 photos at once.");
+      return;
+    }
+
+    if (!allImages && files.length > 1) {
+      alert("Please choose one video at a time.");
+      return;
+    }
+
+    const firstMime = String(files[0]?.type || "").toLowerCase();
+    const isImage = firstMime.startsWith("image/");
+    const isVideo = firstMime.startsWith("video/");
+
+    if (!isImage && !isVideo) {
+      alert("Only photos or videos are allowed here.");
       return;
     }
     resetMedia();
-    setMediaFile(file);
-    setMediaType("image");
-    setPreviewUrl(URL.createObjectURL(file));
+    setMediaFiles(files);
+    const nextMediaType = isVideo ? "video" : "image";
+    setMediaType(nextMediaType);
+    setPreviewItems(buildPreviewItems(files, nextMediaType));
   };
 
   const startRecording = async () => {
@@ -101,9 +155,9 @@ export default function MessageInput({ onSend, replyTarget, onCancelReply, onTyp
           type: fileMime,
         });
         resetMedia();
-        setMediaFile(file);
+        setMediaFiles([file]);
         setMediaType("voice");
-        setPreviewUrl(URL.createObjectURL(blob));
+        setPreviewItems([{ url: URL.createObjectURL(blob), type: "voice", name: file.name, revoke: true }]);
         stream.getTracks().forEach((t) => t.stop());
       };
       recorderRef.current = rec;
@@ -123,16 +177,24 @@ export default function MessageInput({ onSend, replyTarget, onCancelReply, onTyp
 
   const send = () => {
     const content = String(text || "").trim();
-    if (!content && !mediaFile) return;
-    const retainedPreview =
-      mediaFile && previewUrl?.startsWith("blob:")
-        ? URL.createObjectURL(mediaFile)
-        : previewUrl;
+    if (!content && !mediaFiles.length) return;
+    const retainedPreviews = mediaFiles.length
+      ? mediaFiles.map((file, index) => {
+          const currentPreview = previewItems[index]?.url || "";
+          return {
+            url:
+              currentPreview && currentPreview.startsWith("blob:")
+                ? URL.createObjectURL(file)
+                : currentPreview,
+            media_type: mediaType || null,
+          };
+        })
+      : [];
     onSend({
       content,
-      mediaFile,
+      mediaFiles,
       mediaType,
-      localPreview: retainedPreview,
+      localPreviews: retainedPreviews,
       replyToId: replyTarget?.id || null,
     });
     syncText("");
@@ -150,30 +212,42 @@ export default function MessageInput({ onSend, replyTarget, onCancelReply, onTyp
         </div>
       )}
 
-      {previewUrl && (
+      {previewItems.length > 0 && (
         <div className="dm-media-preview">
-          {mediaType === "image" ? (
-            <img src={previewUrl} alt="preview" />
+          {mediaType === "image" && previewItems.length > 1 ? (
+            <div className="dm-media-preview-grid">
+              {previewItems.map((item, index) => (
+                <img key={`${item.url}-${index}`} src={item.url} alt={`preview ${index + 1}`} />
+              ))}
+            </div>
+          ) : mediaType === "image" ? (
+            <img src={previewItems[0]?.url} alt="preview" />
+          ) : mediaType === "video" ? (
+            <video controls playsInline preload="metadata" src={previewItems[0]?.url} />
           ) : (
-            <audio controls src={previewUrl} />
+            <audio controls src={previewItems[0]?.url} />
           )}
+          {mediaType === "image" && previewItems.length > 1 ? (
+            <div className="dm-media-preview-count">{previewItems.length} photos ready</div>
+          ) : null}
           <button type="button" onClick={resetMedia}>Remove</button>
         </div>
       )}
 
       <div className="chat-input-bar">
-        <button type="button" className="chat-icon-btn" onClick={() => fileInputRef.current?.click()} title="Send image">
+        <button type="button" className="chat-icon-btn" onClick={() => fileInputRef.current?.click()} title="Send photo or video">
           🖼️
         </button>
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/*"
+          accept="image/*,video/*,.heic,.heif"
+          multiple
           hidden
           onChange={(e) => {
-            const file = e.target.files?.[0];
+            const file = Array.from(e.target.files || []);
             e.target.value = "";
-            onPickImage(file);
+            onPickMedia(file);
           }}
         />
 

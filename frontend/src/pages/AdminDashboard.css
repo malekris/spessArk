@@ -302,6 +302,94 @@
   grid-column: 1 / -1;
 }
 
+.admin-ops-drawer-grid > .admin-ops-card {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at top right, rgba(245, 158, 11, 0.11), transparent 36%),
+    radial-gradient(circle at bottom left, rgba(14, 165, 233, 0.1), transparent 40%),
+    linear-gradient(180deg, rgba(15, 23, 42, 0.97), rgba(2, 6, 23, 0.94));
+  border-color: rgba(148, 163, 184, 0.2);
+  box-shadow:
+    0 20px 48px rgba(2, 6, 23, 0.56),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.admin-ops-drawer-grid > .admin-ops-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 100%;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(245, 158, 11, 0.28), rgba(34, 211, 238, 0.2), transparent 82%);
+}
+
+.admin-ops-drawer-grid > .admin-ops-card::after {
+  content: "";
+  position: absolute;
+  inset: auto -18% -45% auto;
+  width: 220px;
+  height: 220px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(245, 158, 11, 0.12), transparent 72%);
+  pointer-events: none;
+}
+
+.admin-ops-drawer-grid > .admin-ops-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.admin-ops-drawer-grid .admin-ops-card-head h3 {
+  color: #f8fafc;
+}
+
+.admin-ops-drawer-grid .admin-ops-card-head p,
+.admin-ops-drawer-grid .admin-ops-note {
+  color: #d1d9e8;
+}
+
+.admin-ops-drawer-grid .admin-ops-kpi,
+.admin-ops-drawer-grid .admin-ops-followup-item,
+.admin-ops-drawer-grid .admin-ops-class-readiness-row,
+.admin-ops-drawer-grid .admin-ops-heatmap-panel,
+.admin-ops-drawer-grid .admin-ops-learner-detail,
+.admin-ops-drawer-grid .admin-ops-learner-result,
+.admin-ops-drawer-grid .admin-ops-learner-subject-shell,
+.admin-ops-drawer-grid .admin-ops-learner-empty,
+.admin-ops-drawer-grid .admin-ops-learner-empty-chip {
+  background: rgba(15, 23, 42, 0.68);
+  border-color: rgba(148, 163, 184, 0.14);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.admin-ops-drawer-grid .admin-ops-learner-result.is-active {
+  background:
+    linear-gradient(135deg, rgba(14, 165, 233, 0.12), rgba(15, 23, 42, 0.9)),
+    rgba(15, 23, 42, 0.9);
+  border-color: rgba(56, 189, 248, 0.26);
+}
+
+.admin-ops-card-utility {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at top right, rgba(245, 158, 11, 0.14), transparent 38%),
+    radial-gradient(circle at bottom left, rgba(14, 165, 233, 0.12), transparent 42%),
+    linear-gradient(180deg, rgba(15, 23, 42, 0.97), rgba(2, 6, 23, 0.94));
+}
+
+.admin-ops-card-utility::after {
+  content: "";
+  position: absolute;
+  inset: auto -22% -48% auto;
+  width: 240px;
+  height: 240px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(245, 158, 11, 0.16), transparent 72%);
+  pointer-events: none;
+}
+
 .admin-ops-expand-shell {
   margin-top: 1rem;
 }
@@ -457,6 +545,78 @@
   align-items: center;
   gap: 0.55rem;
   flex-wrap: wrap;
+}
+
+.admin-ops-utility-hero {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0.95rem 1rem;
+  border-radius: 1rem;
+  border: 1px solid rgba(245, 158, 11, 0.18);
+  background: linear-gradient(135deg, rgba(51, 65, 85, 0.24), rgba(15, 23, 42, 0.28));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 18px 32px rgba(2, 6, 23, 0.2);
+}
+
+.admin-ops-utility-icon {
+  width: 54px;
+  height: 54px;
+  border-radius: 1rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.55rem;
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.2), rgba(14, 165, 233, 0.16));
+  border: 1px solid rgba(245, 158, 11, 0.18);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 14px 24px rgba(2, 6, 23, 0.22);
+}
+
+.admin-ops-utility-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.admin-ops-utility-copy strong {
+  color: #f8fafc;
+  font-size: 1rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.admin-ops-utility-copy span {
+  color: #cbd5e1;
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+
+.admin-ops-utility-kpis {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.admin-ops-utility-kpi {
+  background: rgba(15, 23, 42, 0.68);
+}
+
+.admin-ops-utility-actions {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.admin-ops-utility-actions .primary-btn {
+  min-height: 48px;
+  width: 100%;
+  box-shadow:
+    0 18px 28px rgba(14, 165, 233, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.admin-ops-utility-note {
+  color: #dbe4f3;
 }
 
 .admin-ops-age-pill {
@@ -2136,6 +2296,10 @@
   .admin-ops-inline-meters {
     grid-template-columns: 1fr;
   }
+
+  .admin-ops-utility-hero {
+    align-items: flex-start;
+  }
 }
 
 @media (max-width: 700px) {
@@ -3305,6 +3469,88 @@
     linear-gradient(135deg, rgba(219, 234, 254, 0.82), rgba(255, 255, 255, 0.98)),
     rgba(255, 255, 255, 0.96);
   border-color: rgba(96, 165, 250, 0.28);
+}
+
+.admin-root.mode-light .admin-ops-card-utility {
+  background:
+    radial-gradient(circle at top right, rgba(251, 191, 36, 0.12), transparent 38%),
+    radial-gradient(circle at bottom left, rgba(125, 211, 252, 0.12), transparent 42%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(241, 245, 249, 0.97));
+}
+
+.admin-root.mode-light .admin-ops-drawer-grid > .admin-ops-card {
+  background:
+    radial-gradient(circle at top right, rgba(251, 191, 36, 0.1), transparent 36%),
+    radial-gradient(circle at bottom left, rgba(125, 211, 252, 0.1), transparent 40%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(241, 245, 249, 0.97));
+  border-color: rgba(148, 163, 184, 0.16);
+  box-shadow:
+    0 18px 34px rgba(148, 163, 184, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.84);
+}
+
+.admin-root.mode-light .admin-ops-drawer-grid > .admin-ops-card::before {
+  background: linear-gradient(90deg, rgba(245, 158, 11, 0.22), rgba(14, 165, 233, 0.18), transparent 82%);
+}
+
+.admin-root.mode-light .admin-ops-drawer-grid > .admin-ops-card::after {
+  background: radial-gradient(circle, rgba(245, 158, 11, 0.08), transparent 72%);
+}
+
+.admin-root.mode-light .admin-ops-drawer-grid .admin-ops-card-head h3 {
+  color: #0f172a;
+}
+
+.admin-root.mode-light .admin-ops-drawer-grid .admin-ops-card-head p,
+.admin-root.mode-light .admin-ops-drawer-grid .admin-ops-note {
+  color: #334155;
+}
+
+.admin-root.mode-light .admin-ops-drawer-grid .admin-ops-kpi,
+.admin-root.mode-light .admin-ops-drawer-grid .admin-ops-followup-item,
+.admin-root.mode-light .admin-ops-drawer-grid .admin-ops-class-readiness-row,
+.admin-root.mode-light .admin-ops-drawer-grid .admin-ops-heatmap-panel,
+.admin-root.mode-light .admin-ops-drawer-grid .admin-ops-learner-detail,
+.admin-root.mode-light .admin-ops-drawer-grid .admin-ops-learner-result,
+.admin-root.mode-light .admin-ops-drawer-grid .admin-ops-learner-subject-shell,
+.admin-root.mode-light .admin-ops-drawer-grid .admin-ops-learner-empty,
+.admin-root.mode-light .admin-ops-drawer-grid .admin-ops-learner-empty-chip {
+  background: rgba(255, 255, 255, 0.9);
+  border-color: rgba(148, 163, 184, 0.16);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.admin-root.mode-light .admin-ops-card-utility::after {
+  background: radial-gradient(circle, rgba(245, 158, 11, 0.08), transparent 72%);
+}
+
+.admin-root.mode-light .admin-ops-utility-hero {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(248, 250, 252, 0.94));
+  border-color: rgba(245, 158, 11, 0.16);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.96),
+    0 16px 28px rgba(148, 163, 184, 0.12);
+}
+
+.admin-root.mode-light .admin-ops-utility-icon {
+  background: linear-gradient(135deg, rgba(254, 243, 199, 0.95), rgba(224, 242, 254, 0.96));
+  border-color: rgba(245, 158, 11, 0.15);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.96),
+    0 12px 20px rgba(148, 163, 184, 0.1);
+}
+
+.admin-root.mode-light .admin-ops-utility-copy strong {
+  color: #0f172a;
+}
+
+.admin-root.mode-light .admin-ops-utility-copy span,
+.admin-root.mode-light .admin-ops-utility-note {
+  color: #334155;
+}
+
+.admin-root.mode-light .admin-ops-utility-kpi {
+  background: rgba(255, 255, 255, 0.92);
 }
 
 .admin-root.mode-light .admin-ops-learner-result-top strong,

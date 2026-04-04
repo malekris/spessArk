@@ -289,7 +289,7 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
   }, []);
 
   // ----------------------------
-  // Assignments / Notices / Analytics state
+  // Assignments / Analytics state
   // ----------------------------
   const [assignments, setAssignments] = useState([]);
   const [aLevelAssignments, setALevelAssignments] = useState([]);
@@ -310,9 +310,6 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
   const [examType, setExamType] = useState("MID"); // For A-Level
   const [analytics, setAnalytics] = useState(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
-
-  const [notices, setNotices] = useState([]);
-  const [loadingNotices, setLoadingNotices] = useState(false);
 
   // ----------------------------
   // Marks (AOI / A-Level) state
@@ -645,22 +642,6 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
       setSettingsTab("password");
       setShowChangePassword(true);
     }
-  }, []);
-
-  useEffect(() => {
-    const load = async () => {
-      try {
-        setLoadingNotices(true);
-        const data = await plainFetch("/api/notices");
-        setNotices(Array.isArray(data) ? data : []);
-      } catch (err) {
-        console.error("Failed to load notices:", err);
-        setNotices([]);
-      } finally {
-        setLoadingNotices(false);
-      }
-    };
-    load();
   }, []);
 
   useEffect(() => {
@@ -1860,38 +1841,7 @@ useEffect(() => {
         </section>
 
         <section className="admin-heading">
-          
           {teacher && <h2>👋 Hello Teacher {teacher.name}</h2>}
-
-          <section className="teacher-notices" style={{ marginTop: "0.6rem" }}>
-            <h2 className="section-title">School Notices</h2>
-            {loadingNotices ? (
-              <p className="muted-text">Loading notices…</p>
-            ) : notices.length === 0 ? (
-              <p className="muted-text">No notices at the moment.</p>
-            ) : (
-              <div className="notices-grid">
-                {notices.map((n) => {
-                  const isNew = Date.now() - new Date(n.created_at).getTime() < 24 * 60 * 60 * 1000;
-                  return (
-                    <div key={n.id} className="notice-card">
-                      <div className="notice-header">
-                        <h3>
-                          {n.title} {isNew && <span className="notice-badge">NEW</span>}
-                        </h3>
-                      </div>
-                      <div className="notice-body">
-                        <p>{n.body}</p>
-                      </div>
-                      <div className="notice-footer">
-                        <span>{formatDateTime(n.created_at)}</span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </section>
         </section>
 
         <section

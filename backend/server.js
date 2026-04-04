@@ -1,6 +1,9 @@
 // backend/server.js
 import "./config/env.js";   // 👈 must be first, before everything
 import http from "http";
+import fs from "fs";
+import os from "os";
+import { spawn } from "child_process";
 import { Server } from "socket.io";
 import express from "express";
 import cors from "cors";
@@ -330,6 +333,125 @@ app.post("/api/admin/change-password", authAdmin, async (req, res) => {
   } catch (err) {
     console.error("Admin change password error:", err);
     return res.status(500).json({ message: "Failed to update admin password" });
+  }
+});
+
+app.get("/api/admin/database-dump", authAdmin, requireAdminReauth, async (req, res) => {
+  const dbHost = String(poolConfig.host || "").trim();
+  const dbUser = String(poolConfig.user || "").trim();
+  const dbName = String(poolConfig.database || "").trim();
+  const dbPassword = String(poolConfig.password || "");
+  const dbPort = Number(poolConfig.port || 3306);
+
+  if (!dbHost || !dbUser || !dbName || !Number.isFinite(dbPort) || dbPort <= 0) {
+    return res.status(500).json({
+      message: "Database connection settings are incomplete. Backup export is not ready on this server.",
+    });
+  }
+
+  const timestamp = new Date()
+    .toISOString()
+    .replace(/[:]/g, "-")
+    .replace(/\.\d{3}Z$/, "")
+    .replace("T", "_");
+  const filename = `spess_ark_backup_${dbName}_${timestamp}.sql`;
+  const tmpFilePath = path.join(os.tmpdir(), filename);
+
+  try {
+    await new Promise((resolve, reject) => {
+      const args = [
+        "--protocol=TCP",
+        "--host",
+        dbHost,
+        "--port",
+        String(dbPort),
+        "--user",
+        dbUser,
+        "--single-transaction",
+        "--quick",
+        "--routines",
+        "--triggers",
+        "--events",
+        "--default-character-set=utf8mb4",
+        dbName,
+      ];
+
+      const dumpProcess = spawn("mysqldump", args, {
+        env: {
+          ...process.env,
+          MYSQL_PWD: dbPassword,
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+
+      const output = fs.createWriteStream(tmpFilePath, { encoding: "utf8" });
+      let stderr = "";
+      let settled = false;
+
+      const finish = (err) => {
+        if (settled) return;
+        settled = true;
+        if (err) reject(err);
+        else resolve();
+      };
+
+      dumpProcess.stdout.pipe(output);
+      dumpProcess.stderr.on("data", (chunk) => {
+        stderr += chunk.toString();
+      });
+
+      dumpProcess.on("error", (err) => {
+        const message =
+          err?.code === "ENOENT"
+            ? "mysqldump is not available on this server yet. Install the MySQL client on the host to enable backup downloads."
+            : err?.message || "Failed to start database dump.";
+        output.destroy();
+        finish(new Error(message));
+      });
+
+      output.on("error", (err) => {
+        try {
+          dumpProcess.kill("SIGTERM");
+        } catch {
+          // ignore kill errors
+        }
+        finish(err);
+      });
+
+      dumpProcess.on("close", (code) => {
+        output.end(async () => {
+          if (code === 0) {
+            finish();
+            return;
+          }
+
+          await fs.promises.unlink(tmpFilePath).catch(() => {});
+          finish(new Error(stderr.trim() || "Database dump failed."));
+        });
+      });
+    });
+
+    await logAuditEvent({
+      userId: Number(req.admin?.id) || 1,
+      userRole: "admin",
+      action: "DATABASE_DUMP_EXPORT",
+      entityType: "database",
+      entityId: null,
+      description: `Admin exported database dump ${filename}`,
+      ipAddress: extractClientIp(req),
+    });
+
+    res.download(tmpFilePath, filename, async (err) => {
+      await fs.promises.unlink(tmpFilePath).catch(() => {});
+      if (err && !res.headersSent) {
+        console.error("database dump download error:", err);
+        res.status(500).json({ message: "Failed to send database dump." });
+      }
+    });
+  } catch (err) {
+    await fs.promises.unlink(tmpFilePath).catch(() => {});
+    console.error("database dump export error:", err);
+    res.status(500).json({ message: err?.message || "Failed to export database dump." });
   }
 });
 

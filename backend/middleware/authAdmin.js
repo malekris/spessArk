@@ -2,8 +2,9 @@ import jwt from "jsonwebtoken";
 
 const ADMIN_JWT_SECRET = process.env.JWT_SECRET || "dev_secret";
 
-const isDevBypassEnabled = () =>
-  process.env.DISABLE_ADMIN_AUTH === "true" || process.env.NODE_ENV !== "production";
+// Keep admin security behavior consistent between localhost and production.
+// If we ever need a bypass for emergency development work, it should be explicit.
+const isAdminBypassEnabled = () => process.env.DISABLE_ADMIN_AUTH === "true";
 
 const readBearerToken = (req) => {
   const authHeader = String(req.headers.authorization || "").trim();
@@ -43,7 +44,7 @@ export function verifyAdminToken(token) {
 
 export const requireAdminReauth = (req, res, next) => {
   try {
-    if (isDevBypassEnabled()) return next();
+    if (isAdminBypassEnabled()) return next();
 
     const reauthToken = String(req.headers["x-admin-reauth"] || "").trim();
     if (!reauthToken) {
@@ -80,7 +81,7 @@ export const requireAdminReauth = (req, res, next) => {
 
 const authAdmin = (req, res, next) => {
   try {
-    if (isDevBypassEnabled()) {
+    if (isAdminBypassEnabled()) {
       req.admin = { id: 1, username: "admin", role: "admin", authMethod: "dev-bypass" };
       return next();
     }

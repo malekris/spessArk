@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useMemo, useRef } from "react";
 import "./AdminDashboard.css";
 import AssignSubjectsPanel from "../components/AssignSubjectsPanel";
-import { plainFetch, adminFetch } from "../lib/api";
+import { plainFetch, adminFetch, getAdminHeaders } from "../lib/api";
 import EditStudentModal from "../components/EditStudentModal";
 import EndOfTermReports from "./EndOfTermReports";
 import MiniProgressReports from "./MiniProgressReports";
@@ -138,6 +138,30 @@ const formatRegisterState = (value) => {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+};
+
+const buildBackupFallbackFilename = () =>
+  `spess_ark_backup_${new Date()
+    .toISOString()
+    .replace(/[:]/g, "-")
+    .replace(/\.\d{3}Z$/, "")
+    .replace("T", "_")}.sql`;
+
+const extractDownloadFilename = (contentDisposition, fallbackName) => {
+  const header = String(contentDisposition || "").trim();
+  if (!header) return fallbackName;
+
+  const utf8Match = header.match(/filename\*\s*=\s*UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1].trim().replace(/^["']|["']$/g, ""));
+    } catch {
+      // fall through to plain filename
+    }
+  }
+
+  const plainMatch = header.match(/filename\s*=\s*("?)([^";]+)\1/i);
+  return plainMatch?.[2]?.trim() || fallbackName;
 };
 
 const normalizeOperationalTerm = (value) => {
@@ -448,6 +472,73 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleDownloadDatabaseDump = async () => {
+    if (databaseDumpLoading) return;
+
+    setDatabaseDumpError("");
+    setDatabaseDumpNotice("");
+    setDatabaseDumpLoading(true);
+
+    try {
+      const response = await fetch(`${API_BASE}/api/admin/database-dump`, {
+        method: "GET",
+        headers: getAdminHeaders(),
+      });
+
+      if (!response.ok) {
+        const responseType = String(response.headers.get("content-type") || "").toLowerCase();
+        const isJson = responseType.includes("application/json");
+        const errorPayload = isJson
+          ? await response.json().catch(() => null)
+          : await response.text().catch(() => "");
+
+        if (response.status === 401) {
+          forceAdminLogout("/ark", { reason: "session-expired" });
+          return;
+        }
+
+        if (response.status === 403 && errorPayload?.code === "ADMIN_REAUTH_REQUIRED") {
+          await requestAdminReauth({
+            title: "Confirm Admin Password",
+            description:
+              "Please confirm your admin password before downloading a protected full database dump.",
+            onApproved: () => handleDownloadDatabaseDump(),
+          });
+          return;
+        }
+
+        throw new Error(
+          errorPayload?.message ||
+            (typeof errorPayload === "string" && errorPayload) ||
+            `Failed to export database dump (${response.status}).`
+        );
+      }
+
+      const blob = await response.blob();
+      const filename = extractDownloadFilename(
+        response.headers.get("content-disposition"),
+        buildBackupFallbackFilename()
+      );
+      const downloadUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = downloadUrl;
+      anchor.download = filename;
+      anchor.rel = "noopener";
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 60_000);
+
+      setDatabaseDumpNotice(
+        "Database dump downloaded successfully. The backup file has been handed to your browser for saving on this machine."
+      );
+    } catch (err) {
+      setDatabaseDumpError(err.message || "Failed to export database dump.");
+    } finally {
+      setDatabaseDumpLoading(false);
+    }
+  };
+
   const openAdminSettings = (mode = "password") => {
     setAdminSettingsMode(mode);
     setAdminSettingsForm({
@@ -560,6 +651,9 @@ export default function AdminDashboard() {
   const [portalLearnerSearchQuery, setPortalLearnerSearchQuery] = useState("");
   const [portalLearnerSearchLevel, setPortalLearnerSearchLevel] = useState("all");
   const [selectedPortalLearnerKey, setSelectedPortalLearnerKey] = useState("");
+  const [databaseDumpLoading, setDatabaseDumpLoading] = useState(false);
+  const [databaseDumpError, setDatabaseDumpError] = useState("");
+  const [databaseDumpNotice, setDatabaseDumpNotice] = useState("");
   const [schoolCalendarLoading, setSchoolCalendarLoading] = useState(false);
   const [schoolCalendarSaving, setSchoolCalendarSaving] = useState(false);
   const [schoolCalendarError, setSchoolCalendarError] = useState("");
@@ -638,15 +732,6 @@ export default function AdminDashboard() {
       setActiveSection("");
     }
   }, [promotionWindowOpen, activeSection]);
-
-  /* ---------- Notices ---------- */
-  const [notices, setNotices] = useState([]);
-  const [loadingNotices, setLoadingNotices] = useState(false);
-  const [noticesError, setNoticesError] = useState("");
-  const [noticeForm, setNoticeForm] = useState({ title: "", body: "" });
-  const [pendingNoticeDelete, setPendingNoticeDelete] = useState(null);
-  const [deletingNoticeId, setDeletingNoticeId] = useState(null);
-  const [noticeFeedback, setNoticeFeedback] = useState(null);
 
   /* ---------- Teachers ---------- */
   const [teachers, setTeachers] = useState([]);
@@ -738,7 +823,6 @@ export default function AdminDashboard() {
     { title: "Marks Entry Lock", subtitle: "Lock AOIs, /80, MID and EOT after deadline", icon: "🔒" },
     { title: "Stream Readiness", subtitle: "Compulsory coverage by class and stream", icon: "🧭" },
     { title: "Audit Log", subtitle: "Track system actions and changes", icon: "🛡️" },
-    { title: "Notices", subtitle: "Create school notices", icon: "📢" },
     { title: "Enrollment Insights", subtitle: "Registration statistics per class/stream/subject", icon: "📈" },
     {
       title: "Assessment Submission Tracker",
@@ -749,22 +833,6 @@ export default function AdminDashboard() {
   ];
 
   /* ------------------ API / fetch functions ------------------ */
-  const fetchNotices = async () => {
-    setLoadingNotices(true);
-    setNoticesError("");
-    try {
-      const data = await adminFetch("/api/notices");
-      if (!Array.isArray(data)) throw new Error("Invalid notices response");
-      setNotices(data);
-    } catch (err) {
-      console.error(err);
-      setNotices([]);
-      setNoticesError("Could not load notices");
-    } finally {
-      setLoadingNotices(false);
-    }
-  };
-
   const fetchSchoolCalendar = async () => {
     setSchoolCalendarLoading(true);
     setSchoolCalendarError("");
@@ -1105,52 +1173,6 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleCreateNotice = async () => {
-    if (!noticeForm.title.trim() || !noticeForm.body.trim()) {
-      setNoticesError("Title and message are required.");
-      return;
-    }
-    const payload = {
-      title: noticeForm.title.trim(),
-      body: noticeForm.body.trim(),
-    };
-    setLoadingNotices(true);
-    setNoticesError("");
-    try {
-      await adminFetch("/api/admin/notices", { method: "POST", body: payload });
-      setNoticeForm({ title: "", body: "" });
-      await fetchNotices();
-      setNoticeFeedback({
-        mode: "published",
-        title: payload.title,
-        body: payload.body,
-      });
-    } catch (err) {
-      setNoticesError(err.message || "Failed to create notice.");
-    } finally {
-      setLoadingNotices(false);
-    }
-  };
-
-  const handleDeleteNotice = async (notice) => {
-    if (!notice?.id) return;
-    setDeletingNoticeId(notice.id);
-    setNoticesError("");
-    try {
-      await adminFetch(`/api/admin/notices/${notice.id}`, { method: "DELETE" });
-      setNotices((p) => p.filter((n) => n.id !== notice.id));
-      setPendingNoticeDelete(null);
-      setNoticeFeedback({
-        mode: "deleted",
-        title: notice.title,
-        body: notice.body,
-      });
-    } catch (err) {
-      setNoticesError(err.message || "Failed to delete notice.");
-    } finally {
-      setDeletingNoticeId(null);
-    }
-  };
   const handleDeleteGroup = async (group) => {
     const ok = window.confirm(
       `Delete ALL marks for:\n\n` +
@@ -2034,10 +2056,6 @@ export default function AdminDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dashboardOperationalTerm, dashboardOperationalYear]);
   
-
-  useEffect(() => {
-    if (activeSection === "Notices") fetchNotices();
-  }, [activeSection]);
 
   useEffect(() => {
     if (activeSection === "Manage Teachers") fetchTeachers();
@@ -4037,248 +4055,6 @@ export default function AdminDashboard() {
       );
     }
 
-    if (activeSection === "Notices") {
-      return (
-        <section className="panel">
-          <div className="panel-header">
-            <div>
-              <h2>Notices</h2>
-              <p>Create and manage notices visible to teachers.</p>
-            </div>
-            <button className="panel-close" onClick={() => setActiveSection("")}>✕ Close</button>
-          </div>
-
-          {noticesError && <div className="panel-alert panel-alert-error">{noticesError}</div>}
-
-          <div className="panel-grid">
-            {/* create notice */}
-            <div className="panel-card">
-              <h3>Create Notice</h3>
-              <form className="teacher-form" onSubmit={(e) => { e.preventDefault(); handleCreateNotice(); }}>
-                <div className="form-row">
-                  <label>Title</label>
-                  <input value={noticeForm.title} onChange={(e) => setNoticeForm((p) => ({ ...p, title: e.target.value }))} />
-                </div>
-                <div className="form-row">
-                  <label>Message</label>
-                  <textarea rows={4} value={noticeForm.body} onChange={(e) => setNoticeForm((p) => ({ ...p, body: e.target.value }))} />
-                </div>
-                <button className="primary-btn" type="submit" disabled={loadingNotices}>{loadingNotices ? "Posting…" : "Publish Notice"}</button>
-              </form>
-
-              {/* quick list below create form */}
-              <div className="notice-stack notice-stack-compact">
-                {notices.map((n) => (
-                  <div key={n.id} className="notice-item">
-                    <h4>{n.title}</h4>
-                    <p>{n.body}</p>
-                    <div className="notice-item-meta">
-                      <small>{formatDateTime(n.created_at)}</small>
-                      <div className="notice-item-actions">
-                        <button
-                          className="danger-link"
-                          onClick={() => setPendingNoticeDelete(n)}
-                          disabled={deletingNoticeId === n.id}
-                        >
-                          {deletingNoticeId === n.id ? "Deleting…" : "Delete"}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="panel-card">
-              <h3>Published Notices</h3>
-              {loadingNotices ? (
-                <p className="muted-text">Loading notices…</p>
-              ) : notices.length === 0 ? (
-                <p className="notice-empty">No notices yet.</p>
-              ) : (
-                <div className="notice-stack">
-                  {notices.map((n) => (
-                    <div key={n.id} className="notice-item">
-                      <h4>{n.title}</h4>
-                      <div className="notice-item-body">{n.body}</div>
-                      <div className="notice-item-meta">
-                        <small>{formatDateTime(n.created_at)}</small>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {pendingNoticeDelete && (
-            <div className="modal-backdrop" style={{ zIndex: 120 }}>
-              <div
-                className="modal-card"
-                style={{
-                  maxWidth: "540px",
-                  background: "linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(2, 6, 23, 0.98))",
-                  border: "1px solid rgba(248, 113, 113, 0.24)",
-                  boxShadow: "0 28px 60px rgba(2, 6, 23, 0.34)",
-                }}
-              >
-                <div
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "0.45rem",
-                    padding: "0.34rem 0.72rem",
-                    borderRadius: "999px",
-                    background: "rgba(127, 29, 29, 0.2)",
-                    border: "1px solid rgba(248, 113, 113, 0.22)",
-                    color: "#fecaca",
-                    fontSize: "0.72rem",
-                    fontWeight: 800,
-                    letterSpacing: "0.12em",
-                    textTransform: "uppercase",
-                    marginBottom: "0.9rem",
-                  }}
-                >
-                  Delete Notice
-                </div>
-
-                <h2 style={{ color: "#f8fafc", marginBottom: "0.5rem" }}>Remove This Notice?</h2>
-                <p style={{ color: "#cbd5e1", lineHeight: 1.65, marginBottom: "0.95rem" }}>
-                  This notice will be removed from the teacher dashboard immediately.
-                </p>
-
-                <div
-                  style={{
-                    padding: "0.9rem 1rem",
-                    borderRadius: "1rem",
-                    border: "1px solid rgba(148, 163, 184, 0.18)",
-                    background: "rgba(15, 23, 42, 0.62)",
-                    marginBottom: "1rem",
-                    display: "grid",
-                    gap: "0.45rem",
-                  }}
-                >
-                  <div style={{ color: "#f8fafc", fontWeight: 800 }}>{pendingNoticeDelete.title}</div>
-                  <div style={{ color: "#cbd5e1", lineHeight: 1.6 }}>{pendingNoticeDelete.body}</div>
-                  <small style={{ color: "#94a3b8" }}>
-                    {pendingNoticeDelete.created_at
-                      ? formatDateTime(pendingNoticeDelete.created_at)
-                      : "Recently published"}
-                  </small>
-                </div>
-
-                <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.65rem", flexWrap: "wrap" }}>
-                  <button
-                    type="button"
-                    className="ghost-btn"
-                    onClick={() => setPendingNoticeDelete(null)}
-                    disabled={deletingNoticeId === pendingNoticeDelete.id}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    className="primary-btn"
-                    onClick={() =>
-                      requestAdminReauth({
-                        title: "Confirm Notice Deletion",
-                        description: "Re-enter your admin password to remove this notice from teacher dashboards.",
-                        onApproved: () => handleDeleteNotice(pendingNoticeDelete),
-                      })
-                    }
-                    disabled={deletingNoticeId === pendingNoticeDelete.id}
-                    style={{
-                      background: "linear-gradient(135deg, #991b1b, #dc2626)",
-                      borderColor: "rgba(248, 113, 113, 0.4)",
-                    }}
-                  >
-                    {deletingNoticeId === pendingNoticeDelete.id ? "Deleting…" : "Delete Notice"}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {noticeFeedback && (
-            <div className="modal-backdrop" style={{ zIndex: 121 }}>
-              <div
-                className="modal-card"
-                style={{
-                  maxWidth: "560px",
-                  background: "linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(2, 6, 23, 0.98))",
-                  border: `1px solid ${
-                    noticeFeedback.mode === "published"
-                      ? "rgba(59, 130, 246, 0.24)"
-                      : "rgba(248, 113, 113, 0.24)"
-                  }`,
-                  boxShadow: "0 28px 60px rgba(2, 6, 23, 0.34)",
-                }}
-              >
-                <div
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "0.45rem",
-                    padding: "0.34rem 0.72rem",
-                    borderRadius: "999px",
-                    background:
-                      noticeFeedback.mode === "published"
-                        ? "rgba(30, 64, 175, 0.2)"
-                        : "rgba(127, 29, 29, 0.2)",
-                    border: `1px solid ${
-                      noticeFeedback.mode === "published"
-                        ? "rgba(96, 165, 250, 0.22)"
-                        : "rgba(248, 113, 113, 0.22)"
-                    }`,
-                    color: noticeFeedback.mode === "published" ? "#bfdbfe" : "#fecaca",
-                    fontSize: "0.72rem",
-                    fontWeight: 800,
-                    letterSpacing: "0.12em",
-                    textTransform: "uppercase",
-                    marginBottom: "0.9rem",
-                  }}
-                >
-                  {noticeFeedback.mode === "published" ? "Notice Published" : "Notice Deleted"}
-                </div>
-
-                <h2 style={{ color: "#f8fafc", marginBottom: "0.55rem" }}>
-                  {noticeFeedback.mode === "published"
-                    ? "Notice Posted Successfully"
-                    : "Notice Removed Successfully"}
-                </h2>
-                <p style={{ color: "#cbd5e1", lineHeight: 1.65, marginBottom: "1rem" }}>
-                  {noticeFeedback.mode === "published"
-                    ? "Teachers can now see this notice immediately on their dashboard."
-                    : "This notice is no longer visible on the teacher dashboard."}
-                </p>
-
-                <div
-                  style={{
-                    padding: "0.95rem 1rem",
-                    borderRadius: "1rem",
-                    border: "1px solid rgba(148, 163, 184, 0.18)",
-                    background: "rgba(15, 23, 42, 0.62)",
-                    display: "grid",
-                    gap: "0.45rem",
-                    marginBottom: "1rem",
-                  }}
-                >
-                  <div style={{ color: "#f8fafc", fontWeight: 800 }}>{noticeFeedback.title}</div>
-                  <div style={{ color: "#cbd5e1", lineHeight: 1.6 }}>{noticeFeedback.body}</div>
-                </div>
-
-                <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                  <button type="button" className="primary-btn" onClick={() => setNoticeFeedback(null)}>
-                    Okay
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-        </section>
-      );
-    }
-
     if (activeSection === "Assign Subjects") {
       return (
         <section className="panel">
@@ -5880,7 +5656,7 @@ export default function AdminDashboard() {
   </div>
 
   <div className="admin-ops-grid">
-    <article className="admin-ops-card">
+    <article className="admin-ops-card admin-ops-card-utility">
       <div className="admin-ops-card-head">
         <div>
           <h3>Assessment Compliance</h3>
@@ -5959,6 +5735,69 @@ export default function AdminDashboard() {
         </div>
       </div>
     </article>
+
+    <article className="admin-ops-card admin-ops-card-utility">
+      <div className="admin-ops-card-head">
+        <div>
+          <h3>System Utility</h3>
+          <p>Protected admin tools for exporting a full SQL backup to this machine whenever you need one.</p>
+        </div>
+        <span className="admin-ops-badge admin-ops-badge-gold">Backup</span>
+      </div>
+
+      <div className="admin-ops-utility-hero">
+        <div className="admin-ops-utility-icon" aria-hidden="true">🛡️</div>
+        <div className="admin-ops-utility-copy">
+          <strong>Backup Vault</strong>
+          <span>Generate a protected full SQL dump and hand it straight to your browser for local saving.</span>
+        </div>
+      </div>
+
+      <div className="admin-ops-kpi-grid admin-ops-utility-kpis">
+        <div className="admin-ops-kpi admin-ops-utility-kpi">
+          <span>Format</span>
+          <strong>SQL Dump</strong>
+          <small>Full database export file</small>
+        </div>
+        <div className="admin-ops-kpi admin-ops-utility-kpi">
+          <span>Protection</span>
+          <strong>Re-Auth</strong>
+          <small>Admin password confirmation required</small>
+        </div>
+        <div className="admin-ops-kpi admin-ops-utility-kpi">
+          <span>Delivery</span>
+          <strong>Local Save</strong>
+          <small>Browser download to this machine</small>
+        </div>
+      </div>
+
+      <div className="admin-ops-action-grid admin-ops-utility-actions">
+        <button
+          type="button"
+          className="primary-btn"
+          onClick={handleDownloadDatabaseDump}
+          disabled={databaseDumpLoading}
+        >
+          {databaseDumpLoading ? "Preparing Backup…" : "Download Database Dump"}
+        </button>
+      </div>
+
+      {databaseDumpError && (
+        <div className="panel-alert panel-alert-error" style={{ margin: 0 }}>
+          {databaseDumpError}
+        </div>
+      )}
+
+      {databaseDumpNotice && (
+        <div className="panel-alert panel-alert-success" style={{ margin: 0 }}>
+          {databaseDumpNotice}
+        </div>
+      )}
+
+      <p className="admin-ops-note admin-ops-utility-note">
+        The dump is generated on the server and handed to your browser as a download. Database credentials stay on the backend.
+      </p>
+    </article>
   </div>
 
   <div className="admin-ops-expand-shell">
@@ -5977,7 +5816,7 @@ export default function AdminDashboard() {
     </button>
 
     {showMoreInsights && (
-      <div className="admin-ops-grid admin-ops-grid-secondary">
+      <div className="admin-ops-grid admin-ops-grid-secondary admin-ops-drawer-grid">
         <article className="admin-ops-card">
           <div className="admin-ops-card-head">
             <div>

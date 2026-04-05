@@ -1,4 +1,4 @@
-import { memo, useState, useEffect, useRef } from "react";
+import { memo, useState, useEffect, useRef, useCallback } from "react";
 import "./VinePostCard.css";
 import { useNavigate } from "react-router-dom";
 import ImageCarousel from "./ImageCarousel";
@@ -295,6 +295,7 @@ function VinePostCard({
     Number(currentUser?.is_admin) === 1 ||
     String(currentUser?.role || "").toLowerCase() === "moderator" ||
     ["vine guardian","vine_guardian","vine news","vine_news"].includes(String(currentUser?.username || "").toLowerCase());
+  const currentUserAvatar = currentUser?.avatar_url || DEFAULT_AVATAR;
   const isGuardianPost = ["vine guardian","vine_guardian","vine news","vine_news"].includes(String(post.username || "").toLowerCase());
   const isCommunityInteractionLocked = Boolean(communityInteractionLocked) && Number(post.community_id) > 0;
 
@@ -321,6 +322,7 @@ function VinePostCard({
   const [commentLikes, setCommentLikes] = useState({});
   const [commentUserLiked, setCommentUserLiked] = useState({});
   const [commentUserReaction, setCommentUserReaction] = useState({});
+  const prevCommentIdsRef = useRef("");
   const [isDeleted, setIsDeleted] = useState(false);
   const [showPostMenu, setShowPostMenu] = useState(false);
   const [postMenuPosition, setPostMenuPosition] = useState({ top: 0, left: 0 });
@@ -397,10 +399,40 @@ function VinePostCard({
     }
   }
 
+  const fetchComments = useCallback(async () => {
+    try {
+      const res = await fetch(
+        `${API}/api/vine/posts/${post.id}/comments`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          cache: "no-store",
+        }
+      );
+
+      const data = await res.json();
+
+      if (!Array.isArray(data)) {
+        setComments([]);
+        setCommentCount(0);
+        return;
+      }
+
+      const flatCount = data.length;
+      setComments(buildThreads(data));
+      setCommentCount(flatCount);
+    } catch (err) {
+      console.error("Error fetching comments:", err);
+      setComments([]);
+      setCommentCount(0);
+    }
+  }, [post.id, token]);
+
   // ── Effects ─────────────────────────────────────
   useEffect(() => {
     if (open) fetchComments();
-  }, [open]);
+  }, [open, fetchComments]);
 
   useEffect(() => {
     if (!showPostMenu) return undefined;
@@ -534,13 +566,12 @@ function VinePostCard({
     loadLikesPreview();
   }, [post.id, postLikes, canShowLikeCount, token]);
 
-  const loadLikesPreviewNow = async () => {
+  const loadLikesPreviewNow = useCallback(async () => {
     if (!canShowLikeCount || Number(postLikes || 0) <= 0) return;
-    const loadLikesPreview = async () => {
-      try {
-        const res = await fetch(`${API}/api/vine/posts/${post.id}/likes?limit=1`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
+    try {
+      const res = await fetch(`${API}/api/vine/posts/${post.id}/likes?limit=1`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) return;
       setLatestLiker(data.latest || null);
@@ -551,12 +582,10 @@ function VinePostCard({
       if (data.reaction_counts) {
         setReactionCounts((prev) => ({ ...prev, ...data.reaction_counts }));
       }
-      } catch {
-        // no-op
-      }
-    };
-    await loadLikesPreview();
-  };
+    } catch {
+      // no-op
+    }
+  }, [post.id, canShowLikeCount, postLikes, token]);
 
   useEffect(() => {
     const q = mentionAnchor?.query;
@@ -594,63 +623,51 @@ function VinePostCard({
     }
   }, [focusComments, targetCommentId, post.id]);
   useEffect(() => {
-    const likes = { ...commentLikes };
-    const liked = { ...commentUserLiked };
-    const reacted = { ...commentUserReaction };
-  
-    const hydrate = (node) => {
-      if (likes[node.id] === undefined) {
-        likes[node.id] = node.like_count || 0;
-      }
-      if (liked[node.id] === undefined) {
-        liked[node.id] = node.user_liked || false;
-      }
-      if (reacted[node.id] === undefined) {
-        reacted[node.id] = node.user_reaction || (node.user_liked ? "like" : null);
-      }
-  
-      if (node.replies?.length) {
-        node.replies.forEach(hydrate);
-      }
+    const commentIds = [];
+    const collectCommentIds = (nodes) => {
+      nodes.forEach((node) => {
+        commentIds.push(String(node.id));
+        if (node.replies?.length) {
+          collectCommentIds(node.replies);
+        }
+      });
     };
-  
-    comments.forEach(hydrate);
-  
-    setCommentLikes(likes);
-    setCommentUserLiked(liked);
-    setCommentUserReaction(reacted);
+    collectCommentIds(comments);
+    const commentIdSignature = commentIds.sort().join(",");
+    if (commentIdSignature === prevCommentIdsRef.current) return;
+    prevCommentIdsRef.current = commentIdSignature;
+
+    const areObjectsEqual = (a, b) => {
+      const aKeys = Object.keys(a);
+      const bKeys = Object.keys(b);
+      if (aKeys.length !== bKeys.length) return false;
+      return aKeys.every((key) => a[key] === b[key]);
+    };
+
+    const fillMissingCommentState = (prev, resolver) => {
+      const next = { ...prev };
+
+      const hydrate = (node) => {
+        if (next[node.id] === undefined) {
+          next[node.id] = resolver(node);
+        }
+        if (node.replies?.length) {
+          node.replies.forEach(hydrate);
+        }
+      };
+
+      comments.forEach(hydrate);
+      return areObjectsEqual(prev, next) ? prev : next;
+    };
+
+    setCommentLikes((prev) => fillMissingCommentState(prev, (node) => node.like_count || 0));
+    setCommentUserLiked((prev) => fillMissingCommentState(prev, (node) => node.user_liked || false));
+    setCommentUserReaction((prev) =>
+      fillMissingCommentState(prev, (node) => node.user_reaction || (node.user_liked ? "like" : null))
+    );
   }, [comments]);
   
   // ── API Handlers ────────────────────────────────
-  const fetchComments = async () => {
-    try {
-      const res = await fetch(
-        `${API}/api/vine/posts/${post.id}/comments`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-          cache: "no-store",
-        }
-      );
-  
-      const data = await res.json();
-  
-      if (!Array.isArray(data)) {
-        setComments([]);
-        setCommentCount(0);
-        return;
-      }
-  
-      setComments(buildThreads(data));
-      setCommentCount(data.length);
-    } catch (err) {
-      console.error("Error fetching comments:", err);
-      setComments([]);
-      setCommentCount(0);
-    }
-  };
-
   const votePoll = async (optionId) => {
     if (!token || !post?.id || !optionId || pollExpired) return;
     setPollVotingOptionId(optionId);
@@ -925,7 +942,11 @@ function VinePostCard({
         setText("");
         setCommentGifUrl("");
       }
-      fetchComments();
+      if (open) {
+        fetchComments();
+      } else {
+        setCommentCount((prev) => prev + 1);
+      }
     }
   };
 
@@ -1381,22 +1402,40 @@ function VinePostCard({
           ) : (
             <>
               <div className="comment-input-row">
-                <textarea
-                  value={text}
-                  onChange={(e) => {
-                    setText(e.target.value);
-                    e.target.style.height = "inherit";
-                    e.target.style.height = `${e.target.scrollHeight}px`;
-                    const anchor = getMentionAnchor(e.target.value, e.target.selectionStart);
-                    setMentionAnchor(anchor);
+                <img
+                  src={currentUserAvatar}
+                  className="comment-composer-avatar"
+                  alt=""
+                  onError={(e) => {
+                    e.currentTarget.src = DEFAULT_AVATAR;
                   }}
-                  placeholder="Post your reply"
-                  rows={1}
                 />
-                <button className="gif-pick-btn" type="button" onClick={addGifToComment}>
-                  GIF
-                </button>
-                <button onClick={() => sendComment(text, null, commentGifUrl)}>Reply</button>
+                <div className="comment-composer-shell">
+                  <textarea
+                    value={text}
+                    onChange={(e) => {
+                      setText(e.target.value);
+                      e.target.style.height = "inherit";
+                      e.target.style.height = `${e.target.scrollHeight}px`;
+                      const anchor = getMentionAnchor(e.target.value, e.target.selectionStart);
+                      setMentionAnchor(anchor);
+                    }}
+                    placeholder="Write a comment..."
+                    rows={1}
+                  />
+                  <div className="comment-composer-actions">
+                    <button className="gif-pick-btn" type="button" onClick={addGifToComment}>
+                      GIF
+                    </button>
+                    <button
+                      className="comment-send-btn"
+                      type="button"
+                      onClick={() => sendComment(text, null, commentGifUrl)}
+                    >
+                      Reply
+                    </button>
+                  </div>
+                </div>
               </div>
               {commentGifUrl && (
                 <div className="comment-gif-preview">
@@ -1457,6 +1496,7 @@ function VinePostCard({
     canReply={!isCommunityInteractionLocked}
     isPostOwner={isPostAuthor}
     currentUserId={current_user_id}
+    currentUserAvatar={currentUserAvatar}
     isModerator={isModerator}
     token={token}
     onReport={openCommentReport}
@@ -1701,7 +1741,14 @@ function VinePostCard({
 }
 
 const areVinePostCardPropsEqual = (prevProps, nextProps) => (
-  prevProps.post === nextProps.post &&
+  prevProps.post?.id === nextProps.post?.id &&
+  prevProps.post?.likes === nextProps.post?.likes &&
+  prevProps.post?.comments === nextProps.post?.comments &&
+  prevProps.post?.revines === nextProps.post?.revines &&
+  prevProps.post?.user_liked === nextProps.post?.user_liked &&
+  prevProps.post?.viewer_reaction === nextProps.post?.viewer_reaction &&
+  prevProps.post?.user_bookmarked === nextProps.post?.user_bookmarked &&
+  prevProps.post?.is_pinned === nextProps.post?.is_pinned &&
   prevProps.focusComments === nextProps.focusComments &&
   prevProps.targetCommentId === nextProps.targetCommentId &&
   prevProps.isMe === nextProps.isMe &&
@@ -1714,12 +1761,18 @@ const commentContainsTarget = (node, targetId) => {
   return Array.isArray(node.replies) && node.replies.some((reply) => commentContainsTarget(reply, targetId));
 };
 
+const totalDescendants = (node) => {
+  if (!node?.replies?.length) return 0;
+  return node.replies.reduce((sum, reply) => sum + 1 + totalDescendants(reply), 0);
+};
+
 // ────────────────────────────────────────────────
 //  NESTED COMMENT COMPONENT
 // ────────────────────────────────────────────────
 
 function Comment({
   comment,
+  depth = 0,
   targetCommentId = null,
   commentLikes,
   commentUserLiked,
@@ -1732,6 +1785,7 @@ function Comment({
   canReply = true,
   isPostOwner,
   currentUserId,
+  currentUserAvatar = DEFAULT_AVATAR,
   isModerator,
   token,
   onReport,
@@ -1743,7 +1797,7 @@ function Comment({
 
   const [replying, setReplying] = useState(false);
   const [replyText, setReplyText] = useState("");
-  const [showReplies, setShowReplies] = useState(false);
+  const [showReplies, setShowReplies] = useState(true);
   const [gifPickerReplyOpen, setGifPickerReplyOpen] = useState(false);
   const [replyGifUrl, setReplyGifUrl] = useState("");
   const [showCommentReactionPicker, setShowCommentReactionPicker] = useState(false);
@@ -1762,6 +1816,9 @@ function Comment({
     isModerator;
   const isGuardianComment = ["vine guardian","vine_guardian","vine news","vine_news"].includes(String(comment.username || "").toLowerCase());
   const isTargetComment = String(targetCommentId || "") === String(comment.id);
+  const isNested = depth > 0;
+  const hasReplies = (comment.replies?.length || 0) > 0;
+  const descendantCount = totalDescendants(comment);
   const targetExistsInReplies = Boolean(targetCommentId) && (comment.replies || []).some((reply) =>
     commentContainsTarget(reply, targetCommentId)
   );
@@ -1892,7 +1949,7 @@ function Comment({
 
   return (
     <div
-      className={`vine-comment-node ${isTargetComment ? "target-comment-node" : ""}`}
+      className={`vine-comment-node ${isTargetComment ? "target-comment-node" : ""} ${isNested ? "is-nested-comment" : ""} ${showReplies && hasReplies ? "is-thread-open" : ""}`}
       id={`comment-${comment.id}`}
     >
       <GifPickerModal
@@ -1903,196 +1960,226 @@ function Comment({
           setReplyGifUrl(gifUrl);
         }}
       />
-      <div className="comment-main">
-        <div className="comment-meta">
-          <img
-            src={comment.avatar_url || DEFAULT_AVATAR}
-            className="comment-avatar"
-            alt=""
-            onClick={() => navigate(`/vine/profile/${comment.username}`)}
-            onError={(e) => {
-              e.currentTarget.src = DEFAULT_AVATAR;
-            }}
-          />
-
-<div className="comment-meta-text">
-  <strong
-    className="comment-username"
-    onClick={() => navigate(`/vine/profile/${comment.username}`)}
-  >
-    {comment.display_name || comment.username}
-
-    {(comment.is_verified === 1 || isGuardianComment) && (
-      <span className={`verified ${isGuardianComment ? "guardian" : ""}`}>
-        <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
-          <path
-            d="M20 6L9 17l-5-5"
-            stroke="white"
-            strokeWidth="3"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      </span>
-    )}
-  </strong>
-
-  <span className="time">
-    • {formatPostDate(comment.created_at || comment.sort_time)}
-  </span>
-</div>
-
+      <div className="comment-shell">
+        <div className={`comment-avatar-rail ${showReplies && hasReplies ? "has-open-thread" : ""}`}>
+          <div className="comment-avatar-stack">
+            <img
+              src={comment.avatar_url || DEFAULT_AVATAR}
+              className="comment-avatar"
+              alt=""
+              onClick={() => navigate(`/vine/profile/${comment.username}`)}
+              onError={(e) => {
+                e.currentTarget.src = DEFAULT_AVATAR;
+              }}
+            />
+          </div>
         </div>
 
-        <p className="comment-text">{renderMentions(comment.content, navigate)}</p>
+        <div className="comment-stack">
+          <div className="comment-bubble-shell">
+            <div className="comment-content-column">
+              <div className="comment-bubble">
+                <div className="comment-meta">
+                  <div className="comment-meta-text">
+                    <strong
+                      className="comment-username"
+                      onClick={() => navigate(`/vine/profile/${comment.username}`)}
+                    >
+                      {comment.display_name || comment.username}
 
-        <div className="comment-actions">
-  <button
-    ref={commentLikeBtnRef}
-    className={`mini-btn ${commentUserLiked?.[comment.id] ? "active-like" : ""}`}
-    onPointerDown={startCommentReactionPress}
-    onPointerUp={cancelCommentReactionPress}
-    onPointerCancel={cancelCommentReactionPress}
-    onPointerLeave={cancelCommentReactionPress}
-    onContextMenu={(e) => e.preventDefault()}
-    onClick={handleCommentLikeClick}
-  >
-    {commentUserLiked?.[comment.id]
-      ? (REACTION_EMOJI[currentCommentReaction] || "❤️")
-      : "🤍"}{" "}
-    {commentLikes?.[comment.id] ?? comment.like_count ?? 0}
-  </button>
+                      {(comment.is_verified === 1 || isGuardianComment) && (
+                        <span className={`verified ${isGuardianComment ? "guardian" : ""}`}>
+                          <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
+                            <path
+                              d="M20 6L9 17l-5-5"
+                              stroke="white"
+                              strokeWidth="3"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        </span>
+                      )}
+                    </strong>
 
-  <button className="mini-btn" onClick={() => setReplying(!replying)} disabled={!canReply}>
-    Reply
-  </button>
+                    <span className="time">
+                      • {formatPostDate(comment.created_at || comment.sort_time)}
+                    </span>
+                  </div>
+                </div>
 
-  <button
-    className="mini-btn"
-    onPointerDown={(e) => onReport?.(comment.id, comment.post_id, e)}
-    onClick={(e) => {
-      e.preventDefault();
-      e.stopPropagation();
-    }}
-  >
-    Report
-  </button>
-
-  {canDelete && (
-    <button
-      className="mini-btn del-text"
-      onClick={() => onDelete(comment.id)}
-    >
-      🗑️
-    </button>
-  )}
-</div>
-
-
-        {replying && canReply && (
-          <div className="comment-reply-box">
-            <input
-              value={replyText}
-              onChange={(e) => {
-                setReplyText(e.target.value);
-                const anchor = getMentionAnchor(e.target.value, e.target.selectionStart);
-                setMentionAnchor(anchor);
-              }}
-              placeholder="Write a reply..."
-            />
-            <button className="gif-pick-btn" type="button" onClick={addGifToReply}>
-              GIF
-            </button>
-            <button
-              onClick={() => {
-                onReply(replyText, comment.id, replyGifUrl);
-                setReplyText("");
-                setReplyGifUrl("");
-                setReplying(false);
-              }}
-            >
-              Send
-            </button>
-            {replyGifUrl && (
-              <div className="comment-gif-preview">
-                <img src={replyGifUrl} alt="Selected GIF" />
-                <button type="button" onClick={() => setReplyGifUrl("")}>×</button>
+                <p className="comment-text">{renderMentions(comment.content, navigate)}</p>
               </div>
-            )}
-            {mentionResults.length > 0 && mentionAnchor && (
-              <div className="mention-suggest-list">
-                {mentionResults.map((u) => (
+
+              <div className="comment-actions">
+                <button
+                  ref={commentLikeBtnRef}
+                  className={`mini-btn ${commentUserLiked?.[comment.id] ? "active-like" : ""}`}
+                  onPointerDown={startCommentReactionPress}
+                  onPointerUp={cancelCommentReactionPress}
+                  onPointerCancel={cancelCommentReactionPress}
+                  onPointerLeave={cancelCommentReactionPress}
+                  onContextMenu={(e) => e.preventDefault()}
+                  onClick={handleCommentLikeClick}
+                >
+                  {commentUserLiked?.[comment.id]
+                    ? (REACTION_EMOJI[currentCommentReaction] || "❤️")
+                    : "🤍"}{" "}
+                  {commentLikes?.[comment.id] ?? comment.like_count ?? 0}
+                </button>
+
+                <button className="mini-btn" onClick={() => setReplying(!replying)} disabled={!canReply}>
+                  Reply
+                </button>
+
+                <button
+                  className="mini-btn"
+                  onPointerDown={(e) => onReport?.(comment.id, comment.post_id, e)}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }}
+                >
+                  Report
+                </button>
+
+                {canDelete && (
                   <button
-                    key={`mention-r-${u.id}`}
-                    className="mention-suggest-item"
-                    onClick={() => {
-                      setReplyText((prev) => applyMention(prev, mentionAnchor, u.username));
-                      setMentionAnchor(null);
-                      setMentionResults([]);
-                    }}
+                    className="mini-btn del-text"
+                    onClick={() => onDelete(comment.id)}
                   >
-                    <img
-                      src={u.avatar_url || DEFAULT_AVATAR}
-                      alt={u.username}
-                      onError={(e) => {
-                        e.currentTarget.src = DEFAULT_AVATAR;
-                      }}
-                    />
-                    <div>
-                      <div className="mention-name">{u.display_name || u.username}</div>
-                      <div className="mention-handle">@{u.username}</div>
-                    </div>
+                    Delete
                   </button>
-                ))}
+                )}
               </div>
-            )}
-            {mentionAnchor && (
-              <div className="mention-preview">
-                {renderMentions(replyText, navigate)}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
 
-      {comment.replies?.length > 0 && (
-        <>
-          <button
-            className="toggle-replies-btn"
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowReplies((prev) => !prev);
-            }}
-          >
-            {showReplies ? "Hide replies" : `View replies (${comment.replies.length})`}
-          </button>
-          {showReplies && (
-            <div className="nested-replies">
-              {comment.replies.map((r) => (
-                <Comment
-                  key={r.id}
-                  comment={r}
-                  targetCommentId={targetCommentId}
-                  commentLikes={commentLikes}
-                  commentUserLiked={commentUserLiked}
-                  commentUserReaction={commentUserReaction}
-                  setCommentLikes={setCommentLikes}
-                  setCommentUserLiked={setCommentUserLiked}
-                  setCommentUserReaction={setCommentUserReaction}
-                  onReply={onReply}
-                  onDelete={onDelete}
-                  canReply={canReply}
-                  isPostOwner={isPostOwner}
-                  currentUserId={currentUserId}
-                  isModerator={isModerator}
-                  token={token}
-                  onReport={onReport}
-                />
-              ))}
+              {replying && canReply && (
+                <div className="comment-reply-box">
+                  <img
+                    src={currentUserAvatar || DEFAULT_AVATAR}
+                    className="comment-composer-avatar comment-composer-avatar-small"
+                    alt=""
+                    onError={(e) => {
+                      e.currentTarget.src = DEFAULT_AVATAR;
+                    }}
+                  />
+                  <div className="comment-composer-shell comment-composer-shell-reply">
+                    <input
+                      value={replyText}
+                      onChange={(e) => {
+                        setReplyText(e.target.value);
+                        const anchor = getMentionAnchor(e.target.value, e.target.selectionStart);
+                        setMentionAnchor(anchor);
+                      }}
+                      placeholder={`Reply to ${comment.display_name || comment.username}`}
+                    />
+                    <div className="comment-composer-actions comment-composer-actions-reply">
+                      <button className="gif-pick-btn" type="button" onClick={addGifToReply}>
+                        GIF
+                      </button>
+                      <button
+                        className="comment-send-btn"
+                        type="button"
+                        onClick={async () => {
+                          await onReply(replyText, comment.id, replyGifUrl);
+                          setShowReplies(true);
+                          setReplyText("");
+                          setReplyGifUrl("");
+                          setReplying(false);
+                        }}
+                      >
+                        Send
+                      </button>
+                    </div>
+                  </div>
+                  {replyGifUrl && (
+                    <div className="comment-gif-preview">
+                      <img src={replyGifUrl} alt="Selected GIF" />
+                      <button type="button" onClick={() => setReplyGifUrl("")}>×</button>
+                    </div>
+                  )}
+                  {mentionResults.length > 0 && mentionAnchor && (
+                    <div className="mention-suggest-list">
+                      {mentionResults.map((u) => (
+                        <button
+                          key={`mention-r-${u.id}`}
+                          className="mention-suggest-item"
+                          onClick={() => {
+                            setReplyText((prev) => applyMention(prev, mentionAnchor, u.username));
+                            setMentionAnchor(null);
+                            setMentionResults([]);
+                          }}
+                        >
+                          <img
+                            src={u.avatar_url || DEFAULT_AVATAR}
+                            alt={u.username}
+                            onError={(e) => {
+                              e.currentTarget.src = DEFAULT_AVATAR;
+                            }}
+                          />
+                          <div>
+                            <div className="mention-name">{u.display_name || u.username}</div>
+                            <div className="mention-handle">@{u.username}</div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {mentionAnchor && (
+                    <div className="mention-preview">
+                      {renderMentions(replyText, navigate)}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {hasReplies && (
+                <>
+                  {depth === 0 && (
+                    <button
+                      className="toggle-replies-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowReplies((prev) => !prev);
+                      }}
+                    >
+                      {showReplies ? `Hide replies (${descendantCount})` : `View replies (${descendantCount})`}
+                    </button>
+                  )}
+
+                  {(depth > 0 || showReplies) && (
+                    <div className={`nested-replies depth-${depth + 1}`}>
+                      {comment.replies.map((r) => (
+                        <Comment
+                          key={r.id}
+                          comment={r}
+                          depth={depth + 1}
+                          targetCommentId={targetCommentId}
+                          commentLikes={commentLikes}
+                          commentUserLiked={commentUserLiked}
+                          commentUserReaction={commentUserReaction}
+                          setCommentLikes={setCommentLikes}
+                          setCommentUserLiked={setCommentUserLiked}
+                          setCommentUserReaction={setCommentUserReaction}
+                          onReply={onReply}
+                          onDelete={onDelete}
+                          canReply={canReply}
+                          isPostOwner={isPostOwner}
+                          currentUserId={currentUserId}
+                          currentUserAvatar={currentUserAvatar}
+                          isModerator={isModerator}
+                          token={token}
+                          onReport={onReport}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
-          )}
-        </>
-      )}
+          </div>
+        </div>
+      </div>
       {showCommentReactionPicker && typeof document !== "undefined" &&
         createPortal(
           <div
@@ -2130,6 +2217,23 @@ function Comment({
 function buildThreads(comments) {
   const map = {};
   const roots = [];
+  const getCreatedAt = (comment) => {
+    const raw = comment?.created_at;
+    const parsed = raw ? new Date(String(raw).replace(" ", "T")).getTime() : 0;
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+  const sortThreadBranch = (nodes) => {
+    nodes.sort((a, b) => {
+      const timeDiff = getCreatedAt(a) - getCreatedAt(b);
+      if (timeDiff !== 0) return timeDiff;
+      return Number(a.id || 0) - Number(b.id || 0);
+    });
+    nodes.forEach((node) => {
+      if (node.replies?.length) {
+        sortThreadBranch(node.replies);
+      }
+    });
+  };
 
   comments.forEach((c) => {
     map[c.id] = { ...c, replies: [] };
@@ -2143,6 +2247,26 @@ function buildThreads(comments) {
     }
   });
 
+  const reached = new Set();
+  const markReached = (nodes) => {
+    nodes.forEach((node) => {
+      if (!node || reached.has(node.id)) return;
+      reached.add(node.id);
+      if (node.replies?.length) {
+        markReached(node.replies);
+      }
+    });
+  };
+  markReached(roots);
+
+  Object.values(map).forEach((node) => {
+    if (!reached.has(node.id)) {
+      roots.push(node);
+      markReached([node]);
+    }
+  });
+
+  sortThreadBranch(roots);
   return roots;
 }
 

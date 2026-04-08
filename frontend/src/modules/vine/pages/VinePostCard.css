@@ -1009,22 +1009,55 @@
 }
 
 .comment-composer-shell {
+  position: relative;
   min-width: 0;
-  background: rgba(255, 255, 255, 0.98);
-  border: 1px solid #d7e1ea;
-  border-radius: 22px;
+  background:
+    radial-gradient(circle at top right, rgba(245, 194, 92, 0.12), transparent 28%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(246, 251, 248, 0.98));
+  border: 1px solid rgba(193, 214, 204, 0.9);
+  border-radius: 24px;
   overflow: hidden;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.94),
-    0 16px 36px rgba(148, 163, 184, 0.12);
+    inset 0 1px 0 rgba(255, 255, 255, 0.96),
+    0 18px 38px rgba(15, 23, 42, 0.08);
+}
+
+.comment-composer-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(120deg, rgba(255, 255, 255, 0.72), transparent 34%, transparent 72%, rgba(255, 255, 255, 0.3)),
+    linear-gradient(180deg, rgba(6, 95, 70, 0.02), transparent 40%);
+  pointer-events: none;
+}
+
+.comment-composer-shell::after {
+  content: "";
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  width: 66px;
+  height: 66px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(245, 194, 92, 0.18), transparent 68%);
+  pointer-events: none;
 }
 
 .comment-composer-shell:focus-within {
-  border-color: #9edec0;
+  border-color: rgba(16, 185, 129, 0.44);
   box-shadow:
-    0 0 0 4px rgba(16, 185, 129, 0.12),
+    0 0 0 4px rgba(16, 185, 129, 0.1),
+    0 0 0 8px rgba(245, 194, 92, 0.06),
     inset 0 1px 0 rgba(255, 255, 255, 0.94),
-    0 18px 36px rgba(16, 185, 129, 0.12);
+    0 22px 42px rgba(6, 95, 70, 0.14);
+}
+
+.comment-composer-shell-reply {
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at top right, rgba(245, 194, 92, 0.08), transparent 24%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 251, 255, 0.98));
 }
 
 .comment-composer-actions {
@@ -1033,8 +1066,9 @@
   align-items: center;
   gap: 10px;
   padding: 12px 14px 14px;
-  border-top: 1px solid #e9eff5;
-  background: linear-gradient(180deg, rgba(249, 251, 255, 0.98) 0%, rgba(244, 249, 252, 0.98) 100%);
+  border-top: 1px solid rgba(217, 227, 234, 0.9);
+  background:
+    linear-gradient(180deg, rgba(249, 251, 255, 0.98) 0%, rgba(242, 249, 246, 0.98) 100%);
 }
 
 .comment-composer-actions-reply {
@@ -1043,20 +1077,39 @@
 }
 
 .comment-send-btn {
-  background: linear-gradient(145deg, #0a6b50, #064e3b);
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(145deg, #0b7a5a, #064e3b 58%, #043c2d);
   color: white;
   border: none;
   height: 38px;
   padding: 0 18px;
   border-radius: 999px;
   font-weight: 800;
+  letter-spacing: 0.01em;
   cursor: pointer;
   white-space: nowrap;
-  box-shadow: 0 10px 18px rgba(6, 95, 70, 0.22);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    0 12px 22px rgba(6, 95, 70, 0.22);
+  transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
+}
+
+.comment-send-btn::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, rgba(255, 255, 255, 0.28), transparent 34%, transparent 72%, rgba(255, 255, 255, 0.1));
+  pointer-events: none;
 }
 
 .comment-send-btn:hover {
-  background: linear-gradient(145deg, #0f7c5d, #065f46);
+  transform: translateY(-1px);
+  background: linear-gradient(145deg, #10906b, #065f46 58%, #054738);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.26),
+    0 16px 28px rgba(6, 95, 70, 0.26);
+  filter: saturate(1.03);
 }
 
 .comment-input-row textarea {
@@ -1073,16 +1126,39 @@
   color: #0f172a;
   font-size: 1rem;
   line-height: 1.45;
+  position: relative;
+  z-index: 1;
+}
+
+.comment-input-row textarea::placeholder,
+.comment-reply-box input::placeholder,
+.comment-reply-box textarea::placeholder {
+  color: #8ea0b3;
 }
 
 .gif-pick-btn {
-  border: 1px solid #cfe4d8 !important;
-  background: #ffffff !important;
-  color: #065f46 !important;
+  border: 1px solid rgba(217, 119, 6, 0.68) !important;
+  background: linear-gradient(180deg, #fcd34d, #f59e0b 58%, #d97706) !important;
+  color: #3b1d02 !important;
   border-radius: 999px !important;
   font-weight: 800 !important;
-  padding: 0 14px !important;
-  box-shadow: 0 8px 16px rgba(15, 23, 42, 0.06) !important;
+  min-height: 40px !important;
+  padding: 0 18px !important;
+  font-size: 0.86rem !important;
+  letter-spacing: 0.03em !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.34),
+    0 12px 22px rgba(217, 119, 6, 0.24) !important;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease !important;
+}
+
+.gif-pick-btn:hover {
+  transform: translateY(-1px);
+  border-color: rgba(180, 83, 9, 0.82) !important;
+  background: linear-gradient(180deg, #fbbf24, #ea8c06 56%, #c2410c) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 16px 26px rgba(194, 65, 12, 0.28) !important;
 }
 
 .comment-gif-preview {
@@ -1539,6 +1615,142 @@
 .carousel-wrapper.single .carousel-img {
   border-radius: 16px;
 }
+
+.carousel-wrapper.collage {
+  background: #ffffff;
+  border: 1px solid rgba(183, 214, 200, 0.78);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+  padding: 4px;
+}
+
+.theme-dark .carousel-wrapper.collage {
+  background: #08110f;
+  border-color: rgba(74, 222, 128, 0.24);
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.34);
+}
+
+.carousel-collage {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  gap: 4px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+}
+
+.carousel-collage-1 {
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr;
+}
+
+.carousel-collage-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: 1fr;
+}
+
+.carousel-collage-3 {
+  grid-template-columns: minmax(0, 1.12fr) minmax(0, 0.88fr);
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+}
+
+.carousel-collage-3 .collage-tile-1 {
+  grid-row: 1 / span 2;
+}
+
+.carousel-collage-4.has-overflow {
+  grid-template-columns: minmax(0, 1.12fr) minmax(0, 0.88fr);
+  grid-template-rows: minmax(0, 1.02fr) minmax(0, 0.88fr) minmax(0, 0.92fr);
+}
+
+.carousel-collage-4.has-overflow .collage-tile-1 {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+}
+
+.carousel-collage-4.has-overflow .collage-tile-2 {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.carousel-collage-4.has-overflow .collage-tile-3 {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.carousel-collage-4.has-overflow .collage-tile-4 {
+  grid-column: 1 / span 2;
+  grid-row: 3;
+}
+
+.collage-tile {
+  position: relative;
+  border: none;
+  padding: 0;
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  cursor: pointer;
+  background: linear-gradient(180deg, rgba(230, 251, 243, 0.98), rgba(209, 250, 229, 0.94));
+  border-radius: 16px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.26),
+    0 8px 18px rgba(6, 95, 70, 0.08);
+}
+
+.carousel-collage-4.has-overflow .collage-tile-1 {
+  border-top-right-radius: 14px;
+}
+
+.carousel-collage-4.has-overflow .collage-tile-2 {
+  border-bottom-left-radius: 14px;
+}
+
+.carousel-collage-4.has-overflow .collage-tile-3 {
+  border-top-left-radius: 14px;
+}
+
+.carousel-collage-4.has-overflow .collage-tile-4 {
+  border-top-left-radius: 14px;
+  border-top-right-radius: 22px;
+}
+
+.collage-tile::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 36%, rgba(4, 17, 14, 0.14));
+  pointer-events: none;
+}
+
+.collage-img {
+  transition: transform 0.24s ease;
+}
+
+.collage-tile:hover .collage-img {
+  transform: scale(1.03);
+}
+
+.collage-tile.has-more::after {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(3, 7, 18, 0.54)),
+    linear-gradient(135deg, rgba(5, 46, 22, 0.08), rgba(3, 7, 18, 0.32));
+}
+
+.collage-more-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+  color: #ffffff;
+  font-size: clamp(1.5rem, 3vw, 2.3rem);
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  text-shadow: 0 8px 24px rgba(0, 0, 0, 0.34);
+}
+
 .carousel {
   display: flex;
   overflow-x: auto;
@@ -1797,6 +2009,34 @@
   backdrop-filter: blur(6px);
 }
 
+.viewer-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 100000;
+  width: 52px;
+  height: 52px;
+  border-radius: 999px;
+  border: none;
+  background: rgba(0, 0, 0, 0.7);
+  color: #ffffff;
+  font-size: 2rem;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+}
+
+.viewer-nav.prev {
+  left: max(12px, env(safe-area-inset-left, 12px));
+}
+
+.viewer-nav.next {
+  right: max(12px, env(safe-area-inset-right, 12px));
+}
+
 .viewer-meta {
   max-width: min(900px, 90vw);
   color: #e5e7eb;
@@ -1978,6 +2218,50 @@
     margin: 8px 0;
     width: 100%;
   }
+
+  .carousel-wrapper.collage {
+    padding: 3px;
+  }
+
+  .carousel-collage {
+    gap: 3px;
+  }
+
+  .carousel-collage-4.has-overflow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+  }
+
+  .carousel-collage-4.has-overflow .collage-tile-1,
+  .carousel-collage-4.has-overflow .collage-tile-2,
+  .carousel-collage-4.has-overflow .collage-tile-3,
+  .carousel-collage-4.has-overflow .collage-tile-4 {
+    grid-column: auto;
+    grid-row: auto;
+    border-radius: 13px;
+  }
+
+  .collage-tile {
+    border-radius: 13px;
+  }
+
+  .collage-more-overlay {
+    font-size: 1.35rem;
+  }
+
+  .viewer-nav {
+    width: 44px;
+    height: 44px;
+    font-size: 1.7rem;
+  }
+
+  .viewer-nav.prev {
+    left: max(8px, env(safe-area-inset-left, 8px));
+  }
+
+  .viewer-nav.next {
+    right: max(8px, env(safe-area-inset-right, 8px));
+  }
 }
 /* Username + time + delete on same line */
 .meta-line {
@@ -2125,16 +2409,14 @@
   background: transparent;
   font-size: 0.95rem;
   color: #0f172a;
-}
-.comment-reply-box input::placeholder,
-.comment-reply-box textarea::placeholder {
-  color: #9ca3af;
+  position: relative;
+  z-index: 1;
 }
 .comment-reply-box .gif-pick-btn {
-  background: #ffffff !important;
-  border: 1px solid #cfe4d8 !important;
-  color: #065f46 !important;
-  box-shadow: 0 8px 16px rgba(15, 23, 42, 0.06) !important;
+  background: linear-gradient(180deg, #fcd34d, #f59e0b 58%, #d97706) !important;
+  border: 1px solid rgba(217, 119, 6, 0.68) !important;
+  color: #3b1d02 !important;
+  box-shadow: 0 12px 22px rgba(217, 119, 6, 0.24) !important;
 }
 
 .comment-reply-box > .comment-gif-preview,
@@ -2161,9 +2443,9 @@
 }
 
 .theme-dark .comment-reply-box .gif-pick-btn {
-  background: rgba(15, 23, 42, 0.88) !important;
-  color: #6ee7b7 !important;
-  border-color: rgba(110, 231, 183, 0.45) !important;
+  background: linear-gradient(180deg, #fbbf24, #ea8c06 58%, #c2410c) !important;
+  color: #2a1201 !important;
+  border-color: rgba(251, 191, 36, 0.74) !important;
 }
 
 .theme-dark .comment-input-row {
@@ -2181,10 +2463,16 @@
   background: transparent;
 }
 
+.theme-dark .comment-input-row textarea::placeholder,
+.theme-dark .comment-reply-box input::placeholder,
+.theme-dark .comment-reply-box textarea::placeholder {
+  color: #8da2ba;
+}
+
 .theme-dark .comment-input-row .gif-pick-btn {
-  background: rgba(15, 23, 42, 0.88) !important;
-  color: #6ee7b7 !important;
-  border-color: rgba(110, 231, 183, 0.45) !important;
+  background: linear-gradient(180deg, #fbbf24, #ea8c06 58%, #c2410c) !important;
+  color: #2a1201 !important;
+  border-color: rgba(251, 191, 36, 0.74) !important;
 }
 
 .theme-dark .vine-comments-area {
@@ -2202,6 +2490,16 @@
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.04),
     0 14px 32px rgba(2, 6, 23, 0.28);
+}
+
+.theme-dark .comment-composer-shell::before {
+  background:
+    linear-gradient(120deg, rgba(255, 255, 255, 0.08), transparent 34%, transparent 72%, rgba(255, 255, 255, 0.03)),
+    linear-gradient(180deg, rgba(245, 194, 92, 0.05), transparent 44%);
+}
+
+.theme-dark .comment-composer-shell::after {
+  background: radial-gradient(circle, rgba(245, 194, 92, 0.12), transparent 68%);
 }
 
 .theme-dark .comment-composer-shell:focus-within {

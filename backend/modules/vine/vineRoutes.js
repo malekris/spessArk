@@ -175,6 +175,7 @@ const isLikelyImageUrl = (url) => {
 };
 
 const VINE_POST_MAX_LENGTH = 5000;
+const VINE_POST_MAX_MEDIA_FILES = 30;
 const VINE_SYSTEM_NOTICE_VERSION = String(
   process.env.VINE_SYSTEM_NOTICE_VERSION || "2026-03-vine-refresh"
 ).trim();
@@ -9829,7 +9830,7 @@ router.get("/posts/:id/public", authOptional, async (req, res) => {
   router.post(
     "/posts",
     requireVineAuth,
-    uploadPostCloudinary.array("images", 10),
+    uploadPostCloudinary.array("images", VINE_POST_MAX_MEDIA_FILES),
     async (req, res) => {
       try {
         await ensureCommunitySchema();

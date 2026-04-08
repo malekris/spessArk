@@ -243,76 +243,332 @@
 /* ── Status Rail ── */
 .vine-statuses-rail {
   width: 100%;
-  max-width: 650px;
+  max-width: 720px;
   margin: 0 0 16px;
   display: flex;
-  gap: 10px;
+  gap: 14px;
   overflow-x: auto;
-  padding: 4px 2px 8px;
-  background: rgba(240, 253, 244, 0.94);
-  backdrop-filter: blur(6px);
-  border-radius: 14px;
+  padding: 8px 4px 12px;
+  background:
+    radial-gradient(circle at top left, rgba(245, 194, 92, 0.12), transparent 22%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(240, 253, 244, 0.92));
+  backdrop-filter: blur(10px);
+  border-radius: 24px;
+  border: 1px solid rgba(16, 185, 129, 0.12);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 16px 32px rgba(15, 23, 42, 0.06);
 }
 
 .status-add-card,
 .status-user-chip {
-  border: 1px solid #c6f6d5;
-  background: #ffffff;
-  border-radius: 16px;
-  min-width: 86px;
-  padding: 8px 10px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
+  border: 1px solid rgba(183, 214, 200, 0.9);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 251, 248, 0.98));
+  border-radius: 24px;
+  min-width: 136px;
+  width: 136px;
+  padding: 10px;
+  display: grid;
+  gap: 10px;
   color: #064e3b;
   font-weight: 700;
   cursor: pointer;
+  text-align: left;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    0 14px 28px rgba(15, 23, 42, 0.08);
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
 }
 
-.status-add-plus {
-  width: 32px;
-  height: 32px;
-  border-radius: 999px;
-  background: #0f766e;
-  color: #fff;
+.status-add-card:hover,
+.status-user-chip:hover {
+  transform: translateY(-2px);
+  border-color: rgba(16, 185, 129, 0.28);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.94),
+    0 18px 32px rgba(15, 23, 42, 0.12);
+}
+
+.status-card-art {
+  position: relative;
+  width: 100%;
+  height: 108px;
+  border-radius: 18px;
+  overflow: hidden;
+  background-color: #0f766e;
+  background-size: cover;
+  background-position: center;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 12px 22px rgba(6, 95, 70, 0.18);
+}
+
+.status-card-art::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18), transparent 38%, rgba(4, 17, 14, 0.18)),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.14), transparent 40%);
+  pointer-events: none;
+}
+
+.status-card-art-add {
   display: grid;
   place-items: center;
-  font-size: 1.2rem;
-  line-height: 1;
+  gap: 8px;
+  background:
+    radial-gradient(circle at top left, rgba(255, 248, 220, 0.22), transparent 26%),
+    linear-gradient(135deg, #0b7a5a, #14532d 58%, #0f3d31);
 }
 
-.status-user-chip img {
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  border: 2px solid #a7f3d0;
-  object-fit: cover;
+.status-card-badges {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
 }
 
-.status-user-chip.unseen img {
-  border-color: #f59e0b;
+.status-unseen-pill,
+.status-count-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+}
+
+.status-unseen-pill {
+  background: linear-gradient(135deg, #fde68a, #fbbf24 56%, #f59e0b);
+  color: #4a2503;
   box-shadow:
-    0 0 0 2px #fff,
-    0 0 0 4px #f59e0b;
+    0 8px 18px rgba(245, 158, 11, 0.24),
+    0 0 0 1px rgba(255, 255, 255, 0.42);
 }
 
-.status-user-chip span {
-  max-width: 90px;
+.status-count-pill {
+  margin-left: auto;
+  background: rgba(255, 255, 255, 0.9);
+  color: #065f46;
+  box-shadow: 0 6px 12px rgba(15, 23, 42, 0.12);
+}
+
+.status-chip-avatar {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.94);
+  object-fit: cover;
+  box-shadow:
+    0 10px 18px rgba(0, 0, 0, 0.22),
+    0 0 0 1px rgba(255, 255, 255, 0.14);
+  z-index: 1;
+}
+
+.status-chip-meta {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  padding-inline: 2px;
+}
+
+.status-chip-name {
+  display: block;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.75rem;
+  font-size: 0.88rem;
+  font-weight: 900;
+  color: #053e31;
+}
+
+.status-chip-time {
+  display: block;
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: #64748b;
+}
+
+.status-add-plus {
+  width: 46px;
+  height: 46px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.08));
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 1.6rem;
+  line-height: 1;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 14px 24px rgba(0, 0, 0, 0.18);
+}
+
+.status-add-kicker {
+  position: relative;
+  z-index: 1;
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 0.76rem;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.status-user-chip.unseen {
+  border-color: rgba(16, 185, 129, 0.34);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.94),
+    0 18px 34px rgba(6, 95, 70, 0.12);
+}
+
+.status-user-chip.unseen .status-card-art {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 0 0 2px rgba(22, 163, 74, 0.9),
+    0 0 0 5px rgba(34, 197, 94, 0.2),
+    0 14px 26px rgba(6, 95, 70, 0.2),
+    0 0 22px rgba(74, 222, 128, 0.2);
 }
 
 .status-user-chip-skeleton {
   cursor: default;
+  pointer-events: none;
+}
+
+.status-chip-skeleton-art {
+  width: 100%;
+  height: 108px;
+  border-radius: 18px;
 }
 
 .status-chip-skeleton-line {
-  width: 68px;
+  width: 88px;
   height: 12px;
   border-radius: 999px;
+}
+
+.status-chip-skeleton-line.short {
+  width: 54px;
+}
+
+.theme-dark .vine-statuses-rail {
+  background:
+    radial-gradient(circle at top left, rgba(245, 194, 92, 0.08), transparent 22%),
+    linear-gradient(135deg, rgba(8, 16, 27, 0.96), rgba(6, 46, 37, 0.94));
+  border-color: rgba(148, 163, 184, 0.18);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 16px 32px rgba(2, 6, 23, 0.24);
+}
+
+.theme-dark .status-add-card,
+.theme-dark .status-user-chip {
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(17, 24, 39, 0.98));
+  border-color: rgba(148, 163, 184, 0.2);
+  color: #ecfdf5;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 14px 28px rgba(2, 6, 23, 0.28);
+}
+
+.theme-dark .status-chip-name {
+  color: #f1faf7;
+}
+
+.theme-dark .status-chip-time {
+  color: #9db2c9;
+}
+
+.theme-dark .status-count-pill {
+  background: rgba(15, 23, 42, 0.84);
+  color: #ecfdf5;
+}
+
+.theme-dark .status-unseen-pill {
+  background: linear-gradient(135deg, #fde68a, #fbbf24 56%, #f59e0b);
+  color: #4a2503;
+  box-shadow:
+    0 8px 18px rgba(245, 158, 11, 0.22),
+    0 0 0 1px rgba(255, 255, 255, 0.14);
+}
+
+.theme-dark .status-user-chip.unseen {
+  border-color: rgba(74, 222, 128, 0.36);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 18px 34px rgba(2, 6, 23, 0.34);
+}
+
+.theme-dark .status-user-chip.unseen .status-card-art {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 0 0 2px rgba(74, 222, 128, 0.88),
+    0 0 0 5px rgba(34, 197, 94, 0.16),
+    0 16px 28px rgba(2, 6, 23, 0.32),
+    0 0 26px rgba(74, 222, 128, 0.22);
+}
+
+.theme-dark .status-add-kicker {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+@media (max-width: 768px) {
+  .vine-statuses-rail {
+    gap: 10px;
+    padding: 6px 2px 10px;
+    border-radius: 18px;
+  }
+
+  .status-add-card,
+  .status-user-chip {
+    min-width: 112px;
+    width: 112px;
+    padding: 8px;
+    border-radius: 20px;
+    gap: 8px;
+  }
+
+  .status-card-art,
+  .status-chip-skeleton-art {
+    height: 92px;
+    border-radius: 16px;
+  }
+
+  .status-chip-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 12px;
+    left: 8px;
+    bottom: 8px;
+  }
+
+  .status-add-plus {
+    width: 40px;
+    height: 40px;
+    border-radius: 14px;
+    font-size: 1.35rem;
+  }
+
+  .status-chip-name {
+    font-size: 0.8rem;
+  }
+
+  .status-chip-time {
+    font-size: 0.68rem;
+  }
 }
 
 /* ── Status Modal / Viewer ── */
@@ -1840,6 +2096,24 @@
   filter: saturate(1.02);
 }
 
+.vine-birthday-action-upcoming {
+  cursor: default;
+  background: linear-gradient(135deg, rgba(255, 248, 220, 0.92), rgba(245, 225, 176, 0.96));
+  color: #7c5b28;
+  border-color: rgba(196, 163, 95, 0.28);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    0 10px 22px rgba(110, 78, 24, 0.12);
+}
+
+.vine-birthday-action-upcoming:hover {
+  transform: none;
+  filter: none;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    0 10px 22px rgba(110, 78, 24, 0.12);
+}
+
 .vine-birthdays-toggle {
   justify-self: center;
   min-height: 44px;
@@ -2504,6 +2778,15 @@
   border-color: rgba(217, 166, 70, 0.34);
   background: linear-gradient(135deg, #f1c66e, #c99732 55%, #f4d48d);
   color: #281708;
+}
+
+.theme-dark .vine-birthday-action-upcoming {
+  background: linear-gradient(135deg, rgba(84, 66, 24, 0.92), rgba(118, 92, 34, 0.94));
+  color: #f5ddb0;
+  border-color: rgba(214, 163, 66, 0.24);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 12px 24px rgba(0, 0, 0, 0.22);
 }
 
 .theme-dark .vine-birthdays-toggle {

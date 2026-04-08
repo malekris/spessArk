@@ -39,6 +39,7 @@ const POST_BG_COLORS = [
   "#0f172a",
 ];
 const POST_MAX_LENGTH = 5000;
+const POST_MAX_MEDIA_FILES = 30;
 const STYLED_TEXT_WORD_LIMIT = 22;
 const FEED_MEDIA_UPLOADS_FROZEN = false;
 const STATUS_MEDIA_UPLOADS_FROZEN = false;
@@ -1681,14 +1682,21 @@ export default function VineFeed() {
               setStatusComposerOpen(true);
             }}
           >
-            <span className="status-add-plus">+</span>
-            <span>My Status</span>
+            <div className="status-card-art status-card-art-add" aria-hidden="true">
+              <span className="status-add-plus">+</span>
+              <span className="status-add-kicker">Create</span>
+            </div>
+            <div className="status-chip-meta">
+              <span className="status-chip-name">My Status</span>
+              <small className="status-chip-time">Share a moment</small>
+            </div>
           </button>
           {statusRailLoading && statusRail.length === 0
             ? STATUS_SKELETON_ROWS.map((idx) => (
                 <div key={`status-skeleton-${idx}`} className="status-user-chip status-user-chip-skeleton" aria-hidden="true">
-                  <div className="vine-skeleton-avatar small" />
+                  <div className="vine-skeleton-block status-chip-skeleton-art" />
                   <div className="vine-skeleton-block status-chip-skeleton-line" />
+                  <div className="vine-skeleton-block status-chip-skeleton-line short" />
                 </div>
               ))
             : statusRail.map((row) => {
@@ -1703,14 +1711,31 @@ export default function VineFeed() {
                 className={`status-user-chip ${Number(row.unseen_count || 0) > 0 ? "unseen" : ""}`}
                 onClick={() => openStatusViewer(row)}
               >
-                <img
-                  src={avatarSrc}
-                  alt={row.username}
-                  onError={(e) => {
-                    e.currentTarget.src = DEFAULT_AVATAR;
+                <div
+                  className="status-card-art"
+                  style={{
+                    backgroundImage: `linear-gradient(180deg, rgba(6, 14, 23, 0.12), rgba(6, 14, 23, 0.54)), url("${avatarSrc}")`,
                   }}
-                />
-                <span>{row.display_name || row.username}</span>
+                >
+                  <div className="status-card-badges">
+                    {Number(row.unseen_count || 0) > 0 && (
+                      <span className="status-unseen-pill">NEW</span>
+                    )}
+                    <span className="status-count-pill">{Number(row.status_count || 0)}</span>
+                  </div>
+                  <img
+                    src={avatarSrc}
+                    alt={row.username}
+                    className="status-chip-avatar"
+                    onError={(e) => {
+                      e.currentTarget.src = DEFAULT_AVATAR;
+                    }}
+                  />
+                </div>
+                <div className="status-chip-meta">
+                  <span className="status-chip-name">{row.display_name || row.username}</span>
+                  <small className="status-chip-time">{formatStatusTime(row.latest_created_at)}</small>
+                </div>
               </button>
             );
           })}
@@ -1913,8 +1938,12 @@ export default function VineFeed() {
                     }
                     const files = await normalizeImageFiles(e.target.files);
                     if (!files.length) return;
-                    setImages(files);
-                    const previewItems = await buildPreviewItems(files);
+                    const limitedFiles = files.slice(0, POST_MAX_MEDIA_FILES);
+                    if (files.length > POST_MAX_MEDIA_FILES) {
+                      alert(`Only the first ${POST_MAX_MEDIA_FILES} photos/videos will be added to this post.`);
+                    }
+                    setImages(limitedFiles);
+                    const previewItems = await buildPreviewItems(limitedFiles);
                     setPreviews((prev) => {
                       revokePreviewUrls(prev);
                       return previewItems;
@@ -2085,13 +2114,12 @@ export default function VineFeed() {
                             <div className="vine-birthday-row-subtitle">@{person.username}</div>
                           </div>
                           <div className="vine-birthday-row-date">{formatBirthdayDate(person)}</div>
-                          <button
-                            type="button"
-                            className="vine-birthday-action"
-                            onClick={(event) => openBirthdayDm(person, event)}
+                          <span
+                            className="vine-birthday-action vine-birthday-action-upcoming"
+                            aria-label={`Upcoming birthday for ${person.display_name || person.username}`}
                           >
-                            🎂 Wish happy birthday
-                          </button>
+                            Upcoming
+                          </span>
                         </div>
                       );
                     })}
@@ -2283,6 +2311,7 @@ export default function VineFeed() {
               )}
               <VinePostCard
                 post={post}
+                mediaLayout="collage"
                 focusComments={String(targetPostId || "") === String(post.id) && Boolean(targetCommentId)}
                 targetCommentId={String(targetPostId || "") === String(post.id) ? targetCommentId : null}
                 communityInteractionLocked={

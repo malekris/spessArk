@@ -22,6 +22,7 @@ export default function ImageCarousel({
   username,
   timeLabel,
   caption,
+  layout = "carousel",
 }) {
   const isVideoUrl = (src) => {
     const s = String(src || "");
@@ -37,6 +38,14 @@ export default function ImageCarousel({
     if (!Array.isArray(parsedMedia)) parsedMedia = [parsedMedia];
     return parsedMedia.filter(Boolean);
   }, [imageUrl]);
+  const useCollageLayout =
+    layout === "collage" &&
+    media.length > 0 &&
+    media.every((src) => !isVideoUrl(src));
+  const visibleCollageMedia = useMemo(
+    () => (useCollageLayout ? media.slice(0, 4) : []),
+    [media, useCollageLayout]
+  );
 
   // ── State & Refs ─────────────────────────────────
   const containerRef = useRef(null);
@@ -72,6 +81,18 @@ export default function ImageCarousel({
   };
   const normalize = (src) =>
     src.startsWith("http") ? src : `${ORIGIN}${src}`;
+  const openViewerAt = (targetIndex) => {
+    setCurrentIndex(targetIndex);
+    setViewerOpen(true);
+  };
+  const showPrev = (event) => {
+    event.stopPropagation();
+    setCurrentIndex((prev) => (prev - 1 + media.length) % media.length);
+  };
+  const showNext = (event) => {
+    event.stopPropagation();
+    setCurrentIndex((prev) => (prev + 1) % media.length);
+  };
 
   const loadVideoSlide = (index) => {
     setLoadedVideoIndexes((prev) => (prev[index] ? prev : { ...prev, [index]: true }));
@@ -141,101 +162,136 @@ export default function ImageCarousel({
   const isSingle = media.length === 1;
 
   return (
-    <div className={`carousel-wrapper ${isSingle ? "single" : ""}`} ref={viewportRef}>
-      {/* Horizontal scrollable track */}
-      <div
-        className="carousel"
-        ref={containerRef}
-        onScroll={handleScroll}
-      >
-        {media.map((src, i) => {
-          const isVideo = isVideoUrl(src);
-          const isNearbySlide = Math.abs(i - currentIndex) <= 1;
-          const shouldRenderMedia = viewerOpen || isNearbySlide || (!isVideo && i === 0);
+    <div
+      className={`carousel-wrapper ${isSingle && !useCollageLayout ? "single" : ""} ${useCollageLayout ? "collage" : ""}`}
+      ref={viewportRef}
+    >
+      {useCollageLayout ? (
+        <div
+          className={`carousel-collage carousel-collage-${Math.min(visibleCollageMedia.length, 4)} ${
+            media.length > visibleCollageMedia.length ? "has-overflow" : ""
+          }`}
+        >
+          {visibleCollageMedia.map((src, i) => {
+            const hiddenCount = media.length - visibleCollageMedia.length;
+            const showMoreOverlay = i === visibleCollageMedia.length - 1 && hiddenCount > 0;
+            return (
+              <button
+                key={`collage-${i}`}
+                type="button"
+                className={`collage-tile collage-tile-${i + 1} ${showMoreOverlay ? "has-more" : ""}`}
+                onClick={() => openViewerAt(i)}
+              >
+                <img
+                  src={normalize(src)}
+                  alt=""
+                  className="carousel-img collage-img"
+                  loading={i === 0 ? "eager" : "lazy"}
+                  decoding="async"
+                  fetchPriority={i === 0 ? "high" : "low"}
+                />
+                {showMoreOverlay && (
+                  <span className="collage-more-overlay">+{hiddenCount}</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <>
+          <div
+            className="carousel"
+            ref={containerRef}
+            onScroll={handleScroll}
+          >
+            {media.map((src, i) => {
+              const isVideo = isVideoUrl(src);
+              const isNearbySlide = Math.abs(i - currentIndex) <= 1;
+              const shouldRenderMedia = viewerOpen || isNearbySlide || (!isVideo && i === 0);
 
-          return (
-            <div key={i} className="carousel-slide">
-              {shouldRenderMedia ? (
-                isVideo ? (
-                  loadedVideoIndexes[i] ? (
-                    <video
-                      ref={(node) => {
-                        videoRefs.current[i] = node;
-                      }}
-                      src={normalize(src)}
-                      className="carousel-img"
-                      controls
-                      controlsList="nofullscreen noremoteplayback nodownload"
-                      disablePictureInPicture
-                      playsInline
-                      preload={isCarouselVisible && i === currentIndex ? "metadata" : "none"}
-                      onClick={() => setViewerOpen(true)}
-                    />
-                  ) : (
-                    <button
-                      type="button"
-                      className="carousel-video-poster"
-                      onClick={() => loadVideoSlide(i)}
-                    >
-                      <video
+              return (
+                <div key={i} className="carousel-slide">
+                  {shouldRenderMedia ? (
+                    isVideo ? (
+                      loadedVideoIndexes[i] ? (
+                        <video
+                          ref={(node) => {
+                            videoRefs.current[i] = node;
+                          }}
+                          src={normalize(src)}
+                          className="carousel-img"
+                          controls
+                          controlsList="nofullscreen noremoteplayback nodownload"
+                          disablePictureInPicture
+                          playsInline
+                          preload={isCarouselVisible && i === currentIndex ? "metadata" : "none"}
+                          onClick={() => setViewerOpen(true)}
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          className="carousel-video-poster"
+                          onClick={() => loadVideoSlide(i)}
+                        >
+                          <video
+                            src={normalize(src)}
+                            className="carousel-video-preview"
+                            muted
+                            playsInline
+                            preload={isCarouselVisible && (i === currentIndex || isNearbySlide) ? "auto" : "metadata"}
+                            aria-hidden="true"
+                            onLoadedMetadata={(event) => {
+                              try {
+                                event.currentTarget.currentTime = 0.1;
+                              } catch {
+                                // ignore preview seek misses
+                              }
+                            }}
+                          />
+                          <span className="carousel-video-overlay" aria-hidden="true" />
+                          <span className="carousel-video-play">▶</span>
+                          <span className="carousel-video-note">Tap to load video</span>
+                        </button>
+                      )
+                    ) : (
+                      <img
                         src={normalize(src)}
-                        className="carousel-video-preview"
-                        muted
-                        playsInline
-                        preload={isCarouselVisible && (i === currentIndex || isNearbySlide) ? "auto" : "metadata"}
-                        aria-hidden="true"
-                        onLoadedMetadata={(event) => {
-                          try {
-                            event.currentTarget.currentTime = 0.1;
-                          } catch {
-                            // ignore preview seek misses
-                          }
-                        }}
+                        alt=""
+                        className="carousel-img"
+                        loading={i === 0 ? "eager" : "lazy"}
+                        decoding="async"
+                        fetchPriority={i === 0 ? "high" : "low"}
+                        onClick={() => setViewerOpen(true)}
                       />
-                      <span className="carousel-video-overlay" aria-hidden="true" />
-                      <span className="carousel-video-play">▶</span>
-                      <span className="carousel-video-note">Tap to load video</span>
-                    </button>
-                  )
-                ) : (
-                  <img
-                    src={normalize(src)}
-                    alt=""
-                    className="carousel-img"
-                    loading={i === 0 ? "eager" : "lazy"}
-                    decoding="async"
-                    fetchPriority={i === 0 ? "high" : "low"}
-                    onClick={() => setViewerOpen(true)}
-                  />
-                )
-              ) : (
-                <div className={`carousel-placeholder ${isVideo ? "video" : "image"}`} aria-hidden="true">
-                  <span>{isVideo ? "Video" : "Image"}</span>
+                    )
+                  ) : (
+                    <div className={`carousel-placeholder ${isVideo ? "video" : "image"}`} aria-hidden="true">
+                      <span>{isVideo ? "Video" : "Image"}</span>
+                    </div>
+                  )}
                 </div>
-              )}
+              );
+            })}
+          </div>
+
+          {media.length > 1 && (
+            <div className="carousel-counter">
+              {currentIndex + 1} / {media.length}
             </div>
-          );
-        })}
-      </div>
+          )}
 
-      {/* Counter – only shown when multiple images */}
-      {media.length > 1 && (
-        <div className="carousel-counter">
-          {currentIndex + 1} / {media.length}
-        </div>
-      )}
-
-      {/* Navigation dots – only shown when multiple images */}
-      {media.length > 1 && (
-        <div className="carousel-dots">
-          {media.map((_, i) => (
-            <span
-              key={i}
-              className={`dot ${i === currentIndex ? "active" : ""}`}
-              onClick={() => scrollTo(i)}
-            />
-          ))}
-        </div>
+          {media.length > 1 && (
+            <div className="carousel-dots">
+              {media.map((_, i) => (
+                <span
+                  key={i}
+                  className={`dot ${i === currentIndex ? "active" : ""}`}
+                  onClick={() => scrollTo(i)}
+                />
+              ))}
+            </div>
+          )}
+        </>
       )}
 
       {/* Fullscreen viewer */}
@@ -255,6 +311,17 @@ export default function ImageCarousel({
             >
               ✕
             </button>
+
+            {media.length > 1 && (
+              <>
+                <button className="viewer-nav prev" onClick={showPrev}>
+                  ‹
+                </button>
+                <button className="viewer-nav next" onClick={showNext}>
+                  ›
+                </button>
+              </>
+            )}
 
               <button
                 className="viewer-fullscreen"

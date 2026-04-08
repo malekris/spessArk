@@ -267,6 +267,7 @@ function VinePostCard({
   targetCommentId = null,
   isMe,
   communityInteractionLocked = false,
+  mediaLayout = "carousel",
 }) {
 
   const navigate = useNavigate();
@@ -1247,6 +1248,7 @@ function VinePostCard({
     {shouldMountCarousel ? (
       <ImageCarousel
         imageUrl={carouselMediaPayload}
+        layout={mediaLayout}
         onLike={handleLike}
         onRevine={handleRevine}
         onComments={() => {
@@ -1752,7 +1754,8 @@ const areVinePostCardPropsEqual = (prevProps, nextProps) => (
   prevProps.focusComments === nextProps.focusComments &&
   prevProps.targetCommentId === nextProps.targetCommentId &&
   prevProps.isMe === nextProps.isMe &&
-  prevProps.communityInteractionLocked === nextProps.communityInteractionLocked
+  prevProps.communityInteractionLocked === nextProps.communityInteractionLocked &&
+  prevProps.mediaLayout === nextProps.mediaLayout
 );
 
 const commentContainsTarget = (node, targetId) => {

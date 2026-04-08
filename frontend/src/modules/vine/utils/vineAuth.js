@@ -1,6 +1,7 @@
 const TOKEN_KEY = "vine_token";
 const USER_KEY = "vine_user";
 const ACTIVITY_KEY = "vine_last_activity_at";
+const NOTIFICATIONS_SEEN_PREFIX = "vine_notifications_seen_at";
 
 export const VINE_SESSION_IDLE_MS = 60 * 60 * 1000;
 export const VINE_SESSION_WARNING_MS = 2 * 60 * 1000;
@@ -29,6 +30,23 @@ export const getVineLastActivityAt = () => {
 export const setVineLastActivityAt = (value = Date.now()) => {
   localStorage.setItem(ACTIVITY_KEY, String(value));
   return value;
+};
+
+const getNotificationsSeenKey = (userId) =>
+  `${NOTIFICATIONS_SEEN_PREFIX}:${Number(userId || 0) || "anon"}`;
+
+export const getVineNotificationsSeenAt = (userId) => {
+  const raw = String(localStorage.getItem(getNotificationsSeenKey(userId)) || "").trim();
+  if (!raw) return "";
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? "" : parsed.toISOString();
+};
+
+export const setVineNotificationsSeenAt = (userId, value = new Date()) => {
+  const stamp = value instanceof Date ? value : new Date(value);
+  const iso = Number.isNaN(stamp.getTime()) ? new Date().toISOString() : stamp.toISOString();
+  localStorage.setItem(getNotificationsSeenKey(userId), iso);
+  return iso;
 };
 
 export const touchVineActivity = () => setVineLastActivityAt(Date.now());

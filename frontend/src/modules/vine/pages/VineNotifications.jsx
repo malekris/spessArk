@@ -1,7 +1,12 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "./VineNotifications.css";
-import { getVineToken, isVineTokenExpired } from "../utils/vineAuth";
+import {
+  getVineToken,
+  getVineUser,
+  isVineTokenExpired,
+  setVineNotificationsSeenAt,
+} from "../utils/vineAuth";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 
@@ -10,12 +15,16 @@ export default function VineNotifications() {
   const [markingAllRead, setMarkingAllRead] = useState(false);
   const navigate = useNavigate();
   const token = getVineToken();
+  const viewerId = Number(getVineUser()?.id || 0);
   const hasLiveSession = Boolean(token) && !isVineTokenExpired(token);
   useEffect(() => {
     document.title = "Vine — Notifications";
   }, []);
   useEffect(() => {
     if (!token) return;
+    if (viewerId) {
+      setVineNotificationsSeenAt(viewerId);
+    }
 
     const controller = new AbortController();
     const loadNotifications = async () => {
@@ -37,7 +46,7 @@ export default function VineNotifications() {
     });
 
     return () => controller.abort();
-  }, [token]);
+  }, [token, viewerId]);
   
   const getMeta = (n) => {
     if (!n?.meta_json) return {};

@@ -775,6 +775,34 @@ const clearVineReadCache = (...prefixes) => {
   }
 };
 
+const VINE_READ_NOTIFICATION_RETENTION_DAYS = 30;
+let vineNotificationsCleanupInFlight = false;
+let lastVineNotificationsCleanupAt = 0;
+
+const cleanupExpiredReadNotifications = async () => {
+  const now = Date.now();
+  if (vineNotificationsCleanupInFlight) return;
+  if (now - lastVineNotificationsCleanupAt < 6 * 60 * 60 * 1000) return;
+  vineNotificationsCleanupInFlight = true;
+  try {
+    const [result] = await db.query(
+      `
+      DELETE FROM vine_notifications
+      WHERE is_read = 1
+        AND created_at < DATE_SUB(NOW(), INTERVAL ${VINE_READ_NOTIFICATION_RETENTION_DAYS} DAY)
+      `
+    );
+    lastVineNotificationsCleanupAt = Date.now();
+    if (Number(result?.affectedRows || 0)) {
+      clearVineReadCache("notifications", "notifications-unread", "notifications-unseen");
+    }
+  } catch (err) {
+    console.error("Notification cleanup error:", err?.message || err);
+  } finally {
+    vineNotificationsCleanupInFlight = false;
+  }
+};
+
 const GUARDIAN_ACTIVITY_ONLINE_MS = 5 * 60 * 1000;
 const GUARDIAN_ACTIVITY_LOOKBACK_MS = 3 * 24 * 60 * 60 * 1000;
 
@@ -4660,68 +4688,34 @@ const triggerNewsIngestIfDue = async () => {
 };
 
 let birthdayBroadcastInFlight = false;
+let birthdayNotificationsRetired = false;
+const retireBirthdayNotifications = async () => {
+  if (birthdayNotificationsRetired) return;
+  try {
+    const [result] = await db.query(
+      `
+      DELETE FROM vine_notifications
+      WHERE type = 'birthday'
+      `
+    );
+    if (Number(result?.affectedRows || 0)) {
+      clearVineReadCache("notifications", "notifications-unread", "notifications-unseen");
+    }
+    birthdayNotificationsRetired = true;
+  } catch (err) {
+    birthdayNotificationsRetired = false;
+    throw err;
+  }
+};
+
 const triggerBirthdayNotificationsIfDue = async () => {
   if (birthdayBroadcastInFlight) return;
   birthdayBroadcastInFlight = true;
 
   try {
-    await ensureBirthdayBroadcastSchema();
-    const todayParts = getNewsZonedParts(BIRTHDAY_NOTIFICATION_TIMEZONE);
-    const [birthdayUsers] = await db.query(
-      `
-      SELECT id, username, display_name, badge_type, date_of_birth
-      FROM vine_users
-      WHERE date_of_birth IS NOT NULL
-        AND deactivated_at IS NULL
-        AND LOWER(COALESCE(username, '')) NOT IN ('vine news', 'vine_news')
-        AND LOWER(COALESCE(badge_type, '')) <> 'news'
-      `
-    );
-
-    const todaysCelebrants = (Array.isArray(birthdayUsers) ? birthdayUsers : []).filter((row) =>
-      isBirthdayTodayForZonedParts(row.date_of_birth, todayParts)
-    );
-
-    for (const celebrant of todaysCelebrants) {
-      const birthdayUserId = Number(celebrant.id || 0);
-      if (!birthdayUserId) continue;
-
-      const [claim] = await db.query(
-        `
-        INSERT IGNORE INTO vine_birthday_notices (birthday_user_id, day_key, notified_at)
-        VALUES (?, ?, NOW())
-        `,
-        [birthdayUserId, todayParts.dayKey]
-      );
-      if (!Number(claim?.affectedRows || 0)) continue;
-
-      const [recipientRows] = await db.query(
-        `
-        SELECT id
-        FROM vine_users
-        WHERE id != ?
-          AND deactivated_at IS NULL
-          AND LOWER(COALESCE(username, '')) NOT IN ('vine news', 'vine_news')
-          AND LOWER(COALESCE(badge_type, '')) <> 'news'
-        `,
-        [birthdayUserId]
-      );
-      const recipientIds = (Array.isArray(recipientRows) ? recipientRows : [])
-        .map((row) => Number(row.id || 0))
-        .filter(Boolean);
-      if (!recipientIds.length) continue;
-
-      await notifyUsersBulk({
-        userIds: recipientIds,
-        actorId: birthdayUserId,
-        type: "birthday",
-        meta: {
-          birthday_user_id: birthdayUserId,
-          birthday_day_key: todayParts.dayKey,
-          birthday_prompt: "Send them a birthday message",
-        },
-      });
-    }
+    // Birthday discovery now lives only in the dedicated feed panel.
+    // We retire legacy birthday notifications and skip any network-wide broadcast.
+    await retireBirthdayNotifications();
   } catch (err) {
     console.error("Birthday notification sweep error:", err?.message || err);
   } finally {
@@ -15004,6 +14998,7 @@ router.post("/moderation/appeals", authenticate, async (req, res) => {
 // Get notifications
 router.get("/notifications", authenticate, async (req, res) => {
   try {
+    void cleanupExpiredReadNotifications();
     const viewerId = Number(req.user.id);
     const rows = await runVinePerfRoute(
       "notifications",
@@ -15034,6 +15029,8 @@ router.get("/notifications", authenticate, async (req, res) => {
           FROM vine_notifications n
           LEFT JOIN vine_users u ON n.actor_id = u.id
           WHERE n.user_id = ?
+            AND n.type <> 'birthday'
+            AND (n.is_read = 0 OR n.created_at >= DATE_SUB(NOW(), INTERVAL ${VINE_READ_NOTIFICATION_RETENTION_DAYS} DAY))
             AND NOT EXISTS (
               SELECT 1 FROM vine_mutes m
               WHERE m.muter_id = n.user_id AND m.muted_id = n.actor_id
@@ -15054,6 +15051,7 @@ router.get("/notifications", authenticate, async (req, res) => {
 });
 // Get unread count
 router.get("/notifications/unread-count", authenticate, async (req, res) => {
+  void cleanupExpiredReadNotifications();
   await ensureVinePerformanceSchema();
   const viewerId = Number(req.user.id);
   const [[row]] = await db.query(
@@ -15061,6 +15059,7 @@ router.get("/notifications/unread-count", authenticate, async (req, res) => {
     SELECT COUNT(*) AS total
     FROM vine_notifications n
     WHERE n.user_id = ?
+      AND n.type <> 'birthday'
       AND n.is_read = 0
       AND NOT EXISTS (
         SELECT 1
@@ -15076,6 +15075,7 @@ router.get("/notifications/unread-count", authenticate, async (req, res) => {
 
 // Count notifications received since a given timestamp (ignores is_read)
 router.get("/notifications/unseen-count", authenticate, async (req, res) => {
+  void cleanupExpiredReadNotifications();
   await ensureVinePerformanceSchema();
   const sinceRaw = String(req.query.since || "").trim();
   const since = new Date(sinceRaw);
@@ -15089,6 +15089,7 @@ router.get("/notifications/unseen-count", authenticate, async (req, res) => {
     SELECT COUNT(*) AS total
     FROM vine_notifications n
     WHERE n.user_id = ?
+      AND n.type <> 'birthday'
       AND n.created_at > ?
       AND NOT EXISTS (
         SELECT 1
@@ -15109,6 +15110,7 @@ router.post("/notifications/mark-read", authenticate, async (req, res) => {
   );
 
   clearVineReadCache("notifications", "notifications-unread", "notifications-unseen");
+  void cleanupExpiredReadNotifications();
   res.json({ success: true });
 });
 // Mark single notification as read
@@ -15119,6 +15121,7 @@ router.post("/notifications/:id/read", authenticate, async (req, res) => {
   );
 
   clearVineReadCache("notifications", "notifications-unread", "notifications-unseen");
+  void cleanupExpiredReadNotifications();
   res.json({ success: true });
 });
 

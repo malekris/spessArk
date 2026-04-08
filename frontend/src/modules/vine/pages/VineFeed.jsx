@@ -8,6 +8,7 @@ import { socket } from "../../../socket";
 import { useSearchParams } from "react-router-dom";
 import { convertHeicFileToJpeg, isHeicLikeFile } from "../utils/heic";
 import { createClientRequestId } from "../../../utils/requestId";
+import { getVineNotificationsSeenAt, setVineNotificationsSeenAt } from "../utils/vineAuth";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const STATUS_COLORS = [
@@ -264,6 +265,7 @@ export default function VineFeed() {
     ["vine guardian", "vine_guardian", "vine news", "vine_news"].includes(
       String(me?.username || "").toLowerCase()
     );
+  const viewerId = Number(me?.id || 0);
 
   // ── State ───────────────────────────────────────
   const [posts, setPosts] = useState([]);
@@ -1221,6 +1223,10 @@ export default function VineFeed() {
   };
 
   const handleOpenNotifications = () => {
+    if (viewerId) {
+      setVineNotificationsSeenAt(viewerId);
+      setUnread(0);
+    }
     navigate("/vine/notifications");
   };
 
@@ -1233,7 +1239,11 @@ export default function VineFeed() {
     // Fetch bell badge count
     const fetchUnreadNotifications = async () => {
       try {
-        const res = await fetch(`${API}/api/vine/notifications/unread-count`, {
+        const seenAt = viewerId ? getVineNotificationsSeenAt(viewerId) : "";
+        const endpoint = seenAt
+          ? `${API}/api/vine/notifications/unseen-count?since=${encodeURIComponent(seenAt)}`
+          : `${API}/api/vine/notifications/unread-count`;
+        const res = await fetch(endpoint, {
           headers: { Authorization: `Bearer ${token}` },
           signal: notificationController.signal,
           cache: "no-store",
@@ -1279,7 +1289,7 @@ export default function VineFeed() {
       socket.off("dm_received", fetchUnreadDMs);
       socket.off("messages_seen", fetchUnreadDMs);
     };
-  }, [token]);
+  }, [token, viewerId]);
 
   useEffect(() => {
     if (!token) return;
@@ -1999,6 +2009,12 @@ export default function VineFeed() {
                 <div className="vine-birthdays-kicker">Upcoming birthdays</div>
                 <h3 id="vine-birthdays-title">🎉 🎂 People worth celebrating</h3>
               </div>
+              {totalBirthdayCount > 0 && (
+                <div className="vine-birthdays-crest" aria-label={`${totalBirthdayCount} birthdays in view`}>
+                  <strong>{totalBirthdayCount}</strong>
+                  <span>On deck</span>
+                </div>
+              )}
             </div>
 
             {birthdaysLoading && birthdayRows.today.length === 0 && birthdayRows.upcoming.length === 0 ? (

@@ -135,16 +135,23 @@ const upsertDmMessage = (prevMessages = [], incomingMessage) => {
   return next;
 };
 
-export default function ChatWindow() {
+export default function ChatWindow({
+  conversationId: conversationIdProp = null,
+  receiverId: receiverIdProp = null,
+  compact = false,
+  onClose = null,
+  onMinimize = null,
+  initialPartner = null,
+}) {
   const { conversationId: routeConversationId, userId: routeReceiverId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
   const token = localStorage.getItem("vine_token");
-  const receiverId = routeReceiverId ? Number(routeReceiverId) : null;
-  const [conversationId, setConversationId] = useState(routeConversationId || null);
+  const receiverId = receiverIdProp ? Number(receiverIdProp) : (routeReceiverId ? Number(routeReceiverId) : null);
+  const [conversationId, setConversationId] = useState(conversationIdProp || routeConversationId || null);
 
   const [messages, setMessages] = useState([]);
-  const [partner, setPartner] = useState(null);
+  const [partner, setPartner] = useState(initialPartner || null);
   const [replyTarget, setReplyTarget] = useState(null);
   const [partnerTyping, setPartnerTyping] = useState(false);
   const [profileSheetOpen, setProfileSheetOpen] = useState(false);
@@ -207,9 +214,9 @@ export default function ChatWindow() {
   }, [myId]);
 
   useEffect(() => {
-    setConversationId(routeConversationId || null);
+    setConversationId(conversationIdProp || routeConversationId || null);
     stickToBottomRef.current = true;
-  }, [routeConversationId]);
+  }, [conversationIdProp, routeConversationId]);
 
   useEffect(() => {
     if (!conversationId) {
@@ -298,7 +305,9 @@ export default function ChatWindow() {
     
         if (!res.ok) {
           if (res.status === 403) {
-            navigate("/vine/dms");
+            if (!compact) {
+              navigate("/vine/dms");
+            }
             return;
           }
           throw new Error("Failed to load");
@@ -326,7 +335,7 @@ export default function ChatWindow() {
      
 
     loadMessages();
-  }, [conversationId]);
+  }, [compact, conversationId, myId, navigate, token]);
   //Handle send messages// 
   const uploadDmMedia = async (file) => {
     const fd = new FormData();
@@ -444,7 +453,9 @@ export default function ChatWindow() {
       const { message: saved, conversationId: savedConversationId } = await res.json();
       if (!conversationId && savedConversationId) {
         setConversationId(savedConversationId);
-        navigate(`/vine/dms/${savedConversationId}`, { replace: true });
+        if (!compact) {
+          navigate(`/vine/dms/${savedConversationId}`, { replace: true });
+        }
       }
 
       // replace optimistic temp or merge with any realtime echo of the same message
@@ -497,14 +508,17 @@ export default function ChatWindow() {
     if (!conversationId) {
       if (receiverId) {
         const params = new URLSearchParams(location.search);
-        const username = params.get("username") || `user-${receiverId}`;
-        const displayName = params.get("displayName") || username;
+        const username = initialPartner?.username || params.get("username") || `user-${receiverId}`;
+        const displayName = initialPartner?.display_name || params.get("displayName") || username;
         setPartner({
+          ...(initialPartner || {}),
+          id: Number(initialPartner?.id || receiverId),
+          user_id: Number(initialPartner?.user_id || initialPartner?.id || receiverId),
           username,
           display_name: displayName,
-          avatar_url: null,
-          is_verified: 0,
-          show_last_active: 0,
+          avatar_url: initialPartner?.avatar_url || null,
+          is_verified: Number(initialPartner?.is_verified || 0),
+          show_last_active: Number(initialPartner?.show_last_active || 0),
         });
       } else {
         setPartner(null);
@@ -530,7 +544,7 @@ export default function ChatWindow() {
     };
 
     loadPartner();
-  }, [conversationId, receiverId, location.search]);
+  }, [conversationId, receiverId, location.search, initialPartner]);
 
   useEffect(() => {
     if (!conversationId || !token) return;
@@ -794,29 +808,31 @@ export default function ChatWindow() {
      UI
   ------------------------------ */
   return (
-    <div className="vine-chat-wrapper">
+    <div className={`vine-chat-wrapper ${compact ? "chat-window-compact" : ""}`}>
 
       {/* HEADER */}
       <div className="chat-header">
-        <button
-          className="dm-chat-back"
-          onClick={() => navigate("/vine/dms")}
-          aria-label="Back to messages"
-          title="Back to messages"
-        >
-          <span className="dm-chat-back-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none">
-              <path
-                d="M14.5 6.5L9 12l5.5 5.5"
-                stroke="currentColor"
-                strokeWidth="2.4"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </span>
-          <span className="dm-chat-back-label">Messages</span>
-        </button>
+        {!compact && (
+          <button
+            className="dm-chat-back"
+            onClick={() => navigate("/vine/dms")}
+            aria-label="Back to messages"
+            title="Back to messages"
+          >
+            <span className="dm-chat-back-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none">
+                <path
+                  d="M14.5 6.5L9 12l5.5 5.5"
+                  stroke="currentColor"
+                  strokeWidth="2.4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </span>
+            <span className="dm-chat-back-label">Messages</span>
+          </button>
+        )}
 
         {partner ? (
           <div
@@ -875,6 +891,33 @@ export default function ChatWindow() {
           </div>
         ) : (
           <div style={{ opacity: 0.6 }}>Loading chat…</div>
+        )}
+
+        {compact && (onMinimize || onClose) && (
+          <div className="dm-chat-window-actions">
+            {onMinimize && (
+              <button
+                type="button"
+                className="dm-chat-window-btn"
+                onClick={onMinimize}
+                aria-label="Minimize chat window"
+                title="Minimize chat window"
+              >
+                −
+              </button>
+            )}
+            {onClose && (
+              <button
+                type="button"
+                className="dm-chat-close dm-chat-window-btn"
+                onClick={onClose}
+                aria-label="Close chat window"
+                title="Close chat window"
+              >
+                ✕
+              </button>
+            )}
+          </div>
         )}
       </div>
 

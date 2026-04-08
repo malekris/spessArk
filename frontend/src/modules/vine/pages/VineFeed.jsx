@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import VinePostCard from "./VinePostCard";
 import GifPickerModal from "../components/GifPickerModal";
+import ChatWindow from "../../../components/dms/ChatWindow";
 import "./VineFeed.css";
 import VineSuggestions from "./VineSuggestions";
 import { socket } from "../../../socket";
@@ -54,6 +55,7 @@ const FEED_REFRESH_FALLBACK_MS = 60 * 1000;
 const STATUS_RAIL_REFRESH_FALLBACK_MS = 60 * 1000;
 const FEED_EVENT_DEBOUNCE_MS = 350;
 const MAX_VISIBLE_BIRTHDAYS = 5;
+const DESKTOP_DM_WINDOW_LIMIT = 3;
 const formatBadgeCount = (count) => (Number(count || 0) > 99 ? "99+" : String(Number(count || 0)));
 
 // ────────────────────────────────────────────────
@@ -173,6 +175,27 @@ const isVineNewsIdentity = (row) => {
     displayName === "vine news" ||
     badgeType === "news"
   );
+};
+
+const dedupePresenceUsers = (...groups) => {
+  const seen = new Set();
+  return groups
+    .flat()
+    .filter(Boolean)
+    .filter((user) => {
+      const id = Number(user?.id || 0);
+      if (!id || seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+};
+
+const matchesDesktopDmSearch = (user, rawQuery) => {
+  const query = String(rawQuery || "").trim().toLowerCase();
+  if (!query) return true;
+  return [user?.display_name, user?.username]
+    .map((value) => String(value || "").toLowerCase())
+    .some((value) => value.includes(query));
 };
 
 const FEED_SKELETON_ROWS = [0, 1, 2];
@@ -328,6 +351,11 @@ export default function VineFeed() {
   const [activeNowUsers, setActiveNowUsers] = useState([]);
   const [recentlyActiveUsers, setRecentlyActiveUsers] = useState([]);
   const [presenceModalOpen, setPresenceModalOpen] = useState(false);
+  const [desktopChatWindows, setDesktopChatWindows] = useState([]);
+  const [desktopDmSearch, setDesktopDmSearch] = useState("");
+  const [desktopDmEnabled, setDesktopDmEnabled] = useState(
+    typeof window !== "undefined" ? window.innerWidth >= 1180 : false
+  );
   const suggestionSlotsRef = useRef([]);
   const feedNextCursorRef = useRef(null);
   const createInputRef = useRef(null);
@@ -343,6 +371,20 @@ export default function VineFeed() {
       }
     }
   };
+
+  useEffect(() => {
+    const syncDesktopDmEnabled = () => {
+      const enabled = window.innerWidth >= 1180;
+      setDesktopDmEnabled(enabled);
+      if (!enabled) {
+        setDesktopChatWindows([]);
+      }
+    };
+
+    syncDesktopDmEnabled();
+    window.addEventListener("resize", syncDesktopDmEnabled);
+    return () => window.removeEventListener("resize", syncDesktopDmEnabled);
+  }, []);
 
   const buildPreviewItems = async (files) => {
     const list = Array.from(files || []);
@@ -1323,35 +1365,186 @@ export default function VineFeed() {
     };
   }, [token]);
 
-  const openDmFromPresence = async (u) => {
-    try {
+  useEffect(() => {
+    if (!desktopDmEnabled || !viewerId) return;
+
+    const handleDesktopIncomingDm = (message) => {
+      if (!message || Number(message.sender_id) === Number(viewerId)) return;
+      const conversationId = Number(message.conversation_id || 0) || null;
+      const senderId = Number(message.sender_id || 0) || null;
+      if (!conversationId && !senderId) return;
+
+      const windowKey = conversationId ? `conversation-${conversationId}` : `user-${senderId}`;
+      const partner = {
+        id: senderId,
+        user_id: senderId,
+        username: message.username || `user-${senderId}`,
+        display_name: message.display_name || message.username || `user-${senderId}`,
+        avatar_url: message.avatar_url || null,
+        is_verified: Number(message.is_verified || 0),
+      };
+
+      setDesktopChatWindows((prev) => {
+        const existingIndex = prev.findIndex(
+          (item) =>
+            item.key === windowKey ||
+            Number(item?.conversationId || 0) === Number(conversationId || 0) ||
+            Number(item?.receiverId || item?.partner?.id || 0) === Number(senderId || 0)
+        );
+
+        if (existingIndex >= 0) {
+          return prev.map((item, index) =>
+            index === existingIndex
+              ? {
+                  ...item,
+                  conversationId: conversationId || item.conversationId || null,
+                  receiverId:
+                    item.receiverId || (!conversationId ? senderId : null),
+                  minimized: Boolean(item.minimized),
+                  incomingCount: Number(item?.incomingCount || 0) + 1,
+                  partner: {
+                    ...(item?.partner || {}),
+                    ...partner,
+                  },
+                }
+              : item
+          );
+        }
+
+        const nextWindow = {
+          key: windowKey,
+          conversationId,
+          receiverId: conversationId ? null : senderId,
+          minimized: false,
+          incomingCount: 1,
+          partner,
+        };
+
+        return [...prev, nextWindow].slice(-DESKTOP_DM_WINDOW_LIMIT);
+      });
+    };
+
+    socket.on("dm_received", handleDesktopIncomingDm);
+    return () => {
+      socket.off("dm_received", handleDesktopIncomingDm);
+    };
+  }, [desktopDmEnabled, viewerId]);
+
+  const startDmConversation = useCallback(
+    async (user) => {
       const res = await fetch(`${API}/api/dms/start`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ userId: u.id }),
+        body: JSON.stringify({ userId: user.id }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        alert(data.error || "Cannot start conversation");
-        return;
+        throw new Error(data.error || "Cannot start conversation");
       }
-      setPresenceModalOpen(false);
-      if (data.conversationId) {
-        navigate(`/vine/dms/${data.conversationId}`);
-      } else {
-        const p = new URLSearchParams({
-          username: u.username || "",
-          displayName: u.display_name || u.username || "",
+      return data;
+    },
+    [token]
+  );
+
+  const openDesktopDmWindow = useCallback(
+    async (user) => {
+      if (!user?.id) return;
+      try {
+        const data = await startDmConversation(user);
+        const windowKey = data.conversationId ? `conversation-${data.conversationId}` : `user-${user.id}`;
+        setDesktopChatWindows((prev) => {
+          const existingWindow = prev.find(
+            (item) =>
+              item.key === windowKey ||
+              Number(item?.receiverId || item?.partner?.id || 0) === Number(user.id) ||
+              Number(item?.conversationId || 0) === Number(data.conversationId || 0)
+          );
+          const nextWindow = {
+            key: windowKey,
+            conversationId: data.conversationId || null,
+            receiverId: data.conversationId ? null : Number(user.id),
+            minimized: false,
+            incomingCount: 0,
+            partner: {
+              ...user,
+              user_id: Number(user.id),
+            },
+          };
+          const deduped = prev.filter(
+            (item) =>
+              item.key !== windowKey &&
+              Number(item?.receiverId || item?.partner?.id || 0) !== Number(user.id) &&
+              Number(item?.conversationId || 0) !== Number(data.conversationId || 0)
+          );
+          const mergedWindow = existingWindow ? { ...existingWindow, ...nextWindow, minimized: false } : nextWindow;
+          return [...deduped, mergedWindow].slice(-DESKTOP_DM_WINDOW_LIMIT);
         });
-        navigate(`/vine/dms/new/${u.id}?${p.toString()}`);
+      } catch (err) {
+        alert(err?.message || "Cannot start conversation");
       }
-    } catch {
-      alert("Cannot start conversation");
-    }
-  };
+    },
+    [startDmConversation]
+  );
+
+  const closeDesktopDmWindow = useCallback((windowKey) => {
+    setDesktopChatWindows((prev) => prev.filter((item) => item.key !== windowKey));
+  }, []);
+
+  const focusDesktopDmWindow = useCallback((windowKey) => {
+    setDesktopChatWindows((prev) => {
+      const target = prev.find((item) => item.key === windowKey);
+      if (!target) return prev;
+      const others = prev.filter((item) => item.key !== windowKey);
+      return [...others, { ...target, minimized: false, incomingCount: 0 }];
+    });
+  }, []);
+
+  const toggleDesktopDmWindow = useCallback((windowKey, nextMinimized) => {
+    setDesktopChatWindows((prev) =>
+      prev.map((item) =>
+        item.key === windowKey
+          ? {
+              ...item,
+              minimized: typeof nextMinimized === "boolean" ? nextMinimized : !item.minimized,
+              incomingCount:
+                typeof nextMinimized === "boolean" && nextMinimized === false ? 0 : item.incomingCount || 0,
+            }
+          : item
+      )
+    );
+  }, []);
+
+  const clearDesktopDmPing = useCallback((windowKey) => {
+    setDesktopChatWindows((prev) =>
+      prev.map((item) =>
+        item.key === windowKey ? { ...item, incomingCount: 0 } : item
+      )
+    );
+  }, []);
+
+  const openDmFromPresence = useCallback(
+    async (user) => {
+      try {
+        const data = await startDmConversation(user);
+        setPresenceModalOpen(false);
+        if (data.conversationId) {
+          navigate(`/vine/dms/${data.conversationId}`);
+        } else {
+          const p = new URLSearchParams({
+            username: user.username || "",
+            displayName: user.display_name || user.username || "",
+          });
+          navigate(`/vine/dms/new/${user.id}?${p.toString()}`);
+        }
+      } catch (err) {
+        alert(err?.message || "Cannot start conversation");
+      }
+    },
+    [navigate, startDmConversation]
+  );
 
   const openBirthdayDm = useCallback(
     (person, event) => {
@@ -1505,6 +1698,16 @@ export default function VineFeed() {
     Math.max(0, birthdayVisibleLimit - visibleTodayBirthdays.length)
   );
   const hasMoreBirthdays = totalBirthdayCount > MAX_VISIBLE_BIRTHDAYS;
+  const desktopActiveFollowers = dedupePresenceUsers(activeNowUsers)
+    .filter((user) => matchesDesktopDmSearch(user, desktopDmSearch))
+    .slice(0, 10);
+  const activeFollowerIds = new Set(desktopActiveFollowers.map((user) => Number(user.id)));
+  const desktopRecentFollowers = dedupePresenceUsers(recentlyActiveUsers)
+    .filter((user) => matchesDesktopDmSearch(user, desktopDmSearch))
+    .filter((user) => !activeFollowerIds.has(Number(user.id)))
+    .slice(0, 12);
+  const desktopExpandedWindows = desktopChatWindows.filter((item) => !item.minimized);
+  const desktopMinimizedWindows = desktopChatWindows.filter((item) => item.minimized);
 
   useEffect(() => {
     if (totalBirthdayCount <= MAX_VISIBLE_BIRTHDAYS && birthdaysExpanded) {
@@ -1551,7 +1754,7 @@ export default function VineFeed() {
 
         <div className="nav-right">
           <button
-            className="nav-btn help-btn"
+            className="nav-btn help-btn mobile-only"
             onClick={() => setPresenceModalOpen(true)}
           >
             Active now ({activeNowUsers.length})
@@ -1630,6 +1833,107 @@ export default function VineFeed() {
           </button>
         </div>
       </nav>
+
+      <div className="vine-feed-main-shell">
+        <aside className="vine-desktop-dm-sidebar" aria-label="Followers ready to chat">
+          <div className="vine-desktop-dm-panel">
+            <div className="vine-desktop-dm-head">
+              <div>
+                <div className="vine-desktop-dm-kicker">Chat</div>
+                <h3>Followers ready to chat</h3>
+              </div>
+              <button type="button" onClick={() => navigate("/vine/dms")}>
+                Open inbox
+              </button>
+            </div>
+            <div className="vine-desktop-dm-search-wrap">
+              <input
+                type="text"
+                className="vine-desktop-dm-search"
+                placeholder="Search followers to message"
+                value={desktopDmSearch}
+                onChange={(e) => setDesktopDmSearch(e.target.value)}
+              />
+            </div>
+
+            <div className="vine-desktop-dm-section">
+              <div className="vine-desktop-dm-section-head">
+                <span>Active now</span>
+                <small>{desktopActiveFollowers.length}</small>
+              </div>
+              {desktopActiveFollowers.length === 0 ? (
+                <div className="vine-desktop-dm-empty">No followers active right now.</div>
+              ) : (
+                <div className="vine-desktop-dm-list">
+                  {desktopActiveFollowers.map((user) => {
+                    const avatarSrc = user.avatar_url
+                      ? (user.avatar_url.startsWith("http") ? user.avatar_url : `${API}${user.avatar_url}`)
+                      : DEFAULT_AVATAR;
+                    return (
+                      <button
+                        key={`desktop-active-${user.id}`}
+                        type="button"
+                        className="vine-desktop-dm-person online"
+                        onClick={() => openDesktopDmWindow(user)}
+                      >
+                        <img
+                          src={avatarSrc}
+                          alt={user.username}
+                          onError={(e) => {
+                            e.currentTarget.src = DEFAULT_AVATAR;
+                          }}
+                        />
+                        <div className="vine-desktop-dm-person-meta">
+                          <strong>{user.display_name || user.username}</strong>
+                          <span>@{user.username}</span>
+                        </div>
+                        <span className="vine-desktop-dm-person-status">Online</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="vine-desktop-dm-section">
+              <div className="vine-desktop-dm-section-head">
+                <span>Recently active</span>
+                <small>{desktopRecentFollowers.length}</small>
+              </div>
+              {desktopRecentFollowers.length === 0 ? (
+                <div className="vine-desktop-dm-empty">No recent follower activity yet.</div>
+              ) : (
+                <div className="vine-desktop-dm-list compact">
+                  {desktopRecentFollowers.map((user) => {
+                    const avatarSrc = user.avatar_url
+                      ? (user.avatar_url.startsWith("http") ? user.avatar_url : `${API}${user.avatar_url}`)
+                      : DEFAULT_AVATAR;
+                    return (
+                      <button
+                        key={`desktop-recent-${user.id}`}
+                        type="button"
+                        className="vine-desktop-dm-person"
+                        onClick={() => openDesktopDmWindow(user)}
+                      >
+                        <img
+                          src={avatarSrc}
+                          alt={user.username}
+                          onError={(e) => {
+                            e.currentTarget.src = DEFAULT_AVATAR;
+                          }}
+                        />
+                        <div className="vine-desktop-dm-person-meta">
+                          <strong>{user.display_name || user.username}</strong>
+                          <span>{formatPresenceAgo(user.last_active_at) || "@".concat(user.username || "")}</span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </aside>
 
       <div className="vine-content-wrapper">
         {targetTag && (
@@ -2381,6 +2685,69 @@ export default function VineFeed() {
       <div className="vine-right-sidebar">
         {/* You can add <VineSuggestions /> here if desired */}
       </div>
+      </div>
+
+      {desktopDmEnabled && desktopChatWindows.length > 0 && (
+        <div className="vine-desktop-chat-dock" aria-label="Desktop chat windows">
+          {desktopMinimizedWindows.length > 0 && (
+            <div className="vine-desktop-chat-tabs">
+              {desktopMinimizedWindows.map((windowItem) => {
+                const avatarSrc = windowItem?.partner?.avatar_url
+                  ? (windowItem.partner.avatar_url.startsWith("http")
+                      ? windowItem.partner.avatar_url
+                      : `${API}${windowItem.partner.avatar_url}`)
+                  : DEFAULT_AVATAR;
+                return (
+                  <button
+                    key={`tab-${windowItem.key}`}
+                    type="button"
+                    className="vine-desktop-chat-tab"
+                    onClick={() => focusDesktopDmWindow(windowItem.key)}
+                  >
+                    <img
+                      src={avatarSrc}
+                      alt={windowItem?.partner?.username || "chat"}
+                      onError={(e) => {
+                        e.currentTarget.src = DEFAULT_AVATAR;
+                      }}
+                    />
+                    <span>{windowItem?.partner?.display_name || windowItem?.partner?.username || "Chat"}</span>
+                    {Number(windowItem?.incomingCount || 0) > 0 && (
+                      <span className="vine-desktop-chat-badge" aria-label={`${windowItem.incomingCount} new messages`}>
+                        {windowItem.incomingCount}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          <div className="vine-desktop-chat-windows">
+            {desktopExpandedWindows.map((windowItem, index) => (
+              <div
+                key={windowItem.key}
+                className="vine-desktop-chat-pop"
+                style={{ zIndex: 2600 + index }}
+                onMouseDown={() => clearDesktopDmPing(windowItem.key)}
+              >
+                {Number(windowItem?.incomingCount || 0) > 0 && (
+                  <span className="vine-desktop-chat-badge vine-desktop-chat-badge-floating" aria-label={`${windowItem.incomingCount} new messages`}>
+                    {windowItem.incomingCount}
+                  </span>
+                )}
+                <ChatWindow
+                  compact
+                  onClose={() => closeDesktopDmWindow(windowItem.key)}
+                  onMinimize={() => toggleDesktopDmWindow(windowItem.key, true)}
+                  conversationId={windowItem.conversationId}
+                  receiverId={windowItem.receiverId}
+                  initialPartner={windowItem.partner}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {presenceModalOpen && (
         <div className="feed-presence-backdrop" onClick={() => setPresenceModalOpen(false)}>

@@ -2114,12 +2114,13 @@ export default function VineFeed() {
                             <div className="vine-birthday-row-subtitle">@{person.username}</div>
                           </div>
                           <div className="vine-birthday-row-date">{formatBirthdayDate(person)}</div>
-                          <span
-                            className="vine-birthday-action vine-birthday-action-upcoming"
-                            aria-label={`Upcoming birthday for ${person.display_name || person.username}`}
+                          <button
+                            type="button"
+                            className="vine-birthday-action"
+                            onClick={(event) => openBirthdayDm(person, event)}
                           >
-                            Upcoming
-                          </span>
+                            🎂 Wish happy birthday
+                          </button>
                         </div>
                       );
                     })}
@@ -2177,13 +2178,12 @@ export default function VineFeed() {
                             </div>
                           </div>
                           <div className="vine-birthday-chip">{formatBirthdayCountdown(person.days_until)}</div>
-                          <button
-                            type="button"
-                            className="vine-birthday-action"
-                            onClick={(event) => openBirthdayDm(person, event)}
+                          <span
+                            className="vine-birthday-action vine-birthday-action-upcoming"
+                            aria-label={`Upcoming birthday for ${person.display_name || person.username}`}
                           >
-                            🎂 Wish happy birthday
-                          </button>
+                            Upcoming
+                          </span>
                         </div>
                       );
                     })}

@@ -10736,6 +10736,167 @@ router.get("/users/new", authOptional, async (req, res) => {
   }
 });
 
+router.get("/creators/spotlight", authOptional, async (req, res) => {
+  try {
+    const viewerId = Number(req.user?.id || 0);
+    const limit = Math.min(Math.max(Number(req.query.limit || 5), 1), 8);
+    const now = new Date();
+    const rangeEnd = now;
+    const rangeStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const prevStart = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+    const prevEnd = rangeStart;
+
+    const [creatorRows] = await db.query(
+      `
+      SELECT
+        x.user_id,
+        u.username,
+        u.display_name,
+        COALESCE(u.avatar_url, '/default-avatar.png') AS avatar_url,
+        u.is_verified,
+        COALESCE(fc.follower_count, 0) AS follower_count,
+        MAX(CASE WHEN vf.follower_id IS NULL THEN 0 ELSE 1 END) AS viewer_is_following,
+        SUM(CASE WHEN x.created_at >= ? AND x.created_at <= ? THEN x.score ELSE 0 END) AS score_week,
+        SUM(CASE WHEN x.created_at >= ? AND x.created_at <= ? THEN x.score ELSE 0 END) AS score_prev,
+        SUM(CASE WHEN x.created_at >= ? AND x.created_at <= ? THEN 1 ELSE 0 END) AS posts_week
+      FROM (
+        SELECT
+          p.id,
+          p.user_id,
+          p.created_at,
+          (
+            COALESCE(pl.like_count, 0) +
+            COALESCE(pc.comment_count, 0) * 2 +
+            COALESCE(pr.revine_count, 0) * 3
+          ) AS score
+        FROM vine_posts p
+        LEFT JOIN (
+          SELECT post_id, COUNT(*) AS like_count
+          FROM vine_likes
+          GROUP BY post_id
+        ) pl ON pl.post_id = p.id
+        LEFT JOIN (
+          SELECT post_id, COUNT(*) AS comment_count
+          FROM vine_comments
+          GROUP BY post_id
+        ) pc ON pc.post_id = p.id
+        LEFT JOIN (
+          SELECT post_id, COUNT(*) AS revine_count
+          FROM vine_revines
+          GROUP BY post_id
+        ) pr ON pr.post_id = p.id
+        WHERE p.created_at >= ? AND p.created_at <= ?
+      ) x
+      JOIN vine_users u ON u.id = x.user_id
+      LEFT JOIN (
+        SELECT following_id, COUNT(*) AS follower_count
+        FROM vine_follows
+        GROUP BY following_id
+      ) fc ON fc.following_id = u.id
+      LEFT JOIN vine_follows vf
+        ON vf.following_id = u.id
+       AND vf.follower_id = ?
+      WHERE LOWER(COALESCE(u.username, '')) NOT IN ('vine guardian', 'vine_guardian', 'vine news', 'vine_news')
+        AND (? = 0 OR u.id <> ?)
+        AND (
+          ? = 0 OR NOT EXISTS (
+            SELECT 1
+            FROM vine_blocks b
+            WHERE (b.blocker_id = u.id AND b.blocked_id = ?)
+               OR (b.blocker_id = ? AND b.blocked_id = u.id)
+          )
+        )
+        AND (
+          ? = 0 OR NOT EXISTS (
+            SELECT 1
+            FROM vine_mutes m
+            WHERE m.muter_id = ? AND m.muted_id = u.id
+          )
+        )
+      GROUP BY
+        x.user_id,
+        u.username,
+        u.display_name,
+        u.avatar_url,
+        u.is_verified,
+        fc.follower_count
+      HAVING score_week > 0 OR score_prev > 0
+      `,
+      [
+        rangeStart,
+        rangeEnd,
+        prevStart,
+        prevEnd,
+        rangeStart,
+        rangeEnd,
+        prevStart,
+        rangeEnd,
+        viewerId,
+        viewerId,
+        viewerId,
+        viewerId,
+        viewerId,
+        viewerId,
+        viewerId,
+        viewerId,
+        viewerId,
+      ]
+    );
+
+    const normalizedRows = Array.isArray(creatorRows)
+      ? creatorRows.map((row) => {
+          const scoreWeek = Number(row.score_week || 0);
+          const scorePrev = Number(row.score_prev || 0);
+          const growthPct = scorePrev > 0 ? ((scoreWeek - scorePrev) / scorePrev) * 100 : (scoreWeek > 0 ? 100 : 0);
+          return {
+            user_id: Number(row.user_id || 0),
+            username: row.username,
+            display_name: row.display_name,
+            avatar_url: row.avatar_url,
+            is_verified: Number(row.is_verified || 0),
+            follower_count: Number(row.follower_count || 0),
+            viewer_is_following: Number(row.viewer_is_following || 0),
+            score_week: scoreWeek,
+            score_prev: scorePrev,
+            posts_week: Number(row.posts_week || 0),
+            growth_pct: Number(growthPct.toFixed(1)),
+          };
+        })
+      : [];
+
+    const topCreatorsWeek = [...normalizedRows]
+      .sort((a, b) => {
+        const scoreDiff = b.score_week - a.score_week;
+        if (scoreDiff !== 0) return scoreDiff;
+        return b.follower_count - a.follower_count;
+      })
+      .slice(0, limit);
+
+    const risingCreators = [...normalizedRows]
+      .filter((row) => row.score_week >= 3)
+      .sort((a, b) => {
+        const growthDiff = b.growth_pct - a.growth_pct;
+        if (growthDiff !== 0) return growthDiff;
+        const scoreDiff = b.score_week - a.score_week;
+        if (scoreDiff !== 0) return scoreDiff;
+        return b.follower_count - a.follower_count;
+      })
+      .slice(0, limit);
+
+    return res.json({
+      range: {
+        from: rangeStart.toISOString(),
+        to: rangeEnd.toISOString(),
+      },
+      risingCreators,
+      topCreatorsWeek,
+    });
+  } catch (err) {
+    console.error("Creator spotlight error:", err);
+    return res.status(500).json({ message: "Failed to load creator spotlight" });
+  }
+});
+
 const getProfileUserPayload = async (username, viewerId, perfCtx = null) => {
   await ensureVinePerformanceSchema();
   await ensureProfileAboutSchema();

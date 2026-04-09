@@ -57,6 +57,11 @@ const FEED_EVENT_DEBOUNCE_MS = 350;
 const MAX_VISIBLE_BIRTHDAYS = 5;
 const DESKTOP_DM_WINDOW_LIMIT = 3;
 const formatBadgeCount = (count) => (Number(count || 0) > 99 ? "99+" : String(Number(count || 0)));
+const formatCompactCount = (count) =>
+  new Intl.NumberFormat(undefined, {
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(Number(count || 0));
 
 // ────────────────────────────────────────────────
 //  HELPERS
@@ -316,6 +321,8 @@ export default function VineFeed() {
   const [suggestionSlots, setSuggestionSlots] = useState([]);
   const [trendingPosts, setTrendingPosts] = useState([]);
   const [trendingLoading, setTrendingLoading] = useState(true);
+  const [creatorSpotlight, setCreatorSpotlight] = useState({ risingCreators: [], topCreatorsWeek: [] });
+  const [creatorSpotlightLoading, setCreatorSpotlightLoading] = useState(true);
   const [birthdayRows, setBirthdayRows] = useState({ today: [], upcoming: [] });
   const [birthdaysLoading, setBirthdaysLoading] = useState(true);
   const [birthdaysExpanded, setBirthdaysExpanded] = useState(false);
@@ -747,6 +754,28 @@ export default function VineFeed() {
     }
   }, [token]);
 
+  const loadCreatorSpotlight = useCallback(async (signal) => {
+    try {
+      const res = await fetch(`${API}/api/vine/creators/spotlight?limit=5`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        signal,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (signal?.aborted) return;
+      setCreatorSpotlight({
+        risingCreators: Array.isArray(data?.risingCreators) ? data.risingCreators : [],
+        topCreatorsWeek: Array.isArray(data?.topCreatorsWeek) ? data.topCreatorsWeek : [],
+      });
+    } catch (err) {
+      if (err?.name === "AbortError") return;
+      setCreatorSpotlight({ risingCreators: [], topCreatorsWeek: [] });
+    } finally {
+      if (!signal?.aborted) {
+        setCreatorSpotlightLoading(false);
+      }
+    }
+  }, [token]);
+
   const loadBirthdays = useCallback(async (signal) => {
     try {
       const res = await fetch(`${API}/api/vine/birthdays/upcoming?days=14`, {
@@ -847,10 +876,12 @@ export default function VineFeed() {
     setFeedHasMore(false);
     setSuggestionsLoading(true);
     setTrendingLoading(!isNewsTab);
+    setCreatorSpotlightLoading(true);
     setBirthdaysLoading(!isNewsTab);
     setStatusRailLoading(true);
     loadFeed(controller.signal); // initial load
     loadSuggestions(controller.signal);
+    loadCreatorSpotlight(controller.signal);
     if (isNewsTab) {
       setTrendingPosts([]);
       setBirthdayRows({ today: [], upcoming: [] });
@@ -879,7 +910,7 @@ export default function VineFeed() {
       clearInterval(interval);
       clearInterval(statusInterval);
     };
-  }, [isNewsTab, loadBirthdays, loadFeed, loadSuggestions, loadTrending, loadRestrictions, loadMyCommunities, loadStatusRail]);
+  }, [isNewsTab, loadBirthdays, loadCreatorSpotlight, loadFeed, loadSuggestions, loadTrending, loadRestrictions, loadMyCommunities, loadStatusRail]);
 
   useEffect(() => {
     if (!token) return undefined;
@@ -896,6 +927,7 @@ export default function VineFeed() {
         }
         if (full) {
           loadSuggestions(controller.signal);
+          loadCreatorSpotlight(controller.signal);
           loadRestrictions(controller.signal);
           loadMyCommunities(controller.signal);
         }
@@ -925,7 +957,7 @@ export default function VineFeed() {
       window.removeEventListener("focus", handleWakeRefresh);
       document.removeEventListener("visibilitychange", handleWakeRefresh);
     };
-  }, [token, isNewsTab, loadFeed, loadTrending, loadSuggestions, loadRestrictions, loadMyCommunities, loadStatusRail]);
+  }, [token, isNewsTab, loadFeed, loadTrending, loadSuggestions, loadCreatorSpotlight, loadRestrictions, loadMyCommunities, loadStatusRail]);
 
   useEffect(() => {
     if (!statusViewerOpen) return;
@@ -1708,6 +1740,264 @@ export default function VineFeed() {
     .slice(0, 12);
   const desktopExpandedWindows = desktopChatWindows.filter((item) => !item.minimized);
   const desktopMinimizedWindows = desktopChatWindows.filter((item) => item.minimized);
+  const handleCreatorFollow = useCallback(
+    async (creator, event) => {
+      event?.stopPropagation?.();
+      if (!creator?.user_id) return;
+      try {
+        const method = Number(creator.viewer_is_following) === 1 ? "DELETE" : "POST";
+        const res = await fetch(`${API}/api/vine/users/${creator.user_id}/follow`, {
+          method,
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          alert(data.message || "Could not update follow");
+          return;
+        }
+        setCreatorSpotlight((prev) => {
+          const apply = (rows) =>
+            rows.map((row) =>
+              Number(row.user_id) === Number(creator.user_id)
+                ? {
+                    ...row,
+                    viewer_is_following: Number(data?.following ? 1 : 0),
+                    follower_count: Math.max(
+                      0,
+                      Number(row.follower_count || 0) + (Number(data?.following ? 1 : 0) === 1 ? 1 : -1)
+                    ),
+                  }
+                : row
+            );
+          return {
+            risingCreators: apply(prev.risingCreators),
+            topCreatorsWeek: apply(prev.topCreatorsWeek),
+          };
+        });
+      } catch (err) {
+        alert(err?.message || "Could not update follow");
+      }
+    },
+    [token]
+  );
+
+  const handleRightRailSuggestionFollow = useCallback(
+    async (user, event) => {
+      event?.stopPropagation?.();
+      if (!user?.id) return;
+      try {
+        const res = await fetch(`${API}/api/vine/users/${user.id}/follow`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          alert(data.message || "Could not follow right now");
+          return;
+        }
+        setSuggestedUsers((prev) => prev.filter((row) => Number(row.id) !== Number(user.id)));
+      } catch (err) {
+        alert(err?.message || "Could not follow right now");
+      }
+    },
+    [token]
+  );
+
+  const renderCreatorRailCard = (title, subtitle, rows, variant) => (
+    <section className={`vine-creator-rail-card ${variant}`} aria-label={title}>
+      <div className="vine-creator-rail-head">
+        <div>
+          <div className="vine-creator-rail-kicker">{subtitle}</div>
+          <h3>{title}</h3>
+        </div>
+      </div>
+      {creatorSpotlightLoading && rows.length === 0 ? (
+        <div className="vine-creator-rail-list">
+          {Array.from({ length: 4 }).map((_, idx) => (
+            <div key={`${variant}-skeleton-${idx}`} className="vine-creator-rail-row vine-creator-rail-row-skeleton" aria-hidden="true">
+              <div className="vine-skeleton-avatar small" />
+              <div className="vine-creator-rail-body">
+                <div className="vine-skeleton-block vine-creator-rail-line" />
+                <div className="vine-skeleton-block vine-creator-rail-line short" />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : rows.length === 0 ? (
+        <div className="vine-creator-rail-empty">No creator momentum to show just yet.</div>
+      ) : (
+        <div className="vine-creator-rail-list">
+          {rows.map((creator, index) => {
+            const avatarSrc = creator.avatar_url
+              ? (creator.avatar_url.startsWith("http") ? creator.avatar_url : `${API}${creator.avatar_url}`)
+              : DEFAULT_AVATAR;
+            const statLabel =
+              variant === "rising"
+                ? `+${Number(creator.growth_pct || 0).toFixed(1)}%`
+                : `${formatCompactCount(creator.score_week)} pts`;
+            const metaLabel =
+              variant === "rising"
+                ? `${formatCompactCount(creator.score_week)} pts this week`
+                : `${Number(creator.posts_week || 0)} ${Number(creator.posts_week || 0) === 1 ? "post" : "posts"} this week`;
+            return (
+              <div
+                key={`${variant}-${creator.user_id}`}
+                className="vine-creator-rail-row"
+                role="button"
+                tabIndex={0}
+                onClick={() => navigate(`/vine/profile/${creator.username}`)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    navigate(`/vine/profile/${creator.username}`);
+                  }
+                }}
+              >
+                <span className="vine-creator-rank">{index + 1}</span>
+                <img
+                  src={avatarSrc}
+                  alt={creator.username}
+                  className="vine-creator-avatar"
+                  onError={(e) => {
+                    e.currentTarget.src = DEFAULT_AVATAR;
+                  }}
+                />
+                <div className="vine-creator-rail-body">
+                  <div className="vine-creator-rail-name">
+                    <span>{creator.display_name || creator.username}</span>
+                    {showsVerifiedBadge(creator) && (
+                      <span className={`verified ${hasSpecialVerifiedBadge(creator.username) ? "guardian" : ""}`}>
+                        <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
+                          <path
+                            d="M20 6L9 17l-5-5"
+                            stroke="white"
+                            strokeWidth="3"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      </span>
+                    )}
+                  </div>
+                  <div className="vine-creator-rail-handle">@{creator.username}</div>
+                  <div className="vine-creator-rail-meta">
+                    <span>{formatCompactCount(creator.follower_count)} followers</span>
+                    <span>{metaLabel}</span>
+                  </div>
+                </div>
+                <div className="vine-creator-rail-aside">
+                  <span className={`vine-creator-rail-stat ${variant}`}>{statLabel}</span>
+                  <button
+                    type="button"
+                    className={`vine-creator-follow-btn ${Number(creator.viewer_is_following) === 1 ? "following" : ""}`}
+                    onClick={(event) => handleCreatorFollow(creator, event)}
+                  >
+                    {Number(creator.viewer_is_following) === 1 ? "Following" : "Follow"}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+
+  const creatorSpotlightIds = new Set(
+    [...creatorSpotlight.risingCreators, ...creatorSpotlight.topCreatorsWeek]
+      .map((creator) => Number(creator?.user_id || 0))
+      .filter(Boolean)
+  );
+
+  const rightRailSuggestions = [...suggestedUsers]
+    .filter((user) => !creatorSpotlightIds.has(Number(user?.id || 0)))
+    .sort((a, b) => Number(b?.follower_count || 0) - Number(a?.follower_count || 0))
+    .slice(0, 4);
+
+  const renderWhoToFollowRailCard = (rows) => (
+    <section className="vine-suggestion-rail-card" aria-label="Who to follow">
+      <div className="vine-creator-rail-head">
+        <div className="vine-creator-rail-kicker">Suggested</div>
+        <h3>Who to follow</h3>
+      </div>
+      {suggestionsLoading && rows.length === 0 ? (
+        <div className="vine-suggestion-rail-list">
+          {Array.from({ length: 3 }).map((_, idx) => (
+            <div key={`suggest-rail-skeleton-${idx}`} className="vine-suggestion-rail-row vine-creator-rail-row-skeleton" aria-hidden="true">
+              <div className="vine-skeleton-avatar small" />
+              <div className="vine-creator-rail-body">
+                <div className="vine-skeleton-block vine-creator-rail-line" />
+                <div className="vine-skeleton-block vine-creator-rail-line short" />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : rows.length === 0 ? (
+        <div className="vine-creator-rail-empty">You are pretty caught up already.</div>
+      ) : (
+        <div className="vine-suggestion-rail-list">
+          {rows.map((user) => {
+            const avatarSrc = user.avatar_url
+              ? (user.avatar_url.startsWith("http") ? user.avatar_url : `${API}${user.avatar_url}`)
+              : DEFAULT_AVATAR;
+            return (
+              <div
+                key={`right-rail-suggest-${user.id}`}
+                className="vine-suggestion-rail-row"
+                role="button"
+                tabIndex={0}
+                onClick={() => navigate(`/vine/profile/${user.username}`)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    navigate(`/vine/profile/${user.username}`);
+                  }
+                }}
+              >
+                <img
+                  src={avatarSrc}
+                  alt={user.username}
+                  className="vine-suggestion-rail-avatar"
+                  onError={(e) => {
+                    e.currentTarget.src = DEFAULT_AVATAR;
+                  }}
+                />
+                <div className="vine-creator-rail-body">
+                  <div className="vine-creator-rail-name">
+                    <span>{user.display_name || user.username}</span>
+                    {showsVerifiedBadge(user) && (
+                      <span className={`verified ${hasSpecialVerifiedBadge(user.username) ? "guardian" : ""}`}>
+                        <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
+                          <path
+                            d="M20 6L9 17l-5-5"
+                            stroke="white"
+                            strokeWidth="3"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      </span>
+                    )}
+                  </div>
+                  <div className="vine-creator-rail-handle">@{user.username}</div>
+                  <div className="vine-creator-rail-meta">
+                    <span>{formatCompactCount(user.follower_count || 0)} followers</span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="vine-creator-follow-btn"
+                  onClick={(event) => handleRightRailSuggestionFollow(user, event)}
+                >
+                  Follow
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
 
   useEffect(() => {
     if (totalBirthdayCount <= MAX_VISIBLE_BIRTHDAYS && birthdaysExpanded) {
@@ -2681,10 +2971,27 @@ export default function VineFeed() {
         </footer>
       </div>
 
-      {/* Right Sidebar (currently empty – good place for VineSuggestions later) */}
-      <div className="vine-right-sidebar">
-        {/* You can add <VineSuggestions /> here if desired */}
-      </div>
+      <aside className="vine-right-sidebar" aria-label="Creator discovery">
+        <div className="vine-right-sidebar-panel">
+          <div className="vine-right-sidebar-head">
+            <div className="vine-right-sidebar-kicker">Discover</div>
+            <h3>On the rise</h3>
+            <p>The people pulling the strongest energy on Vine this week.</p>
+          </div>
+          <div className="vine-right-sidebar-stack">
+            {renderCreatorRailCard("Rising on Vine", "Momentum", creatorSpotlight.risingCreators, "rising")}
+            {renderCreatorRailCard("Top creators this week", "Prestige", creatorSpotlight.topCreatorsWeek, "top")}
+            {renderWhoToFollowRailCard(rightRailSuggestions)}
+          </div>
+          <div className="vine-right-sidebar-footer">
+            <div className="vine-right-sidebar-footer-copy">Keep exploring the forest.</div>
+            <div className="vine-right-sidebar-footer-actions">
+              <button type="button" onClick={() => navigate("/vine/suggestions")}>Suggestions</button>
+              <button type="button" onClick={() => navigate("/vine/search")}>Search</button>
+            </div>
+          </div>
+        </div>
+      </aside>
       </div>
 
       {desktopDmEnabled && desktopChatWindows.length > 0 && (

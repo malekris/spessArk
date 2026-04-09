@@ -1705,11 +1705,42 @@ export default function VineFeed() {
     .slice(0, 12);
   const desktopExpandedWindows = desktopChatWindows.filter((item) => !item.minimized);
   const desktopMinimizedWindows = desktopChatWindows.filter((item) => item.minimized);
-  const rightRailHappening = trendingPosts.slice(0, 4);
-  const rightRailBirthdays = [
-    ...birthdayRows.today.map((person) => ({ ...person, rail_status: "today" })),
-    ...birthdayRows.upcoming.map((person) => ({ ...person, rail_status: "upcoming" })),
-  ].slice(0, 4);
+  const unseenStatusCount = statusRail.reduce((sum, row) => sum + Number(row.unseen_count || 0), 0);
+  const rightRailPulse = [
+    {
+      key: "messages",
+      label: "Messages",
+      value: unreadDMs,
+      badge: unreadDMs > 0 ? "Hot" : "Calm",
+      detail: unreadDMs === 1 ? "new DM waiting" : "new DMs waiting",
+      action: () => navigate("/vine/dms"),
+    },
+    {
+      key: "alerts",
+      label: "Alerts",
+      value: unread,
+      badge: unread > 0 ? "Live" : "Clear",
+      detail: unread === 1 ? "bell update" : "bell updates",
+      action: () => navigate("/vine/notifications"),
+    },
+    {
+      key: "statuses",
+      label: "Statuses",
+      value: unseenStatusCount,
+      badge: unseenStatusCount > 0 ? "Fresh" : "Seen",
+      detail: unseenStatusCount === 1 ? "fresh status" : "fresh statuses",
+      action: () => window.scrollTo({ top: 0, behavior: "smooth" }),
+    },
+    {
+      key: "circles",
+      label: "Circles",
+      value: myCommunities.length,
+      badge: myCommunities.length > 0 ? "Ready" : "Open",
+      detail: myCommunities.length === 1 ? "community joined" : "communities joined",
+      action: () => navigate("/vine/communities"),
+    },
+  ];
+  const rightRailCommunities = myCommunities.slice(0, 4);
   const rightRailShortcuts = [
     { key: "search", label: "Search", icon: "⌕", action: () => navigate("/vine/search") },
     { key: "dms", label: "DMs", icon: "💬", action: () => navigate("/vine/dms") },
@@ -1718,128 +1749,66 @@ export default function VineFeed() {
     ...(myUsername ? [{ key: "profile", label: "Profile", icon: "👤", action: () => navigate(`/vine/profile/${myUsername}`) }] : []),
   ].slice(0, 4);
 
-  const renderHappeningRailCard = (rows) => (
-    <section className="vine-sidecard" aria-label="Around Vine">
+  const renderPulseRailCard = (items) => (
+    <section className="vine-sidecard vine-sidecard-pulse" aria-label="Pulse">
       <div className="vine-sidecard-head">
-        <div className="vine-sidecard-kicker">Live now</div>
-        <h3>Around Vine</h3>
+        <div className="vine-sidecard-kicker">At a glance</div>
+        <h3>Pulse</h3>
       </div>
-      {trendingLoading && rows.length === 0 ? (
-        <div className="vine-side-list">
-          {Array.from({ length: 3 }).map((_, idx) => (
-            <div key={`happening-skeleton-${idx}`} className="vine-side-row vine-side-row-skeleton" aria-hidden="true">
-              <div className="vine-skeleton-avatar small" />
-              <div className="vine-side-body">
-                <div className="vine-skeleton-block vine-side-line" />
-                <div className="vine-skeleton-block vine-side-line short" />
-              </div>
+      <div className="vine-pulse-grid">
+        {items.map((item) => (
+          <button
+            key={`rail-pulse-${item.key}`}
+            type="button"
+            className={`vine-pulse-chip ${item.key}`}
+            onClick={item.action}
+          >
+            <div className="vine-pulse-chip-head">
+              <span className="vine-pulse-label">{item.label}</span>
+              <span className="vine-pulse-badge">{item.badge}</span>
             </div>
-          ))}
-        </div>
-      ) : rows.length === 0 ? (
-        <div className="vine-side-empty">Fresh chatter will show here as the forest wakes up.</div>
-      ) : (
-        <div className="vine-side-list">
-          {rows.map((post) => {
-            const avatarSrc = post.avatar_url
-              ? (post.avatar_url.startsWith("http") ? post.avatar_url : `${API}${post.avatar_url}`)
-              : DEFAULT_AVATAR;
-            const snippet = String(post.content || "").trim() || "Photo post";
-            return (
-              <div
-                key={`right-rail-post-${post.id}`}
-                className="vine-side-row"
-                role="button"
-                tabIndex={0}
-                onClick={() => navigate(`/vine/feed?post=${post.id}`)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    navigate(`/vine/feed?post=${post.id}`);
-                  }
-                }}
-              >
-                <img
-                  src={avatarSrc}
-                  alt={post.username}
-                  className="vine-side-avatar"
-                  onError={(e) => {
-                    e.currentTarget.src = DEFAULT_AVATAR;
-                  }}
-                />
-                <div className="vine-side-body">
-                  <div className="vine-side-title">{post.display_name || post.username}</div>
-                  <div className="vine-side-copy">{snippet.length > 54 ? `${snippet.slice(0, 54)}…` : snippet}</div>
-                  <div className="vine-side-meta">
-                    <span>{formatCompactCount(post.like_count ?? post.likes ?? 0)} likes</span>
-                    <span>{formatCompactCount(post.comment_count ?? post.comments ?? 0)} comments</span>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+            <strong className="vine-pulse-value">{formatCompactCount(item.value)}</strong>
+            <span className="vine-pulse-detail">{item.detail}</span>
+          </button>
+        ))}
+      </div>
     </section>
   );
 
-  const renderUpcomingRailCard = (rows) => (
-    <section className="vine-sidecard vine-sidecard-birthdays" aria-label="Upcoming">
+  const renderCommunitiesRailCard = (rows) => (
+    <section className="vine-sidecard vine-sidecard-communities" aria-label="Your circles">
       <div className="vine-sidecard-head">
-        <div className="vine-sidecard-kicker">Calendar</div>
-        <h3>Upcoming</h3>
+        <div className="vine-sidecard-kicker">Your spaces</div>
+        <h3>Your circles</h3>
       </div>
-      {birthdaysLoading && rows.length === 0 ? (
-        <div className="vine-side-list">
-          {Array.from({ length: 3 }).map((_, idx) => (
-            <div key={`upcoming-skeleton-${idx}`} className="vine-side-row vine-side-row-skeleton" aria-hidden="true">
-              <div className="vine-skeleton-avatar small" />
-              <div className="vine-side-body">
-                <div className="vine-skeleton-block vine-side-line" />
-                <div className="vine-skeleton-block vine-side-line short" />
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : rows.length === 0 ? (
-        <div className="vine-side-empty">Nothing lined up right now.</div>
+      {rows.length === 0 ? (
+        <div className="vine-side-empty">Join a community and it will dock here.</div>
       ) : (
         <div className="vine-side-list">
-          {rows.map((person) => {
-            const avatarSrc = person.avatar_url
-              ? (person.avatar_url.startsWith("http") ? person.avatar_url : `${API}${person.avatar_url}`)
-              : DEFAULT_AVATAR;
-            const label = person.rail_status === "today" ? "Today" : formatBirthdayCountdown(person.days_until);
-            return (
-              <div
-                key={`rail-birthday-${person.id}`}
-                className="vine-side-row"
-                role="button"
-                tabIndex={0}
-                onClick={() => navigate(`/vine/profile/${person.username}`)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    navigate(`/vine/profile/${person.username}`);
-                  }
-                }}
-              >
-                <img
-                  src={avatarSrc}
-                  alt={person.username}
-                  className="vine-side-avatar"
-                  onError={(e) => {
-                    e.currentTarget.src = DEFAULT_AVATAR;
-                  }}
-                />
-                <div className="vine-side-body">
-                  <div className="vine-side-title">{person.display_name || person.username}</div>
-                  <div className="vine-side-copy">{formatBirthdayDate(person)}</div>
-                </div>
-                <span className={`vine-side-tag ${person.rail_status === "today" ? "today" : ""}`}>{label}</span>
+          {rows.map((community) => (
+            <div
+              key={`rail-community-${community.id}`}
+              className="vine-side-row"
+              role="button"
+              tabIndex={0}
+              onClick={() => navigate(`/vine/communities/${community.slug}`)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  navigate(`/vine/communities/${community.slug}`);
+                }
+              }}
+            >
+              <div className="vine-side-avatar vine-side-avatar-glyph" aria-hidden="true">◎</div>
+              <div className="vine-side-body">
+                <div className="vine-side-title">{community.name}</div>
+                <div className="vine-side-copy">/{community.slug}</div>
               </div>
-            );
-          })}
+              <span className="vine-side-tag">
+                {String(community.role || "member").replace(/^./, (char) => char.toUpperCase())}
+              </span>
+            </div>
+          ))}
         </div>
       )}
     </section>
@@ -2844,11 +2813,11 @@ export default function VineFeed() {
           <div className="vine-right-sidebar-head">
             <div className="vine-right-sidebar-kicker">Discover</div>
             <h3>Quick look</h3>
-            <p>Live chatter, birthdays, and fast jumps without leaving the feed.</p>
+            <p>Fast signals and clean shortcuts while the feed keeps moving.</p>
           </div>
           <div className="vine-right-sidebar-stack">
-            {renderHappeningRailCard(rightRailHappening)}
-            {renderUpcomingRailCard(rightRailBirthdays)}
+            {renderPulseRailCard(rightRailPulse)}
+            {renderCommunitiesRailCard(rightRailCommunities)}
             {renderShortcutsRailCard(rightRailShortcuts)}
           </div>
           <div className="vine-right-sidebar-footer">

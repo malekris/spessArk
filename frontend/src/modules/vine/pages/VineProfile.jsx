@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState, useRef } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import "./VineProfile.css";
 import VinePostCard from "./VinePostCard";
-import ImageCarousel from "./ImageCarousel";
 import { convertHeicFileToJpeg, isHeicLikeFile } from "../utils/heic";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
@@ -2077,6 +2076,7 @@ export default function VineProfile() {
                   <VinePostCard
                     key={post.feed_id || `post-${post.id}`}
                     post={post}
+                    mediaLayout="collage"
                     isMe={isMe}
                     onDeletePost={handleDeletePost}
                     onTogglePin={handleTogglePinnedLocally}
@@ -2122,6 +2122,7 @@ export default function VineProfile() {
                 <VinePostCard
                   key={post.feed_id || `like-${post.id}`}
                   post={post}
+                  mediaLayout="collage"
                   currentUserId={currentUserId}
                   onDeletePost={handleDeletePost}
                 />
@@ -2191,6 +2192,7 @@ export default function VineProfile() {
                         <VinePostCard
                           key={post.feed_id || `saved-${post.id}`}
                           post={post}
+                          mediaLayout="collage"
                           currentUserId={currentUserId}
                           onDeletePost={handleDeletePost}
                         />

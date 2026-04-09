@@ -1,37 +1,16 @@
 import React, { useState, useEffect, useRef } from "react";
 import "./ActivitiesSection.css";
+import { useSiteVisuals } from "../utils/siteVisuals";
 
-const NEW_ACTIVITY_IMAGES = [
-  "/newactivities/IMG_5033.jpg",
-  "/newactivities/IMG_5036.jpg",
-  "/newactivities/IMG_5038.jpg",
-  "/newactivities/IMG_5045%202.jpg",
-  "/newactivities/IMG_5049%202.jpg",
-  "/newactivities/IMG_5050.jpg",
-  "/newactivities/IMG_5054.jpg",
-  "/newactivities/IMG_5055.jpg",
-  "/newactivities/IMG_5061.jpg",
-  "/newactivities/IMG_5063.jpg",
-  "/newactivities/IMG_5067.jpg",
-  "/newactivities/IMG_5084.jpg",
-  "/newactivities/IMG_5086%202.jpg",
-  "/newactivities/IMG_5087%202.jpg",
-  "/newactivities/IMG_5088%202.jpg",
-  "/newactivities/IMG_5090.jpg",
-  "/newactivities/IMG_5093.jpg",
-  "/newactivities/IMG_5094.jpg",
-  "/newactivities/IMG_5096.jpg",
-  "/newactivities/IMG_5101.jpg",
-  "/newactivities/IMG_5115%202.jpg",
-  "/newactivities/IMG_5117.jpg",
-];
+const ACTIVITIES_LATEST_BADGE_COUNT = 6;
 
 export default function ActivitiesSection() {
-  const images = [
-    ...NEW_ACTIVITY_IMAGES,
-    ...Array.from({ length: 20 }, (_, i) => `/image${i + 1}.jpg`),
-  ];
-  const latestCutoff = NEW_ACTIVITY_IMAGES.length;
+  const siteVisuals = useSiteVisuals();
+  const images = Array.isArray(siteVisuals?.activities_gallery)
+    ? siteVisuals.activities_gallery
+    : [];
+  const latestCutoff = Math.min(images.length, ACTIVITIES_LATEST_BADGE_COUNT);
+  const activitiesBannerUrl = siteVisuals?.activities_banner_url || "/newactivities/cov.jpg";
 
   const [activeIndex, setActiveIndex] = useState(null);
   const [showHint, setShowHint] = useState(false);
@@ -106,7 +85,10 @@ export default function ActivitiesSection() {
   return (
     <section id="activities" className="activities-section">
       {/* CINEMATIC BANNER */}
-      <div className="activities-banner">
+      <div
+        className="activities-banner"
+        style={{ "--activities-banner-image": `url("${activitiesBannerUrl}")` }}
+      >
         <div className="banner-content">
           <h1>Life at <span>St. Phillip's</span></h1>
           <p>Moments of excellence, sportsmanship, and student engagement.</p>

@@ -2404,6 +2404,7 @@ export default function VineCommunities() {
                               </div>
                               <VinePostCard
                                 post={post}
+                                mediaLayout="collage"
                                 communityInteractionLocked={Number(activeCommunity.is_member) !== 1}
                                 onDeletePost={(deletedId) =>
                                   setPosts((prev) => prev.filter((p) => p.id !== deletedId))

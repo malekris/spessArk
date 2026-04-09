@@ -349,6 +349,7 @@ export default function VinePublicPost() {
                 <div className="vine-public-media-shell">
                   <ImageCarousel
                     imageUrl={post.image_url}
+                    layout="collage"
                     onLike={() => openJoinPrompt("like")}
                     onRevine={() => openJoinPrompt("revine")}
                     onComments={() => openJoinPrompt("comment")}

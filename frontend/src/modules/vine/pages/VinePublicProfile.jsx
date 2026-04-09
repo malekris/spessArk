@@ -325,6 +325,7 @@ export default function VinePublicProfile() {
                         {post.image_url ? (
                           <ImageCarousel
                             imageUrl={post.image_url}
+                            layout="collage"
                             onLike={() => navigate(`/vine/post/${post.id}`)}
                             onRevine={() => navigate(`/vine/post/${post.id}`)}
                             onComments={() => navigate(`/vine/post/${post.id}`)}

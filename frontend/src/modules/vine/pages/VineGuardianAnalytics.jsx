@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { loadPdfTools } from "../../../utils/loadPdfTools";
+import {
+  DEFAULT_ACTIVITY_GALLERY_IMAGES,
+  DEFAULT_SITE_VISUALS,
+  primeSiteVisualsCache,
+} from "../../../utils/siteVisuals";
 import { convertHeicFileToJpeg, isHeicLikeFile } from "../utils/heic";
 import "./VineGuardianAnalytics.css";
 
@@ -43,9 +48,11 @@ const DEFAULT_AUTH_THEME_FORM = {
   form_alignment: "right",
 };
 const DEFAULT_SITE_VISUAL_FORM = {
-  home_hero_url: "/newhome.jpg",
-  boarding_login_url: "/newactivities/covercover.jpeg",
-  ark_auth_slides: Array.from({ length: 11 }, (_, index) => `/slide${index + 1}.jpg`),
+  home_hero_url: DEFAULT_SITE_VISUALS.home_hero_url,
+  boarding_login_url: DEFAULT_SITE_VISUALS.boarding_login_url,
+  ark_auth_slides: DEFAULT_SITE_VISUALS.ark_auth_slides,
+  activities_banner_url: DEFAULT_SITE_VISUALS.activities_banner_url,
+  activities_gallery: DEFAULT_ACTIVITY_GALLERY_IMAGES,
 };
 
 const isGuardianUser = (user) => {
@@ -144,7 +151,12 @@ export default function VineGuardianAnalytics() {
   const [siteHeroPreview, setSiteHeroPreview] = useState("");
   const [siteBoardingFile, setSiteBoardingFile] = useState(null);
   const [siteBoardingPreview, setSiteBoardingPreview] = useState("");
+  const [siteActivitiesBannerFile, setSiteActivitiesBannerFile] = useState(null);
+  const [siteActivitiesBannerPreview, setSiteActivitiesBannerPreview] = useState("");
   const [siteSlideFiles, setSiteSlideFiles] = useState([]);
+  const [siteActivitiesGalleryFiles, setSiteActivitiesGalleryFiles] = useState([]);
+  const [draggedActivityIndex, setDraggedActivityIndex] = useState(null);
+  const [dragOverActivityIndex, setDragOverActivityIndex] = useState(null);
   const [siteVisualSaving, setSiteVisualSaving] = useState(false);
   const [siteVisualNotice, setSiteVisualNotice] = useState(null);
   const [lifecycleAnalytics, setLifecycleAnalytics] = useState(createLifecycleAnalyticsState);
@@ -521,11 +533,18 @@ export default function VineGuardianAnalytics() {
     const source = data?.siteVisualSettings;
     if (!source) return;
     setSiteVisualForm({
-      home_hero_url: String(source.home_hero_url || "/newhome.jpg"),
-      boarding_login_url: String(source.boarding_login_url || "/newactivities/covercover.jpeg"),
+      home_hero_url: String(source.home_hero_url || DEFAULT_SITE_VISUAL_FORM.home_hero_url),
+      boarding_login_url: String(source.boarding_login_url || DEFAULT_SITE_VISUAL_FORM.boarding_login_url),
       ark_auth_slides: Array.isArray(source.ark_auth_slides) && source.ark_auth_slides.length
         ? source.ark_auth_slides.map((item) => String(item || "").trim()).filter(Boolean)
         : DEFAULT_SITE_VISUAL_FORM.ark_auth_slides,
+      activities_banner_url:
+        String(source.activities_banner_url || DEFAULT_SITE_VISUAL_FORM.activities_banner_url).trim() ||
+        DEFAULT_SITE_VISUAL_FORM.activities_banner_url,
+      activities_gallery:
+        Array.isArray(source.activities_gallery) && source.activities_gallery.length
+          ? source.activities_gallery.map((item) => String(item || "").trim()).filter(Boolean)
+          : DEFAULT_SITE_VISUAL_FORM.activities_gallery,
     });
   }, [data?.siteVisualSettings]);
 
@@ -558,6 +577,16 @@ export default function VineGuardianAnalytics() {
     setSiteBoardingPreview(objectUrl);
     return () => URL.revokeObjectURL(objectUrl);
   }, [siteBoardingFile]);
+
+  useEffect(() => {
+    if (!siteActivitiesBannerFile) {
+      setSiteActivitiesBannerPreview("");
+      return undefined;
+    }
+    const objectUrl = URL.createObjectURL(siteActivitiesBannerFile);
+    setSiteActivitiesBannerPreview(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [siteActivitiesBannerFile]);
 
   useEffect(() => {
     if (!authThemeNotice) return undefined;
@@ -1006,6 +1035,32 @@ export default function VineGuardianAnalytics() {
     }));
   };
 
+  const removeActivitiesImage = (targetUrl) => {
+    setSiteVisualForm((prev) => ({
+      ...prev,
+      activities_gallery: (prev.activities_gallery || []).filter((url) => url !== targetUrl),
+    }));
+  };
+
+  const reorderActivitiesImage = (fromIndex, toIndex) => {
+    if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0) return;
+    setSiteVisualForm((prev) => {
+      const nextGallery = [...(prev.activities_gallery || [])];
+      if (
+        fromIndex >= nextGallery.length ||
+        toIndex >= nextGallery.length
+      ) {
+        return prev;
+      }
+      const [moved] = nextGallery.splice(fromIndex, 1);
+      nextGallery.splice(toIndex, 0, moved);
+      return {
+        ...prev,
+        activities_gallery: nextGallery,
+      };
+    });
+  };
+
   const normalizeVisualFile = async (file, label) => {
     if (!file) return null;
     if (!isHeicLikeFile(file)) return file;
@@ -1046,6 +1101,18 @@ export default function VineGuardianAnalytics() {
     setSiteBoardingFile(normalized);
   };
 
+  const handleActivitiesBannerPick = async (event) => {
+    const file = event.target.files?.[0] || null;
+    event.target.value = "";
+    if (!file) {
+      setSiteActivitiesBannerFile(null);
+      return;
+    }
+    const normalized = await normalizeVisualFile(file, "Activities banner");
+    if (!normalized) return;
+    setSiteActivitiesBannerFile(normalized);
+  };
+
   const handleSiteSlidesPick = async (event) => {
     const files = Array.from(event.target.files || []);
     event.target.value = "";
@@ -1062,6 +1129,22 @@ export default function VineGuardianAnalytics() {
     setSiteSlideFiles(normalizedFiles);
   };
 
+  const handleActivitiesGalleryPick = async (event) => {
+    const files = Array.from(event.target.files || []);
+    event.target.value = "";
+    if (!files.length) {
+      setSiteActivitiesGalleryFiles([]);
+      return;
+    }
+    const normalizedFiles = [];
+    for (const file of files) {
+      const normalized = await normalizeVisualFile(file, "Activities image");
+      if (!normalized) return;
+      normalizedFiles.push(normalized);
+    }
+    setSiteActivitiesGalleryFiles(normalizedFiles);
+  };
+
   const saveSiteVisuals = async () => {
     try {
       setSiteVisualSaving(true);
@@ -1069,6 +1152,8 @@ export default function VineGuardianAnalytics() {
       let nextHomeHeroUrl = siteVisualForm.home_hero_url;
       let nextBoardingLoginUrl = siteVisualForm.boarding_login_url;
       let nextArkSlides = [...(siteVisualForm.ark_auth_slides || [])];
+      let nextActivitiesBannerUrl = siteVisualForm.activities_banner_url;
+      let nextActivitiesGallery = [...(siteVisualForm.activities_gallery || [])];
 
       if (siteHeroFile) {
         const formData = new FormData();
@@ -1112,6 +1197,27 @@ export default function VineGuardianAnalytics() {
         nextBoardingLoginUrl = String(uploadBody?.url || nextBoardingLoginUrl || "").trim();
       }
 
+      if (siteActivitiesBannerFile) {
+        const formData = new FormData();
+        formData.append("banner", siteActivitiesBannerFile);
+        const uploadRes = await fetch(`${API}/api/vine/site-visuals/activities-banner`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          body: formData,
+        });
+        const uploadBody = await uploadRes.json().catch(() => ({}));
+        if (!uploadRes.ok) {
+          setSiteVisualNotice({
+            kind: "error",
+            message: uploadBody?.message || "Failed to upload Activities banner.",
+          });
+          return;
+        }
+        nextActivitiesBannerUrl = String(uploadBody?.url || nextActivitiesBannerUrl || "").trim();
+      }
+
       if (siteSlideFiles.length) {
         const formData = new FormData();
         siteSlideFiles.forEach((file) => formData.append("slides", file));
@@ -1133,10 +1239,42 @@ export default function VineGuardianAnalytics() {
         nextArkSlides = [...nextArkSlides, ...((uploadBody?.urls || []).map((item) => String(item || "").trim()).filter(Boolean))];
       }
 
+      if (siteActivitiesGalleryFiles.length) {
+        const formData = new FormData();
+        siteActivitiesGalleryFiles.forEach((file) => formData.append("images", file));
+        const uploadRes = await fetch(`${API}/api/vine/site-visuals/activities-gallery`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          body: formData,
+        });
+        const uploadBody = await uploadRes.json().catch(() => ({}));
+        if (!uploadRes.ok) {
+          setSiteVisualNotice({
+            kind: "error",
+            message: uploadBody?.message || "Failed to upload Activities gallery images.",
+          });
+          return;
+        }
+        nextActivitiesGallery = [
+          ...((uploadBody?.urls || []).map((item) => String(item || "").trim()).filter(Boolean)),
+          ...nextActivitiesGallery,
+        ];
+      }
+
       if (!nextArkSlides.length) {
         setSiteVisualNotice({
           kind: "error",
           message: "Please keep at least one ARK auth slide.",
+        });
+        return;
+      }
+
+      if (!nextActivitiesGallery.length) {
+        setSiteVisualNotice({
+          kind: "error",
+          message: "Please keep at least one Activities image.",
         });
         return;
       }
@@ -1151,6 +1289,8 @@ export default function VineGuardianAnalytics() {
           home_hero_url: nextHomeHeroUrl,
           boarding_login_url: nextBoardingLoginUrl,
           ark_auth_slides: nextArkSlides,
+          activities_banner_url: nextActivitiesBannerUrl,
+          activities_gallery: nextActivitiesGallery,
         }),
       });
       const body = await res.json().catch(() => ({}));
@@ -1162,18 +1302,70 @@ export default function VineGuardianAnalytics() {
         return;
       }
 
-      setData((prev) => (prev ? { ...prev, siteVisualSettings: body.settings } : prev));
+      const nextSettings = primeSiteVisualsCache(body.settings || {});
+      setData((prev) => (prev ? { ...prev, siteVisualSettings: nextSettings } : prev));
       setSiteHeroFile(null);
       setSiteBoardingFile(null);
+      setSiteActivitiesBannerFile(null);
       setSiteSlideFiles([]);
+      setSiteActivitiesGalleryFiles([]);
+      setDraggedActivityIndex(null);
+      setDragOverActivityIndex(null);
       setSiteVisualNotice({
         kind: "success",
-        message: "Website, ARK, and Boarding visuals published.",
+        message: "Website, Activities, ARK, and Boarding visuals published.",
       });
     } catch {
       setSiteVisualNotice({
         kind: "error",
         message: "Failed to save site visuals.",
+      });
+    } finally {
+      setSiteVisualSaving(false);
+    }
+  };
+
+  const resetActivitiesVisuals = async () => {
+    try {
+      setSiteVisualSaving(true);
+      setSiteVisualNotice(null);
+      const res = await fetch(`${API}/api/vine/site-visuals/settings`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          home_hero_url: siteVisualForm.home_hero_url,
+          boarding_login_url: siteVisualForm.boarding_login_url,
+          ark_auth_slides: siteVisualForm.ark_auth_slides,
+          activities_banner_url: DEFAULT_SITE_VISUAL_FORM.activities_banner_url,
+          activities_gallery: DEFAULT_SITE_VISUAL_FORM.activities_gallery,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setSiteVisualNotice({
+          kind: "error",
+          message: body?.message || "Failed to reset Activities visuals.",
+        });
+        return;
+      }
+
+      const nextSettings = primeSiteVisualsCache(body.settings || {});
+      setData((prev) => (prev ? { ...prev, siteVisualSettings: nextSettings } : prev));
+      setSiteActivitiesBannerFile(null);
+      setSiteActivitiesGalleryFiles([]);
+      setDraggedActivityIndex(null);
+      setDragOverActivityIndex(null);
+      setSiteVisualNotice({
+        kind: "success",
+        message: "Activities visuals reset to default.",
+      });
+    } catch {
+      setSiteVisualNotice({
+        kind: "error",
+        message: "Failed to reset Activities visuals.",
       });
     } finally {
       setSiteVisualSaving(false);
@@ -1274,11 +1466,15 @@ export default function VineGuardianAnalytics() {
   const authThemeSettings = data?.authThemeSettings || null;
   const authThemePreviewUrl = authThemeCoverPreview || authThemeForm.cover_url || "/newactivities/fffffffffff.jpg";
   const siteVisualSettings = data?.siteVisualSettings || null;
-  const siteHeroPreviewUrl = siteHeroPreview || siteVisualForm.home_hero_url || "/newhome.jpg";
+  const siteHeroPreviewUrl = siteHeroPreview || siteVisualForm.home_hero_url || DEFAULT_SITE_VISUAL_FORM.home_hero_url;
   const siteBoardingPreviewUrl =
     siteBoardingPreview ||
     siteVisualForm.boarding_login_url ||
-    "/newactivities/covercover.jpeg";
+    DEFAULT_SITE_VISUAL_FORM.boarding_login_url;
+  const siteActivitiesBannerPreviewUrl =
+    siteActivitiesBannerPreview ||
+    siteVisualForm.activities_banner_url ||
+    DEFAULT_SITE_VISUAL_FORM.activities_banner_url;
   const recentLogins = activity?.recent_logins || [];
   const recentActions = activity?.recent_actions || [];
   const perfRuntime = perf?.runtime || {};
@@ -2072,7 +2268,7 @@ export default function VineGuardianAnalytics() {
       </div>
 
       <div className="guardian-section">
-        <h3>Website, Ark & Boarding Visuals</h3>
+        <h3>Website, Activities, Ark & Boarding Visuals</h3>
         <div className="guardian-site-visual-layout">
           <div className="guardian-site-visual-stack">
             <div className="guardian-news-card guardian-auth-theme-card">
@@ -2169,6 +2365,144 @@ export default function VineGuardianAnalytics() {
                 </span>
                 <span>
                   Covers: <strong>Boarding login</strong>
+                </span>
+              </div>
+            </div>
+
+            <div className="guardian-news-card guardian-auth-theme-card">
+              <span className="guardian-news-label">Activities Gallery</span>
+              <div
+                className="guardian-site-hero-preview guardian-site-activities-preview"
+                style={{ "--guardian-site-hero": `url(${siteActivitiesBannerPreviewUrl})` }}
+              >
+                <div className="guardian-site-hero-copy">
+                  <strong>Activities page banner</strong>
+                  <span>This controls the hero image at the top of the Activities page.</span>
+                </div>
+              </div>
+              <label className="guardian-auth-upload-shell">
+                <span className="guardian-auth-upload-label">Upload Activities banner</span>
+                <input
+                  className="guardian-auth-upload-input"
+                  type="file"
+                  accept="image/*,.heic,.heif"
+                  onChange={handleActivitiesBannerPick}
+                />
+                <span className="guardian-auth-upload-cta">Choose banner image</span>
+                <span className="guardian-auth-upload-copy">
+                  {siteActivitiesBannerFile ? siteActivitiesBannerFile.name : "No new Activities banner selected"}
+                </span>
+              </label>
+
+              <div className="guardian-activities-helper">
+                Drag the gallery cards below to change the order visitors see on the Activities page.
+              </div>
+
+              <div className="guardian-slide-grid guardian-activities-grid">
+                {(siteVisualForm.activities_gallery || []).map((imageUrl, index) => (
+                  <div
+                    key={`${imageUrl}-${index}`}
+                    className={`guardian-slide-chip guardian-activities-chip ${
+                      draggedActivityIndex === index ? "dragging" : ""
+                    } ${dragOverActivityIndex === index ? "drag-target" : ""}`}
+                    draggable
+                    onDragStart={() => {
+                      setDraggedActivityIndex(index);
+                      setDragOverActivityIndex(index);
+                    }}
+                    onDragOver={(event) => {
+                      event.preventDefault();
+                      if (dragOverActivityIndex !== index) {
+                        setDragOverActivityIndex(index);
+                      }
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      if (draggedActivityIndex !== null) {
+                        reorderActivitiesImage(draggedActivityIndex, index);
+                      }
+                      setDraggedActivityIndex(null);
+                      setDragOverActivityIndex(null);
+                    }}
+                    onDragEnd={() => {
+                      setDraggedActivityIndex(null);
+                      setDragOverActivityIndex(null);
+                    }}
+                  >
+                    <span className="guardian-activities-chip-order">#{index + 1}</span>
+                    <img src={imageUrl} alt={`Activity ${index + 1}`} loading="lazy" />
+                    <button
+                      type="button"
+                      className="guardian-slide-remove"
+                      onClick={() => removeActivitiesImage(imageUrl)}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              <label className="guardian-auth-upload-shell">
+                <span className="guardian-auth-upload-label">Add Activities gallery images</span>
+                <input
+                  className="guardian-auth-upload-input"
+                  type="file"
+                  accept="image/*,.heic,.heif"
+                  multiple
+                  onChange={handleActivitiesGalleryPick}
+                />
+                <span className="guardian-auth-upload-cta">Choose Activities images</span>
+                <span className="guardian-auth-upload-copy">
+                  {siteActivitiesGalleryFiles.length
+                    ? `${siteActivitiesGalleryFiles.length} new image${siteActivitiesGalleryFiles.length === 1 ? "" : "s"} ready`
+                    : "No new Activities images selected"}
+                </span>
+              </label>
+              <div className="guardian-news-actions guardian-site-card-actions guardian-site-card-actions-wrap">
+                {siteActivitiesBannerFile && (
+                  <button
+                    type="button"
+                    className="guardian-csv-btn guardian-auth-clear"
+                    onClick={() => setSiteActivitiesBannerFile(null)}
+                  >
+                    Clear banner
+                  </button>
+                )}
+                {siteActivitiesGalleryFiles.length > 0 && (
+                  <button
+                    type="button"
+                    className="guardian-csv-btn guardian-auth-clear"
+                    onClick={() => setSiteActivitiesGalleryFiles([])}
+                  >
+                    Clear new images
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="guardian-csv-btn guardian-auth-reset"
+                  disabled={siteVisualSaving}
+                  onClick={resetActivitiesVisuals}
+                >
+                  Reset Activities
+                </button>
+                <button
+                  type="button"
+                  className="guardian-csv-btn guardian-news-save-hot"
+                  disabled={siteVisualSaving}
+                  onClick={saveSiteVisuals}
+                >
+                  {siteVisualSaving ? "Publishing..." : "Publish visuals"}
+                </button>
+              </div>
+              <div className="guardian-news-runtime">
+                <span>
+                  Activities banner: <strong>{siteVisualForm.activities_banner_url ? "Live" : "Default"}</strong>
+                </span>
+                <span>
+                  Gallery images live: <strong>{(siteVisualForm.activities_gallery || []).length}</strong>
+                </span>
+                <span>
+                  Covers: <strong>Activities page banner + gallery</strong>
                 </span>
               </div>
             </div>

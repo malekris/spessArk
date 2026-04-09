@@ -199,6 +199,34 @@ const VINE_SITE_VISUAL_DEFAULT_BOARDING_LOGIN_URL = String(
   process.env.VINE_SITE_VISUAL_DEFAULT_BOARDING_LOGIN_URL || "/newactivities/covercover.jpeg"
 ).trim();
 const VINE_SITE_VISUAL_DEFAULT_ARK_AUTH_SLIDES = Array.from({ length: 11 }, (_, index) => `/slide${index + 1}.jpg`);
+const VINE_SITE_VISUAL_DEFAULT_ACTIVITIES_BANNER_URL = String(
+  process.env.VINE_SITE_VISUAL_DEFAULT_ACTIVITIES_BANNER_URL || "/newactivities/cov.jpg"
+).trim();
+const VINE_SITE_VISUAL_DEFAULT_ACTIVITIES_GALLERY = [
+  "/newactivities/IMG_5033.jpg",
+  "/newactivities/IMG_5036.jpg",
+  "/newactivities/IMG_5038.jpg",
+  "/newactivities/IMG_5045%202.jpg",
+  "/newactivities/IMG_5049%202.jpg",
+  "/newactivities/IMG_5050.jpg",
+  "/newactivities/IMG_5054.jpg",
+  "/newactivities/IMG_5055.jpg",
+  "/newactivities/IMG_5061.jpg",
+  "/newactivities/IMG_5063.jpg",
+  "/newactivities/IMG_5067.jpg",
+  "/newactivities/IMG_5084.jpg",
+  "/newactivities/IMG_5086%202.jpg",
+  "/newactivities/IMG_5087%202.jpg",
+  "/newactivities/IMG_5088%202.jpg",
+  "/newactivities/IMG_5090.jpg",
+  "/newactivities/IMG_5093.jpg",
+  "/newactivities/IMG_5094.jpg",
+  "/newactivities/IMG_5096.jpg",
+  "/newactivities/IMG_5101.jpg",
+  "/newactivities/IMG_5115%202.jpg",
+  "/newactivities/IMG_5117.jpg",
+  ...Array.from({ length: 20 }, (_, index) => `/image${index + 1}.jpg`),
+];
 const VINE_AUTH_THEME_EFFECT_OPTIONS = new Set([
   "clean",
   "cinematic",
@@ -3066,6 +3094,9 @@ const normalizeSiteVisualSettings = (value = {}) => {
   const boardingLoginUrl = String(
     value.boarding_login_url || VINE_SITE_VISUAL_DEFAULT_BOARDING_LOGIN_URL || ""
   ).trim();
+  const activitiesBannerUrl = String(
+    value.activities_banner_url || VINE_SITE_VISUAL_DEFAULT_ACTIVITIES_BANNER_URL || ""
+  ).trim();
   let arkAuthSlides = value.ark_auth_slides;
   if (typeof arkAuthSlides === "string") {
     try {
@@ -3081,12 +3112,33 @@ const normalizeSiteVisualSettings = (value = {}) => {
     .map((item) => String(item || "").trim())
     .filter(Boolean)
     .slice(0, 12);
+  let activitiesGallery = value.activities_gallery;
+  if (typeof activitiesGallery === "string") {
+    try {
+      activitiesGallery = JSON.parse(activitiesGallery);
+    } catch {
+      activitiesGallery = [];
+    }
+  }
+  if (!Array.isArray(activitiesGallery)) {
+    activitiesGallery = [];
+  }
+  const cleanedActivitiesGallery = activitiesGallery
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .slice(0, 48);
 
   return {
     home_hero_url: homeHeroUrl || VINE_SITE_VISUAL_DEFAULT_HOME_HERO_URL,
     boarding_login_url:
       boardingLoginUrl || VINE_SITE_VISUAL_DEFAULT_BOARDING_LOGIN_URL,
     ark_auth_slides: cleanedSlides.length ? cleanedSlides : [...VINE_SITE_VISUAL_DEFAULT_ARK_AUTH_SLIDES],
+    activities_banner_url:
+      activitiesBannerUrl || VINE_SITE_VISUAL_DEFAULT_ACTIVITIES_BANNER_URL,
+    activities_gallery:
+      cleanedActivitiesGallery.length
+        ? cleanedActivitiesGallery
+        : [...VINE_SITE_VISUAL_DEFAULT_ACTIVITIES_GALLERY],
     updated_by: value.updated_by ? Number(value.updated_by) : null,
     updated_at: value.updated_at || null,
   };
@@ -3102,6 +3154,8 @@ const ensureSiteVisualSettingsSchema = async () => {
       home_hero_url VARCHAR(1000) NOT NULL,
       boarding_login_url VARCHAR(1000) NOT NULL,
       ark_auth_slides_json LONGTEXT NOT NULL,
+      activities_banner_url VARCHAR(1000) NOT NULL,
+      activities_gallery_json LONGTEXT NULL,
       updated_by INT NULL,
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
@@ -3111,6 +3165,18 @@ const ensureSiteVisualSettingsSchema = async () => {
     "vine_site_visual_settings",
     "boarding_login_url",
     `VARCHAR(1000) NOT NULL DEFAULT '${VINE_SITE_VISUAL_DEFAULT_BOARDING_LOGIN_URL.replace(/'/g, "''")}'`
+  );
+  await ensureColumnExists(
+    dbName,
+    "vine_site_visual_settings",
+    "activities_banner_url",
+    `VARCHAR(1000) NOT NULL DEFAULT '${VINE_SITE_VISUAL_DEFAULT_ACTIVITIES_BANNER_URL.replace(/'/g, "''")}'`
+  );
+  await ensureColumnExists(
+    dbName,
+    "vine_site_visual_settings",
+    "activities_gallery_json",
+    "LONGTEXT NULL"
   );
   siteVisualSettingsSchemaReady = true;
 };
@@ -3127,7 +3193,8 @@ const getCurrentSiteVisualSettings = async ({ force = false } = {}) => {
 
   const [[row]] = await db.query(
     `
-    SELECT home_hero_url, boarding_login_url, ark_auth_slides_json AS ark_auth_slides, updated_by, updated_at
+    SELECT home_hero_url, boarding_login_url, ark_auth_slides_json AS ark_auth_slides,
+           activities_banner_url, activities_gallery_json AS activities_gallery, updated_by, updated_at
     FROM vine_site_visual_settings
     WHERE id = 1
     LIMIT 1
@@ -3148,18 +3215,22 @@ const saveSiteVisualSettings = async (payload = {}, updatedBy = null) => {
     home_hero_url: payload.home_hero_url,
     boarding_login_url: payload.boarding_login_url,
     ark_auth_slides: payload.ark_auth_slides,
+    activities_banner_url: payload.activities_banner_url,
+    activities_gallery: payload.activities_gallery,
   });
 
   await db.query(
     `
     INSERT INTO vine_site_visual_settings
-      (id, home_hero_url, boarding_login_url, ark_auth_slides_json, updated_by, updated_at)
+      (id, home_hero_url, boarding_login_url, ark_auth_slides_json, activities_banner_url, activities_gallery_json, updated_by, updated_at)
     VALUES
-      (1, ?, ?, ?, ?, NOW())
+      (1, ?, ?, ?, ?, ?, ?, NOW())
     ON DUPLICATE KEY UPDATE
       home_hero_url = VALUES(home_hero_url),
       boarding_login_url = VALUES(boarding_login_url),
       ark_auth_slides_json = VALUES(ark_auth_slides_json),
+      activities_banner_url = VALUES(activities_banner_url),
+      activities_gallery_json = VALUES(activities_gallery_json),
       updated_by = VALUES(updated_by),
       updated_at = NOW()
     `,
@@ -3167,13 +3238,16 @@ const saveSiteVisualSettings = async (payload = {}, updatedBy = null) => {
       merged.home_hero_url,
       merged.boarding_login_url,
       JSON.stringify(merged.ark_auth_slides),
+      merged.activities_banner_url,
+      JSON.stringify(merged.activities_gallery),
       updatedBy ? Number(updatedBy) : null,
     ]
   );
 
   const [[savedRow]] = await db.query(
     `
-    SELECT home_hero_url, boarding_login_url, ark_auth_slides_json AS ark_auth_slides, updated_by, updated_at
+    SELECT home_hero_url, boarding_login_url, ark_auth_slides_json AS ark_auth_slides,
+           activities_banner_url, activities_gallery_json AS activities_gallery, updated_by, updated_at
     FROM vine_site_visual_settings
     WHERE id = 1
     LIMIT 1
@@ -9207,6 +9281,73 @@ router.post(
 );
 
 router.post(
+  "/site-visuals/activities-banner",
+  authenticate,
+  uploadBannerMemory.single("banner"),
+  async (req, res) => {
+    try {
+      const user = req.user || {};
+      if (!isModeratorAccount(user)) {
+        return res.status(403).json({ message: "Only moderators can upload the Activities banner." });
+      }
+      if (!req.file) {
+        return res.status(400).json({ message: "Please choose an Activities banner image." });
+      }
+
+      const normalized = await normalizeImageBuffer(req.file);
+      const prepared = await buildSiteHeroBuffer(normalized.buffer);
+      const upload = await uploadBufferToCloudinary(prepared.buffer, {
+        folder: "vine/site-visuals",
+        public_id: `activities-banner-${Date.now()}-${crypto.randomUUID()}`,
+        resource_type: "image",
+        format: "jpg",
+      });
+
+      res.json({ success: true, url: upload.secure_url || upload.url });
+    } catch (err) {
+      console.error("Activities banner upload error:", err);
+      res.status(500).json({ message: "Failed to upload Activities banner" });
+    }
+  }
+);
+
+router.post(
+  "/site-visuals/activities-gallery",
+  authenticate,
+  uploadBannerMemory.array("images", 48),
+  async (req, res) => {
+    try {
+      const user = req.user || {};
+      if (!isModeratorAccount(user)) {
+        return res.status(403).json({ message: "Only moderators can upload Activities gallery images." });
+      }
+      const files = Array.isArray(req.files) ? req.files : [];
+      if (!files.length) {
+        return res.status(400).json({ message: "Please choose at least one Activities image." });
+      }
+
+      const uploadedUrls = [];
+      for (const file of files) {
+        const normalized = await normalizeImageBuffer(file);
+        const prepared = await buildSiteAuthSlideBuffer(normalized.buffer);
+        const upload = await uploadBufferToCloudinary(prepared.buffer, {
+          folder: "vine/site-visuals",
+          public_id: `activities-gallery-${Date.now()}-${crypto.randomUUID()}`,
+          resource_type: "image",
+          format: "jpg",
+        });
+        uploadedUrls.push(upload.secure_url || upload.url);
+      }
+
+      res.json({ success: true, urls: uploadedUrls });
+    } catch (err) {
+      console.error("Activities gallery upload error:", err);
+      res.status(500).json({ message: "Failed to upload Activities gallery images" });
+    }
+  }
+);
+
+router.post(
   "/site-visuals/ark-auth-slides",
   authenticate,
   uploadBannerMemory.array("slides", 12),
@@ -9253,6 +9394,9 @@ router.put("/site-visuals/settings", authenticate, async (req, res) => {
     const nextSlides = Array.isArray(req.body?.ark_auth_slides)
       ? req.body.ark_auth_slides
       : current.ark_auth_slides;
+    const nextActivitiesGallery = Array.isArray(req.body?.activities_gallery)
+      ? req.body.activities_gallery
+      : current.activities_gallery;
     const settings = await saveSiteVisualSettings(
       {
         home_hero_url:
@@ -9264,6 +9408,11 @@ router.put("/site-visuals/settings", authenticate, async (req, res) => {
             ? current.boarding_login_url
             : String(req.body?.boarding_login_url || "").trim(),
         ark_auth_slides: nextSlides,
+        activities_banner_url:
+          req.body?.activities_banner_url === undefined
+            ? current.activities_banner_url
+            : String(req.body?.activities_banner_url || "").trim(),
+        activities_gallery: nextActivitiesGallery,
       },
       user.id || null
     );
@@ -9278,7 +9427,12 @@ router.put("/site-visuals/settings", authenticate, async (req, res) => {
           current.boarding_login_url !== settings.boarding_login_url
             ? [current.boarding_login_url]
             : []),
+          ...(current.activities_banner_url &&
+          current.activities_banner_url !== settings.activities_banner_url
+            ? [current.activities_banner_url]
+            : []),
           ...current.ark_auth_slides.filter((url) => !settings.ark_auth_slides.includes(url)),
+          ...current.activities_gallery.filter((url) => !settings.activities_gallery.includes(url)),
         ].filter(Boolean)
       ),
     ];

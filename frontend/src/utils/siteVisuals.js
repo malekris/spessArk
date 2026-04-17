@@ -34,8 +34,10 @@ export const DEFAULT_SITE_VISUALS = {
   boarding_login_url: "/newactivities/covercover.jpeg",
   ark_auth_slides: Array.from({ length: 11 }, (_, index) => `/slide${index + 1}.jpg`),
   activities_banner_url: "/newactivities/cov.jpg",
+  contact_hero_url: "/celine.jpg",
   activities_gallery: DEFAULT_ACTIVITY_GALLERY_IMAGES,
   activities_latest_batch: DEFAULT_ACTIVITY_GALLERY_IMAGES.slice(0, 6),
+  activities_latest_day: null,
 };
 
 let siteVisualCache = DEFAULT_SITE_VISUALS;
@@ -52,6 +54,7 @@ const normalizeSiteVisuals = (value = {}) => {
   const activitiesLatestBatch = Array.isArray(value.activities_latest_batch)
     ? value.activities_latest_batch.map((item) => String(item || "").trim()).filter(Boolean)
     : [];
+  const activitiesLatestDay = String(value.activities_latest_day || "").trim();
   return {
     home_hero_url:
       String(value.home_hero_url || DEFAULT_SITE_VISUALS.home_hero_url).trim() ||
@@ -63,12 +66,16 @@ const normalizeSiteVisuals = (value = {}) => {
     activities_banner_url:
       String(value.activities_banner_url || DEFAULT_SITE_VISUALS.activities_banner_url).trim() ||
       DEFAULT_SITE_VISUALS.activities_banner_url,
+    contact_hero_url:
+      String(value.contact_hero_url || DEFAULT_SITE_VISUALS.contact_hero_url).trim() ||
+      DEFAULT_SITE_VISUALS.contact_hero_url,
     activities_gallery:
       activitiesGallery.length ? activitiesGallery : DEFAULT_SITE_VISUALS.activities_gallery,
     activities_latest_batch:
       activitiesLatestBatch.length
         ? activitiesLatestBatch
         : (activitiesGallery.length ? activitiesGallery.slice(0, 6) : DEFAULT_SITE_VISUALS.activities_latest_batch),
+    activities_latest_day: activitiesLatestDay || null,
   };
 };
 

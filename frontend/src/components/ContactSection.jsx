@@ -1,8 +1,11 @@
 import React, { useState } from "react";
 import "./ContactSection.css";
+import { useSiteVisuals } from "../utils/siteVisuals";
 
 export default function ContactSection() {
+  const siteVisuals = useSiteVisuals();
   const [formData, setFormData] = useState({ name: "", email: "", message: "" });
+  const contactHeroUrl = siteVisuals?.contact_hero_url || "/celine.jpg";
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -13,7 +16,10 @@ export default function ContactSection() {
   return (
     <section id="contact" className="contact-section">
       {/* CINEMATIC BANNER */}
-      <div className="contact-banner">
+      <div
+        className="contact-banner"
+        style={{ "--contact-hero-image": `url("${contactHeroUrl}")` }}
+      >
         <div className="banner-content">
           <h1>Get in <span>Touch</span></h1>
           <p>Official communication channels for St. Phillip’s Equatorial Secondary School.</p>

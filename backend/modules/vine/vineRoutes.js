@@ -202,6 +202,9 @@ const VINE_SITE_VISUAL_DEFAULT_ARK_AUTH_SLIDES = Array.from({ length: 11 }, (_, 
 const VINE_SITE_VISUAL_DEFAULT_ACTIVITIES_BANNER_URL = String(
   process.env.VINE_SITE_VISUAL_DEFAULT_ACTIVITIES_BANNER_URL || "/newactivities/cov.jpg"
 ).trim();
+const VINE_SITE_VISUAL_DEFAULT_CONTACT_HERO_URL = String(
+  process.env.VINE_SITE_VISUAL_DEFAULT_CONTACT_HERO_URL || "/celine.jpg"
+).trim();
 const VINE_SITE_VISUAL_DEFAULT_ACTIVITIES_GALLERY = [
   "/newactivities/IMG_5033.jpg",
   "/newactivities/IMG_5036.jpg",
@@ -3087,6 +3090,15 @@ let siteVisualSettingsSchemaReady = false;
 let siteVisualSettingsCache = null;
 let siteVisualSettingsLoadedAt = 0;
 const SITE_VISUAL_SETTINGS_CACHE_MS = 60 * 1000;
+const SITE_VISUALS_TIMEZONE = "Africa/Kampala";
+
+const getSiteVisualsDateStamp = (date = new Date()) =>
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone: SITE_VISUALS_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
 
 const normalizeSiteVisualSettings = (value = {}) => {
   const homeHeroUrl = String(
@@ -3097,6 +3109,9 @@ const normalizeSiteVisualSettings = (value = {}) => {
   ).trim();
   const activitiesBannerUrl = String(
     value.activities_banner_url || VINE_SITE_VISUAL_DEFAULT_ACTIVITIES_BANNER_URL || ""
+  ).trim();
+  const contactHeroUrl = String(
+    value.contact_hero_url || VINE_SITE_VISUAL_DEFAULT_CONTACT_HERO_URL || ""
   ).trim();
   let arkAuthSlides = value.ark_auth_slides;
   if (typeof arkAuthSlides === "string") {
@@ -3143,6 +3158,7 @@ const normalizeSiteVisualSettings = (value = {}) => {
     .filter(Boolean)
     .filter((url, index, array) => array.indexOf(url) === index)
     .filter((url) => cleanedActivitiesGallery.includes(url));
+  const activitiesLatestDay = String(value.activities_latest_day || "").trim();
 
   return {
     home_hero_url: homeHeroUrl || VINE_SITE_VISUAL_DEFAULT_HOME_HERO_URL,
@@ -3151,6 +3167,8 @@ const normalizeSiteVisualSettings = (value = {}) => {
     ark_auth_slides: cleanedSlides.length ? cleanedSlides : [...VINE_SITE_VISUAL_DEFAULT_ARK_AUTH_SLIDES],
     activities_banner_url:
       activitiesBannerUrl || VINE_SITE_VISUAL_DEFAULT_ACTIVITIES_BANNER_URL,
+    contact_hero_url:
+      contactHeroUrl || VINE_SITE_VISUAL_DEFAULT_CONTACT_HERO_URL,
     activities_gallery:
       cleanedActivitiesGallery.length
         ? cleanedActivitiesGallery
@@ -3161,6 +3179,7 @@ const normalizeSiteVisualSettings = (value = {}) => {
         : (cleanedActivitiesGallery.length
             ? cleanedActivitiesGallery.slice(0, 6)
             : [...VINE_SITE_VISUAL_DEFAULT_ACTIVITIES_LATEST_BATCH]),
+    activities_latest_day: activitiesLatestDay || null,
     updated_by: value.updated_by ? Number(value.updated_by) : null,
     updated_at: value.updated_at || null,
   };
@@ -3177,8 +3196,10 @@ const ensureSiteVisualSettingsSchema = async () => {
       boarding_login_url VARCHAR(1000) NOT NULL,
       ark_auth_slides_json LONGTEXT NOT NULL,
       activities_banner_url VARCHAR(1000) NOT NULL,
+      contact_hero_url VARCHAR(1000) NOT NULL,
       activities_gallery_json LONGTEXT NULL,
       activities_latest_batch_json LONGTEXT NULL,
+      activities_latest_day VARCHAR(10) NULL,
       updated_by INT NULL,
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
@@ -3198,6 +3219,12 @@ const ensureSiteVisualSettingsSchema = async () => {
   await ensureColumnExists(
     dbName,
     "vine_site_visual_settings",
+    "contact_hero_url",
+    `VARCHAR(1000) NOT NULL DEFAULT '${VINE_SITE_VISUAL_DEFAULT_CONTACT_HERO_URL.replace(/'/g, "''")}'`
+  );
+  await ensureColumnExists(
+    dbName,
+    "vine_site_visual_settings",
     "activities_gallery_json",
     "LONGTEXT NULL"
   );
@@ -3206,6 +3233,12 @@ const ensureSiteVisualSettingsSchema = async () => {
     "vine_site_visual_settings",
     "activities_latest_batch_json",
     "LONGTEXT NULL"
+  );
+  await ensureColumnExists(
+    dbName,
+    "vine_site_visual_settings",
+    "activities_latest_day",
+    "VARCHAR(10) NULL"
   );
   siteVisualSettingsSchemaReady = true;
 };
@@ -3223,8 +3256,8 @@ const getCurrentSiteVisualSettings = async ({ force = false } = {}) => {
   const [[row]] = await db.query(
     `
     SELECT home_hero_url, boarding_login_url, ark_auth_slides_json AS ark_auth_slides,
-           activities_banner_url, activities_gallery_json AS activities_gallery,
-           activities_latest_batch_json AS activities_latest_batch, updated_by, updated_at
+           activities_banner_url, contact_hero_url, activities_gallery_json AS activities_gallery,
+           activities_latest_batch_json AS activities_latest_batch, activities_latest_day, updated_by, updated_at
     FROM vine_site_visual_settings
     WHERE id = 1
     LIMIT 1
@@ -3246,23 +3279,27 @@ const saveSiteVisualSettings = async (payload = {}, updatedBy = null) => {
     boarding_login_url: payload.boarding_login_url,
     ark_auth_slides: payload.ark_auth_slides,
     activities_banner_url: payload.activities_banner_url,
+    contact_hero_url: payload.contact_hero_url,
     activities_gallery: payload.activities_gallery,
     activities_latest_batch: payload.activities_latest_batch,
+    activities_latest_day: payload.activities_latest_day,
   });
 
   await db.query(
     `
     INSERT INTO vine_site_visual_settings
-      (id, home_hero_url, boarding_login_url, ark_auth_slides_json, activities_banner_url, activities_gallery_json, activities_latest_batch_json, updated_by, updated_at)
+      (id, home_hero_url, boarding_login_url, ark_auth_slides_json, activities_banner_url, contact_hero_url, activities_gallery_json, activities_latest_batch_json, activities_latest_day, updated_by, updated_at)
     VALUES
-      (1, ?, ?, ?, ?, ?, ?, ?, NOW())
+      (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
     ON DUPLICATE KEY UPDATE
       home_hero_url = VALUES(home_hero_url),
       boarding_login_url = VALUES(boarding_login_url),
       ark_auth_slides_json = VALUES(ark_auth_slides_json),
       activities_banner_url = VALUES(activities_banner_url),
+      contact_hero_url = VALUES(contact_hero_url),
       activities_gallery_json = VALUES(activities_gallery_json),
       activities_latest_batch_json = VALUES(activities_latest_batch_json),
+      activities_latest_day = VALUES(activities_latest_day),
       updated_by = VALUES(updated_by),
       updated_at = NOW()
     `,
@@ -3271,8 +3308,10 @@ const saveSiteVisualSettings = async (payload = {}, updatedBy = null) => {
       merged.boarding_login_url,
       JSON.stringify(merged.ark_auth_slides),
       merged.activities_banner_url,
+      merged.contact_hero_url,
       JSON.stringify(merged.activities_gallery),
       JSON.stringify(merged.activities_latest_batch),
+      merged.activities_latest_day,
       updatedBy ? Number(updatedBy) : null,
     ]
   );
@@ -3280,8 +3319,8 @@ const saveSiteVisualSettings = async (payload = {}, updatedBy = null) => {
   const [[savedRow]] = await db.query(
     `
     SELECT home_hero_url, boarding_login_url, ark_auth_slides_json AS ark_auth_slides,
-           activities_banner_url, activities_gallery_json AS activities_gallery,
-           activities_latest_batch_json AS activities_latest_batch, updated_by, updated_at
+           activities_banner_url, contact_hero_url, activities_gallery_json AS activities_gallery,
+           activities_latest_batch_json AS activities_latest_batch, activities_latest_day, updated_by, updated_at
     FROM vine_site_visual_settings
     WHERE id = 1
     LIMIT 1
@@ -9346,6 +9385,37 @@ router.post(
 );
 
 router.post(
+  "/site-visuals/contact-hero",
+  authenticate,
+  uploadBannerMemory.single("contact"),
+  async (req, res) => {
+    try {
+      const user = req.user || {};
+      if (!isModeratorAccount(user)) {
+        return res.status(403).json({ message: "Only moderators can upload the Contact hero." });
+      }
+      if (!req.file) {
+        return res.status(400).json({ message: "Please choose a Contact hero image." });
+      }
+
+      const normalized = await normalizeImageBuffer(req.file);
+      const prepared = await buildSiteHeroBuffer(normalized.buffer);
+      const upload = await uploadBufferToCloudinary(prepared.buffer, {
+        folder: "vine/site-visuals",
+        public_id: `contact-hero-${Date.now()}-${crypto.randomUUID()}`,
+        resource_type: "image",
+        format: "jpg",
+      });
+
+      res.json({ success: true, url: upload.secure_url || upload.url });
+    } catch (err) {
+      console.error("Contact hero upload error:", err);
+      res.status(500).json({ message: "Failed to upload Contact hero" });
+    }
+  }
+);
+
+router.post(
   "/site-visuals/activities-gallery",
   authenticate,
   uploadBannerMemory.array("images", 48),
@@ -9434,6 +9504,10 @@ router.put("/site-visuals/settings", authenticate, async (req, res) => {
     const nextActivitiesLatestBatch = Array.isArray(req.body?.activities_latest_batch)
       ? req.body.activities_latest_batch
       : current.activities_latest_batch;
+    const nextActivitiesLatestDay =
+      req.body?.activities_latest_day === undefined
+        ? current.activities_latest_day
+        : String(req.body?.activities_latest_day || "").trim();
     const settings = await saveSiteVisualSettings(
       {
         home_hero_url:
@@ -9449,8 +9523,13 @@ router.put("/site-visuals/settings", authenticate, async (req, res) => {
           req.body?.activities_banner_url === undefined
             ? current.activities_banner_url
             : String(req.body?.activities_banner_url || "").trim(),
+        contact_hero_url:
+          req.body?.contact_hero_url === undefined
+            ? current.contact_hero_url
+            : String(req.body?.contact_hero_url || "").trim(),
         activities_gallery: nextActivitiesGallery,
         activities_latest_batch: nextActivitiesLatestBatch,
+        activities_latest_day: nextActivitiesLatestDay,
       },
       user.id || null
     );
@@ -9468,6 +9547,10 @@ router.put("/site-visuals/settings", authenticate, async (req, res) => {
           ...(current.activities_banner_url &&
           current.activities_banner_url !== settings.activities_banner_url
             ? [current.activities_banner_url]
+            : []),
+          ...(current.contact_hero_url &&
+          current.contact_hero_url !== settings.contact_hero_url
+            ? [current.contact_hero_url]
             : []),
           ...current.ark_auth_slides.filter((url) => !settings.ark_auth_slides.includes(url)),
           ...current.activities_gallery.filter((url) => !settings.activities_gallery.includes(url)),

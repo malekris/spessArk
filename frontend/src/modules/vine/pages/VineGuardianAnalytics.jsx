@@ -52,9 +52,19 @@ const DEFAULT_SITE_VISUAL_FORM = {
   boarding_login_url: DEFAULT_SITE_VISUALS.boarding_login_url,
   ark_auth_slides: DEFAULT_SITE_VISUALS.ark_auth_slides,
   activities_banner_url: DEFAULT_SITE_VISUALS.activities_banner_url,
+  contact_hero_url: DEFAULT_SITE_VISUALS.contact_hero_url,
   activities_gallery: DEFAULT_ACTIVITY_GALLERY_IMAGES,
   activities_latest_batch: DEFAULT_SITE_VISUALS.activities_latest_batch,
+  activities_latest_day: DEFAULT_SITE_VISUALS.activities_latest_day,
 };
+
+const getKampalaDateStamp = (date = new Date()) =>
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Kampala",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
 
 const isGuardianUser = (user) => {
   if (!user) return false;
@@ -154,6 +164,8 @@ export default function VineGuardianAnalytics() {
   const [siteBoardingPreview, setSiteBoardingPreview] = useState("");
   const [siteActivitiesBannerFile, setSiteActivitiesBannerFile] = useState(null);
   const [siteActivitiesBannerPreview, setSiteActivitiesBannerPreview] = useState("");
+  const [siteContactHeroFile, setSiteContactHeroFile] = useState(null);
+  const [siteContactHeroPreview, setSiteContactHeroPreview] = useState("");
   const [siteSlideFiles, setSiteSlideFiles] = useState([]);
   const [siteActivitiesGalleryFiles, setSiteActivitiesGalleryFiles] = useState([]);
   const [draggedActivityIndex, setDraggedActivityIndex] = useState(null);
@@ -543,6 +555,9 @@ export default function VineGuardianAnalytics() {
       activities_banner_url:
         String(source.activities_banner_url || DEFAULT_SITE_VISUAL_FORM.activities_banner_url).trim() ||
         DEFAULT_SITE_VISUAL_FORM.activities_banner_url,
+      contact_hero_url:
+        String(source.contact_hero_url || DEFAULT_SITE_VISUAL_FORM.contact_hero_url).trim() ||
+        DEFAULT_SITE_VISUAL_FORM.contact_hero_url,
       activities_gallery:
         Array.isArray(source.activities_gallery) && source.activities_gallery.length
           ? source.activities_gallery.map((item) => String(item || "").trim()).filter(Boolean)
@@ -551,6 +566,8 @@ export default function VineGuardianAnalytics() {
         Array.isArray(source.activities_latest_batch) && source.activities_latest_batch.length
           ? source.activities_latest_batch.map((item) => String(item || "").trim()).filter(Boolean)
           : DEFAULT_SITE_VISUAL_FORM.activities_latest_batch,
+      activities_latest_day:
+        String(source.activities_latest_day || DEFAULT_SITE_VISUAL_FORM.activities_latest_day || "").trim() || null,
     });
   }, [data?.siteVisualSettings]);
 
@@ -593,6 +610,16 @@ export default function VineGuardianAnalytics() {
     setSiteActivitiesBannerPreview(objectUrl);
     return () => URL.revokeObjectURL(objectUrl);
   }, [siteActivitiesBannerFile]);
+
+  useEffect(() => {
+    if (!siteContactHeroFile) {
+      setSiteContactHeroPreview("");
+      return undefined;
+    }
+    const objectUrl = URL.createObjectURL(siteContactHeroFile);
+    setSiteContactHeroPreview(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [siteContactHeroFile]);
 
   useEffect(() => {
     if (!authThemeNotice) return undefined;
@@ -1120,6 +1147,18 @@ export default function VineGuardianAnalytics() {
     setSiteActivitiesBannerFile(normalized);
   };
 
+  const handleContactHeroPick = async (event) => {
+    const file = event.target.files?.[0] || null;
+    event.target.value = "";
+    if (!file) {
+      setSiteContactHeroFile(null);
+      return;
+    }
+    const normalized = await normalizeVisualFile(file, "Contact hero");
+    if (!normalized) return;
+    setSiteContactHeroFile(normalized);
+  };
+
   const handleSiteSlidesPick = async (event) => {
     const files = Array.from(event.target.files || []);
     event.target.value = "";
@@ -1152,6 +1191,27 @@ export default function VineGuardianAnalytics() {
     setSiteActivitiesGalleryFiles(normalizedFiles);
   };
 
+  const showSiteVisualNotice = (target, kind, message) => {
+    setSiteVisualNotice({ target, kind, message });
+  };
+
+  const renderSiteVisualNotice = (target) => {
+    if (!siteVisualNotice || siteVisualNotice.target !== target) return null;
+    return (
+      <div className={`guardian-auth-notice guardian-site-visual-notice ${siteVisualNotice.kind}`}>
+        <span>{siteVisualNotice.kind === "success" ? "Live" : "Heads up"}</span>
+        <strong>{siteVisualNotice.message}</strong>
+        <button
+          type="button"
+          className="guardian-auth-notice-close"
+          onClick={() => setSiteVisualNotice(null)}
+        >
+          Okay
+        </button>
+      </div>
+    );
+  };
+
   const saveSiteVisuals = async (target = "site-visuals") => {
     try {
       setSiteVisualSaving(true);
@@ -1161,8 +1221,10 @@ export default function VineGuardianAnalytics() {
       let nextBoardingLoginUrl = siteVisualForm.boarding_login_url;
       let nextArkSlides = [...(siteVisualForm.ark_auth_slides || [])];
       let nextActivitiesBannerUrl = siteVisualForm.activities_banner_url;
+      let nextContactHeroUrl = siteVisualForm.contact_hero_url;
       let nextActivitiesGallery = [...(siteVisualForm.activities_gallery || [])];
       let nextActivitiesLatestBatch = [...(siteVisualForm.activities_latest_batch || [])];
+      let nextActivitiesLatestDay = siteVisualForm.activities_latest_day || null;
 
       if (siteHeroFile) {
         const formData = new FormData();
@@ -1176,10 +1238,7 @@ export default function VineGuardianAnalytics() {
         });
         const uploadBody = await uploadRes.json().catch(() => ({}));
         if (!uploadRes.ok) {
-          setSiteVisualNotice({
-            kind: "error",
-            message: uploadBody?.message || "Failed to upload homepage hero.",
-          });
+          showSiteVisualNotice("home-hero", "error", uploadBody?.message || "Failed to upload homepage hero.");
           return;
         }
         nextHomeHeroUrl = String(uploadBody?.url || nextHomeHeroUrl || "").trim();
@@ -1197,10 +1256,7 @@ export default function VineGuardianAnalytics() {
         });
         const uploadBody = await uploadRes.json().catch(() => ({}));
         if (!uploadRes.ok) {
-          setSiteVisualNotice({
-            kind: "error",
-            message: uploadBody?.message || "Failed to upload Boarding login image.",
-          });
+          showSiteVisualNotice("boarding-cover", "error", uploadBody?.message || "Failed to upload Boarding login image.");
           return;
         }
         nextBoardingLoginUrl = String(uploadBody?.url || nextBoardingLoginUrl || "").trim();
@@ -1218,13 +1274,28 @@ export default function VineGuardianAnalytics() {
         });
         const uploadBody = await uploadRes.json().catch(() => ({}));
         if (!uploadRes.ok) {
-          setSiteVisualNotice({
-            kind: "error",
-            message: uploadBody?.message || "Failed to upload Activities banner.",
-          });
+          showSiteVisualNotice("activities-gallery", "error", uploadBody?.message || "Failed to upload Activities banner.");
           return;
         }
         nextActivitiesBannerUrl = String(uploadBody?.url || nextActivitiesBannerUrl || "").trim();
+      }
+
+      if (siteContactHeroFile) {
+        const formData = new FormData();
+        formData.append("contact", siteContactHeroFile);
+        const uploadRes = await fetch(`${API}/api/vine/site-visuals/contact-hero`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          body: formData,
+        });
+        const uploadBody = await uploadRes.json().catch(() => ({}));
+        if (!uploadRes.ok) {
+          showSiteVisualNotice("contact-hero", "error", uploadBody?.message || "Failed to upload Contact hero.");
+          return;
+        }
+        nextContactHeroUrl = String(uploadBody?.url || nextContactHeroUrl || "").trim();
       }
 
       if (siteSlideFiles.length) {
@@ -1239,10 +1310,7 @@ export default function VineGuardianAnalytics() {
         });
         const uploadBody = await uploadRes.json().catch(() => ({}));
         if (!uploadRes.ok) {
-          setSiteVisualNotice({
-            kind: "error",
-            message: uploadBody?.message || "Failed to upload ARK auth slides.",
-          });
+          showSiteVisualNotice("ark-slides", "error", uploadBody?.message || "Failed to upload ARK auth slides.");
           return;
         }
         nextArkSlides = [...nextArkSlides, ...((uploadBody?.urls || []).map((item) => String(item || "").trim()).filter(Boolean))];
@@ -1260,10 +1328,7 @@ export default function VineGuardianAnalytics() {
         });
         const uploadBody = await uploadRes.json().catch(() => ({}));
         if (!uploadRes.ok) {
-          setSiteVisualNotice({
-            kind: "error",
-            message: uploadBody?.message || "Failed to upload Activities gallery images.",
-          });
+          showSiteVisualNotice("activities-gallery", "error", uploadBody?.message || "Failed to upload Activities gallery images.");
           return;
         }
         const uploadedActivitiesUrls = (uploadBody?.urls || [])
@@ -1273,22 +1338,24 @@ export default function VineGuardianAnalytics() {
           ...uploadedActivitiesUrls,
           ...nextActivitiesGallery,
         ];
-        nextActivitiesLatestBatch = uploadedActivitiesUrls;
+        const todayStamp = getKampalaDateStamp();
+        nextActivitiesLatestBatch =
+          nextActivitiesLatestDay === todayStamp
+            ? [
+                ...uploadedActivitiesUrls,
+                ...nextActivitiesLatestBatch.filter((url) => !uploadedActivitiesUrls.includes(url)),
+              ]
+            : uploadedActivitiesUrls;
+        nextActivitiesLatestDay = todayStamp;
       }
 
       if (!nextArkSlides.length) {
-        setSiteVisualNotice({
-          kind: "error",
-          message: "Please keep at least one ARK auth slide.",
-        });
+        showSiteVisualNotice("ark-slides", "error", "Please keep at least one ARK auth slide.");
         return;
       }
 
       if (!nextActivitiesGallery.length) {
-        setSiteVisualNotice({
-          kind: "error",
-          message: "Please keep at least one Activities image.",
-        });
+        showSiteVisualNotice("activities-gallery", "error", "Please keep at least one Activities image.");
         return;
       }
 
@@ -1305,16 +1372,15 @@ export default function VineGuardianAnalytics() {
           boarding_login_url: nextBoardingLoginUrl,
           ark_auth_slides: nextArkSlides,
           activities_banner_url: nextActivitiesBannerUrl,
+          contact_hero_url: nextContactHeroUrl,
           activities_gallery: nextActivitiesGallery,
           activities_latest_batch: nextActivitiesLatestBatch,
+          activities_latest_day: nextActivitiesLatestDay,
         }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setSiteVisualNotice({
-          kind: "error",
-          message: body?.message || "Failed to save site visuals.",
-        });
+        showSiteVisualNotice(target, "error", body?.message || "Failed to save site visuals.");
         return;
       }
 
@@ -1323,19 +1389,21 @@ export default function VineGuardianAnalytics() {
       setSiteHeroFile(null);
       setSiteBoardingFile(null);
       setSiteActivitiesBannerFile(null);
+      setSiteContactHeroFile(null);
       setSiteSlideFiles([]);
       setSiteActivitiesGalleryFiles([]);
       setDraggedActivityIndex(null);
       setDragOverActivityIndex(null);
-      setSiteVisualNotice({
-        kind: "success",
-        message: "Website, Activities, ARK, and Boarding visuals published.",
-      });
+      const successMessageByTarget = {
+        "home-hero": "Homepage hero published beautifully.",
+        "boarding-cover": "Boarding login cover is now live.",
+        "activities-gallery": "Activities banner and gallery are now live.",
+        "ark-slides": "ARK auth slideshow published successfully.",
+        "contact-hero": "Contact hero is now live.",
+      };
+      showSiteVisualNotice(target, "success", successMessageByTarget[target] || "Visuals published successfully.");
     } catch {
-      setSiteVisualNotice({
-        kind: "error",
-        message: "Failed to save site visuals.",
-      });
+      showSiteVisualNotice(target, "error", "Failed to save site visuals.");
     } finally {
       setSiteVisualSaving(false);
       setSiteVisualSavingTarget("");
@@ -1358,16 +1426,15 @@ export default function VineGuardianAnalytics() {
           boarding_login_url: siteVisualForm.boarding_login_url,
           ark_auth_slides: siteVisualForm.ark_auth_slides,
           activities_banner_url: DEFAULT_SITE_VISUAL_FORM.activities_banner_url,
+          contact_hero_url: siteVisualForm.contact_hero_url,
           activities_gallery: DEFAULT_SITE_VISUAL_FORM.activities_gallery,
           activities_latest_batch: DEFAULT_SITE_VISUAL_FORM.activities_latest_batch,
+          activities_latest_day: getKampalaDateStamp(),
         }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setSiteVisualNotice({
-          kind: "error",
-          message: body?.message || "Failed to reset Activities visuals.",
-        });
+        showSiteVisualNotice("activities-gallery", "error", body?.message || "Failed to reset Activities visuals.");
         return;
       }
 
@@ -1377,15 +1444,9 @@ export default function VineGuardianAnalytics() {
       setSiteActivitiesGalleryFiles([]);
       setDraggedActivityIndex(null);
       setDragOverActivityIndex(null);
-      setSiteVisualNotice({
-        kind: "success",
-        message: "Activities visuals reset to default.",
-      });
+      showSiteVisualNotice("activities-gallery", "success", "Activities visuals reset to default.");
     } catch {
-      setSiteVisualNotice({
-        kind: "error",
-        message: "Failed to reset Activities visuals.",
-      });
+      showSiteVisualNotice("activities-gallery", "error", "Failed to reset Activities visuals.");
     } finally {
       setSiteVisualSaving(false);
       setSiteVisualSavingTarget("");
@@ -1495,6 +1556,10 @@ export default function VineGuardianAnalytics() {
     siteActivitiesBannerPreview ||
     siteVisualForm.activities_banner_url ||
     DEFAULT_SITE_VISUAL_FORM.activities_banner_url;
+  const siteContactHeroPreviewUrl =
+    siteContactHeroPreview ||
+    siteVisualForm.contact_hero_url ||
+    DEFAULT_SITE_VISUAL_FORM.contact_hero_url;
   const recentLogins = activity?.recent_logins || [];
   const recentActions = activity?.recent_actions || [];
   const perfRuntime = perf?.runtime || {};
@@ -2334,6 +2399,7 @@ export default function VineGuardianAnalytics() {
                   {siteVisualSaving && siteVisualSavingTarget === "home-hero" ? "Publishing..." : "Publish visuals"}
                 </button>
               </div>
+              {renderSiteVisualNotice("home-hero")}
             </div>
 
             <div className="guardian-news-card guardian-auth-theme-card">
@@ -2379,6 +2445,7 @@ export default function VineGuardianAnalytics() {
                   {siteVisualSaving && siteVisualSavingTarget === "boarding-cover" ? "Publishing..." : "Publish visuals"}
                 </button>
               </div>
+              {renderSiteVisualNotice("boarding-cover")}
               <div className="guardian-news-runtime">
                 <span>
                   Boarding cover: <strong>{siteVisualForm.boarding_login_url ? "Live" : "Default"}</strong>
@@ -2514,6 +2581,7 @@ export default function VineGuardianAnalytics() {
                   {siteVisualSaving && siteVisualSavingTarget === "activities-gallery" ? "Publishing..." : "Publish visuals"}
                 </button>
               </div>
+              {renderSiteVisualNotice("activities-gallery")}
               <div className="guardian-news-runtime">
                 <span>
                   Activities banner: <strong>{siteVisualForm.activities_banner_url ? "Live" : "Default"}</strong>
@@ -2528,87 +2596,132 @@ export default function VineGuardianAnalytics() {
             </div>
           </div>
 
-          <div className="guardian-news-card guardian-auth-theme-card">
-            <span className="guardian-news-label">ARK Auth Slideshow</span>
-            <div className="guardian-visual-usage">
-              <span className="guardian-visual-usage-pill">Admin Login</span>
-              <span className="guardian-visual-usage-pill">Teacher Login</span>
-              <span className="guardian-visual-usage-pill">Teacher Signup</span>
-              <span className="guardian-visual-usage-pill">Teacher Reset</span>
-            </div>
-            <div className="guardian-slide-grid">
-              {(siteVisualForm.ark_auth_slides || []).map((slideUrl, index) => (
-                <div key={`${slideUrl}-${index}`} className="guardian-slide-chip">
-                  <img src={slideUrl} alt={`Ark slide ${index + 1}`} loading="lazy" />
-                  <button
-                    type="button"
-                    className="guardian-slide-remove"
-                    onClick={() => removeArkAuthSlide(slideUrl)}
-                  >
-                    Remove
-                  </button>
-                </div>
-              ))}
-            </div>
-            <label className="guardian-auth-upload-shell">
-              <span className="guardian-auth-upload-label">Add slides for ARK admin and teacher auth screens</span>
-              <input
-                className="guardian-auth-upload-input"
-                type="file"
-                accept="image/*,.heic,.heif"
-                multiple
-                onChange={handleSiteSlidesPick}
-              />
-              <span className="guardian-auth-upload-cta">Choose slideshow images</span>
-              <span className="guardian-auth-upload-copy">
-                {siteSlideFiles.length
-                  ? `${siteSlideFiles.length} new slide${siteSlideFiles.length === 1 ? "" : "s"} ready`
-                  : "No new slideshow images selected"}
-              </span>
-            </label>
-            {siteSlideFiles.length > 0 && (
-              <button
-                type="button"
-                className="guardian-csv-btn guardian-auth-clear"
-                onClick={() => setSiteSlideFiles([])}
-              >
-                Clear new slides
-              </button>
-            )}
-            <div className="guardian-news-runtime">
-              <span>
-                ARK visuals updated: <strong>{siteVisualSettings?.updated_at ? formatAgo(siteVisualSettings.updated_at) : "Not yet"}</strong>
-              </span>
-              <span>
-                ARK slides live: <strong>{(siteVisualForm.ark_auth_slides || []).length}</strong>
-              </span>
-              <span>
-                Covers: <strong>ARK admin / teacher auth</strong>
-              </span>
-            </div>
-            <div className="guardian-news-actions">
-              <button
-                type="button"
-                className="guardian-csv-btn guardian-news-save-hot"
-                disabled={siteVisualSaving}
-                onClick={() => saveSiteVisuals("ark-slides")}
-              >
-                {siteVisualSaving && siteVisualSavingTarget === "ark-slides" ? "Publishing..." : "Publish visuals"}
-              </button>
-            </div>
-            {siteVisualNotice && (
-              <div className={`guardian-auth-notice ${siteVisualNotice.kind}`}>
-                <span>{siteVisualNotice.kind === "success" ? "Done" : "Heads up"}</span>
-                <strong>{siteVisualNotice.message}</strong>
+          <div className="guardian-site-visual-stack">
+            <div className="guardian-news-card guardian-auth-theme-card">
+              <span className="guardian-news-label">ARK Auth Slideshow</span>
+              <div className="guardian-visual-usage">
+                <span className="guardian-visual-usage-pill">Admin Login</span>
+                <span className="guardian-visual-usage-pill">Teacher Login</span>
+                <span className="guardian-visual-usage-pill">Teacher Signup</span>
+                <span className="guardian-visual-usage-pill">Teacher Reset</span>
+              </div>
+              <div className="guardian-slide-grid">
+                {(siteVisualForm.ark_auth_slides || []).map((slideUrl, index) => (
+                  <div key={`${slideUrl}-${index}`} className="guardian-slide-chip">
+                    <img src={slideUrl} alt={`Ark slide ${index + 1}`} loading="lazy" />
+                    <button
+                      type="button"
+                      className="guardian-slide-remove"
+                      onClick={() => removeArkAuthSlide(slideUrl)}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <label className="guardian-auth-upload-shell">
+                <span className="guardian-auth-upload-label">Add slides for ARK admin and teacher auth screens</span>
+                <input
+                  className="guardian-auth-upload-input"
+                  type="file"
+                  accept="image/*,.heic,.heif"
+                  multiple
+                  onChange={handleSiteSlidesPick}
+                />
+                <span className="guardian-auth-upload-cta">Choose slideshow images</span>
+                <span className="guardian-auth-upload-copy">
+                  {siteSlideFiles.length
+                    ? `${siteSlideFiles.length} new slide${siteSlideFiles.length === 1 ? "" : "s"} ready`
+                    : "No new slideshow images selected"}
+                </span>
+              </label>
+              {siteSlideFiles.length > 0 && (
                 <button
                   type="button"
-                  className="guardian-auth-notice-close"
-                  onClick={() => setSiteVisualNotice(null)}
+                  className="guardian-csv-btn guardian-auth-clear"
+                  onClick={() => setSiteSlideFiles([])}
                 >
-                  Okay
+                  Clear new slides
+                </button>
+              )}
+              <div className="guardian-news-runtime">
+                <span>
+                  ARK visuals updated: <strong>{siteVisualSettings?.updated_at ? formatAgo(siteVisualSettings.updated_at) : "Not yet"}</strong>
+                </span>
+                <span>
+                  ARK slides live: <strong>{(siteVisualForm.ark_auth_slides || []).length}</strong>
+                </span>
+                <span>
+                  Covers: <strong>ARK admin / teacher auth</strong>
+                </span>
+              </div>
+              <div className="guardian-news-actions">
+                <button
+                  type="button"
+                  className="guardian-csv-btn guardian-news-save-hot"
+                  disabled={siteVisualSaving}
+                  onClick={() => saveSiteVisuals("ark-slides")}
+                >
+                  {siteVisualSaving && siteVisualSavingTarget === "ark-slides" ? "Publishing..." : "Publish visuals"}
                 </button>
               </div>
-            )}
+              {renderSiteVisualNotice("ark-slides")}
+            </div>
+
+            <div className="guardian-news-card guardian-auth-theme-card">
+              <span className="guardian-news-label">Contact Hero</span>
+              <div
+                className="guardian-site-hero-preview guardian-site-contact-preview"
+                style={{ "--guardian-site-hero": `url(${siteContactHeroPreviewUrl})` }}
+              >
+                <div className="guardian-site-hero-copy">
+                  <strong>Get in touch banner</strong>
+                  <span>This controls the Contact / Get in touch hero image on the website.</span>
+                </div>
+              </div>
+              <label className="guardian-auth-upload-shell">
+                <span className="guardian-auth-upload-label">Upload Contact hero</span>
+                <input
+                  className="guardian-auth-upload-input"
+                  type="file"
+                  accept="image/*,.heic,.heif"
+                  onChange={handleContactHeroPick}
+                />
+                <span className="guardian-auth-upload-cta">Choose Contact image</span>
+                <span className="guardian-auth-upload-copy">
+                  {siteContactHeroFile ? siteContactHeroFile.name : "No new Contact image selected"}
+                </span>
+              </label>
+              <div className="guardian-news-actions guardian-site-card-actions">
+                {siteContactHeroFile && (
+                  <button
+                    type="button"
+                    className="guardian-csv-btn guardian-auth-clear"
+                    onClick={() => setSiteContactHeroFile(null)}
+                  >
+                    Clear selection
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="guardian-csv-btn guardian-news-save-hot"
+                  disabled={siteVisualSaving}
+                  onClick={() => saveSiteVisuals("contact-hero")}
+                >
+                  {siteVisualSaving && siteVisualSavingTarget === "contact-hero" ? "Publishing..." : "Publish visuals"}
+                </button>
+              </div>
+              {renderSiteVisualNotice("contact-hero")}
+              <div className="guardian-news-runtime">
+                <span>
+                  Contact hero: <strong>{siteVisualForm.contact_hero_url ? "Live" : "Default"}</strong>
+                </span>
+                <span>
+                  Covers: <strong>Contact / Get in touch</strong>
+                </span>
+              </div>
+            </div>
+
           </div>
         </div>
       </div>

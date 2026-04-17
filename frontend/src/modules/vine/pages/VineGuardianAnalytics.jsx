@@ -53,6 +53,7 @@ const DEFAULT_SITE_VISUAL_FORM = {
   ark_auth_slides: DEFAULT_SITE_VISUALS.ark_auth_slides,
   activities_banner_url: DEFAULT_SITE_VISUALS.activities_banner_url,
   activities_gallery: DEFAULT_ACTIVITY_GALLERY_IMAGES,
+  activities_latest_batch: DEFAULT_SITE_VISUALS.activities_latest_batch,
 };
 
 const isGuardianUser = (user) => {
@@ -158,6 +159,7 @@ export default function VineGuardianAnalytics() {
   const [draggedActivityIndex, setDraggedActivityIndex] = useState(null);
   const [dragOverActivityIndex, setDragOverActivityIndex] = useState(null);
   const [siteVisualSaving, setSiteVisualSaving] = useState(false);
+  const [siteVisualSavingTarget, setSiteVisualSavingTarget] = useState("");
   const [siteVisualNotice, setSiteVisualNotice] = useState(null);
   const [lifecycleAnalytics, setLifecycleAnalytics] = useState(createLifecycleAnalyticsState);
   const [from, setFrom] = useState(() => {
@@ -545,6 +547,10 @@ export default function VineGuardianAnalytics() {
         Array.isArray(source.activities_gallery) && source.activities_gallery.length
           ? source.activities_gallery.map((item) => String(item || "").trim()).filter(Boolean)
           : DEFAULT_SITE_VISUAL_FORM.activities_gallery,
+      activities_latest_batch:
+        Array.isArray(source.activities_latest_batch) && source.activities_latest_batch.length
+          ? source.activities_latest_batch.map((item) => String(item || "").trim()).filter(Boolean)
+          : DEFAULT_SITE_VISUAL_FORM.activities_latest_batch,
     });
   }, [data?.siteVisualSettings]);
 
@@ -1039,6 +1045,7 @@ export default function VineGuardianAnalytics() {
     setSiteVisualForm((prev) => ({
       ...prev,
       activities_gallery: (prev.activities_gallery || []).filter((url) => url !== targetUrl),
+      activities_latest_batch: (prev.activities_latest_batch || []).filter((url) => url !== targetUrl),
     }));
   };
 
@@ -1145,15 +1152,17 @@ export default function VineGuardianAnalytics() {
     setSiteActivitiesGalleryFiles(normalizedFiles);
   };
 
-  const saveSiteVisuals = async () => {
+  const saveSiteVisuals = async (target = "site-visuals") => {
     try {
       setSiteVisualSaving(true);
+      setSiteVisualSavingTarget(target);
       setSiteVisualNotice(null);
       let nextHomeHeroUrl = siteVisualForm.home_hero_url;
       let nextBoardingLoginUrl = siteVisualForm.boarding_login_url;
       let nextArkSlides = [...(siteVisualForm.ark_auth_slides || [])];
       let nextActivitiesBannerUrl = siteVisualForm.activities_banner_url;
       let nextActivitiesGallery = [...(siteVisualForm.activities_gallery || [])];
+      let nextActivitiesLatestBatch = [...(siteVisualForm.activities_latest_batch || [])];
 
       if (siteHeroFile) {
         const formData = new FormData();
@@ -1257,10 +1266,14 @@ export default function VineGuardianAnalytics() {
           });
           return;
         }
+        const uploadedActivitiesUrls = (uploadBody?.urls || [])
+          .map((item) => String(item || "").trim())
+          .filter(Boolean);
         nextActivitiesGallery = [
-          ...((uploadBody?.urls || []).map((item) => String(item || "").trim()).filter(Boolean)),
+          ...uploadedActivitiesUrls,
           ...nextActivitiesGallery,
         ];
+        nextActivitiesLatestBatch = uploadedActivitiesUrls;
       }
 
       if (!nextArkSlides.length) {
@@ -1279,6 +1292,8 @@ export default function VineGuardianAnalytics() {
         return;
       }
 
+      nextActivitiesLatestBatch = nextActivitiesLatestBatch.filter((url) => nextActivitiesGallery.includes(url));
+
       const res = await fetch(`${API}/api/vine/site-visuals/settings`, {
         method: "PUT",
         headers: {
@@ -1291,6 +1306,7 @@ export default function VineGuardianAnalytics() {
           ark_auth_slides: nextArkSlides,
           activities_banner_url: nextActivitiesBannerUrl,
           activities_gallery: nextActivitiesGallery,
+          activities_latest_batch: nextActivitiesLatestBatch,
         }),
       });
       const body = await res.json().catch(() => ({}));
@@ -1322,12 +1338,14 @@ export default function VineGuardianAnalytics() {
       });
     } finally {
       setSiteVisualSaving(false);
+      setSiteVisualSavingTarget("");
     }
   };
 
   const resetActivitiesVisuals = async () => {
     try {
       setSiteVisualSaving(true);
+      setSiteVisualSavingTarget("activities-reset");
       setSiteVisualNotice(null);
       const res = await fetch(`${API}/api/vine/site-visuals/settings`, {
         method: "PUT",
@@ -1341,6 +1359,7 @@ export default function VineGuardianAnalytics() {
           ark_auth_slides: siteVisualForm.ark_auth_slides,
           activities_banner_url: DEFAULT_SITE_VISUAL_FORM.activities_banner_url,
           activities_gallery: DEFAULT_SITE_VISUAL_FORM.activities_gallery,
+          activities_latest_batch: DEFAULT_SITE_VISUAL_FORM.activities_latest_batch,
         }),
       });
       const body = await res.json().catch(() => ({}));
@@ -1369,6 +1388,7 @@ export default function VineGuardianAnalytics() {
       });
     } finally {
       setSiteVisualSaving(false);
+      setSiteVisualSavingTarget("");
     }
   };
 
@@ -2309,9 +2329,9 @@ export default function VineGuardianAnalytics() {
                   type="button"
                   className="guardian-csv-btn guardian-news-save-hot"
                   disabled={siteVisualSaving}
-                  onClick={saveSiteVisuals}
+                  onClick={() => saveSiteVisuals("home-hero")}
                 >
-                  {siteVisualSaving ? "Publishing..." : "Publish visuals"}
+                  {siteVisualSaving && siteVisualSavingTarget === "home-hero" ? "Publishing..." : "Publish visuals"}
                 </button>
               </div>
             </div>
@@ -2354,9 +2374,9 @@ export default function VineGuardianAnalytics() {
                   type="button"
                   className="guardian-csv-btn guardian-news-save-hot"
                   disabled={siteVisualSaving}
-                  onClick={saveSiteVisuals}
+                  onClick={() => saveSiteVisuals("boarding-cover")}
                 >
-                  {siteVisualSaving ? "Publishing..." : "Publish visuals"}
+                  {siteVisualSaving && siteVisualSavingTarget === "boarding-cover" ? "Publishing..." : "Publish visuals"}
                 </button>
               </div>
               <div className="guardian-news-runtime">
@@ -2483,15 +2503,15 @@ export default function VineGuardianAnalytics() {
                   disabled={siteVisualSaving}
                   onClick={resetActivitiesVisuals}
                 >
-                  Reset Activities
+                  {siteVisualSaving && siteVisualSavingTarget === "activities-reset" ? "Resetting..." : "Reset Activities"}
                 </button>
                 <button
                   type="button"
                   className="guardian-csv-btn guardian-news-save-hot"
                   disabled={siteVisualSaving}
-                  onClick={saveSiteVisuals}
+                  onClick={() => saveSiteVisuals("activities-gallery")}
                 >
-                  {siteVisualSaving ? "Publishing..." : "Publish visuals"}
+                  {siteVisualSaving && siteVisualSavingTarget === "activities-gallery" ? "Publishing..." : "Publish visuals"}
                 </button>
               </div>
               <div className="guardian-news-runtime">
@@ -2571,9 +2591,9 @@ export default function VineGuardianAnalytics() {
                 type="button"
                 className="guardian-csv-btn guardian-news-save-hot"
                 disabled={siteVisualSaving}
-                onClick={saveSiteVisuals}
+                onClick={() => saveSiteVisuals("ark-slides")}
               >
-                {siteVisualSaving ? "Publishing..." : "Publish visuals"}
+                {siteVisualSaving && siteVisualSavingTarget === "ark-slides" ? "Publishing..." : "Publish visuals"}
               </button>
             </div>
             {siteVisualNotice && (

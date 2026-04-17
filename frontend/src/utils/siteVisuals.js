@@ -35,6 +35,7 @@ export const DEFAULT_SITE_VISUALS = {
   ark_auth_slides: Array.from({ length: 11 }, (_, index) => `/slide${index + 1}.jpg`),
   activities_banner_url: "/newactivities/cov.jpg",
   activities_gallery: DEFAULT_ACTIVITY_GALLERY_IMAGES,
+  activities_latest_batch: DEFAULT_ACTIVITY_GALLERY_IMAGES.slice(0, 6),
 };
 
 let siteVisualCache = DEFAULT_SITE_VISUALS;
@@ -46,7 +47,10 @@ const normalizeSiteVisuals = (value = {}) => {
     ? value.ark_auth_slides.map((item) => String(item || "").trim()).filter(Boolean).slice(0, 12)
     : [];
   const activitiesGallery = Array.isArray(value.activities_gallery)
-    ? value.activities_gallery.map((item) => String(item || "").trim()).filter(Boolean).slice(0, 48)
+    ? value.activities_gallery.map((item) => String(item || "").trim()).filter(Boolean)
+    : [];
+  const activitiesLatestBatch = Array.isArray(value.activities_latest_batch)
+    ? value.activities_latest_batch.map((item) => String(item || "").trim()).filter(Boolean)
     : [];
   return {
     home_hero_url:
@@ -61,6 +65,10 @@ const normalizeSiteVisuals = (value = {}) => {
       DEFAULT_SITE_VISUALS.activities_banner_url,
     activities_gallery:
       activitiesGallery.length ? activitiesGallery : DEFAULT_SITE_VISUALS.activities_gallery,
+    activities_latest_batch:
+      activitiesLatestBatch.length
+        ? activitiesLatestBatch
+        : (activitiesGallery.length ? activitiesGallery.slice(0, 6) : DEFAULT_SITE_VISUALS.activities_latest_batch),
   };
 };
 

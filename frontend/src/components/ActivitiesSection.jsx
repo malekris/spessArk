@@ -9,7 +9,11 @@ export default function ActivitiesSection() {
   const images = Array.isArray(siteVisuals?.activities_gallery)
     ? siteVisuals.activities_gallery
     : [];
-  const latestCutoff = Math.min(images.length, ACTIVITIES_LATEST_BADGE_COUNT);
+  const latestImageUrls = new Set(
+    Array.isArray(siteVisuals?.activities_latest_batch) && siteVisuals.activities_latest_batch.length
+      ? siteVisuals.activities_latest_batch
+      : images.slice(0, ACTIVITIES_LATEST_BADGE_COUNT)
+  );
   const activitiesBannerUrl = siteVisuals?.activities_banner_url || "/newactivities/cov.jpg";
 
   const [activeIndex, setActiveIndex] = useState(null);
@@ -100,7 +104,7 @@ export default function ActivitiesSection() {
         <div className="activities-grid">
           {images.map((src, i) => (
             <div key={i} className="activity-card" onClick={() => setActiveIndex(i)}>
-              {i < latestCutoff && <div className="activity-badge">Latest</div>}
+              {latestImageUrls.has(src) && <div className="activity-badge">Latest</div>}
               <img src={src} alt={`Activity ${i + 1}`} loading="lazy" />
               <div className="card-overlay">VIEW</div>
             </div>
@@ -136,7 +140,7 @@ export default function ActivitiesSection() {
           />
 
           <div className="lightbox-counter">{activeIndex + 1} / {images.length}</div>
-          {activeIndex < latestCutoff && <div className="lightbox-badge">Latest Activity</div>}
+          {latestImageUrls.has(images[activeIndex]) && <div className="lightbox-badge">Latest Activity</div>}
         </div>
       )}
     </section>

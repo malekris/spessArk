@@ -227,6 +227,7 @@ const VINE_SITE_VISUAL_DEFAULT_ACTIVITIES_GALLERY = [
   "/newactivities/IMG_5117.jpg",
   ...Array.from({ length: 20 }, (_, index) => `/image${index + 1}.jpg`),
 ];
+const VINE_SITE_VISUAL_DEFAULT_ACTIVITIES_LATEST_BATCH = VINE_SITE_VISUAL_DEFAULT_ACTIVITIES_GALLERY.slice(0, 6);
 const VINE_AUTH_THEME_EFFECT_OPTIONS = new Set([
   "clean",
   "cinematic",
@@ -3125,8 +3126,23 @@ const normalizeSiteVisualSettings = (value = {}) => {
   }
   const cleanedActivitiesGallery = activitiesGallery
     .map((item) => String(item || "").trim())
+    .filter(Boolean);
+  let activitiesLatestBatch = value.activities_latest_batch;
+  if (typeof activitiesLatestBatch === "string") {
+    try {
+      activitiesLatestBatch = JSON.parse(activitiesLatestBatch);
+    } catch {
+      activitiesLatestBatch = [];
+    }
+  }
+  if (!Array.isArray(activitiesLatestBatch)) {
+    activitiesLatestBatch = [];
+  }
+  const cleanedActivitiesLatestBatch = activitiesLatestBatch
+    .map((item) => String(item || "").trim())
     .filter(Boolean)
-    .slice(0, 48);
+    .filter((url, index, array) => array.indexOf(url) === index)
+    .filter((url) => cleanedActivitiesGallery.includes(url));
 
   return {
     home_hero_url: homeHeroUrl || VINE_SITE_VISUAL_DEFAULT_HOME_HERO_URL,
@@ -3139,6 +3155,12 @@ const normalizeSiteVisualSettings = (value = {}) => {
       cleanedActivitiesGallery.length
         ? cleanedActivitiesGallery
         : [...VINE_SITE_VISUAL_DEFAULT_ACTIVITIES_GALLERY],
+    activities_latest_batch:
+      cleanedActivitiesLatestBatch.length
+        ? cleanedActivitiesLatestBatch
+        : (cleanedActivitiesGallery.length
+            ? cleanedActivitiesGallery.slice(0, 6)
+            : [...VINE_SITE_VISUAL_DEFAULT_ACTIVITIES_LATEST_BATCH]),
     updated_by: value.updated_by ? Number(value.updated_by) : null,
     updated_at: value.updated_at || null,
   };
@@ -3156,6 +3178,7 @@ const ensureSiteVisualSettingsSchema = async () => {
       ark_auth_slides_json LONGTEXT NOT NULL,
       activities_banner_url VARCHAR(1000) NOT NULL,
       activities_gallery_json LONGTEXT NULL,
+      activities_latest_batch_json LONGTEXT NULL,
       updated_by INT NULL,
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
@@ -3178,6 +3201,12 @@ const ensureSiteVisualSettingsSchema = async () => {
     "activities_gallery_json",
     "LONGTEXT NULL"
   );
+  await ensureColumnExists(
+    dbName,
+    "vine_site_visual_settings",
+    "activities_latest_batch_json",
+    "LONGTEXT NULL"
+  );
   siteVisualSettingsSchemaReady = true;
 };
 
@@ -3194,7 +3223,8 @@ const getCurrentSiteVisualSettings = async ({ force = false } = {}) => {
   const [[row]] = await db.query(
     `
     SELECT home_hero_url, boarding_login_url, ark_auth_slides_json AS ark_auth_slides,
-           activities_banner_url, activities_gallery_json AS activities_gallery, updated_by, updated_at
+           activities_banner_url, activities_gallery_json AS activities_gallery,
+           activities_latest_batch_json AS activities_latest_batch, updated_by, updated_at
     FROM vine_site_visual_settings
     WHERE id = 1
     LIMIT 1
@@ -3217,20 +3247,22 @@ const saveSiteVisualSettings = async (payload = {}, updatedBy = null) => {
     ark_auth_slides: payload.ark_auth_slides,
     activities_banner_url: payload.activities_banner_url,
     activities_gallery: payload.activities_gallery,
+    activities_latest_batch: payload.activities_latest_batch,
   });
 
   await db.query(
     `
     INSERT INTO vine_site_visual_settings
-      (id, home_hero_url, boarding_login_url, ark_auth_slides_json, activities_banner_url, activities_gallery_json, updated_by, updated_at)
+      (id, home_hero_url, boarding_login_url, ark_auth_slides_json, activities_banner_url, activities_gallery_json, activities_latest_batch_json, updated_by, updated_at)
     VALUES
-      (1, ?, ?, ?, ?, ?, ?, NOW())
+      (1, ?, ?, ?, ?, ?, ?, ?, NOW())
     ON DUPLICATE KEY UPDATE
       home_hero_url = VALUES(home_hero_url),
       boarding_login_url = VALUES(boarding_login_url),
       ark_auth_slides_json = VALUES(ark_auth_slides_json),
       activities_banner_url = VALUES(activities_banner_url),
       activities_gallery_json = VALUES(activities_gallery_json),
+      activities_latest_batch_json = VALUES(activities_latest_batch_json),
       updated_by = VALUES(updated_by),
       updated_at = NOW()
     `,
@@ -3240,6 +3272,7 @@ const saveSiteVisualSettings = async (payload = {}, updatedBy = null) => {
       JSON.stringify(merged.ark_auth_slides),
       merged.activities_banner_url,
       JSON.stringify(merged.activities_gallery),
+      JSON.stringify(merged.activities_latest_batch),
       updatedBy ? Number(updatedBy) : null,
     ]
   );
@@ -3247,7 +3280,8 @@ const saveSiteVisualSettings = async (payload = {}, updatedBy = null) => {
   const [[savedRow]] = await db.query(
     `
     SELECT home_hero_url, boarding_login_url, ark_auth_slides_json AS ark_auth_slides,
-           activities_banner_url, activities_gallery_json AS activities_gallery, updated_by, updated_at
+           activities_banner_url, activities_gallery_json AS activities_gallery,
+           activities_latest_batch_json AS activities_latest_batch, updated_by, updated_at
     FROM vine_site_visual_settings
     WHERE id = 1
     LIMIT 1
@@ -9397,6 +9431,9 @@ router.put("/site-visuals/settings", authenticate, async (req, res) => {
     const nextActivitiesGallery = Array.isArray(req.body?.activities_gallery)
       ? req.body.activities_gallery
       : current.activities_gallery;
+    const nextActivitiesLatestBatch = Array.isArray(req.body?.activities_latest_batch)
+      ? req.body.activities_latest_batch
+      : current.activities_latest_batch;
     const settings = await saveSiteVisualSettings(
       {
         home_hero_url:
@@ -9413,6 +9450,7 @@ router.put("/site-visuals/settings", authenticate, async (req, res) => {
             ? current.activities_banner_url
             : String(req.body?.activities_banner_url || "").trim(),
         activities_gallery: nextActivitiesGallery,
+        activities_latest_batch: nextActivitiesLatestBatch,
       },
       user.id || null
     );

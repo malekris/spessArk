@@ -956,9 +956,9 @@
 }
 
 .guardian-activities-grid {
-  max-height: 360px;
-  overflow-y: auto;
-  padding-right: 4px;
+  max-height: none;
+  overflow: visible;
+  padding-right: 0;
 }
 
 .guardian-activities-helper {

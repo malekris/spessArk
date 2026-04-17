@@ -2485,48 +2485,50 @@ export default function VineGuardianAnalytics() {
                 Drag the gallery cards below to change the order visitors see on the Activities page.
               </div>
 
-              <div className="guardian-slide-grid guardian-activities-grid">
-                {(siteVisualForm.activities_gallery || []).map((imageUrl, index) => (
-                  <div
-                    key={`${imageUrl}-${index}`}
-                    className={`guardian-slide-chip guardian-activities-chip ${
-                      draggedActivityIndex === index ? "dragging" : ""
-                    } ${dragOverActivityIndex === index ? "drag-target" : ""}`}
-                    draggable
-                    onDragStart={() => {
-                      setDraggedActivityIndex(index);
-                      setDragOverActivityIndex(index);
-                    }}
-                    onDragOver={(event) => {
-                      event.preventDefault();
-                      if (dragOverActivityIndex !== index) {
+              <div className="guardian-activities-scroll">
+                <div className="guardian-slide-grid guardian-activities-grid">
+                  {(siteVisualForm.activities_gallery || []).map((imageUrl, index) => (
+                    <div
+                      key={`${imageUrl}-${index}`}
+                      className={`guardian-slide-chip guardian-activities-chip ${
+                        draggedActivityIndex === index ? "dragging" : ""
+                      } ${dragOverActivityIndex === index ? "drag-target" : ""}`}
+                      draggable
+                      onDragStart={() => {
+                        setDraggedActivityIndex(index);
                         setDragOverActivityIndex(index);
-                      }
-                    }}
-                    onDrop={(event) => {
-                      event.preventDefault();
-                      if (draggedActivityIndex !== null) {
-                        reorderActivitiesImage(draggedActivityIndex, index);
-                      }
-                      setDraggedActivityIndex(null);
-                      setDragOverActivityIndex(null);
-                    }}
-                    onDragEnd={() => {
-                      setDraggedActivityIndex(null);
-                      setDragOverActivityIndex(null);
-                    }}
-                  >
-                    <span className="guardian-activities-chip-order">#{index + 1}</span>
-                    <img src={imageUrl} alt={`Activity ${index + 1}`} loading="lazy" />
-                    <button
-                      type="button"
-                      className="guardian-slide-remove"
-                      onClick={() => removeActivitiesImage(imageUrl)}
+                      }}
+                      onDragOver={(event) => {
+                        event.preventDefault();
+                        if (dragOverActivityIndex !== index) {
+                          setDragOverActivityIndex(index);
+                        }
+                      }}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        if (draggedActivityIndex !== null) {
+                          reorderActivitiesImage(draggedActivityIndex, index);
+                        }
+                        setDraggedActivityIndex(null);
+                        setDragOverActivityIndex(null);
+                      }}
+                      onDragEnd={() => {
+                        setDraggedActivityIndex(null);
+                        setDragOverActivityIndex(null);
+                      }}
                     >
-                      Remove
-                    </button>
-                  </div>
-                ))}
+                      <span className="guardian-activities-chip-order">#{index + 1}</span>
+                      <img src={imageUrl} alt={`Activity ${index + 1}`} loading="lazy" />
+                      <button
+                        type="button"
+                        className="guardian-slide-remove"
+                        onClick={() => removeActivitiesImage(imageUrl)}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
               </div>
 
               <label className="guardian-auth-upload-shell">

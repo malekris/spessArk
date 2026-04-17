@@ -981,10 +981,50 @@
   gap: 10px;
 }
 
+.guardian-activities-scroll {
+  max-height: 420px;
+  overflow: auto;
+  padding: 2px 8px 8px 2px;
+  border: 1px solid rgba(16, 185, 129, 0.12);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.48);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(6, 95, 70, 0.58) rgba(209, 250, 229, 0.72);
+}
+
+.guardian-activities-scroll::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+
+.guardian-activities-scroll::-webkit-scrollbar-track {
+  background: linear-gradient(180deg, rgba(236, 253, 245, 0.88), rgba(209, 250, 229, 0.68));
+  border-radius: 999px;
+}
+
+.guardian-activities-scroll::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(6, 95, 70, 0.84), rgba(4, 120, 87, 0.94));
+  border-radius: 999px;
+  border: 2px solid rgba(236, 253, 245, 0.86);
+}
+
 .guardian-activities-grid {
-  max-height: none;
-  overflow: visible;
-  padding-right: 0;
+  grid-template-columns: repeat(4, minmax(132px, 132px));
+  width: max-content;
+  min-width: 100%;
+  align-content: start;
+}
+
+@media (max-width: 1280px) {
+  .guardian-activities-grid {
+    grid-template-columns: repeat(3, minmax(132px, 132px));
+  }
+}
+
+@media (max-width: 720px) {
+  .guardian-activities-grid {
+    grid-template-columns: repeat(2, minmax(132px, 132px));
+  }
 }
 
 .guardian-activities-helper {

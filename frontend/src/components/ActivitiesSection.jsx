@@ -3,6 +3,8 @@ import "./ActivitiesSection.css";
 import { useSiteVisuals } from "../utils/siteVisuals";
 
 const ACTIVITIES_LATEST_BADGE_COUNT = 6;
+const INITIAL_VISIBLE_ACTIVITY_IMAGES = 30;
+const ACTIVITY_SHOW_MORE_STEP = 24;
 
 export default function ActivitiesSection() {
   const siteVisuals = useSiteVisuals();
@@ -18,9 +20,12 @@ export default function ActivitiesSection() {
 
   const [activeIndex, setActiveIndex] = useState(null);
   const [showHint, setShowHint] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(0);
   const startX = useRef(0);
   const endX = useRef(0);
   const pressTimer = useRef(null);
+  const visibleImages = images.slice(0, visibleCount || Math.min(INITIAL_VISIBLE_ACTIVITY_IMAGES, images.length));
+  const hasMoreImages = visibleImages.length < images.length;
 
   const closeLightbox = () => {
     setActiveIndex(null);
@@ -86,6 +91,26 @@ export default function ActivitiesSection() {
     }
   }, [activeIndex]);
 
+  useEffect(() => {
+    if (!images.length) {
+      setVisibleCount(0);
+      return;
+    }
+
+    setVisibleCount((prev) => {
+      const initialVisible = Math.min(INITIAL_VISIBLE_ACTIVITY_IMAGES, images.length);
+      if (!prev) return initialVisible;
+      if (prev > images.length) return images.length;
+      return prev;
+    });
+  }, [images.length]);
+
+  const handleShowMore = () => {
+    setVisibleCount((prev) =>
+      Math.min(images.length, Math.max(prev, INITIAL_VISIBLE_ACTIVITY_IMAGES) + ACTIVITY_SHOW_MORE_STEP)
+    );
+  };
+
   return (
     <section id="activities" className="activities-section">
       {/* CINEMATIC BANNER */}
@@ -101,8 +126,15 @@ export default function ActivitiesSection() {
 
       {/* GALLERY GRID */}
       <div className="activities-container">
+        {images.length > INITIAL_VISIBLE_ACTIVITY_IMAGES && (
+          <div className="activities-gallery-meta">
+            <span>
+              Showing <strong>{visibleImages.length}</strong> of <strong>{images.length}</strong> activity photos
+            </span>
+          </div>
+        )}
         <div className="activities-grid">
-          {images.map((src, i) => (
+          {visibleImages.map((src, i) => (
             <div key={i} className="activity-card" onClick={() => setActiveIndex(i)}>
               {latestImageUrls.has(src) && <div className="activity-badge">Latest</div>}
               <img src={src} alt={`Activity ${i + 1}`} loading="lazy" />
@@ -110,6 +142,13 @@ export default function ActivitiesSection() {
             </div>
           ))}
         </div>
+        {hasMoreImages && (
+          <div className="activities-more-wrap">
+            <button type="button" className="activities-more-btn" onClick={handleShowMore}>
+              Show more
+            </button>
+          </div>
+        )}
       </div>
 
       {/* LIGHTBOX */}

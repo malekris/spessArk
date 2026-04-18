@@ -44,6 +44,19 @@
   padding: 0 2rem 5rem;
 }
 
+.activities-gallery-meta {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0 0 1rem;
+  color: rgba(241, 245, 249, 0.72);
+  font-size: 0.92rem;
+  letter-spacing: 0.02em;
+}
+
+.activities-gallery-meta strong {
+  color: #ffffff;
+}
+
 .activities-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -111,6 +124,39 @@
 
 .activity-card:hover .card-overlay {
   opacity: 1;
+}
+
+.activities-more-wrap {
+  display: flex;
+  justify-content: center;
+  margin-top: 2rem;
+}
+
+.activities-more-btn {
+  border: 1px solid rgba(167, 139, 250, 0.34);
+  background:
+    radial-gradient(circle at top, rgba(167, 139, 250, 0.18), transparent 54%),
+    linear-gradient(180deg, rgba(20, 27, 38, 0.96), rgba(12, 17, 25, 0.98));
+  color: #f8fafc;
+  padding: 0.95rem 1.65rem;
+  border-radius: 999px;
+  font-size: 0.84rem;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  cursor: pointer;
+  box-shadow:
+    0 18px 32px rgba(0, 0, 0, 0.26),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
+}
+
+.activities-more-btn:hover {
+  transform: translateY(-2px);
+  border-color: rgba(167, 139, 250, 0.62);
+  box-shadow:
+    0 22px 40px rgba(0, 0, 0, 0.3),
+    0 0 24px rgba(167, 139, 250, 0.18);
 }
 
 /* LIGHTBOX */
@@ -225,6 +271,11 @@
     gap: 0.75rem; 
   }
   .activities-container { padding: 0 1rem; }
+  .activities-gallery-meta {
+    justify-content: flex-start;
+    margin-bottom: 0.9rem;
+    font-size: 0.82rem;
+  }
   
   .lightbox-controls {
     top: auto;
@@ -250,6 +301,11 @@
     left: 1rem;
     font-size: 0.66rem;
     padding: 0.42rem 0.8rem;
+  }
+  .activities-more-btn {
+    width: 100%;
+    max-width: 320px;
+    padding: 1rem 1.2rem;
   }
 }
 

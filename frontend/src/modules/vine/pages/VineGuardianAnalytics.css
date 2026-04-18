@@ -865,24 +865,155 @@
   background: linear-gradient(180deg, rgba(255, 250, 250, 0.98), rgba(254, 242, 242, 0.95));
 }
 
-.guardian-site-visual-notice {
-  margin-top: 2px;
-  border-radius: 18px;
+.guardian-site-visual-toast-shell {
+  position: fixed;
+  top: calc(18px + env(safe-area-inset-top, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2400;
+  width: min(620px, calc(100vw - 28px));
+  pointer-events: none;
+}
+
+.guardian-site-visual-toast {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 18px;
+  border-radius: 24px;
+  overflow: hidden;
+  border: 1px solid rgba(110, 231, 183, 0.26);
   background:
-    radial-gradient(circle at top right, rgba(251, 191, 36, 0.16), transparent 34%),
-    linear-gradient(180deg, rgba(248, 255, 251, 0.99), rgba(236, 253, 245, 0.96));
+    radial-gradient(circle at top right, rgba(251, 191, 36, 0.28), transparent 34%),
+    linear-gradient(135deg, rgba(2, 24, 17, 0.96), rgba(6, 78, 59, 0.92) 58%, rgba(3, 18, 12, 0.96));
   box-shadow:
-    0 18px 32px rgba(16, 185, 129, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+    0 24px 58px rgba(0, 0, 0, 0.32),
+    0 10px 28px rgba(5, 150, 105, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  pointer-events: auto;
+  animation: guardianVisualToastIn 220ms ease-out;
 }
 
-.guardian-site-visual-notice.success {
-  border-color: rgba(16, 185, 129, 0.24);
+.guardian-site-visual-toast.error {
+  border-color: rgba(252, 165, 165, 0.34);
+  background:
+    radial-gradient(circle at top right, rgba(252, 211, 77, 0.12), transparent 34%),
+    linear-gradient(135deg, rgba(49, 12, 14, 0.97), rgba(127, 29, 29, 0.92) 58%, rgba(34, 12, 12, 0.97));
+  box-shadow:
+    0 24px 58px rgba(0, 0, 0, 0.28),
+    0 10px 28px rgba(127, 29, 29, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }
 
-.guardian-site-visual-notice.success span {
-  background: linear-gradient(180deg, rgba(251, 191, 36, 0.22), rgba(245, 158, 11, 0.18));
-  color: #92400e;
+.guardian-site-visual-toast-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: start;
+  min-width: 96px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  background: linear-gradient(180deg, rgba(254, 240, 138, 0.92), rgba(245, 158, 11, 0.88));
+  color: #3f2a04;
+  font-size: 0.74rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.42);
+}
+
+.guardian-site-visual-toast.error .guardian-site-visual-toast-mark {
+  border-color: rgba(254, 202, 202, 0.24);
+  background: linear-gradient(180deg, rgba(254, 226, 226, 0.92), rgba(248, 113, 113, 0.9));
+  color: #4c0519;
+}
+
+.guardian-site-visual-toast-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.guardian-site-visual-toast-copy strong {
+  color: #f0fdf4;
+  font-size: 1rem;
+  line-height: 1.25;
+}
+
+.guardian-site-visual-toast-copy span {
+  color: rgba(220, 252, 231, 0.86);
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+.guardian-site-visual-toast-close {
+  border: 1px solid rgba(236, 253, 245, 0.18);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  padding: 11px 16px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: transform 0.16s ease, background 0.16s ease, border-color 0.16s ease;
+}
+
+.guardian-site-visual-toast-close:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.24);
+}
+
+.guardian-site-visual-toast-progress {
+  grid-column: 1 / -1;
+  position: relative;
+  height: 4px;
+  margin-top: 2px;
+  border-radius: 999px;
+  background: rgba(236, 253, 245, 0.14);
+  overflow: hidden;
+}
+
+.guardian-site-visual-toast-progress span {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(252, 211, 77, 0.98), rgba(110, 231, 183, 0.95));
+  transform-origin: left center;
+  animation: guardianVisualToastDrain var(--guardian-visual-toast-duration, 4500ms) linear forwards;
+  box-shadow: 0 0 16px rgba(110, 231, 183, 0.34);
+}
+
+.guardian-site-visual-toast.error .guardian-site-visual-toast-progress {
+  background: rgba(254, 226, 226, 0.16);
+}
+
+.guardian-site-visual-toast.error .guardian-site-visual-toast-progress span {
+  background: linear-gradient(90deg, rgba(252, 211, 77, 0.92), rgba(252, 165, 165, 0.94));
+  box-shadow: 0 0 16px rgba(248, 113, 113, 0.26);
+}
+
+@keyframes guardianVisualToastIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes guardianVisualToastDrain {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
 }
 
 .guardian-auth-notice span {
@@ -919,6 +1050,23 @@
   padding: 10px 16px;
   font-weight: 800;
   cursor: pointer;
+}
+
+@media (max-width: 720px) {
+  .guardian-site-visual-toast {
+    grid-template-columns: 1fr;
+    gap: 12px;
+    padding: 15px 15px 14px;
+  }
+
+  .guardian-site-visual-toast-mark {
+    min-width: 0;
+    justify-self: start;
+  }
+
+  .guardian-site-visual-toast-close {
+    width: 100%;
+  }
 }
 
 .guardian-site-hero-preview {

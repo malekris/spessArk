@@ -16,6 +16,17 @@ import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client
 import { getGuardianPerfSnapshot, recordPerfQuery, recordPerfRoute } from "./perfStore.js";
 
 const router = express.Router();
+const applyManagedVisualNoCache = (res) => {
+  res.set({
+    "Cache-Control": "no-cache, no-store, must-revalidate",
+    Pragma: "no-cache",
+    Expires: "0",
+  });
+};
+const managedVisualNoCache = (_req, res, next) => {
+  applyManagedVisualNoCache(res);
+  next();
+};
 const SESSION_IDLE_MS = 1 * 60 * 60 * 1000;
 const JWT_SECRET = process.env.JWT_SECRET || "vine_secret_key";
 const VINE_JWT_EXPIRES_IN = process.env.VINE_JWT_EXPIRES_IN || "7d";
@@ -9166,7 +9177,7 @@ router.get("/system-notice/settings", authenticate, async (req, res) => {
   }
 });
 
-router.get("/auth-theme/settings/public", async (_req, res) => {
+router.get("/auth-theme/settings/public", managedVisualNoCache, async (_req, res) => {
   try {
     const settings = await getCurrentVineAuthTheme();
     res.json(settings);
@@ -9176,7 +9187,7 @@ router.get("/auth-theme/settings/public", async (_req, res) => {
   }
 });
 
-router.get("/auth-theme/settings", authenticate, async (req, res) => {
+router.get("/auth-theme/settings", managedVisualNoCache, authenticate, async (req, res) => {
   try {
     const user = req.user || {};
     if (!isModeratorAccount(user)) {
@@ -9193,6 +9204,7 @@ router.get("/auth-theme/settings", authenticate, async (req, res) => {
 
 router.post(
   "/auth-theme/cover",
+  managedVisualNoCache,
   authenticate,
   uploadBannerMemory.single("cover"),
   async (req, res) => {
@@ -9235,7 +9247,7 @@ router.post(
   }
 );
 
-router.put("/auth-theme/settings", authenticate, async (req, res) => {
+router.put("/auth-theme/settings", managedVisualNoCache, authenticate, async (req, res) => {
   try {
     const user = req.user || {};
     if (!isModeratorAccount(user)) {
@@ -9267,7 +9279,7 @@ router.put("/auth-theme/settings", authenticate, async (req, res) => {
   }
 });
 
-router.get("/site-visuals/public", async (_req, res) => {
+router.get("/site-visuals/public", managedVisualNoCache, async (_req, res) => {
   try {
     const settings = await getCurrentSiteVisualSettings();
     res.json(settings);
@@ -9277,7 +9289,7 @@ router.get("/site-visuals/public", async (_req, res) => {
   }
 });
 
-router.get("/site-visuals/settings", authenticate, async (req, res) => {
+router.get("/site-visuals/settings", managedVisualNoCache, authenticate, async (req, res) => {
   try {
     const user = req.user || {};
     if (!isModeratorAccount(user)) {
@@ -9293,6 +9305,7 @@ router.get("/site-visuals/settings", authenticate, async (req, res) => {
 
 router.post(
   "/site-visuals/home-hero",
+  managedVisualNoCache,
   authenticate,
   uploadBannerMemory.single("hero"),
   async (req, res) => {
@@ -9324,6 +9337,7 @@ router.post(
 
 router.post(
   "/site-visuals/boarding-login",
+  managedVisualNoCache,
   authenticate,
   uploadBannerMemory.single("boarding"),
   async (req, res) => {
@@ -9355,6 +9369,7 @@ router.post(
 
 router.post(
   "/site-visuals/activities-banner",
+  managedVisualNoCache,
   authenticate,
   uploadBannerMemory.single("banner"),
   async (req, res) => {
@@ -9386,6 +9401,7 @@ router.post(
 
 router.post(
   "/site-visuals/contact-hero",
+  managedVisualNoCache,
   authenticate,
   uploadBannerMemory.single("contact"),
   async (req, res) => {
@@ -9417,6 +9433,7 @@ router.post(
 
 router.post(
   "/site-visuals/activities-gallery",
+  managedVisualNoCache,
   authenticate,
   uploadBannerMemory.array("images", 48),
   async (req, res) => {
@@ -9453,6 +9470,7 @@ router.post(
 
 router.post(
   "/site-visuals/ark-auth-slides",
+  managedVisualNoCache,
   authenticate,
   uploadBannerMemory.array("slides", 12),
   async (req, res) => {
@@ -9487,7 +9505,7 @@ router.post(
   }
 );
 
-router.put("/site-visuals/settings", authenticate, async (req, res) => {
+router.put("/site-visuals/settings", managedVisualNoCache, authenticate, async (req, res) => {
   try {
     const user = req.user || {};
     if (!isModeratorAccount(user)) {

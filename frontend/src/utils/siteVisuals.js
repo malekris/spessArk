@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { withCacheBust } from "./cacheBust";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const SITE_VISUAL_CACHE_MS = 60 * 1000;
@@ -76,6 +77,22 @@ const normalizeSiteVisuals = (value = {}) => {
         ? activitiesLatestBatch
         : (activitiesGallery.length ? activitiesGallery.slice(0, 6) : DEFAULT_SITE_VISUALS.activities_latest_batch),
     activities_latest_day: activitiesLatestDay || null,
+    updated_at: value.updated_at || null,
+  };
+};
+
+const toRenderableSiteVisuals = (value = {}) => {
+  const normalized = normalizeSiteVisuals(value);
+  const version = normalized.updated_at || "";
+  return {
+    ...normalized,
+    home_hero_url: withCacheBust(normalized.home_hero_url, version),
+    boarding_login_url: withCacheBust(normalized.boarding_login_url, version),
+    ark_auth_slides: (normalized.ark_auth_slides || []).map((item) => withCacheBust(item, version)),
+    activities_banner_url: withCacheBust(normalized.activities_banner_url, version),
+    contact_hero_url: withCacheBust(normalized.contact_hero_url, version),
+    activities_gallery: (normalized.activities_gallery || []).map((item) => withCacheBust(item, version)),
+    activities_latest_batch: (normalized.activities_latest_batch || []).map((item) => withCacheBust(item, version)),
   };
 };
 
@@ -118,12 +135,12 @@ export const primeSiteVisualsCache = (value = {}) => {
 };
 
 export const useSiteVisuals = () => {
-  const [visuals, setVisuals] = useState(siteVisualCache || DEFAULT_SITE_VISUALS);
+  const [visuals, setVisuals] = useState(toRenderableSiteVisuals(siteVisualCache || DEFAULT_SITE_VISUALS));
 
   useEffect(() => {
     let active = true;
     fetchSiteVisuals().then((next) => {
-      if (active) setVisuals(next);
+      if (active) setVisuals(toRenderableSiteVisuals(next));
     });
     return () => {
       active = false;

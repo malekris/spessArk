@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { withCacheBust } from "../../../utils/cacheBust";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const AUTH_THEME_CACHE_MS = 60 * 1000;
@@ -23,6 +24,15 @@ const normalizeVineAuthTheme = (value = {}) => {
     cover_url: String(value.cover_url || DEFAULT_VINE_AUTH_THEME.cover_url).trim() || DEFAULT_VINE_AUTH_THEME.cover_url,
     effect_preset: AUTH_THEME_EFFECTS.includes(effect) ? effect : "clean",
     form_alignment: AUTH_THEME_ALIGNMENTS.includes(alignment) ? alignment : "right",
+    updated_at: value.updated_at || null,
+  };
+};
+
+const toRenderableVineAuthTheme = (value = {}) => {
+  const normalized = normalizeVineAuthTheme(value);
+  return {
+    ...normalized,
+    cover_url: withCacheBust(normalized.cover_url, normalized.updated_at),
   };
 };
 
@@ -57,13 +67,20 @@ export const fetchVineAuthTheme = async ({ force = false } = {}) => {
   return authThemeInFlight;
 };
 
+export const primeVineAuthThemeCache = (value = {}) => {
+  const next = normalizeVineAuthTheme(value || {});
+  authThemeCache = next;
+  authThemeLoadedAt = Date.now();
+  return next;
+};
+
 export const useVineAuthTheme = () => {
-  const [theme, setTheme] = useState(authThemeCache || DEFAULT_VINE_AUTH_THEME);
+  const [theme, setTheme] = useState(toRenderableVineAuthTheme(authThemeCache || DEFAULT_VINE_AUTH_THEME));
 
   useEffect(() => {
     let active = true;
     fetchVineAuthTheme().then((next) => {
-      if (active) setTheme(next);
+      if (active) setTheme(toRenderableVineAuthTheme(next));
     });
     return () => {
       active = false;

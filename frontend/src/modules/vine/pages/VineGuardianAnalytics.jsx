@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { loadPdfTools } from "../../../utils/loadPdfTools";
+import { withCacheBust } from "../../../utils/cacheBust";
 import {
   DEFAULT_ACTIVITY_GALLERY_IMAGES,
   DEFAULT_SITE_VISUALS,
   primeSiteVisualsCache,
 } from "../../../utils/siteVisuals";
+import { primeVineAuthThemeCache } from "../utils/authTheme";
 import { convertHeicFileToJpeg, isHeicLikeFile } from "../utils/heic";
 import "./VineGuardianAnalytics.css";
 
@@ -56,6 +58,14 @@ const DEFAULT_SITE_VISUAL_FORM = {
   activities_gallery: DEFAULT_ACTIVITY_GALLERY_IMAGES,
   activities_latest_batch: DEFAULT_SITE_VISUALS.activities_latest_batch,
   activities_latest_day: DEFAULT_SITE_VISUALS.activities_latest_day,
+};
+const SITE_VISUAL_NOTICE_DURATION_MS = 4500;
+const SITE_VISUAL_NOTICE_LABELS = {
+  "home-hero": "Homepage hero",
+  "boarding-cover": "Boarding login cover",
+  "activities-gallery": "Activities visuals",
+  "ark-slides": "ARK auth slideshow",
+  "contact-hero": "Contact hero",
 };
 
 const getKampalaDateStamp = (date = new Date()) =>
@@ -234,9 +244,11 @@ export default function VineGuardianAnalytics() {
           }),
           fetch(`${API}/api/vine/auth-theme/settings`, {
             headers: { Authorization: `Bearer ${token}` },
+            cache: "no-store",
           }),
           fetch(`${API}/api/vine/site-visuals/settings`, {
             headers: { Authorization: `Bearer ${token}` },
+            cache: "no-store",
           }),
         ]);
 
@@ -633,7 +645,7 @@ export default function VineGuardianAnalytics() {
     if (!siteVisualNotice) return undefined;
     const timer = window.setTimeout(() => {
       setSiteVisualNotice(null);
-    }, 4500);
+    }, SITE_VISUAL_NOTICE_DURATION_MS);
     return () => window.clearTimeout(timer);
   }, [siteVisualNotice]);
 
@@ -1008,7 +1020,8 @@ export default function VineGuardianAnalytics() {
         return;
       }
 
-      setData((prev) => (prev ? { ...prev, authThemeSettings: body.settings } : prev));
+      const nextSettings = primeVineAuthThemeCache(body.settings || {});
+      setData((prev) => (prev ? { ...prev, authThemeSettings: nextSettings } : prev));
       setAuthThemeCoverFile(null);
       setAuthThemeNotice({
         kind: "success",
@@ -1044,7 +1057,8 @@ export default function VineGuardianAnalytics() {
         });
         return;
       }
-      setData((prev) => (prev ? { ...prev, authThemeSettings: body.settings } : prev));
+      const nextSettings = primeVineAuthThemeCache(body.settings || {});
+      setData((prev) => (prev ? { ...prev, authThemeSettings: nextSettings } : prev));
       setAuthThemeForm(DEFAULT_AUTH_THEME_FORM);
       setAuthThemeCoverFile(null);
       setAuthThemeNotice({
@@ -1069,11 +1083,70 @@ export default function VineGuardianAnalytics() {
   };
 
   const removeActivitiesImage = (targetUrl) => {
+    const previousForm = siteVisualForm;
+    const nextGallery = (siteVisualForm.activities_gallery || []).filter((url) => url !== targetUrl);
+    const nextLatestBatch = (siteVisualForm.activities_latest_batch || []).filter((url) => url !== targetUrl);
+
+    if (!nextGallery.length) {
+      showSiteVisualNotice("activities-gallery", "error", "Please keep at least one Activities image.");
+      return;
+    }
+
     setSiteVisualForm((prev) => ({
       ...prev,
-      activities_gallery: (prev.activities_gallery || []).filter((url) => url !== targetUrl),
-      activities_latest_batch: (prev.activities_latest_batch || []).filter((url) => url !== targetUrl),
+      activities_gallery: nextGallery,
+      activities_latest_batch: nextLatestBatch,
     }));
+
+    const persistRemoval = async () => {
+      try {
+        setSiteVisualSaving(true);
+        setSiteVisualSavingTarget("activities-gallery-remove");
+        setSiteVisualNotice(null);
+
+        const res = await fetch(`${API}/api/vine/site-visuals/settings`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            home_hero_url: siteVisualSettings?.home_hero_url || siteVisualForm.home_hero_url,
+            boarding_login_url: siteVisualSettings?.boarding_login_url || siteVisualForm.boarding_login_url,
+            ark_auth_slides: siteVisualSettings?.ark_auth_slides || siteVisualForm.ark_auth_slides,
+            activities_banner_url:
+              siteVisualSettings?.activities_banner_url || siteVisualForm.activities_banner_url,
+            contact_hero_url: siteVisualSettings?.contact_hero_url || siteVisualForm.contact_hero_url,
+            activities_gallery: nextGallery,
+            activities_latest_batch: nextLatestBatch,
+            activities_latest_day:
+              siteVisualForm.activities_latest_day || siteVisualSettings?.activities_latest_day || null,
+          }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setSiteVisualForm(previousForm);
+          showSiteVisualNotice(
+            "activities-gallery",
+            "error",
+            body?.message || "Failed to remove Activities image."
+          );
+          return;
+        }
+
+        const nextSettings = primeSiteVisualsCache(body.settings || {});
+        setData((prev) => (prev ? { ...prev, siteVisualSettings: nextSettings } : prev));
+        showSiteVisualNotice("activities-gallery", "success", "Gallery image removed and published.");
+      } catch {
+        setSiteVisualForm(previousForm);
+        showSiteVisualNotice("activities-gallery", "error", "Failed to remove Activities image.");
+      } finally {
+        setSiteVisualSaving(false);
+        setSiteVisualSavingTarget("");
+      }
+    };
+
+    void persistRemoval();
   };
 
   const reorderActivitiesImage = (fromIndex, toIndex) => {
@@ -1192,24 +1265,13 @@ export default function VineGuardianAnalytics() {
   };
 
   const showSiteVisualNotice = (target, kind, message) => {
-    setSiteVisualNotice({ target, kind, message });
-  };
-
-  const renderSiteVisualNotice = (target) => {
-    if (!siteVisualNotice || siteVisualNotice.target !== target) return null;
-    return (
-      <div className={`guardian-auth-notice guardian-site-visual-notice ${siteVisualNotice.kind}`}>
-        <span>{siteVisualNotice.kind === "success" ? "Live" : "Heads up"}</span>
-        <strong>{siteVisualNotice.message}</strong>
-        <button
-          type="button"
-          className="guardian-auth-notice-close"
-          onClick={() => setSiteVisualNotice(null)}
-        >
-          Okay
-        </button>
-      </div>
-    );
+    setSiteVisualNotice({
+      target,
+      kind,
+      message,
+      shownAt: Date.now(),
+      durationMs: SITE_VISUAL_NOTICE_DURATION_MS,
+    });
   };
 
   const saveSiteVisuals = async (target = "site-visuals") => {
@@ -1545,21 +1607,35 @@ export default function VineGuardianAnalytics() {
   const newsRuntime = newsHealth?.runtime || {};
   const noticeSettings = data?.noticeSettings || null;
   const authThemeSettings = data?.authThemeSettings || null;
-  const authThemePreviewUrl = authThemeCoverPreview || authThemeForm.cover_url || "/newactivities/fffffffffff.jpg";
+  const siteVisualNoticeLabel = SITE_VISUAL_NOTICE_LABELS[siteVisualNotice?.target] || "Visuals";
+  const authThemePreviewUrl =
+    authThemeCoverPreview ||
+    withCacheBust(authThemeForm.cover_url || "/newactivities/fffffffffff.jpg", authThemeSettings?.updated_at);
   const siteVisualSettings = data?.siteVisualSettings || null;
-  const siteHeroPreviewUrl = siteHeroPreview || siteVisualForm.home_hero_url || DEFAULT_SITE_VISUAL_FORM.home_hero_url;
+  const siteHeroPreviewUrl =
+    siteHeroPreview ||
+    withCacheBust(
+      siteVisualForm.home_hero_url || DEFAULT_SITE_VISUAL_FORM.home_hero_url,
+      siteVisualSettings?.updated_at
+    );
   const siteBoardingPreviewUrl =
     siteBoardingPreview ||
-    siteVisualForm.boarding_login_url ||
-    DEFAULT_SITE_VISUAL_FORM.boarding_login_url;
+    withCacheBust(
+      siteVisualForm.boarding_login_url || DEFAULT_SITE_VISUAL_FORM.boarding_login_url,
+      siteVisualSettings?.updated_at
+    );
   const siteActivitiesBannerPreviewUrl =
     siteActivitiesBannerPreview ||
-    siteVisualForm.activities_banner_url ||
-    DEFAULT_SITE_VISUAL_FORM.activities_banner_url;
+    withCacheBust(
+      siteVisualForm.activities_banner_url || DEFAULT_SITE_VISUAL_FORM.activities_banner_url,
+      siteVisualSettings?.updated_at
+    );
   const siteContactHeroPreviewUrl =
     siteContactHeroPreview ||
-    siteVisualForm.contact_hero_url ||
-    DEFAULT_SITE_VISUAL_FORM.contact_hero_url;
+    withCacheBust(
+      siteVisualForm.contact_hero_url || DEFAULT_SITE_VISUAL_FORM.contact_hero_url,
+      siteVisualSettings?.updated_at
+    );
   const recentLogins = activity?.recent_logins || [];
   const recentActions = activity?.recent_actions || [];
   const perfRuntime = perf?.runtime || {};
@@ -1612,6 +1688,40 @@ export default function VineGuardianAnalytics() {
 
   return (
     <div className="guardian-analytics-page">
+      {siteVisualNotice && (
+        <div className="guardian-site-visual-toast-shell" aria-live="polite" aria-atomic="true">
+          <div
+            key={siteVisualNotice.shownAt}
+            className={`guardian-site-visual-toast ${siteVisualNotice.kind}`}
+            role="status"
+            style={{
+              "--guardian-visual-toast-duration": `${siteVisualNotice.durationMs || SITE_VISUAL_NOTICE_DURATION_MS}ms`,
+            }}
+          >
+            <span className="guardian-site-visual-toast-mark">
+              {siteVisualNotice.kind === "success" ? "Live now" : "Action needed"}
+            </span>
+            <div className="guardian-site-visual-toast-copy">
+              <strong>
+                {siteVisualNoticeLabel}{" "}
+                {siteVisualNotice.kind === "success" ? "published beautifully." : "needs your attention."}
+              </strong>
+              <span>{siteVisualNotice.message}</span>
+            </div>
+            <button
+              type="button"
+              className="guardian-site-visual-toast-close"
+              onClick={() => setSiteVisualNotice(null)}
+            >
+              Okay
+            </button>
+            <div className="guardian-site-visual-toast-progress" aria-hidden="true">
+              <span key={`progress-${siteVisualNotice.shownAt}`} />
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="guardian-topbar">
         <button className="guardian-back-btn" onClick={() => navigate("/vine/feed")}>
           Back
@@ -2399,7 +2509,6 @@ export default function VineGuardianAnalytics() {
                   {siteVisualSaving && siteVisualSavingTarget === "home-hero" ? "Publishing..." : "Publish visuals"}
                 </button>
               </div>
-              {renderSiteVisualNotice("home-hero")}
             </div>
 
             <div className="guardian-news-card guardian-auth-theme-card">
@@ -2445,7 +2554,6 @@ export default function VineGuardianAnalytics() {
                   {siteVisualSaving && siteVisualSavingTarget === "boarding-cover" ? "Publishing..." : "Publish visuals"}
                 </button>
               </div>
-              {renderSiteVisualNotice("boarding-cover")}
               <div className="guardian-news-runtime">
                 <span>
                   Boarding cover: <strong>{siteVisualForm.boarding_login_url ? "Live" : "Default"}</strong>
@@ -2518,13 +2626,20 @@ export default function VineGuardianAnalytics() {
                       }}
                     >
                       <span className="guardian-activities-chip-order">#{index + 1}</span>
-                      <img src={imageUrl} alt={`Activity ${index + 1}`} loading="lazy" />
+                      <img
+                        src={withCacheBust(imageUrl, siteVisualSettings?.updated_at)}
+                        alt={`Activity ${index + 1}`}
+                        loading="lazy"
+                      />
                       <button
                         type="button"
                         className="guardian-slide-remove"
+                        disabled={siteVisualSaving}
                         onClick={() => removeActivitiesImage(imageUrl)}
                       >
-                        Remove
+                        {siteVisualSaving && siteVisualSavingTarget === "activities-gallery-remove"
+                          ? "Removing..."
+                          : "Remove"}
                       </button>
                     </div>
                   ))}
@@ -2583,7 +2698,6 @@ export default function VineGuardianAnalytics() {
                   {siteVisualSaving && siteVisualSavingTarget === "activities-gallery" ? "Publishing..." : "Publish visuals"}
                 </button>
               </div>
-              {renderSiteVisualNotice("activities-gallery")}
               <div className="guardian-news-runtime">
                 <span>
                   Activities banner: <strong>{siteVisualForm.activities_banner_url ? "Live" : "Default"}</strong>
@@ -2610,7 +2724,11 @@ export default function VineGuardianAnalytics() {
               <div className="guardian-slide-grid">
                 {(siteVisualForm.ark_auth_slides || []).map((slideUrl, index) => (
                   <div key={`${slideUrl}-${index}`} className="guardian-slide-chip">
-                    <img src={slideUrl} alt={`Ark slide ${index + 1}`} loading="lazy" />
+                    <img
+                      src={withCacheBust(slideUrl, siteVisualSettings?.updated_at)}
+                      alt={`Ark slide ${index + 1}`}
+                      loading="lazy"
+                    />
                     <button
                       type="button"
                       className="guardian-slide-remove"
@@ -2667,7 +2785,6 @@ export default function VineGuardianAnalytics() {
                   {siteVisualSaving && siteVisualSavingTarget === "ark-slides" ? "Publishing..." : "Publish visuals"}
                 </button>
               </div>
-              {renderSiteVisualNotice("ark-slides")}
             </div>
 
             <div className="guardian-news-card guardian-auth-theme-card">
@@ -2713,7 +2830,6 @@ export default function VineGuardianAnalytics() {
                   {siteVisualSaving && siteVisualSavingTarget === "contact-hero" ? "Publishing..." : "Publish visuals"}
                 </button>
               </div>
-              {renderSiteVisualNotice("contact-hero")}
               <div className="guardian-news-runtime">
                 <span>
                   Contact hero: <strong>{siteVisualForm.contact_hero_url ? "Live" : "Default"}</strong>

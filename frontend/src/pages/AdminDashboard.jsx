@@ -2717,6 +2717,11 @@ export default function AdminDashboard() {
       setMarksheetError("Select a class for the marksheet.");
       return;
     }
+
+    if (!marksheetSubject) {
+      setMarksheetError("Select a subject for the marksheet.");
+      return;
+    }
   
     const list = filteredMarksheetStudents;
   
@@ -2725,139 +2730,97 @@ export default function AdminDashboard() {
       return;
     }
   
-    const { jsPDF } = await loadPdfTools();
+    const { jsPDF, autoTable } = await loadPdfTools();
     const doc = new jsPDF("p", "mm", "a4");
     const pageW = doc.internal.pageSize.getWidth();
     const pageH = doc.internal.pageSize.getHeight();
   
     const generatedAt = formatDateTime(new Date().toISOString());
     const schoolName = "St. Phillip's Equatorial Secondary School (SPESS)";
-    const title = marksheetSubject ? `${marksheetSubject} Marksheet` : "Class List";
+    const title = `${marksheetSubject} Class Marksheet`;
     const classLabel = marksheetClass;
     const streamLabel = marksheetStream || "North & South";
-    const subjectLabel = marksheetSubject || "All subjects";
-  
-    const topMargin = 16;
-    const firstHeaderHeight = 56;
-    const continuationHeaderHeight = 16;
-    const tableHeaderHeight = 10;
-    const bottomMargin = 18;
-    const baseRowHeight = 8;
-  
-    let y;
-  
-    /* ---------- FIRST PAGE HEADER ---------- */
-    const drawFirstPageHeader = () => {
+
+    const rows = list.map((s, index) => [
+      index + 1,
+      s.name || "",
+      s.gender || "",
+      s.class_level || classLabel,
+      s.stream || streamLabel,
+      "",
+    ]);
+
+    const drawHeader = () => {
+      doc.setDrawColor(203, 213, 225);
+      doc.setFillColor(248, 250, 252);
+      doc.roundedRect(12, 10, pageW - 24, 32, 3, 3, "FD");
+
       doc.setFont("helvetica", "bold");
       doc.setFontSize(14);
-      doc.text(schoolName, pageW / 2, 16, { align: "center" });
-  
+      doc.setTextColor(15, 23, 42);
+      doc.text(schoolName, pageW / 2, 18, { align: "center" });
+
       doc.setFontSize(16);
-      doc.text(title, pageW / 2, 26, { align: "center" });
-  
-      doc.setFontSize(10);
+      doc.text(title, pageW / 2, 27, { align: "center" });
+
       doc.setFont("helvetica", "normal");
-      doc.text(`Class: ${classLabel}`, 14, 38);
-      doc.text(`Stream: ${streamLabel}`, 14, 44);
-      doc.text(`Subject: ${subjectLabel}`, 14, 50);
-      doc.text(`Generated: ${generatedAt}`, 14, 56);
-    };
-  
-    /* ---------- CONTINUATION HEADER ---------- */
-    const drawContinuationHeader = () => {
-      doc.setFont("helvetica", "italic");
       doc.setFontSize(9);
-      doc.text(
-        `Class ${classLabel} — ${streamLabel} — ${subjectLabel}`,
-        14,
-        14
-      );
+      doc.setTextColor(71, 85, 105);
+      doc.text(`Class: ${classLabel}`, 16, 35);
+      doc.text(`Stream: ${streamLabel}`, 58, 35);
+      doc.text(`Subject: ${marksheetSubject}`, 103, 35);
+      doc.text(`Learners: ${list.length}`, 154, 35);
+      doc.text(`Generated: ${generatedAt}`, 16, 40);
     };
-  
-    /* ---------- TABLE HEADER ---------- */
-    const drawTableHeader = () => {
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(8.5);
-  
-      doc.text("#", 11, y);
-      doc.text("Name", 18, y);
-      doc.text("Gender", 76, y);
-      doc.text("DOB", 93, y);
-      doc.text("Class", 118, y);
-      doc.text("Stream", 133, y);
-      doc.text("Optional Subjects", 152, y);
-  
-      doc.setDrawColor(180);
-      doc.line(10, y + 2, pageW - 10, y + 2);
-  
-      y += tableHeaderHeight;
-      doc.setFont("helvetica", "normal");
-    };
-  
-    /* ---------- FOOTER ---------- */
-    const drawFooter = (pageNo, totalPages) => {
-      doc.setFont("helvetica", "italic");
-      doc.setFontSize(8);
-      doc.text(
-        `Generated from SPESS ARK · ${generatedAt} · Page ${pageNo} of ${totalPages}`,
-        pageW / 2,
-        pageH - 8,
-        { align: "center" }
-      );
-    };
-  
-    /* ---------- PAGE 1 ---------- */
-    drawFirstPageHeader();
-    y = topMargin + firstHeaderHeight;
-    drawTableHeader();
-  
-    /* ---------- NEW PAGE ---------- */
-    const startNewPage = () => {
-      doc.addPage();
-      drawContinuationHeader();
-      y = topMargin + continuationHeaderHeight;
-      drawTableHeader();
-    };
-  
-    /* ---------- ROWS ---------- */
-    list.forEach((s, index) => {
-      const subs = Array.isArray(s.subjects) ? s.subjects : [];
-      const optionalSubs = subs.filter((sub) =>
-        OPTIONAL_SUBJECTS.includes(sub)
-      );
-      const nameLines = doc.splitTextToSize(s.name || "", 55);
-      const optionalText = optionalSubs.join(", ");
-      const subjectLines = doc.splitTextToSize(optionalText, pageW - 162);
-      const dobText = formatDateOnly(s.dob);
-  
-      const rowHeight = Math.max(
-        baseRowHeight,
-        nameLines.length * 5,
-        subjectLines.length * 5
-      );
-  
-      if (y + rowHeight > pageH - bottomMargin) {
-        startNewPage();
-      }
-  
-      doc.setFontSize(8.5);
-      doc.text(String(index + 1), 11, y);
-      doc.text(nameLines, 18, y);
-      doc.text(s.gender || "", 76, y);
-      doc.text(dobText, 93, y);
-      doc.text(s.class_level || "", 118, y);
-      doc.text(s.stream || "", 133, y);
-      doc.text(subjectLines, 152, y);
-  
-      y += rowHeight;
+
+    autoTable(doc, {
+      startY: 48,
+      margin: { left: 12, right: 12, bottom: 18 },
+      head: [["#", "Learner Name", "Gender", "Class", "Stream", "Score"]],
+      body: rows,
+      theme: "grid",
+      styles: {
+        font: "helvetica",
+        fontSize: 9,
+        cellPadding: { top: 3.2, right: 2.4, bottom: 3.2, left: 2.4 },
+        lineColor: [203, 213, 225],
+        lineWidth: 0.18,
+        textColor: [15, 23, 42],
+        valign: "middle",
+      },
+      headStyles: {
+        fillColor: [255, 255, 255],
+        textColor: [15, 23, 42],
+        lineColor: [148, 163, 184],
+        lineWidth: 0.22,
+        fontStyle: "bold",
+      },
+      alternateRowStyles: {
+        fillColor: [248, 250, 252],
+      },
+      columnStyles: {
+        0: { cellWidth: 10, halign: "center" },
+        1: { cellWidth: 82 },
+        2: { cellWidth: 23, halign: "center" },
+        3: { cellWidth: 20, halign: "center" },
+        4: { cellWidth: 22, halign: "center" },
+        5: { cellWidth: 30, minCellHeight: 10.5 },
+      },
+      didDrawPage: () => {
+        drawHeader();
+        const pageNumber = doc.internal.getCurrentPageInfo().pageNumber;
+        const pageCount = doc.internal.getNumberOfPages();
+        doc.setFont("helvetica", "italic");
+        doc.setFontSize(8);
+        doc.setTextColor(100, 116, 139);
+        doc.text(
+          `Generated from SPESS ARK · ${generatedAt} · Page ${pageNumber} of ${pageCount}`,
+          pageW / 2,
+          pageH - 8,
+          { align: "center" }
+        );
+      },
     });
-  
-    /* ---------- FOOTERS ---------- */
-    const totalPages = doc.internal.getNumberOfPages();
-    for (let i = 1; i <= totalPages; i++) {
-      doc.setPage(i);
-      drawFooter(i, totalPages);
-    }
   
     /* ---------- OPEN AS BLOB ---------- */
     const blob = doc.output("blob");
@@ -2871,6 +2834,11 @@ export default function AdminDashboard() {
 
     if (!marksheetClass) {
       setMarksheetError("Select a class for the marksheet.");
+      return;
+    }
+
+    if (!marksheetSubject) {
+      setMarksheetError("Select a subject for the marksheet.");
       return;
     }
 
@@ -2888,19 +2856,17 @@ export default function AdminDashboard() {
     };
 
     const rows = list.map((s, idx) => {
-      const subs = Array.isArray(s.subjects) ? s.subjects : [];
-      const optionalSubs = subs.filter((sub) => OPTIONAL_SUBJECTS.includes(sub));
       return [
         idx + 1,
         s.name || "",
         s.gender || "",
         s.class_level || "",
         s.stream || "",
-        optionalSubs.join(", "),
+        "",
       ];
     });
 
-    const header = ["#", "Name", "Gender", "Class", "Stream", "Optional Subjects"];
+    const header = ["#", "Name", "Gender", "Class", "Stream", "Score"];
     const csv = [
       header.map(csvEscape).join(","),
       ...rows.map((r) => r.map(csvEscape).join(",")),
@@ -3936,7 +3902,7 @@ export default function AdminDashboard() {
               <div style={{ marginBottom: "0.8rem", padding: "0.75rem 0.9rem", borderRadius: "0.9rem", background: "rgba(15,23,42,0.9)", border: "1px solid rgba(148,163,184,0.45)", display: "flex", flexWrap: "wrap", gap: "0.6rem", alignItems: "center", justifyContent: "space-between", fontSize: "0.8rem" }}>
                 <div style={{ minWidth: "180px" }}>
                   <div style={{ fontSize: "0.78rem", textTransform: "uppercase", letterSpacing: "0.14em", color: "#9ca3af", marginBottom: "0.25rem" }}>Class marksheet PDF</div>
-                  <div className="muted-text">Generate a printable class list for the notice board.</div>
+                  <div className="muted-text">Generate a subject-specific blank marksheet teachers can write scores on.</div>
                 </div>
 
                 <div style={{ display: "flex", flexWrap: "wrap", gap: "0.45rem", alignItems: "center" }}>

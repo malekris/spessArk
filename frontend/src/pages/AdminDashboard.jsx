@@ -2808,7 +2808,7 @@ export default function AdminDashboard() {
 
     autoTable(doc, {
       startY: 50 + assignedTeacherLines.length * 4.8,
-      margin: { left: 12, right: 12, bottom: 18 },
+      margin: { top: 12, left: 12, right: 12, bottom: 18 },
       head: [["#", "Learner Name", "Gender", "Class", "Stream", "Score"]],
       body: rows,
       theme: "grid",
@@ -2840,8 +2840,10 @@ export default function AdminDashboard() {
         5: { cellWidth: 30, minCellHeight: 10.5 },
       },
       didDrawPage: () => {
-        drawHeader();
         const pageNumber = doc.internal.getCurrentPageInfo().pageNumber;
+        if (pageNumber === 1) {
+          drawHeader();
+        }
         const pageCount = doc.internal.getNumberOfPages();
         doc.setFont("helvetica", "italic");
         doc.setFontSize(8);

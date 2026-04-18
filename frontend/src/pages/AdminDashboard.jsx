@@ -2740,6 +2740,37 @@ export default function AdminDashboard() {
     const title = `${marksheetSubject} Class Marksheet`;
     const classLabel = marksheetClass;
     const streamLabel = marksheetStream || "North & South";
+    const matchingAssignments = oLevelAssignmentsOverview
+      .filter((row) => {
+        const rowClass = String(row?.class_level || "").trim();
+        const rowStream = String(row?.stream || "").trim();
+        const rowSubject = String(row?.subject || "").trim();
+        if (rowClass !== classLabel) return false;
+        if (rowSubject !== marksheetSubject) return false;
+        if (marksheetStream && rowStream !== marksheetStream) return false;
+        return true;
+      })
+      .sort((a, b) => {
+        const aStream = String(a?.stream || "");
+        const bStream = String(b?.stream || "");
+        return `${aStream} ${String(a?.teacher_name || "")}`.localeCompare(
+          `${bStream} ${String(b?.teacher_name || "")}`
+        );
+      });
+    const assignedTeacherText =
+      matchingAssignments.length > 0
+        ? matchingAssignments
+            .map((row) => {
+              const teacherName = String(row?.teacher_name || row?.teacher_id || "—").trim() || "—";
+              const teacherStream = String(row?.stream || "").trim();
+              return teacherStream ? `${teacherName} (${teacherStream})` : teacherName;
+            })
+            .join(" · ")
+        : "No teacher assignment found for this subject selection.";
+    const assignedTeacherLines = doc.splitTextToSize(
+      `Assigned to: ${assignedTeacherText}`,
+      pageW - 32
+    );
 
     const rows = list.map((s, index) => [
       index + 1,
@@ -2751,9 +2782,10 @@ export default function AdminDashboard() {
     ]);
 
     const drawHeader = () => {
+      const headerHeight = 34 + assignedTeacherLines.length * 4.8;
       doc.setDrawColor(203, 213, 225);
       doc.setFillColor(248, 250, 252);
-      doc.roundedRect(12, 10, pageW - 24, 32, 3, 3, "FD");
+      doc.roundedRect(12, 10, pageW - 24, headerHeight, 3, 3, "FD");
 
       doc.setFont("helvetica", "bold");
       doc.setFontSize(14);
@@ -2771,10 +2803,11 @@ export default function AdminDashboard() {
       doc.text(`Subject: ${marksheetSubject}`, 103, 35);
       doc.text(`Learners: ${list.length}`, 154, 35);
       doc.text(`Generated: ${generatedAt}`, 16, 40);
+      doc.text(assignedTeacherLines, 16, 45);
     };
 
     autoTable(doc, {
-      startY: 48,
+      startY: 50 + assignedTeacherLines.length * 4.8,
       margin: { left: 12, right: 12, bottom: 18 },
       head: [["#", "Learner Name", "Gender", "Class", "Stream", "Score"]],
       body: rows,

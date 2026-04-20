@@ -592,8 +592,17 @@
   line-height: 1.3;
 }
 
+.post-classic-time {
+  color: #64748b;
+}
+
 .post-classic-separator {
-  color: #94a3b8;
+  color: rgba(234, 179, 8, 0.8);
+  font-weight: 800;
+}
+
+.post-classic-source {
+  color: #0f766e;
   font-weight: 800;
 }
 
@@ -601,8 +610,16 @@
   color: rgba(148, 163, 184, 0.94);
 }
 
+.theme-dark .post-classic-time {
+  color: rgba(148, 163, 184, 0.94);
+}
+
 .theme-dark .post-classic-separator {
-  color: rgba(148, 163, 184, 0.72);
+  color: rgba(250, 204, 21, 0.74);
+}
+
+.theme-dark .post-classic-source {
+  color: #6ee7b7;
 }
 
 .post-pdf-list {

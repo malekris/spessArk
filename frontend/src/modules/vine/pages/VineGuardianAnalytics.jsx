@@ -1607,6 +1607,11 @@ export default function VineGuardianAnalytics() {
   const newsRuntime = newsHealth?.runtime || {};
   const noticeSettings = data?.noticeSettings || null;
   const authThemeSettings = data?.authThemeSettings || null;
+  const postSourceDebug = data?.postSourceDebug || null;
+  const postSourceCoveragePct =
+    Number(postSourceDebug?.recent_posts || 0) > 0
+      ? (Number(postSourceDebug?.labeled_recent || 0) / Number(postSourceDebug?.recent_posts || 1)) * 100
+      : 0;
   const siteVisualNoticeLabel = SITE_VISUAL_NOTICE_LABELS[siteVisualNotice?.target] || "Visuals";
   const authThemePreviewUrl =
     authThemeCoverPreview ||
@@ -1748,6 +1753,22 @@ export default function VineGuardianAnalytics() {
             <small>{k.loginsToday ?? 0} logins recorded today</small>
           </div>
         </div>
+
+        {postSourceDebug ? (
+          <div className="guardian-debug-strip" title="Pre-prod check for recent post source backfill coverage">
+            <span className="guardian-debug-strip-kicker">Guardian debug</span>
+            <strong>{formatCount(postSourceDebug.backfilled_recent)}</strong>
+            <span>recent posts got a source label from backfill</span>
+            <small>
+              {formatCount(postSourceDebug.labeled_recent)} of {formatCount(postSourceDebug.recent_posts)} labeled in
+              the last {formatCount(postSourceDebug.window_days)} days • {formatPercent(postSourceCoveragePct)} coverage
+              {postSourceDebug.last_backfilled_at ? ` • last pass ${formatAgo(postSourceDebug.last_backfilled_at)}` : ""}
+              {Number(postSourceDebug.untracked_labeled_recent || 0) > 0
+                ? ` • ${formatCount(postSourceDebug.untracked_labeled_recent)} earlier labels not tracked yet`
+                : ""}
+            </small>
+          </div>
+        ) : null}
 
         <div className="guardian-kpi-grid guardian-kpi-grid-advanced">
           <div className="guardian-kpi-card guardian-kpi-card-accent">

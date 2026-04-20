@@ -183,6 +183,11 @@ export default function VineSearch() {
             ? (post.avatar_url.startsWith("http") ? post.avatar_url : `${API}${post.avatar_url}`)
             : DEFAULT_AVATAR;
           const snippet = (post.content || "").trim();
+          const postSourceLabel = String(post.post_source_label || post.posted_from_label || "").trim();
+          const postDateLabel = new Date(post.created_at).toLocaleDateString(undefined, {
+            month: "short",
+            day: "numeric",
+          });
           return (
             <div
               key={`post-${post.id}`}
@@ -219,13 +224,17 @@ export default function VineSearch() {
                           strokeWidth="3"
                           strokeLinecap="round"
                           strokeLinejoin="round"
-                        />
-                      </svg>
-                    </span>
-                  )}
-                  <span className="search-post-meta">
-                    · {new Date(post.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                      />
+                    </svg>
                   </span>
+                  )}
+                </div>
+                <div className="search-classic-meta">
+                  <span className="search-classic-time">{postDateLabel}</span>
+                  {postSourceLabel ? <span className="search-classic-separator">·</span> : null}
+                  {postSourceLabel ? (
+                    <span className="search-classic-source">Posted from {postSourceLabel}</span>
+                  ) : null}
                 </div>
                 <div className="search-post-content">
                   {snippet || (post.image_url ? "Photo/video post" : "Post")}

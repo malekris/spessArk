@@ -1294,9 +1294,11 @@ function VinePostCard({
           className="post-classic-meta"
           title={postSourceLabel ? `Posted from ${postSourceLabel}` : postTimeLabel}
         >
-          {postTimeLabel && <span>{postTimeLabel}</span>}
+          {postTimeLabel && <span className="post-classic-time">{postTimeLabel}</span>}
           {postTimeLabel && postSourceLabel && <span className="post-classic-separator">·</span>}
-          {postSourceLabel && <span>Posted from {postSourceLabel}</span>}
+          {postSourceLabel && (
+            <span className="post-classic-source">Posted from {postSourceLabel}</span>
+          )}
         </div>
       )}
       <div className="vine-post-footer">

@@ -5,7 +5,7 @@
 // -------------------------
 // Imports
 // -------------------------
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { plainFetch } from "../../../lib/api";
 import { loadPdfTools } from "../../../utils/loadPdfTools";
 import ALevelAdminShell from "../components/ALevelAdminShell";
@@ -85,6 +85,13 @@ function formatDateForInput(raw) {
   return d;
 }
 
+function normalizeComparableText(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
 // -------------------------
 // Component
 // -------------------------
@@ -112,6 +119,7 @@ export default function ALevelLearners() {
   // PDF export selectors
   const [pdfClass, setPdfClass] = useState("");
   const [pdfStream, setPdfStream] = useState("");
+  const [pdfSubject, setPdfSubject] = useState("");
 
   // filters & search
   const [search, setSearch] = useState("");
@@ -136,9 +144,56 @@ export default function ALevelLearners() {
       });
       const pdfLearners = learners.filter((l) => {
         if (pdfClass && !l.stream.startsWith(pdfClass)) return false;
-        if (pdfStream && !l.stream.endsWith(pdfStream)) return false;
+        if (pdfStream && pdfStream !== "Both" && !l.stream.endsWith(pdfStream)) return false;
+        if (pdfSubject) {
+          const subjects = String(l.subjects || "")
+            .split(",")
+            .map((subject) => subject.trim())
+            .filter(Boolean);
+          if (!subjects.includes(pdfSubject)) return false;
+        }
         return true;
       });
+
+  const pdfSubjectOptions = useMemo(() => {
+    const subjects = new Set();
+    learners.forEach((learner) => {
+      if (pdfClass && !String(learner.stream || "").startsWith(pdfClass)) return;
+      if (pdfStream && pdfStream !== "Both" && !String(learner.stream || "").endsWith(pdfStream)) return;
+
+      String(learner.subjects || "")
+        .split(",")
+        .map((subject) => subject.trim())
+        .filter(Boolean)
+        .forEach((subject) => subjects.add(subject));
+    });
+
+    return Array.from(subjects).sort((a, b) => a.localeCompare(b));
+  }, [learners, pdfClass, pdfStream]);
+
+  const potentialDuplicateLearner = useMemo(() => {
+    const name = normalizeComparableText(form.name);
+    const gender = normalizeComparableText(form.gender);
+    const dob = formatDateForInput(form.dob);
+    const house = normalizeComparableText(form.house);
+    const stream = normalizeComparableText(form.stream);
+
+    if (!name || !gender || !dob || !house || !stream) return null;
+
+    return (
+      learners.find((learner) => {
+        if (editing && String(learner.id) === String(editing.id)) return false;
+
+        return (
+          normalizeComparableText(learner.name) === name &&
+          normalizeComparableText(learner.gender) === gender &&
+          formatDateForInput(learner.dob) === dob &&
+          normalizeComparableText(learner.house) === house &&
+          normalizeComparableText(learner.stream) === stream
+        );
+      }) || null
+    );
+  }, [learners, editing, form.name, form.gender, form.dob, form.house, form.stream]);
       
 
   // -----------------------
@@ -154,6 +209,12 @@ export default function ALevelLearners() {
     const combo = buildCombination(principals, subsidiaries);
     setForm((p) => ({ ...p, combination: combo }));
   }, [principals, subsidiaries]);
+
+  useEffect(() => {
+    if (pdfSubject && !pdfSubjectOptions.includes(pdfSubject)) {
+      setPdfSubject("");
+    }
+  }, [pdfSubject, pdfSubjectOptions]);
 
   // -----------------------
   // API / fetch functions
@@ -217,6 +278,13 @@ export default function ALevelLearners() {
       return;
     }
 
+    if (potentialDuplicateLearner) {
+      setError(
+        `Duplicate blocked: ${potentialDuplicateLearner.name} is already registered in ${potentialDuplicateLearner.stream}.`
+      );
+      return;
+    }
+
     const payload = buildPayload();
 
     try {
@@ -234,7 +302,7 @@ export default function ALevelLearners() {
       fetchLearners();
     } catch (err) {
       console.error("saveLearner", err);
-      setError("Save failed");
+      setError(err.message || "Save failed");
     }
   };
 
@@ -285,7 +353,7 @@ export default function ALevelLearners() {
     }
     
     if (pdfLearners.length === 0) {
-      setError("No learners found for selected class and stream.");
+      setError("No learners found for the selected class, stream, and subject filter.");
       return;
     }
     
@@ -297,10 +365,12 @@ export default function ALevelLearners() {
     const schoolName = "St. Phillip's Equatorial Secondary School (SPESS)";
     const title = "A-Level Learners Class List";
     const classLabel = pdfClass;
-    const streamLabel = pdfStream;
+    const streamLabel = pdfStream === "Both" ? "Arts & Sciences" : pdfStream;
     const totalCount = pdfLearners.length;
+    const subjectLabel = pdfSubject || "All subjects";
 
-    const subtitle = `Class: ${pdfClass}   |   Stream: ${pdfStream}`;
+    const subtitle = `Class: ${pdfClass}   |   Stream: ${pdfStream}   |   Subject: ${subjectLabel}`;
+    const subtitleStreamLabel = pdfStream === "Both" ? "Arts & Sciences" : pdfStream;
     const cleanValue = (value, fallback = "") => {
       const text = String(value ?? "").trim();
       if (!text || /^unspecified$/i.test(text) || /^undefined$/i.test(text) || /^null$/i.test(text)) {
@@ -310,7 +380,7 @@ export default function ALevelLearners() {
     };
 
     const topMargin = 16;
-    const firstHeaderHeight = 60;
+    const firstHeaderHeight = 66;
     const continuationHeaderHeight = 14;
     const tableHeaderHeight = 8;
     const bottomMargin = 18;
@@ -329,8 +399,14 @@ export default function ALevelLearners() {
       doc.text(`Class: ${classLabel}`, 14, 44);
       doc.text(`Stream: ${streamLabel}`, 14, 50);
       doc.text(`Total learners: ${totalCount}`, 14, 56);
+      doc.text(`Subject filter: ${subjectLabel}`, 14, 62);
       doc.setFontSize(10);
-      doc.text(subtitle, pageW / 2, 32, { align: "center" });
+      doc.text(
+        `Class: ${pdfClass}   |   Stream: ${subtitleStreamLabel}   |   Subject: ${subjectLabel}`,
+        pageW / 2,
+        32,
+        { align: "center" }
+      );
 
     };
 
@@ -405,7 +481,7 @@ export default function ALevelLearners() {
     }
 
     if (pdfLearners.length === 0) {
-      setError("No learners found for selected class and stream.");
+      setError("No learners found for the selected class, stream, and subject filter.");
       return;
     }
 
@@ -427,7 +503,7 @@ export default function ALevelLearners() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `Alevel_${pdfClass}_${pdfStream}_Classlist.csv`;
+    link.download = `Alevel_${pdfClass}_${String(pdfStream || "all_streams").replace(/\s+/g, "_")}_${String(pdfSubject || "all_subjects").replace(/\s+/g, "_")}_Classlist.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -506,6 +582,14 @@ export default function ALevelLearners() {
               <div className="muted-text">Generated automatically from selected principals</div>
             </div>
 
+            {potentialDuplicateLearner && (
+              <div className="panel-alert panel-alert-error alevel-register-span-2" style={{ marginBottom: 0 }}>
+                Potential duplicate: this learner already exists as{" "}
+                <strong>{potentialDuplicateLearner.name}</strong> in{" "}
+                <strong>{potentialDuplicateLearner.stream}</strong> ({potentialDuplicateLearner.house || "No house"}).
+              </div>
+            )}
+
             {/* Subjects */}
             {subjectPool.length > 0 && (
               <>
@@ -569,8 +653,23 @@ export default function ALevelLearners() {
                   aria-label="Select stream for learner export"
                 >
                   <option value="">Select Stream</option>
+                  <option value="Both">Both Streams</option>
                   <option value="Arts">Arts</option>
                   <option value="Sciences">Sciences</option>
+                </select>
+
+                <select
+                  className="alevel-learners-filter-select alevel-export-select"
+                  value={pdfSubject}
+                  onChange={(e) => setPdfSubject(e.target.value)}
+                  aria-label="Select subject for learner export"
+                >
+                  <option value="">All Subjects</option>
+                  {pdfSubjectOptions.map((subject) => (
+                    <option key={subject} value={subject}>
+                      {subject}
+                    </option>
+                  ))}
                 </select>
 
                 <button className="primary-btn" onClick={handleDownloadAlevelClasslistPdf}>

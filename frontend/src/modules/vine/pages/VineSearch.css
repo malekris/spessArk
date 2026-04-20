@@ -198,10 +198,30 @@
   font-weight: 800;
 }
 
-.search-post-meta {
+.search-classic-meta {
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
   color: #64748b;
-  font-size: 0.85rem;
-  font-weight: 600;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.search-classic-time {
+  color: #64748b;
+}
+
+.search-classic-separator {
+  color: rgba(234, 179, 8, 0.8);
+  font-weight: 800;
+}
+
+.search-classic-source {
+  color: #0f766e;
+  font-weight: 800;
 }
 
 .search-post-content {

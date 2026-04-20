@@ -310,12 +310,21 @@ export default function VinePublicProfile() {
                           {feeling ? (
                             <span className="vine-public-feeling">is feeling {formatFeelingLabel(feeling)}</span>
                           ) : null}
-                          <div className="vine-public-post-meta-right">
-                            <span className="vine-public-post-date">{formatPostDate(post.sort_time || post.created_at)}</span>
-                            {postSourceLabel ? (
-                              <span className="vine-public-source-badge">Posted from {postSourceLabel}</span>
-                            ) : null}
-                          </div>
+                          {(post.sort_time || post.created_at || postSourceLabel) ? (
+                            <div className="vine-classic-post-meta">
+                              {(post.sort_time || post.created_at) ? (
+                                <span className="vine-classic-post-time">
+                                  {formatPostDate(post.sort_time || post.created_at)}
+                                </span>
+                              ) : null}
+                              {(post.sort_time || post.created_at) && postSourceLabel ? (
+                                <span className="vine-classic-post-separator">·</span>
+                              ) : null}
+                              {postSourceLabel ? (
+                                <span className="vine-classic-post-source">Posted from {postSourceLabel}</span>
+                              ) : null}
+                            </div>
+                          ) : null}
                         </div>
                         {content ? (
                           <div

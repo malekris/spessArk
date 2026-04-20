@@ -7,6 +7,62 @@ import { queueAdminYearSnapshotRefresh } from "../../services/adminYearSnapshotS
 const router = express.Router();
 const AUDIT_ADMIN_USER_ID = 1;
 
+function splitLearnerName(name = "") {
+  const [first_name, ...rest] = String(name).trim().split(/\s+/);
+  return {
+    first_name: first_name || "",
+    last_name: rest.join(" ") || null,
+  };
+}
+
+function normalizeComparableText(value = "") {
+  return String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function normalizeDob(value = "") {
+  const text = String(value || "").trim();
+  return text.length >= 10 ? text.slice(0, 10) : text;
+}
+
+async function findDuplicateLearner(conn, { first_name, last_name, gender, dob, house, stream, excludeId = null }) {
+  const normalizedFirstName = normalizeComparableText(first_name);
+  const normalizedLastName = normalizeComparableText(last_name || "");
+  const normalizedGender = normalizeComparableText(gender);
+  const normalizedDob = normalizeDob(dob);
+  const normalizedHouse = normalizeComparableText(house);
+  const normalizedStream = normalizeComparableText(stream);
+
+  const params = [
+    normalizedFirstName,
+    normalizedLastName,
+    normalizedGender,
+    normalizedDob,
+    normalizedHouse,
+    normalizedStream,
+  ];
+
+  let query = `
+    SELECT id, first_name, last_name, house, stream
+    FROM alevel_learners
+    WHERE LOWER(TRIM(first_name)) = ?
+      AND LOWER(TRIM(COALESCE(last_name, ''))) = ?
+      AND LOWER(TRIM(gender)) = ?
+      AND DATE(dob) = ?
+      AND LOWER(TRIM(house)) = ?
+      AND LOWER(TRIM(stream)) = ?
+  `;
+
+  if (excludeId !== null && excludeId !== undefined) {
+    query += " AND id <> ?";
+    params.push(Number(excludeId));
+  }
+
+  query += " LIMIT 1";
+
+  const [[duplicate]] = await conn.query(query, params);
+  return duplicate || null;
+}
+
 // GET /api/alevel/learners
 export async function getLearners(req, res) {
   try {
@@ -58,13 +114,30 @@ export async function createLearner(req, res) {
     return res.status(400).json({ message: "Invalid payload" });
   }
 
-  const [first_name, ...rest] = name.trim().split(" ");
-  const last_name = rest.join(" ") || null;
+  const { first_name, last_name } = splitLearnerName(name);
 
   const conn = await db.getConnection();
 
   try {
     await conn.beginTransaction();
+
+    const duplicate = await findDuplicateLearner(conn, {
+      first_name,
+      last_name,
+      gender,
+      dob,
+      house,
+      stream,
+    });
+
+    if (duplicate) {
+      await conn.rollback();
+      return res.status(409).json({
+        message: `Duplicate blocked: ${String(duplicate.first_name || "").trim()} ${String(
+          duplicate.last_name || ""
+        ).trim()} is already registered in ${duplicate.stream}.`,
+      });
+    }
 
     // 1. Insert learner
     const [result] = await conn.query(
@@ -174,13 +247,31 @@ export async function updateLearner(req, res) {
   const { id } = req.params;
   const { name, gender, dob, house, stream, combination, subjects } = req.body;
 
-  const [first_name, ...rest] = name.split(" ");
-  const last_name = rest.join(" ") || null;
+  const { first_name, last_name } = splitLearnerName(name);
 
   const conn = await db.getConnection();
 
   try {
     await conn.beginTransaction();
+
+    const duplicate = await findDuplicateLearner(conn, {
+      first_name,
+      last_name,
+      gender,
+      dob,
+      house,
+      stream,
+      excludeId: id,
+    });
+
+    if (duplicate) {
+      await conn.rollback();
+      return res.status(409).json({
+        message: `Duplicate blocked: ${String(duplicate.first_name || "").trim()} ${String(
+          duplicate.last_name || ""
+        ).trim()} is already registered in ${duplicate.stream}.`,
+      });
+    }
 
     await conn.query(
       `UPDATE alevel_learners 

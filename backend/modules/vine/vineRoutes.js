@@ -1898,7 +1898,9 @@ const ensureVinePostSourceBackfill = async () => {
       const [result] = await db.query(
         `
         UPDATE vine_posts
-        SET post_source_label = ?
+        SET post_source_label = ?,
+            post_source_origin = 'backfill',
+            post_source_backfilled_at = NOW()
         WHERE id = ?
           AND post_source_label IS NULL
         `,
@@ -1923,11 +1925,70 @@ const ensureVinePostSourceBackfill = async () => {
   return vinePostSourceBackfillPromise;
 };
 
+const fetchVinePostSourceDebugStats = async () => {
+  const dbName = await getDbName();
+  if (!dbName) {
+    return {
+      window_days: VINE_POST_SOURCE_BACKFILL_DAYS,
+      recent_posts: 0,
+      labeled_recent: 0,
+      unlabeled_recent: 0,
+      backfilled_recent: 0,
+      live_recent: 0,
+      untracked_labeled_recent: 0,
+      last_backfilled_at: null,
+    };
+  }
+
+  if (!(await hasTable(dbName, "vine_posts"))) {
+    return {
+      window_days: VINE_POST_SOURCE_BACKFILL_DAYS,
+      recent_posts: 0,
+      labeled_recent: 0,
+      unlabeled_recent: 0,
+      backfilled_recent: 0,
+      live_recent: 0,
+      untracked_labeled_recent: 0,
+      last_backfilled_at: null,
+    };
+  }
+
+  const postsSince = new Date(Date.now() - VINE_POST_SOURCE_BACKFILL_DAYS * 24 * 60 * 60 * 1000);
+  const [[row]] = await db.query(
+    `
+    SELECT
+      COUNT(*) AS recent_posts,
+      SUM(CASE WHEN COALESCE(post_source_label, '') <> '' THEN 1 ELSE 0 END) AS labeled_recent,
+      SUM(CASE WHEN COALESCE(post_source_label, '') = '' THEN 1 ELSE 0 END) AS unlabeled_recent,
+      SUM(CASE WHEN post_source_origin = 'backfill' THEN 1 ELSE 0 END) AS backfilled_recent,
+      SUM(CASE WHEN post_source_origin = 'live' THEN 1 ELSE 0 END) AS live_recent,
+      SUM(CASE WHEN COALESCE(post_source_label, '') <> '' AND COALESCE(post_source_origin, '') = '' THEN 1 ELSE 0 END) AS untracked_labeled_recent,
+      MAX(post_source_backfilled_at) AS last_backfilled_at
+    FROM vine_posts
+    WHERE created_at >= ?
+    `,
+    [postsSince]
+  );
+
+  return {
+    window_days: VINE_POST_SOURCE_BACKFILL_DAYS,
+    recent_posts: Number(row?.recent_posts || 0),
+    labeled_recent: Number(row?.labeled_recent || 0),
+    unlabeled_recent: Number(row?.unlabeled_recent || 0),
+    backfilled_recent: Number(row?.backfilled_recent || 0),
+    live_recent: Number(row?.live_recent || 0),
+    untracked_labeled_recent: Number(row?.untracked_labeled_recent || 0),
+    last_backfilled_at: row?.last_backfilled_at || null,
+  };
+};
+
 const ensureVinePostSourceSchema = async () => {
   if (vinePostSourceSchemaReady) return;
   const dbName = await getDbName();
   if (!dbName) return;
   await ensureColumnExists(dbName, "vine_posts", "post_source_label", "VARCHAR(80) NULL");
+  await ensureColumnExists(dbName, "vine_posts", "post_source_origin", "VARCHAR(24) NULL");
+  await ensureColumnExists(dbName, "vine_posts", "post_source_backfilled_at", "DATETIME NULL");
   vinePostSourceSchemaReady = true;
   await ensureVinePostSourceBackfill();
 };
@@ -10481,8 +10542,8 @@ router.get("/posts/:id/public", authOptional, async (req, res) => {
         let createdPostId = null;
         try {
           const [result] = await db.query(
-            `INSERT INTO vine_posts (user_id, community_id, content, image_url, link_preview, topic_tag, client_request_id, post_source_label)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO vine_posts (user_id, community_id, content, image_url, link_preview, topic_tag, client_request_id, post_source_label, post_source_origin)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               userId,
               communityId,
@@ -10492,6 +10553,7 @@ router.get("/posts/:id/public", authOptional, async (req, res) => {
               topicTag,
               clientRequestId || null,
               postSourceLabel,
+              postSourceLabel ? "live" : null,
             ]
           );
           createdPostId = Number(result.insertId);
@@ -10804,6 +10866,7 @@ router.get("/search", authenticate, async (req, res) => {
         p.id,
         p.content,
         p.image_url,
+        p.post_source_label,
         p.created_at,
         u.username,
         u.display_name,
@@ -14331,6 +14394,7 @@ router.get("/analytics/overview", authenticate, async (req, res) => {
     if (!dbName) {
       return res.status(500).json({ message: "Database not selected" });
     }
+    await ensureVinePostSourceSchema();
 
     const parseDateInput = (value, isEnd = false) => {
       if (!value) return null;
@@ -14891,6 +14955,8 @@ router.get("/analytics/overview", authenticate, async (req, res) => {
       });
     }
 
+    const postSourceDebug = await fetchVinePostSourceDebugStats();
+
     return res.json({
       range: {
         from: rangeStart.toISOString(),
@@ -14983,6 +15049,7 @@ router.get("/analytics/overview", authenticate, async (req, res) => {
       },
       mostActiveUsers,
       vinePrison,
+      postSourceDebug,
     });
   } catch (err) {
     console.error("Guardian analytics error:", err);

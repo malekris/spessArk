@@ -5,6 +5,7 @@ import "./VineCommunities.css";
 import { loadPdfTools } from "../../../utils/loadPdfTools";
 import { touchVineActivity } from "../utils/vineAuth";
 import { createClientRequestId } from "../../../utils/requestId";
+import { getCurrentVinePostSource } from "../utils/postSource";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const POST_MAX_LENGTH = 5000;
@@ -776,6 +777,8 @@ export default function VineCommunities() {
       setIsSubmittingCommunityPost(true);
       const formData = new FormData();
       if (postText.trim()) formData.append("content", postText.trim());
+      const postSourceLabel = getCurrentVinePostSource();
+      if (postSourceLabel) formData.append("post_source_label", postSourceLabel);
       formData.append("community_id", String(activeCommunity.id));
       const clientRequestId =
         communityPostRequestIdRef.current || createClientRequestId("community-post");
@@ -788,11 +791,15 @@ export default function VineCommunities() {
         headers: { Authorization: `Bearer ${token}` },
         body: formData,
       });
-      const data = await res.json().catch(() => ({}));
+      const responsePost = await res.json().catch(() => ({}));
       if (!res.ok) {
-        alert(data.message || "Failed to post");
+        alert(responsePost.message || "Failed to post");
         return;
       }
+      const data =
+        postSourceLabel && !responsePost?.post_source_label
+          ? { ...responsePost, post_source_label: postSourceLabel }
+          : responsePost;
       setPostText("");
       setCommunityFiles([]);
       setPosts((prev) => {

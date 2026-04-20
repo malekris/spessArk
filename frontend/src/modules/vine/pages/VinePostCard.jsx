@@ -355,6 +355,8 @@ function VinePostCard({
 
   const { feeling: postFeeling, postBg, content: postContentWithoutMeta } = extractPostMetaFromContent(post.content || "");
   const displayPostContent = stripMentionsFromPostText(postContentWithoutMeta || "");
+  const postTimeLabel = formatPostDate(post.sort_time || post.created_at);
+  const postSourceLabel = String(post.post_source_label || post.posted_from_label || "").trim();
   const CONTENT_LIMIT = 280;
   const hasLongContent = displayPostContent.length > CONTENT_LIMIT;
   const contentToShow =
@@ -1083,9 +1085,6 @@ function VinePostCard({
               {postFeeling && (
                 <span className="inline-feeling">is feeling {formatFeelingLabel(postFeeling)}</span>
               )}
-              <span className="time top-time">
-                • {formatPostDate(post.sort_time || post.created_at)}
-              </span>
             </div>
             <div className="post-kebab-wrap">
               <button
@@ -1288,6 +1287,16 @@ function VinePostCard({
               @{u}{idx < taggedUsers.length - 1 ? "," : ""}
             </button>
           ))}
+        </div>
+      )}
+      {(postTimeLabel || postSourceLabel) && (
+        <div
+          className="post-classic-meta"
+          title={postSourceLabel ? `Posted from ${postSourceLabel}` : postTimeLabel}
+        >
+          {postTimeLabel && <span>{postTimeLabel}</span>}
+          {postTimeLabel && postSourceLabel && <span className="post-classic-separator">·</span>}
+          {postSourceLabel && <span>Posted from {postSourceLabel}</span>}
         </div>
       )}
       <div className="vine-post-footer">
@@ -1751,6 +1760,7 @@ const areVinePostCardPropsEqual = (prevProps, nextProps) => (
   prevProps.post?.viewer_reaction === nextProps.post?.viewer_reaction &&
   prevProps.post?.user_bookmarked === nextProps.post?.user_bookmarked &&
   prevProps.post?.is_pinned === nextProps.post?.is_pinned &&
+  prevProps.post?.post_source_label === nextProps.post?.post_source_label &&
   prevProps.focusComments === nextProps.focusComments &&
   prevProps.targetCommentId === nextProps.targetCommentId &&
   prevProps.isMe === nextProps.isMe &&

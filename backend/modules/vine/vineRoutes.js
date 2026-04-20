@@ -885,6 +885,33 @@ const summarizeGuardianDevice = (rawValue) => {
   return `${platform} • ${browser}`;
 };
 
+const summarizeVinePostSource = (rawValue) => {
+  const lower = String(rawValue || "").trim().toLowerCase();
+  if (!lower) return null;
+  if (lower.includes("iphone")) return "iPhone";
+  if (lower.includes("ipad")) return "iPad";
+  if (lower.includes("android")) return "Android";
+  if (lower.includes("windows")) return "Windows";
+  if (lower.includes("mac os") || lower.includes("macintosh")) return "Mac";
+  if (lower.includes("linux")) return "Linux";
+  if (lower.includes("mobile")) return "Mobile";
+  return "Web";
+};
+
+const normalizeVinePostSourceLabel = (rawValue) => {
+  const lower = String(rawValue || "").trim().toLowerCase();
+  if (!lower) return null;
+  if (lower === "iphone") return "iPhone";
+  if (lower === "ipad") return "iPad";
+  if (lower === "android") return "Android";
+  if (lower === "windows") return "Windows";
+  if (lower === "mac") return "Mac";
+  if (lower === "linux") return "Linux";
+  if (lower === "mobile") return "Mobile";
+  if (lower === "web") return "Web";
+  return summarizeVinePostSource(rawValue);
+};
+
 const buildGuardianActivityPath = (item = {}) => {
   if (item.post_id) {
     if (item.comment_id) {
@@ -1648,6 +1675,7 @@ const ensureVinePerformanceSchema = async () => {
   vinePerformanceSchemaPromise = (async () => {
     const dbName = await getDbName();
     if (!dbName) return;
+    await ensureVinePostSourceSchema();
 
     const indexes = [
       ["vine_posts", "idx_vine_posts_created_id", ["created_at", "id"]],
@@ -1719,6 +1747,189 @@ const ensureVineRequestDedupSchema = async () => {
     );
   }
   vineRequestDedupSchemaReady = true;
+};
+
+let vinePostSourceSchemaReady = false;
+let vinePostSourceBackfillReady = false;
+let vinePostSourceBackfillPromise = null;
+const VINE_POST_SOURCE_BACKFILL_DAYS = 90;
+const VINE_POST_SOURCE_BACKFILL_POST_LIMIT = 1000;
+const VINE_POST_SOURCE_SESSION_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
+const VINE_POST_SOURCE_ACTIVE_PADDING_MS = 15 * 60 * 1000;
+const VINE_POST_SOURCE_NEAREST_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+const parseVineTimestampMs = (value) => {
+  const raw = String(value || "").trim();
+  if (!raw) return 0;
+  const parsed = new Date(raw.includes("T") ? raw : raw.replace(" ", "T"));
+  return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime();
+};
+
+const pickBestVinePostSourceLabel = (postRow, sessionRows = []) => {
+  const postMs = parseVineTimestampMs(postRow?.created_at);
+  if (!postMs) return null;
+
+  let activeMatch = null;
+  let nearestMatch = null;
+
+  for (const sessionRow of sessionRows || []) {
+    const label = summarizeVinePostSource(sessionRow?.device_info);
+    if (!label) continue;
+
+    const startMs = parseVineTimestampMs(sessionRow?.created_at);
+    const seenMs = parseVineTimestampMs(
+      sessionRow?.revoked_at || sessionRow?.last_seen_at || sessionRow?.created_at
+    );
+    const endMs = Math.max(startMs, seenMs);
+    if (!startMs || !endMs) continue;
+
+    if (
+      postMs >= startMs - VINE_POST_SOURCE_ACTIVE_PADDING_MS &&
+      postMs <= endMs + VINE_POST_SOURCE_ACTIVE_PADDING_MS
+    ) {
+      if (
+        !activeMatch ||
+        startMs > activeMatch.startMs ||
+        (startMs === activeMatch.startMs && endMs > activeMatch.endMs)
+      ) {
+        activeMatch = { label, startMs, endMs };
+      }
+      continue;
+    }
+
+    const distanceMs = Math.min(Math.abs(postMs - startMs), Math.abs(postMs - endMs));
+    if (distanceMs > VINE_POST_SOURCE_NEAREST_WINDOW_MS) continue;
+    if (
+      !nearestMatch ||
+      distanceMs < nearestMatch.distanceMs ||
+      (distanceMs === nearestMatch.distanceMs && startMs > nearestMatch.startMs)
+    ) {
+      nearestMatch = { label, startMs, endMs, distanceMs };
+    }
+  }
+
+  return activeMatch?.label || nearestMatch?.label || null;
+};
+
+const ensureVinePostSourceBackfill = async () => {
+  if (vinePostSourceBackfillReady) return;
+  if (vinePostSourceBackfillPromise) return vinePostSourceBackfillPromise;
+
+  vinePostSourceBackfillPromise = (async () => {
+    const dbName = await getDbName();
+    if (!dbName) return;
+    await ensureAdvancedSettingsSchema();
+
+    if (!(await hasTable(dbName, "vine_posts")) || !(await hasTable(dbName, "vine_user_sessions"))) {
+      return;
+    }
+
+    await ensureIndexExists(
+      dbName,
+      "vine_user_sessions",
+      "idx_vine_user_sessions_user_created",
+      ["user_id", "created_at"]
+    );
+    await ensureIndexExists(
+      dbName,
+      "vine_user_sessions",
+      "idx_vine_user_sessions_user_last_seen",
+      ["user_id", "last_seen_at"]
+    );
+
+    const postsSince = new Date(Date.now() - VINE_POST_SOURCE_BACKFILL_DAYS * 24 * 60 * 60 * 1000);
+    const sessionsSince = new Date(postsSince.getTime() - VINE_POST_SOURCE_SESSION_LOOKBACK_MS);
+
+    const [postRows] = await db.query(
+      `
+      SELECT id, user_id, created_at
+      FROM vine_posts
+      WHERE post_source_label IS NULL
+        AND created_at >= ?
+      ORDER BY created_at DESC, id DESC
+      LIMIT ?
+      `,
+      [postsSince, VINE_POST_SOURCE_BACKFILL_POST_LIMIT]
+    );
+
+    if (!Array.isArray(postRows) || !postRows.length) return;
+
+    const userIds = [
+      ...new Set(postRows.map((row) => Number(row.user_id || 0)).filter((id) => id > 0)),
+    ];
+    if (!userIds.length) return;
+
+    const placeholders = userIds.map(() => "?").join(", ");
+    const [sessionRows] = await db.query(
+      `
+      SELECT id, user_id, device_info, created_at, last_seen_at, revoked_at
+      FROM vine_user_sessions
+      WHERE user_id IN (${placeholders})
+        AND COALESCE(device_info, '') <> ''
+        AND last_seen_at >= ?
+      ORDER BY user_id ASC, created_at DESC, id DESC
+      `,
+      [...userIds, sessionsSince]
+    );
+
+    if (!Array.isArray(sessionRows) || !sessionRows.length) return;
+
+    const sessionsByUser = new Map();
+    for (const row of sessionRows) {
+      const userId = Number(row.user_id || 0);
+      if (!userId) continue;
+      if (!sessionsByUser.has(userId)) sessionsByUser.set(userId, []);
+      sessionsByUser.get(userId).push(row);
+    }
+
+    const updates = [];
+    for (const postRow of postRows) {
+      const userId = Number(postRow.user_id || 0);
+      if (!userId) continue;
+      const label = pickBestVinePostSourceLabel(postRow, sessionsByUser.get(userId) || []);
+      if (!label) continue;
+      updates.push({ id: Number(postRow.id), label });
+    }
+
+    if (!updates.length) return;
+
+    let updatedCount = 0;
+    for (const update of updates) {
+      const [result] = await db.query(
+        `
+        UPDATE vine_posts
+        SET post_source_label = ?
+        WHERE id = ?
+          AND post_source_label IS NULL
+        `,
+        [update.label, update.id]
+      );
+      updatedCount += Number(result?.affectedRows || 0);
+    }
+
+    if (updatedCount > 0) {
+      clearVineReadCache();
+      console.info(`[vine] backfilled post source labels for ${updatedCount} recent posts`);
+    }
+  })()
+    .catch((err) => {
+      console.error("Vine post source backfill error:", err?.message || err);
+    })
+    .finally(() => {
+      vinePostSourceBackfillReady = true;
+      vinePostSourceBackfillPromise = null;
+    });
+
+  return vinePostSourceBackfillPromise;
+};
+
+const ensureVinePostSourceSchema = async () => {
+  if (vinePostSourceSchemaReady) return;
+  const dbName = await getDbName();
+  if (!dbName) return;
+  await ensureColumnExists(dbName, "vine_posts", "post_source_label", "VARCHAR(80) NULL");
+  vinePostSourceSchemaReady = true;
+  await ensureVinePostSourceBackfill();
 };
 
 const buildPostIdPlaceholders = (rows = []) => {
@@ -1870,6 +2081,7 @@ const enrichVinePostRows = async (rows, viewerId, perfCtx = null) => {
 };
 
 const getVinePostRowById = async (postId, viewerId, perfCtx = null) => {
+  await ensureVinePostSourceSchema();
   const [rows] = await timedVineQuery(
     perfCtx,
     "post.row-by-id",
@@ -1886,6 +2098,7 @@ const getVinePostRowById = async (postId, viewerId, perfCtx = null) => {
       p.content,
       p.image_url,
       p.link_preview,
+      p.post_source_label,
       p.created_at,
       p.created_at AS sort_time,
       u.username,
@@ -2303,6 +2516,7 @@ const getFeedPageData = async ({ viewerId, feedTag = "", feedTab = "for-you", cu
       p.content,
       p.image_url,
       p.link_preview,
+      p.post_source_label,
       p.created_at,
       u.username,
       u.display_name,
@@ -2351,6 +2565,7 @@ const getFeedPageData = async ({ viewerId, feedTag = "", feedTab = "for-you", cu
 };
 
 const getLatestNetworkPostRows = async ({ viewerId, limit }, perfCtx = null) => {
+  await ensureVinePostSourceSchema();
   const safeViewerId = Number(viewerId || 0);
   const safeLimit = Math.max(1, Math.min(Number(limit || 10) || 10, 20));
   const candidateLimit = Math.max(safeLimit * 8, 80);
@@ -2367,6 +2582,7 @@ const getLatestNetworkPostRows = async ({ viewerId, limit }, perfCtx = null) => 
       p.content,
       p.image_url,
       p.link_preview,
+      p.post_source_label,
       p.created_at
     FROM vine_posts p
     ORDER BY p.created_at DESC, p.id DESC
@@ -2430,6 +2646,7 @@ const getLatestNetworkPostRows = async ({ viewerId, limit }, perfCtx = null) => 
       content: row.content || "",
       image_url: row.image_url || "",
       link_preview: row.link_preview || null,
+      post_source_label: row.post_source_label || null,
       created_at: row.created_at,
       sort_time: row.created_at,
       username: authorRow.username || "",
@@ -3516,6 +3733,7 @@ const ensureCommunitySchema = async () => {
   if (communitySchemaReady) return;
   const dbName = await getDbName();
   if (!dbName) return;
+  await ensureVinePostSourceSchema();
 
   await db.query(`
     CREATE TABLE IF NOT EXISTS vine_communities (
@@ -9002,6 +9220,7 @@ router.get("/communities/:slug/posts", authOptional, async (req, res) => {
           p.content,
           p.image_url,
           p.link_preview,
+          p.post_source_label,
           p.created_at,
           p.created_at AS sort_time,
           u.username,
@@ -9701,6 +9920,7 @@ router.get("/news/health", authenticate, async (req, res) => {
 });
 
 const fetchSharedPostRow = async (postId) => {
+  await ensureVinePostSourceSchema();
   const [[post]] = await db.query(
     `
     SELECT
@@ -9708,6 +9928,7 @@ const fetchSharedPostRow = async (postId) => {
       p.content,
       p.image_url,
       p.link_preview,
+      p.post_source_label,
       p.created_at,
       (SELECT COUNT(*) FROM vine_likes WHERE post_id = p.id) AS likes,
       (SELECT COUNT(*) FROM vine_comments WHERE post_id = p.id) AS comments,
@@ -10129,6 +10350,7 @@ router.get("/posts/:id/public", authOptional, async (req, res) => {
         await ensureCommunitySchema();
         await ensurePollSchema();
         await ensureVineRequestDedupSchema();
+        await ensureVinePostSourceSchema();
         const userId = req.user.id;
         const { content } = req.body;
         const clientRequestId = normalizeClientRequestId(req.body?.client_request_id);
@@ -10253,11 +10475,14 @@ router.get("/posts/:id/public", authOptional, async (req, res) => {
         }
 
         const topicTag = extractTopicTag(content?.trim() || "");
+        const postSourceLabel =
+          normalizeVinePostSourceLabel(req.body?.post_source_label) ||
+          summarizeVinePostSource(req.get("user-agent"));
         let createdPostId = null;
         try {
           const [result] = await db.query(
-            `INSERT INTO vine_posts (user_id, community_id, content, image_url, link_preview, topic_tag, client_request_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO vine_posts (user_id, community_id, content, image_url, link_preview, topic_tag, client_request_id, post_source_label)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               userId,
               communityId,
@@ -10266,6 +10491,7 @@ router.get("/posts/:id/public", authOptional, async (req, res) => {
               linkPreview ? JSON.stringify(linkPreview) : null,
               topicTag,
               clientRequestId || null,
+              postSourceLabel,
             ]
           );
           createdPostId = Number(result.insertId);
@@ -11254,6 +11480,7 @@ const getProfileFeedRows = async (profileUserId, viewerId, { limit = null, offse
           p.content,
           p.image_url,
           p.link_preview,
+          p.post_source_label,
           p.created_at,
           p.is_pinned,
           p.created_at AS sort_time,
@@ -11285,6 +11512,7 @@ const getProfileFeedRows = async (profileUserId, viewerId, { limit = null, offse
           p.content,
           p.image_url,
           p.link_preview,
+          p.post_source_label,
           p.created_at,
           0 AS is_pinned,
           p.created_at AS sort_time,
@@ -11318,6 +11546,7 @@ const getProfileFeedRows = async (profileUserId, viewerId, { limit = null, offse
           p.content,
           p.image_url,
           p.link_preview,
+          p.post_source_label,
           p.created_at,
           p.is_pinned,
           r.created_at AS sort_time,
@@ -15640,6 +15869,7 @@ router.get("/users/:username/likes", authOptional, async (req, res) => {
           p.content,
           p.image_url,
           p.link_preview,
+          p.post_source_label,
           p.created_at,
           l.created_at AS sort_time,
           u.username,
@@ -15717,6 +15947,7 @@ router.get("/users/:username/photos", authOptional, async (req, res) => {
             p.content,
             p.image_url,
             p.link_preview,
+            p.post_source_label,
             p.created_at,
             p.created_at AS sort_time,
             u.username,
@@ -15743,6 +15974,7 @@ router.get("/users/:username/photos", authOptional, async (req, res) => {
             p.content,
             p.image_url,
             p.link_preview,
+            p.post_source_label,
             p.created_at,
             p.created_at AS sort_time,
             u.username,
@@ -15808,6 +16040,7 @@ router.get("/users/:username/bookmarks", authOptional, async (req, res) => {
           p.content,
           p.image_url,
           p.link_preview,
+          p.post_source_label,
           p.created_at,
           p.created_at AS sort_time,
           u.username,

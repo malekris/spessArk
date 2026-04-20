@@ -138,6 +138,13 @@
   flex-wrap: wrap;
 }
 
+.vine-public-post-meta-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .vine-public-post-date {
   color: #64748b;
   font-size: 0.92rem;

@@ -232,6 +232,7 @@ export default function VinePublicPost() {
   const { feeling: postFeeling, postBg, content: publicPostContent } = extractPostMetaFromContent(
     post?.content || ""
   );
+  const publicPostSourceLabel = String(post?.post_source_label || post?.posted_from_label || "").trim();
   const contentWordCount = publicPostContent
     ? publicPostContent.split(/\s+/).filter(Boolean).length
     : 0;
@@ -330,7 +331,12 @@ export default function VinePublicPost() {
                       </span>
                     ) : null}
                   </div>
-                  <div className="vine-public-handle">@{post.username} · {formatPostDate(post.created_at)}</div>
+                  <div className="vine-public-handle">
+                    <span>@{post.username} · {formatPostDate(post.created_at)}</span>
+                    {publicPostSourceLabel ? (
+                      <span className="vine-public-source-badge">Posted from {publicPostSourceLabel}</span>
+                    ) : null}
+                  </div>
                 </div>
               </div>
 

@@ -9,6 +9,7 @@ import { socket } from "../../../socket";
 import { useSearchParams } from "react-router-dom";
 import { convertHeicFileToJpeg, isHeicLikeFile } from "../utils/heic";
 import { createClientRequestId } from "../../../utils/requestId";
+import { getCurrentVinePostSource } from "../utils/postSource";
 import { getVineNotificationsSeenAt, setVineNotificationsSeenAt } from "../utils/vineAuth";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
@@ -1593,6 +1594,8 @@ export default function VineFeed() {
         ? `${outgoingContent}${outgoingContent ? "\n" : ""}${composeGifUrl}`
         : outgoingContent;
       if (contentWithGif) formData.append("content", contentWithGif);
+      const postSourceLabel = getCurrentVinePostSource();
+      if (postSourceLabel) formData.append("post_source_label", postSourceLabel);
       const clientRequestId = draftPostRequestIdRef.current || createClientRequestId("vine-post");
       draftPostRequestIdRef.current = clientRequestId;
       formData.append("client_request_id", clientRequestId);
@@ -1615,11 +1618,15 @@ export default function VineFeed() {
         body: formData,
       });
 
-      const newPost = await res.json().catch(() => ({}));
+      const responsePost = await res.json().catch(() => ({}));
       if (!res.ok) {
-        alert(newPost?.message || "Failed to create post");
+        alert(responsePost?.message || "Failed to create post");
         return;
       }
+      const newPost =
+        postSourceLabel && !responsePost?.post_source_label
+          ? { ...responsePost, post_source_label: postSourceLabel }
+          : responsePost;
       setPosts((prev) => {
         const alreadyThere = prev.some((row) => Number(row?.id) === Number(newPost?.id));
         if (alreadyThere) {

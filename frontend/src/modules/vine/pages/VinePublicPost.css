@@ -160,6 +160,23 @@
   margin-top: 2px;
   color: #64748b;
   font-size: 0.95rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.vine-public-source-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(6, 95, 70, 0.14);
+  background: linear-gradient(135deg, rgba(236, 253, 245, 0.96), rgba(254, 249, 195, 0.82));
+  color: #065f46;
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1.1;
 }
 
 .vine-public-verified {

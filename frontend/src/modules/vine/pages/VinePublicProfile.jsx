@@ -288,6 +288,7 @@ export default function VinePublicProfile() {
                   posts.map((post) => {
                     const linkPreview = parseLinkPreview(post.link_preview);
                     const { feeling, postBg, content } = extractPostMetaFromContent(post.content || "");
+                    const postSourceLabel = String(post.post_source_label || post.posted_from_label || "").trim();
                     const contentWordCount = content ? content.split(/\s+/).filter(Boolean).length : 0;
                     const useStyledTextCard =
                       Boolean(postBg) &&
@@ -309,7 +310,12 @@ export default function VinePublicProfile() {
                           {feeling ? (
                             <span className="vine-public-feeling">is feeling {formatFeelingLabel(feeling)}</span>
                           ) : null}
-                          <span className="vine-public-post-date">{formatPostDate(post.sort_time || post.created_at)}</span>
+                          <div className="vine-public-post-meta-right">
+                            <span className="vine-public-post-date">{formatPostDate(post.sort_time || post.created_at)}</span>
+                            {postSourceLabel ? (
+                              <span className="vine-public-source-badge">Posted from {postSourceLabel}</span>
+                            ) : null}
+                          </div>
                         </div>
                         {content ? (
                           <div

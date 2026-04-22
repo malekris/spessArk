@@ -616,6 +616,15 @@ const afterTableY = doc.lastAutoTable.finalY + RHYTHM;
         validAverages.reduce((a, b) => a + b, 0) / validAverages.length
       ).toFixed(1);
     }
+    const getTermDescriptor = (value) => {
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric)) return "X";
+      if (numeric >= 2.5) return "OUTSTANDING";
+      if (numeric >= 1.5) return "MODERATE";
+      if (numeric >= 0.9) return "BASIC";
+      return "X";
+    };
+    const overallDescriptor = getTermDescriptor(overallAverage);
 
     const pickComment = (arr, id) => arr[id % arr.length];
 
@@ -700,12 +709,14 @@ if (isEndOfYear) {
 
     head: [[
       "Overall Average",
+      "Descriptor",
       "Class Position",
       "Stream Position",
     ]],
 
     body: [[
       `${overallAverage}`,
+      overallDescriptor,
       classPositionText,
       streamPositionText,
     ]],
@@ -720,9 +731,10 @@ if (isEndOfYear) {
     headStyles: buildHeadStyles(),
 
     columnStyles: {
-      0: { cellWidth: TERM_MARKS_TABLE_WIDTH / 3 },
-      1: { cellWidth: TERM_MARKS_TABLE_WIDTH / 3 },
-      2: { cellWidth: TERM_MARKS_TABLE_WIDTH / 3 },
+      0: { cellWidth: TERM_MARKS_TABLE_WIDTH / 4 },
+      1: { cellWidth: TERM_MARKS_TABLE_WIDTH / 4 },
+      2: { cellWidth: TERM_MARKS_TABLE_WIDTH / 4 },
+      3: { cellWidth: TERM_MARKS_TABLE_WIDTH / 4 },
     },
 
     theme: "grid",

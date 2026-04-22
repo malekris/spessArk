@@ -2,6 +2,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import generateReportCardPDF from "../components/reportCardPdf";
 import { normalizeSchoolCalendar } from "../utils/schoolCalendar";
+import { loadPdfTools } from "../utils/loadPdfTools";
+import { adminFetch } from "../lib/api";
 
   const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5001";
   const REPORT_DATES_STORAGE_KEY = "spess_report_card_dates";
@@ -47,6 +49,133 @@ import { normalizeSchoolCalendar } from "../utils/schoolCalendar";
     return { termEndedOn, nextTermBeginsOn };
   };
 
+  const EXPECTED_SUBJECT_LOAD = {
+    S1: 12,
+    S2: 12,
+    S3: 9,
+    S4: 9,
+  };
+
+  const hasScore = (value) => value !== null && value !== undefined && value !== "";
+  const isMissedStatus = (status) => String(status || "").trim().toLowerCase() === "missed";
+  const toNumberOrNull = (value) => {
+    if (!hasScore(value)) return null;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+  };
+
+  const summarizeMissingComponents = (row, isEndOfYearMode) => {
+    const components = isEndOfYearMode
+      ? [
+          ["T1_AOI1", "T1_AOI1_status", "T1 AOI 1"],
+          ["T1_AOI2", "T1_AOI2_status", "T1 AOI 2"],
+          ["T1_AOI3", "T1_AOI3_status", "T1 AOI 3"],
+          ["T2_AOI1", "T2_AOI1_status", "T2 AOI 1"],
+          ["T2_AOI2", "T2_AOI2_status", "T2 AOI 2"],
+          ["T2_AOI3", "T2_AOI3_status", "T2 AOI 3"],
+          ["AOI1", "AOI1_status", "T3 AOI 1"],
+          ["AOI2", "AOI2_status", "T3 AOI 2"],
+          ["AOI3", "AOI3_status", "T3 AOI 3"],
+          ["EXAM80", "EXAM80_status", "/80"],
+        ]
+      : [
+          ["AOI1", "AOI1_status", "AOI 1"],
+          ["AOI2", "AOI2_status", "AOI 2"],
+          ["AOI3", "AOI3_status", "AOI 3"],
+        ];
+
+    return components
+      .filter(([scoreKey, statusKey]) => !hasScore(row[scoreKey]) || isMissedStatus(row[statusKey]))
+      .map(([scoreKey, statusKey, label]) => {
+        const statusLabel = isMissedStatus(row[statusKey]) ? "missed" : "missing";
+        return `${label} ${statusLabel}`;
+      });
+  };
+
+  const buildPerformanceIndicatorRows = (reportRows, registeredLearners, isEndOfYearMode, fallbackMeta = {}) => {
+    const reportByStudent = new Map();
+    reportRows.forEach((row) => {
+      const id = String(row.student_id || "").trim();
+      if (!id) return;
+      if (!reportByStudent.has(id)) {
+        reportByStudent.set(id, {
+          student_id: row.student_id,
+          student_name: row.student_name,
+          class_level: row.class_level,
+          stream: row.stream,
+          class_position: row.class_position,
+          stream_position: row.stream_position,
+          position_status: row.position_status,
+          rows: [],
+        });
+      }
+      reportByStudent.get(id).rows.push(row);
+    });
+
+    const registeredById = new Map();
+    registeredLearners.forEach((learner) => {
+      const id = String(learner.id || learner.student_id || "").trim();
+      if (id) registeredById.set(id, learner);
+    });
+
+    const mergedIds = new Set([...reportByStudent.keys(), ...registeredById.keys()]);
+
+    return Array.from(mergedIds)
+      .map((id) => {
+        const report = reportByStudent.get(id);
+        const registered = registeredById.get(id);
+        const rows = report?.rows || [];
+        const values = rows
+          .map((row) => toNumberOrNull(isEndOfYearMode ? row.percent100 : row.average))
+          .filter((value) => value !== null);
+        const overall =
+          values.length > 0
+            ? Number((values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(2))
+            : null;
+        const expectedLoad = EXPECTED_SUBJECT_LOAD[String(report?.class_level || registered?.class_level || "").toUpperCase()] || null;
+        const subjectCount = new Set(rows.map((row) => String(row.subject || "").trim()).filter(Boolean)).size;
+        const missingDetails = [];
+
+        rows.forEach((row) => {
+          const missing = summarizeMissingComponents(row, isEndOfYearMode);
+          if (missing.length > 0) {
+            missingDetails.push(`${row.subject || "Subject"}: ${missing.join(", ")}`);
+          }
+        });
+
+        if (rows.length === 0) {
+          missingDetails.push("No submitted report marks found");
+        }
+
+        if (expectedLoad && subjectCount > 0 && subjectCount < expectedLoad) {
+          missingDetails.push(`Subject load incomplete: ${subjectCount}/${expectedLoad} subjects found`);
+        }
+
+        const eligible = String(report?.position_status || "").trim().toUpperCase() === "ELIGIBLE";
+
+        return {
+          student_id: id,
+          student_name: report?.student_name || registered?.name || "Unknown learner",
+          class_level: report?.class_level || registered?.class_level || fallbackMeta.classLevel || "—",
+          stream: report?.stream || registered?.stream || fallbackMeta.stream || "—",
+          overall,
+          eligible,
+          class_position: report?.class_position || null,
+          stream_position: report?.stream_position || null,
+          subjectCount,
+          expectedLoad,
+          missingDetails,
+        };
+      })
+      .sort((a, b) => {
+        if (a.eligible !== b.eligible) return a.eligible ? -1 : 1;
+        if (a.eligible && b.eligible) return (b.overall ?? -1) - (a.overall ?? -1);
+        const missingDiff = a.missingDetails.length - b.missingDetails.length;
+        if (missingDiff !== 0) return missingDiff;
+        return String(a.student_name).localeCompare(String(b.student_name));
+      });
+  };
+
   function EndOfTermReports({ mode = "term" }) {
   const isEndOfYearMode = mode === "year";
   const currentYear = new Date().getFullYear();
@@ -62,6 +191,7 @@ import { normalizeSchoolCalendar } from "../utils/schoolCalendar";
   const [downloadStage, setDownloadStage] = useState("");
   const [error, setError] = useState("");
   const [data, setData] = useState([]);
+  const [registeredLearners, setRegisteredLearners] = useState([]);
   const [schoolCalendar, setSchoolCalendar] = useState(null);
   const [reportDatesCache, setReportDatesCache] = useState(() => {
     try {
@@ -94,6 +224,21 @@ import { normalizeSchoolCalendar } from "../utils/schoolCalendar";
     }),
     [derivedReportDates, reportDatesCache, reportDatesKey]
   );
+  const performanceRows = useMemo(
+    () =>
+      buildPerformanceIndicatorRows(data, registeredLearners, isEndOfYearMode, {
+        classLevel,
+        stream,
+      }),
+    [data, registeredLearners, isEndOfYearMode, classLevel, stream]
+  );
+  const performanceSummary = useMemo(
+    () => ({
+      eligible: performanceRows.filter((row) => row.eligible).length,
+      ineligible: performanceRows.filter((row) => !row.eligible).length,
+    }),
+    [performanceRows]
+  );
 
   useEffect(() => {
     let active = true;
@@ -113,6 +258,13 @@ import { normalizeSchoolCalendar } from "../utils/schoolCalendar";
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    setData([]);
+    setRegisteredLearners([]);
+    setStudentId("");
+    setError("");
+  }, [year, term, classLevel, stream, isEndOfYearMode]);
 
   const updateReportDate = (field, value) => {
     setReportDatesCache((prev) => {
@@ -172,21 +324,14 @@ import { normalizeSchoolCalendar } from "../utils/schoolCalendar";
         ? "/api/admin/reports/year"
         : "/api/admin/reports/term";
 
-      const res = await fetch(
-        `${API_BASE}${reportEndpoint}?${params.toString()}`,
-        {
-          headers: {
-            "x-admin-key": localStorage.getItem("adminKey") || "",
-          },
-        }
-      );
-  
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.message || "Failed to load report");
-      }
-  
-      const rows = await res.json();
+      const rows = await adminFetch(`${reportEndpoint}?${params.toString()}`);
+      const learners = await adminFetch("/api/students").catch(() => []);
+      const relevantLearners = Array.isArray(learners)
+        ? learners.filter((learner) => {
+            if (studentId) return String(learner.id) === String(studentId);
+            return learner.class_level === classLevel && learner.stream === stream;
+          })
+        : [];
   
       // ✅ UX FIX — empty results (South / no marks / no assignments)
       if (rows.length === 0) {
@@ -199,8 +344,10 @@ import { normalizeSchoolCalendar } from "../utils/schoolCalendar";
       }
   
       setData(rows);
+      setRegisteredLearners(relevantLearners);
     } catch (err) {
       setError(err.message || "Something went wrong");
+      setRegisteredLearners([]);
     } finally {
       setLoading(false);
     }
@@ -251,6 +398,119 @@ import { normalizeSchoolCalendar } from "../utils/schoolCalendar";
         setDownloadProgress(0);
         setDownloadStage("");
       }, 500);
+    }
+  };
+
+  const handleDownloadPerformanceIndicatorPdf = async () => {
+    if (performanceRows.length === 0) {
+      setError("Preview reports first, then download the performance indicator.");
+      return;
+    }
+
+    setError("");
+
+    try {
+      const { jsPDF, autoTable } = await loadPdfTools();
+      const doc = new jsPDF("l", "mm", "a4");
+      const pageW = doc.internal.pageSize.getWidth();
+      const pageH = doc.internal.pageSize.getHeight();
+      const generatedAt = new Date().toLocaleString();
+      const termLabel = isEndOfYearMode ? "End of Year" : `Term ${term}`;
+
+      doc.setDrawColor(203, 213, 225);
+      doc.setFillColor(248, 250, 252);
+      doc.roundedRect(10, 8, pageW - 20, 34, 3, 3, "FD");
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(16);
+      doc.setTextColor(15, 23, 42);
+      doc.text("ST PHILLIP'S EQUATORIAL SECONDARY SCHOOL", pageW / 2, 17, { align: "center" });
+
+      doc.setFontSize(14);
+      doc.text("Performance Indicator", pageW / 2, 26, { align: "center" });
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.setTextColor(71, 85, 105);
+      doc.text(`Class: ${classLevel}`, 14, 35);
+      doc.text(`Stream: ${stream}`, 50, 35);
+      doc.text(`${termLabel} · ${year}`, 90, 35);
+      doc.text(`Eligible: ${performanceSummary.eligible}`, 140, 35);
+      doc.text(`Ineligible: ${performanceSummary.ineligible}`, 174, 35);
+      doc.text(`Generated: ${generatedAt}`, 214, 35);
+
+      const body = performanceRows.map((row, index) => [
+        index + 1,
+        row.student_name,
+        row.eligible ? "Eligible" : "Ineligible",
+        row.overall === null ? "—" : row.overall,
+        row.class_position || "—",
+        row.stream_position || "—",
+        row.expectedLoad ? `${row.subjectCount}/${row.expectedLoad}` : row.subjectCount || "—",
+        row.missingDetails.length ? row.missingDetails.join("; ") : "Complete",
+      ]);
+
+      autoTable(doc, {
+        startY: 48,
+        margin: { left: 10, right: 10, bottom: 14 },
+        head: [["#", "Learner", "Status", "Indicator", "Class Pos.", "Stream Pos.", "Subjects", "Missing / Notes"]],
+        body,
+        theme: "grid",
+        styles: {
+          font: "helvetica",
+          fontSize: 8,
+          cellPadding: { top: 2.4, right: 1.8, bottom: 2.4, left: 1.8 },
+          lineColor: [203, 213, 225],
+          lineWidth: 0.16,
+          textColor: [15, 23, 42],
+          valign: "middle",
+        },
+        headStyles: {
+          fillColor: [255, 255, 255],
+          textColor: [15, 23, 42],
+          lineColor: [148, 163, 184],
+          fontStyle: "bold",
+        },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        columnStyles: {
+          0: { cellWidth: 10, halign: "center" },
+          1: { cellWidth: 48 },
+          2: { cellWidth: 22, halign: "center" },
+          3: { cellWidth: 20, halign: "center" },
+          4: { cellWidth: 20, halign: "center" },
+          5: { cellWidth: 22, halign: "center" },
+          6: { cellWidth: 20, halign: "center" },
+          7: { cellWidth: 126 },
+        },
+        didParseCell: (hookData) => {
+          if (hookData.section !== "body") return;
+          const row = performanceRows[hookData.row.index];
+          if (hookData.column.index === 2) {
+            hookData.cell.styles.textColor = row.eligible ? [22, 101, 52] : [153, 27, 27];
+            hookData.cell.styles.fontStyle = "bold";
+          }
+        },
+        didDrawPage: () => {
+          const pageNumber = doc.internal.getCurrentPageInfo().pageNumber;
+          const pageCount = doc.internal.getNumberOfPages();
+          doc.setFont("helvetica", "italic");
+          doc.setFontSize(8);
+          doc.setTextColor(100, 116, 139);
+          doc.text(
+            `Generated from SPESS ARK · ${generatedAt} · Page ${pageNumber} of ${pageCount}`,
+            pageW / 2,
+            pageH - 7,
+            { align: "center" }
+          );
+        },
+      });
+
+      const blob = doc.output("blob");
+      const blobUrl = URL.createObjectURL(blob);
+      window.open(blobUrl, "_blank");
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+    } catch (err) {
+      setError(err.message || "Failed to generate performance indicator PDF.");
     }
   };
 
@@ -435,6 +695,142 @@ import { normalizeSchoolCalendar } from "../utils/schoolCalendar";
             />
           </label>
         </div>
+      </div>
+
+      <div
+        style={{
+          marginTop: "1rem",
+          padding: "0.95rem 1rem",
+          borderRadius: "1rem",
+          border: "1px solid rgba(34, 197, 94, 0.24)",
+          background:
+            "linear-gradient(135deg, rgba(15, 23, 42, 0.88), rgba(2, 6, 23, 0.94))",
+          display: "grid",
+          gap: "0.85rem",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: "1rem",
+            alignItems: "flex-start",
+            flexWrap: "wrap",
+          }}
+        >
+          <div>
+            <div style={{ fontSize: "0.78rem", textTransform: "uppercase", letterSpacing: "0.14em", color: "#86efac", marginBottom: "0.3rem" }}>
+              Performance Indicator
+            </div>
+            <div style={{ fontSize: "0.88rem", color: "#cbd5e1", lineHeight: 1.6 }}>
+              Ranks eligible learners first by performance, then places ineligible learners below with missing marks and readiness notes.
+            </div>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: "0.55rem", flexWrap: "wrap" }}>
+            <span
+              style={{
+                padding: "0.35rem 0.65rem",
+                borderRadius: "999px",
+                background: "rgba(22, 101, 52, 0.28)",
+                color: "#bbf7d0",
+                fontSize: "0.78rem",
+                fontWeight: 800,
+              }}
+            >
+              Eligible {performanceSummary.eligible}
+            </span>
+            <span
+              style={{
+                padding: "0.35rem 0.65rem",
+                borderRadius: "999px",
+                background: "rgba(127, 29, 29, 0.28)",
+                color: "#fecaca",
+                fontSize: "0.78rem",
+                fontWeight: 800,
+              }}
+            >
+              Ineligible {performanceSummary.ineligible}
+            </span>
+            <button
+              type="button"
+              onClick={handleDownloadPerformanceIndicatorPdf}
+              disabled={performanceRows.length === 0 || loading || downloading}
+              style={{
+                border: "none",
+                borderRadius: "999px",
+                padding: "0.52rem 0.95rem",
+                background:
+                  performanceRows.length === 0
+                    ? "rgba(71, 85, 105, 0.65)"
+                    : "linear-gradient(135deg, #22c55e, #0f766e)",
+                color: "#fff",
+                fontWeight: 800,
+                cursor: performanceRows.length === 0 ? "not-allowed" : "pointer",
+                boxShadow: performanceRows.length === 0 ? "none" : "0 10px 22px rgba(34, 197, 94, 0.18)",
+              }}
+            >
+              Download Indicator PDF
+            </button>
+          </div>
+        </div>
+
+        {performanceRows.length === 0 ? (
+          <div
+            style={{
+              border: "1px dashed rgba(148, 163, 184, 0.3)",
+              borderRadius: "0.9rem",
+              color: "#94a3b8",
+              padding: "0.85rem",
+              fontSize: "0.86rem",
+            }}
+          >
+            Click Preview first to build the performance indicator for this class and stream.
+          </div>
+        ) : (
+          <div style={{ maxHeight: "320px", overflow: "auto", borderRadius: "0.9rem" }}>
+            <table className="teachers-table" style={{ minWidth: "760px" }}>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Learner</th>
+                  <th>Status</th>
+                  <th>Indicator</th>
+                  <th>Class Pos.</th>
+                  <th>Stream Pos.</th>
+                  <th>Missing / Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {performanceRows.map((row, index) => (
+                  <tr key={row.student_id}>
+                    <td>{index + 1}</td>
+                    <td>{row.student_name}</td>
+                    <td>
+                      <span
+                        style={{
+                          display: "inline-flex",
+                          borderRadius: "999px",
+                          padding: "0.22rem 0.55rem",
+                          fontSize: "0.72rem",
+                          fontWeight: 800,
+                          background: row.eligible ? "rgba(22, 101, 52, 0.28)" : "rgba(127, 29, 29, 0.28)",
+                          color: row.eligible ? "#bbf7d0" : "#fecaca",
+                        }}
+                      >
+                        {row.eligible ? "Eligible" : "Ineligible"}
+                      </span>
+                    </td>
+                    <td>{row.overall === null ? "—" : row.overall}</td>
+                    <td>{row.class_position || "—"}</td>
+                    <td>{row.stream_position || "—"}</td>
+                    <td>{row.missingDetails.length ? row.missingDetails.join("; ") : "Complete"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* STATUS */}

@@ -336,6 +336,117 @@ app.post("/api/admin/change-password", authAdmin, async (req, res) => {
   }
 });
 
+const writeStreamChunk = (stream, chunk) =>
+  new Promise((resolve, reject) => {
+    stream.write(chunk, (err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+
+async function createNodeDatabaseDumpFile(tmpFilePath, { dbName }) {
+  const output = fs.createWriteStream(tmpFilePath, { encoding: "utf8" });
+
+  const write = (chunk) => writeStreamChunk(output, chunk);
+
+  try {
+    await write(`-- SPESS ARK database backup\n`);
+    await write(`-- Generated: ${new Date().toISOString()}\n`);
+    await write(`-- Database: ${dbName}\n`);
+    await write(`-- Mode: Node fallback dump\n\n`);
+    await write(`SET NAMES utf8mb4;\n`);
+    await write(`SET FOREIGN_KEY_CHECKS=0;\n\n`);
+
+    const [tableRows] = await pool.query(
+      `
+      SELECT TABLE_NAME
+      FROM information_schema.TABLES
+      WHERE TABLE_SCHEMA = ?
+        AND TABLE_TYPE = 'BASE TABLE'
+      ORDER BY TABLE_NAME
+      `,
+      [dbName]
+    );
+
+    for (const tableRow of tableRows) {
+      const tableName = tableRow.TABLE_NAME;
+      const tableId = mysql.escapeId(tableName);
+
+      await write(`\n-- --------------------------------------------------------\n`);
+      await write(`-- Table structure for ${tableId}\n`);
+      await write(`-- --------------------------------------------------------\n\n`);
+      await write(`DROP TABLE IF EXISTS ${tableId};\n`);
+
+      const [createRows] = await pool.query(`SHOW CREATE TABLE ${tableId}`);
+      const createSql = createRows?.[0]?.["Create Table"];
+      if (createSql) {
+        await write(`${createSql};\n\n`);
+      }
+
+      const [rows, fields] = await pool.query(`SELECT * FROM ${tableId}`);
+      if (!rows.length) {
+        await write(`-- No data for ${tableId}\n`);
+        continue;
+      }
+
+      const columns = fields.map((field) => mysql.escapeId(field.name));
+      const columnSql = columns.join(", ");
+      const batchSize = 100;
+
+      await write(`-- Data for ${tableId}\n`);
+      for (let i = 0; i < rows.length; i += batchSize) {
+        const batch = rows.slice(i, i + batchSize);
+        const valuesSql = batch
+          .map((row) => {
+            const values = fields.map((field) => mysql.escape(row[field.name]));
+            return `(${values.join(", ")})`;
+          })
+          .join(",\n");
+
+        await write(`INSERT INTO ${tableId} (${columnSql}) VALUES\n${valuesSql};\n`);
+      }
+    }
+
+    const [viewRows] = await pool.query(
+      `
+      SELECT TABLE_NAME
+      FROM information_schema.TABLES
+      WHERE TABLE_SCHEMA = ?
+        AND TABLE_TYPE = 'VIEW'
+      ORDER BY TABLE_NAME
+      `,
+      [dbName]
+    );
+
+    for (const viewRow of viewRows) {
+      const viewName = viewRow.TABLE_NAME;
+      const viewId = mysql.escapeId(viewName);
+      await write(`\n-- --------------------------------------------------------\n`);
+      await write(`-- View structure for ${viewId}\n`);
+      await write(`-- --------------------------------------------------------\n\n`);
+      await write(`DROP VIEW IF EXISTS ${viewId};\n`);
+
+      const [createViewRows] = await pool.query(`SHOW CREATE VIEW ${viewId}`);
+      const createViewSql = createViewRows?.[0]?.["Create View"];
+      if (createViewSql) {
+        await write(`${createViewSql};\n`);
+      }
+    }
+
+    await write(`\nSET FOREIGN_KEY_CHECKS=1;\n`);
+
+    await new Promise((resolve, reject) => {
+      output.end((err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+  } catch (err) {
+    output.destroy();
+    throw err;
+  }
+}
+
 app.get("/api/admin/database-dump", authAdmin, requireAdminReauth, async (req, res) => {
   const dbHost = String(poolConfig.host || "").trim();
   const dbUser = String(poolConfig.user || "").trim();
@@ -401,12 +512,14 @@ app.get("/api/admin/database-dump", authAdmin, requireAdminReauth, async (req, r
       });
 
       dumpProcess.on("error", (err) => {
-        const message =
-          err?.code === "ENOENT"
-            ? "mysqldump is not available on this server yet. Install the MySQL client on the host to enable backup downloads."
-            : err?.message || "Failed to start database dump.";
+        if (err?.code === "ENOENT") {
+          err.useNodeDumpFallback = true;
+        }
+        const message = err?.message || "Failed to start database dump.";
         output.destroy();
-        finish(new Error(message));
+        const nextError = new Error(message);
+        nextError.useNodeDumpFallback = Boolean(err?.useNodeDumpFallback);
+        finish(nextError);
       });
 
       output.on("error", (err) => {
@@ -429,6 +542,10 @@ app.get("/api/admin/database-dump", authAdmin, requireAdminReauth, async (req, r
           finish(new Error(stderr.trim() || "Database dump failed."));
         });
       });
+    }).catch(async (err) => {
+      if (!err?.useNodeDumpFallback) throw err;
+      await fs.promises.unlink(tmpFilePath).catch(() => {});
+      await createNodeDatabaseDumpFile(tmpFilePath, { dbName });
     });
 
     await logAuditEvent({

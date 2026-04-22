@@ -793,6 +793,10 @@ export default function AdminDashboard() {
   const [marksheetStream, setMarksheetStream] = useState("");
   const [marksheetSubject, setMarksheetSubject] = useState("");
   const [marksheetError, setMarksheetError] = useState("");
+  const [classListClass, setClassListClass] = useState("");
+  const [classListStream, setClassListStream] = useState("");
+  const [classListSubject, setClassListSubject] = useState("");
+  const [classListError, setClassListError] = useState("");
 
   /* ---------- Stream readiness ---------- */
   const [streamReadiness, setStreamReadiness] = useState([]);
@@ -2920,6 +2924,118 @@ export default function AdminDashboard() {
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
   };
+
+  const handleDownloadClassListPdf = async () => {
+    setClassListError("");
+
+    if (!classListClass || !classListStream) {
+      setClassListError("Select a class and stream before downloading the class list.");
+      return;
+    }
+
+    if (classListStudents.length === 0) {
+      setClassListError("No learners found for that class list selection.");
+      return;
+    }
+
+    const { jsPDF, autoTable } = await loadPdfTools();
+    const doc = new jsPDF("p", "mm", "a4");
+    const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
+    const generatedAt = formatDateTime(new Date().toISOString());
+    const schoolName = "St. Phillip's Equatorial Secondary School (SPESS)";
+    const subjectLabel = classListSubject || "All registered subjects";
+    const title = classListSubject ? `${classListSubject} Class List` : "O-Level Class List";
+
+    const rows = classListStudents.map((student, index) => [
+      index + 1,
+      student.name || "",
+      student.gender || "",
+      student.stream || classListStream,
+      student.class_level || classListClass,
+      Array.isArray(student.subjects) ? student.subjects.join(", ") : "",
+    ]);
+
+    const drawHeader = () => {
+      doc.setDrawColor(203, 213, 225);
+      doc.setFillColor(248, 250, 252);
+      doc.roundedRect(12, 10, pageW - 24, 34, 3, 3, "FD");
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(14);
+      doc.setTextColor(15, 23, 42);
+      doc.text(schoolName, pageW / 2, 18, { align: "center" });
+
+      doc.setFontSize(16);
+      doc.text(title, pageW / 2, 27, { align: "center" });
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.setTextColor(71, 85, 105);
+      doc.text(`Class: ${classListClass}`, 16, 36);
+      doc.text(`Stream: ${classListStream}`, 52, 36);
+      doc.text(`Subject: ${subjectLabel}`, 95, 36);
+      doc.text(`Learners: ${classListStudents.length}`, 154, 36);
+      doc.text(`Generated: ${generatedAt}`, 16, 41);
+    };
+
+    autoTable(doc, {
+      startY: 50,
+      margin: { top: 12, left: 12, right: 12, bottom: 18 },
+      head: [["#", "Name", "Gender", "Stream", "Class", "Registered Subjects"]],
+      body: rows,
+      theme: "grid",
+      styles: {
+        font: "helvetica",
+        fontSize: 9,
+        cellPadding: { top: 3, right: 2.2, bottom: 3, left: 2.2 },
+        lineColor: [203, 213, 225],
+        lineWidth: 0.18,
+        textColor: [15, 23, 42],
+        valign: "middle",
+      },
+      headStyles: {
+        fillColor: [255, 255, 255],
+        textColor: [15, 23, 42],
+        lineColor: [148, 163, 184],
+        lineWidth: 0.22,
+        fontStyle: "bold",
+      },
+      alternateRowStyles: {
+        fillColor: [248, 250, 252],
+      },
+      columnStyles: {
+        0: { cellWidth: 10, halign: "center" },
+        1: { cellWidth: 50 },
+        2: { cellWidth: 21, halign: "center" },
+        3: { cellWidth: 22, halign: "center" },
+        4: { cellWidth: 18, halign: "center" },
+        5: { cellWidth: 76 },
+      },
+      didDrawPage: () => {
+        const pageNumber = doc.internal.getCurrentPageInfo().pageNumber;
+        if (pageNumber === 1) {
+          drawHeader();
+        }
+
+        const pageCount = doc.internal.getNumberOfPages();
+        doc.setFont("helvetica", "italic");
+        doc.setFontSize(8);
+        doc.setTextColor(100, 116, 139);
+        doc.text(
+          `Generated from SPESS ARK · ${generatedAt} · Page ${pageNumber} of ${pageCount}`,
+          pageW / 2,
+          pageH - 8,
+          { align: "center" }
+        );
+      },
+    });
+
+    const blob = doc.output("blob");
+    const blobUrl = URL.createObjectURL(blob);
+    window.open(blobUrl, "_blank");
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+  };
   
   
   
@@ -2953,6 +3069,43 @@ export default function AdminDashboard() {
       })
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [students, marksheetClass, marksheetStream, marksheetSubject]);
+
+  const classListSubjectOptions = useMemo(() => {
+    const subjects = new Set();
+    students.forEach((student) => {
+      if (classListClass && student.class_level !== classListClass) return;
+      if (classListStream && student.stream !== classListStream) return;
+
+      const registeredSubjects = Array.isArray(student.subjects) ? student.subjects : [];
+      registeredSubjects.forEach((subject) => {
+        if (subject) subjects.add(subject);
+      });
+    });
+
+    return Array.from(subjects).sort((a, b) => a.localeCompare(b));
+  }, [students, classListClass, classListStream]);
+
+  useEffect(() => {
+    if (classListSubject && !classListSubjectOptions.includes(classListSubject)) {
+      setClassListSubject("");
+    }
+  }, [classListSubject, classListSubjectOptions]);
+
+  const classListStudents = useMemo(() => {
+    if (!classListClass || !classListStream) return [];
+
+    return students
+      .filter((student) => {
+        if (student.class_level !== classListClass) return false;
+        if (student.stream !== classListStream) return false;
+        if (classListSubject) {
+          const registeredSubjects = Array.isArray(student.subjects) ? student.subjects : [];
+          if (!registeredSubjects.includes(classListSubject)) return false;
+        }
+        return true;
+      })
+      .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+  }, [students, classListClass, classListStream, classListSubject]);
 
   const potentialDuplicateLearner = useMemo(() => {
     const name = String(studentForm.name || "").trim().toLowerCase();
@@ -4050,6 +4203,104 @@ export default function AdminDashboard() {
                   </table>
                 </div>
               )}
+
+              <div className="olevel-classlist-card">
+                <div className="olevel-classlist-header">
+                  <div>
+                    <span className="olevel-classlist-eyebrow">Live Class List</span>
+                    <h3>O-Level Subject Register</h3>
+                    <p className="muted-text">
+                      Pick a class, stream and subject to see exactly which learners belong to that register.
+                    </p>
+                  </div>
+                  <div className="olevel-classlist-count">
+                    <strong>{classListStudents.length}</strong>
+                    <span>{classListStudents.length === 1 ? "learner" : "learners"}</span>
+                  </div>
+                </div>
+
+                <div className="olevel-classlist-filters">
+                  <select value={classListClass} onChange={(e) => { setClassListClass(e.target.value); setClassListError(""); }}>
+                    <option value="">Select class</option>
+                    {classOptionsForMarksheet.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+
+                  <select value={classListStream} onChange={(e) => { setClassListStream(e.target.value); setClassListError(""); }}>
+                    <option value="">Select stream</option>
+                    <option value="North">North</option>
+                    <option value="South">South</option>
+                  </select>
+
+                  <select value={classListSubject} onChange={(e) => { setClassListSubject(e.target.value); setClassListError(""); }}>
+                    <option value="">All subjects</option>
+                    {classListSubjectOptions.map((subject) => (
+                      <option key={subject} value={subject}>{subject}</option>
+                    ))}
+                  </select>
+
+                  <button
+                    type="button"
+                    className="primary-btn olevel-classlist-download-btn"
+                    onClick={handleDownloadClassListPdf}
+                    disabled={!classListClass || !classListStream || classListStudents.length === 0}
+                  >
+                    Download PDF
+                  </button>
+
+                  <button
+                    type="button"
+                    className="ghost-btn"
+                    onClick={() => {
+                      setClassListClass("");
+                      setClassListStream("");
+                      setClassListSubject("");
+                      setClassListError("");
+                    }}
+                  >
+                    Clear
+                  </button>
+                </div>
+
+                {classListError && <div className="olevel-classlist-error">{classListError}</div>}
+
+                {!classListClass || !classListStream ? (
+                  <div className="olevel-classlist-empty">
+                    Select a class and stream to open the class list workspace.
+                  </div>
+                ) : classListStudents.length === 0 ? (
+                  <div className="olevel-classlist-empty">
+                    No learners found for {classListClass} {classListStream}
+                    {classListSubject ? ` offering ${classListSubject}` : ""}.
+                  </div>
+                ) : (
+                  <div className="teachers-table-wrapper olevel-classlist-table-shell">
+                    <table className="teachers-table olevel-classlist-table">
+                      <thead>
+                        <tr>
+                          <th>#</th>
+                          <th>Name</th>
+                          <th>Gender</th>
+                          <th>Stream</th>
+                          <th>Class</th>
+                          <th>Registered Subjects</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {classListStudents.map((student, index) => (
+                          <tr key={student.id}>
+                            <td>{index + 1}</td>
+                            <td>{student.name}</td>
+                            <td>{student.gender || "—"}</td>
+                            <td>{student.stream}</td>
+                            <td>{student.class_level}</td>
+                            <td>{Array.isArray(student.subjects) ? student.subjects.join(", ") : ""}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </section>

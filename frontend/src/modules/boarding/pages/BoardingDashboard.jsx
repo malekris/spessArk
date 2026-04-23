@@ -87,101 +87,146 @@ export default function BoardingDashboard() {
           <div style={{ color: "rgba(241,245,249,0.72)", marginTop: "0.4rem" }}>{stats.subjectCount} subjects available for boarding registration</div>
         </div>
 
+      </div>
+
+      <div
+        className="panel-card"
+        style={{
+          marginTop: "1rem",
+          padding: "1.25rem 1.25rem 1.35rem",
+          background:
+            "radial-gradient(circle at top right, rgba(34,211,238,0.18), transparent 30%), linear-gradient(135deg, rgba(56,189,248,0.2), rgba(15,23,42,0.82))",
+          border: "1px solid rgba(56,189,248,0.24)",
+          boxShadow: "0 22px 44px rgba(2, 6, 23, 0.24)",
+        }}
+      >
         <div
-          className="panel-card"
           style={{
-            background: "linear-gradient(135deg, rgba(56,189,248,0.2), rgba(15,23,42,0.76))",
-            border: "1px solid rgba(56,189,248,0.3)",
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+            gap: "1rem",
+            alignItems: "start",
           }}
         >
-          <div style={{ display: "flex", justifyContent: "space-between", gap: "0.8rem", alignItems: "flex-start", flexWrap: "wrap" }}>
-            <div>
-              <div style={{ color: "#7dd3fc", fontSize: "0.74rem", fontWeight: 900, letterSpacing: "0.14em", textTransform: "uppercase" }}>
-                Subjects Entered
+          <div>
+            <div style={{ color: "#7dd3fc", fontSize: "0.74rem", fontWeight: 900, letterSpacing: "0.14em", textTransform: "uppercase" }}>
+              Subjects Entered
+            </div>
+            <div style={{ marginTop: "0.45rem", color: "#f8fafc", fontSize: "1.3rem", fontWeight: 900, lineHeight: 1.2 }}>
+              Boarding Marks Coverage Tracker
+            </div>
+            <div style={{ marginTop: "0.5rem", color: "rgba(241,245,249,0.76)", fontWeight: 700, lineHeight: 1.55 }}>
+              {stats.trackerClassLevel} · {stats.trackerTerm} · {stats.trackerYear}
+            </div>
+
+            <div style={{ display: "flex", alignItems: "baseline", gap: "0.7rem", marginTop: "1rem", flexWrap: "wrap" }}>
+              <div style={{ fontSize: "3.15rem", fontWeight: 900, lineHeight: 1 }}>{enteredSubjectCount}</div>
+              <div style={{ color: "rgba(241,245,249,0.72)", fontWeight: 700, fontSize: "1rem" }}>
+                of {stats.trackedSubjectCount} subjects entered
               </div>
-              <div style={{ marginTop: "0.4rem", color: "rgba(241,245,249,0.72)", fontWeight: 700, lineHeight: 1.45 }}>
-                {stats.trackerClassLevel} · {stats.trackerTerm} · {stats.trackerYear}
+              <div
+                style={{
+                  padding: "0.36rem 0.7rem",
+                  borderRadius: "999px",
+                  border: "1px solid rgba(125, 211, 252, 0.2)",
+                  background: "rgba(15, 23, 42, 0.42)",
+                  color: "#dbeafe",
+                  fontSize: "0.78rem",
+                  fontWeight: 800,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                }}
+              >
+                {subjectEntryPercent}% coverage
               </div>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(118px, 1fr))", gap: "0.55rem", minWidth: "min(100%, 270px)" }}>
-              <label style={{ display: "grid", gap: "0.35rem" }}>
-                <span style={{ color: "#dbeafe", fontSize: "0.72rem", fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase" }}>
-                  Class
-                </span>
-                <select
-                  className="admin-ops-select"
-                  value={trackerFilters.classLevel}
-                  onChange={(event) =>
-                    setTrackerFilters((previous) => ({ ...previous, classLevel: event.target.value }))
-                  }
-                >
-                  {BOARDING_CLASSES.map((classLevel) => (
-                    <option key={classLevel} value={classLevel}>
-                      {classLevel}
-                    </option>
-                  ))}
-                </select>
-              </label>
 
-              <label style={{ display: "grid", gap: "0.35rem" }}>
-                <span style={{ color: "#dbeafe", fontSize: "0.72rem", fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase" }}>
-                  Term
-                </span>
-                <select
-                  className="admin-ops-select"
-                  value={trackerFilters.term}
-                  onChange={(event) =>
-                    setTrackerFilters((previous) => ({ ...previous, term: event.target.value }))
-                  }
-                >
-                  {BOARDING_TERMS.map((term) => (
-                    <option key={term} value={term}>
-                      {term}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-          </div>
-
-          <div style={{ display: "flex", alignItems: "baseline", gap: "0.55rem", marginTop: "0.6rem" }}>
-            <div style={{ fontSize: "2.5rem", fontWeight: 900, lineHeight: 1 }}>{enteredSubjectCount}</div>
-            <div style={{ color: "rgba(241,245,249,0.72)", fontWeight: 700 }}>of {stats.trackedSubjectCount}</div>
-          </div>
-          <div
-            style={{
-              marginTop: "0.95rem",
-              height: "12px",
-              width: "100%",
-              borderRadius: "999px",
-              overflow: "hidden",
-              background: "rgba(15, 23, 42, 0.72)",
-              border: "1px solid rgba(125, 211, 252, 0.16)",
-              boxShadow: "inset 0 1px 2px rgba(0, 0, 0, 0.24)",
-            }}
-          >
             <div
               style={{
-                height: "100%",
-                width: `${subjectEntryPercent}%`,
-                borderRadius: "inherit",
-                background: "linear-gradient(90deg, #38bdf8 0%, #22d3ee 52%, #4ade80 100%)",
-                boxShadow: "0 0 20px rgba(34, 211, 238, 0.32)",
-                transition: "width 220ms ease",
+                marginTop: "1rem",
+                height: "14px",
+                width: "100%",
+                borderRadius: "999px",
+                overflow: "hidden",
+                background: "rgba(15, 23, 42, 0.72)",
+                border: "1px solid rgba(125, 211, 252, 0.16)",
+                boxShadow: "inset 0 1px 2px rgba(0, 0, 0, 0.24)",
               }}
-            />
+            >
+              <div
+                style={{
+                  height: "100%",
+                  width: `${subjectEntryPercent}%`,
+                  borderRadius: "inherit",
+                  background: "linear-gradient(90deg, #38bdf8 0%, #22d3ee 52%, #4ade80 100%)",
+                  boxShadow: "0 0 24px rgba(34, 211, 238, 0.36)",
+                  transition: "width 220ms ease",
+                }}
+              />
+            </div>
+
+            <div style={{ marginTop: "0.8rem", color: "rgba(241,245,249,0.82)", lineHeight: 1.6, maxWidth: "900px" }}>
+              {stats.trackedSubjectCount > 0
+                ? `${subjectEntryPercent}% of registered subjects in ${stats.trackerClassLevel} already have weekend marks for ${stats.trackerTerm}.`
+                : selectedClassSummary
+                  ? `No subjects are registered for ${stats.trackerClassLevel} yet, so there is no marks coverage to track for ${stats.trackerTerm}.`
+                  : `No learners are registered in ${stats.trackerClassLevel} yet, so the tracker will light up once the class is populated.`}
+            </div>
+            <div style={{ marginTop: "0.45rem", color: "rgba(191,219,254,0.72)", fontSize: "0.86rem" }}>
+              {selectedClassSummary
+                ? `${selectedClassSummary.total} learners currently tracked in ${stats.trackerClassLevel}.`
+                : `No boarding learners found in ${stats.trackerClassLevel} right now.`}
+            </div>
           </div>
-          <div style={{ marginTop: "0.72rem", color: "rgba(241,245,249,0.8)", lineHeight: 1.55 }}>
-            {stats.trackedSubjectCount > 0
-              ? `${subjectEntryPercent}% of registered subjects in ${stats.trackerClassLevel} already have weekend marks for ${stats.trackerTerm}.`
-              : selectedClassSummary
-                ? `No subjects are registered for ${stats.trackerClassLevel} yet, so there is no marks coverage to track for ${stats.trackerTerm}.`
-                : `No learners are registered in ${stats.trackerClassLevel} yet, so the tracker will light up once the class is populated.`}
-          </div>
-          <div style={{ marginTop: "0.45rem", color: "rgba(191,219,254,0.72)", fontSize: "0.84rem" }}>
-            {selectedClassSummary
-              ? `${selectedClassSummary.total} learners currently tracked in ${stats.trackerClassLevel}.`
-              : `No boarding learners found in ${stats.trackerClassLevel} right now.`}
+
+          <div
+            style={{
+              display: "grid",
+              gap: "0.8rem",
+              padding: "1rem",
+              borderRadius: "1rem",
+              border: "1px solid rgba(125, 211, 252, 0.16)",
+              background: "rgba(2, 6, 23, 0.24)",
+              alignSelf: "stretch",
+            }}
+          >
+            <label style={{ display: "grid", gap: "0.35rem" }}>
+              <span style={{ color: "#dbeafe", fontSize: "0.72rem", fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase" }}>
+                Class
+              </span>
+              <select
+                className="admin-ops-select"
+                value={trackerFilters.classLevel}
+                onChange={(event) =>
+                  setTrackerFilters((previous) => ({ ...previous, classLevel: event.target.value }))
+                }
+              >
+                {BOARDING_CLASSES.map((classLevel) => (
+                  <option key={classLevel} value={classLevel}>
+                    {classLevel}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label style={{ display: "grid", gap: "0.35rem" }}>
+              <span style={{ color: "#dbeafe", fontSize: "0.72rem", fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase" }}>
+                Term
+              </span>
+              <select
+                className="admin-ops-select"
+                value={trackerFilters.term}
+                onChange={(event) =>
+                  setTrackerFilters((previous) => ({ ...previous, term: event.target.value }))
+                }
+              >
+                {BOARDING_TERMS.map((term) => (
+                  <option key={term} value={term}>
+                    {term}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
         </div>
       </div>

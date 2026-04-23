@@ -158,7 +158,7 @@ export default function AuditLogsPanel() {
   };
 
   return (
-    <div className="panel-card">
+    <div className="panel-card audit-log-panel">
       <div className="panel-card-header">
         <h3>Audit Logs</h3>
         <button type="button" className="ghost-btn" onClick={fetchLogs} disabled={loading}>
@@ -168,14 +168,16 @@ export default function AuditLogsPanel() {
 
       {error && <div className="panel-alert panel-alert-error">{error}</div>}
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: "0.6rem", marginBottom: "0.8rem" }}>
+      <div className="audit-log-filters">
         <input
           type="number"
           placeholder="Filter userId"
+          className="audit-log-control"
           value={filters.userId}
           onChange={(e) => setFilters((p) => ({ ...p, userId: e.target.value }))}
         />
         <select
+          className="audit-log-control audit-log-select"
           value={filters.action}
           onChange={(e) => setFilters((p) => ({ ...p, action: e.target.value }))}
         >
@@ -185,6 +187,7 @@ export default function AuditLogsPanel() {
           ))}
         </select>
         <select
+          className="audit-log-control audit-log-select"
           value={filters.entityType}
           onChange={(e) => setFilters((p) => ({ ...p, entityType: e.target.value }))}
         >
@@ -195,17 +198,19 @@ export default function AuditLogsPanel() {
         </select>
         <input
           type="date"
+          className="audit-log-control"
           value={filters.dateFrom}
           onChange={(e) => setFilters((p) => ({ ...p, dateFrom: e.target.value }))}
         />
         <input
           type="date"
+          className="audit-log-control"
           value={filters.dateTo}
           onChange={(e) => setFilters((p) => ({ ...p, dateTo: e.target.value }))}
         />
       </div>
 
-      <div style={{ display: "flex", gap: "0.6rem", alignItems: "center", marginBottom: "0.8rem", flexWrap: "wrap" }}>
+      <div className="audit-log-actions">
         <button type="button" className="primary-btn" onClick={applyFilters} disabled={loading}>
           Apply Filters
         </button>
@@ -263,10 +268,14 @@ export default function AuditLogsPanel() {
         </div>
       )}
 
-      <div style={{ marginTop: "0.8rem", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.8rem", flexWrap: "wrap" }}>
+      <div className="audit-log-footer">
         <div className="muted-text">Page {page} of {totalPages}</div>
-        <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-          <select value={limit} onChange={(e) => { setLimit(Number(e.target.value)); setPage(1); }}>
+        <div className="audit-log-pagination">
+          <select
+            className="audit-log-control audit-log-select audit-log-page-size"
+            value={limit}
+            onChange={(e) => { setLimit(Number(e.target.value)); setPage(1); }}
+          >
             <option value={10}>10</option>
             <option value={25}>25</option>
             <option value={50}>50</option>

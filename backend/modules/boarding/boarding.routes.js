@@ -7,6 +7,7 @@ import { extractClientIp, logAuditEvent } from "../../utils/auditLogger.js";
 const router = express.Router();
 
 const BOARDING_CLASSES = ["S1", "S2", "S3", "S4"];
+const BOARDING_TERMS = ["Term 1", "Term 2", "Term 3"];
 const BOARDING_SCORE_MIN = 0.9;
 const BOARDING_SCORE_MAX = 3.0;
 const DEFAULT_BOARDING_SUBJECTS = [
@@ -386,6 +387,17 @@ router.get("/subjects", authBoardingAdmin, async (req, res) => {
 router.get("/stats", authBoardingAdmin, async (req, res) => {
   try {
     await ensureBoardingSchemaReady();
+    const requestedClassLevel = normalizeClassLevel(req.query.class_level);
+    const classLevel = BOARDING_CLASSES.includes(requestedClassLevel)
+      ? requestedClassLevel
+      : BOARDING_CLASSES[0];
+    const requestedTerm = String(req.query.term || "").trim();
+    const term = BOARDING_TERMS.includes(requestedTerm) ? requestedTerm : BOARDING_TERMS[0];
+    const requestedYear = Number(req.query.year);
+    const year = Number.isFinite(requestedYear) && requestedYear > 0
+      ? requestedYear
+      : new Date().getFullYear();
+
     const [rows] = await pool.query(
       `
       SELECT
@@ -400,9 +412,34 @@ router.get("/stats", authBoardingAdmin, async (req, res) => {
     );
 
     const [[subjectMeta]] = await pool.query(`SELECT COUNT(*) AS total FROM boarding_subjects`);
+    const [[trackedSubjectMeta]] = await pool.query(
+      `
+      SELECT COUNT(DISTINCT bss.subject_id) AS total
+      FROM boarding_students bs
+      LEFT JOIN boarding_student_subjects bss ON bss.student_id = bs.id
+      WHERE bs.class_level = ?
+      `,
+      [classLevel]
+    );
+    const [[enteredSubjectMeta]] = await pool.query(
+      `
+      SELECT COUNT(DISTINCT bm.subject_id) AS total
+      FROM boarding_marks bm
+      JOIN boarding_students bs ON bs.id = bm.student_id
+      WHERE bs.class_level = ?
+        AND bm.term = ?
+        AND bm.year = ?
+      `,
+      [classLevel, term, year]
+    );
     return res.json({
       classes: rows || [],
       subjectCount: Number(subjectMeta?.total || 0),
+      trackedSubjectCount: Number(trackedSubjectMeta?.total || 0),
+      enteredSubjectCount: Number(enteredSubjectMeta?.total || 0),
+      trackerClassLevel: classLevel,
+      trackerTerm: term,
+      trackerYear: year,
     });
   } catch (err) {
     console.error("Boarding stats error:", err);

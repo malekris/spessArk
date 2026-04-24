@@ -55,6 +55,7 @@ const VineCommunities = lazy(() => import("./modules/vine/pages/VineCommunities"
 const VineLegalPage = lazy(() => import("./modules/vine/pages/VineLegalPage"));
 const VinePublicPost = lazy(() => import("./modules/vine/pages/VinePublicPost"));
 const VinePublicProfile = lazy(() => import("./modules/vine/pages/VinePublicProfile"));
+const VineEntrySplash = lazy(() => import("./modules/vine/pages/VineEntrySplash"));
 
 function RouteLoadingScreen() {
   return (
@@ -194,6 +195,7 @@ function App() {
     <Route path="/ark/boarding/reports" element={<ArkLayout><BoardingReports /></ArkLayout>} />
 
 {/* 🌱 SPESS VINE */}
+<Route path="/vine/enter" element={<VineRouteErrorBoundary><VineEntrySplash /></VineRouteErrorBoundary>} />
 <Route path="/vine/login" element={<VineRouteErrorBoundary><VineLogin /></VineRouteErrorBoundary>} />
 <Route path="/vine/register" element={<VineRouteErrorBoundary><VineRegister /></VineRouteErrorBoundary>} />
 <Route path="/vine/forgot-password" element={<VineRouteErrorBoundary><VineForgotPassword /></VineRouteErrorBoundary>} />

@@ -32,6 +32,9 @@ const buildAlevelSubjectDisplay = (subject = "", paperLabel = "") => {
     : subject;
 };
 
+const normalizeTeacherEmail = (value = "") =>
+  String(value || "").trim().toLowerCase();
+
 const fireAndForgetTeacherEmail = (job, label) => {
   Promise.resolve()
     .then(job)
@@ -49,16 +52,17 @@ router.post("/register", async (req, res) => {
   console.log("🟢 /api/teachers/register HIT:", req.body);
 
   const { name, email, password } = req.body;
+  const normalizedEmail = normalizeTeacherEmail(email);
 
-  if (!name || !email || !password) {
+  if (!name || !normalizedEmail || !password) {
     return res.status(400).json({ message: "Name, email and password are required" });
   }
 
   try {
     // Check if teacher exists
     const [rows] = await pool.query(
-      "SELECT id FROM teachers WHERE email = ?",
-      [email]
+      "SELECT id FROM teachers WHERE LOWER(TRIM(email)) = ? LIMIT 1",
+      [normalizedEmail]
     );
 
     if (rows.length > 0) {
@@ -72,15 +76,15 @@ router.post("/register", async (req, res) => {
     const [result] = await pool.query(
       `INSERT INTO teachers (name, email, password_hash, is_verified)
        VALUES (?, ?, ?, 1)`,
-      [name, email, passwordHash]
+      [name, normalizedEmail, passwordHash]
     );
 
     const teacherId = result.insertId;
     console.log("✅ Teacher created:", teacherId);
 
     // 🔥 Trigger email (non-blocking)
-    sendWelcomeEmail(email, name)
-      .then(() => console.log("📧 Welcome email sent to:", email))
+    sendWelcomeEmail(normalizedEmail, name)
+      .then(() => console.log("📧 Welcome email sent to:", normalizedEmail))
       .catch((err) => console.warn("⚠️ Welcome email failed:", err.message));
 
     // ✅ Respond immediately
@@ -130,10 +134,11 @@ router.get("/verify/:token", async (req, res) => {
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
+    const normalizedEmail = normalizeTeacherEmail(email);
 
     const [rows] = await pool.query(
-      "SELECT * FROM teachers WHERE email = ?",
-      [email]
+      "SELECT * FROM teachers WHERE LOWER(TRIM(email)) = ? LIMIT 1",
+      [normalizedEmail]
     );
 
     if (rows.length === 0) {
@@ -200,14 +205,14 @@ router.post("/login", async (req, res) => {
 ======================= */
 router.post("/forgot-password", async (req, res) => {
   try {
-    const { email } = req.body;
-    if (!email) {
+    const normalizedEmail = normalizeTeacherEmail(req.body?.email);
+    if (!normalizedEmail) {
       return res.status(400).json({ message: "Email is required" });
     }
 
     const [rows] = await pool.query(
-      "SELECT id FROM teachers WHERE email = ?",
-      [email]
+      "SELECT id FROM teachers WHERE LOWER(TRIM(email)) = ? LIMIT 1",
+      [normalizedEmail]
     );
 
     // Always respond success to prevent email enumeration
@@ -223,7 +228,7 @@ router.post("/forgot-password", async (req, res) => {
       [code, expires, rows[0].id]
     );
 
-    await sendTeacherResetCodeEmail(email, code);
+    await sendTeacherResetCodeEmail(normalizedEmail, code);
     return res.json({ message: "If that email exists, a code was sent." });
   } catch (err) {
     console.error("❌ Teacher forgot password error:", err);
@@ -236,14 +241,15 @@ router.post("/forgot-password", async (req, res) => {
 ======================= */
 router.post("/verify-reset-code", async (req, res) => {
   try {
-    const { email, code } = req.body;
-    if (!email || !code) {
+    const normalizedEmail = normalizeTeacherEmail(req.body?.email);
+    const { code } = req.body;
+    if (!normalizedEmail || !code) {
       return res.status(400).json({ message: "Email and code are required" });
     }
 
     const [rows] = await pool.query(
-      "SELECT id, name, email, reset_token, reset_expires FROM teachers WHERE email = ?",
-      [email]
+      "SELECT id, name, email, reset_token, reset_expires FROM teachers WHERE LOWER(TRIM(email)) = ? LIMIT 1",
+      [normalizedEmail]
     );
 
     const teacher = rows[0];
@@ -483,7 +489,7 @@ router.post("/change-email", authTeacher, async (req, res) => {
     }
 
     const [existing] = await pool.query(
-      "SELECT id FROM teachers WHERE email = ? AND id <> ? LIMIT 1",
+      "SELECT id FROM teachers WHERE LOWER(TRIM(email)) = ? AND id <> ? LIMIT 1",
       [normalizedEmail, teacherId]
     );
 
@@ -585,13 +591,13 @@ router.get("/assignments", authTeacher, async (req, res) => {
 router.get("/alevel-assignments", authTeacher, async (req, res) => {
   try {
     const teacherId = Number(req.teacher.id);
-    const teacherEmail = String(req.teacher.email || "").trim();
+    const teacherEmail = normalizeTeacherEmail(req.teacher.email);
 
     // Resolve canonical teacher id by email to survive id drift across environments.
     let canonicalTeacherId = teacherId;
     if (teacherEmail) {
       const [[teacherRow]] = await pool.query(
-        `SELECT id FROM teachers WHERE email = ? LIMIT 1`,
+        `SELECT id FROM teachers WHERE LOWER(TRIM(email)) = ? LIMIT 1`,
         [teacherEmail]
       );
       if (teacherRow?.id) canonicalTeacherId = Number(teacherRow.id);
@@ -634,12 +640,12 @@ router.get("/alevel-assignments", authTeacher, async (req, res) => {
 router.get("/teachers/alevel-assignments", authTeacher, async (req, res) => {
   try {
     const teacherId = Number(req.teacher.id);
-    const teacherEmail = String(req.teacher.email || "").trim();
+    const teacherEmail = normalizeTeacherEmail(req.teacher.email);
 
     let canonicalTeacherId = teacherId;
     if (teacherEmail) {
       const [[teacherRow]] = await pool.query(
-        `SELECT id FROM teachers WHERE email = ? LIMIT 1`,
+        `SELECT id FROM teachers WHERE LOWER(TRIM(email)) = ? LIMIT 1`,
         [teacherEmail]
       );
       if (teacherRow?.id) canonicalTeacherId = Number(teacherRow.id);

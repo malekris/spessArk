@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import "./HomeSection.css";
 import useScrollReveal from "../hooks/useScrollReveal";
 import { useSiteVisuals } from "../utils/siteVisuals";
@@ -75,9 +76,9 @@ export default function HomeSection() {
             Find out what’s happening around St. Phillip’s
         </p>
 
-          <a href="/vine/login" className="vine-btn-landing">
+          <Link to="/vine/enter" className="vine-btn-landing">
              🌱 Enter Vine
-            </a>
+            </Link>
 </div>
 
       </div>

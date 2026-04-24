@@ -56,7 +56,8 @@ function TeacherLogin() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.email || !form.password) {
+    const normalizedEmail = String(form.email || "").trim().toLowerCase();
+    if (!normalizedEmail || !form.password) {
       setError("Please fill in both email and password.");
       triggerShake();
       return;
@@ -69,7 +70,7 @@ function TeacherLogin() {
       const res = await fetch(`${API_BASE}/api/teachers/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ email: normalizedEmail, password: form.password }),
       });
 
       if (!res.ok) {

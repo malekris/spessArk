@@ -614,6 +614,95 @@ if (dbUrl) {
 export const pool = mysql.createPool(poolConfig);
 export const db = pool;//alias, no behavior change
 
+async function resolveActiveSchemaName(connection = pool) {
+  const explicitSchema = process.env.DB_NAME || poolConfig.database;
+  if (explicitSchema) return explicitSchema;
+
+  const [[dbRow]] = await connection.query("SELECT DATABASE() AS db_name");
+  return String(dbRow?.db_name || "").trim();
+}
+
+async function tableExists(connection, tableName) {
+  const schemaName = await resolveActiveSchemaName(connection);
+  if (!schemaName) return false;
+
+  const [[row]] = await connection.query(
+    `
+    SELECT COUNT(*) AS total
+    FROM information_schema.tables
+    WHERE table_schema = ?
+      AND table_name = ?
+    `,
+    [schemaName, tableName]
+  );
+
+  return Number(row?.total || 0) > 0;
+}
+
+async function columnExists(connection, tableName, columnName) {
+  const schemaName = await resolveActiveSchemaName(connection);
+  if (!schemaName) return false;
+
+  const [[row]] = await connection.query(
+    `
+    SELECT COUNT(*) AS total
+    FROM information_schema.columns
+    WHERE table_schema = ?
+      AND table_name = ?
+      AND column_name = ?
+    `,
+    [schemaName, tableName, columnName]
+  );
+
+  return Number(row?.total || 0) > 0;
+}
+
+async function getRegisteredStudentIdsForSubject(connection, studentIds, subject, year = null) {
+  const normalizedIds = Array.from(
+    new Set((studentIds || []).map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0))
+  );
+  const registeredIdsSet = new Set();
+
+  if (normalizedIds.length === 0 || !String(subject || "").trim()) {
+    return registeredIdsSet;
+  }
+
+  const placeholders = normalizedIds.map(() => "?").join(",");
+
+  if (await tableExists(connection, "subject_registrations")) {
+    const hasYearColumn = await columnExists(connection, "subject_registrations", "year");
+    const params = [...normalizedIds, subject];
+    let sql = `
+      SELECT student_id
+      FROM subject_registrations
+      WHERE student_id IN (${placeholders})
+        AND LOWER(TRIM(subject)) = LOWER(TRIM(?))
+    `;
+
+    if (hasYearColumn && Number.isInteger(Number(year)) && Number(year) > 0) {
+      sql += " AND year = ?";
+      params.push(Number(year));
+    }
+
+    const [registrationRows] = await connection.query(sql, params);
+    registrationRows.forEach((row) => registeredIdsSet.add(Number(row.student_id)));
+  }
+
+  const [jsonRows] = await connection.query(
+    `
+    SELECT id AS student_id
+    FROM students
+    WHERE id IN (${placeholders})
+      AND subjects IS NOT NULL
+      AND JSON_CONTAINS(subjects, JSON_QUOTE(?))
+    `,
+    [...normalizedIds, subject]
+  );
+  jsonRows.forEach((row) => registeredIdsSet.add(Number(row.student_id)));
+
+  return registeredIdsSet;
+}
+
 let adminCredentialsReadyPromise = null;
 
 async function ensureAdminCredentialsTable() {
@@ -1024,10 +1113,11 @@ app.get("/", (req, res) => {
 ======================= */
 app.post("/api/teachers/login", async (req, res) => {
   const { email, password } = req.body;
+  const normalizedEmail = String(email || "").trim().toLowerCase();
 
   const [rows] = await pool.query(
-    "SELECT * FROM teachers WHERE email = ?",
-    [email]
+    "SELECT * FROM teachers WHERE LOWER(TRIM(email)) = ? LIMIT 1",
+    [normalizedEmail]
   );
 
   if (!rows.length) {
@@ -1077,44 +1167,35 @@ app.post("/api/teachers/login", async (req, res) => {
   
         const assignmentSubject = (assignment.subject || "").trim();
   
-        // 2) Detect whether we have a normalized subject_registrations table
-        const [[{ registrations_table_count }]] = await pool.query(
-          `SELECT COUNT(*) AS registrations_table_count
-           FROM information_schema.tables
-           WHERE table_schema = ? AND table_name = 'subject_registrations'`,
-          [process.env.DB_NAME]
-        );
-  
-        let studentsQuery;
-        let params;
-  
-        if (registrations_table_count > 0) {
-          // Use normalized subject_registrations table (preferred)
-          studentsQuery = `
-            SELECT s.id, s.name, s.gender
-            FROM students s
-            INNER JOIN subject_registrations sr
-              ON sr.student_id = s.id
-            WHERE s.class_level = ?
-              AND s.stream = ?
-              AND sr.subject = ?
-            ORDER BY s.name
-          `;
-          params = [assignment.class_level, assignment.stream, assignmentSubject];
-        } else {
-          // Fallback — students.subjects is stored as JSON (e.g. ["Kiswahili","Math"])
-          // JSON_CONTAINS checks if students.subjects contains the subject string
-          studentsQuery = `
-            SELECT id, name, gender
-            FROM students
-            WHERE class_level = ?
-              AND stream = ?
-              AND JSON_CONTAINS(subjects, JSON_QUOTE(?))
-            ORDER BY name
-          `;
-          params = [assignment.class_level, assignment.stream, assignmentSubject];
-        }
-  
+        const hasRegistrationsTable = await tableExists(pool, "subject_registrations");
+        const studentsQuery = hasRegistrationsTable
+          ? `
+              SELECT DISTINCT s.id, s.name, s.gender
+              FROM students s
+              LEFT JOIN subject_registrations sr
+                ON sr.student_id = s.id
+               AND LOWER(TRIM(sr.subject)) = LOWER(TRIM(?))
+              WHERE s.class_level = ?
+                AND s.stream = ?
+                AND (
+                  (s.subjects IS NOT NULL AND JSON_CONTAINS(s.subjects, JSON_QUOTE(?)))
+                  OR sr.student_id IS NOT NULL
+                )
+              ORDER BY s.name
+            `
+          : `
+              SELECT id, name, gender
+              FROM students
+              WHERE class_level = ?
+                AND stream = ?
+                AND subjects IS NOT NULL
+                AND JSON_CONTAINS(subjects, JSON_QUOTE(?))
+              ORDER BY name
+            `;
+        const params = hasRegistrationsTable
+          ? [assignmentSubject, assignment.class_level, assignment.stream, assignmentSubject]
+          : [assignment.class_level, assignment.stream, assignmentSubject];
+
         const [students] = await pool.query(studentsQuery, params);
   
         // Ensure we always return an array
@@ -1996,51 +2077,12 @@ app.post("/api/teacher/marks", authTeacher, async (req, res) => {
     conn = await pool.getConnection();
     await conn.beginTransaction();
 
-    // detect if subject_registrations table exists
-    const [[{ registrations_table_count }]] = await conn.query(
-      `SELECT COUNT(*) AS registrations_table_count
-       FROM information_schema.tables
-       WHERE table_schema = ? AND table_name = 'subject_registrations'`,
-      [process.env.DB_NAME]
+    const registeredIdsSet = await getRegisteredStudentIdsForSubject(
+      conn,
+      studentIds,
+      assignmentSubject,
+      year
     );
-
-    const placeholders = studentIds.map(() => "?").join(",");
-
-    const registeredIdsSet = new Set();
-
-    if (registrations_table_count > 0) {
-      // detect if 'year' column exists in subject_registrations
-      const [[{ year_col_count }]] = await conn.query(
-        `SELECT COUNT(*) AS year_col_count
-         FROM information_schema.columns
-         WHERE table_schema = ? AND table_name = 'subject_registrations' AND column_name = 'year'`,
-        [process.env.DB_NAME]
-      );
-
-      if (year_col_count > 0) {
-        const [rows] = await conn.query(
-          `SELECT student_id FROM subject_registrations
-           WHERE student_id IN (${placeholders}) AND subject = ? AND year = ?`,
-          [...studentIds, assignmentSubject, year]
-        );
-        rows.forEach((r) => registeredIdsSet.add(r.student_id));
-      } else {
-        const [rows] = await conn.query(
-          `SELECT student_id FROM subject_registrations
-           WHERE student_id IN (${placeholders}) AND subject = ?`,
-          [...studentIds, assignmentSubject]
-        );
-        rows.forEach((r) => registeredIdsSet.add(r.student_id));
-      }
-    } else {
-      // fallback: students.subjects stored as JSON array
-      const [rows] = await conn.query(
-        `SELECT id AS student_id FROM students
-         WHERE id IN (${placeholders}) AND JSON_CONTAINS(subjects, JSON_QUOTE(?))`,
-        [...studentIds, assignmentSubject]
-      );
-      rows.forEach((r) => registeredIdsSet.add(r.student_id));
-    }
 
     const notRegistered = studentIds.filter((id) => !registeredIdsSet.has(id));
     if (notRegistered.length > 0) {
@@ -2384,50 +2426,12 @@ app.post("/api/teachers/marks", authTeacher, async (req, res) => {
     conn = await pool.getConnection();
     await conn.beginTransaction();
 
-    // check if subject_registrations exists
-    const [[{ registrations_table_count }]] = await conn.query(
-      `SELECT COUNT(*) AS registrations_table_count
-       FROM information_schema.tables
-       WHERE table_schema = ? AND table_name = 'subject_registrations'`,
-      [process.env.DB_NAME]
+    const registeredIdsSet = await getRegisteredStudentIdsForSubject(
+      conn,
+      studentIds,
+      assignmentSubject,
+      year
     );
-
-    const placeholders = studentIds.map(() => "?").join(",");
-    const registeredIdsSet = new Set();
-
-    if (registrations_table_count > 0) {
-      // detect year column presence
-      const [[{ year_col_count }]] = await conn.query(
-        `SELECT COUNT(*) AS year_col_count
-         FROM information_schema.columns
-         WHERE table_schema = ? AND table_name = 'subject_registrations' AND column_name = 'year'`,
-        [process.env.DB_NAME]
-      );
-
-      if (year_col_count > 0) {
-        const [rows] = await conn.query(
-          `SELECT student_id FROM subject_registrations
-           WHERE student_id IN (${placeholders}) AND subject = ? AND year = ?`,
-          [...studentIds, assignmentSubject, year]
-        );
-        rows.forEach((r) => registeredIdsSet.add(r.student_id));
-      } else {
-        const [rows] = await conn.query(
-          `SELECT student_id FROM subject_registrations
-           WHERE student_id IN (${placeholders}) AND subject = ?`,
-          [...studentIds, assignmentSubject]
-        );
-        rows.forEach((r) => registeredIdsSet.add(r.student_id));
-      }
-    } else {
-      // fallback: JSON_CONTAINS on students.subjects
-      const [rows] = await conn.query(
-        `SELECT id AS student_id FROM students
-         WHERE id IN (${placeholders}) AND JSON_CONTAINS(subjects, JSON_QUOTE(?))`,
-        [...studentIds, assignmentSubject]
-      );
-      rows.forEach((r) => registeredIdsSet.add(r.student_id));
-    }
 
     const notRegistered = studentIds.filter((id) => !registeredIdsSet.has(id));
     if (notRegistered.length > 0) {

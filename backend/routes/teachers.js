@@ -382,6 +382,68 @@ router.post("/change-password", authTeacher, async (req, res) => {
 });
 
 /* =======================
+   CHANGE NAME (TEACHER)
+======================= */
+router.post("/change-name", authTeacher, async (req, res) => {
+  try {
+    const teacherId = Number(req.teacher.id);
+    const { newName } = req.body;
+
+    const normalizedName = String(newName || "").trim().replace(/\s+/g, " ");
+    if (!normalizedName) {
+      return res.status(400).json({ message: "Name is required" });
+    }
+
+    if (normalizedName.length < 2) {
+      return res.status(400).json({ message: "Name is too short" });
+    }
+
+    if (normalizedName.length > 150) {
+      return res.status(400).json({ message: "Name is too long" });
+    }
+
+    const [rows] = await pool.query(
+      "SELECT id, name, email FROM teachers WHERE id = ?",
+      [teacherId]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ message: "Teacher not found" });
+    }
+
+    const teacher = rows[0];
+    const currentName = String(teacher.name || "").trim();
+    if (currentName === normalizedName) {
+      return res.status(400).json({ message: "Enter a different name" });
+    }
+
+    await pool.query("UPDATE teachers SET name = ? WHERE id = ?", [normalizedName, teacherId]);
+
+    await logAuditEvent({
+      userId: teacherId,
+      userRole: "teacher",
+      action: "CHANGE_NAME",
+      entityType: "teacher",
+      entityId: teacherId,
+      description: `Teacher changed account name from ${teacher.name} to ${normalizedName}`,
+      ipAddress: extractClientIp(req),
+    });
+
+    return res.json({
+      message: "Name updated successfully",
+      teacher: {
+        id: teacherId,
+        name: normalizedName,
+        email: teacher.email,
+      },
+    });
+  } catch (err) {
+    console.error("❌ Change name error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+});
+
+/* =======================
    CHANGE EMAIL (TEACHER)
 ======================= */
 router.post("/change-email", authTeacher, async (req, res) => {

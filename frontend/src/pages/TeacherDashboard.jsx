@@ -221,6 +221,9 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
   const [passwordForm, setPasswordForm] = useState({ current: "", next: "", confirm: "" });
   const [passwordError, setPasswordError] = useState("");
   const [passwordSaving, setPasswordSaving] = useState(false);
+  const [nameForm, setNameForm] = useState({ next: "" });
+  const [nameError, setNameError] = useState("");
+  const [nameSaving, setNameSaving] = useState(false);
   const [emailForm, setEmailForm] = useState({ next: "", confirm: "", password: "" });
   const [emailError, setEmailError] = useState("");
   const [emailSaving, setEmailSaving] = useState(false);
@@ -249,6 +252,12 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
       }
     }
   }, [onLogout]);
+
+  useEffect(() => {
+    if (!showChangePassword) return;
+    setNameForm({ next: teacher?.name || "" });
+    setNameError("");
+  }, [showChangePassword, teacher?.name]);
 
   useEffect(() => {
     const handleTeacherSessionExpired = (event) => {
@@ -662,8 +671,10 @@ useEffect(() => {
     setShowChangePassword(false);
     setSettingsNotice("");
     setPasswordError("");
+    setNameError("");
     setEmailError("");
     setPasswordForm({ current: "", next: "", confirm: "" });
+    setNameForm({ next: teacher?.name || "" });
     setEmailForm({ next: "", confirm: "", password: "" });
     setSettingsTab("password");
 
@@ -672,7 +683,7 @@ useEffect(() => {
       setPasswordResetMode(false);
       navigate("/ark/teacher", { replace: true });
     }
-  }, [navigate, passwordResetMode]);
+  }, [navigate, passwordResetMode, teacher?.name]);
 
   // ============================
   // API: load analytics
@@ -935,6 +946,63 @@ useEffect(() => {
       setEmailError(err.message);
     } finally {
       setEmailSaving(false);
+    }
+  };
+
+  const handleChangeName = async () => {
+    setNameError("");
+    setSettingsNotice("");
+
+    const normalizedName = String(nameForm.next || "").trim().replace(/\s+/g, " ");
+    if (!normalizedName) {
+      setNameError("Name is required.");
+      return;
+    }
+
+    if (normalizedName.length < 2) {
+      setNameError("Name is too short.");
+      return;
+    }
+
+    if (normalizedName.length > 150) {
+      setNameError("Name is too long.");
+      return;
+    }
+
+    if (normalizedName === String(teacher?.name || "").trim()) {
+      setNameError("Enter a different name.");
+      return;
+    }
+
+    try {
+      setNameSaving(true);
+      const token = localStorage.getItem("teacherToken");
+
+      const res = await fetchWithTeacherAuth(`${API_BASE}/api/teachers/change-name`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          newName: normalizedName,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Failed to update name");
+
+      if (data?.teacher) {
+        localStorage.setItem("teacherProfile", JSON.stringify(data.teacher));
+        setTeacher(data.teacher);
+      }
+
+      setNameForm({ next: normalizedName });
+      setSettingsNotice("Name updated successfully.");
+    } catch (err) {
+      setNameError(err.message);
+    } finally {
+      setNameSaving(false);
     }
   };
 
@@ -1546,6 +1614,13 @@ useEffect(() => {
     cursor: "pointer",
     boxShadow: "0 10px 22px rgba(15, 23, 42, 0.06)",
   };
+  const settingsSuccessNoticeStyle = {
+    background: "linear-gradient(135deg, rgba(220, 252, 231, 0.98), rgba(240, 253, 244, 0.96))",
+    border: "1px solid rgba(34, 197, 94, 0.18)",
+    color: "#166534",
+    boxShadow: "0 12px 24px rgba(34, 197, 94, 0.08)",
+    fontWeight: 700,
+  };
   const topPillButtonBase = {
     borderRadius: "999px",
     padding: "0.72rem 1.05rem",
@@ -1672,7 +1747,9 @@ useEffect(() => {
           onClick={() => {
             setSettingsNotice("");
             setPasswordError("");
+            setNameError("");
             setEmailError("");
+            setNameForm({ next: teacher?.name || "" });
             setSettingsTab("password");
             setShowChangePassword(true);
           }}
@@ -3202,7 +3279,7 @@ useEffect(() => {
                 <p style={{ margin: "0.55rem 0 0", color: "rgba(226, 232, 240, 0.92)", lineHeight: 1.6 }}>
                   {passwordResetMode
                     ? "Finish updating your password so you can return to the dashboard safely."
-                    : "Manage your teacher account details here. You can update your email and password without leaving the dashboard."}
+                    : "Manage your teacher account details here. You can update your name, email, and password without leaving the dashboard."}
                 </p>
 
                 {!passwordResetMode && (
@@ -3248,7 +3325,11 @@ useEffect(() => {
               </div>
 
               <div style={{ padding: "1.4rem 1.5rem 1.5rem", background: "linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)" }}>
-                {settingsNotice && <div className="panel-alert panel-alert-success">{settingsNotice}</div>}
+                {settingsNotice && (
+                  <div className="panel-alert panel-alert-success" style={settingsSuccessNoticeStyle}>
+                    {settingsNotice}
+                  </div>
+                )}
 
                 {passwordResetMode ? (
                   <div className="panel-alert">Enter a new password to complete the reset.</div>
@@ -3261,6 +3342,34 @@ useEffect(() => {
                       flexWrap: "wrap",
                     }}
                   >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSettingsTab("name");
+                        setSettingsNotice("");
+                        setNameError("");
+                        setNameForm({ next: teacher?.name || "" });
+                      }}
+                      style={{
+                        padding: "0.78rem 1rem",
+                        borderRadius: "16px",
+                        border: settingsTab === "name" ? "1px solid rgba(14, 165, 233, 0.35)" : "1px solid rgba(148, 163, 184, 0.22)",
+                        background: settingsTab === "name"
+                          ? "linear-gradient(135deg, rgba(14,165,233,0.14), rgba(2,132,199,0.08))"
+                          : "#ffffff",
+                        color: "#0f172a",
+                        fontWeight: 800,
+                        cursor: "pointer",
+                        minWidth: "170px",
+                        textAlign: "left",
+                        boxShadow: settingsTab === "name" ? "0 12px 24px rgba(14, 165, 233, 0.12)" : "none",
+                      }}
+                    >
+                      <div style={{ fontSize: "0.7rem", textTransform: "uppercase", letterSpacing: "0.12em", color: "#0284c7", marginBottom: "0.2rem" }}>
+                        Profile
+                      </div>
+                      <div>Edit Name</div>
+                    </button>
                     <button
                       type="button"
                       onClick={() => {
@@ -3315,6 +3424,54 @@ useEffect(() => {
                       </div>
                       <div>Change Email</div>
                     </button>
+                  </div>
+                )}
+
+                {!passwordResetMode && settingsTab === "name" && (
+                  <div
+                    style={{
+                      border: "1px solid rgba(148, 163, 184, 0.18)",
+                      borderRadius: "20px",
+                      padding: "1rem 1rem 1.1rem",
+                      background: "#ffffff",
+                      boxShadow: "0 16px 28px rgba(15, 23, 42, 0.06)",
+                    }}
+                  >
+                    <div style={{ marginBottom: "0.9rem" }}>
+                      <div style={{ fontSize: "0.74rem", textTransform: "uppercase", letterSpacing: "0.12em", color: "#0284c7", fontWeight: 800 }}>
+                        Teacher Name
+                      </div>
+                      <div style={{ marginTop: "0.2rem", color: "#334155", lineHeight: 1.55 }}>
+                        Fix typos or update how your name should appear across the teacher dashboard and reports.
+                      </div>
+                    </div>
+
+                    {nameError && <div className="panel-alert panel-alert-error">{nameError}</div>}
+
+                    <div className="form-row">
+                      <label style={settingsLabelStyle}>Current name</label>
+                      <input type="text" style={settingsDisabledInputStyle} value={teacher?.name || ""} disabled />
+                    </div>
+
+                    <div className="form-row">
+                      <label style={settingsLabelStyle}>New name</label>
+                      <input
+                        type="text"
+                        style={settingsInputStyle}
+                        value={nameForm.next}
+                        onChange={(e) => setNameForm({ next: e.target.value })}
+                      />
+                    </div>
+
+                    <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.6rem", marginTop: "0.2rem" }}>
+                      <button className="ghost-btn" style={settingsCancelButtonStyle} onClick={closeSettingsModal}>
+                        Cancel
+                      </button>
+
+                      <button className="primary-btn" disabled={nameSaving} onClick={handleChangeName}>
+                        {nameSaving ? "Saving…" : "Update Name"}
+                      </button>
+                    </div>
                   </div>
                 )}
 
@@ -3658,7 +3815,7 @@ useEffect(() => {
                       Settings
                     </div>
                     <div style={{ color: "#334155", lineHeight: 1.7, marginTop: "0.35rem" }}>
-                      Use the <strong>Settings</strong> button to change your password or update your teacher email whenever needed. Changes are saved directly on your account.
+                      Use the <strong>Settings</strong> button to fix your teacher name, change your password, or update your teacher email whenever needed. Changes are saved directly on your account.
                     </div>
                   </div>
 

@@ -327,6 +327,7 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
   const [studentMarks, setStudentMarks] = useState({});
   const [initialStudentMarks, setInitialStudentMarks] = useState({});
   const [studentStatus, setStudentStatus] = useState({});
+  const [learnerSearch, setLearnerSearch] = useState("");
 
   const [marksYear, setMarksYear] = useState(new Date().getFullYear());
   const [marksTerm, setMarksTerm] = useState("Term 1");
@@ -661,6 +662,10 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
 useEffect(() => {
   if (selectedAssignment) loadStudentsAndMarks(selectedAssignment);
 }, [selectedAssignment, marksTerm, marksYear]);
+
+useEffect(() => {
+  setLearnerSearch("");
+}, [selectedAssignment?.id, selectedAssignment?.isAlevel]);
 
 // Reload analytics when class, term or year changes
 useEffect(() => {
@@ -1479,6 +1484,7 @@ useEffect(() => {
   const learnersTableMinWidth = Math.max(1100, 320 + effectiveColumnCount * 190);
   const learnerColWidth = 146;
   const genderColWidth = 72;
+  const learnerTableColumnCount = 2 + renderAoiColumns.length + 1 + (hasExam80Column ? 1 : 0);
   const currentCalendarYear = new Date().getFullYear();
   const schoolCalendarBadge = getSchoolCalendarBadge(schoolCalendar, new Date());
   const selectedMarksLockLevel = selectedAssignment?.isAlevel ? "A-Level" : "O-Level";
@@ -1538,6 +1544,23 @@ useEffect(() => {
   const selectedAssignmentRowKey = selectedAssignment
     ? `${selectedAssignment.isAlevel ? "al" : "ol"}-${selectedAssignment.id}`
     : "";
+  const normalizedLearnerSearch = learnerSearch.trim().toLowerCase();
+  const visibleStudents = normalizedLearnerSearch
+    ? students.filter((student) =>
+        [
+          student?.name,
+          student?.gender,
+          student?.id,
+          student?.admission_no,
+          student?.registration_number,
+        ]
+          .filter((value) => value !== undefined && value !== null)
+          .join(" ")
+          .toLowerCase()
+          .includes(normalizedLearnerSearch)
+      )
+    : students;
+  const learnerSearchActive = normalizedLearnerSearch.length > 0;
   const focusSummary = activeFocusColumn
     ? students.reduce(
         (summary, learner) => {
@@ -2528,6 +2551,85 @@ useEffect(() => {
                 </button>
               </div>
 
+              {(!isMobileTable || mobileEntryMode === "table") && (
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: isMobileTable ? "1fr" : "minmax(220px, 1fr) auto",
+                    gap: "0.7rem",
+                    alignItems: "end",
+                    marginBottom: "0.9rem",
+                    padding: "0.8rem",
+                    borderRadius: "18px",
+                    border: "1px solid rgba(56, 189, 248, 0.18)",
+                    background:
+                      "linear-gradient(135deg, rgba(8, 47, 73, 0.18), rgba(15, 23, 42, 0.88))",
+                  }}
+                >
+                  <label style={{ display: "grid", gap: "0.35rem" }}>
+                    <span
+                      style={{
+                        color: "#7dd3fc",
+                        fontSize: "0.72rem",
+                        fontWeight: 900,
+                        letterSpacing: "0.12em",
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      Learner Search
+                    </span>
+                    <input
+                      type="search"
+                      value={learnerSearch}
+                      onChange={(e) => setLearnerSearch(e.target.value)}
+                      placeholder="Search learner in this assignment..."
+                      aria-label="Search learner in selected assignment"
+                      style={{
+                        width: "100%",
+                        minHeight: "44px",
+                        borderRadius: "14px",
+                        border: "1px solid rgba(125, 211, 252, 0.22)",
+                        background: "rgba(2, 6, 23, 0.78)",
+                        color: "#f8fafc",
+                        padding: "0.72rem 0.9rem",
+                        fontWeight: 800,
+                        outline: "none",
+                        boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.03)",
+                      }}
+                    />
+                  </label>
+
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.55rem", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                    <span
+                      style={{
+                        borderRadius: "999px",
+                        border: "1px solid rgba(148, 163, 184, 0.18)",
+                        background: "rgba(255,255,255,0.05)",
+                        color: learnerSearchActive ? "#bae6fd" : "#cbd5e1",
+                        padding: "0.52rem 0.75rem",
+                        fontSize: "0.78rem",
+                        fontWeight: 900,
+                        letterSpacing: "0.06em",
+                        textTransform: "uppercase",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {learnerSearchActive ? `${visibleStudents.length} of ${students.length} shown` : `${students.length} loaded`}
+                    </span>
+                    {learnerSearchActive && (
+                      <button
+                        type="button"
+                        className="ghost-btn"
+                        onClick={() => setLearnerSearch("")}
+                        style={{ minHeight: "42px" }}
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {isMobileTable && (
                 <div
                   style={{
@@ -3013,7 +3115,8 @@ useEffect(() => {
                       </tr>
                     </thead>
                     <tbody>
-                      {students.map((s) => {
+                      {visibleStudents.length > 0 ? (
+                        visibleStudents.map((s) => {
                         const marksForS = studentMarks[s.id] || {};
                         const statusForS = studentStatus[s.id] || {};
                         const stickyRowBg = "#0f172a";
@@ -3210,7 +3313,16 @@ useEffect(() => {
                             })()}
                           </tr>
                         );
-                      })}
+                        })
+                      ) : (
+                        <tr>
+                          <td colSpan={learnerTableColumnCount} style={{ textAlign: "center", padding: "1.4rem", color: "#cbd5e1" }}>
+                            {learnerSearchActive
+                              ? "No learner matches that search in this assignment."
+                              : "No learners loaded for this assignment yet."}
+                          </td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
                 </div>

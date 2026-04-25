@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { NEW_ACCOUNT_SPLASH_KEY } from "../utils/arkSplash";
 import { useSiteVisuals } from "../utils/siteVisuals";
 import "./LoginPage.css"; // Ensure spelling matches your src/pages/ folder
 
@@ -105,6 +106,7 @@ function TeacherSignup() {
       
       if (!res.ok) { throw new Error(data.message || "Registration failed"); }
 
+      sessionStorage.setItem(NEW_ACCOUNT_SPLASH_KEY, "1");
       setSuccess("Account created! Redirecting to login...");
       setTimeout(() => {
         navigate("/ark/teacher-login", { replace: true });

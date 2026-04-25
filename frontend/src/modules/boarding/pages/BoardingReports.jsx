@@ -164,6 +164,12 @@ const getSubjectRemark = (row) => {
   return "Basic";
 };
 
+const hasSubmittedSubjectScore = (row) => {
+  const submittedCount = Number(row?.submitted_count || 0);
+  const average = Number(row?.average_score);
+  return submittedCount > 0 && Number.isFinite(average);
+};
+
 const getCommentBand = (report) => {
   const average = Number(report?.overall_average);
   const missedCount = Number(report?.missed_assessment_count || 0);
@@ -244,6 +250,9 @@ export default function BoardingReports() {
       const generatedAt = new Date().toLocaleString("en-GB");
 
       reports.forEach((report, index) => {
+        const submittedSubjectRows = (Array.isArray(report.rows) ? report.rows : [])
+          .filter(hasSubmittedSubjectScore);
+
         if (index > 0) doc.addPage();
 
         doc.setDrawColor(0);
@@ -313,14 +322,14 @@ export default function BoardingReports() {
         autoTable(doc, {
           startY: 102,
           margin: { left: 14, right: 14 },
-          head: [["Subject", "Average", "Remark", "Recorded", "Missed"]],
-          body: (report.rows || []).map((row) => [
-            row.subject || "",
-            formatAverage(row.average_score),
-            getSubjectRemark(row),
-            Number(row.submitted_count || 0),
-            Number(row.missed_count || 0),
-          ]),
+          head: [["Subject", "Average", "Remark"]],
+          body: submittedSubjectRows.length
+            ? submittedSubjectRows.map((row) => [
+                row.subject || "",
+                formatAverage(row.average_score),
+                getSubjectRemark(row),
+              ])
+            : [["No submitted subject scores yet", "—", "—"]],
           theme: "grid",
           styles: {
             font: "helvetica",
@@ -341,11 +350,9 @@ export default function BoardingReports() {
             fillColor: [249, 250, 251],
           },
           columnStyles: {
-            0: { cellWidth: 76 },
-            1: { cellWidth: 24, halign: "center" },
-            2: { cellWidth: 42, halign: "center" },
-            3: { cellWidth: 22, halign: "center" },
-            4: { cellWidth: 22, halign: "center" },
+            0: { cellWidth: 100 },
+            1: { cellWidth: 30, halign: "center" },
+            2: { cellWidth: 52, halign: "center" },
           },
         });
 

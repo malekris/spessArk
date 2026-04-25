@@ -2,17 +2,20 @@ import React, { useEffect } from "react";
 import "./SplashScreen.css";
 import badge from "../assets/badge.png";
 
-function SplashScreen({ onFinish, onDone }) {
+function SplashScreen({ onFinish, onDone, durationMs = 3000 }) {
   // Support either prop name: onFinish (new) or onDone (old)
   const exit = onFinish || onDone || (() => {});
+  const safeDurationMs = Number.isFinite(Number(durationMs))
+    ? Math.max(0, Number(durationMs))
+    : 3000;
 
   useEffect(() => {
     const timer = setTimeout(() => {
       exit();
-    }, 6000);
+    }, safeDurationMs);
 
     return () => clearTimeout(timer);
-  }, [exit]);
+  }, [exit, safeDurationMs]);
 
   return (
     <div className="splash-root">

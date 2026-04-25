@@ -55,6 +55,17 @@ import { adminFetch } from "../lib/api";
     S3: 9,
     S4: 9,
   };
+  const O_LEVEL_STREAMS = ["North", "South"];
+  const TERM_MISSED_AOI_COMPONENTS = [
+    ["AOI1_status", "AOI 1"],
+    ["AOI2_status", "AOI 2"],
+    ["AOI3_status", "AOI 3"],
+  ];
+  const MISSED_AOI_RISK_ORDER = {
+    Critical: 0,
+    Intermediate: 1,
+    "Not so urgent": 2,
+  };
 
   const hasScore = (value) => value !== null && value !== undefined && value !== "";
   const isMissedStatus = (status) => String(status || "").trim().toLowerCase() === "missed";
@@ -89,6 +100,92 @@ import { adminFetch } from "../lib/api";
       .map(([scoreKey, statusKey, label]) => {
         const statusLabel = isMissedStatus(row[statusKey]) ? "missed" : "missing";
         return `${label} ${statusLabel}`;
+      });
+  };
+
+  const classifyMissedAoiRisk = (missedAoiCount) => {
+    const count = Number(missedAoiCount || 0);
+    if (count >= 6) return "Critical";
+    if (count >= 3) return "Intermediate";
+    return "Not so urgent";
+  };
+
+  const getMissedAoiStaffAction = (risk) => {
+    if (risk === "Critical") return "Immediate learner + parent follow-up";
+    if (risk === "Intermediate") return "Class teacher follow-up this week";
+    return "Monitor and remind before next AOI";
+  };
+
+  const getMissedAoiRiskTone = (risk) => {
+    if (risk === "Critical") {
+      return {
+        background: "rgba(127, 29, 29, 0.32)",
+        color: "#fecaca",
+        border: "1px solid rgba(248, 113, 113, 0.32)",
+      };
+    }
+    if (risk === "Intermediate") {
+      return {
+        background: "rgba(146, 64, 14, 0.28)",
+        color: "#fed7aa",
+        border: "1px solid rgba(251, 146, 60, 0.28)",
+      };
+    }
+    return {
+      background: "rgba(14, 116, 144, 0.24)",
+      color: "#bae6fd",
+      border: "1px solid rgba(34, 211, 238, 0.24)",
+    };
+  };
+
+  const buildMissedAoiRiskRows = (reportRows) => {
+    const byStudent = new Map();
+
+    (Array.isArray(reportRows) ? reportRows : []).forEach((row) => {
+      const missedComponents = TERM_MISSED_AOI_COMPONENTS
+        .filter(([statusKey]) => isMissedStatus(row[statusKey]))
+        .map(([, label]) => label);
+
+      if (missedComponents.length === 0) return;
+
+      const studentId = String(row.student_id || "").trim();
+      if (!studentId) return;
+
+      if (!byStudent.has(studentId)) {
+        byStudent.set(studentId, {
+          student_id: studentId,
+          student_name: row.student_name || "Unknown learner",
+          class_level: row.class_level || "—",
+          stream: row.stream || "—",
+          missedAoiCount: 0,
+          subjects: new Set(),
+          details: [],
+        });
+      }
+
+      const bucket = byStudent.get(studentId);
+      bucket.missedAoiCount += missedComponents.length;
+      if (row.subject) bucket.subjects.add(String(row.subject));
+      bucket.details.push(`${row.subject || "Subject"}: ${missedComponents.join(", ")}`);
+    });
+
+    return Array.from(byStudent.values())
+      .map((row) => {
+        const risk = classifyMissedAoiRisk(row.missedAoiCount);
+        return {
+          ...row,
+          risk,
+          action: getMissedAoiStaffAction(risk),
+          subjectCount: row.subjects.size,
+        };
+      })
+      .sort((a, b) => {
+        const riskDiff = MISSED_AOI_RISK_ORDER[a.risk] - MISSED_AOI_RISK_ORDER[b.risk];
+        if (riskDiff !== 0) return riskDiff;
+        if (b.missedAoiCount !== a.missedAoiCount) return b.missedAoiCount - a.missedAoiCount;
+        const streamDiff = String(a.stream).localeCompare(String(b.stream));
+        if (streamDiff !== 0) return streamDiff;
+        return String(a.student_name).localeCompare(String(b.student_name));
       });
   };
 
@@ -192,6 +289,7 @@ import { adminFetch } from "../lib/api";
   const [error, setError] = useState("");
   const [data, setData] = useState([]);
   const [registeredLearners, setRegisteredLearners] = useState([]);
+  const [missedAoiRiskSourceRows, setMissedAoiRiskSourceRows] = useState([]);
   const [schoolCalendar, setSchoolCalendar] = useState(null);
   const [reportDatesCache, setReportDatesCache] = useState(() => {
     try {
@@ -217,12 +315,29 @@ import { adminFetch } from "../lib/api";
     () => getCalendarDrivenReportDates(schoolCalendar, term, year),
     [schoolCalendar, term, year]
   );
+  const cachedReportDates = useMemo(
+    () => reportDatesCache[reportDatesKey] || {},
+    [reportDatesCache, reportDatesKey]
+  );
+  const hasCalendarReportDates = Boolean(
+    derivedReportDates.termEndedOn || derivedReportDates.nextTermBeginsOn
+  );
+  const hasManualReportDateOverride = cachedReportDates.source === "manual";
   const reportDates = useMemo(
-    () => ({
-      ...derivedReportDates,
-      ...(reportDatesCache[reportDatesKey] || {}),
-    }),
-    [derivedReportDates, reportDatesCache, reportDatesKey]
+    () => {
+      if (hasManualReportDateOverride) {
+        return {
+          ...derivedReportDates,
+          ...cachedReportDates,
+        };
+      }
+
+      return {
+        termEndedOn: derivedReportDates.termEndedOn || cachedReportDates.termEndedOn || "",
+        nextTermBeginsOn: derivedReportDates.nextTermBeginsOn || cachedReportDates.nextTermBeginsOn || "",
+      };
+    },
+    [cachedReportDates, derivedReportDates, hasManualReportDateOverride]
   );
   const performanceRows = useMemo(
     () =>
@@ -239,10 +354,23 @@ import { adminFetch } from "../lib/api";
     }),
     [performanceRows]
   );
+  const missedAoiRiskRows = useMemo(
+    () => buildMissedAoiRiskRows(missedAoiRiskSourceRows),
+    [missedAoiRiskSourceRows]
+  );
+  const missedAoiRiskSummary = useMemo(
+    () => ({
+      critical: missedAoiRiskRows.filter((row) => row.risk === "Critical").length,
+      intermediate: missedAoiRiskRows.filter((row) => row.risk === "Intermediate").length,
+      notUrgent: missedAoiRiskRows.filter((row) => row.risk === "Not so urgent").length,
+      totalMissedAois: missedAoiRiskRows.reduce((sum, row) => sum + Number(row.missedAoiCount || 0), 0),
+    }),
+    [missedAoiRiskRows]
+  );
 
   useEffect(() => {
     let active = true;
-    fetch(`${API_BASE}/api/school-calendar`)
+    fetch(`${API_BASE}/api/school-calendar`, { cache: "no-store" })
       .then((res) => {
         if (!res.ok) throw new Error("Failed to load school calendar");
         return res.json();
@@ -262,6 +390,7 @@ import { adminFetch } from "../lib/api";
   useEffect(() => {
     setData([]);
     setRegisteredLearners([]);
+    setMissedAoiRiskSourceRows([]);
     setStudentId("");
     setError("");
   }, [year, term, classLevel, stream, isEndOfYearMode]);
@@ -271,10 +400,26 @@ import { adminFetch } from "../lib/api";
       const next = {
         ...prev,
         [reportDatesKey]: {
-          ...(prev[reportDatesKey] || {}),
+          termEndedOn: reportDates.termEndedOn || "",
+          nextTermBeginsOn: reportDates.nextTermBeginsOn || "",
+          source: "manual",
           [field]: value,
         },
       };
+      try {
+        window.localStorage.setItem(REPORT_DATES_STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        // ignore storage write issues
+      }
+      return next;
+    });
+    setError("");
+  };
+
+  const resetReportDatesToCalendar = () => {
+    setReportDatesCache((prev) => {
+      const next = { ...prev };
+      delete next[reportDatesKey];
       try {
         window.localStorage.setItem(REPORT_DATES_STORAGE_KEY, JSON.stringify(next));
       } catch {
@@ -326,6 +471,24 @@ import { adminFetch } from "../lib/api";
 
       const rows = await adminFetch(`${reportEndpoint}?${params.toString()}`);
       const learners = await adminFetch("/api/students").catch(() => []);
+      let missedRiskRows = [];
+      if (!isEndOfYearMode) {
+        const riskResponses = await Promise.all(
+          O_LEVEL_STREAMS.map((streamName) => {
+            const riskParams = new URLSearchParams({
+              year,
+              term,
+              class_level: classLevel,
+              stream: streamName,
+            });
+            return adminFetch(`${reportEndpoint}?${riskParams.toString()}`).catch((riskErr) => {
+              console.error(`Failed to load missed AOI risk rows for ${streamName}:`, riskErr);
+              return [];
+            });
+          })
+        );
+        missedRiskRows = riskResponses.flat().filter(Boolean);
+      }
       const relevantLearners = Array.isArray(learners)
         ? learners.filter((learner) => {
             if (studentId) return String(learner.id) === String(studentId);
@@ -345,9 +508,11 @@ import { adminFetch } from "../lib/api";
   
       setData(rows);
       setRegisteredLearners(relevantLearners);
+      setMissedAoiRiskSourceRows(missedRiskRows);
     } catch (err) {
       setError(err.message || "Something went wrong");
       setRegisteredLearners([]);
+      setMissedAoiRiskSourceRows([]);
     } finally {
       setLoading(false);
     }
@@ -514,6 +679,120 @@ import { adminFetch } from "../lib/api";
     }
   };
 
+  const handleDownloadMissedAoiRiskPdf = async () => {
+    if (missedAoiRiskRows.length === 0) {
+      setError("Preview reports first. No missed AOI learners are currently available for this class.");
+      return;
+    }
+
+    setError("");
+
+    try {
+      const { jsPDF, autoTable } = await loadPdfTools();
+      const doc = new jsPDF("l", "mm", "a4");
+      const pageW = doc.internal.pageSize.getWidth();
+      const pageH = doc.internal.pageSize.getHeight();
+      const generatedAt = new Date().toLocaleString();
+
+      doc.setDrawColor(203, 213, 225);
+      doc.setFillColor(248, 250, 252);
+      doc.roundedRect(10, 8, pageW - 20, 36, 3, 3, "FD");
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(16);
+      doc.setTextColor(15, 23, 42);
+      doc.text("ST PHILLIP'S EQUATORIAL SECONDARY SCHOOL", pageW / 2, 17, { align: "center" });
+
+      doc.setFontSize(14);
+      doc.text("AOI Missed-Risk Report", pageW / 2, 26, { align: "center" });
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.setTextColor(71, 85, 105);
+      doc.text(`Class: ${classLevel}`, 14, 36);
+      doc.text(`Streams: ${O_LEVEL_STREAMS.join(", ")}`, 50, 36);
+      doc.text(`Term ${term} · ${year}`, 100, 36);
+      doc.text(`Critical: ${missedAoiRiskSummary.critical}`, 140, 36);
+      doc.text(`Intermediate: ${missedAoiRiskSummary.intermediate}`, 176, 36);
+      doc.text(`Not urgent: ${missedAoiRiskSummary.notUrgent}`, 222, 36);
+
+      const body = missedAoiRiskRows.map((row, index) => [
+        index + 1,
+        row.stream,
+        row.student_name,
+        row.risk,
+        row.missedAoiCount,
+        row.subjectCount,
+        row.details.join("; "),
+        row.action,
+      ]);
+
+      autoTable(doc, {
+        startY: 51,
+        margin: { left: 10, right: 10, bottom: 14 },
+        head: [["#", "Stream", "Learner", "Risk", "Missed AOIs", "Subjects", "Where AOIs Were Missed", "Staff Meeting Action"]],
+        body,
+        theme: "grid",
+        styles: {
+          font: "helvetica",
+          fontSize: 7.8,
+          cellPadding: { top: 2.4, right: 1.7, bottom: 2.4, left: 1.7 },
+          lineColor: [203, 213, 225],
+          lineWidth: 0.16,
+          textColor: [15, 23, 42],
+          valign: "middle",
+        },
+        headStyles: {
+          fillColor: [255, 255, 255],
+          textColor: [15, 23, 42],
+          lineColor: [148, 163, 184],
+          fontStyle: "bold",
+        },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        columnStyles: {
+          0: { cellWidth: 9, halign: "center" },
+          1: { cellWidth: 18, halign: "center" },
+          2: { cellWidth: 42 },
+          3: { cellWidth: 28, halign: "center" },
+          4: { cellWidth: 22, halign: "center" },
+          5: { cellWidth: 18, halign: "center" },
+          6: { cellWidth: 92 },
+          7: { cellWidth: 48 },
+        },
+        didParseCell: (hookData) => {
+          if (hookData.section !== "body") return;
+          const row = missedAoiRiskRows[hookData.row.index];
+          if (hookData.column.index === 3) {
+            if (row.risk === "Critical") hookData.cell.styles.textColor = [153, 27, 27];
+            if (row.risk === "Intermediate") hookData.cell.styles.textColor = [154, 52, 18];
+            if (row.risk === "Not so urgent") hookData.cell.styles.textColor = [14, 116, 144];
+            hookData.cell.styles.fontStyle = "bold";
+          }
+        },
+        didDrawPage: () => {
+          const pageNumber = doc.internal.getCurrentPageInfo().pageNumber;
+          const pageCount = doc.internal.getNumberOfPages();
+          doc.setFont("helvetica", "italic");
+          doc.setFontSize(8);
+          doc.setTextColor(100, 116, 139);
+          doc.text(
+            `Generated from SPESS ARK · ${generatedAt} · Page ${pageNumber} of ${pageCount}`,
+            pageW / 2,
+            pageH - 7,
+            { align: "center" }
+          );
+        },
+      });
+
+      const blob = doc.output("blob");
+      const blobUrl = URL.createObjectURL(blob);
+      window.open(blobUrl, "_blank");
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+    } catch (err) {
+      setError(err.message || "Failed to generate missed AOI risk PDF.");
+    }
+  };
+
   return (
     <div className="admin-section">
       <h2>{isEndOfYearMode ? "📕 End of Year Reports" : "📘 End of Term Reports"}</h2>
@@ -644,8 +923,54 @@ import { adminFetch } from "../lib/api";
             Report Dates
           </div>
           <div style={{ fontSize: "0.88rem", color: "#cbd5e1", lineHeight: 1.6 }}>
-            Set these once here and they go straight onto the report card. Preview and download stay blocked until both dates are filled.
+            {hasCalendarReportDates && !hasManualReportDateOverride
+              ? "Synced from the School Calendar. Edit the calendar if these dates need to change."
+              : "Set these once here and they go straight onto the report card. Preview and download stay blocked until both dates are filled."}
           </div>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", flexWrap: "wrap" }}>
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              borderRadius: "999px",
+              padding: "0.35rem 0.68rem",
+              border: hasManualReportDateOverride
+                ? "1px solid rgba(251, 146, 60, 0.28)"
+                : "1px solid rgba(34, 197, 94, 0.24)",
+              background: hasManualReportDateOverride
+                ? "rgba(146, 64, 14, 0.2)"
+                : "rgba(22, 101, 52, 0.2)",
+              color: hasManualReportDateOverride ? "#fed7aa" : "#bbf7d0",
+              fontSize: "0.78rem",
+              fontWeight: 800,
+            }}
+          >
+            {hasManualReportDateOverride
+              ? "Manual report dates active"
+              : hasCalendarReportDates
+              ? "Calendar synced"
+              : "Calendar dates unavailable"}
+          </span>
+
+          {hasManualReportDateOverride && (
+            <button
+              type="button"
+              onClick={resetReportDatesToCalendar}
+              style={{
+                border: "1px solid rgba(148, 163, 184, 0.28)",
+                borderRadius: "999px",
+                padding: "0.42rem 0.78rem",
+                background: "rgba(15, 23, 42, 0.88)",
+                color: "#e2e8f0",
+                fontWeight: 800,
+                cursor: "pointer",
+              }}
+            >
+              Reset to Calendar
+            </button>
+          )}
         </div>
 
         <div
@@ -832,6 +1157,149 @@ import { adminFetch } from "../lib/api";
           </div>
         )}
       </div>
+
+      {!isEndOfYearMode && (
+        <div
+          style={{
+            marginTop: "1rem",
+            padding: "0.95rem 1rem",
+            borderRadius: "1rem",
+            border: "1px solid rgba(248, 113, 113, 0.24)",
+            background:
+              "linear-gradient(135deg, rgba(15, 23, 42, 0.9), rgba(69, 10, 10, 0.42))",
+            display: "grid",
+            gap: "0.85rem",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              gap: "1rem",
+              alignItems: "flex-start",
+              flexWrap: "wrap",
+            }}
+          >
+            <div>
+              <div style={{ fontSize: "0.78rem", textTransform: "uppercase", letterSpacing: "0.14em", color: "#fca5a5", marginBottom: "0.3rem" }}>
+                AOI Missed-Risk Report
+              </div>
+              <div style={{ fontSize: "0.88rem", color: "#cbd5e1", lineHeight: 1.6 }}>
+                Staff-meeting list for learners who missed AOIs, grouped across North and South. Critical means 6+ missed AOIs; Intermediate means 3-5; Not so urgent means 1-2.
+              </div>
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: "0.55rem", flexWrap: "wrap" }}>
+              {[
+                { label: "Critical", value: missedAoiRiskSummary.critical },
+                { label: "Intermediate", value: missedAoiRiskSummary.intermediate },
+                { label: "Not so urgent", value: missedAoiRiskSummary.notUrgent },
+              ].map((item) => {
+                const tone = getMissedAoiRiskTone(item.label);
+                return (
+                  <span
+                    key={item.label}
+                    style={{
+                      padding: "0.35rem 0.65rem",
+                      borderRadius: "999px",
+                      background: tone.background,
+                      color: tone.color,
+                      border: tone.border,
+                      fontSize: "0.78rem",
+                      fontWeight: 800,
+                    }}
+                  >
+                    {item.label} {item.value}
+                  </span>
+                );
+              })}
+              <button
+                type="button"
+                onClick={handleDownloadMissedAoiRiskPdf}
+                disabled={missedAoiRiskRows.length === 0 || loading || downloading}
+                style={{
+                  border: "none",
+                  borderRadius: "999px",
+                  padding: "0.52rem 0.95rem",
+                  background:
+                    missedAoiRiskRows.length === 0
+                      ? "rgba(71, 85, 105, 0.65)"
+                      : "linear-gradient(135deg, #ef4444, #f97316)",
+                  color: "#fff",
+                  fontWeight: 800,
+                  cursor: missedAoiRiskRows.length === 0 ? "not-allowed" : "pointer",
+                  boxShadow: missedAoiRiskRows.length === 0 ? "none" : "0 10px 22px rgba(239, 68, 68, 0.18)",
+                }}
+              >
+                Download Missed AOI PDF
+              </button>
+            </div>
+          </div>
+
+          {missedAoiRiskRows.length === 0 ? (
+            <div
+              style={{
+                border: "1px dashed rgba(248, 113, 113, 0.3)",
+                borderRadius: "0.9rem",
+                color: "#fca5a5",
+                padding: "0.85rem",
+                fontSize: "0.86rem",
+              }}
+            >
+              Click Preview first. If this stays empty, no learner has been explicitly marked as missed for an AOI in this class and term.
+            </div>
+          ) : (
+            <div style={{ maxHeight: "320px", overflow: "auto", borderRadius: "0.9rem" }}>
+              <table className="teachers-table" style={{ minWidth: "900px" }}>
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Stream</th>
+                    <th>Learner</th>
+                    <th>Risk</th>
+                    <th>Missed AOIs</th>
+                    <th>Subjects</th>
+                    <th>Where missed</th>
+                    <th>Staff action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {missedAoiRiskRows.slice(0, 30).map((row, index) => {
+                    const tone = getMissedAoiRiskTone(row.risk);
+                    return (
+                      <tr key={`${row.student_id}-${row.stream}`}>
+                        <td>{index + 1}</td>
+                        <td>{row.stream}</td>
+                        <td>{row.student_name}</td>
+                        <td>
+                          <span
+                            style={{
+                              display: "inline-flex",
+                              borderRadius: "999px",
+                              padding: "0.22rem 0.55rem",
+                              fontSize: "0.72rem",
+                              fontWeight: 800,
+                              background: tone.background,
+                              color: tone.color,
+                              border: tone.border,
+                            }}
+                          >
+                            {row.risk}
+                          </span>
+                        </td>
+                        <td>{row.missedAoiCount}</td>
+                        <td>{row.subjectCount}</td>
+                        <td>{row.details.join("; ")}</td>
+                        <td>{row.action}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* STATUS */}
       {error && <div className="error-box">{error}</div>}

@@ -164,10 +164,11 @@ const getSubjectRemark = (row) => {
   return "Basic";
 };
 
-const hasSubmittedSubjectScore = (row) => {
+const hasReportableSubjectRecord = (row) => {
   const submittedCount = Number(row?.submitted_count || 0);
+  const missedCount = Number(row?.missed_count || 0);
   const average = Number(row?.average_score);
-  return submittedCount > 0 && Number.isFinite(average);
+  return (submittedCount > 0 && Number.isFinite(average)) || missedCount > 0;
 };
 
 const getCommentBand = (report) => {
@@ -250,8 +251,8 @@ export default function BoardingReports() {
       const generatedAt = new Date().toLocaleString("en-GB");
 
       reports.forEach((report, index) => {
-        const submittedSubjectRows = (Array.isArray(report.rows) ? report.rows : [])
-          .filter(hasSubmittedSubjectScore);
+        const reportableSubjectRows = (Array.isArray(report.rows) ? report.rows : [])
+          .filter(hasReportableSubjectRecord);
 
         if (index > 0) doc.addPage();
 
@@ -323,13 +324,13 @@ export default function BoardingReports() {
           startY: 102,
           margin: { left: 14, right: 14 },
           head: [["Subject", "Average", "Remark"]],
-          body: submittedSubjectRows.length
-            ? submittedSubjectRows.map((row) => [
+          body: reportableSubjectRows.length
+            ? reportableSubjectRows.map((row) => [
                 row.subject || "",
                 formatAverage(row.average_score),
                 getSubjectRemark(row),
               ])
-            : [["No submitted subject scores yet", "—", "—"]],
+            : [["No submitted or missed subject records yet", "—", "—"]],
           theme: "grid",
           styles: {
             font: "helvetica",

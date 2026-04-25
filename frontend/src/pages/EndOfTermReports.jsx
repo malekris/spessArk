@@ -75,7 +75,7 @@ import { adminFetch } from "../lib/api";
     return Number.isFinite(numeric) ? numeric : null;
   };
 
-  const summarizeMissingComponents = (row, isEndOfYearMode) => {
+  const summarizeExplicitMissedComponents = (row, isEndOfYearMode) => {
     const components = isEndOfYearMode
       ? [
           ["T1_AOI1", "T1_AOI1_status", "T1 AOI 1"],
@@ -96,11 +96,8 @@ import { adminFetch } from "../lib/api";
         ];
 
     return components
-      .filter(([scoreKey, statusKey]) => !hasScore(row[scoreKey]) || isMissedStatus(row[statusKey]))
-      .map(([scoreKey, statusKey, label]) => {
-        const statusLabel = isMissedStatus(row[statusKey]) ? "missed" : "missing";
-        return `${label} ${statusLabel}`;
-      });
+      .filter(([, statusKey]) => isMissedStatus(row[statusKey]))
+      .map(([, , label]) => `${label} missed`);
   };
 
   const classifyMissedAoiRisk = (missedAoiCount) => {
@@ -166,7 +163,7 @@ import { adminFetch } from "../lib/api";
       const bucket = byStudent.get(studentId);
       bucket.missedAoiCount += missedComponents.length;
       if (row.subject) bucket.subjects.add(String(row.subject));
-      bucket.details.push(`${row.subject || "Subject"}: ${missedComponents.join(", ")}`);
+      bucket.details.push(`${row.subject || "Subject"}: ${missedComponents.map((label) => `${label} missed`).join(", ")}`);
     });
 
     return Array.from(byStudent.values())
@@ -187,6 +184,86 @@ import { adminFetch } from "../lib/api";
         if (streamDiff !== 0) return streamDiff;
         return String(a.student_name).localeCompare(String(b.student_name));
       });
+  };
+
+  const getSubjectAverageDescriptor = (average) => {
+    const value = Number(average);
+    if (!Number.isFinite(value)) return "Pending";
+    if (value >= 2.5) return "Outstanding";
+    if (value >= 1.5) return "Moderate";
+    return "Basic";
+  };
+
+  const getSubjectRankTone = (descriptor) => {
+    if (descriptor === "Outstanding") {
+      return {
+        background: "rgba(22, 101, 52, 0.24)",
+        color: "#bbf7d0",
+        border: "1px solid rgba(34, 197, 94, 0.22)",
+      };
+    }
+    if (descriptor === "Moderate") {
+      return {
+        background: "rgba(14, 116, 144, 0.22)",
+        color: "#bae6fd",
+        border: "1px solid rgba(34, 211, 238, 0.22)",
+      };
+    }
+    return {
+      background: "rgba(146, 64, 14, 0.22)",
+      color: "#fed7aa",
+      border: "1px solid rgba(251, 146, 60, 0.22)",
+    };
+  };
+
+  const buildSubjectRankRows = (reportRows) => {
+    const bySubject = new Map();
+
+    (Array.isArray(reportRows) ? reportRows : []).forEach((row) => {
+      const subject = String(row.subject || "").trim();
+      if (!subject) return;
+
+      if (!bySubject.has(subject)) {
+        bySubject.set(subject, {
+          subject,
+          scores: [],
+          learners: new Set(),
+          streams: new Set(),
+          missedAoiCount: 0,
+        });
+      }
+
+      const bucket = bySubject.get(subject);
+      if (row.student_id) bucket.learners.add(String(row.student_id));
+      if (row.stream) bucket.streams.add(String(row.stream));
+      TERM_MISSED_AOI_COMPONENTS.forEach(([statusKey]) => {
+        if (isMissedStatus(row[statusKey])) bucket.missedAoiCount += 1;
+      });
+
+      const average = toNumberOrNull(row.average);
+      if (average !== null) bucket.scores.push(average);
+    });
+
+    return Array.from(bySubject.values())
+      .filter((row) => row.scores.length > 0)
+      .map((row) => {
+        const average = Number((row.scores.reduce((sum, value) => sum + value, 0) / row.scores.length).toFixed(2));
+        return {
+          subject: row.subject,
+          average,
+          descriptor: getSubjectAverageDescriptor(average),
+          scoredLearners: row.scores.length,
+          learnerCount: row.learners.size,
+          streams: Array.from(row.streams).sort(),
+          missedAoiCount: row.missedAoiCount,
+        };
+      })
+      .sort((a, b) => {
+        if (b.average !== a.average) return b.average - a.average;
+        if (a.missedAoiCount !== b.missedAoiCount) return a.missedAoiCount - b.missedAoiCount;
+        return String(a.subject).localeCompare(String(b.subject));
+      })
+      .map((row, index) => ({ ...row, rank: index + 1 }));
   };
 
   const buildPerformanceIndicatorRows = (reportRows, registeredLearners, isEndOfYearMode, fallbackMeta = {}) => {
@@ -234,9 +311,9 @@ import { adminFetch } from "../lib/api";
         const missingDetails = [];
 
         rows.forEach((row) => {
-          const missing = summarizeMissingComponents(row, isEndOfYearMode);
-          if (missing.length > 0) {
-            missingDetails.push(`${row.subject || "Subject"}: ${missing.join(", ")}`);
+          const missed = summarizeExplicitMissedComponents(row, isEndOfYearMode);
+          if (missed.length > 0) {
+            missingDetails.push(`${row.subject || "Subject"}: ${missed.join(", ")}`);
           }
         });
 
@@ -367,6 +444,12 @@ import { adminFetch } from "../lib/api";
     }),
     [missedAoiRiskRows]
   );
+  const subjectRankRows = useMemo(
+    () => buildSubjectRankRows(missedAoiRiskSourceRows),
+    [missedAoiRiskSourceRows]
+  );
+  const bestSubject = subjectRankRows[0] || null;
+  const weakestSubject = subjectRankRows.length > 0 ? subjectRankRows[subjectRankRows.length - 1] : null;
 
   useEffect(() => {
     let active = true;
@@ -618,7 +701,7 @@ import { adminFetch } from "../lib/api";
       autoTable(doc, {
         startY: 48,
         margin: { left: 10, right: 10, bottom: 14 },
-        head: [["#", "Learner", "Status", "Indicator", "Class Pos.", "Stream Pos.", "Subjects", "Missing / Notes"]],
+        head: [["#", "Learner", "Status", "Indicator", "Class Pos.", "Stream Pos.", "Subjects", "Missed / Notes"]],
         body,
         theme: "grid",
         styles: {
@@ -793,6 +876,119 @@ import { adminFetch } from "../lib/api";
     }
   };
 
+  const handleDownloadSubjectRankPdf = async () => {
+    if (subjectRankRows.length === 0) {
+      setError("Preview reports first. No subject rank data is currently available for this class.");
+      return;
+    }
+
+    setError("");
+
+    try {
+      const { jsPDF, autoTable } = await loadPdfTools();
+      const doc = new jsPDF("l", "mm", "a4");
+      const pageW = doc.internal.pageSize.getWidth();
+      const pageH = doc.internal.pageSize.getHeight();
+      const generatedAt = new Date().toLocaleString();
+
+      doc.setDrawColor(203, 213, 225);
+      doc.setFillColor(248, 250, 252);
+      doc.roundedRect(10, 8, pageW - 20, 36, 3, 3, "FD");
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(16);
+      doc.setTextColor(15, 23, 42);
+      doc.text("ST PHILLIP'S EQUATORIAL SECONDARY SCHOOL", pageW / 2, 17, { align: "center" });
+
+      doc.setFontSize(14);
+      doc.text("Subject Rank", pageW / 2, 26, { align: "center" });
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.setTextColor(71, 85, 105);
+      doc.text(`Class: ${classLevel}`, 14, 36);
+      doc.text(`Streams: ${O_LEVEL_STREAMS.join(", ")}`, 50, 36);
+      doc.text(`Term ${term} · ${year}`, 100, 36);
+      doc.text(`Best: ${bestSubject?.subject || "—"}`, 140, 36);
+      doc.text(`Weakest: ${weakestSubject?.subject || "—"}`, 210, 36);
+
+      const body = subjectRankRows.map((row) => [
+        row.rank,
+        row.subject,
+        row.average.toFixed(2),
+        row.descriptor,
+        row.scoredLearners,
+        row.learnerCount,
+        row.missedAoiCount,
+        row.streams.join(", "),
+      ]);
+
+      autoTable(doc, {
+        startY: 51,
+        margin: { left: 10, right: 10, bottom: 14 },
+        head: [["Rank", "Subject", "Average", "Descriptor", "Scores", "Learners", "Missed AOIs", "Streams"]],
+        body,
+        theme: "grid",
+        styles: {
+          font: "helvetica",
+          fontSize: 8.2,
+          cellPadding: { top: 2.4, right: 1.8, bottom: 2.4, left: 1.8 },
+          lineColor: [203, 213, 225],
+          lineWidth: 0.16,
+          textColor: [15, 23, 42],
+          valign: "middle",
+        },
+        headStyles: {
+          fillColor: [255, 255, 255],
+          textColor: [15, 23, 42],
+          lineColor: [148, 163, 184],
+          fontStyle: "bold",
+        },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        columnStyles: {
+          0: { cellWidth: 14, halign: "center" },
+          1: { cellWidth: 58 },
+          2: { cellWidth: 24, halign: "center" },
+          3: { cellWidth: 32, halign: "center" },
+          4: { cellWidth: 20, halign: "center" },
+          5: { cellWidth: 22, halign: "center" },
+          6: { cellWidth: 24, halign: "center" },
+          7: { cellWidth: 78 },
+        },
+        didParseCell: (hookData) => {
+          if (hookData.section !== "body") return;
+          const row = subjectRankRows[hookData.row.index];
+          if (hookData.column.index === 3) {
+            if (row.descriptor === "Outstanding") hookData.cell.styles.textColor = [22, 101, 52];
+            if (row.descriptor === "Moderate") hookData.cell.styles.textColor = [14, 116, 144];
+            if (row.descriptor === "Basic") hookData.cell.styles.textColor = [154, 52, 18];
+            hookData.cell.styles.fontStyle = "bold";
+          }
+        },
+        didDrawPage: () => {
+          const pageNumber = doc.internal.getCurrentPageInfo().pageNumber;
+          const pageCount = doc.internal.getNumberOfPages();
+          doc.setFont("helvetica", "italic");
+          doc.setFontSize(8);
+          doc.setTextColor(100, 116, 139);
+          doc.text(
+            `Generated from SPESS ARK · ${generatedAt} · Page ${pageNumber} of ${pageCount}`,
+            pageW / 2,
+            pageH - 7,
+            { align: "center" }
+          );
+        },
+      });
+
+      const blob = doc.output("blob");
+      const blobUrl = URL.createObjectURL(blob);
+      window.open(blobUrl, "_blank");
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+    } catch (err) {
+      setError(err.message || "Failed to generate subject rank PDF.");
+    }
+  };
+
   return (
     <div className="admin-section">
       <h2>{isEndOfYearMode ? "📕 End of Year Reports" : "📘 End of Term Reports"}</h2>
@@ -905,6 +1101,7 @@ import { adminFetch } from "../lib/api";
               `Generating ${isEndOfYearMode ? "end-of-year" : "end-of-term"} reports...`}
           </div>
         </div>
+
       )}
 
       <div
@@ -1048,7 +1245,7 @@ import { adminFetch } from "../lib/api";
               Performance Indicator
             </div>
             <div style={{ fontSize: "0.88rem", color: "#cbd5e1", lineHeight: 1.6 }}>
-              Ranks eligible learners first by performance, then places ineligible learners below with missing marks and readiness notes.
+              Ranks eligible learners first by performance, then places ineligible learners below with explicit missed AOIs and readiness notes.
             </div>
           </div>
 
@@ -1123,7 +1320,7 @@ import { adminFetch } from "../lib/api";
                   <th>Indicator</th>
                   <th>Class Pos.</th>
                   <th>Stream Pos.</th>
-                  <th>Missing / Notes</th>
+                  <th>Missed / Notes</th>
                 </tr>
               </thead>
               <tbody>
@@ -1159,6 +1356,7 @@ import { adminFetch } from "../lib/api";
       </div>
 
       {!isEndOfYearMode && (
+        <>
         <div
           style={{
             marginTop: "1rem",
@@ -1299,6 +1497,151 @@ import { adminFetch } from "../lib/api";
             </div>
           )}
         </div>
+
+        <div
+          style={{
+            marginTop: "1rem",
+            padding: "0.95rem 1rem",
+            borderRadius: "1rem",
+            border: "1px solid rgba(56, 189, 248, 0.24)",
+            background:
+              "linear-gradient(135deg, rgba(15, 23, 42, 0.9), rgba(8, 47, 73, 0.46))",
+            display: "grid",
+            gap: "0.85rem",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              gap: "1rem",
+              alignItems: "flex-start",
+              flexWrap: "wrap",
+            }}
+          >
+            <div>
+              <div style={{ fontSize: "0.78rem", textTransform: "uppercase", letterSpacing: "0.14em", color: "#7dd3fc", marginBottom: "0.3rem" }}>
+                Subject Rank
+              </div>
+              <div style={{ fontSize: "0.88rem", color: "#cbd5e1", lineHeight: 1.6 }}>
+                Shows which subjects performed strongest and weakest across North and South for this class and term.
+              </div>
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: "0.55rem", flexWrap: "wrap" }}>
+              <span
+                style={{
+                  padding: "0.35rem 0.65rem",
+                  borderRadius: "999px",
+                  background: "rgba(22, 101, 52, 0.22)",
+                  color: "#bbf7d0",
+                  border: "1px solid rgba(34, 197, 94, 0.22)",
+                  fontSize: "0.78rem",
+                  fontWeight: 800,
+                }}
+              >
+                Best {bestSubject ? `${bestSubject.subject} (${bestSubject.average.toFixed(2)})` : "—"}
+              </span>
+              <span
+                style={{
+                  padding: "0.35rem 0.65rem",
+                  borderRadius: "999px",
+                  background: "rgba(146, 64, 14, 0.22)",
+                  color: "#fed7aa",
+                  border: "1px solid rgba(251, 146, 60, 0.22)",
+                  fontSize: "0.78rem",
+                  fontWeight: 800,
+                }}
+              >
+                Weakest {weakestSubject ? `${weakestSubject.subject} (${weakestSubject.average.toFixed(2)})` : "—"}
+              </span>
+              <button
+                type="button"
+                onClick={handleDownloadSubjectRankPdf}
+                disabled={subjectRankRows.length === 0 || loading || downloading}
+                style={{
+                  border: "none",
+                  borderRadius: "999px",
+                  padding: "0.52rem 0.95rem",
+                  background:
+                    subjectRankRows.length === 0
+                      ? "rgba(71, 85, 105, 0.65)"
+                      : "linear-gradient(135deg, #38bdf8, #0f766e)",
+                  color: "#fff",
+                  fontWeight: 800,
+                  cursor: subjectRankRows.length === 0 ? "not-allowed" : "pointer",
+                  boxShadow: subjectRankRows.length === 0 ? "none" : "0 10px 22px rgba(56, 189, 248, 0.18)",
+                }}
+              >
+                Download Subject Rank PDF
+              </button>
+            </div>
+          </div>
+
+          {subjectRankRows.length === 0 ? (
+            <div
+              style={{
+                border: "1px dashed rgba(56, 189, 248, 0.3)",
+                borderRadius: "0.9rem",
+                color: "#bae6fd",
+                padding: "0.85rem",
+                fontSize: "0.86rem",
+              }}
+            >
+              Click Preview first. Subject rank appears once scored report data exists for this class and term.
+            </div>
+          ) : (
+            <div style={{ maxHeight: "290px", overflow: "auto", borderRadius: "0.9rem" }}>
+              <table className="teachers-table" style={{ minWidth: "820px" }}>
+                <thead>
+                  <tr>
+                    <th>Rank</th>
+                    <th>Subject</th>
+                    <th>Average</th>
+                    <th>Descriptor</th>
+                    <th>Scores</th>
+                    <th>Learners</th>
+                    <th>Missed AOIs</th>
+                    <th>Streams</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {subjectRankRows.map((row) => {
+                    const tone = getSubjectRankTone(row.descriptor);
+                    return (
+                      <tr key={row.subject}>
+                        <td>{row.rank}</td>
+                        <td>{row.subject}</td>
+                        <td>{row.average.toFixed(2)}</td>
+                        <td>
+                          <span
+                            style={{
+                              display: "inline-flex",
+                              borderRadius: "999px",
+                              padding: "0.22rem 0.55rem",
+                              fontSize: "0.72rem",
+                              fontWeight: 800,
+                              background: tone.background,
+                              color: tone.color,
+                              border: tone.border,
+                            }}
+                          >
+                            {row.descriptor}
+                          </span>
+                        </td>
+                        <td>{row.scoredLearners}</td>
+                        <td>{row.learnerCount}</td>
+                        <td>{row.missedAoiCount}</td>
+                        <td>{row.streams.join(", ")}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+        </>
       )}
 
       {/* STATUS */}

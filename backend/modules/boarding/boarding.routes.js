@@ -31,9 +31,10 @@ const DEFAULT_BOARDING_SUBJECTS = [
 ];
 
 const getBoardingSubjectRemark = (averageScore, submittedCount, missedCount) => {
-  const average = Number(averageScore);
   const submitted = Number(submittedCount || 0);
   const missed = Number(missedCount || 0);
+  const hasAverage = averageScore !== null && averageScore !== undefined && averageScore !== "";
+  const average = hasAverage ? Number(averageScore) : NaN;
 
   if (!Number.isFinite(average)) {
     if (missed > 0 && submitted === 0) return "Missed";
@@ -43,6 +44,10 @@ const getBoardingSubjectRemark = (averageScore, submittedCount, missedCount) => 
   if (average >= 2.5) return "Outstanding";
   if (average >= 1.5) return "Moderate";
   return "Basic";
+};
+
+const hasBoardingReportableSubjectRecord = (row) => {
+  return Number(row?.submitted_count || 0) > 0 || Number(row?.missed_count || 0) > 0;
 };
 
 const getBoardingOverallComment = (report) => {
@@ -267,10 +272,12 @@ async function buildBoardingReportPayload(classLevel, term, year) {
     }
 
     const numericAverages = subjectRows
+      .filter((row) => Number(row.submitted_count || 0) > 0)
       .map((row) => Number(row.average_score))
       .filter((value) => Number.isFinite(value));
     const missedAssessmentCount = subjectRows.reduce((sum, row) => sum + Number(row.missed_count || 0), 0);
     const submittedAssessmentCount = subjectRows.reduce((sum, row) => sum + Number(row.submitted_count || 0), 0);
+    const reportableSubjectRows = subjectRows.filter(hasBoardingReportableSubjectRecord);
 
     const overallAverage =
       numericAverages.length > 0
@@ -288,6 +295,7 @@ async function buildBoardingReportPayload(classLevel, term, year) {
       scored_subject_count: numericAverages.length,
       missed_assessment_count: missedAssessmentCount,
       submitted_assessment_count: submittedAssessmentCount,
+      reportable_subject_rows: reportableSubjectRows,
       rows: subjectRows,
       overall_average: overallAverage,
       overall_comment: "",

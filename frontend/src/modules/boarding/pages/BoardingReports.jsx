@@ -135,6 +135,7 @@ const formatDateOnly = (value) => {
 };
 
 const formatAverage = (value) => {
+  if (value === null || value === undefined || value === "") return "—";
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric.toFixed(2) : "—";
 };
@@ -151,9 +152,10 @@ const pickComment = (options, seed) => {
 
 const getSubjectRemark = (row) => {
   if (row?.remark) return row.remark;
-  const average = Number(row?.average_score);
   const submittedCount = Number(row?.submitted_count || 0);
   const missedCount = Number(row?.missed_count || 0);
+  const hasAverage = row?.average_score !== null && row?.average_score !== undefined && row?.average_score !== "";
+  const average = hasAverage ? Number(row?.average_score) : NaN;
   if (!Number.isFinite(average)) {
     if (missedCount > 0 && submittedCount === 0) return "Missed";
     if (missedCount > 0) return "Follow Up";
@@ -167,8 +169,8 @@ const getSubjectRemark = (row) => {
 const hasReportableSubjectRecord = (row) => {
   const submittedCount = Number(row?.submitted_count || 0);
   const missedCount = Number(row?.missed_count || 0);
-  const average = Number(row?.average_score);
-  return (submittedCount > 0 && Number.isFinite(average)) || missedCount > 0;
+  const statusText = String(row?.status || row?.remark || "").trim().toLowerCase();
+  return submittedCount > 0 || missedCount > 0 || statusText === "missed";
 };
 
 const getCommentBand = (report) => {
@@ -251,7 +253,12 @@ export default function BoardingReports() {
       const generatedAt = new Date().toLocaleString("en-GB");
 
       reports.forEach((report, index) => {
-        const reportableSubjectRows = (Array.isArray(report.rows) ? report.rows : [])
+        const sourceSubjectRows = Array.isArray(report.reportable_subject_rows)
+          ? report.reportable_subject_rows
+          : Array.isArray(report.rows)
+          ? report.rows
+          : [];
+        const reportableSubjectRows = sourceSubjectRows
           .filter(hasReportableSubjectRecord);
 
         if (index > 0) doc.addPage();

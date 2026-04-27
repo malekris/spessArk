@@ -82,7 +82,7 @@ const COMMENT_BANK = {
 
   average: {
     head: [
-      "A fair performance with room for improvement.",
+      "Fair progress,strive for better",
       "Shows steady academic progress.",
       "Can achieve better with consistency.",
       "Meets minimum academic expectations.",

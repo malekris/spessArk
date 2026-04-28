@@ -190,6 +190,139 @@ const formatReportSubject = (subject = "") => {
     : String(subject || "");
 };
 
+const normalizeReportStream = (stream = "") =>
+  String(stream || "").trim().toLowerCase();
+
+const toFiniteReportNumber = (value) => {
+  if (value === null || value === undefined || value === "") return null;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+};
+
+const getReportRankValue = (row, isEndOfYear) =>
+  toFiniteReportNumber(isEndOfYear ? row?.percent100 : row?.average);
+
+const buildCalculatedPositionMeta = (rows = [], isEndOfYear = false) => {
+  const byStudent = new Map();
+  const streamTotals = new Map();
+  let classTotal = 0;
+
+  (Array.isArray(rows) ? rows : []).forEach((row) => {
+    const studentId = String(row?.student_id || "").trim();
+    if (!studentId) return;
+
+    const streamKey = normalizeReportStream(row.stream);
+    const rowClassTotal = Number(row.class_total);
+    const rowStreamTotal = Number(row.stream_total);
+    if (Number.isFinite(rowClassTotal) && rowClassTotal > classTotal) {
+      classTotal = rowClassTotal;
+    }
+    if (streamKey && Number.isFinite(rowStreamTotal) && rowStreamTotal > 0) {
+      streamTotals.set(streamKey, Math.max(streamTotals.get(streamKey) || 0, rowStreamTotal));
+    }
+
+    if (!byStudent.has(studentId)) {
+      byStudent.set(studentId, {
+        student_id: studentId,
+        student_name: row.student_name || "",
+        stream: row.stream || "",
+        streamKey,
+        values: [],
+        explicitEligible: false,
+        explicitIneligible: false,
+      });
+    }
+
+    const bucket = byStudent.get(studentId);
+    if (!bucket.student_name && row.student_name) bucket.student_name = row.student_name;
+    if (!bucket.stream && row.stream) bucket.stream = row.stream;
+    if (!bucket.streamKey && streamKey) bucket.streamKey = streamKey;
+
+    const status = String(row.position_status || "").trim().toUpperCase();
+    if (status === "ELIGIBLE") bucket.explicitEligible = true;
+    if (status === "INELIGIBLE") bucket.explicitIneligible = true;
+
+    const value = getReportRankValue(row, isEndOfYear);
+    if (value !== null) bucket.values.push(value);
+  });
+
+  const summaries = Array.from(byStudent.values()).map((student) => {
+    const overall =
+      student.values.length > 0
+        ? Number((student.values.reduce((sum, value) => sum + value, 0) / student.values.length).toFixed(3))
+        : null;
+    const hasBackendEligibility = student.explicitEligible || student.explicitIneligible;
+    return {
+      ...student,
+      overall,
+      eligible: hasBackendEligibility ? student.explicitEligible : overall !== null,
+    };
+  });
+
+  if (!classTotal) classTotal = summaries.length;
+
+  const classRanked = summaries
+    .filter((student) => student.eligible && student.overall !== null)
+    .sort((a, b) => {
+      if (b.overall !== a.overall) return b.overall - a.overall;
+      const nameDiff = String(a.student_name).localeCompare(String(b.student_name));
+      if (nameDiff !== 0) return nameDiff;
+      return String(a.student_id).localeCompare(String(b.student_id));
+    })
+    .map((student, index) => ({ ...student, class_position: index + 1 }));
+
+  const streamBuckets = new Map();
+  classRanked.forEach((student) => {
+    const streamKey = student.streamKey || normalizeReportStream(student.stream);
+    if (!streamKey) return;
+    if (!streamBuckets.has(streamKey)) streamBuckets.set(streamKey, []);
+    streamBuckets.get(streamKey).push(student);
+  });
+
+  const positionByStudent = new Map();
+  classRanked.forEach((student) => {
+    positionByStudent.set(student.student_id, {
+      class_position: student.class_position,
+      stream_position: null,
+      class_total: classTotal,
+      stream_total: streamTotals.get(student.streamKey) || 0,
+      position_status: "ELIGIBLE",
+    });
+  });
+
+  streamBuckets.forEach((bucket, streamKey) => {
+    if (!streamTotals.has(streamKey)) streamTotals.set(streamKey, bucket.length);
+    bucket
+      .sort((a, b) => {
+        if (b.overall !== a.overall) return b.overall - a.overall;
+        const nameDiff = String(a.student_name).localeCompare(String(b.student_name));
+        if (nameDiff !== 0) return nameDiff;
+        return String(a.student_id).localeCompare(String(b.student_id));
+      })
+      .forEach((student, index) => {
+        const existing = positionByStudent.get(student.student_id);
+        if (!existing) return;
+        existing.stream_position = index + 1;
+        existing.stream_total = streamTotals.get(streamKey) || bucket.length;
+      });
+  });
+
+  summaries
+    .filter((student) => !positionByStudent.has(student.student_id))
+    .forEach((student) => {
+      const streamKey = student.streamKey || normalizeReportStream(student.stream);
+      positionByStudent.set(student.student_id, {
+        class_position: null,
+        stream_position: null,
+        class_total: classTotal,
+        stream_total: streamTotals.get(streamKey) || 0,
+        position_status: "INELIGIBLE",
+      });
+    });
+
+  return positionByStudent;
+};
+
 const originalWarn = console.warn;
 console.warn = (...args) => {
   if (
@@ -322,6 +455,14 @@ const ensureSpace = (requiredHeight) => {
 // tracking
 let currentColumn = "left";
 let currentY = 95; // below header + student info
+const rankingSourceRows =
+  Array.isArray(options?.rankingSourceRows) && options.rankingSourceRows.length > 0
+    ? options.rankingSourceRows
+    : data;
+const calculatedPositionMeta =
+  options?.recalculatePositions === true
+    ? buildCalculatedPositionMeta(rankingSourceRows, isEndOfYear)
+    : new Map();
 
   // 🔹 Group data per student
   const students = {};
@@ -337,6 +478,15 @@ let currentY = 95; // below header + student info
 
   let firstPage = true;
   const studentList = Object.values(students);
+  studentList.forEach((student) => {
+    const studentId = String(student?.info?.student_id || "").trim();
+    const calculatedPositions = calculatedPositionMeta.get(studentId);
+    if (!calculatedPositions) return;
+    student.info = {
+      ...student.info,
+      ...calculatedPositions,
+    };
+  });
   const progress = onProgress ? null : createReportProgressIndicator(studentList.length);
   progress?.update(0);
   if (onProgress) {

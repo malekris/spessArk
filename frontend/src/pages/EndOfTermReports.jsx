@@ -367,6 +367,7 @@ import { adminFetch } from "../lib/api";
   const [data, setData] = useState([]);
   const [registeredLearners, setRegisteredLearners] = useState([]);
   const [missedAoiRiskSourceRows, setMissedAoiRiskSourceRows] = useState([]);
+  const [reportRankSourceRows, setReportRankSourceRows] = useState([]);
   const [schoolCalendar, setSchoolCalendar] = useState(null);
   const [reportDatesCache, setReportDatesCache] = useState(() => {
     try {
@@ -474,6 +475,7 @@ import { adminFetch } from "../lib/api";
     setData([]);
     setRegisteredLearners([]);
     setMissedAoiRiskSourceRows([]);
+    setReportRankSourceRows([]);
     setStudentId("");
     setError("");
   }, [year, term, classLevel, stream, isEndOfYearMode]);
@@ -521,6 +523,32 @@ import { adminFetch } from "../lib/api";
     return false;
   };
 
+  const getReportEndpoint = () =>
+    isEndOfYearMode ? "/api/admin/reports/year" : "/api/admin/reports/term";
+
+  const fetchClassReportRowsForRanking = async (reportEndpoint = getReportEndpoint()) => {
+    const responses = await Promise.all(
+      O_LEVEL_STREAMS.map((streamName) => {
+        const rankParams = new URLSearchParams({
+          year,
+          class_level: classLevel,
+          stream: streamName,
+        });
+
+        if (!isEndOfYearMode) {
+          rankParams.set("term", term);
+        }
+
+        return adminFetch(`${reportEndpoint}?${rankParams.toString()}`).catch((rankErr) => {
+          console.error(`Failed to load report ranking rows for ${streamName}:`, rankErr);
+          return [];
+        });
+      })
+    );
+
+    return responses.flat().filter(Boolean);
+  };
+
   /* ======================
      FETCH REPORT DATA
   ====================== */
@@ -548,30 +576,13 @@ import { adminFetch } from "../lib/api";
         params.append("student_id", studentId);
       }
   
-      const reportEndpoint = isEndOfYearMode
-        ? "/api/admin/reports/year"
-        : "/api/admin/reports/term";
+      const reportEndpoint = getReportEndpoint();
 
       const rows = await adminFetch(`${reportEndpoint}?${params.toString()}`);
       const learners = await adminFetch("/api/students").catch(() => []);
-      let missedRiskRows = [];
-      if (!isEndOfYearMode) {
-        const riskResponses = await Promise.all(
-          O_LEVEL_STREAMS.map((streamName) => {
-            const riskParams = new URLSearchParams({
-              year,
-              term,
-              class_level: classLevel,
-              stream: streamName,
-            });
-            return adminFetch(`${reportEndpoint}?${riskParams.toString()}`).catch((riskErr) => {
-              console.error(`Failed to load missed AOI risk rows for ${streamName}:`, riskErr);
-              return [];
-            });
-          })
-        );
-        missedRiskRows = riskResponses.flat().filter(Boolean);
-      }
+      const rankingRows = await fetchClassReportRowsForRanking(reportEndpoint);
+      const fullClassRows = rankingRows.length > 0 ? rankingRows : rows;
+      const missedRiskRows = isEndOfYearMode ? [] : fullClassRows;
       const relevantLearners = Array.isArray(learners)
         ? learners.filter((learner) => {
             if (studentId) return String(learner.id) === String(studentId);
@@ -592,10 +603,12 @@ import { adminFetch } from "../lib/api";
       setData(rows);
       setRegisteredLearners(relevantLearners);
       setMissedAoiRiskSourceRows(missedRiskRows);
+      setReportRankSourceRows(fullClassRows);
     } catch (err) {
       setError(err.message || "Something went wrong");
       setRegisteredLearners([]);
       setMissedAoiRiskSourceRows([]);
+      setReportRankSourceRows([]);
     } finally {
       setLoading(false);
     }
@@ -617,6 +630,13 @@ import { adminFetch } from "../lib/api";
     );
 
     try {
+      setDownloadStage("Checking full-class ranking data...");
+      let rankingRows = reportRankSourceRows;
+      if (!Array.isArray(rankingRows) || rankingRows.length === 0) {
+        rankingRows = await fetchClassReportRowsForRanking();
+        setReportRankSourceRows(rankingRows);
+      }
+
       await generateReportCardPDF(
         data,
         {
@@ -629,6 +649,8 @@ import { adminFetch } from "../lib/api";
           nextTermBeginsOn: reportDates.nextTermBeginsOn,
         },
         {
+          rankingSourceRows: Array.isArray(rankingRows) && rankingRows.length > 0 ? rankingRows : data,
+          recalculatePositions: true,
           onProgress: ({ percent, stage }) => {
             setDownloadProgress(percent || 0);
             setDownloadStage(

@@ -37,6 +37,11 @@ import { extractClientIp, logAuditEvent } from "./utils/auditLogger.js";
 import { sendTeacherPasswordChangedEmail } from "./utils/email.js";
 import { ensureMarksArchiveTablesReady, archiveOLevelMarks } from "./utils/marksArchive.js";
 import { captureAdminYearSnapshot, queueAdminYearSnapshotRefresh } from "./services/adminYearSnapshotService.js";
+import {
+  publicMaintenancePayload,
+  readMaintenanceSettings,
+  updateMaintenanceSettings,
+} from "./services/maintenanceModeService.js";
 
 
 const app = express();
@@ -614,6 +619,56 @@ if (dbUrl) {
 export const pool = mysql.createPool(poolConfig);
 export const db = pool;//alias, no behavior change
 
+app.get("/api/system/maintenance", async (_req, res) => {
+  try {
+    const settings = await readMaintenanceSettings(pool);
+    res.json(publicMaintenancePayload(settings));
+  } catch (err) {
+    console.error("Read maintenance settings error:", err);
+    res.status(500).json({
+      enabled: false,
+      title: "SPESS ARK is available",
+      message: "",
+      eta: "",
+      updatedAt: null,
+    });
+  }
+});
+
+app.get("/api/admin/maintenance", authAdmin, async (_req, res) => {
+  try {
+    const settings = await readMaintenanceSettings(pool);
+    res.json(settings);
+  } catch (err) {
+    console.error("Admin read maintenance settings error:", err);
+    res.status(500).json({ message: "Failed to load maintenance settings" });
+  }
+});
+
+app.put("/api/admin/maintenance", authAdmin, async (req, res) => {
+  try {
+    const previous = await readMaintenanceSettings(pool);
+    const settings = await updateMaintenanceSettings(pool, req.body || {});
+
+    await logAuditEvent({
+      userId: Number(req.admin?.id) || 1,
+      userRole: "admin",
+      action: settings.enabled ? "ENABLE_MAINTENANCE" : "DISABLE_MAINTENANCE",
+      entityType: "system",
+      entityId: 1,
+      description: `ARK maintenance mode ${settings.enabled ? "enabled" : "disabled"}${
+        previous.enabled !== settings.enabled ? "" : " / updated"
+      }`,
+      ipAddress: extractClientIp(req),
+    });
+
+    res.json(settings);
+  } catch (err) {
+    console.error("Update maintenance settings error:", err);
+    res.status(500).json({ message: "Failed to update maintenance settings" });
+  }
+});
+
 async function resolveActiveSchemaName(connection = pool) {
   const explicitSchema = process.env.DB_NAME || poolConfig.database;
   if (explicitSchema) return explicitSchema;
@@ -1112,6 +1167,15 @@ app.get("/", (req, res) => {
    TEACHER AUTH
 ======================= */
 app.post("/api/teachers/login", async (req, res) => {
+  const maintenance = await readMaintenanceSettings(pool);
+  if (maintenance.enabled) {
+    return res.status(503).json({
+      code: "ARK_MAINTENANCE",
+      message: maintenance.message,
+      maintenance,
+    });
+  }
+
   const { email, password } = req.body;
   const normalizedEmail = String(email || "").trim().toLowerCase();
 

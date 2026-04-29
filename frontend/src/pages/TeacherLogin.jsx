@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { writeTeacherIdleExpiry } from "../utils/teacherSecurity";
 import { useSiteVisuals } from "../utils/siteVisuals";
+import ArkMaintenancePage from "../components/ArkMaintenancePage";
 import "./LoginPage.css"; // Make sure this matches your new isolated CSS filename
 
 const API_BASE = import.meta.env.VITE_API_BASE || "https://spessark.onrender.com";
@@ -15,6 +16,8 @@ function TeacherLogin() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [isShaking, setIsShaking] = useState(false);
+  const [maintenance, setMaintenance] = useState(null);
+  const [maintenanceChecking, setMaintenanceChecking] = useState(true);
 
   // --- 2. Background Slideshow Logic ---
   const [activeIndex, setActiveIndex] = useState(0);
@@ -41,6 +44,29 @@ function TeacherLogin() {
     }, 9000);
     return () => clearInterval(interval);
   }, [backgroundImages.length, useLiteBackground]);
+
+  useEffect(() => {
+    let active = true;
+    fetch(`${API_BASE}/api/system/maintenance`, { cache: "no-store" })
+      .then((res) => {
+        if (!res.ok) throw new Error("Maintenance status unavailable");
+        return res.json();
+      })
+      .then((data) => {
+        if (!active) return;
+        setMaintenance(data?.enabled ? data : null);
+      })
+      .catch(() => {
+        if (active) setMaintenance(null);
+      })
+      .finally(() => {
+        if (active) setMaintenanceChecking(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // --- 3. Handlers ---
   const handleChange = (e) => {
@@ -75,6 +101,10 @@ function TeacherLogin() {
 
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
+        if (res.status === 503 && body?.code === "ARK_MAINTENANCE") {
+          setMaintenance(body.maintenance || { enabled: true, message: body?.message });
+          return;
+        }
         throw new Error(body?.message || "Login failed");
       }
 
@@ -91,6 +121,20 @@ function TeacherLogin() {
       setLoading(false);
     }
   };
+
+  if (maintenanceChecking) {
+    return (
+      <div className="ark-login-wrapper">
+        <div className="ark-bg-slideshow">
+          <div className="ark-bg-pattern" />
+        </div>
+      </div>
+    );
+  }
+
+  if (maintenance?.enabled) {
+    return <ArkMaintenancePage maintenance={maintenance} onBack={() => navigate("/")} />;
+  }
 
   return (
     <div className="ark-login-wrapper">

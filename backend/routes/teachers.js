@@ -13,6 +13,7 @@ import { pool } from "../server.js";
 import authTeacher from "../middleware/authTeacher.js";
 import { extractClientIp, logAuditEvent } from "../utils/auditLogger.js";
 import { queueAdminYearSnapshotRefresh } from "../services/adminYearSnapshotService.js";
+import { readMaintenanceSettings } from "../services/maintenanceModeService.js";
 
 dotenv.config();
 const router = express.Router();
@@ -133,6 +134,15 @@ router.get("/verify/:token", async (req, res) => {
 ======================= */
 router.post("/login", async (req, res) => {
   try {
+    const maintenance = await readMaintenanceSettings(pool);
+    if (maintenance.enabled) {
+      return res.status(503).json({
+        code: "ARK_MAINTENANCE",
+        message: maintenance.message,
+        maintenance,
+      });
+    }
+
     const { email, password } = req.body;
     const normalizedEmail = normalizeTeacherEmail(email);
 

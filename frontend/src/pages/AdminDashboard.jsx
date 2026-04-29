@@ -81,6 +81,13 @@ const A_LEVEL_HEATMAP_OPTIONS = [
   { value: "EOT", label: "EOT" },
 ];
 const A_LEVEL_CLASS_SORT_ORDER = ["S5", "S6"];
+const DEFAULT_MAINTENANCE_STATE = {
+  enabled: false,
+  title: "SPESS ARK is under maintenance",
+  message:
+    "Teacher access is temporarily paused while the system is being updated. Please try again shortly.",
+  eta: "",
+};
 
 const formatMarksLockComponentLabel = (component) => {
   const raw = String(component || "").trim().toUpperCase();
@@ -539,6 +546,57 @@ export default function AdminDashboard() {
     }
   };
 
+  const loadMaintenanceSettings = async () => {
+    setMaintenanceLoading(true);
+    setMaintenanceError("");
+
+    try {
+      const settings = await adminFetch("/api/admin/maintenance");
+      const next = {
+        ...DEFAULT_MAINTENANCE_STATE,
+        ...(settings || {}),
+      };
+      setMaintenanceSettings(next);
+      setMaintenanceDraft(next);
+    } catch (err) {
+      setMaintenanceError(err.message || "Failed to load maintenance settings.");
+    } finally {
+      setMaintenanceLoading(false);
+    }
+  };
+
+  const saveMaintenanceSettings = async (overrides = {}) => {
+    setMaintenanceSaving(true);
+    setMaintenanceError("");
+    setMaintenanceNotice("");
+
+    try {
+      const payload = {
+        ...maintenanceDraft,
+        ...overrides,
+      };
+      const settings = await adminFetch("/api/admin/maintenance", {
+        method: "PUT",
+        body: payload,
+      });
+      const next = {
+        ...DEFAULT_MAINTENANCE_STATE,
+        ...(settings || {}),
+      };
+      setMaintenanceSettings(next);
+      setMaintenanceDraft(next);
+      setMaintenanceNotice(
+        next.enabled
+          ? "Maintenance mode is active. Teacher login now shows the maintenance page."
+          : "Maintenance mode is off. Teacher login is open again."
+      );
+    } catch (err) {
+      setMaintenanceError(err.message || "Failed to update maintenance mode.");
+    } finally {
+      setMaintenanceSaving(false);
+    }
+  };
+
   const openAdminSettings = (mode = "password") => {
     setAdminSettingsMode(mode);
     setAdminSettingsForm({
@@ -616,6 +674,10 @@ export default function AdminDashboard() {
     document.title = "Admin Dashboard | SPESS ARK";
   }, []);
 
+  useEffect(() => {
+    loadMaintenanceSettings();
+  }, []);
+
   /* -------------------- UI state -------------------- */
   const [activeSection, setActiveSection] = useState("");
   const [showEnrollmentChartsModal, setShowEnrollmentChartsModal] = useState(false);
@@ -654,6 +716,12 @@ export default function AdminDashboard() {
   const [databaseDumpLoading, setDatabaseDumpLoading] = useState(false);
   const [databaseDumpError, setDatabaseDumpError] = useState("");
   const [databaseDumpNotice, setDatabaseDumpNotice] = useState("");
+  const [maintenanceSettings, setMaintenanceSettings] = useState(DEFAULT_MAINTENANCE_STATE);
+  const [maintenanceDraft, setMaintenanceDraft] = useState(DEFAULT_MAINTENANCE_STATE);
+  const [maintenanceLoading, setMaintenanceLoading] = useState(false);
+  const [maintenanceSaving, setMaintenanceSaving] = useState(false);
+  const [maintenanceError, setMaintenanceError] = useState("");
+  const [maintenanceNotice, setMaintenanceNotice] = useState("");
   const [schoolCalendarLoading, setSchoolCalendarLoading] = useState(false);
   const [schoolCalendarSaving, setSchoolCalendarSaving] = useState(false);
   const [schoolCalendarError, setSchoolCalendarError] = useState("");
@@ -6048,6 +6116,134 @@ export default function AdminDashboard() {
 
       <p className="admin-ops-note admin-ops-utility-note">
         The dump is generated on the server and handed to your browser as a download. Database credentials stay on the backend.
+      </p>
+    </article>
+
+    <article className="admin-ops-card admin-ops-card-utility">
+      <div className="admin-ops-card-head">
+        <div>
+          <h3>Maintenance Gate</h3>
+          <p>Pause teacher login with a polished bank-style maintenance page while admin access stays open.</p>
+        </div>
+        <span
+          className={`admin-ops-badge ${
+            maintenanceSettings.enabled ? "admin-ops-badge-gold" : "admin-ops-badge-blue"
+          }`}
+        >
+          {maintenanceSettings.enabled ? "Active" : "Open"}
+        </span>
+      </div>
+
+      <div className="admin-ops-utility-hero">
+        <div className="admin-ops-utility-icon" aria-hidden="true">MT</div>
+        <div className="admin-ops-utility-copy">
+          <strong>{maintenanceSettings.enabled ? "Teacher Portal Paused" : "Teacher Portal Open"}</strong>
+          <span>
+            {maintenanceSettings.enabled
+              ? "Teachers will see the maintenance screen before login."
+              : "Teachers can currently reach the normal login page."}
+          </span>
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gap: "0.75rem" }}>
+        <label style={{ display: "grid", gap: "0.35rem" }}>
+          <span style={{ color: "#93c5fd", fontSize: "0.78rem", fontWeight: 800 }}>Maintenance Title</span>
+          <input
+            value={maintenanceDraft.title}
+            onChange={(event) =>
+              setMaintenanceDraft((prev) => ({ ...prev, title: event.target.value }))
+            }
+            disabled={maintenanceLoading || maintenanceSaving}
+            style={{
+              minHeight: "44px",
+              borderRadius: "0.9rem",
+              border: "1px solid rgba(148, 163, 184, 0.28)",
+              background: "rgba(2, 6, 23, 0.78)",
+              color: "#f8fafc",
+              padding: "0.75rem 0.9rem",
+              outline: "none",
+            }}
+          />
+        </label>
+
+        <label style={{ display: "grid", gap: "0.35rem" }}>
+          <span style={{ color: "#93c5fd", fontSize: "0.78rem", fontWeight: 800 }}>Teacher Message</span>
+          <textarea
+            value={maintenanceDraft.message}
+            onChange={(event) =>
+              setMaintenanceDraft((prev) => ({ ...prev, message: event.target.value }))
+            }
+            disabled={maintenanceLoading || maintenanceSaving}
+            rows={4}
+            style={{
+              borderRadius: "0.9rem",
+              border: "1px solid rgba(148, 163, 184, 0.28)",
+              background: "rgba(2, 6, 23, 0.78)",
+              color: "#f8fafc",
+              padding: "0.75rem 0.9rem",
+              outline: "none",
+              resize: "vertical",
+              lineHeight: 1.55,
+            }}
+          />
+        </label>
+
+        <label style={{ display: "grid", gap: "0.35rem" }}>
+          <span style={{ color: "#93c5fd", fontSize: "0.78rem", fontWeight: 800 }}>Expected Return</span>
+          <input
+            value={maintenanceDraft.eta}
+            onChange={(event) =>
+              setMaintenanceDraft((prev) => ({ ...prev, eta: event.target.value }))
+            }
+            disabled={maintenanceLoading || maintenanceSaving}
+            placeholder="Example: Today at 4:30 PM"
+            style={{
+              minHeight: "44px",
+              borderRadius: "0.9rem",
+              border: "1px solid rgba(148, 163, 184, 0.28)",
+              background: "rgba(2, 6, 23, 0.78)",
+              color: "#f8fafc",
+              padding: "0.75rem 0.9rem",
+              outline: "none",
+            }}
+          />
+        </label>
+      </div>
+
+      <div className="admin-ops-action-grid admin-ops-utility-actions">
+        <button
+          type="button"
+          className={maintenanceSettings.enabled ? "ghost-btn" : "primary-btn"}
+          onClick={() => saveMaintenanceSettings({ enabled: true })}
+          disabled={maintenanceLoading || maintenanceSaving}
+        >
+          {maintenanceSaving ? "Saving…" : "Activate Maintenance"}
+        </button>
+        <button
+          type="button"
+          className={maintenanceSettings.enabled ? "primary-btn" : "ghost-btn"}
+          onClick={() => saveMaintenanceSettings({ enabled: false })}
+          disabled={maintenanceLoading || maintenanceSaving}
+        >
+          Reopen Teacher Login
+        </button>
+      </div>
+
+      {maintenanceError && (
+        <div className="panel-alert panel-alert-error" style={{ margin: 0 }}>
+          {maintenanceError}
+        </div>
+      )}
+
+      {maintenanceNotice && (
+        <div className="panel-alert panel-alert-success" style={{ margin: 0 }}>
+          {maintenanceNotice}
+        </div>
+      )}
+
+      <p className="admin-ops-note admin-ops-utility-note">
+        This only blocks teacher login. Admin remains available so you can reopen the portal.
       </p>
     </article>
   </div>

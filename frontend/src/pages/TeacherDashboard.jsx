@@ -5,6 +5,7 @@ import badge from "../assets/badge.png";
 import useIdleSessionPrompt from "../hooks/useIdleSessionPrompt";
 import { useNavigate } from "react-router-dom";
 import { plainFetch } from "../lib/api";
+import ArkMaintenancePage from "../components/ArkMaintenancePage";
 import { loadPdfTools } from "../utils/loadPdfTools";
 import {
   TEACHER_SESSION_EXPIRED_EVENT,
@@ -240,6 +241,7 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
       return null;
     }
   });
+  const [maintenance, setMaintenance] = useState(null);
 
   useEffect(() => {
     const token = localStorage.getItem("teacherToken");
@@ -252,6 +254,38 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
       }
     }
   }, [onLogout]);
+
+  useEffect(() => {
+    let active = true;
+
+    const checkMaintenance = () => {
+      fetch(`${API_BASE}/api/system/maintenance`, { cache: "no-store" })
+        .then((res) => {
+          if (!res.ok) throw new Error("Maintenance status unavailable");
+          return res.json();
+        })
+        .then((settings) => {
+          if (!active) return;
+          if (settings?.enabled) {
+            clearTeacherSession();
+            setMaintenance(settings);
+          } else {
+            setMaintenance(null);
+          }
+        })
+        .catch(() => {
+          if (active) setMaintenance(null);
+        });
+    };
+
+    checkMaintenance();
+    const timerId = window.setInterval(checkMaintenance, 60_000);
+
+    return () => {
+      active = false;
+      window.clearInterval(timerId);
+    };
+  }, []);
 
   useEffect(() => {
     if (!showChangePassword) return;
@@ -1703,6 +1737,10 @@ useEffect(() => {
   // ============================
   // RENDER
   // ============================
+  if (maintenance?.enabled) {
+    return <ArkMaintenancePage maintenance={maintenance} onBack={() => navigate("/")} />;
+  }
+
   return (
     <div className="admin-root teacher-root">
       {isPortrait && <div className="panel-alert">📱 Rotate your phone for better mark entry</div>}

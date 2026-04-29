@@ -25,6 +25,14 @@ function isSubIctSubject(subjectName = "") {
   return normalized === "subict" || normalized === "subsidiaryict";
 }
 
+function isGeneralPaperSubject(subjectName = "") {
+  const normalized = String(subjectName || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+  return normalized === "generalpaper" || normalized === "gp";
+}
+
 function getPaperOptionsForSubject(subjectName = "") {
   return isSinglePaperSubject(subjectName) ? ["Single"] : ["Paper 1", "Paper 2"];
 }
@@ -339,7 +347,7 @@ function groupRowsBySubject(rows = []) {
       if (group.isSubsidiary) {
         const subsidiary = hasIncompletePaper
           ? { grade: incompleteLabel, points: 0 }
-          : isSubIctSubject(group.subject)
+          : isSubIctSubject(group.subject) || isGeneralPaperSubject(group.subject)
           ? { grade: mergedAverage >= 50 ? "O" : "F", points: mergedAverage >= 50 ? 1 : 0 }
           : deriveSubsidiarySubjectGrade(papers);
         return {

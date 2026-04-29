@@ -17,6 +17,14 @@ function isSinglePaperSubject(subjectName = "") {
   return SINGLE_PAPER_SUBJECTS.has(String(subjectName || "").trim().toLowerCase());
 }
 
+function isSubIctSubject(subjectName = "") {
+  const normalized = String(subjectName || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+  return normalized === "subict" || normalized === "subsidiaryict";
+}
+
 function getPaperOptionsForSubject(subjectName = "") {
   return isSinglePaperSubject(subjectName) ? ["Single"] : ["Paper 1", "Paper 2"];
 }
@@ -50,6 +58,19 @@ function calcAverage(mid, eot) {
   }
   return Math.round(((midScore + eotScore) / 2) * 10) / 10;
 }
+
+function componentStatus(hasRecord, score) {
+  if (!hasRecord) return "Missing";
+  if (score === null || score === undefined) return "Missed";
+  return "Submitted";
+}
+
+function incompleteLabelFromStatuses(statuses = []) {
+  return statuses.some((status) => String(status || "").toLowerCase() === "missed")
+    ? "Missed"
+    : "Missing";
+}
+
 function getAge(dob) {
     if (!dob) return "";
     const birth = new Date(dob);
@@ -271,13 +292,20 @@ function groupRowsBySubject(rows = []) {
 
     const group = grouped.get(key);
     const paperAverage = calcAverage(row.mid, row.eot);
-    const paperScore = paperAverage === null ? "Missing" : scoreFromAverage(paperAverage);
+    const midStatus = row.mid_status || (row.mid === null || row.mid === undefined ? "Missing" : "Submitted");
+    const eotStatus = row.eot_status || (row.eot === null || row.eot === undefined ? "Missing" : "Submitted");
+    const paperResultStatus =
+      paperAverage === null ? incompleteLabelFromStatuses([midStatus, eotStatus]) : "Submitted";
+    const paperScore = paperAverage === null ? paperResultStatus : scoreFromAverage(paperAverage);
     group.papers.push({
       paper: normalizePaperLabel(row.paper_label) || "Single",
       teacher: row.teacher || "—",
       mid: row.mid,
       eot: row.eot,
+      mid_status: midStatus,
+      eot_status: eotStatus,
       avg: paperAverage,
+      resultStatus: paperResultStatus,
       paperScore,
     });
   });
@@ -290,11 +318,14 @@ function groupRowsBySubject(rows = []) {
         return String(a.paper || "").localeCompare(String(b.paper || ""));
       });
 
-      const hasMissingPaper = papers.some((paper) => paper.avg === null || paper.avg === undefined);
+      const hasIncompletePaper = papers.some((paper) => paper.avg === null || paper.avg === undefined);
+      const incompleteLabel = incompleteLabelFromStatuses(
+        papers.flatMap((paper) => [paper.mid_status, paper.eot_status, paper.resultStatus])
+      );
       const availablePaperAverages = papers
         .map((paper) => Number(paper.avg))
         .filter((value) => Number.isFinite(value));
-      const mergedAverage = !hasMissingPaper && availablePaperAverages.length
+      const mergedAverage = !hasIncompletePaper && availablePaperAverages.length
         ? Math.round(
             (availablePaperAverages.reduce((sum, value) => sum + value, 0) /
               availablePaperAverages.length) *
@@ -306,8 +337,10 @@ function groupRowsBySubject(rows = []) {
       const score = scoreFromAverage(mergedAverage);
 
       if (group.isSubsidiary) {
-        const subsidiary = hasMissingPaper
-          ? { grade: "Missing", points: 0 }
+        const subsidiary = hasIncompletePaper
+          ? { grade: incompleteLabel, points: 0 }
+          : isSubIctSubject(group.subject)
+          ? { grade: mergedAverage >= 50 ? "O" : "F", points: mergedAverage >= 50 ? 1 : 0 }
           : deriveSubsidiarySubjectGrade(papers);
         return {
           subject: group.subject,
@@ -321,9 +354,11 @@ function groupRowsBySubject(rows = []) {
       }
 
       const grade = isTwoPaperSubject
-        ? deriveTwoPaperSubjectGrade(papers[0]?.paperScore, papers[1]?.paperScore)
+        ? hasIncompletePaper
+          ? incompleteLabel
+          : deriveTwoPaperSubjectGrade(papers[0]?.paperScore, papers[1]?.paperScore)
         : mergedAverage === null
-        ? "Missing"
+        ? incompleteLabel
         : gradeFromScore(score);
       const points = pointsFromGrade(grade);
       return {
@@ -331,7 +366,7 @@ function groupRowsBySubject(rows = []) {
         isSubsidiary: false,
         papers,
         mergedAverage,
-        score: isTwoPaperSubject ? "—" : mergedAverage === null ? "Missing" : score,
+        score: isTwoPaperSubject ? "—" : mergedAverage === null ? incompleteLabel : score,
         grade,
         points,
       };
@@ -434,7 +469,9 @@ router.post("/download", async (req, res) => {
                 ats.paper_label,
                 COALESCE(t.name, '—') AS teacher,
                 MAX(CASE WHEN e.name = 'MID' THEN m.score END) AS mid,
-                MAX(CASE WHEN e.name = 'EOT' THEN m.score END) AS eot
+                MAX(CASE WHEN e.name = 'EOT' THEN m.score END) AS eot,
+                MAX(CASE WHEN e.name = 'MID' THEN 1 ELSE 0 END) AS mid_recorded,
+                MAX(CASE WHEN e.name = 'EOT' THEN 1 ELSE 0 END) AS eot_recorded
               FROM alevel_marks m
               JOIN alevel_exams e ON e.id = m.exam_id
               LEFT JOIN alevel_teacher_subjects ats ON ats.id = m.assignment_id
@@ -475,13 +512,16 @@ router.post("/download", async (req, res) => {
               teacher: mark?.teacher || assignment?.teacher || "—",
               mid: mark?.mid ?? null,
               eot: mark?.eot ?? null,
+              mid_status: componentStatus(Number(mark?.mid_recorded || 0) > 0, mark?.mid),
+              eot_status: componentStatus(Number(mark?.eot_recorded || 0) > 0, mark?.eot),
             });
           });
         });
 
-        // Only generate reports for learners with at least one recorded mark.
+        // Only generate reports for learners with at least one uploaded mark row.
+        // A NULL score row is an explicit teacher-marked MISSED exam; no row is MISSING.
         const hasAnyMark = expectedRows.some(
-          (r) => r.mid !== null || r.eot !== null
+          (r) => r.mid_status !== "Missing" || r.eot_status !== "Missing"
         );
         if (!hasAnyMark) continue;
   

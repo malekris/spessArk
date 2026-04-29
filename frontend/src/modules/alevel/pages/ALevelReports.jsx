@@ -483,8 +483,18 @@ async function generateAlevelPDF(data, meta) {
     return Number.isFinite(parsed) ? parsed.toFixed(1).replace(/\.0$/, "") : String(value);
   };
 
-  const formatAverage = (value) => {
-    if (value === null || value === undefined || value === "") return "Missing";
+  const formatComponentScore = (value, status) => {
+    const normalizedStatus = String(status || "").trim().toLowerCase();
+    if (normalizedStatus === "missed") return "Missed";
+    if (normalizedStatus === "missing") return "Missing";
+    return formatPaperScore(value);
+  };
+
+  const formatAverage = (value, status) => {
+    const normalizedStatus = String(status || "").trim().toLowerCase();
+    if (value === null || value === undefined || value === "") {
+      return normalizedStatus === "missed" ? "Missed" : "Missing";
+    }
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed.toFixed(1) : String(value);
   };
@@ -520,9 +530,9 @@ async function generateAlevelPDF(data, meta) {
         }
 
         row.push(paperRow.paper || "Single");
-        row.push(formatPaperScore(paperRow.mid));
-        row.push(formatPaperScore(paperRow.eot));
-        row.push(formatAverage(paperRow.avg));
+        row.push(formatComponentScore(paperRow.mid, paperRow.mid_status));
+        row.push(formatComponentScore(paperRow.eot, paperRow.eot_status));
+        row.push(formatAverage(paperRow.avg, paperRow.resultStatus));
         row.push(paperRow.paperScore || "Missing");
 
         if (index === 0) {
@@ -532,7 +542,9 @@ async function generateAlevelPDF(data, meta) {
             styles: { valign: "middle", fontStyle: "bold" },
           });
           row.push({
-            content: subjectGroup.grade === "Missing" ? "Missing" : String(subjectGroup.points ?? "—"),
+            content: ["Missing", "Missed"].includes(subjectGroup.grade)
+              ? subjectGroup.grade
+              : String(subjectGroup.points ?? "—"),
             rowSpan: papers.length,
             styles: { valign: "middle", fontStyle: "bold" },
           });

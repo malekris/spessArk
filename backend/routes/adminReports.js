@@ -69,6 +69,26 @@ const parseStoredSubjects = (value) => {
 };
 
 const normalizeSubjectKey = (value) => String(value || "").trim().toLowerCase();
+const normalizeRegisteredSubjectKey = (value) => {
+  const compact = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+  const aliases = {
+    cre: "christianreligiouseducation",
+    christianreligiouseducation: "christianreligiouseducation",
+  };
+  return aliases[compact] || compact;
+};
+
+const isReportRowForRegisteredSubject = (row) => {
+  const registeredSubjects = parseStoredSubjects(row?.registered_subjects);
+  if (registeredSubjects.length === 0) return true;
+  const reportSubjectKey = normalizeRegisteredSubjectKey(row?.subject);
+  return registeredSubjects.some(
+    (subject) => normalizeRegisteredSubjectKey(subject) === reportSubjectKey
+  );
+};
 
 const normalizePaperLabel = (value = "") => {
   const raw = String(value || "").trim().toLowerCase();
@@ -482,6 +502,7 @@ router.get("/term", authAdmin, async (req, res) => {
         s.dob,
         s.class_level,
         s.stream,
+        s.subjects AS registered_subjects,
 
         ta.subject,
         t.name AS teacher_name,
@@ -531,8 +552,10 @@ router.get("/term", authAdmin, async (req, res) => {
       normalizeStream
     );
 
+    const reportRows = (rows || []).filter(isReportRowForRegisteredSubject);
+
     // ✅ SINGLE processed block (average + remark)
-    const processedAll = rows.map((r) => {
+    const processedAll = reportRows.map((r) => {
       const scores = [r.AOI1, r.AOI2, r.AOI3]
         .filter((v) => v !== null)
         .map(Number);
@@ -648,6 +671,7 @@ router.get("/year", authAdmin, async (req, res) => {
         s.dob,
         s.class_level,
         s.stream,
+        s.subjects AS registered_subjects,
         ta.subject,
         t.name AS teacher_name,
 
@@ -715,7 +739,9 @@ router.get("/year", authAdmin, async (req, res) => {
       return "";
     };
 
-    const processedAll = rows.map((r) => {
+    const reportRows = (rows || []).filter(isReportRowForRegisteredSubject);
+
+    const processedAll = reportRows.map((r) => {
       const term3 = [toNum(r.AOI1), toNum(r.AOI2), toNum(r.AOI3)];
       const term3Present = term3.filter((v) => v !== null);
       const average =
@@ -851,7 +877,9 @@ router.get("/mini-aoi1", authAdmin, async (req, res) => {
       normalizeStream
     );
 
-    const processedAll = (rows || []).map((row) => ({
+    const reportRows = (rows || []).filter(isReportRowForRegisteredSubject);
+
+    const processedAll = reportRows.map((row) => ({
       ...row,
       AOI1: hasRecordedScore(row.AOI1) ? Number(row.AOI1) : null,
       remark: formatMiniRemark(row.AOI1, row.AOI1_status),

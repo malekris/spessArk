@@ -342,8 +342,9 @@ import { adminFetch } from "../lib/api";
         };
       })
       .sort((a, b) => {
+        const overallDiff = (b.overall ?? -1) - (a.overall ?? -1);
+        if (overallDiff !== 0) return overallDiff;
         if (a.eligible !== b.eligible) return a.eligible ? -1 : 1;
-        if (a.eligible && b.eligible) return (b.overall ?? -1) - (a.overall ?? -1);
         const missingDiff = a.missingDetails.length - b.missingDetails.length;
         if (missingDiff !== 0) return missingDiff;
         return String(a.student_name).localeCompare(String(b.student_name));

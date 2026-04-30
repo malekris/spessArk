@@ -266,6 +266,196 @@ import { adminFetch } from "../lib/api";
       .map((row, index) => ({ ...row, rank: index + 1 }));
   };
 
+  const O_LEVEL_SUBJECT_ORDER = [
+    "English",
+    "Mathematics",
+    "Physics",
+    "Biology",
+    "Chemistry",
+    "History",
+    "Geography",
+    "ICT",
+    "Agriculture",
+    "Physical Education",
+    "Art",
+    "Luganda",
+    "Literature",
+    "Christian Religious Education",
+    "Entrepreneurship",
+    "IRE",
+    "Kiswahili",
+  ];
+
+  const O_LEVEL_SUBJECT_ABBREVIATIONS = {
+    English: "ENG",
+    Mathematics: "MATH",
+    Physics: "PHY",
+    Biology: "BIO",
+    Chemistry: "CHEM",
+    History: "HIST",
+    Geography: "GEOG",
+    ICT: "ICT",
+    Agriculture: "AGR",
+    "Physical Education": "P.E",
+    Art: "ART",
+    Luganda: "LUG",
+    Literature: "LIT",
+    "Christian Religious Education": "CRE",
+    Entrepreneurship: "ENT",
+    IRE: "IRE",
+    Kiswahili: "KISW",
+  };
+
+  const normalizeSubjectKey = (subject = "") => String(subject || "").trim().toLowerCase();
+
+  const abbreviateSubject = (subject = "") => {
+    const clean = String(subject || "").trim();
+    if (!clean) return "SUB";
+    const known = O_LEVEL_SUBJECT_ABBREVIATIONS[clean];
+    if (known) return known;
+    const words = clean.replace(/[^a-zA-Z0-9\s]/g, " ").split(/\s+/).filter(Boolean);
+    if (words.length > 1) return words.map((word) => word[0]).join("").slice(0, 6).toUpperCase();
+    return clean.slice(0, 6).toUpperCase();
+  };
+
+  const getSubjectOrderIndex = (subject = "") => {
+    const normalized = normalizeSubjectKey(subject);
+    const index = O_LEVEL_SUBJECT_ORDER.findIndex((item) => normalizeSubjectKey(item) === normalized);
+    return index === -1 ? 999 : index;
+  };
+
+  const parseLearnerSubjectList = (subjects) => {
+    if (Array.isArray(subjects)) return subjects.map((subject) => String(subject || "").trim()).filter(Boolean);
+    if (typeof subjects !== "string") return [];
+
+    const raw = subjects.trim();
+    if (!raw) return [];
+
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed.map((subject) => String(subject || "").trim()).filter(Boolean);
+      }
+    } catch {
+      // fall back to comma-separated text below
+    }
+
+    return raw.split(",").map((subject) => subject.trim()).filter(Boolean);
+  };
+
+  const buildLearnerPerformanceSummary = (reportRows, registeredLearners, { classLevel, stream, isEndOfYearMode }) => {
+    const sourceRows = (Array.isArray(reportRows) ? reportRows : []).filter((row) => {
+      if (String(row.class_level || "").trim() !== String(classLevel || "").trim()) return false;
+      return String(row.stream || "").trim() === String(stream || "").trim();
+    });
+    const selectedRegisteredLearners = (Array.isArray(registeredLearners) ? registeredLearners : []).filter((learner) => {
+      if (String(learner.class_level || "").trim() !== String(classLevel || "").trim()) return false;
+      return String(learner.stream || "").trim() === String(stream || "").trim();
+    });
+
+    const subjectsByKey = new Map();
+    selectedRegisteredLearners.forEach((learner) => {
+      parseLearnerSubjectList(learner.subjects).forEach((subject) => {
+        const key = normalizeSubjectKey(subject);
+        if (!key || subjectsByKey.has(key)) return;
+        subjectsByKey.set(key, {
+          key,
+          name: subject,
+          abbr: abbreviateSubject(subject),
+        });
+      });
+    });
+    sourceRows.forEach((row) => {
+      const subject = String(row.subject || "").trim();
+      if (!subject) return;
+      const key = normalizeSubjectKey(subject);
+      if (!subjectsByKey.has(key)) {
+        subjectsByKey.set(key, {
+          key,
+          name: subject,
+          abbr: abbreviateSubject(subject),
+        });
+      }
+    });
+
+    const subjects = Array.from(subjectsByKey.values()).sort((a, b) => {
+      const orderDiff = getSubjectOrderIndex(a.name) - getSubjectOrderIndex(b.name);
+      if (orderDiff !== 0) return orderDiff;
+      return a.name.localeCompare(b.name);
+    });
+
+    const learnersById = new Map();
+    selectedRegisteredLearners
+      .forEach((learner) => {
+        const id = String(learner.id || learner.student_id || "").trim();
+        if (!id) return;
+        learnersById.set(id, {
+          student_id: id,
+          student_name: learner.name || learner.student_name || "Unknown learner",
+          class_level: learner.class_level || classLevel,
+          stream: learner.stream || stream,
+          subjectScores: new Map(),
+          class_position: null,
+          stream_position: null,
+        });
+      });
+
+    sourceRows.forEach((row) => {
+      const id = String(row.student_id || "").trim();
+      if (!id) return;
+      if (!learnersById.has(id)) {
+        learnersById.set(id, {
+          student_id: id,
+          student_name: row.student_name || "Unknown learner",
+          class_level: row.class_level || classLevel,
+          stream: row.stream || stream,
+          subjectScores: new Map(),
+          class_position: row.class_position || null,
+          stream_position: row.stream_position || null,
+        });
+      }
+
+      const learner = learnersById.get(id);
+      learner.class_position = learner.class_position || row.class_position || null;
+      learner.stream_position = learner.stream_position || row.stream_position || null;
+
+      const subjectKey = normalizeSubjectKey(row.subject);
+      if (!subjectKey) return;
+      const numericScore = toNumberOrNull(isEndOfYearMode ? row.percent100 : row.average);
+      const missed = summarizeExplicitMissedComponents(row, isEndOfYearMode).length > 0;
+      learner.subjectScores.set(subjectKey, {
+        value: numericScore,
+        display: numericScore === null ? (missed ? "M" : "—") : numericScore.toFixed(isEndOfYearMode ? 1 : 1),
+      });
+    });
+
+    const rows = Array.from(learnersById.values())
+      .map((learner) => {
+        const values = subjects
+          .map((subject) => learner.subjectScores.get(subject.key)?.value)
+          .filter((value) => value !== null && value !== undefined);
+        const average =
+          values.length > 0
+            ? Number((values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(2))
+            : null;
+        return {
+          ...learner,
+          average,
+        };
+      })
+      .sort((a, b) => {
+        const averageDiff = (b.average ?? -1) - (a.average ?? -1);
+        if (averageDiff !== 0) return averageDiff;
+        return String(a.student_name || "").localeCompare(String(b.student_name || ""));
+      })
+      .map((row, index) => ({
+        ...row,
+        summary_position: index + 1,
+      }));
+
+    return { subjects, rows };
+  };
+
   const buildPerformanceIndicatorRows = (reportRows, registeredLearners, isEndOfYearMode, fallbackMeta = {}) => {
     const reportByStudent = new Map();
     reportRows.forEach((row) => {
@@ -452,6 +642,15 @@ import { adminFetch } from "../lib/api";
   );
   const bestSubject = subjectRankRows[0] || null;
   const weakestSubject = subjectRankRows.length > 0 ? subjectRankRows[subjectRankRows.length - 1] : null;
+  const learnerPerformanceSummary = useMemo(
+    () =>
+      buildLearnerPerformanceSummary(
+        Array.isArray(reportRankSourceRows) && reportRankSourceRows.length > 0 ? reportRankSourceRows : data,
+        registeredLearners,
+        { classLevel, stream, isEndOfYearMode }
+      ),
+    [reportRankSourceRows, data, registeredLearners, classLevel, stream, isEndOfYearMode]
+  );
 
   useEffect(() => {
     let active = true;
@@ -1009,6 +1208,119 @@ import { adminFetch } from "../lib/api";
       setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
     } catch (err) {
       setError(err.message || "Failed to generate subject rank PDF.");
+    }
+  };
+
+  const handleDownloadLearnerPerformanceSummaryPdf = async () => {
+    if (learnerPerformanceSummary.rows.length === 0 || learnerPerformanceSummary.subjects.length === 0) {
+      setError("Preview reports first. No learner performance summary is currently available for this stream.");
+      return;
+    }
+
+    setError("");
+
+    try {
+      const { jsPDF, autoTable } = await loadPdfTools();
+      const doc = new jsPDF("l", "mm", "a4");
+      const pageW = doc.internal.pageSize.getWidth();
+      const pageH = doc.internal.pageSize.getHeight();
+      const generatedAt = new Date().toLocaleString();
+      const subjects = learnerPerformanceSummary.subjects;
+      const rows = learnerPerformanceSummary.rows;
+      const usableWidth = pageW - 20;
+      const fixedWidth = 12 + 52 + 18;
+      const subjectWidth = Math.max(10, Math.min(19, (usableWidth - fixedWidth) / Math.max(1, subjects.length)));
+      const fontSize = subjects.length > 12 ? 6.4 : 7.1;
+
+      doc.setDrawColor(203, 213, 225);
+      doc.setFillColor(248, 250, 252);
+      doc.roundedRect(10, 8, pageW - 20, 34, 3, 3, "FD");
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(16);
+      doc.setTextColor(15, 23, 42);
+      doc.text("ST PHILLIP'S EQUATORIAL SECONDARY SCHOOL", pageW / 2, 17, { align: "center" });
+
+      doc.setFontSize(13);
+      doc.text("Learner Performance Summary", pageW / 2, 26, { align: "center" });
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8.8);
+      doc.setTextColor(71, 85, 105);
+      doc.text(`Class: ${classLevel}`, 14, 35);
+      doc.text(`Stream: ${stream}`, 48, 35);
+      doc.text(`Term ${term} · ${year}`, 90, 35);
+      doc.text(`Learners: ${rows.length}`, 132, 35);
+      doc.text(`Subjects: ${subjects.length}`, 172, 35);
+      doc.text(`Generated: ${generatedAt}`, 214, 35);
+
+      const body = rows.map((row) => [
+        row.summary_position,
+        row.student_name,
+        ...subjects.map((subject) => row.subjectScores.get(subject.key)?.display || "—"),
+        row.average === null ? "—" : row.average.toFixed(2),
+      ]);
+
+      const columnStyles = {
+        0: { cellWidth: 12, halign: "center", fontStyle: "bold" },
+        1: { cellWidth: 52 },
+        [subjects.length + 2]: { cellWidth: 18, halign: "center", fontStyle: "bold" },
+      };
+      subjects.forEach((_, index) => {
+        columnStyles[index + 2] = { cellWidth: subjectWidth, halign: "center" };
+      });
+
+      autoTable(doc, {
+        startY: 48,
+        margin: { left: 10, right: 10, bottom: 14 },
+        head: [["Pos", "Learner", ...subjects.map((subject) => subject.abbr), "Average"]],
+        body,
+        theme: "grid",
+        styles: {
+          font: "helvetica",
+          fontSize,
+          cellPadding: { top: 2, right: 1.2, bottom: 2, left: 1.2 },
+          lineColor: [203, 213, 225],
+          lineWidth: 0.14,
+          textColor: [15, 23, 42],
+          valign: "middle",
+        },
+        headStyles: {
+          fillColor: [255, 255, 255],
+          textColor: [15, 23, 42],
+          lineColor: [148, 163, 184],
+          fontStyle: "bold",
+          fontSize: Math.max(5.8, fontSize - 0.2),
+        },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        columnStyles,
+        didParseCell: (hookData) => {
+          if (hookData.section !== "body") return;
+          if (hookData.column.index === 0 || hookData.column.index === subjects.length + 2) {
+            hookData.cell.styles.textColor = [22, 101, 52];
+          }
+        },
+        didDrawPage: () => {
+          const pageNumber = doc.internal.getCurrentPageInfo().pageNumber;
+          const pageCount = doc.internal.getNumberOfPages();
+          doc.setFont("helvetica", "italic");
+          doc.setFontSize(8);
+          doc.setTextColor(100, 116, 139);
+          doc.text(
+            `Generated from SPESS ARK · M = explicitly missed · Page ${pageNumber} of ${pageCount}`,
+            pageW / 2,
+            pageH - 7,
+            { align: "center" }
+          );
+        },
+      });
+
+      const blob = doc.output("blob");
+      const blobUrl = URL.createObjectURL(blob);
+      window.open(blobUrl, "_blank");
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+    } catch (err) {
+      setError(err.message || "Failed to generate learner performance summary PDF.");
     }
   };
 
@@ -1659,6 +1971,136 @@ import { adminFetch } from "../lib/api";
                       </tr>
                     );
                   })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <div
+          style={{
+            marginTop: "1rem",
+            padding: "0.95rem 1rem",
+            borderRadius: "1rem",
+            border: "1px solid rgba(34, 197, 94, 0.24)",
+            background:
+              "linear-gradient(135deg, rgba(15, 23, 42, 0.9), rgba(20, 83, 45, 0.42))",
+            display: "grid",
+            gap: "0.85rem",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              gap: "1rem",
+              alignItems: "flex-start",
+              flexWrap: "wrap",
+            }}
+          >
+            <div>
+              <div style={{ fontSize: "0.78rem", textTransform: "uppercase", letterSpacing: "0.14em", color: "#86efac", marginBottom: "0.3rem" }}>
+                Learner Performance Summary
+              </div>
+              <div style={{ fontSize: "0.88rem", color: "#cbd5e1", lineHeight: 1.6 }}>
+                Landscape A4 league table for HM: learners sorted by average, with compact subject columns, position, and overall average.
+              </div>
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: "0.55rem", flexWrap: "wrap" }}>
+              <span
+                style={{
+                  padding: "0.35rem 0.65rem",
+                  borderRadius: "999px",
+                  background: "rgba(22, 101, 52, 0.24)",
+                  color: "#bbf7d0",
+                  border: "1px solid rgba(34, 197, 94, 0.22)",
+                  fontSize: "0.78rem",
+                  fontWeight: 800,
+                }}
+              >
+                Learners {learnerPerformanceSummary.rows.length}
+              </span>
+              <span
+                style={{
+                  padding: "0.35rem 0.65rem",
+                  borderRadius: "999px",
+                  background: "rgba(14, 116, 144, 0.22)",
+                  color: "#bae6fd",
+                  border: "1px solid rgba(34, 211, 238, 0.22)",
+                  fontSize: "0.78rem",
+                  fontWeight: 800,
+                }}
+              >
+                Subjects {learnerPerformanceSummary.subjects.length}
+              </span>
+              <button
+                type="button"
+                onClick={handleDownloadLearnerPerformanceSummaryPdf}
+                disabled={learnerPerformanceSummary.rows.length === 0 || learnerPerformanceSummary.subjects.length === 0 || loading || downloading}
+                style={{
+                  border: "none",
+                  borderRadius: "999px",
+                  padding: "0.52rem 0.95rem",
+                  background:
+                    learnerPerformanceSummary.rows.length === 0 || learnerPerformanceSummary.subjects.length === 0
+                      ? "rgba(71, 85, 105, 0.65)"
+                      : "linear-gradient(135deg, #22c55e, #0f766e)",
+                  color: "#fff",
+                  fontWeight: 800,
+                  cursor:
+                    learnerPerformanceSummary.rows.length === 0 || learnerPerformanceSummary.subjects.length === 0
+                      ? "not-allowed"
+                      : "pointer",
+                  boxShadow:
+                    learnerPerformanceSummary.rows.length === 0 || learnerPerformanceSummary.subjects.length === 0
+                      ? "none"
+                      : "0 10px 22px rgba(34, 197, 94, 0.18)",
+                }}
+              >
+                Download Summary PDF
+              </button>
+            </div>
+          </div>
+
+          {learnerPerformanceSummary.rows.length === 0 || learnerPerformanceSummary.subjects.length === 0 ? (
+            <div
+              style={{
+                border: "1px dashed rgba(34, 197, 94, 0.3)",
+                borderRadius: "0.9rem",
+                color: "#bbf7d0",
+                padding: "0.85rem",
+                fontSize: "0.86rem",
+              }}
+            >
+              Click Preview first. The HM summary appears once scored report data exists for this stream.
+            </div>
+          ) : (
+            <div style={{ maxHeight: "320px", overflow: "auto", borderRadius: "0.9rem" }}>
+              <table className="teachers-table" style={{ minWidth: `${Math.max(860, 260 + learnerPerformanceSummary.subjects.length * 64)}px` }}>
+                <thead>
+                  <tr>
+                    <th>Pos</th>
+                    <th>Learner</th>
+                    {learnerPerformanceSummary.subjects.map((subject) => (
+                      <th key={subject.key} title={subject.name}>{subject.abbr}</th>
+                    ))}
+                    <th>Average</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {learnerPerformanceSummary.rows.slice(0, 35).map((row) => (
+                    <tr key={row.student_id}>
+                      <td>{row.summary_position}</td>
+                      <td>{row.student_name}</td>
+                      {learnerPerformanceSummary.subjects.map((subject) => (
+                        <td key={`${row.student_id}-${subject.key}`}>
+                          {row.subjectScores.get(subject.key)?.display || "—"}
+                        </td>
+                      ))}
+                      <td>{row.average === null ? "—" : row.average.toFixed(2)}</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>

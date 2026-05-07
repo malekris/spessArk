@@ -9,6 +9,9 @@ import { getCurrentVinePostSource } from "../utils/postSource";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const POST_MAX_LENGTH = 5000;
+const COMMUNITY_MEMORY_WALL_TAG = "memorywall";
+const MEMORY_WALL_MAX_FILES = 30;
+const MEMORY_WALL_PROMPTS = ["Holiday check-in", "Photo drop", "Term memory"];
 const LEARNING_BADGE_ORDER = {
   "🎯 Perfect Score": 0,
   "🏅 High Achiever": 1,
@@ -49,6 +52,7 @@ export default function VineCommunities() {
   const [communities, setCommunities] = useState([]);
   const [activeCommunity, setActiveCommunity] = useState(null);
   const [posts, setPosts] = useState([]);
+  const [memoryWallPosts, setMemoryWallPosts] = useState([]);
   const [members, setMembers] = useState([]);
   const [activeTab, setActiveTab] = useState("announcements");
   const [joinPolicy, setJoinPolicy] = useState("open");
@@ -58,6 +62,10 @@ export default function VineCommunities() {
   const [postText, setPostText] = useState("");
   const [communityFiles, setCommunityFiles] = useState([]);
   const [isSubmittingCommunityPost, setIsSubmittingCommunityPost] = useState(false);
+  const [memoryWallText, setMemoryWallText] = useState("");
+  const [memoryWallFiles, setMemoryWallFiles] = useState([]);
+  const [memoryWallPreviews, setMemoryWallPreviews] = useState([]);
+  const [isSubmittingMemoryWallPost, setIsSubmittingMemoryWallPost] = useState(false);
   const [scheduledAt, setScheduledAt] = useState("");
   const [scheduledPosts, setScheduledPosts] = useState([]);
   const [rules, setRules] = useState([]);
@@ -127,6 +135,9 @@ export default function VineCommunities() {
   const communityPostRef = useRef(null);
   const communityPostRequestIdRef = useRef("");
   const communityPostFingerprintRef = useRef("");
+  const memoryWallRequestIdRef = useRef("");
+  const memoryWallFingerprintRef = useRef("");
+  const memoryWallFileInputRef = useRef(null);
   const assignmentFileInputRef = useRef(null);
   const libraryFileInputRef = useRef(null);
   const [nowMs, setNowMs] = useState(Date.now());
@@ -188,6 +199,11 @@ export default function VineCommunities() {
     communityFiles.map((file) => `${file?.name || ""}:${file?.size || 0}:${file?.lastModified || 0}`).join("|"),
     String(activeCommunity?.id || ""),
   ].join("::");
+  const memoryWallFingerprint = [
+    memoryWallText.trim(),
+    memoryWallFiles.map((file) => `${file?.name || ""}:${file?.size || 0}:${file?.lastModified || 0}`).join("|"),
+    String(activeCommunity?.id || ""),
+  ].join("::");
 
   useEffect(() => {
     if (
@@ -198,6 +214,33 @@ export default function VineCommunities() {
     }
     communityPostFingerprintRef.current = communityPostFingerprint;
   }, [communityPostFingerprint]);
+
+  useEffect(() => {
+    if (
+      memoryWallFingerprintRef.current &&
+      memoryWallFingerprintRef.current !== memoryWallFingerprint
+    ) {
+      memoryWallRequestIdRef.current = "";
+    }
+    memoryWallFingerprintRef.current = memoryWallFingerprint;
+  }, [memoryWallFingerprint]);
+
+  useEffect(() => {
+    if (!memoryWallFiles.length) {
+      setMemoryWallPreviews([]);
+      return undefined;
+    }
+    const nextPreviews = memoryWallFiles.map((file) => ({
+      fileKey: `${file.name}-${file.size}-${file.lastModified}`,
+      name: file.name,
+      kind: String(file.type || "").startsWith("video/") ? "video" : "image",
+      url: URL.createObjectURL(file),
+    }));
+    setMemoryWallPreviews(nextPreviews);
+    return () => {
+      nextPreviews.forEach((preview) => URL.revokeObjectURL(preview.url));
+    };
+  }, [memoryWallFiles]);
 
   const loadCommunities = async () => {
     try {
@@ -211,10 +254,40 @@ export default function VineCommunities() {
     }
   };
 
+  const mergePostIntoList = (list, nextPost) => {
+    const alreadyThere = list.some((row) => Number(row?.id) === Number(nextPost?.id));
+    if (alreadyThere) {
+      return list.map((row) =>
+        Number(row?.id) === Number(nextPost?.id) ? { ...row, ...nextPost } : row
+      );
+    }
+    return [nextPost, ...list];
+  };
+
+  const loadMemoryWallPosts = async (communitySlug = slug) => {
+    if (!communitySlug) {
+      setMemoryWallPosts([]);
+      return;
+    }
+    try {
+      const res = await fetch(
+        `${API}/api/vine/communities/${encodeURIComponent(communitySlug)}/posts?topic=${COMMUNITY_MEMORY_WALL_TAG}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+      const data = await res.json().catch(() => []);
+      setMemoryWallPosts(Array.isArray(data) ? data : []);
+    } catch {
+      setMemoryWallPosts([]);
+    }
+  };
+
   const loadCommunityDetail = async (communitySlug, nextTopic = "") => {
     if (!communitySlug) {
       setActiveCommunity(null);
       setPosts([]);
+      setMemoryWallPosts([]);
       setLibraryItems([]);
       return;
     }
@@ -226,6 +299,7 @@ export default function VineCommunities() {
       if (!cRes.ok || !cData?.id) {
         setActiveCommunity(null);
         setPosts([]);
+        setMemoryWallPosts([]);
         setMembers([]);
         setRules([]);
         setQuestions([]);
@@ -272,6 +346,11 @@ export default function VineCommunities() {
       const libraryData = await libraryRes.json().catch(() => []);
       setActiveCommunity(cData);
       setPosts(Array.isArray(pData) ? pData : []);
+      setMemoryWallPosts(
+        Array.isArray(pData)
+          ? pData.filter((post) => String(post?.topic_tag || "").toLowerCase() === COMMUNITY_MEMORY_WALL_TAG)
+          : []
+      );
       setMembers(Array.isArray(mData) ? mData : []);
       setRules(Array.isArray(rulesData) ? rulesData : []);
       setQuestions(Array.isArray(qData) ? qData : []);
@@ -301,6 +380,7 @@ export default function VineCommunities() {
     } catch {
       setActiveCommunity(null);
       setPosts([]);
+      setMemoryWallPosts([]);
       setMembers([]);
       setRules([]);
       setQuestions([]);
@@ -329,6 +409,23 @@ export default function VineCommunities() {
   }, [slug, topicFilter]);
 
   useEffect(() => {
+    if (activeTab === "memorywall") {
+      loadMemoryWallPosts(slug);
+    }
+  }, [activeTab, slug]);
+
+  useEffect(() => {
+    setMemoryWallText("");
+    setMemoryWallFiles([]);
+    setMemoryWallPreviews([]);
+    memoryWallRequestIdRef.current = "";
+    memoryWallFingerprintRef.current = "";
+    if (memoryWallFileInputRef.current) {
+      memoryWallFileInputRef.current.value = "";
+    }
+  }, [activeCommunity?.id]);
+
+  useEffect(() => {
     const tab = String(searchParams.get("tab") || "").toLowerCase();
     const allowed = new Set([
       "about",
@@ -336,6 +433,7 @@ export default function VineCommunities() {
       "attendance",
       "assignments",
       "library",
+      "memorywall",
       "settings",
       "announcements",
     ]);
@@ -567,8 +665,16 @@ export default function VineCommunities() {
   }, [activeCommunity?.id, canManageCommunitySettings]);
 
   useEffect(() => {
-    if ((activeTab === "assignments" || activeTab === "members") && activeCommunity?.id) loadBadgesStreaks();
-    if (activeTab === "announcements" && activeCommunity?.id) loadProgress();
+    if (
+      (activeTab === "announcements" || activeTab === "assignments" || activeTab === "members") &&
+      activeCommunity?.id
+    ) {
+      loadBadgesStreaks();
+    }
+    if (activeTab === "announcements" && activeCommunity?.id) {
+      loadProgress();
+      loadReputation();
+    }
     if (activeTab === "attendance" && activeCommunity?.id) {
       const role = String(activeCommunity.viewer_role || "").toLowerCase();
       if (["owner", "moderator"].includes(role)) {
@@ -802,19 +908,69 @@ export default function VineCommunities() {
           : responsePost;
       setPostText("");
       setCommunityFiles([]);
-      setPosts((prev) => {
-        const alreadyThere = prev.some((row) => Number(row?.id) === Number(data?.id));
-        if (alreadyThere) {
-          return prev.map((row) => (Number(row?.id) === Number(data?.id) ? { ...row, ...data } : row));
-        }
-        return [data, ...prev];
-      });
+      setPosts((prev) => mergePostIntoList(prev, data));
       communityPostRequestIdRef.current = "";
       communityPostFingerprintRef.current = "";
     } catch {
       alert("Failed to post");
     } finally {
       setIsSubmittingCommunityPost(false);
+    }
+  };
+
+  const addMemoryWallPrompt = (prompt) => {
+    const safePrompt = String(prompt || "").trim();
+    if (!safePrompt) return;
+    setMemoryWallText((prev) => {
+      if (!prev.trim()) return `${safePrompt}: `;
+      if (prev.includes(safePrompt)) return prev;
+      return `${prev.trim()}\n${safePrompt}: `;
+    });
+  };
+
+  const submitMemoryWallPost = async () => {
+    if (isSubmittingMemoryWallPost) return;
+    if ((!memoryWallText.trim() && memoryWallFiles.length === 0) || !activeCommunity?.id) return;
+    try {
+      setIsSubmittingMemoryWallPost(true);
+      const formData = new FormData();
+      if (memoryWallText.trim()) formData.append("content", memoryWallText.trim());
+      const postSourceLabel = getCurrentVinePostSource();
+      if (postSourceLabel) formData.append("post_source_label", postSourceLabel);
+      const clientRequestId =
+        memoryWallRequestIdRef.current || createClientRequestId("community-memory-wall");
+      memoryWallRequestIdRef.current = clientRequestId;
+      formData.append("client_request_id", clientRequestId);
+      memoryWallFiles.forEach((file) => formData.append("images", file));
+
+      const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/memory-wall`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+      const responsePost = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(responsePost.message || "Failed to post to Memory Wall");
+        return;
+      }
+      const data =
+        postSourceLabel && !responsePost?.post_source_label
+          ? { ...responsePost, post_source_label: postSourceLabel }
+          : responsePost;
+      setMemoryWallText("");
+      setMemoryWallFiles([]);
+      setMemoryWallPreviews([]);
+      if (memoryWallFileInputRef.current) {
+        memoryWallFileInputRef.current.value = "";
+      }
+      setMemoryWallPosts((prev) => mergePostIntoList(prev, data));
+      setPosts((prev) => mergePostIntoList(prev, data));
+      memoryWallRequestIdRef.current = "";
+      memoryWallFingerprintRef.current = "";
+    } catch {
+      alert("Failed to post to Memory Wall");
+    } finally {
+      setIsSubmittingMemoryWallPost(false);
     }
   };
 
@@ -1983,6 +2139,28 @@ export default function VineCommunities() {
     });
   };
 
+  const formatShortDate = (value) => {
+    if (!value) return "";
+    const dt = new Date(value);
+    if (Number.isNaN(dt.getTime())) return "";
+    return dt.toLocaleDateString([], {
+      month: "short",
+      day: "numeric",
+    });
+  };
+
+  const getUserDisplayName = (user) => user?.display_name || user?.username || "Member";
+  const getUserAvatar = (user) =>
+    user?.avatar_url
+      ? user.avatar_url.startsWith("http")
+        ? user.avatar_url
+        : `${API}${user.avatar_url}`
+      : DEFAULT_AVATAR;
+  const getReputationScore = (row) =>
+    Number(row?.posts_count || 0) * 3 +
+    Number(row?.comments_count || 0) +
+    Number(row?.likes_received || 0);
+
   const getAssignmentDeadlineMeta = (value) => {
     const due = new Date(value);
     if (Number.isNaN(due.getTime())) return { label: "", tone: "ok" };
@@ -1995,8 +2173,89 @@ export default function VineCommunities() {
   };
 
   const announcementPosts = posts.filter((p) => Number(p.is_community_pinned) === 1).slice(0, 5);
+  const memoryWallCount =
+    memoryWallPosts.length || posts.filter((p) => String(p?.topic_tag || "").toLowerCase() === COMMUNITY_MEMORY_WALL_TAG).length;
   const newAnnouncementCount = announcementPosts.filter((p) => !seenAnnouncementIds[p.id]).length;
   const announcementBadgeCount = isCommunityOwner ? 0 : newAnnouncementCount;
+  const spotlightUsedIds = new Set();
+  const pickUnusedSpotlight = (rows, predicate = () => true) => {
+    const safeRows = Array.isArray(rows) ? rows : [];
+    const chosen =
+      safeRows.find((row) => predicate(row) && !spotlightUsedIds.has(Number(row?.id || 0))) ||
+      safeRows.find((row) => predicate(row)) ||
+      null;
+    if (chosen) spotlightUsedIds.add(Number(chosen.id || 0));
+    return chosen;
+  };
+  const topVoiceMember = pickUnusedSpotlight(
+    [...reputation].sort((a, b) => getReputationScore(b) - getReputationScore(a)),
+    (row) => getReputationScore(row) > 0
+  );
+  const streakLeaderMember = pickUnusedSpotlight(
+    [...badgesStreaks].sort(
+      (a, b) =>
+        Number(b.current_streak || 0) - Number(a.current_streak || 0) ||
+        (Array.isArray(b.badges) ? b.badges.length : 0) - (Array.isArray(a.badges) ? a.badges.length : 0) ||
+        Number(b.avg_percent || 0) - Number(a.avg_percent || 0)
+    ),
+    (row) =>
+      Number(row?.current_streak || 0) > 0 ||
+      (Array.isArray(row?.badges) && row.badges.length > 0) ||
+      Number(row?.submission_count || 0) > 0
+  );
+  const newestFaceMember = pickUnusedSpotlight(
+    [...members].sort(
+      (a, b) => new Date(b?.joined_at || 0).getTime() - new Date(a?.joined_at || 0).getTime()
+    ),
+    (row) => Number(row?.id || 0) !== Number(activeCommunity?.creator_id || 0)
+  );
+  const spotlightCards = [
+    topVoiceMember
+      ? {
+          key: "top-voice",
+          title: "Top voice",
+          tone: "voice",
+          member: topVoiceMember,
+          stat: `${getReputationScore(topVoiceMember)} impact`,
+          meta: `${Number(topVoiceMember.posts_count || 0)} posts • ${Number(topVoiceMember.comments_count || 0)} comments`,
+          caption:
+            Number(topVoiceMember.likes_received || 0) > 0
+              ? `${Number(topVoiceMember.likes_received || 0)} likes pulled from the community`
+              : "Already shaping the room with posts and replies",
+        }
+      : null,
+    streakLeaderMember
+      ? {
+          key: "streak-star",
+          title: "Streak star",
+          tone: "streak",
+          member: streakLeaderMember,
+          stat:
+            Number(streakLeaderMember.current_streak || 0) > 0
+              ? `${Number(streakLeaderMember.current_streak || 0)} streak`
+              : `${Number(streakLeaderMember.submission_count || 0)} submissions`,
+          meta:
+            Array.isArray(streakLeaderMember.badges) && streakLeaderMember.badges.length > 0
+              ? streakLeaderMember.badges[0]
+              : "Quiet consistency is turning into momentum",
+          caption:
+            streakLeaderMember.avg_percent !== null && streakLeaderMember.avg_percent !== undefined
+              ? `${Number(streakLeaderMember.avg_percent || 0).toFixed(0)}% average across submitted work`
+              : "Keeping the rhythm alive inside the community",
+        }
+      : null,
+    newestFaceMember
+      ? {
+          key: "new-face",
+          title: "Newest face",
+          tone: "new",
+          member: newestFaceMember,
+          stat: newestFaceMember.role || "member",
+          meta: newestFaceMember.joined_at ? `Joined ${formatShortDate(newestFaceMember.joined_at)}` : "Fresh into the circle",
+          caption: "A good time to welcome someone new into the community energy",
+        }
+      : null,
+  ].filter(Boolean);
   const calendarItems = [
     ...assignments
       .filter((a) => a?.due_at)
@@ -2286,6 +2545,12 @@ export default function VineCommunities() {
                   <span>Announcements</span>
                   {announcementBadgeCount > 0 && (
                     <span className="tab-count-badge">{announcementBadgeCount}</span>
+                  )}
+                </button>
+                <button className={activeTab === "memorywall" ? "active" : ""} onClick={() => setActiveTab("memorywall")}>
+                  <span>Memory Wall</span>
+                  {memoryWallCount > 0 && (
+                    <span className="tab-count-badge">{memoryWallCount}</span>
                   )}
                 </button>
                 <button className={activeTab === "attendance" ? "active" : ""} onClick={() => setActiveTab("attendance")}>Attendance</button>
@@ -3364,6 +3629,168 @@ export default function VineCommunities() {
                         ))
                       )}
                     </div>
+                  </section>
+                )}
+                {activeTab === "memorywall" && (
+                  <section className="community-memory-wall">
+                    <div className="community-memory-wall-head">
+                      <div>
+                        <h4>Recess Wall</h4>
+                        <p>
+                          Holiday check-ins, throwback photos, and bright moments from {activeCommunity.name}.
+                          Let the place stay warm even when campus goes quiet.
+                        </p>
+                      </div>
+                      <div className="community-memory-wall-stat">
+                        <span>Moments shared</span>
+                        <strong>{memoryWallCount}</strong>
+                      </div>
+                    </div>
+                    {Number(activeCommunity.is_member) === 1 ? (
+                      <div className="community-memory-create">
+                        <div className="community-memory-prompt-row">
+                          {MEMORY_WALL_PROMPTS.map((prompt) => (
+                            <button
+                              key={prompt}
+                              type="button"
+                              className="community-memory-prompt"
+                              onClick={() => addMemoryWallPrompt(prompt)}
+                            >
+                              {prompt}
+                            </button>
+                          ))}
+                        </div>
+                        <textarea
+                          value={memoryWallText}
+                          onChange={(e) => setMemoryWallText(e.target.value)}
+                          placeholder={`Share a little memory from ${activeCommunity.name}`}
+                          maxLength={POST_MAX_LENGTH}
+                        />
+                        <div className="community-memory-create-actions">
+                          <label className="community-memory-file-picker">
+                            Add photos or video
+                            <input
+                              ref={memoryWallFileInputRef}
+                              type="file"
+                              multiple
+                              accept="image/*,video/*"
+                              onChange={(e) =>
+                                setMemoryWallFiles(
+                                  Array.from(e.target.files || []).slice(0, MEMORY_WALL_MAX_FILES)
+                                )
+                              }
+                            />
+                          </label>
+                          <span>{memoryWallText.length}/{POST_MAX_LENGTH}</span>
+                          <button
+                            type="button"
+                            onClick={submitMemoryWallPost}
+                            disabled={isSubmittingMemoryWallPost}
+                          >
+                            {isSubmittingMemoryWallPost ? "Sharing..." : "Share memory"}
+                          </button>
+                        </div>
+                        {memoryWallPreviews.length > 0 && (
+                          <div className="community-memory-preview-grid">
+                            {memoryWallPreviews.map((preview, idx) => (
+                              <div key={`${preview.fileKey}-${idx}`} className="community-memory-preview-card">
+                                {preview.kind === "video" ? (
+                                  <video src={preview.url} muted playsInline preload="metadata" />
+                                ) : (
+                                  <img src={preview.url} alt={preview.name} />
+                                )}
+                                <button
+                                  type="button"
+                                  className="community-memory-preview-remove"
+                                  onClick={() =>
+                                    setMemoryWallFiles((prev) => prev.filter((_, fileIdx) => fileIdx !== idx))
+                                  }
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="community-join-note">
+                        Join this community first so you can share your holiday moments on the wall.
+                      </div>
+                    )}
+                    <div className="community-memory-wall-feed">
+                      {memoryWallPosts.length === 0 ? (
+                        <div className="community-empty">
+                          No memories on the wall yet. The first photo drop can set the whole tone.
+                        </div>
+                      ) : (
+                        memoryWallPosts.map((post) => (
+                          <div key={`memory-wall-${post.feed_id || post.id}`} className="community-memory-post">
+                            <div className="community-memory-post-meta">
+                              <span className="community-memory-post-tag">Memory Wall</span>
+                              <small>{formatSimpleDate(post.created_at)}</small>
+                            </div>
+                            <VinePostCard
+                              post={post}
+                              mediaLayout="collage"
+                              communityInteractionLocked={Number(activeCommunity.is_member) !== 1}
+                              onDeletePost={(deletedId) => {
+                                setMemoryWallPosts((prev) =>
+                                  prev.filter((item) => Number(item.id) !== Number(deletedId))
+                                );
+                                setPosts((prev) =>
+                                  prev.filter((item) => Number(item.id) !== Number(deletedId))
+                                );
+                              }}
+                            />
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </section>
+                )}
+                {activeTab === "announcements" && (
+                  <section className="community-spotlight-panel">
+                    <div className="community-spotlight-head">
+                      <div>
+                        <h4>Member Spotlight</h4>
+                        <p>The faces keeping {activeCommunity.name} warm while the term is on pause.</p>
+                      </div>
+                    </div>
+                    {spotlightCards.length === 0 ? (
+                      <div className="community-empty">
+                        Spotlight cards will wake up as members post, submit, and join in.
+                      </div>
+                    ) : (
+                      <div className="community-spotlight-grid">
+                        {spotlightCards.map((card) => (
+                          <button
+                            key={card.key}
+                            type="button"
+                            className={`community-spotlight-card ${card.tone}`}
+                            onClick={() => navigate(`/vine/profile/${card.member.username}`)}
+                          >
+                            <div className="community-spotlight-kicker">{card.title}</div>
+                            <div className="community-spotlight-identity">
+                              <img
+                                src={getUserAvatar(card.member)}
+                                alt={card.member.username}
+                                onError={(e) => {
+                                  e.currentTarget.src = DEFAULT_AVATAR;
+                                }}
+                              />
+                              <div>
+                                <strong>{getUserDisplayName(card.member)}</strong>
+                                <span>@{card.member.username}</span>
+                              </div>
+                            </div>
+                            <div className="community-spotlight-stat">{card.stat}</div>
+                            <div className="community-spotlight-meta">{card.meta}</div>
+                            <p>{card.caption}</p>
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </section>
                 )}
                 {activeTab === "announcements" && isCommunityOwner && (

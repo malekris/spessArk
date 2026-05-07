@@ -61,6 +61,17 @@ import { adminFetch } from "../lib/api";
     ["AOI2_status", "AOI 2"],
     ["AOI3_status", "AOI 3"],
   ];
+  const YEAR_MISSED_AOI_COMPONENTS = [
+    ["T1_AOI1_status", "T1 AOI 1"],
+    ["T1_AOI2_status", "T1 AOI 2"],
+    ["T1_AOI3_status", "T1 AOI 3"],
+    ["T2_AOI1_status", "T2 AOI 1"],
+    ["T2_AOI2_status", "T2 AOI 2"],
+    ["T2_AOI3_status", "T2 AOI 3"],
+    ["AOI1_status", "T3 AOI 1"],
+    ["AOI2_status", "T3 AOI 2"],
+    ["AOI3_status", "T3 AOI 3"],
+  ];
   const MISSED_AOI_RISK_ORDER = {
     Critical: 0,
     Intermediate: 1,
@@ -135,11 +146,12 @@ import { adminFetch } from "../lib/api";
     };
   };
 
-  const buildMissedAoiRiskRows = (reportRows) => {
+  const buildMissedAoiRiskRows = (reportRows, isEndOfYearMode = false) => {
     const byStudent = new Map();
+    const missedAoiComponents = isEndOfYearMode ? YEAR_MISSED_AOI_COMPONENTS : TERM_MISSED_AOI_COMPONENTS;
 
     (Array.isArray(reportRows) ? reportRows : []).forEach((row) => {
-      const missedComponents = TERM_MISSED_AOI_COMPONENTS
+      const missedComponents = missedAoiComponents
         .filter(([statusKey]) => isMissedStatus(row[statusKey]))
         .map(([, label]) => label);
 
@@ -186,9 +198,14 @@ import { adminFetch } from "../lib/api";
       });
   };
 
-  const getSubjectAverageDescriptor = (average) => {
+  const getSubjectAverageDescriptor = (average, isEndOfYearMode = false) => {
     const value = Number(average);
     if (!Number.isFinite(value)) return "Pending";
+    if (isEndOfYearMode) {
+      if (value >= 80) return "Outstanding";
+      if (value >= 50) return "Moderate";
+      return "Basic";
+    }
     if (value >= 2.5) return "Outstanding";
     if (value >= 1.5) return "Moderate";
     return "Basic";
@@ -216,8 +233,9 @@ import { adminFetch } from "../lib/api";
     };
   };
 
-  const buildSubjectRankRows = (reportRows) => {
+  const buildSubjectRankRows = (reportRows, isEndOfYearMode = false) => {
     const bySubject = new Map();
+    const missedAoiComponents = isEndOfYearMode ? YEAR_MISSED_AOI_COMPONENTS : TERM_MISSED_AOI_COMPONENTS;
 
     (Array.isArray(reportRows) ? reportRows : []).forEach((row) => {
       const subject = String(row.subject || "").trim();
@@ -236,11 +254,11 @@ import { adminFetch } from "../lib/api";
       const bucket = bySubject.get(subject);
       if (row.student_id) bucket.learners.add(String(row.student_id));
       if (row.stream) bucket.streams.add(String(row.stream));
-      TERM_MISSED_AOI_COMPONENTS.forEach(([statusKey]) => {
+      missedAoiComponents.forEach(([statusKey]) => {
         if (isMissedStatus(row[statusKey])) bucket.missedAoiCount += 1;
       });
 
-      const average = toNumberOrNull(row.average);
+      const average = toNumberOrNull(isEndOfYearMode ? row.percent100 : row.average);
       if (average !== null) bucket.scores.push(average);
     });
 
@@ -251,7 +269,7 @@ import { adminFetch } from "../lib/api";
         return {
           subject: row.subject,
           average,
-          descriptor: getSubjectAverageDescriptor(average),
+          descriptor: getSubjectAverageDescriptor(average, isEndOfYearMode),
           scoredLearners: row.scores.length,
           learnerCount: row.learners.size,
           streams: Array.from(row.streams).sort(),
@@ -343,13 +361,15 @@ import { adminFetch } from "../lib/api";
     return raw.split(",").map((subject) => subject.trim()).filter(Boolean);
   };
 
-  const buildLearnerPerformanceSummary = (reportRows, registeredLearners, { classLevel, stream, isEndOfYearMode }) => {
+  const buildLearnerPerformanceSummary = (reportRows, registeredLearners, { classLevel, stream, isEndOfYearMode, includeAllStreams = false }) => {
     const sourceRows = (Array.isArray(reportRows) ? reportRows : []).filter((row) => {
       if (String(row.class_level || "").trim() !== String(classLevel || "").trim()) return false;
+      if (includeAllStreams) return true;
       return String(row.stream || "").trim() === String(stream || "").trim();
     });
     const selectedRegisteredLearners = (Array.isArray(registeredLearners) ? registeredLearners : []).filter((learner) => {
       if (String(learner.class_level || "").trim() !== String(classLevel || "").trim()) return false;
+      if (includeAllStreams) return true;
       return String(learner.stream || "").trim() === String(stream || "").trim();
     });
 
@@ -624,8 +644,8 @@ import { adminFetch } from "../lib/api";
     [performanceRows]
   );
   const missedAoiRiskRows = useMemo(
-    () => buildMissedAoiRiskRows(missedAoiRiskSourceRows),
-    [missedAoiRiskSourceRows]
+    () => buildMissedAoiRiskRows(missedAoiRiskSourceRows, isEndOfYearMode),
+    [missedAoiRiskSourceRows, isEndOfYearMode]
   );
   const missedAoiRiskSummary = useMemo(
     () => ({
@@ -637,8 +657,8 @@ import { adminFetch } from "../lib/api";
     [missedAoiRiskRows]
   );
   const subjectRankRows = useMemo(
-    () => buildSubjectRankRows(missedAoiRiskSourceRows),
-    [missedAoiRiskSourceRows]
+    () => buildSubjectRankRows(missedAoiRiskSourceRows, isEndOfYearMode),
+    [missedAoiRiskSourceRows, isEndOfYearMode]
   );
   const bestSubject = subjectRankRows[0] || null;
   const weakestSubject = subjectRankRows.length > 0 ? subjectRankRows[subjectRankRows.length - 1] : null;
@@ -647,7 +667,7 @@ import { adminFetch } from "../lib/api";
       buildLearnerPerformanceSummary(
         Array.isArray(reportRankSourceRows) && reportRankSourceRows.length > 0 ? reportRankSourceRows : data,
         registeredLearners,
-        { classLevel, stream, isEndOfYearMode }
+        { classLevel, stream, isEndOfYearMode, includeAllStreams: isEndOfYearMode }
       ),
     [reportRankSourceRows, data, registeredLearners, classLevel, stream, isEndOfYearMode]
   );
@@ -782,16 +802,18 @@ import { adminFetch } from "../lib/api";
       const learners = await adminFetch("/api/students").catch(() => []);
       const rankingRows = await fetchClassReportRowsForRanking(reportEndpoint);
       const fullClassRows = rankingRows.length > 0 ? rankingRows : rows;
-      const missedRiskRows = isEndOfYearMode ? [] : fullClassRows;
+      const missedRiskRows = fullClassRows;
+      const hasYearClassRows = isEndOfYearMode && fullClassRows.length > 0;
       const relevantLearners = Array.isArray(learners)
         ? learners.filter((learner) => {
             if (studentId) return String(learner.id) === String(studentId);
+            if (isEndOfYearMode) return learner.class_level === classLevel;
             return learner.class_level === classLevel && learner.stream === stream;
           })
         : [];
   
       // ✅ UX FIX — empty results (South / no marks / no assignments)
-      if (rows.length === 0) {
+      if (rows.length === 0 && !hasYearClassRows) {
         setError(
           studentId
             ? "No report data found for the selected student."
@@ -998,6 +1020,7 @@ import { adminFetch } from "../lib/api";
       const pageW = doc.internal.pageSize.getWidth();
       const pageH = doc.internal.pageSize.getHeight();
       const generatedAt = new Date().toLocaleString();
+      const reportLabel = isEndOfYearMode ? `End of Year · ${year}` : `Term ${term} · ${year}`;
 
       doc.setDrawColor(203, 213, 225);
       doc.setFillColor(248, 250, 252);
@@ -1016,7 +1039,7 @@ import { adminFetch } from "../lib/api";
       doc.setTextColor(71, 85, 105);
       doc.text(`Class: ${classLevel}`, 14, 36);
       doc.text(`Streams: ${O_LEVEL_STREAMS.join(", ")}`, 50, 36);
-      doc.text(`Term ${term} · ${year}`, 100, 36);
+      doc.text(reportLabel, 100, 36);
       doc.text(`Critical: ${missedAoiRiskSummary.critical}`, 140, 36);
       doc.text(`Intermediate: ${missedAoiRiskSummary.intermediate}`, 176, 36);
       doc.text(`Not urgent: ${missedAoiRiskSummary.notUrgent}`, 222, 36);
@@ -1112,6 +1135,8 @@ import { adminFetch } from "../lib/api";
       const pageW = doc.internal.pageSize.getWidth();
       const pageH = doc.internal.pageSize.getHeight();
       const generatedAt = new Date().toLocaleString();
+      const reportLabel = isEndOfYearMode ? `End of Year · ${year}` : `Term ${term} · ${year}`;
+      const averageLabel = isEndOfYearMode ? "Average /100" : "Average";
 
       doc.setDrawColor(203, 213, 225);
       doc.setFillColor(248, 250, 252);
@@ -1130,7 +1155,7 @@ import { adminFetch } from "../lib/api";
       doc.setTextColor(71, 85, 105);
       doc.text(`Class: ${classLevel}`, 14, 36);
       doc.text(`Streams: ${O_LEVEL_STREAMS.join(", ")}`, 50, 36);
-      doc.text(`Term ${term} · ${year}`, 100, 36);
+      doc.text(reportLabel, 100, 36);
       doc.text(`Best: ${bestSubject?.subject || "—"}`, 140, 36);
       doc.text(`Weakest: ${weakestSubject?.subject || "—"}`, 210, 36);
 
@@ -1148,7 +1173,7 @@ import { adminFetch } from "../lib/api";
       autoTable(doc, {
         startY: 51,
         margin: { left: 10, right: 10, bottom: 14 },
-        head: [["Rank", "Subject", "Average", "Descriptor", "Scores", "Learners", "Missed AOIs", "Streams"]],
+        head: [["Rank", "Subject", averageLabel, "Descriptor", "Scores", "Learners", "Missed AOIs", "Streams"]],
         body,
         theme: "grid",
         styles: {
@@ -1213,7 +1238,11 @@ import { adminFetch } from "../lib/api";
 
   const handleDownloadLearnerPerformanceSummaryPdf = async () => {
     if (learnerPerformanceSummary.rows.length === 0 || learnerPerformanceSummary.subjects.length === 0) {
-      setError("Preview reports first. No learner performance summary is currently available for this stream.");
+      setError(
+        isEndOfYearMode
+          ? "Preview end-of-year reports first. No learner performance summary is currently available for this class year."
+          : "Preview reports first. No learner performance summary is currently available for this stream."
+      );
       return;
     }
 
@@ -1227,6 +1256,8 @@ import { adminFetch } from "../lib/api";
       const generatedAt = new Date().toLocaleString();
       const subjects = learnerPerformanceSummary.subjects;
       const rows = learnerPerformanceSummary.rows;
+      const reportLabel = isEndOfYearMode ? `End of Year · ${year}` : `Term ${term} · ${year}`;
+      const streamLabel = isEndOfYearMode ? "All Streams" : stream;
       const usableWidth = pageW - 20;
       const fixedWidth = 12 + 52 + 18;
       const subjectWidth = Math.max(10, Math.min(19, (usableWidth - fixedWidth) / Math.max(1, subjects.length)));
@@ -1248,8 +1279,8 @@ import { adminFetch } from "../lib/api";
       doc.setFontSize(8.8);
       doc.setTextColor(71, 85, 105);
       doc.text(`Class: ${classLevel}`, 14, 35);
-      doc.text(`Stream: ${stream}`, 48, 35);
-      doc.text(`Term ${term} · ${year}`, 90, 35);
+      doc.text(`Stream: ${streamLabel}`, 48, 35);
+      doc.text(reportLabel, 90, 35);
       doc.text(`Learners: ${rows.length}`, 132, 35);
       doc.text(`Subjects: ${subjects.length}`, 172, 35);
       doc.text(`Generated: ${generatedAt}`, 214, 35);
@@ -1273,7 +1304,7 @@ import { adminFetch } from "../lib/api";
       autoTable(doc, {
         startY: 48,
         margin: { left: 10, right: 10, bottom: 14 },
-        head: [["Pos", "Learner", ...subjects.map((subject) => subject.abbr), "Average"]],
+        head: [["Pos", "Learner", ...subjects.map((subject) => subject.abbr), isEndOfYearMode ? "Average /100" : "Average"]],
         body,
         theme: "grid",
         styles: {
@@ -1690,8 +1721,7 @@ import { adminFetch } from "../lib/api";
         )}
       </div>
 
-      {!isEndOfYearMode && (
-        <>
+      <>
         <div
           style={{
             marginTop: "1rem",
@@ -1779,7 +1809,7 @@ import { adminFetch } from "../lib/api";
                 fontSize: "0.86rem",
               }}
             >
-              Click Preview first. If this stays empty, no learner has been explicitly marked as missed for an AOI in this class and term.
+              Click Preview first. If this stays empty, no learner has been explicitly marked as missed for an AOI in this class and {isEndOfYearMode ? "year" : "term"}.
             </div>
           ) : (
             <div style={{ maxHeight: "320px", overflow: "auto", borderRadius: "0.9rem" }}>
@@ -1859,7 +1889,7 @@ import { adminFetch } from "../lib/api";
                 Subject Rank
               </div>
               <div style={{ fontSize: "0.88rem", color: "#cbd5e1", lineHeight: 1.6 }}>
-                Shows which subjects performed strongest and weakest across North and South for this class and term.
+                Shows which subjects performed strongest and weakest across North and South for this class and {isEndOfYearMode ? "year" : "term"}.
               </div>
             </div>
 
@@ -1923,7 +1953,7 @@ import { adminFetch } from "../lib/api";
                 fontSize: "0.86rem",
               }}
             >
-              Click Preview first. Subject rank appears once scored report data exists for this class and term.
+              Click Preview first. Subject rank appears once scored report data exists for this class and {isEndOfYearMode ? "year" : "term"}.
             </div>
           ) : (
             <div style={{ maxHeight: "290px", overflow: "auto", borderRadius: "0.9rem" }}>
@@ -1932,7 +1962,7 @@ import { adminFetch } from "../lib/api";
                   <tr>
                     <th>Rank</th>
                     <th>Subject</th>
-                    <th>Average</th>
+                    <th>{isEndOfYearMode ? "Average /100" : "Average"}</th>
                     <th>Descriptor</th>
                     <th>Scores</th>
                     <th>Learners</th>
@@ -2073,7 +2103,7 @@ import { adminFetch } from "../lib/api";
                 fontSize: "0.86rem",
               }}
             >
-              Click Preview first. The HM summary appears once scored report data exists for this stream.
+              Click Preview first. The HM summary appears once scored report data exists for this {isEndOfYearMode ? "class year" : "stream"}.
             </div>
           ) : (
             <div style={{ maxHeight: "320px", overflow: "auto", borderRadius: "0.9rem" }}>
@@ -2085,7 +2115,7 @@ import { adminFetch } from "../lib/api";
                     {learnerPerformanceSummary.subjects.map((subject) => (
                       <th key={subject.key} title={subject.name}>{subject.abbr}</th>
                     ))}
-                    <th>Average</th>
+                    <th>{isEndOfYearMode ? "Average /100" : "Average"}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2106,8 +2136,7 @@ import { adminFetch } from "../lib/api";
             </div>
           )}
         </div>
-        </>
-      )}
+      </>
 
       {/* STATUS */}
       {error && <div className="error-box">{error}</div>}

@@ -187,6 +187,7 @@ const isLikelyImageUrl = (url) => {
 
 const VINE_POST_MAX_LENGTH = 5000;
 const VINE_POST_MAX_MEDIA_FILES = 30;
+const COMMUNITY_MEMORY_WALL_TAG = "memorywall";
 const VINE_SYSTEM_NOTICE_VERSION = String(
   process.env.VINE_SYSTEM_NOTICE_VERSION || "2026-03-vine-refresh"
 ).trim();
@@ -9089,6 +9090,24 @@ router.post("/communities/:id/posts/:postId/pin", authenticate, async (req, res)
     if (!communityId || !postId) return res.status(400).json({ message: "Invalid request" });
     const role = await getCommunityRole(communityId, userId);
     if (!isCommunityModOrOwner(role)) return res.status(403).json({ message: "Not allowed" });
+    const [[postRow]] = await db.query(
+      `
+      SELECT
+        p.id,
+        p.user_id,
+        p.content,
+        p.is_community_pinned,
+        c.slug AS community_slug,
+        c.name AS community_name
+      FROM vine_posts p
+      JOIN vine_communities c ON c.id = p.community_id
+      WHERE p.id = ? AND p.community_id = ?
+      LIMIT 1
+      `,
+      [postId, communityId]
+    );
+    if (!postRow?.id) return res.status(404).json({ message: "Post not found" });
+    const wasPinned = Number(postRow.is_community_pinned) === 1;
     await db.query(
       `
       UPDATE vine_posts
@@ -9097,6 +9116,31 @@ router.post("/communities/:id/posts/:postId/pin", authenticate, async (req, res)
       `,
       [userId, postId, communityId]
     );
+    clearVineReadCache("community-posts");
+    if (!wasPinned) {
+      const [communityMembers] = await db.query(
+        "SELECT user_id FROM vine_community_members WHERE community_id = ?",
+        [communityId]
+      );
+      const recipientIds = communityMembers
+        .map((row) => Number(row.user_id || 0))
+        .filter((memberId) => memberId > 0 && memberId !== Number(userId));
+      if (recipientIds.length) {
+        await notifyUsersBulk({
+          userIds: recipientIds,
+          actorId: userId,
+          type: "community_announcement",
+          postId,
+          meta: {
+            community_id: communityId,
+            community_slug: postRow.community_slug || null,
+            community_name: postRow.community_name || null,
+            post_id: postId,
+            announcement_preview: String(postRow.content || "").trim().slice(0, 160) || null,
+          },
+        });
+      }
+    }
     res.json({ success: true });
   } catch (err) {
     console.error("Pin community post error:", err);
@@ -9121,6 +9165,7 @@ router.delete("/communities/:id/posts/:postId/pin", authenticate, async (req, re
       `,
       [postId, communityId]
     );
+    clearVineReadCache("community-posts");
     res.json({ success: true });
   } catch (err) {
     console.error("Unpin community post error:", err);
@@ -9310,6 +9355,158 @@ router.get("/communities/:slug/posts", authOptional, async (req, res) => {
     res.status(500).json([]);
   }
 });
+
+router.post(
+  "/communities/:id/memory-wall",
+  requireVineAuth,
+  uploadPostCloudinary.array("images", VINE_POST_MAX_MEDIA_FILES),
+  async (req, res) => {
+    try {
+      await ensureCommunitySchema();
+      await ensureVineRequestDedupSchema();
+      await ensureVinePostSourceSchema();
+      const userId = Number(req.user.id);
+      const communityId = Number(req.params.id);
+      const content = String(req.body?.content || "");
+      const clientRequestId = normalizeClientRequestId(req.body?.client_request_id);
+      if (!communityId) {
+        return res.status(400).json({ message: "Invalid community" });
+      }
+
+      const [[community]] = await db.query(
+        "SELECT id, slug FROM vine_communities WHERE id = ? LIMIT 1",
+        [communityId]
+      );
+      if (!community) {
+        return res.status(404).json({ message: "Community not found" });
+      }
+
+      const role = await getCommunityRole(communityId, userId);
+      if (!role) {
+        return res.status(403).json({ message: "Join this community to share memories" });
+      }
+
+      if (clientRequestId) {
+        const [[existingPost]] = await db.query(
+          `
+          SELECT id
+          FROM vine_posts
+          WHERE user_id = ? AND client_request_id = ?
+          LIMIT 1
+          `,
+          [userId, clientRequestId]
+        );
+        if (existingPost?.id) {
+          const existingRow = await getVinePostRowById(existingPost.id, userId);
+          return res.json(existingRow || { id: existingPost.id });
+        }
+      }
+
+      let imageUrls = [];
+      if (req.files?.length) {
+        if (req.files.some((file) => isPdfFile(file))) {
+          return res.status(400).json({ message: "Memory Wall only supports photos or video." });
+        }
+        const uploads = await asyncMapLimit(req.files, 3, async (file, idx) => {
+          if (isVideoFile(file)) {
+            return uploadBufferToCloudinary(file.buffer, {
+              folder: "vine/posts",
+              resource_type: "video",
+            });
+          }
+          const normalized = await normalizeImageBuffer(file);
+          return uploadBufferToCloudinary(normalized.buffer, {
+            folder: "vine/posts",
+            resource_type: "image",
+          });
+        });
+        imageUrls = uploads.map((upload) => upload.secure_url);
+      }
+
+      if ((!content.trim() && imageUrls.length === 0) || String(content).trim().length > VINE_POST_MAX_LENGTH) {
+        if (!content.trim() && imageUrls.length === 0) {
+          return res.status(400).json({ message: "Memory cannot be empty" });
+        }
+        return res.status(400).json({ message: "Memory is too long" });
+      }
+
+      let linkPreview = null;
+      const firstUrl = extractFirstUrl(content.trim());
+      if (firstUrl) {
+        linkPreview = await fetchLinkPreview(firstUrl);
+      }
+
+      const imageUrl = imageUrls.length > 0 ? JSON.stringify(imageUrls) : null;
+      const postSourceLabel =
+        normalizeVinePostSourceLabel(req.body?.post_source_label) ||
+        summarizeVinePostSource(req.get("user-agent"));
+      let createdPostId = null;
+      try {
+        const [result] = await db.query(
+          `
+          INSERT INTO vine_posts
+            (user_id, community_id, content, image_url, link_preview, topic_tag, client_request_id, post_source_label, post_source_origin)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `,
+          [
+            userId,
+            communityId,
+            content.trim() || null,
+            imageUrl,
+            linkPreview ? JSON.stringify(linkPreview) : null,
+            COMMUNITY_MEMORY_WALL_TAG,
+            clientRequestId || null,
+            postSourceLabel,
+            postSourceLabel ? "live" : null,
+          ]
+        );
+        createdPostId = Number(result.insertId);
+      } catch (insertErr) {
+        if (insertErr?.code !== "ER_DUP_ENTRY" || !clientRequestId) {
+          throw insertErr;
+        }
+        const [[existingPost]] = await db.query(
+          `
+          SELECT id
+          FROM vine_posts
+          WHERE user_id = ? AND client_request_id = ?
+          LIMIT 1
+          `,
+          [userId, clientRequestId]
+        );
+        if (!existingPost?.id) throw insertErr;
+        const existingRow = await getVinePostRowById(existingPost.id, userId);
+        return res.json(existingRow || { id: existingPost.id });
+      }
+
+      await syncPostTagLinks({
+        postId: createdPostId,
+        actorId: userId,
+        content: content.trim() || "",
+      });
+      await notifyMentions({
+        mentions: extractMentions(content.trim() || ""),
+        actorId: userId,
+        postId: createdPostId,
+        commentId: null,
+        type: "mention_post",
+      });
+
+      clearVineReadCache("community-posts");
+      const post = await getVinePostRowById(createdPostId, userId);
+      emitVineFeedUpdated({
+        type: "post_created",
+        postId: createdPostId,
+        communityId,
+        authorId: userId,
+      });
+      return res.json(post);
+    } catch (err) {
+      console.error("Create memory wall post error:", err);
+      return res.status(500).json({ message: "Failed to post memory" });
+    }
+  }
+);
 
   // create posts
 router.get("/posts", authOptional, async (req, res) => {

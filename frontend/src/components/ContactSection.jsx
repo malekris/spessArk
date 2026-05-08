@@ -10,7 +10,7 @@ export default function ContactSection() {
   const handleSubmit = (e) => {
     e.preventDefault();
     console.log("Form Submitted:", formData);
-    alert("Message sent to SPESS Registry!");
+    alert("Message sent to SPESS !");
   };
 
   return (

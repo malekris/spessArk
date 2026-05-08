@@ -6623,19 +6623,6 @@ router.post("/communities", authenticate, async (req, res) => {
     if (!name || name.length < 3) {
       return res.status(400).json({ message: "Community name must be at least 3 characters" });
     }
-    const [[ownerRow]] = await db.query(
-      `
-      SELECT COUNT(*) AS owner_count
-      FROM vine_community_members
-      WHERE user_id = ?
-        AND LOWER(role) = 'owner'
-      `,
-      [userId]
-    );
-    if (Number(ownerRow?.owner_count || 0) < 1) {
-      return res.status(403).json({ message: "Only existing community owners can create new communities" });
-    }
-
     let baseSlug = slugifyCommunityName(name) || `community-${Date.now()}`;
     let slug = baseSlug;
     let suffix = 1;
@@ -6886,6 +6873,118 @@ router.get("/communities/:slug/members", authOptional, async (req, res) => {
     res.json(rows);
   } catch (err) {
     console.error("Get community members error:", err);
+    res.status(500).json([]);
+  }
+});
+
+router.get("/communities/:id/invite-suggestions", authenticate, async (req, res) => {
+  try {
+    await ensureCommunitySchema();
+    const viewerId = Number(req.user.id || 0);
+    const communityId = Number(req.params.id);
+    const limit = Math.min(24, Math.max(1, Number(req.query.limit || 12)));
+    if (!communityId || !viewerId) return res.status(400).json([]);
+
+    const role = await getCommunityRole(communityId, viewerId);
+    if (!role) {
+      return res.status(403).json([]);
+    }
+
+    const [rows] = await db.query(
+      `
+      SELECT
+        u.id,
+        u.username,
+        u.display_name,
+        u.avatar_url,
+        u.is_verified,
+        u.bio,
+        EXISTS(
+          SELECT 1
+          FROM vine_follows f
+          WHERE f.follower_id = ? AND f.following_id = u.id
+        ) AS viewer_is_following,
+        EXISTS(
+          SELECT 1
+          FROM vine_follows f
+          WHERE f.follower_id = u.id AND f.following_id = ?
+        ) AS follows_viewer,
+        (
+          SELECT COUNT(*)
+          FROM vine_follows a
+          JOIN vine_follows b
+            ON a.follower_id = b.follower_id
+          WHERE a.following_id = ?
+            AND b.following_id = u.id
+        ) AS mutual_follower_count
+      FROM vine_users u
+      WHERE u.id <> ?
+        AND LOWER(COALESCE(u.username, '')) NOT IN ('vine guardian', 'vine_guardian', 'vine news', 'vine_news')
+        AND NOT EXISTS (
+          SELECT 1
+          FROM vine_community_members cm
+          WHERE cm.community_id = ? AND cm.user_id = u.id
+        )
+        AND (
+          EXISTS (
+            SELECT 1
+            FROM vine_follows vf
+            WHERE vf.follower_id = ? AND vf.following_id = u.id
+          )
+          OR EXISTS (
+            SELECT 1
+            FROM vine_follows vr
+            WHERE vr.follower_id = u.id AND vr.following_id = ?
+          )
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM vine_blocks b
+          WHERE (b.blocker_id = u.id AND b.blocked_id = ?)
+             OR (b.blocker_id = ? AND b.blocked_id = u.id)
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM vine_mutes m
+          WHERE m.muter_id = ? AND m.muted_id = u.id
+        )
+      ORDER BY
+        mutual_follower_count DESC,
+        follows_viewer DESC,
+        viewer_is_following DESC,
+        COALESCE(u.display_name, u.username) ASC,
+        u.username ASC
+      LIMIT ?
+      `,
+      [
+        viewerId,
+        viewerId,
+        viewerId,
+        viewerId,
+        communityId,
+        viewerId,
+        viewerId,
+        viewerId,
+        viewerId,
+        viewerId,
+        limit,
+      ]
+    );
+
+    res.json(
+      Array.isArray(rows)
+        ? rows.map((row) => ({
+            ...row,
+            id: Number(row.id || 0),
+            is_verified: Number(row.is_verified || 0),
+            viewer_is_following: Number(row.viewer_is_following || 0),
+            follows_viewer: Number(row.follows_viewer || 0),
+            mutual_follower_count: Number(row.mutual_follower_count || 0),
+          }))
+        : []
+    );
+  } catch (err) {
+    console.error("Get community invite suggestions error:", err);
     res.status(500).json([]);
   }
 });

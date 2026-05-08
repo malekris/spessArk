@@ -54,6 +54,8 @@ export default function VineCommunities() {
   const [posts, setPosts] = useState([]);
   const [memoryWallPosts, setMemoryWallPosts] = useState([]);
   const [members, setMembers] = useState([]);
+  const [inviteSuggestions, setInviteSuggestions] = useState([]);
+  const [inviteSuggestionsLoading, setInviteSuggestionsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("announcements");
   const [joinPolicy, setJoinPolicy] = useState("open");
   const [autoWelcomeEnabled, setAutoWelcomeEnabled] = useState(true);
@@ -446,10 +448,6 @@ export default function VineCommunities() {
 
   const createCommunity = async () => {
     const trimmedName = name.trim();
-    if (!canCreateCommunity) {
-      alert("Only existing community owners can create new communities");
-      return;
-    }
     if (trimmedName.length < 3) {
       alert("Community name must be at least 3 characters");
       return;
@@ -567,6 +565,25 @@ export default function VineCommunities() {
     }
   };
 
+  const loadInviteSuggestions = async () => {
+    if (!activeCommunity?.id || Number(activeCommunity?.is_member) !== 1) {
+      setInviteSuggestions([]);
+      return;
+    }
+    try {
+      setInviteSuggestionsLoading(true);
+      const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/invite-suggestions?limit=12`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => []);
+      setInviteSuggestions(Array.isArray(data) ? data : []);
+    } catch {
+      setInviteSuggestions([]);
+    } finally {
+      setInviteSuggestionsLoading(false);
+    }
+  };
+
   const loadReports = async () => {
     if (!activeCommunity?.id) return;
     try {
@@ -670,6 +687,9 @@ export default function VineCommunities() {
       activeCommunity?.id
     ) {
       loadBadgesStreaks();
+    }
+    if (activeTab === "members" && activeCommunity?.id) {
+      loadInviteSuggestions();
     }
     if (activeTab === "announcements" && activeCommunity?.id) {
       loadProgress();
@@ -2072,7 +2092,7 @@ export default function VineCommunities() {
       !Number.isNaN(new Date(selectedSession.ends_at).getTime()) &&
       new Date(selectedSession.ends_at).getTime() <= nowMs
   );
-  const canCreateCommunity = communities.some((c) => Number(c.creator_id) === Number(currentUser?.id));
+  const showSidebarCreateCommunity = !(activeCommunity?.id && activeTab === "announcements");
   const isAssignmentPastDue = (assignment) => {
     if (!assignment?.due_at) return false;
     const due = new Date(assignment.due_at);
@@ -2160,6 +2180,78 @@ export default function VineCommunities() {
     Number(row?.posts_count || 0) * 3 +
     Number(row?.comments_count || 0) +
     Number(row?.likes_received || 0);
+  const buildCommunityInviteText = (targetUser = null) => {
+    const inviteeName = targetUser ? getUserDisplayName(targetUser) : "friend";
+    return `Hey ${inviteeName}, join me in ${activeCommunity?.name || "this Vine community"}: ${communityInviteUrl}`;
+  };
+  const communityInviteUrl =
+    activeCommunity?.slug && typeof window !== "undefined"
+      ? `${window.location.origin}/vine/communities/${encodeURIComponent(activeCommunity.slug)}`
+      : "";
+
+  const copyCommunityInviteLink = async (targetUser = null) => {
+    if (!communityInviteUrl) return;
+    const copiedText = targetUser ? buildCommunityInviteText(targetUser) : communityInviteUrl;
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(copiedText);
+      } else {
+        const helper = document.createElement("textarea");
+        helper.value = copiedText;
+        helper.setAttribute("readonly", "readonly");
+        helper.style.position = "absolute";
+        helper.style.left = "-9999px";
+        document.body.appendChild(helper);
+        helper.select();
+        document.execCommand("copy");
+        document.body.removeChild(helper);
+      }
+      showCommunitySuccessModal(
+        targetUser ? "Invite copied" : "Invite link copied",
+        targetUser
+          ? `Invite text for ${getUserDisplayName(targetUser)} is ready to send.`
+          : `You can now send this community link around for ${activeCommunity?.name}.`,
+        { kicker: "Invite ready", buttonLabel: "Nice" }
+      );
+    } catch {
+      alert("Failed to copy invite link");
+    }
+  };
+
+  const shareCommunityInviteLink = async (targetUser = null) => {
+    if (!communityInviteUrl) return;
+    const sharePayload = {
+      title: `${activeCommunity?.name || "Vine Community"} invite`,
+      text: buildCommunityInviteText(targetUser),
+      url: communityInviteUrl,
+    };
+    if (navigator?.share) {
+      try {
+        await navigator.share(sharePayload);
+        return;
+      } catch {
+        // fall back to copy below
+      }
+    }
+    await copyCommunityInviteLink(targetUser);
+  };
+
+  const getInviteMutualLabel = (user) => {
+    const mutualCount = Number(user?.mutual_follower_count || 0);
+    if (mutualCount > 0) {
+      return `${mutualCount} mutual follower${mutualCount === 1 ? "" : "s"}`;
+    }
+    if (Number(user?.viewer_is_following) === 1 && Number(user?.follows_viewer) === 1) {
+      return "You follow each other";
+    }
+    if (Number(user?.follows_viewer) === 1) {
+      return "Follows you";
+    }
+    if (Number(user?.viewer_is_following) === 1) {
+      return "You follow them";
+    }
+    return "Invite to the community";
+  };
 
   const getAssignmentDeadlineMeta = (value) => {
     const due = new Date(value);
@@ -2350,7 +2442,7 @@ export default function VineCommunities() {
 
       <div className="communities-layout">
         <aside className="communities-sidebar">
-          {canCreateCommunity && (
+          {showSidebarCreateCommunity && (
             <div className="communities-create">
               <button
                 className="communities-create-toggle"
@@ -2542,7 +2634,7 @@ export default function VineCommunities() {
 
               <div className="community-tabs">
                 <button className={activeTab === "announcements" ? "active" : ""} onClick={() => setActiveTab("announcements")}>
-                  <span>Announcements</span>
+                  <span>Community Pulse</span>
                   {announcementBadgeCount > 0 && (
                     <span className="tab-count-badge">{announcementBadgeCount}</span>
                   )}
@@ -2595,70 +2687,6 @@ export default function VineCommunities() {
                           </select>
                         </div>
                       </div>
-                      {Number(activeCommunity.is_member) === 1 &&
-                      ["owner", "moderator"].includes(String(activeCommunity.viewer_role || "").toLowerCase()) ? (
-                        <div className="community-create-box">
-                          <div className="community-format-toolbar">
-                            <button type="button" onClick={() => applyCommunityFormat("**")} title="Bold">B</button>
-                            <button type="button" onClick={() => applyCommunityFormat("*")} title="Italic"><em>I</em></button>
-                            <button type="button" onClick={() => applyCommunityFormat("__")} title="Underline"><u>U</u></button>
-                            <button type="button" onClick={() => applyCommunityFormat("~~")} title="Strikethrough"><s>S</s></button>
-                          </div>
-                          <textarea
-                            ref={communityPostRef}
-                            value={postText}
-                            onChange={(e) => setPostText(e.target.value)}
-                            placeholder={`Share something in ${activeCommunity.name}`}
-                            maxLength={POST_MAX_LENGTH}
-                          />
-                          <div className="community-create-actions">
-                            <span>{postText.length}/{POST_MAX_LENGTH}</span>
-                            <div className="schedule-controls">
-                              <label className="community-file-picker">
-                                Attach files
-                                <input
-                                  type="file"
-                                  multiple
-                                  accept="image/*,video/*,application/pdf,.pdf"
-                                  onChange={(e) => setCommunityFiles(Array.from(e.target.files || []).slice(0, 10))}
-                                />
-                              </label>
-                              <input
-                                type="datetime-local"
-                                value={scheduledAt}
-                                onChange={(e) => setScheduledAt(e.target.value)}
-                              />
-                              <button onClick={scheduleCommunityPost}>Schedule</button>
-                              <button onClick={submitCommunityPost} disabled={isSubmittingCommunityPost}>
-                                {isSubmittingCommunityPost ? "Posting..." : "Post"}
-                              </button>
-                            </div>
-                          </div>
-                          {communityFiles.length > 0 && (
-                            <div className="community-files-list">
-                              {communityFiles.map((file, idx) => (
-                                <div key={`${file.name}-${idx}`} className="community-file-chip">
-                                  <span>{file.name}</span>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setCommunityFiles((prev) => prev.filter((_, i) => i !== idx))
-                                    }
-                                  >
-                                    ×
-                                  </button>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="community-join-note">
-                          {Number(activeCommunity.is_member) !== 1
-                            ? "Join this group to post in discussion."
-                            : "Only owner/moderators can post in Discussion. Members can still reply on community posts."}
-                        </div>
-                      )}
                       <div className="community-posts">
                         {posts.length === 0 ? (
                           <div className="community-empty">No posts in this community yet.</div>
@@ -2696,6 +2724,23 @@ export default function VineCommunities() {
                     <div className="community-info-line">Visibility: {Number(activeCommunity.is_private) === 1 ? "Private" : "Public"}</div>
                     <div className="community-info-line">Join policy: {String(activeCommunity.join_policy || "open")}</div>
                     <div className="community-info-line">Posting: Admins/Mods only</div>
+                    {Number(activeCommunity.is_member) === 1 && (
+                      <div className="community-invite-card">
+                        <div className="community-invite-copy">
+                          <div>
+                            <strong>Sharable invite link</strong>
+                            <p>Send this link out and people can open the community instantly. Join rules still apply.</p>
+                          </div>
+                          <div className="community-invite-actions">
+                            <button type="button" onClick={shareCommunityInviteLink}>Share Invite</button>
+                            <button type="button" className="secondary" onClick={copyCommunityInviteLink}>Copy Link</button>
+                          </div>
+                        </div>
+                        <div className="community-invite-link" title={communityInviteUrl}>
+                          {communityInviteUrl}
+                        </div>
+                      </div>
+                    )}
                     {Number(activeCommunity.is_member) === 1 && (
                       <button
                         className="community-join community-leave-about"
@@ -2777,6 +2822,72 @@ export default function VineCommunities() {
                         </div>
                       ))}
                     </div>
+                    {Number(activeCommunity.is_member) === 1 && (
+                      <div className="community-members-footer">
+                        <div className="community-members-invite">
+                          <div>
+                            <strong>Invite people in</strong>
+                            <p>Bring more faces into {activeCommunity.name} with the shareable community link.</p>
+                          </div>
+                          <div className="community-invite-actions">
+                            <button type="button" onClick={shareCommunityInviteLink}>Share Invite</button>
+                            <button type="button" className="secondary" onClick={copyCommunityInviteLink}>Copy Link</button>
+                          </div>
+                        </div>
+                        <div className="community-invite-suggestions">
+                          <div className="community-invite-suggestions-head">
+                            <div>
+                              <strong>People you can invite</strong>
+                              <p>Start with mutuals, followers, and people already around your Vine circle.</p>
+                            </div>
+                          </div>
+                          {inviteSuggestionsLoading ? (
+                            <div className="community-empty">Loading invite suggestions...</div>
+                          ) : inviteSuggestions.length === 0 ? (
+                            <div className="community-empty">No invite suggestions yet. Your share link is still ready above.</div>
+                          ) : (
+                            <div className="community-invite-suggestion-grid">
+                              {inviteSuggestions.map((user) => (
+                                <div key={`invite-${user.id}`} className="community-invite-suggestion-card">
+                                  <button
+                                    type="button"
+                                    className="community-invite-suggestion-profile"
+                                    onClick={() => navigate(`/vine/profile/${user.username}`)}
+                                  >
+                                    <img
+                                      src={getUserAvatar(user)}
+                                      alt={user.username}
+                                      onError={(e) => {
+                                        e.currentTarget.src = DEFAULT_AVATAR;
+                                      }}
+                                    />
+                                    <div>
+                                      <strong>
+                                        {getUserDisplayName(user)}
+                                        {Number(user.is_verified) === 1 && (
+                                          <span className="community-verified-badge" title="Verified">✓</span>
+                                        )}
+                                      </strong>
+                                      <span>@{user.username}</span>
+                                    </div>
+                                  </button>
+                                  <div className="community-invite-suggestion-meta">
+                                    {getInviteMutualLabel(user)}
+                                  </div>
+                                  <button
+                                    type="button"
+                                    className="community-invite-person-btn"
+                                    onClick={() => shareCommunityInviteLink(user)}
+                                  >
+                                    Invite
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </section>
                 )}
                 {activeTab === "attendance" && (
@@ -3793,34 +3904,13 @@ export default function VineCommunities() {
                     )}
                   </section>
                 )}
-                {activeTab === "announcements" && isCommunityOwner && (
+                {activeTab === "announcements" && isCommunityOwner && announcementPosts.length > 0 && (
                   <section className="community-announcements">
                     <div className="community-announcements-head">
                       <h4>Announcements</h4>
                     </div>
-                    <div className="community-announcement-create">
-                      <textarea
-                        placeholder="Write announcement for members..."
-                        value={announcementText}
-                        onChange={(e) => setAnnouncementText(e.target.value)}
-                        maxLength={POST_MAX_LENGTH}
-                      />
-                      <div className="community-announcement-create-actions">
-                        <span>{announcementText.length}/{POST_MAX_LENGTH}</span>
-                        <button
-                          type="button"
-                          onClick={createAnnouncement}
-                          disabled={!announcementText.trim()}
-                        >
-                          Post Announcement
-                        </button>
-                      </div>
-                    </div>
                     <div className="community-announcements-list">
-                      {announcementPosts.length === 0 ? (
-                        <div className="community-empty">No announcements yet.</div>
-                      ) : (
-                        announcementPosts.map((post) => {
+                      {announcementPosts.map((post) => {
                           const isSeen = Boolean(seenAnnouncementIds[post.id]);
                           return (
                             <div
@@ -3931,12 +4021,11 @@ export default function VineCommunities() {
                               </div>
                             </div>
                           );
-                        })
-                      )}
+                      })}
                     </div>
                   </section>
                 )}
-                {activeTab === "announcements" && !isCommunityOwner && (
+                {activeTab === "announcements" && !isCommunityOwner && announcementPosts.length > 0 && (
                   <section className="community-announcements">
                     <div className="community-announcements-head">
                       <h4>Announcements</h4>
@@ -3945,10 +4034,7 @@ export default function VineCommunities() {
                       )}
                     </div>
                     <div className="community-announcements-list">
-                      {announcementPosts.length === 0 ? (
-                        <div className="community-empty">No announcements yet.</div>
-                      ) : (
-                        announcementPosts.map((post) => {
+                      {announcementPosts.map((post) => {
                           const isSeen = Boolean(seenAnnouncementIds[post.id]);
                           return (
                             <div
@@ -3978,8 +4064,7 @@ export default function VineCommunities() {
                               </div>
                             </div>
                           );
-                        })
-                      )}
+                        })}
                     </div>
                   </section>
                 )}

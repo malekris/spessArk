@@ -78,6 +78,29 @@ const formatColumnLabel = (column) => {
   return column === "EXAM80" ? "/80" : column;
 };
 
+const normalizeOperationalTerm = (value) => {
+  const raw = String(value || "").trim().toLowerCase();
+  if (/\b(term\s*3|iii|3)\b/.test(raw)) return "Term 3";
+  if (/\b(term\s*2|ii|2)\b/.test(raw)) return "Term 2";
+  if (/\b(term\s*1|i|1)\b/.test(raw)) return "Term 1";
+  return "";
+};
+
+const getCalendarMarksContext = (calendar, date = new Date()) => {
+  const badge = getSchoolCalendarBadge(calendar, date);
+  const isActiveTermWindow = badge.status === "In Session";
+  const term = isActiveTermWindow ? normalizeOperationalTerm(badge.termLabel) : "";
+  const year = Number(badge.academicYear);
+
+  return {
+    term,
+    year: Number.isFinite(year) ? year : null,
+    badge,
+    displayLabel: badge.termLabel || badge.status || "Calendar Awaiting Update",
+    canDriveMarksTerm: Boolean(term),
+  };
+};
+
 const matchesAssignmentSearch = (assignment, rawQuery) => {
   const query = String(rawQuery || "").trim().toLowerCase();
   if (!query) return true;
@@ -365,6 +388,7 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
 
   const [marksYear, setMarksYear] = useState(new Date().getFullYear());
   const [marksTerm, setMarksTerm] = useState("Term 1");
+  const [marksCalendarSync, setMarksCalendarSync] = useState(true);
 
   const [marksLoading, setMarksLoading] = useState(false);
   const [marksSaving, setMarksSaving] = useState(false);
@@ -425,6 +449,22 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
       window.removeEventListener("focus", syncSchoolCalendar);
     };
   }, []);
+
+  useEffect(() => {
+    if (!marksCalendarSync) return;
+
+    const calendarContext = getCalendarMarksContext(schoolCalendar, new Date());
+    if (calendarContext.term) {
+      setMarksTerm((previous) =>
+        previous === calendarContext.term ? previous : calendarContext.term
+      );
+    }
+    if (calendarContext.year) {
+      setMarksYear((previous) =>
+        String(previous) === String(calendarContext.year) ? previous : calendarContext.year
+      );
+    }
+  }, [schoolCalendar, marksCalendarSync]);
 
   useEffect(() => {
     const token = localStorage.getItem("teacherToken");
@@ -1520,7 +1560,15 @@ useEffect(() => {
   const genderColWidth = 72;
   const learnerTableColumnCount = 2 + renderAoiColumns.length + 1 + (hasExam80Column ? 1 : 0);
   const currentCalendarYear = new Date().getFullYear();
-  const schoolCalendarBadge = getSchoolCalendarBadge(schoolCalendar, new Date());
+  const calendarMarksContext = getCalendarMarksContext(schoolCalendar, new Date());
+  const schoolCalendarBadge = calendarMarksContext.badge;
+  const calendarDrivenMarksTerm = calendarMarksContext.term || "";
+  const calendarMarksDisplayLabel = calendarMarksContext.displayLabel || "Calendar Awaiting Update";
+  const calendarMarksPillLabel = marksCalendarSync
+    ? calendarMarksContext.canDriveMarksTerm
+      ? `Calendar synced: ${calendarMarksDisplayLabel}`
+      : `Calendar synced: ${calendarMarksDisplayLabel} · keeping ${marksTerm}`
+    : `Manual term · Calendar says ${calendarMarksDisplayLabel}`;
   const selectedMarksLockLevel = selectedAssignment?.isAlevel ? "A-Level" : "O-Level";
   const activeMarksLocks = selectedAssignment
     ? marksEntryLocks.filter(
@@ -2575,14 +2623,58 @@ useEffect(() => {
                 </div>
               )}
 
-              <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap", marginBottom: "0.6rem" }}>
-                <input type="number" value={marksYear} onChange={(e) => setMarksYear(e.target.value)} style={{ width: "6rem" }} />
-                <select value={marksTerm} onChange={(e) => setMarksTerm(e.target.value)}>
+              <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap", marginBottom: "0.6rem", alignItems: "center" }}>
+                <input
+                  type="number"
+                  value={marksYear}
+                  onChange={(e) => {
+                    setMarksCalendarSync(false);
+                    setMarksYear(e.target.value);
+                  }}
+                  style={{ width: "6rem" }}
+                />
+                <select
+                  value={marksTerm}
+                  onChange={(e) => {
+                    setMarksCalendarSync(false);
+                    setMarksTerm(e.target.value);
+                  }}
+                >
                   <option>Term 1</option>
                   <option>Term 2</option>
                    <option>Term 3</option>
                 </select>
 
+                <span
+                  style={{
+                    border: "1px solid rgba(34, 197, 94, 0.22)",
+                    background: marksCalendarSync
+                      ? "rgba(34, 197, 94, 0.12)"
+                      : "rgba(245, 158, 11, 0.12)",
+                    color: marksCalendarSync ? "#bbf7d0" : "#fde68a",
+                    borderRadius: "999px",
+                    padding: "0.34rem 0.65rem",
+                    fontSize: "0.76rem",
+                    fontWeight: 800,
+                  }}
+                >
+                  {calendarMarksPillLabel}
+                </span>
+
+                {!marksCalendarSync && (
+                  <button
+                    type="button"
+                    className="ghost-btn"
+                    onClick={() => {
+                      const context = getCalendarMarksContext(schoolCalendar, new Date());
+                      setMarksCalendarSync(true);
+                      if (context.term) setMarksTerm(context.term);
+                      if (context.year) setMarksYear(context.year);
+                    }}
+                  >
+                    {calendarDrivenMarksTerm ? "Use Calendar Term" : "Resume Calendar Sync"}
+                  </button>
+                )}
 
                 <button className="ghost-btn" onClick={() => loadStudentsAndMarks(selectedAssignment)} disabled={marksLoading}>
                   {marksLoading ? "Reloading…" : "Reload"}

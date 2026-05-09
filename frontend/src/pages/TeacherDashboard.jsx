@@ -355,7 +355,7 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
   }, []);
 
   // ----------------------------
-  // Assignments / Analytics state
+  // Assignments state
   // ----------------------------
   const [assignments, setAssignments] = useState([]);
   const [aLevelAssignments, setALevelAssignments] = useState([]);
@@ -374,9 +374,6 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
   );
 
   const [examType, setExamType] = useState("MID"); // For A-Level
-  const [analytics, setAnalytics] = useState(null);
-  const [analyticsLoading, setAnalyticsLoading] = useState(false);
-
   // ----------------------------
   // Marks (AOI / A-Level) state
   // ----------------------------
@@ -741,11 +738,6 @@ useEffect(() => {
   setLearnerSearch("");
 }, [selectedAssignment?.id, selectedAssignment?.isAlevel]);
 
-// Reload analytics when class, term or year changes
-useEffect(() => {
-  if (selectedAssignment) loadAnalytics(selectedAssignment);
-}, [selectedAssignment, marksYear, marksTerm]);
-
   const closeSettingsModal = useCallback(() => {
     setShowChangePassword(false);
     setSettingsNotice("");
@@ -763,43 +755,6 @@ useEffect(() => {
       navigate("/ark/teacher", { replace: true });
     }
   }, [navigate, passwordResetMode, teacher?.name]);
-
-  // ============================
-  // API: load analytics
-  // ============================
-  const loadAnalytics = async (assignment) => {
-    if (!assignment) return;
-
-    try {
-      setAnalyticsLoading(true);
-      const token = localStorage.getItem("teacherToken");
-      const isAlevel = assignment.isAlevel === true;
-
-      const params = new URLSearchParams({
-        assignmentId: assignment.id,
-        year: marksYear,
-        term: marksTerm,      // ✅ ALWAYS include term
-      });
-      
-
-      const endpoint = isAlevel
-        ? "/api/alevel/alevel-analytics/subject"
-        : "/api/teachers/analytics/subject";
-
-      const res = await fetchWithTeacherAuth(`${API_BASE}${endpoint}?${params}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (!res.ok) throw new Error("Failed to load analytics");
-      const data = await res.json();
-      setAnalytics(data);
-    } catch (err) {
-      console.error("Analytics load error:", err);
-      setAnalytics(null);
-    } finally {
-      setAnalyticsLoading(false);
-    }
-  };
 
   // ============================
   // API: load students & marks (handles O-Level AOIs and A-Level MID/EOT)
@@ -1325,7 +1280,6 @@ useEffect(() => {
       }
 
       await loadStudentsAndMarks(selectedAssignment);
-      await loadAnalytics(selectedAssignment);
       await loadAssignmentStatuses();
       setMarksSavedSummary(saveSummary);
       setRecentActivity((previous) => ({
@@ -1915,7 +1869,7 @@ useEffect(() => {
         Teacher Dashboard
       </h1>
       <p style={{ color: "#94a3b8", maxWidth: "500px", fontSize: "0.9rem", lineHeight: "1.5" }}>
-        Manage marks, learners, and analytics with precision.
+        Manage marks and learners with precision.
       </p>
     </div>
   </div>
@@ -2559,69 +2513,6 @@ useEffect(() => {
               <div className="panel-alert">
                 You are entering marks for <strong>{selectedAssignment.class_level} {selectedAssignment.stream} — {selectedAssignment.subject_display || selectedAssignment.subject}</strong> ({marksYear}, {marksTerm})
               </div>
-
-              {/* Analytics (read-only) */}
-              {analyticsLoading && <div className="panel-alert">Loading analytics…</div>}
-
-              {analytics && (
-                <div className="panel-card" style={{ marginBottom: "1rem" }}>
-                  <h3 style={{ marginBottom: "0.6rem" }}>📊 Subject Analytics — {analytics.subject_display || analytics.assignment?.subject || selectedAssignment.subject_display || selectedAssignment.subject}</h3>
-
-                  <div style={{ display: "flex", gap: "1.2rem", flexWrap: "wrap" }}>
-                    <div>
-                      <strong>Registered Learners</strong>
-                      <div>{analytics.meta?.registered_learners ?? "—"}</div>
-                    </div>
-
-                    <div>
-                      <strong>Overall Average</strong>
-                      <div>{analytics.overall_average ?? "—"}</div>
-                    </div>
-
-                    <div>
-                      <strong>Term</strong>
-                      <div>{analytics.meta?.term ?? marksTerm}</div>
-                    </div>
-
-                    <div>
-                      <strong>Year</strong>
-                      <div>{analytics.meta?.year ?? marksYear}</div>
-                    </div>
-                  </div>
-
-                  <div
-                    className="teachers-table-wrapper"
-                    style={{ marginTop: "0.8rem", maxWidth: "100%", overflowX: "auto", overflowY: "hidden", WebkitOverflowScrolling: "touch" }}
-                  >
-                    <table className="teachers-table" style={{ minWidth: "460px" }}>
-                      <thead>
-                        <tr>
-                          <th>AOI</th>
-                          <th>Attempts</th>
-                          <th>Average</th>
-                          <th>Missed</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {Array.isArray(analytics.aois) && analytics.aois.length > 0 ? (
-                          analytics.aois.map((aoi) => (
-                            <tr key={aoi.aoi_label}>
-                              <td>{aoi.aoi_label === "EXAM80" ? "/80" : aoi.aoi_label}</td>
-                              <td>{aoi.attempts}</td>
-                              <td>{aoi.average_score ?? "—"}</td>
-                              <td>{aoi.missed_count}</td>
-                            </tr>
-                          ))
-                        ) : (
-                          <tr>
-                            <td colSpan={4} className="muted-text">No AOI data yet</td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
 
               <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap", marginBottom: "0.6rem", alignItems: "center" }}>
                 <input
@@ -4008,7 +3899,7 @@ useEffect(() => {
                     },
                     {
                       title: "3. Save & Review",
-                      body: "Click Save Marks after checking the rows. The system stores the marks and updates analytics for that assignment.",
+                      body: "Click Save Marks after checking the rows. The system stores the marks for that assignment.",
                     },
                     {
                       title: "4. Generate PDF",

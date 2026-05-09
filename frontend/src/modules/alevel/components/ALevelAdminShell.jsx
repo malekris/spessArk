@@ -22,6 +22,14 @@ const NAV_ITEMS = [
   { label: "Report Hub", shortLabel: "RP", path: "/ark/admin/alevel/reports" },
 ];
 
+const buildAlevelDocumentTitle = (pageTitle) => {
+  const cleanTitle = String(pageTitle || "").trim();
+  if (!cleanTitle) return "A-Level | SPESS ARK";
+  return cleanTitle.toLowerCase().startsWith("a-level")
+    ? `${cleanTitle} | SPESS ARK`
+    : `${cleanTitle} | A-Level | SPESS ARK`;
+};
+
 export default function ALevelAdminShell({
   title,
   subtitle,
@@ -76,6 +84,10 @@ export default function ALevelAdminShell({
       // ignore storage issues
     }
   }, [sidebarCollapsed]);
+
+  useEffect(() => {
+    document.title = buildAlevelDocumentTitle(title);
+  }, [title]);
 
   const isDark = themeMode !== "light";
   const isCompactViewport = viewportWidth <= COMPACT_VIEWPORT_WIDTH;

@@ -1666,6 +1666,76 @@ const ensureUniqueIndexExists = async (dbName, tableName, indexName, columns = [
   await db.query(`CREATE UNIQUE INDEX ${indexName} ON ${tableName} (${columns.join(", ")})`);
 };
 
+const getTableIndexes = async (dbName, tableName) => {
+  if (!dbName) return [];
+  const [rows] = await db.query(
+    `
+    SELECT INDEX_NAME, NON_UNIQUE, SEQ_IN_INDEX, COLUMN_NAME
+    FROM information_schema.STATISTICS
+    WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
+    ORDER BY INDEX_NAME, SEQ_IN_INDEX
+    `,
+    [dbName, tableName]
+  );
+
+  const grouped = new Map();
+  for (const row of rows) {
+    const indexName = String(row.INDEX_NAME || "").trim();
+    if (!indexName) continue;
+    if (!grouped.has(indexName)) {
+      grouped.set(indexName, {
+        name: indexName,
+        nonUnique: Number(row.NON_UNIQUE) === 1,
+        columns: [],
+      });
+    }
+    grouped.get(indexName).columns.push(String(row.COLUMN_NAME || "").trim().toLowerCase());
+  }
+
+  return Array.from(grouped.values());
+};
+
+const hasUniqueIndexWithExactColumns = async (dbName, tableName, columns = []) => {
+  const normalizedColumns = columns.map((col) => String(col).trim().toLowerCase()).sort();
+  if (!normalizedColumns.length) return false;
+
+  const indexes = await getTableIndexes(dbName, tableName);
+  return indexes.some((index) => {
+    if (index.name === "PRIMARY" || index.nonUnique) return false;
+    if (index.columns.length !== normalizedColumns.length) return false;
+    const currentColumns = [...index.columns].sort();
+    return currentColumns.every((column, idx) => column === normalizedColumns[idx]);
+  });
+};
+
+const ensureScopedCommunityMembershipIndex = async (dbName, tableName, indexName) => {
+  if (!dbName) return;
+  if (!(await hasTable(dbName, tableName))) return;
+
+  const expectedColumns = ["community_id", "user_id"];
+  const indexes = await getTableIndexes(dbName, tableName);
+
+  // March-era community caps could leave a unique index on user_id alone, which blocks
+  // learners from joining multiple groups. Keep only the scoped community+user uniqueness.
+  for (const index of indexes) {
+    if (index.name === "PRIMARY" || index.nonUnique) continue;
+    const touchesMembershipScope =
+      index.columns.includes("user_id") || index.columns.includes("community_id");
+    if (!touchesMembershipScope) continue;
+
+    const sameColumns =
+      index.columns.length === expectedColumns.length &&
+      [...index.columns].sort().every((column, idx) => column === [...expectedColumns].sort()[idx]);
+    if (sameColumns) continue;
+
+    await db.query(`ALTER TABLE ${tableName} DROP INDEX ${index.name}`);
+  }
+
+  if (!(await hasUniqueIndexWithExactColumns(dbName, tableName, expectedColumns))) {
+    await db.query(`CREATE UNIQUE INDEX ${indexName} ON ${tableName} (${expectedColumns.join(", ")})`);
+  }
+};
+
 let vinePerformanceSchemaReady = false;
 let vinePerformanceSchemaPromise = null;
 
@@ -3840,6 +3910,13 @@ const ensureCommunitySchema = async () => {
       UNIQUE KEY uniq_community_request (community_id, user_id)
     )
   `);
+
+  await ensureScopedCommunityMembershipIndex(dbName, "vine_community_members", "uniq_community_member");
+  await ensureScopedCommunityMembershipIndex(
+    dbName,
+    "vine_community_join_requests",
+    "uniq_community_request"
+  );
 
   await db.query(`
     CREATE TABLE IF NOT EXISTS vine_community_rules (

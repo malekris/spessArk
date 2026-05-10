@@ -119,6 +119,7 @@
   border: 1px solid #d1fae5;
   border-radius: 16px;
   padding: 12px;
+  min-width: 0;
 }
 
 .community-session-toast {
@@ -326,6 +327,7 @@
   display: grid;
   grid-template-columns: 1fr;
   gap: 12px;
+  min-width: 0;
 }
 
 .community-body-grid.discussion-only {
@@ -529,6 +531,7 @@
   border-radius: 14px;
   padding: 12px;
   background: #fff;
+  min-width: 0;
 }
 
 .community-about-panel h4,
@@ -536,6 +539,32 @@
 .community-settings-panel h4 {
   margin: 0 0 8px;
   color: #065f46;
+}
+
+.community-members-panel {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  max-height: min(74vh, calc(100vh - 190px));
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 10px;
+  scrollbar-gutter: stable;
+}
+
+.community-members-panel::-webkit-scrollbar {
+  width: 10px;
+}
+
+.community-members-panel::-webkit-scrollbar-track {
+  background: rgba(236, 253, 245, 0.96);
+  border-radius: 999px;
+}
+
+.community-members-panel::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(5, 150, 105, 0.65), rgba(4, 120, 87, 0.72));
+  border-radius: 999px;
+  border: 2px solid rgba(236, 253, 245, 0.96);
 }
 
 .community-invite-card,
@@ -717,19 +746,24 @@
 
 .community-members-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 272px), 1fr));
   gap: 14px;
   align-items: stretch;
+  align-content: start;
+  min-width: 0;
 }
 
 .community-members-footer {
   display: grid;
   gap: 12px;
   margin-top: 14px;
+  min-width: 0;
 }
 
 .member-row {
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   border: 1px solid rgba(187, 247, 208, 0.78);
   background:
     radial-gradient(circle at top right, rgba(16, 185, 129, 0.12), transparent 32%),
@@ -774,6 +808,7 @@
   font-weight: 800;
   font-size: 1rem;
   line-height: 1.2;
+  overflow-wrap: anywhere;
 }
 
 .community-verified-badge {
@@ -795,6 +830,7 @@
   color: #64748b;
   font-size: 0.83rem;
   margin-top: 4px;
+  overflow-wrap: anywhere;
 }
 
 .member-learning-badges {
@@ -824,6 +860,7 @@
   grid-column: 2;
   grid-row: 1;
   min-width: 0;
+  overflow: hidden;
 }
 
 .member-actions {
@@ -839,6 +876,7 @@
   margin-top: 8px;
   padding-top: 10px;
   border-top: 1px solid rgba(203, 213, 225, 0.82);
+  min-width: 0;
 }
 
 .settings-row {
@@ -2086,8 +2124,8 @@
   color: #14532d;
   border-radius: 10px;
   padding: 7px 10px;
-  min-width: 150px;
-  max-width: 180px;
+  min-width: 0;
+  width: min(100%, 180px);
   font-weight: 700;
   box-shadow: 0 6px 14px rgba(15, 23, 42, 0.06);
 }
@@ -3134,6 +3172,12 @@
 
   .community-body-grid {
     grid-template-columns: 1fr;
+  }
+
+  .community-members-panel {
+    max-height: none;
+    overflow: visible;
+    padding-right: 12px;
   }
 
   .community-list {

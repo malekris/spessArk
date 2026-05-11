@@ -54,6 +54,76 @@ const parseAnswers = (value) => {
   }
 };
 
+const padDateInputPart = (value) => String(value).padStart(2, "0");
+
+const getTodayDateInputValue = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${padDateInputPart(now.getMonth() + 1)}-${padDateInputPart(now.getDate())}`;
+};
+
+const formatAttendanceSessionDate = (dateInput) => {
+  if (!dateInput) return "Today";
+  const parsed = new Date(`${dateInput}T12:00:00`);
+  if (Number.isNaN(parsed.getTime())) return "Today";
+  return parsed.toLocaleDateString([], {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+};
+
+const buildDateTimeFromToday = (dateInput, timeInput) => {
+  if (!dateInput || !timeInput) return "";
+  return `${dateInput}T${timeInput}`;
+};
+
+const formatAttendanceSessionDay = (value) => {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "Upcoming session";
+  return parsed.toLocaleDateString([], {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+};
+
+const formatAttendanceSessionTimeRange = (startsAt, endsAt) => {
+  const start = new Date(startsAt);
+  if (Number.isNaN(start.getTime())) return "";
+  const timeFormat = { hour: "numeric", minute: "2-digit" };
+  const startLabel = start.toLocaleTimeString([], timeFormat);
+  const end = endsAt ? new Date(endsAt) : null;
+  if (!end || Number.isNaN(end.getTime())) {
+    return startLabel;
+  }
+  return `${startLabel} - ${end.toLocaleTimeString([], timeFormat)}`;
+};
+
+const getAttendanceSessionStatus = (startsAt, endsAt, nowMs = Date.now()) => {
+  const start = new Date(startsAt);
+  if (Number.isNaN(start.getTime())) {
+    return { label: "Upcoming", tone: "upcoming" };
+  }
+  const now = new Date(nowMs);
+  const end = endsAt ? new Date(endsAt) : null;
+  const endMs = end && !Number.isNaN(end.getTime()) ? end.getTime() : null;
+  const startMs = start.getTime();
+  const isSameDayAsToday =
+    start.getFullYear() === now.getFullYear() &&
+    start.getMonth() === now.getMonth() &&
+    start.getDate() === now.getDate();
+
+  if (endMs !== null && endMs <= nowMs) {
+    return { label: "Closed", tone: "closed" };
+  }
+
+  if (isSameDayAsToday && startMs <= nowMs && (endMs === null || endMs > nowMs)) {
+    return { label: "Live today", tone: "live" };
+  }
+
+  return { label: "Upcoming", tone: "upcoming" };
+};
+
 const getCommunityJoinPolicyMeta = (community) => {
   const policy = String(community?.join_policy || "open").toLowerCase();
   if (policy === "approval") {
@@ -103,6 +173,7 @@ const toCommunityMediaUrl = (value) => {
 };
 
 export default function VineCommunities() {
+  const COMMUNITY_DISCOVERY_DRAWER_STORAGE_KEY = "vine_community_discovery_drawer_open";
   const token = localStorage.getItem("vine_token");
   const currentUser = (() => {
     try {
@@ -116,6 +187,13 @@ export default function VineCommunities() {
   const [searchParams] = useSearchParams();
   const DEFAULT_AVATAR = "/default-avatar.png";
   const [communities, setCommunities] = useState([]);
+  const [showDiscoverCommunities, setShowDiscoverCommunities] = useState(() => {
+    try {
+      return localStorage.getItem(COMMUNITY_DISCOVERY_DRAWER_STORAGE_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
   const [activeCommunity, setActiveCommunity] = useState(null);
   const [posts, setPosts] = useState([]);
   const [memoryWallPosts, setMemoryWallPosts] = useState([]);
@@ -1945,7 +2023,14 @@ export default function VineCommunities() {
   };
 
   const createSession = async () => {
-    if (!activeCommunity?.id || !sessionTitle.trim() || !sessionStartsAt) return;
+    const todayDate = getTodayDateInputValue();
+    const startsAt = buildDateTimeFromToday(todayDate, sessionStartsAt);
+    const endsAt = sessionEndsAt ? buildDateTimeFromToday(todayDate, sessionEndsAt) : null;
+    if (!activeCommunity?.id || !sessionTitle.trim() || !startsAt) return;
+    if (endsAt && new Date(endsAt).getTime() < new Date(startsAt).getTime()) {
+      alert("End time must be later than the start time.");
+      return;
+    }
     try {
       const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/sessions`, {
         method: "POST",
@@ -1955,8 +2040,8 @@ export default function VineCommunities() {
         },
         body: JSON.stringify({
           title: sessionTitle.trim(),
-          starts_at: sessionStartsAt,
-          ends_at: sessionEndsAt || null,
+          starts_at: startsAt,
+          ends_at: endsAt,
           notes: sessionNotes.trim(),
         }),
       });
@@ -2261,6 +2346,8 @@ export default function VineCommunities() {
   const isCommunityModerator = String(activeCommunity?.viewer_role || "").toLowerCase() === "moderator";
   const isCommunityMember = Number(activeCommunity?.is_member) === 1;
   const isAttendanceManager = ["owner", "moderator"].includes(String(activeCommunity?.viewer_role || "").toLowerCase());
+  const attendanceSessionDate = getTodayDateInputValue();
+  const attendanceSessionDateLabel = formatAttendanceSessionDate(attendanceSessionDate);
   const selectedSession = sessions.find((s) => Number(s.id) === Number(selectedSessionId));
   const isSelectedSessionClosed = Boolean(
     selectedSession?.ends_at &&
@@ -2280,28 +2367,36 @@ export default function VineCommunities() {
   const communityBannerPreviewSrc = communityBannerPreviewUrl || toCommunityMediaUrl(activeCommunity?.banner_url);
   const joinedCommunities = communities.filter((community) => Number(community?.is_member) === 1);
   const discoverCommunities = communities.filter((community) => Number(community?.is_member) !== 1);
-  const communityListSections = [
-    joinedCommunities.length
-      ? {
+  const communityListSections = joinedCommunities.length
+    ? [
+        {
           key: "joined",
           title: "Your communities",
           subtitle: "The circles you already belong to.",
           items: joinedCommunities,
           emptyMessage: "",
-        }
-      : null,
-    {
-      key: "discover",
-      title: joinedCommunities.length ? "Networkwide communities" : "Communities networkwide",
-      subtitle: joinedCommunities.length
-        ? "Browse the rest of Vine and pick your next circle."
-        : "See every community available across Vine.",
-      items: discoverCommunities,
-      emptyMessage: joinedCommunities.length
-        ? "You are already part of every visible community right now."
-        : "No communities are live yet.",
-    },
-  ].filter(Boolean);
+        },
+      ]
+    : [];
+  const shouldCollapseDiscoverCommunities = joinedCommunities.length > 0;
+  const isDiscoverCommunityActive = discoverCommunities.some((community) => community?.slug === slug);
+  const isDiscoverDrawerOpen =
+    !shouldCollapseDiscoverCommunities || showDiscoverCommunities || isDiscoverCommunityActive;
+  const discoverDrawerTitle = joinedCommunities.length ? "More communities to join" : "Communities networkwide";
+  const discoverDrawerSubtitle = joinedCommunities.length
+    ? "Shelved here are the other circles across Vine waiting for you."
+    : "See every community available across Vine.";
+  const discoverDrawerPreview = discoverCommunities.slice(0, 3);
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        COMMUNITY_DISCOVERY_DRAWER_STORAGE_KEY,
+        showDiscoverCommunities ? "1" : "0"
+      );
+    } catch {
+      // Ignore storage failures and keep the drawer working in-memory.
+    }
+  }, [showDiscoverCommunities]);
   const isLockedCommunityTab = (tabKey) =>
     Boolean(activeCommunity?.id) && !isCommunityMember && MEMBER_LOCKED_COMMUNITY_TABS.has(tabKey);
   const getCommunityTabClassName = (tabKey) =>
@@ -2786,6 +2881,132 @@ export default function VineCommunities() {
                 )}
               </section>
             ))}
+
+            <section className="community-list-section community-discovery-section">
+              <div className="community-list-section-head">
+                <div>
+                  <strong>{discoverDrawerTitle}</strong>
+                  <p>{discoverDrawerSubtitle}</p>
+                </div>
+                <span className="community-list-section-count">{discoverCommunities.length}</span>
+              </div>
+
+              {shouldCollapseDiscoverCommunities && discoverCommunities.length > 0 ? (
+                <button
+                  type="button"
+                  className={`community-discovery-drawer-toggle ${isDiscoverDrawerOpen ? "open" : ""}`}
+                  onClick={() => setShowDiscoverCommunities((prev) => !prev)}
+                  aria-expanded={isDiscoverDrawerOpen}
+                >
+                  <div className="community-discovery-drawer-copy">
+                    <strong>
+                      {isDiscoverDrawerOpen ? "Hide the rest for now" : `Browse ${discoverCommunities.length} more communities`}
+                    </strong>
+                    <p>
+                      {isDiscoverDrawerOpen
+                        ? "Fold the shelf back up when you want your own circles to take center stage."
+                        : "Open the shelf and explore communities you are not part of yet."}
+                    </p>
+                    {!isDiscoverDrawerOpen && (
+                      <div className="community-discovery-preview-pills">
+                        {discoverDrawerPreview.map((community) => (
+                          <span key={`discover-preview-${community.id}`} className="community-discovery-preview-pill">
+                            {community.name}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div className="community-discovery-drawer-meta">
+                    <span className="community-discovery-drawer-count">{discoverCommunities.length}</span>
+                    <span className="community-discovery-drawer-chevron" aria-hidden="true">
+                      {isDiscoverDrawerOpen ? "⌃" : "⌄"}
+                    </span>
+                  </div>
+                </button>
+              ) : null}
+
+              {discoverCommunities.length === 0 ? (
+                <div className="community-list-empty">
+                  {joinedCommunities.length
+                    ? "You are already part of every visible community right now."
+                    : "No communities are live yet."}
+                </div>
+              ) : isDiscoverDrawerOpen ? (
+                <div className="community-list">
+                  {discoverCommunities.map((c) => {
+                    const joinPolicyMeta = getCommunityJoinPolicyMeta(c);
+                    const joinActionLabel = getCommunityJoinActionLabel(c);
+                    const visibilityMeta = getCommunityVisibilityMeta(c);
+                    const membershipMeta = getCommunityMembershipMeta(c);
+                    const teaserText = getCommunityTeaser(c);
+                    const isJoined = Number(c.is_member) === 1;
+                    const isPending = String(c.join_request_status || "") === "pending" && !isJoined;
+                    const isClosed = String(c.join_policy || "").toLowerCase() === "closed" && !isJoined;
+
+                    return (
+                      <div
+                        key={`discover-${c.id}`}
+                        className={`community-row ${slug === c.slug ? "active" : ""} ${isJoined ? "joined" : ""}`}
+                      >
+                        <button
+                          className="community-link"
+                          onClick={() => navigate(`/vine/communities/${c.slug}`)}
+                        >
+                          <div className="community-link-head">
+                            <div className="community-link-avatar">
+                              {c.avatar_url ? (
+                                <img
+                                  src={c.avatar_url.startsWith("http") ? c.avatar_url : `${API}${c.avatar_url}`}
+                                  alt={c.name}
+                                />
+                              ) : (
+                                (c.name || "?").trim().charAt(0).toUpperCase()
+                              )}
+                            </div>
+                            <div className="community-link-meta">
+                              <strong>{c.name}</strong>
+                              <div className="community-link-subline">{c.member_count} members</div>
+                            </div>
+                          </div>
+                          <div className="community-card-pills">
+                            <span className={`community-visibility-pill ${visibilityMeta.tone}`}>{visibilityMeta.label}</span>
+                            <span className={`community-policy-pill ${joinPolicyMeta.tone}`}>{joinPolicyMeta.label}</span>
+                            {isJoined && (
+                              <span className={`community-membership-pill ${membershipMeta.tone}`}>{membershipMeta.label}</span>
+                            )}
+                          </div>
+                          <div className="community-link-teaser">{teaserText}</div>
+                        </button>
+
+                        <div className="community-row-footer">
+                          <span className="community-row-requirement">
+                            {String(c.join_policy || "open").toLowerCase() === "approval"
+                              ? "Needs a quick approval"
+                              : String(c.join_policy || "open").toLowerCase() === "closed"
+                                ? "Invite required to enter"
+                                : "Open for new members"}
+                          </span>
+                          {isJoined ? (
+                            <span className="community-join community-join-static">{joinActionLabel}</span>
+                          ) : (
+                            <button
+                              className={`community-join ${isPending ? "community-join-pending" : ""} ${
+                                isClosed ? "community-join-disabled" : ""
+                              }`}
+                              onClick={() => toggleJoin(c)}
+                              disabled={isClosed}
+                            >
+                              {joinActionLabel}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </section>
           </div>
         </aside>
 
@@ -3212,27 +3433,51 @@ export default function VineCommunities() {
                     {isAttendanceManager ? (
                       <>
                       <div className="attendance-create-grid">
-                        <input
-                          placeholder="Class title"
-                          value={sessionTitle}
-                          onChange={(e) => setSessionTitle(e.target.value)}
-                          maxLength={180}
-                        />
-                        <input
-                          type="datetime-local"
-                          value={sessionStartsAt}
-                          onChange={(e) => setSessionStartsAt(e.target.value)}
-                        />
-                        <input
-                          type="datetime-local"
-                          value={sessionEndsAt}
-                          onChange={(e) => setSessionEndsAt(e.target.value)}
-                        />
-                        <input
-                          placeholder="Notes (optional)"
-                          value={sessionNotes}
-                          onChange={(e) => setSessionNotes(e.target.value)}
-                        />
+                        <label className="attendance-create-field attendance-create-field-title">
+                          <span>Class title</span>
+                          <input
+                            placeholder="e.g. Biology Lesson"
+                            value={sessionTitle}
+                            onChange={(e) => setSessionTitle(e.target.value)}
+                            maxLength={180}
+                          />
+                        </label>
+                        <div className="attendance-create-field attendance-create-field-date">
+                          <span>Session date</span>
+                          <div className="attendance-create-date-pill">
+                            <strong>Today</strong>
+                            <div className="attendance-create-date-copy">
+                              <b>{attendanceSessionDateLabel}</b>
+                              <small>Auto-synced to today&apos;s date</small>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="attendance-create-time-row">
+                          <label className="attendance-create-field">
+                            <span>Start time</span>
+                            <input
+                              type="time"
+                              value={sessionStartsAt}
+                              onChange={(e) => setSessionStartsAt(e.target.value)}
+                            />
+                          </label>
+                          <label className="attendance-create-field">
+                            <span>End time</span>
+                            <input
+                              type="time"
+                              value={sessionEndsAt}
+                              onChange={(e) => setSessionEndsAt(e.target.value)}
+                            />
+                          </label>
+                        </div>
+                        <label className="attendance-create-field attendance-create-field-notes">
+                          <span>Notes</span>
+                          <input
+                            placeholder="Optional note for learners"
+                            value={sessionNotes}
+                            onChange={(e) => setSessionNotes(e.target.value)}
+                          />
+                        </label>
                         <button onClick={createSession}>Create Class Session</button>
                       </div>
 
@@ -3240,7 +3485,9 @@ export default function VineCommunities() {
                       {sessions.length === 0 ? (
                         <div className="community-empty">No class sessions yet.</div>
                       ) : (
-                        sessions.map((s) => (
+                        sessions.map((s) => {
+                          const sessionStatus = getAttendanceSessionStatus(s.starts_at, s.ends_at, nowMs);
+                          return (
                           <button
                             key={s.id}
                             type="button"
@@ -3250,16 +3497,25 @@ export default function VineCommunities() {
                               await loadAttendance(s.id);
                             }}
                           >
-                            <div className="member-name">{s.title}</div>
-                            <div className="member-meta">
-                              {new Date(s.starts_at).toLocaleString()}
-                              {s.ends_at ? ` → ${new Date(s.ends_at).toLocaleString()}` : ""}
+                            <div className="attendance-session-card-head">
+                              <div className="member-name">{s.title}</div>
+                              <span className={`attendance-session-badge ${sessionStatus.tone}`}>
+                                {sessionStatus.label}
+                              </span>
                             </div>
-                            <div className="member-meta">
+                            <div className="attendance-session-meta-row">
+                              <span className="attendance-session-day">{formatAttendanceSessionDay(s.starts_at)}</span>
+                              <span className="attendance-session-time">
+                                {formatAttendanceSessionTimeRange(s.starts_at, s.ends_at)}
+                              </span>
+                            </div>
+                            {s.notes ? <div className="attendance-session-note">{s.notes}</div> : null}
+                            <div className="attendance-session-stats">
                               Present {s.present_count || 0} • Absent {s.absent_count || 0} • Late {s.late_count || 0} • Excused {s.excused_count || 0}
                             </div>
                           </button>
-                        ))
+                          );
+                        })
                       )}
                     </div>
 
@@ -3335,7 +3591,9 @@ export default function VineCommunities() {
                             attendanceRecords.map((row) => (
                               <div key={`my-att-mod-${row.session_id}`} className="attendance-history-row">
                                 <div className="member-name">{row.title || "Lesson"}</div>
-                                <div className="member-meta">{new Date(row.starts_at).toLocaleString()}</div>
+                                <div className="member-meta">
+                                  {formatAttendanceSessionDay(row.starts_at)} • {formatAttendanceSessionTimeRange(row.starts_at, null)}
+                                </div>
                                 <div className={`attendance-status-pill ${String(row.status || "").toLowerCase()}`}>
                                   {String(row.status || "absent")}
                                 </div>
@@ -3365,7 +3623,9 @@ export default function VineCommunities() {
                             attendanceRecords.map((row) => (
                               <div key={`my-att-${row.session_id}`} className="attendance-history-row">
                                 <div className="member-name">{row.title || "Lesson"}</div>
-                                <div className="member-meta">{new Date(row.starts_at).toLocaleString()}</div>
+                                <div className="member-meta">
+                                  {formatAttendanceSessionDay(row.starts_at)} • {formatAttendanceSessionTimeRange(row.starts_at, null)}
+                                </div>
                                 <div className={`attendance-status-pill ${String(row.status || "").toLowerCase()}`}>
                                   {String(row.status || "absent")}
                                 </div>
@@ -3499,70 +3759,109 @@ export default function VineCommunities() {
 
                     </div>
                     {isCommunityOwner && (
-                      <div className="assignment-create-grid">
-                        <input
-                          placeholder="Assignment title"
-                          value={assignmentTitle}
-                          onChange={(e) => setAssignmentTitle(e.target.value)}
-                          maxLength={160}
-                        />
-                        <textarea
-                          placeholder="Instructions"
-                          value={assignmentInstructions}
-                          onChange={(e) => setAssignmentInstructions(e.target.value)}
-                        />
-                        <input
-                          type="datetime-local"
-                          value={assignmentDueAt}
-                          onChange={(e) => setAssignmentDueAt(e.target.value)}
-                        />
-                        <select
-                          className="assignment-type-select"
-                          value={assignmentType}
-                          onChange={(e) => setAssignmentType(e.target.value)}
-                        >
-                          <option value="theory">Theory</option>
-                          <option value="practical">Practical</option>
-                        </select>
-                        <input
-                          type="number"
-                          min={0.1}
-                          step={0.1}
-                          value={assignmentPoints}
-                          onChange={(e) => setAssignmentPoints(e.target.value)}
-                          placeholder="Points"
-                        />
-                        <textarea
-                          placeholder="Rubric (optional)"
-                          value={assignmentRubric}
-                          onChange={(e) => setAssignmentRubric(e.target.value)}
-                        />
-                        <label className="assignment-file-picker">
-                          <span>Attach PDF</span>
-                          <input
-                            ref={assignmentFileInputRef}
-                            type="file"
-                            accept=".pdf,application/pdf"
-                            onChange={(e) => setAssignmentFile(e.target.files?.[0] || null)}
-                          />
-                        </label>
-                        {assignmentFile && (
-                          <div className="assignment-file-chip">
-                            <span>{assignmentFile.name}</span>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setAssignmentFile(null);
-                                if (assignmentFileInputRef.current) {
-                                  assignmentFileInputRef.current.value = "";
-                                }
-                              }}
-                            >
-                              ×
-                            </button>
+                      <div className="assignment-create-shell">
+                        <div className="assignment-create-head">
+                          <div>
+                            <span className="assignment-create-kicker">Assignment studio</span>
+                            <strong>Set the next learner task</strong>
+                            <p>Shape the brief, close date, and attachment here before it goes live.</p>
                           </div>
-                        )}
-                        <button onClick={createAssignment}>Create Assignment</button>
+                        </div>
+                        <div className="assignment-create-grid">
+                          <label className="assignment-field assignment-field-wide">
+                            <span className="assignment-field-label">Assignment title</span>
+                            <input
+                              placeholder="Name this task clearly"
+                              value={assignmentTitle}
+                              onChange={(e) => setAssignmentTitle(e.target.value)}
+                              maxLength={160}
+                            />
+                          </label>
+                          <label className="assignment-field assignment-field-wide">
+                            <span className="assignment-field-label">Instructions</span>
+                            <textarea
+                              placeholder="Tell learners exactly what you expect."
+                              value={assignmentInstructions}
+                              onChange={(e) => setAssignmentInstructions(e.target.value)}
+                            />
+                          </label>
+                          <label className="assignment-field assignment-deadline-field">
+                            <span className="assignment-field-label">Deadline date and time</span>
+                            <span className="assignment-field-hint">Pick when submissions close.</span>
+                            <input
+                              className="assignment-date-input"
+                              type="datetime-local"
+                              value={assignmentDueAt}
+                              onChange={(e) => setAssignmentDueAt(e.target.value)}
+                            />
+                          </label>
+                          <label className="assignment-field">
+                            <span className="assignment-field-label">Assignment type</span>
+                            <select
+                              className="assignment-type-select"
+                              value={assignmentType}
+                              onChange={(e) => setAssignmentType(e.target.value)}
+                            >
+                              <option value="theory">Theory</option>
+                              <option value="practical">Practical</option>
+                            </select>
+                          </label>
+                          <label className="assignment-field">
+                            <span className="assignment-field-label">Points</span>
+                            <input
+                              type="number"
+                              min={0.1}
+                              step={0.1}
+                              value={assignmentPoints}
+                              onChange={(e) => setAssignmentPoints(e.target.value)}
+                              placeholder="100"
+                            />
+                          </label>
+                          <label className="assignment-field assignment-field-wide">
+                            <span className="assignment-field-label">Rubric</span>
+                            <span className="assignment-field-hint">Optional grading notes for learners.</span>
+                            <textarea
+                              placeholder="Add a short rubric or leave this blank."
+                              value={assignmentRubric}
+                              onChange={(e) => setAssignmentRubric(e.target.value)}
+                            />
+                          </label>
+                          <div className="assignment-field assignment-field-wide assignment-upload-field">
+                            <span className="assignment-field-label">Attachment</span>
+                            <span className="assignment-field-hint">Upload a PDF worksheet, guide, or brief.</span>
+                            <label className="assignment-file-picker">
+                              <span>Attach PDF</span>
+                              <input
+                                ref={assignmentFileInputRef}
+                                type="file"
+                                accept=".pdf,application/pdf"
+                                onChange={(e) => setAssignmentFile(e.target.files?.[0] || null)}
+                              />
+                            </label>
+                            {assignmentFile && (
+                              <div className="assignment-file-chip">
+                                <span>{assignmentFile.name}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setAssignmentFile(null);
+                                    if (assignmentFileInputRef.current) {
+                                      assignmentFileInputRef.current.value = "";
+                                    }
+                                  }}
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="assignment-create-actions">
+                          <span className="assignment-create-note">
+                            Learners will see this as soon as you publish it.
+                          </span>
+                          <button onClick={createAssignment}>Create Assignment</button>
+                        </div>
                       </div>
                     )}
                     <div className="assignments-list">
@@ -3578,6 +3877,7 @@ export default function VineCommunities() {
                             ? a.viewer_submission_files.length
                             : (a.viewer_submission_attachment_url ? 1 : 0);
                           const viewerStatus = a.viewer_submission_status || "";
+                          const assignmentTypeLabel = String(a.assignment_type || "theory");
                           const pastDue = isAssignmentPastDue(a);
                           const attempts = Number(a.viewer_submission_attempts || 0);
                           const submissionLocked = isPractical ? false : attempts >= 2;
@@ -3592,13 +3892,33 @@ export default function VineCommunities() {
                               );
                           return (
                             <div key={a.id} className={`assignment-row ${isCommunityMod ? "mod-view" : ""}`}>
-                              <div className="member-name">{a.title}</div>
-                              <div className="member-meta">
-                                Due: {a.due_at ? new Date(a.due_at).toLocaleString() : "No due date"} • Points: {a.points} • Type: {String(a.assignment_type || "theory")}
+                              <div className="assignment-card-head">
+                                <div className="assignment-card-title-block">
+                                  <div className="member-name">{a.title}</div>
+                                  <div className="assignment-card-created">
+                                    Published {formatAssignmentCreatedAt(a.created_at)}
+                                  </div>
+                                </div>
+                                <div className="assignment-card-pill-row">
+                                  <span className={`assignment-card-pill ${pastDue ? "danger" : "ok"}`}>
+                                    {a.due_at ? `Due ${formatShortDate(a.due_at)}` : "No deadline"}
+                                  </span>
+                                  <span className="assignment-card-pill neutral">
+                                    {a.points} pts
+                                  </span>
+                                  <span className="assignment-card-pill accent">
+                                    {assignmentTypeLabel}
+                                  </span>
+                                </div>
                               </div>
                               {isCommunityOwner && a.due_at && !isAssignmentPastDue(a) && (
                                 <div className="assignment-deadline-edit">
+                                  <div className="assignment-deadline-edit-copy">
+                                    <span>Extend deadline</span>
+                                    <small>Choose the new close date and time.</small>
+                                  </div>
                                   <input
+                                    className="assignment-date-input"
                                     type="datetime-local"
                                     value={deadlineEdits[a.id] ?? toDatetimeLocalValue(a.due_at)}
                                     onChange={(e) =>
@@ -3618,8 +3938,13 @@ export default function VineCommunities() {
                                   Deadline elapsed. Extension locked.
                                 </div>
                               )}
-                              <div className="member-meta">
-                                {formatAssignmentCountdown(a.due_at)} • Created: {formatAssignmentCreatedAt(a.created_at)}
+                              <div className="assignment-card-timeline">
+                                <span className={`assignment-card-timeline-pill ${pastDue ? "danger" : "ok"}`}>
+                                  {formatAssignmentCountdown(a.due_at)}
+                                </span>
+                                <span className="assignment-card-timeline-copy">
+                                  Created {formatAssignmentCreatedAt(a.created_at)}
+                                </span>
                               </div>
                               {pastDue && (
                                 <div className="assignment-due-warning">Submission window closed (past due date)</div>
@@ -3636,17 +3961,35 @@ export default function VineCommunities() {
                                   </a>
                                 </div>
                               )}
-                              {a.rubric && <div className="assignment-rubric">Rubric: {a.rubric}</div>}
-                              <div className="member-meta">
-                                Submissions: {a.submission_count || 0}
+                              {a.rubric && <div className="assignment-rubric"><strong>Rubric:</strong> {a.rubric}</div>}
+                              <div className="assignment-card-metrics">
+                                <span className="assignment-card-metric">
+                                  Submissions: {a.submission_count || 0}
+                                </span>
                                 {isPractical
-                                  ? (a.viewer_submitted_at
-                                      ? ` • Last submitted: ${formatSubmissionRelativeTime(a.viewer_submitted_at)}`
-                                      : " • No upload yet for this practical assignment")
-                                  : (a.viewer_submission_status ? ` • Your status: ${a.viewer_submission_status}` : "")}
-                                {a.viewer_submission_score !== null && a.viewer_submission_score !== undefined ? ` • Score: ${a.viewer_submission_score}` : ""}
-                                {isPractical && uploadedFilesCount > 0 ? ` • Files uploaded: ${uploadedFilesCount}` : ""}
-                                {!isPractical && attempts > 0 ? ` • Attempts: ${attempts}/2` : ""}
+                                  ? (
+                                      <span className="assignment-card-metric">
+                                        {a.viewer_submitted_at
+                                          ? `Last submitted: ${formatSubmissionRelativeTime(a.viewer_submitted_at)}`
+                                          : "No upload yet for this practical assignment"}
+                                      </span>
+                                    )
+                                  : (
+                                      a.viewer_submission_status ? (
+                                        <span className="assignment-card-metric">
+                                          Your status: {a.viewer_submission_status}
+                                        </span>
+                                      ) : null
+                                    )}
+                                {a.viewer_submission_score !== null && a.viewer_submission_score !== undefined ? (
+                                  <span className="assignment-card-metric">Score: {a.viewer_submission_score}</span>
+                                ) : null}
+                                {isPractical && uploadedFilesCount > 0 ? (
+                                  <span className="assignment-card-metric">Files uploaded: {uploadedFilesCount}</span>
+                                ) : null}
+                                {!isPractical && attempts > 0 ? (
+                                  <span className="assignment-card-metric">Attempts: {attempts}/2</span>
+                                ) : null}
                               </div>
                               {a.viewer_submission_content && (
                                 <div className="assignment-my-submission">
@@ -3784,7 +4127,14 @@ export default function VineCommunities() {
                               {isCommunityOwner && selectedAssignmentId === a.id && (
                                 <div className="assignment-submissions">
                                   <div className="assignment-submissions-head">
-                                    <strong>Submissions</strong>
+                                    <div className="assignment-submissions-head-copy">
+                                      <strong>Submissions</strong>
+                                      <small>
+                                        {assignmentSubmissions.length === 1
+                                          ? "1 learner response waiting here."
+                                          : `${assignmentSubmissions.length} learner responses waiting here.`}
+                                      </small>
+                                    </div>
                                     <button
                                       type="button"
                                       className="assignment-submissions-close"
@@ -3817,12 +4167,24 @@ export default function VineCommunities() {
                                                 e.currentTarget.src = DEFAULT_AVATAR;
                                               }}
                                             />
-                                            <div>
+                                            <div className="assignment-submission-identity">
                                               <div className="member-name">{s.display_name || s.username}</div>
-                                              <div className="member-meta">
-                                                @{s.username} • {new Date(s.submitted_at).toLocaleString()}
-                                                {submissionFilesCount > 0 ? ` • Files: ${submissionFilesCount}` : ""}
-                                              </div>
+                                              <div className="member-meta">@{s.username}</div>
+                                            </div>
+                                            <div className="assignment-submission-pill-row">
+                                              <span className="assignment-submission-pill">
+                                                {formatSimpleDate(s.submitted_at)}
+                                              </span>
+                                              {submissionFilesCount > 0 && (
+                                                <span className="assignment-submission-pill neutral">
+                                                  Files: {submissionFilesCount}
+                                                </span>
+                                              )}
+                                              {gradeLocked && (
+                                                <span className="assignment-submission-pill locked">
+                                                  Finalized
+                                                </span>
+                                              )}
                                             </div>
                                           </div>
                                           <div className="assignment-body">{s.content || "No content"}</div>
@@ -3848,50 +4210,67 @@ export default function VineCommunities() {
                                               Grade finalized. This submission is locked.
                                             </div>
                                           )}
-                                          <div className="assignment-grade-grid">
-                                            <input
-                                              type="number"
-                                              step="0.1"
-                                              min={0}
-                                              max={Number(a.points) > 0 ? a.points : undefined}
-                                              value={draft.score}
-                                              onChange={(e) =>
-                                                setGradingDrafts((prev) => ({
-                                                  ...prev,
-                                                  [s.id]: { ...draft, score: e.target.value },
-                                                }))
-                                              }
-                                              placeholder="Score"
-                                              disabled={gradeLocked}
-                                            />
-                                            <select
-                                              value={draft.status || "graded"}
-                                              onChange={(e) =>
-                                                setGradingDrafts((prev) => ({
-                                                  ...prev,
-                                                  [s.id]: { ...draft, status: e.target.value },
-                                                }))
-                                              }
-                                              disabled={gradeLocked}
-                                            >
-                                              <option value="graded">graded</option>
-                                              <option value="needs_revision">needs revision</option>
-                                              <option value="missing">missing</option>
-                                            </select>
-                                            <textarea
-                                              placeholder="Feedback"
-                                              value={draft.feedback || ""}
-                                              onChange={(e) =>
-                                                setGradingDrafts((prev) => ({
-                                                  ...prev,
-                                                  [s.id]: { ...draft, feedback: e.target.value },
-                                                }))
-                                              }
-                                              disabled={gradeLocked}
-                                            />
-                                            <button onClick={() => gradeSubmission(s.id)} disabled={gradeLocked}>
-                                              Save Grade
-                                            </button>
+                                          <div className="assignment-grade-shell">
+                                            <div className="assignment-grade-shell-head">
+                                              <strong>Grade this submission</strong>
+                                              <small>Score it, choose a status, and leave guidance for the learner.</small>
+                                            </div>
+                                            <div className="assignment-grade-grid">
+                                              <label className="assignment-grade-field">
+                                                <span>Score</span>
+                                                <input
+                                                  type="number"
+                                                  step="0.1"
+                                                  min={0}
+                                                  max={Number(a.points) > 0 ? a.points : undefined}
+                                                  value={draft.score}
+                                                  onChange={(e) =>
+                                                    setGradingDrafts((prev) => ({
+                                                      ...prev,
+                                                      [s.id]: { ...draft, score: e.target.value },
+                                                    }))
+                                                  }
+                                                  placeholder="Score"
+                                                  disabled={gradeLocked}
+                                                />
+                                              </label>
+                                              <label className="assignment-grade-field">
+                                                <span>Status</span>
+                                                <select
+                                                  value={draft.status || "graded"}
+                                                  onChange={(e) =>
+                                                    setGradingDrafts((prev) => ({
+                                                      ...prev,
+                                                      [s.id]: { ...draft, status: e.target.value },
+                                                    }))
+                                                  }
+                                                  disabled={gradeLocked}
+                                                >
+                                                  <option value="graded">graded</option>
+                                                  <option value="needs_revision">needs revision</option>
+                                                  <option value="missing">missing</option>
+                                                </select>
+                                              </label>
+                                              <label className="assignment-grade-field assignment-grade-field-wide">
+                                                <span>Feedback</span>
+                                                <textarea
+                                                  placeholder="Feedback"
+                                                  value={draft.feedback || ""}
+                                                  onChange={(e) =>
+                                                    setGradingDrafts((prev) => ({
+                                                      ...prev,
+                                                      [s.id]: { ...draft, feedback: e.target.value },
+                                                    }))
+                                                  }
+                                                  disabled={gradeLocked}
+                                                />
+                                              </label>
+                                              <div className="assignment-grade-action">
+                                                <button onClick={() => gradeSubmission(s.id)} disabled={gradeLocked}>
+                                                  Save Grade
+                                                </button>
+                                              </div>
+                                            </div>
                                           </div>
                                         </div>
                                       );
@@ -3905,7 +4284,13 @@ export default function VineCommunities() {
                       )}
                     </div>
                     <div className="assignment-badges-panel">
-                      <h5>Badges & Streaks</h5>
+                      <div className="assignment-badges-head">
+                        <div>
+                          <span className="assignment-badges-kicker">Learner highlights</span>
+                          <h5>Badges & Streaks</h5>
+                          <p>Spot the most consistent, on-time, and high-achieving learners in this community.</p>
+                        </div>
+                      </div>
                       {badgesStreaks.length === 0 ? (
                         <div className="community-empty">No learner streak data yet.</div>
                       ) : (
@@ -3927,7 +4312,7 @@ export default function VineCommunities() {
                                   e.currentTarget.src = DEFAULT_AVATAR;
                                 }}
                               />
-                              <div>
+                              <div className="assignment-badge-body">
                                 <div className="member-name">
                                   {row.display_name || row.username}
                                   {Number(row.is_verified) === 1 && (
@@ -3935,7 +4320,14 @@ export default function VineCommunities() {
                                   )}
                                 </div>
                                 <div className="member-meta">
-                                  Streak: {row.current_streak || 0} • On-time: {row.total_on_time || 0} • Avg: {row.avg_score ?? "-"}{row.avg_percent !== null && row.avg_percent !== undefined ? ` (${row.avg_percent}%)` : ""}
+                                  @{row.username}
+                                </div>
+                                <div className="assignment-badge-stats">
+                                  <span className="assignment-badge-stat">Streak: {row.current_streak || 0}</span>
+                                  <span className="assignment-badge-stat">On-time: {row.total_on_time || 0}</span>
+                                  <span className="assignment-badge-stat">
+                                    Avg: {row.avg_score ?? "-"}{row.avg_percent !== null && row.avg_percent !== undefined ? ` (${row.avg_percent}%)` : ""}
+                                  </span>
                                 </div>
                                 <div className="assignment-badges-chips">
                                   {(row.badges || []).length > 0

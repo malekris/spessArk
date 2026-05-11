@@ -4181,6 +4181,33 @@ const ensureCommunitySchema = async () => {
     )
   `);
 
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_community_library_videos (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      community_id INT NOT NULL,
+      uploader_id INT NOT NULL,
+      title VARCHAR(180) NOT NULL,
+      video_url TEXT NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_library_video_community_created (community_id, created_at),
+      INDEX idx_library_video_uploader (uploader_id)
+    )
+  `);
+
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_community_library_video_comments (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      video_id INT NOT NULL,
+      community_id INT NOT NULL,
+      user_id INT NOT NULL,
+      content VARCHAR(1000) NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_library_video_comments_video_created (video_id, created_at),
+      INDEX idx_library_video_comments_community_created (community_id, created_at),
+      INDEX idx_library_video_comments_user_created (user_id, created_at)
+    )
+  `);
+
   const hasCommunityId = await hasColumn(dbName, "vine_posts", "community_id");
   if (!hasCommunityId) {
     await db.query("ALTER TABLE vine_posts ADD COLUMN community_id INT NULL");
@@ -4270,6 +4297,8 @@ const ensureCommunitySchema = async () => {
     ["vine_community_submission_drafts", "idx_comm_submission_drafts_community_assignment_user", ["community_id", "assignment_id", "user_id"]],
     ["vine_community_submission_files", "idx_comm_submission_files_assignment_submission_created", ["assignment_id", "submission_id", "created_at"]],
     ["vine_community_library", "idx_comm_library_community_created_id", ["community_id", "created_at", "id"]],
+    ["vine_community_library_videos", "idx_comm_library_videos_community_created_id", ["community_id", "created_at", "id"]],
+    ["vine_community_library_video_comments", "idx_comm_library_video_comments_video_created_id", ["video_id", "created_at", "id"]],
   ];
   for (const [tableName, indexName, columns] of communityIndexes) {
     try {
@@ -6567,31 +6596,24 @@ const getCommunityRole = async (communityId, userId) => {
   return row?.role || null;
 };
 
-const getCommunityVisibilityScope = async (userId) => {
-  const uid = Number(userId || 0);
-  if (!uid) return { isOwner: false, hasMembership: false };
-  const [[row]] = await db.query(
-    `
-    SELECT
-      SUM(CASE WHEN LOWER(role) = 'owner' THEN 1 ELSE 0 END) AS owner_count,
-      COUNT(*) AS membership_count
-    FROM vine_community_members
-    WHERE user_id = ?
-    `,
-    [uid]
-  );
-  return {
-    isOwner: Number(row?.owner_count || 0) > 0,
-    hasMembership: Number(row?.membership_count || 0) > 0,
-  };
-};
+const isCommunityMemberUser = async (communityId, userId) => Boolean(await getCommunityRole(communityId, userId));
 
 const canAccessCommunityByVisibilityPolicy = async (userId, communityId) => {
   const uid = Number(userId || 0);
   const cid = Number(communityId || 0);
   if (!uid || !cid) return true;
-  const scope = await getCommunityVisibilityScope(uid);
-  if (scope.isOwner || !scope.hasMembership) return true;
+  const [[community]] = await db.query(
+    `
+    SELECT is_private
+    FROM vine_communities
+    WHERE id = ?
+    LIMIT 1
+    `,
+    [cid]
+  );
+  if (!community) return false;
+  if (Number(community.is_private || 0) !== 1) return true;
+
   const [membership] = await db.query(
     "SELECT 1 FROM vine_community_members WHERE community_id = ? AND user_id = ? LIMIT 1",
     [cid, uid]
@@ -6692,20 +6714,6 @@ router.get("/communities", authenticate, async (req, res) => {
   try {
     await ensureCommunitySchema();
     const userId = Number(req.user.id);
-    const scope = await getCommunityVisibilityScope(userId);
-    const params = [userId, userId, userId];
-    let visibilityWhere = "";
-    if (!scope.isOwner && scope.hasMembership) {
-      visibilityWhere = `
-        WHERE EXISTS (
-          SELECT 1
-          FROM vine_community_members vm
-          WHERE vm.community_id = c.id
-            AND vm.user_id = ?
-        )
-      `;
-      params.push(userId);
-    }
     const [rows] = await db.query(
       `
       SELECT
@@ -6733,10 +6741,9 @@ router.get("/communities", authenticate, async (req, res) => {
         (SELECT role FROM vine_community_members m WHERE m.community_id = c.id AND m.user_id = ? LIMIT 1) AS viewer_role,
         (SELECT status FROM vine_community_join_requests r WHERE r.community_id = c.id AND r.user_id = ? LIMIT 1) AS join_request_status
       FROM vine_communities c
-      ${visibilityWhere}
       ORDER BY member_count DESC, c.created_at DESC
       `,
-      params
+      [userId, userId, userId]
     );
     res.json(rows);
   } catch (err) {
@@ -6997,10 +7004,8 @@ router.get("/communities/:slug/members", authOptional, async (req, res) => {
       [req.params.slug]
     );
     if (!community) return res.status(404).json([]);
-    if (viewerId) {
-      const allowed = await canAccessCommunityByVisibilityPolicy(viewerId, community.id);
-      if (!allowed) return res.status(403).json([]);
-    }
+    if (!viewerId) return res.status(403).json([]);
+    if (!(await isCommunityMemberUser(community.id, viewerId))) return res.status(403).json([]);
 
     const [rows] = await db.query(
       `
@@ -7213,10 +7218,14 @@ router.patch("/communities/:id/settings", authenticate, async (req, res) => {
     await ensureCommunitySchema();
     const userId = req.user.id;
     const communityId = Number(req.params.id);
+    const description = String(req.body?.description || "").trim();
     const joinPolicy = String(req.body?.join_policy || "").trim();
     const autoWelcomeEnabled = req.body?.auto_welcome_enabled;
     const welcomeMessage = String(req.body?.welcome_message || "").trim();
     if (!communityId) return res.status(400).json({ message: "Invalid community" });
+    if (description.length > 280) {
+      return res.status(400).json({ message: "Community description is too long" });
+    }
     if (!["open", "approval", "closed"].includes(joinPolicy)) {
       return res.status(400).json({ message: "Invalid join policy" });
     }
@@ -7236,13 +7245,15 @@ router.patch("/communities/:id/settings", authenticate, async (req, res) => {
     await db.query(
       `
       UPDATE vine_communities
-      SET join_policy = ?,
+      SET description = ?,
+          join_policy = ?,
           post_permission = ?,
           auto_welcome_enabled = ?,
           welcome_message = ?
       WHERE id = ?
       `,
       [
+        description || null,
         joinPolicy,
         "mods_only",
         autoWelcomeEnabled === undefined ? 1 : Number(Boolean(autoWelcomeEnabled)),
@@ -7252,6 +7263,7 @@ router.patch("/communities/:id/settings", authenticate, async (req, res) => {
     );
     res.json({
       success: true,
+      description: description || null,
       join_policy: joinPolicy,
       post_permission: "mods_only",
       auto_welcome_enabled: autoWelcomeEnabled === undefined ? 1 : Number(Boolean(autoWelcomeEnabled)),
@@ -7374,8 +7386,11 @@ router.post("/communities/:id/banner-position", authenticate, async (req, res) =
 router.get("/communities/:id/rules", authOptional, async (req, res) => {
   try {
     await ensureCommunitySchema();
+    const viewerId = Number(req.user?.id || 0);
     const communityId = Number(req.params.id);
     if (!communityId) return res.status(400).json([]);
+    if (!viewerId) return res.status(403).json([]);
+    if (!(await isCommunityMemberUser(communityId, viewerId))) return res.status(403).json([]);
     const [rows] = await db.query(
       `
       SELECT id, rule_text, sort_order, created_at
@@ -7984,8 +7999,7 @@ router.get("/communities/:slug/library", authenticate, async (req, res) => {
       [req.params.slug]
     );
     if (!community) return res.status(404).json([]);
-    const allowed = await canAccessCommunityByVisibilityPolicy(viewerId, community.id);
-    if (!allowed) return res.status(403).json([]);
+    if (!(await isCommunityMemberUser(community.id, viewerId))) return res.status(403).json([]);
 
     const cacheKey = buildVineCacheKey("community-library", req.params.slug.toLowerCase(), viewerId);
     const rows = await readThroughVineCache(cacheKey, VINE_CACHE_TTLS.communityLibrary, async () => {
@@ -8013,6 +8027,91 @@ router.get("/communities/:slug/library", authenticate, async (req, res) => {
     res.json(rows);
   } catch (err) {
     console.error("Get community library error:", err);
+    res.status(500).json([]);
+  }
+});
+
+router.get("/communities/:slug/library/videos", authenticate, async (req, res) => {
+  try {
+    await ensureCommunitySchema();
+    await ensureVinePerformanceSchema();
+    const viewerId = Number(req.user.id);
+    const [[community]] = await db.query(
+      "SELECT id FROM vine_communities WHERE slug = ? LIMIT 1",
+      [req.params.slug]
+    );
+    if (!community) return res.status(404).json([]);
+    if (!(await isCommunityMemberUser(community.id, viewerId))) return res.status(403).json([]);
+
+    const cacheKey = buildVineCacheKey("community-library-videos", req.params.slug.toLowerCase(), viewerId);
+    const rows = await readThroughVineCache(cacheKey, VINE_CACHE_TTLS.communityLibrary, async () => {
+      const [videoRows] = await db.query(
+        `
+        SELECT
+          v.id,
+          v.community_id,
+          v.uploader_id,
+          v.title,
+          v.video_url,
+          v.created_at,
+          u.username AS uploader_username,
+          u.display_name AS uploader_display_name
+        FROM vine_community_library_videos v
+        JOIN vine_users u ON u.id = v.uploader_id
+        WHERE v.community_id = ?
+        ORDER BY v.created_at DESC, v.id DESC
+        `,
+        [community.id]
+      );
+      const videoIds = videoRows
+        .map((row) => Number(row.id))
+        .filter((id) => Number.isFinite(id) && id > 0);
+
+      if (videoIds.length === 0) {
+        return videoRows.map((row) => ({ ...row, comments: [], comment_count: 0 }));
+      }
+
+      const placeholders = videoIds.map(() => "?").join(", ");
+      const [commentRows] = await db.query(
+        `
+        SELECT
+          c.id,
+          c.video_id,
+          c.user_id,
+          c.content,
+          c.created_at,
+          u.username,
+          u.display_name,
+          u.avatar_url
+        FROM vine_community_library_video_comments c
+        JOIN vine_users u ON u.id = c.user_id
+        WHERE c.community_id = ?
+          AND c.video_id IN (${placeholders})
+        ORDER BY c.created_at ASC, c.id ASC
+        `,
+        [community.id, ...videoIds]
+      );
+
+      const commentsByVideo = new Map();
+      for (const row of commentRows) {
+        const videoId = Number(row.video_id);
+        if (!commentsByVideo.has(videoId)) commentsByVideo.set(videoId, []);
+        commentsByVideo.get(videoId).push(row);
+      }
+
+      return videoRows.map((row) => {
+        const comments = commentsByVideo.get(Number(row.id)) || [];
+        return {
+          ...row,
+          comments,
+          comment_count: comments.length,
+        };
+      });
+    });
+
+    res.json(rows);
+  } catch (err) {
+    console.error("Get community library videos error:", err);
     res.status(500).json([]);
   }
 });
@@ -8063,6 +8162,49 @@ router.post("/communities/:id/library", authenticate, uploadPostCloudinary.singl
   }
 });
 
+router.post("/communities/:id/library/videos", authenticate, uploadPostCloudinary.single("library_video"), async (req, res) => {
+  try {
+    await ensureCommunitySchema();
+    const userId = Number(req.user.id);
+    const communityId = Number(req.params.id);
+    const title = String(req.body?.title || "").trim();
+    if (!communityId || !title) {
+      return res.status(400).json({ message: "title is required" });
+    }
+    if (!req.file || !isVideoFile(req.file)) {
+      return res.status(400).json({ message: "Video file is required" });
+    }
+
+    const role = String(await getCommunityRole(communityId, userId) || "").toLowerCase();
+    if (!isCommunityModOrOwner(role)) {
+      return res.status(403).json({ message: "Only community owner or moderator can upload library videos" });
+    }
+
+    const uploaded = await uploadBufferToCloudinary(req.file.buffer, {
+      folder: "vine/community-library-videos",
+      resource_type: "video",
+    });
+    const videoUrl = uploaded.secure_url || uploaded.url || null;
+    if (!videoUrl) {
+      return res.status(500).json({ message: "Upload failed" });
+    }
+
+    await db.query(
+      `
+      INSERT INTO vine_community_library_videos (community_id, uploader_id, title, video_url, created_at)
+      VALUES (?, ?, ?, ?, NOW())
+      `,
+      [communityId, userId, title.slice(0, 180), videoUrl]
+    );
+
+    clearVineReadCache("community-library-videos");
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Upload community library video error:", err);
+    res.status(500).json({ message: "Failed to upload video" });
+  }
+});
+
 router.delete("/communities/:id/library/:itemId", authenticate, async (req, res) => {
   try {
     await ensureCommunitySchema();
@@ -8094,6 +8236,128 @@ router.delete("/communities/:id/library/:itemId", authenticate, async (req, res)
   } catch (err) {
     console.error("Delete community library PDF error:", err);
     res.status(500).json({ message: "Failed to delete PDF" });
+  }
+});
+
+router.delete("/communities/:id/library/videos/:videoId", authenticate, async (req, res) => {
+  try {
+    await ensureCommunitySchema();
+    const userId = Number(req.user.id);
+    const communityId = Number(req.params.id);
+    const videoId = Number(req.params.videoId);
+    if (!communityId || !videoId) return res.status(400).json({ message: "Invalid request" });
+
+    const role = String(await getCommunityRole(communityId, userId) || "").toLowerCase();
+    if (!isCommunityModOrOwner(role)) {
+      return res.status(403).json({ message: "Only community owner or moderator can remove library videos" });
+    }
+
+    const [[item]] = await db.query(
+      "SELECT id, video_url FROM vine_community_library_videos WHERE id = ? AND community_id = ? LIMIT 1",
+      [videoId, communityId]
+    );
+    if (!item) return res.status(404).json({ message: "Video not found" });
+
+    await db.query(
+      "DELETE FROM vine_community_library_video_comments WHERE video_id = ? AND community_id = ?",
+      [videoId, communityId]
+    );
+    await db.query(
+      "DELETE FROM vine_community_library_videos WHERE id = ? AND community_id = ?",
+      [videoId, communityId]
+    );
+    if (item.video_url) {
+      await deleteCloudinaryByUrl(item.video_url);
+    }
+
+    clearVineReadCache("community-library-videos");
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Delete community library video error:", err);
+    res.status(500).json({ message: "Failed to delete video" });
+  }
+});
+
+router.post("/communities/:id/library/videos/:videoId/comments", authenticate, async (req, res) => {
+  try {
+    await ensureCommunitySchema();
+    const userId = Number(req.user.id);
+    const communityId = Number(req.params.id);
+    const videoId = Number(req.params.videoId);
+    const content = String(req.body?.content || "").trim();
+    if (!communityId || !videoId || !content) {
+      return res.status(400).json({ message: "content is required" });
+    }
+    if (content.length > 1000) {
+      return res.status(400).json({ message: "Comment is too long" });
+    }
+
+    const role = await getCommunityRole(communityId, userId);
+    if (!role) return res.status(403).json({ message: "Join this community first" });
+
+    const [[video]] = await db.query(
+      "SELECT id FROM vine_community_library_videos WHERE id = ? AND community_id = ? LIMIT 1",
+      [videoId, communityId]
+    );
+    if (!video) return res.status(404).json({ message: "Video not found" });
+
+    await db.query(
+      `
+      INSERT INTO vine_community_library_video_comments
+      (video_id, community_id, user_id, content, created_at)
+      VALUES (?, ?, ?, ?, NOW())
+      `,
+      [videoId, communityId, userId, content.slice(0, 1000)]
+    );
+
+    clearVineReadCache("community-library-videos");
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Create community library video comment error:", err);
+    res.status(500).json({ message: "Failed to add comment" });
+  }
+});
+
+router.delete("/communities/:id/library/videos/:videoId/comments/:commentId", authenticate, async (req, res) => {
+  try {
+    await ensureCommunitySchema();
+    const userId = Number(req.user.id);
+    const communityId = Number(req.params.id);
+    const videoId = Number(req.params.videoId);
+    const commentId = Number(req.params.commentId);
+    if (!communityId || !videoId || !commentId) {
+      return res.status(400).json({ message: "Invalid request" });
+    }
+
+    const role = String(await getCommunityRole(communityId, userId) || "").toLowerCase();
+    if (!role) return res.status(403).json({ message: "Join this community first" });
+
+    const [[comment]] = await db.query(
+      `
+      SELECT id, user_id
+      FROM vine_community_library_video_comments
+      WHERE id = ?
+        AND video_id = ?
+        AND community_id = ?
+      LIMIT 1
+      `,
+      [commentId, videoId, communityId]
+    );
+    if (!comment) return res.status(404).json({ message: "Comment not found" });
+    if (Number(comment.user_id) !== Number(userId) && !isCommunityModOrOwner(role)) {
+      return res.status(403).json({ message: "Not allowed" });
+    }
+
+    await db.query(
+      "DELETE FROM vine_community_library_video_comments WHERE id = ? AND video_id = ? AND community_id = ?",
+      [commentId, videoId, communityId]
+    );
+
+    clearVineReadCache("community-library-videos");
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Delete community library video comment error:", err);
+    res.status(500).json({ message: "Failed to delete comment" });
   }
 });
 
@@ -8298,8 +8562,7 @@ router.get("/communities/:slug/assignments", authenticate, async (req, res) => {
     const viewerId = Number(req.user.id);
     const [[community]] = await db.query("SELECT id FROM vine_communities WHERE slug = ? LIMIT 1", [req.params.slug]);
     if (!community) return res.status(404).json([]);
-    const allowed = await canAccessCommunityByVisibilityPolicy(viewerId, community.id);
-    if (!allowed) return res.status(403).json([]);
+    if (!(await isCommunityMemberUser(community.id, viewerId))) return res.status(403).json([]);
 
     const rows = await runVinePerfRoute(
       "community-assignments",
@@ -9234,8 +9497,10 @@ router.get("/communities/:id/badges-streaks", authenticate, async (req, res) => 
 router.get("/communities/:id/reputation", authenticate, async (req, res) => {
   try {
     await ensureCommunitySchema();
+    const viewerId = Number(req.user.id);
     const communityId = Number(req.params.id);
     if (!communityId) return res.status(400).json([]);
+    if (!(await isCommunityMemberUser(communityId, viewerId))) return res.status(403).json([]);
     const [rows] = await db.query(
       `
       SELECT
@@ -9594,10 +9859,8 @@ router.get("/communities/:slug/posts", authOptional, async (req, res) => {
       [req.params.slug]
     );
     if (!community) return res.status(404).json([]);
-    if (viewerId) {
-      const allowed = await canAccessCommunityByVisibilityPolicy(viewerId, community.id);
-      if (!allowed) return res.status(403).json([]);
-    }
+    if (!viewerId) return res.status(403).json([]);
+    if (!(await isCommunityMemberUser(community.id, viewerId))) return res.status(403).json([]);
 
     const posts = await readThroughVineCache(cacheKey, VINE_CACHE_TTLS.communityPosts, async () => {
       const [baseRows] = await db.query(

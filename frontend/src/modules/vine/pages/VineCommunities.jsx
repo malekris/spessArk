@@ -12,6 +12,24 @@ const POST_MAX_LENGTH = 5000;
 const COMMUNITY_MEMORY_WALL_TAG = "memorywall";
 const MEMORY_WALL_MAX_FILES = 30;
 const MEMORY_WALL_PROMPTS = ["Holiday check-in", "Photo drop", "Term memory"];
+const MEMBER_LOCKED_COMMUNITY_TABS = new Set([
+  "announcements",
+  "memorywall",
+  "attendance",
+  "members",
+  "assignments",
+  "library",
+  "about",
+]);
+const MEMBER_LOCKED_TAB_LABELS = {
+  announcements: "Community Pulse",
+  memorywall: "Memory Wall",
+  attendance: "Attendance",
+  members: "Members",
+  assignments: "Assignments",
+  library: "Library",
+  about: "About",
+};
 const LEARNING_BADGE_ORDER = {
   "🎯 Perfect Score": 0,
   "🏅 High Achiever": 1,
@@ -34,6 +52,42 @@ const parseAnswers = (value) => {
   } catch {
     return [];
   }
+};
+
+const getCommunityJoinPolicyMeta = (community) => {
+  const policy = String(community?.join_policy || "open").toLowerCase();
+  if (policy === "approval") {
+    return { label: "Approval required", tone: "approval" };
+  }
+  if (policy === "closed") {
+    return { label: "Invite only", tone: "closed" };
+  }
+  return { label: "Open join", tone: "open" };
+};
+
+const getCommunityJoinActionLabel = (community) => {
+  if (Number(community?.is_member) === 1) return "Joined";
+  if (String(community?.join_request_status || "") === "pending") return "Request sent";
+  const policy = String(community?.join_policy || "open").toLowerCase();
+  if (policy === "approval") return "Request access";
+  if (policy === "closed") return "Invite only";
+  return "Join now";
+};
+
+const getCommunityTeaser = (community) => {
+  const description = String(community?.description || "").replace(/\s+/g, " ").trim();
+  if (description) return description;
+  const policy = String(community?.join_policy || "open").toLowerCase();
+  if (policy === "approval") return "A close-knit circle where new members join through quick approval.";
+  if (policy === "closed") return "A private circle curated for invited members and special access.";
+  return "Step in, meet the circle, and discover what this community is growing around.";
+};
+
+const toCommunityMediaUrl = (value) => {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (raw.startsWith("http") || raw.startsWith("blob:") || raw.startsWith("data:")) return raw;
+  return `${API}${raw}`;
 };
 
 export default function VineCommunities() {
@@ -101,6 +155,11 @@ export default function VineCommunities() {
   const [libraryItems, setLibraryItems] = useState([]);
   const [libraryTitle, setLibraryTitle] = useState("");
   const [libraryFile, setLibraryFile] = useState(null);
+  const [libraryVideos, setLibraryVideos] = useState([]);
+  const [libraryVideoTitle, setLibraryVideoTitle] = useState("");
+  const [libraryVideoFile, setLibraryVideoFile] = useState(null);
+  const [libraryVideoPreviewUrl, setLibraryVideoPreviewUrl] = useState("");
+  const [libraryVideoCommentDrafts, setLibraryVideoCommentDrafts] = useState({});
   const [submissionDrafts, setSubmissionDrafts] = useState({});
   const [submissionFiles, setSubmissionFiles] = useState({});
   const [savedDraftsMap, setSavedDraftsMap] = useState({});
@@ -115,8 +174,11 @@ export default function VineCommunities() {
   const [topicFilter, setTopicFilter] = useState("");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [communityDescriptionDraft, setCommunityDescriptionDraft] = useState("");
   const [communityAvatarFile, setCommunityAvatarFile] = useState(null);
   const [communityBannerFile, setCommunityBannerFile] = useState(null);
+  const [communityAvatarPreviewUrl, setCommunityAvatarPreviewUrl] = useState("");
+  const [communityBannerPreviewUrl, setCommunityBannerPreviewUrl] = useState("");
   const [communityBannerOffset, setCommunityBannerOffset] = useState(0);
   const [isAdjustingCommunityBanner, setIsAdjustingCommunityBanner] = useState(false);
   const [showCreateCommunity, setShowCreateCommunity] = useState(false);
@@ -140,8 +202,11 @@ export default function VineCommunities() {
   const memoryWallRequestIdRef = useRef("");
   const memoryWallFingerprintRef = useRef("");
   const memoryWallFileInputRef = useRef(null);
+  const communityAvatarInputRef = useRef(null);
+  const communityBannerInputRef = useRef(null);
   const assignmentFileInputRef = useRef(null);
   const libraryFileInputRef = useRef(null);
+  const libraryVideoInputRef = useRef(null);
   const [nowMs, setNowMs] = useState(Date.now());
   const canManageCommunitySettings = ["owner", "moderator"].includes(
     String(activeCommunity?.viewer_role || "").toLowerCase()
@@ -244,6 +309,36 @@ export default function VineCommunities() {
     };
   }, [memoryWallFiles]);
 
+  useEffect(() => {
+    if (!communityAvatarFile) {
+      setCommunityAvatarPreviewUrl("");
+      return undefined;
+    }
+    const nextUrl = URL.createObjectURL(communityAvatarFile);
+    setCommunityAvatarPreviewUrl(nextUrl);
+    return () => URL.revokeObjectURL(nextUrl);
+  }, [communityAvatarFile]);
+
+  useEffect(() => {
+    if (!communityBannerFile) {
+      setCommunityBannerPreviewUrl("");
+      return undefined;
+    }
+    const nextUrl = URL.createObjectURL(communityBannerFile);
+    setCommunityBannerPreviewUrl(nextUrl);
+    return () => URL.revokeObjectURL(nextUrl);
+  }, [communityBannerFile]);
+
+  useEffect(() => {
+    if (!libraryVideoFile) {
+      setLibraryVideoPreviewUrl("");
+      return undefined;
+    }
+    const nextUrl = URL.createObjectURL(libraryVideoFile);
+    setLibraryVideoPreviewUrl(nextUrl);
+    return () => URL.revokeObjectURL(nextUrl);
+  }, [libraryVideoFile]);
+
   const loadCommunities = async () => {
     try {
       const res = await fetch(`${API}/api/vine/communities`, {
@@ -285,12 +380,30 @@ export default function VineCommunities() {
     }
   };
 
+  const loadCommunityLibraryVideos = async (communitySlug = slug) => {
+    if (!communitySlug) {
+      setLibraryVideos([]);
+      return;
+    }
+    try {
+      const res = await fetch(`${API}/api/vine/communities/${encodeURIComponent(communitySlug)}/library/videos`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => []);
+      setLibraryVideos(Array.isArray(data) ? data : []);
+    } catch {
+      setLibraryVideos([]);
+    }
+  };
+
   const loadCommunityDetail = async (communitySlug, nextTopic = "") => {
     if (!communitySlug) {
       setActiveCommunity(null);
       setPosts([]);
       setMemoryWallPosts([]);
       setLibraryItems([]);
+      setLibraryVideos([]);
+      setCommunityDescriptionDraft("");
       return;
     }
     try {
@@ -308,20 +421,30 @@ export default function VineCommunities() {
         setEvents([]);
         setMediaPosts([]);
         setLibraryItems([]);
+        setLibraryVideos([]);
+        setCommunityDescriptionDraft("");
         return;
       }
 
-      const [pRes, mRes, rulesRes, questionsRes, eventsRes, mediaRes, assignmentsRes, libraryRes] = await Promise.all([
-        fetch(
-          `${API}/api/vine/communities/${encodeURIComponent(communitySlug)}/posts${nextTopic ? `?topic=${encodeURIComponent(nextTopic)}` : ""}`,
-          { headers: { Authorization: `Bearer ${token}` } }
-        ),
-        fetch(`${API}/api/vine/communities/${encodeURIComponent(communitySlug)}/members?limit=500`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
-        fetch(`${API}/api/vine/communities/${cData.id}/rules`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
+      const isMember = Number(cData?.is_member) === 1;
+
+      const [pRes, mRes, rulesRes, questionsRes, eventsRes, mediaRes, assignmentsRes, libraryRes, libraryVideosRes] = await Promise.all([
+        isMember
+          ? fetch(
+              `${API}/api/vine/communities/${encodeURIComponent(communitySlug)}/posts${nextTopic ? `?topic=${encodeURIComponent(nextTopic)}` : ""}`,
+              { headers: { Authorization: `Bearer ${token}` } }
+            )
+          : Promise.resolve(null),
+        isMember
+          ? fetch(`${API}/api/vine/communities/${encodeURIComponent(communitySlug)}/members?limit=500`, {
+              headers: { Authorization: `Bearer ${token}` },
+            })
+          : Promise.resolve(null),
+        isMember
+          ? fetch(`${API}/api/vine/communities/${cData.id}/rules`, {
+              headers: { Authorization: `Bearer ${token}` },
+            })
+          : Promise.resolve(null),
         fetch(`${API}/api/vine/communities/${cData.id}/questions`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
@@ -331,21 +454,31 @@ export default function VineCommunities() {
         fetch(`${API}/api/vine/communities/${encodeURIComponent(communitySlug)}/media`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
-        fetch(`${API}/api/vine/communities/${encodeURIComponent(communitySlug)}/assignments`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
-        fetch(`${API}/api/vine/communities/${encodeURIComponent(communitySlug)}/library`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
+        isMember
+          ? fetch(`${API}/api/vine/communities/${encodeURIComponent(communitySlug)}/assignments`, {
+              headers: { Authorization: `Bearer ${token}` },
+            })
+          : Promise.resolve(null),
+        isMember
+          ? fetch(`${API}/api/vine/communities/${encodeURIComponent(communitySlug)}/library`, {
+              headers: { Authorization: `Bearer ${token}` },
+            })
+          : Promise.resolve(null),
+        isMember
+          ? fetch(`${API}/api/vine/communities/${encodeURIComponent(communitySlug)}/library/videos`, {
+              headers: { Authorization: `Bearer ${token}` },
+            })
+          : Promise.resolve(null),
       ]);
-      const pData = await pRes.json().catch(() => []);
-      const mData = await mRes.json().catch(() => []);
-      const rulesData = await rulesRes.json().catch(() => []);
+      const pData = pRes ? await pRes.json().catch(() => []) : [];
+      const mData = mRes ? await mRes.json().catch(() => []) : [];
+      const rulesData = rulesRes ? await rulesRes.json().catch(() => []) : [];
       const qData = await questionsRes.json().catch(() => []);
       const eventsData = await eventsRes.json().catch(() => []);
       const mediaData = await mediaRes.json().catch(() => []);
-      const assignmentsData = await assignmentsRes.json().catch(() => []);
-      const libraryData = await libraryRes.json().catch(() => []);
+      const assignmentsData = assignmentsRes ? await assignmentsRes.json().catch(() => []) : [];
+      const libraryData = libraryRes ? await libraryRes.json().catch(() => []) : [];
+      const libraryVideosData = libraryVideosRes ? await libraryVideosRes.json().catch(() => []) : [];
       setActiveCommunity(cData);
       setPosts(Array.isArray(pData) ? pData : []);
       setMemoryWallPosts(
@@ -361,6 +494,7 @@ export default function VineCommunities() {
       const safeAssignments = Array.isArray(assignmentsData) ? assignmentsData : [];
       setAssignments(safeAssignments);
       setLibraryItems(Array.isArray(libraryData) ? libraryData : []);
+      setLibraryVideos(Array.isArray(libraryVideosData) ? libraryVideosData : []);
       const persisted = {};
       for (const a of safeAssignments) {
         if (a.viewer_draft_content && !a.viewer_submission_content) {
@@ -371,6 +505,7 @@ export default function VineCommunities() {
       setJoinPolicy(cData?.join_policy || "open");
       setAutoWelcomeEnabled(Number(cData?.auto_welcome_enabled ?? 1) === 1);
       setWelcomeMessage(cData?.welcome_message || "");
+      setCommunityDescriptionDraft(cData?.description || "");
       setCommunityBannerOffset(Number(cData?.banner_offset_y || 0));
       setIsAdjustingCommunityBanner(false);
       setSessions([]);
@@ -396,7 +531,9 @@ export default function VineCommunities() {
       setMediaPosts([]);
       setAssignments([]);
       setLibraryItems([]);
+      setLibraryVideos([]);
       setSavedDraftsMap({});
+      setCommunityDescriptionDraft("");
       setCommunityBannerOffset(0);
       setIsAdjustingCommunityBanner(false);
     }
@@ -484,6 +621,10 @@ export default function VineCommunities() {
         return;
       }
       const isMember = Number(community.is_member) === 1;
+      if (!isMember && String(community.join_policy || "").toLowerCase() === "closed") {
+        alert("This community is invite only right now.");
+        return;
+      }
       let answers = [];
       if (!isMember && String(community.join_policy || "") === "approval") {
         try {
@@ -682,20 +823,22 @@ export default function VineCommunities() {
   }, [activeCommunity?.id, canManageCommunitySettings]);
 
   useEffect(() => {
+    const memberAccess = Number(activeCommunity?.is_member) === 1;
     if (
+      memberAccess &&
       (activeTab === "announcements" || activeTab === "assignments" || activeTab === "members") &&
       activeCommunity?.id
     ) {
       loadBadgesStreaks();
     }
-    if (activeTab === "members" && activeCommunity?.id) {
+    if (memberAccess && activeTab === "members" && activeCommunity?.id) {
       loadInviteSuggestions();
     }
-    if (activeTab === "announcements" && activeCommunity?.id) {
+    if (memberAccess && activeTab === "announcements" && activeCommunity?.id) {
       loadProgress();
       loadReputation();
     }
-    if (activeTab === "attendance" && activeCommunity?.id) {
+    if (memberAccess && activeTab === "attendance" && activeCommunity?.id) {
       const role = String(activeCommunity.viewer_role || "").toLowerCase();
       if (["owner", "moderator"].includes(role)) {
         loadSessions();
@@ -707,7 +850,7 @@ export default function VineCommunities() {
     if (activeTab === "reports" && activeCommunity && ["owner", "moderator"].includes(String(activeCommunity.viewer_role || "").toLowerCase())) {
       loadReports();
     }
-  }, [activeTab, activeCommunity?.id, activeCommunity?.viewer_role]);
+  }, [activeTab, activeCommunity?.id, activeCommunity?.viewer_role, activeCommunity?.is_member]);
 
   useEffect(() => {
     const now = new Date();
@@ -732,6 +875,7 @@ export default function VineCommunities() {
   const saveSettings = async () => {
     if (!activeCommunity?.id) return;
     try {
+      const normalizedDescription = communityDescriptionDraft.trim().slice(0, 280);
       const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/settings`, {
         method: "PATCH",
         headers: {
@@ -739,6 +883,7 @@ export default function VineCommunities() {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
+          description: normalizedDescription,
           join_policy: joinPolicy,
           post_permission: "mods_only",
           auto_welcome_enabled: autoWelcomeEnabled ? 1 : 0,
@@ -747,13 +892,18 @@ export default function VineCommunities() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        alert(data.message || "Failed to save settings");
+        showCommunitySuccessModal(
+          "We couldn't save that just yet",
+          data.message || "Something got in the way while saving these community settings.",
+          { kicker: "Try again", tone: "warning", buttonLabel: "Close" }
+        );
         return;
       }
       setActiveCommunity((prev) =>
         prev
           ? {
               ...prev,
+              description: normalizedDescription || null,
               join_policy: joinPolicy,
               post_permission: "mods_only",
               auto_welcome_enabled: autoWelcomeEnabled ? 1 : 0,
@@ -761,10 +911,28 @@ export default function VineCommunities() {
             }
           : prev
       );
+      setCommunities((prev) =>
+        prev.map((community) =>
+          Number(community?.id) === Number(activeCommunity.id)
+            ? {
+                ...community,
+                description: normalizedDescription || null,
+                join_policy: joinPolicy,
+              }
+            : community
+        )
+      );
       await loadCommunities();
-      alert("Group settings saved");
+      showCommunitySuccessModal(
+        "Group settings saved",
+        "Your community details and join rules are now updated for everyone who visits."
+      );
     } catch {
-      alert("Failed to save settings");
+      showCommunitySuccessModal(
+        "We couldn't save that just yet",
+        "Something got in the way while saving these community settings.",
+        { kicker: "Try again", tone: "warning", buttonLabel: "Close" }
+      );
     }
   };
 
@@ -779,12 +947,23 @@ export default function VineCommunities() {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      alert(data.message || "Failed to upload avatar");
+      showCommunitySuccessModal(
+        "Avatar upload failed",
+        data.message || "We couldn't update this community avatar right now.",
+        { kicker: "Try again", tone: "warning", buttonLabel: "Close" }
+      );
       return;
     }
     setCommunityAvatarFile(null);
+    if (communityAvatarInputRef.current) {
+      communityAvatarInputRef.current.value = "";
+    }
     await loadCommunityDetail(activeCommunity.slug, topicFilter);
     await loadCommunities();
+    showCommunitySuccessModal(
+      "Community avatar updated",
+      "Your community now has a fresh new face across Vine."
+    );
   };
 
   const uploadCommunityBanner = async () => {
@@ -798,12 +977,23 @@ export default function VineCommunities() {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      alert(data.message || "Failed to upload banner");
+      showCommunitySuccessModal(
+        "Banner upload failed",
+        data.message || "We couldn't update this community banner right now.",
+        { kicker: "Try again", tone: "warning", buttonLabel: "Close" }
+      );
       return;
     }
     setCommunityBannerFile(null);
+    if (communityBannerInputRef.current) {
+      communityBannerInputRef.current.value = "";
+    }
     await loadCommunityDetail(activeCommunity.slug, topicFilter);
     await loadCommunities();
+    showCommunitySuccessModal(
+      "Community banner updated",
+      "Your community banner is now live and ready for everyone who visits."
+    );
   };
 
   const startCommunityBannerDrag = (e) => {
@@ -833,7 +1023,11 @@ export default function VineCommunities() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        alert(data.message || "Failed to save banner position");
+        showCommunitySuccessModal(
+          "Banner position not saved",
+          data.message || "We couldn't save this banner position right now.",
+          { kicker: "Try again", tone: "warning", buttonLabel: "Close" }
+        );
         return;
       }
       setCommunityBannerOffset(Number(data.banner_offset_y ?? Math.round(communityBannerOffset)));
@@ -847,8 +1041,16 @@ export default function VineCommunities() {
           : prev
       );
       await loadCommunities();
+      showCommunitySuccessModal(
+        "Banner position saved",
+        "Your community banner now sits exactly where you placed it."
+      );
     } catch {
-      alert("Failed to save banner position");
+      showCommunitySuccessModal(
+        "Banner position not saved",
+        "We couldn't save this banner position right now.",
+        { kicker: "Try again", tone: "warning", buttonLabel: "Close" }
+      );
     }
   };
 
@@ -1612,6 +1814,152 @@ export default function VineCommunities() {
     }
   };
 
+  const uploadLibraryVideo = async () => {
+    if (!activeCommunity?.id) return;
+    if (!libraryVideoTitle.trim() || !libraryVideoFile) {
+      showCommunitySuccessModal(
+        "Add the video details first",
+        "Give the video a title and pick a file before uploading it to the library.",
+        { kicker: "Heads up", tone: "warning", buttonLabel: "Close" }
+      );
+      return;
+    }
+    try {
+      const formData = new FormData();
+      formData.append("title", libraryVideoTitle.trim());
+      formData.append("library_video", libraryVideoFile);
+      const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/library/videos`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showCommunitySuccessModal(
+          "Video upload failed",
+          data.message || "We couldn't upload that community video right now.",
+          { kicker: "Try again", tone: "warning", buttonLabel: "Close" }
+        );
+        return;
+      }
+      setLibraryVideoTitle("");
+      setLibraryVideoFile(null);
+      if (libraryVideoInputRef.current) libraryVideoInputRef.current.value = "";
+      await loadCommunityLibraryVideos(activeCommunity.slug);
+      showCommunitySuccessModal(
+        "Video lesson uploaded",
+        "Your community video is now live in the library and ready for members to watch."
+      );
+    } catch {
+      showCommunitySuccessModal(
+        "Video upload failed",
+        "We couldn't upload that community video right now.",
+        { kicker: "Try again", tone: "warning", buttonLabel: "Close" }
+      );
+    }
+  };
+
+  const deleteLibraryVideo = async (videoId) => {
+    if (!activeCommunity?.id || !videoId) return;
+    const ok = window.confirm("Remove this video from library?");
+    if (!ok) return;
+    try {
+      const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/library/videos/${videoId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showCommunitySuccessModal(
+          "Video removal failed",
+          data.message || "We couldn't remove that community video right now.",
+          { kicker: "Try again", tone: "warning", buttonLabel: "Close" }
+        );
+        return;
+      }
+      await loadCommunityLibraryVideos(activeCommunity.slug);
+      showCommunitySuccessModal(
+        "Video removed",
+        "That video lesson has been cleared from the community library."
+      );
+    } catch {
+      showCommunitySuccessModal(
+        "Video removal failed",
+        "We couldn't remove that community video right now.",
+        { kicker: "Try again", tone: "warning", buttonLabel: "Close" }
+      );
+    }
+  };
+
+  const submitLibraryVideoComment = async (videoId) => {
+    if (!activeCommunity?.id || !videoId) return;
+    const content = String(libraryVideoCommentDrafts[videoId] || "").trim();
+    if (!content) {
+      showCommunitySuccessModal(
+        "Write your comment first",
+        "Add a quick thought before posting into the video discussion.",
+        { kicker: "Heads up", tone: "warning", buttonLabel: "Close" }
+      );
+      return;
+    }
+    try {
+      const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/library/videos/${videoId}/comments`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ content }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showCommunitySuccessModal(
+          "Comment failed",
+          data.message || "We couldn't post that comment right now.",
+          { kicker: "Try again", tone: "warning", buttonLabel: "Close" }
+        );
+        return;
+      }
+      setLibraryVideoCommentDrafts((prev) => ({ ...prev, [videoId]: "" }));
+      await loadCommunityLibraryVideos(activeCommunity.slug);
+    } catch {
+      showCommunitySuccessModal(
+        "Comment failed",
+        "We couldn't post that comment right now.",
+        { kicker: "Try again", tone: "warning", buttonLabel: "Close" }
+      );
+    }
+  };
+
+  const deleteLibraryVideoComment = async (videoId, commentId) => {
+    if (!activeCommunity?.id || !videoId || !commentId) return;
+    try {
+      const res = await fetch(
+        `${API}/api/vine/communities/${activeCommunity.id}/library/videos/${videoId}/comments/${commentId}`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showCommunitySuccessModal(
+          "Comment removal failed",
+          data.message || "We couldn't remove that comment right now.",
+          { kicker: "Try again", tone: "warning", buttonLabel: "Close" }
+        );
+        return;
+      }
+      await loadCommunityLibraryVideos(activeCommunity.slug);
+    } catch {
+      showCommunitySuccessModal(
+        "Comment removal failed",
+        "We couldn't remove that comment right now.",
+        { kicker: "Try again", tone: "warning", buttonLabel: "Close" }
+      );
+    }
+  };
+
   const toggleAssignmentReview = async (assignmentId) => {
     if (!assignmentId) return;
     const viewerRole = String(activeCommunity?.viewer_role || "").toLowerCase();
@@ -2085,6 +2433,7 @@ export default function VineCommunities() {
   const isCommunityMod = ["owner", "moderator"].includes(String(activeCommunity?.viewer_role || "").toLowerCase());
   const isCommunityOwner = String(activeCommunity?.viewer_role || "").toLowerCase() === "owner";
   const isCommunityModerator = String(activeCommunity?.viewer_role || "").toLowerCase() === "moderator";
+  const isCommunityMember = Number(activeCommunity?.is_member) === 1;
   const isAttendanceManager = ["owner", "moderator"].includes(String(activeCommunity?.viewer_role || "").toLowerCase());
   const selectedSession = sessions.find((s) => Number(s.id) === Number(selectedSessionId));
   const isSelectedSessionClosed = Boolean(
@@ -2093,6 +2442,35 @@ export default function VineCommunities() {
       new Date(selectedSession.ends_at).getTime() <= nowMs
   );
   const showSidebarCreateCommunity = !(activeCommunity?.id && activeTab === "announcements");
+  const activeTabRequiresMembership = MEMBER_LOCKED_COMMUNITY_TABS.has(activeTab);
+  const activeTabMembershipLabel = MEMBER_LOCKED_TAB_LABELS[activeTab] || "this community section";
+  const showCommunityMembershipGate = Boolean(activeCommunity?.id) && !isCommunityMember && activeTabRequiresMembership;
+  const communityDescriptionPreview = getCommunityTeaser({
+    ...activeCommunity,
+    description: communityDescriptionDraft,
+    join_policy: joinPolicy,
+  });
+  const communityAvatarPreviewSrc = communityAvatarPreviewUrl || toCommunityMediaUrl(activeCommunity?.avatar_url);
+  const communityBannerPreviewSrc = communityBannerPreviewUrl || toCommunityMediaUrl(activeCommunity?.banner_url);
+  const getCommunityUserAvatarSrc = (rawValue) =>
+    rawValue ? (String(rawValue).startsWith("http") ? rawValue : `${API}${rawValue}`) : DEFAULT_AVATAR;
+  const isLockedCommunityTab = (tabKey) =>
+    Boolean(activeCommunity?.id) && !isCommunityMember && MEMBER_LOCKED_COMMUNITY_TABS.has(tabKey);
+  const getCommunityTabClassName = (tabKey) =>
+    [activeTab === tabKey ? "active" : "", isLockedCommunityTab(tabKey) ? "tab-locked" : ""].filter(Boolean).join(" ");
+  const renderCommunityTabLabel = (tabKey, label) => {
+    const showLock = isLockedCommunityTab(tabKey);
+    return (
+      <>
+        <span>{label}</span>
+        {showLock && (
+          <span className="tab-lock-emoji" aria-hidden="true" title="Members only">
+            🔒
+          </span>
+        )}
+      </>
+    );
+  };
   const isAssignmentPastDue = (assignment) => {
     if (!assignment?.due_at) return false;
     const due = new Date(assignment.due_at);
@@ -2472,36 +2850,55 @@ export default function VineCommunities() {
           )}
 
           <div className="community-list">
-            {communities.map((c) => (
-              <div key={c.id} className={`community-row ${slug === c.slug ? "active" : ""}`}>
-                <button
-                  className="community-link"
-                  onClick={() => navigate(`/vine/communities/${c.slug}`)}
-                >
-                  <div className="community-link-avatar">
-                    {c.avatar_url ? (
-                      <img
-                        src={c.avatar_url.startsWith("http") ? c.avatar_url : `${API}${c.avatar_url}`}
-                        alt={c.name}
-                      />
-                    ) : (
-                      (c.name || "?").trim().charAt(0).toUpperCase()
-                    )}
-                  </div>
-                  <div className="community-link-meta">
-                    <strong>{c.name}</strong>
-                    <span>{c.member_count} members</span>
-                  </div>
-                </button>
-                {Number(c.is_member) === 1 ? (
-                  <span className="community-join community-join-static">Joined</span>
-                ) : (
-                  <button className="community-join" onClick={() => toggleJoin(c)}>
-                    {String(c.join_request_status || "") === "pending" ? "Requested" : "Join"}
+            {communities.map((c) => {
+              const joinPolicyMeta = getCommunityJoinPolicyMeta(c);
+              const joinActionLabel = getCommunityJoinActionLabel(c);
+              const teaserText = getCommunityTeaser(c);
+              const isJoined = Number(c.is_member) === 1;
+              const isPending = String(c.join_request_status || "") === "pending" && !isJoined;
+              const isClosed = String(c.join_policy || "").toLowerCase() === "closed" && !isJoined;
+
+              return (
+                <div key={c.id} className={`community-row ${slug === c.slug ? "active" : ""}`}>
+                  <button
+                    className="community-link"
+                    onClick={() => navigate(`/vine/communities/${c.slug}`)}
+                  >
+                    <div className="community-link-avatar">
+                      {c.avatar_url ? (
+                        <img
+                          src={c.avatar_url.startsWith("http") ? c.avatar_url : `${API}${c.avatar_url}`}
+                          alt={c.name}
+                        />
+                      ) : (
+                        (c.name || "?").trim().charAt(0).toUpperCase()
+                      )}
+                    </div>
+                    <div className="community-link-meta">
+                      <strong>{c.name}</strong>
+                      <div className="community-link-subline">
+                        <span>{c.member_count} members</span>
+                        <span className={`community-policy-pill ${joinPolicyMeta.tone}`}>{joinPolicyMeta.label}</span>
+                      </div>
+                      <div className="community-link-teaser">{teaserText}</div>
+                    </div>
                   </button>
-                )}
-              </div>
-            ))}
+                  {isJoined ? (
+                    <span className="community-join community-join-static">{joinActionLabel}</span>
+                  ) : (
+                    <button
+                      className={`community-join ${isPending ? "community-join-pending" : ""} ${
+                        isClosed ? "community-join-disabled" : ""
+                      }`}
+                      onClick={() => toggleJoin(c)}
+                      disabled={isClosed}
+                    >
+                      {joinActionLabel}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </aside>
 
@@ -2622,33 +3019,41 @@ export default function VineCommunities() {
                         join_request_status: activeCommunity.join_request_status,
                       })
                     }
+                    disabled={
+                      Number(activeCommunity.is_member) !== 1 &&
+                      String(activeCommunity.join_policy || "").toLowerCase() === "closed"
+                    }
                   >
-                    {Number(activeCommunity.is_member) === 1
-                      ? "Joined"
-                      : String(activeCommunity.join_request_status || "") === "pending"
-                      ? "Requested"
-                      : "Join"}
+                    {getCommunityJoinActionLabel(activeCommunity)}
                   </button>
                 </div>
               </div>
 
               <div className="community-tabs">
-                <button className={activeTab === "announcements" ? "active" : ""} onClick={() => setActiveTab("announcements")}>
-                  <span>Community Pulse</span>
+                <button className={getCommunityTabClassName("announcements")} onClick={() => setActiveTab("announcements")}>
+                  {renderCommunityTabLabel("announcements", "Community Pulse")}
                   {announcementBadgeCount > 0 && (
                     <span className="tab-count-badge">{announcementBadgeCount}</span>
                   )}
                 </button>
-                <button className={activeTab === "memorywall" ? "active" : ""} onClick={() => setActiveTab("memorywall")}>
-                  <span>Memory Wall</span>
+                <button className={getCommunityTabClassName("memorywall")} onClick={() => setActiveTab("memorywall")}>
+                  {renderCommunityTabLabel("memorywall", "Memory Wall")}
                   {memoryWallCount > 0 && (
                     <span className="tab-count-badge">{memoryWallCount}</span>
                   )}
                 </button>
-                <button className={activeTab === "attendance" ? "active" : ""} onClick={() => setActiveTab("attendance")}>Attendance</button>
-                <button className={activeTab === "members" ? "active" : ""} onClick={() => setActiveTab("members")}>Members</button>
-                <button className={activeTab === "assignments" ? "active" : ""} onClick={() => setActiveTab("assignments")}>Assignments</button>
-                <button className={activeTab === "library" ? "active" : ""} onClick={() => setActiveTab("library")}>Library</button>
+                <button className={getCommunityTabClassName("attendance")} onClick={() => setActiveTab("attendance")}>
+                  {renderCommunityTabLabel("attendance", "Attendance")}
+                </button>
+                <button className={getCommunityTabClassName("members")} onClick={() => setActiveTab("members")}>
+                  {renderCommunityTabLabel("members", "Members")}
+                </button>
+                <button className={getCommunityTabClassName("assignments")} onClick={() => setActiveTab("assignments")}>
+                  {renderCommunityTabLabel("assignments", "Assignments")}
+                </button>
+                <button className={getCommunityTabClassName("library")} onClick={() => setActiveTab("library")}>
+                  {renderCommunityTabLabel("library", "Library")}
+                </button>
                 {canManageCommunitySettings && (
                   <button className={activeTab === "settings" ? "active" : ""} onClick={() => setActiveTab("settings")}>
                     <span>Settings</span>
@@ -2657,7 +3062,9 @@ export default function VineCommunities() {
                     )}
                   </button>
                 )}
-                <button className={activeTab === "about" ? "active" : ""} onClick={() => setActiveTab("about")}>About</button>
+                <button className={getCommunityTabClassName("about")} onClick={() => setActiveTab("about")}>
+                  {renderCommunityTabLabel("about", "About")}
+                </button>
               </div>
 
               <div
@@ -2667,6 +3074,14 @@ export default function VineCommunities() {
                   activeTab === "attendance" ? "attendance-only" : ""
                 }`}
               >
+                {showCommunityMembershipGate && (
+                  <section className="community-join-note">
+                    <span className="community-join-note-lock" aria-hidden="true">
+                      🔒 Members only
+                    </span>
+                    <span>Join this community first to view {activeTabMembershipLabel}.</span>
+                  </section>
+                )}
                 {activeTab === "discussion" && (
                   <section className="community-discussion">
                       <div className="discussion-top">
@@ -2716,7 +3131,7 @@ export default function VineCommunities() {
                       </div>
                     </section>
                 )}
-                {activeTab === "about" && (
+                {activeTab === "about" && !showCommunityMembershipGate && (
                   <section className="community-about-panel">
                     <h4>About {activeCommunity.name}</h4>
                     <p>{activeCommunity.description || "No description yet."}</p>
@@ -2766,7 +3181,7 @@ export default function VineCommunities() {
                     )}
                   </section>
                 )}
-                {activeTab === "members" && (
+                {activeTab === "members" && !showCommunityMembershipGate && (
                   <section className="community-members-panel">
                     <h4>Members</h4>
                     <div className="community-members-list">
@@ -2890,7 +3305,7 @@ export default function VineCommunities() {
                     )}
                   </section>
                 )}
-                {activeTab === "attendance" && (
+                {activeTab === "attendance" && !showCommunityMembershipGate && (
                   <section className="community-settings-panel attendance-panel">
                     <div className="assignment-top-row attendance-top-row">
                       <h4>Class Register</h4>
@@ -3075,7 +3490,7 @@ export default function VineCommunities() {
                     )}
                   </section>
                 )}
-                {activeTab === "assignments" && (
+                {activeTab === "assignments" && !showCommunityMembershipGate && (
                   <section className="community-settings-panel">
                     <div className="assignment-top-row">
                       <h4>Assignments</h4>
@@ -3660,89 +4075,266 @@ export default function VineCommunities() {
                     </div>
                   </section>
                 )}
-                {activeTab === "library" && (
+                {activeTab === "library" && !showCommunityMembershipGate && (
                   <section className="community-settings-panel community-library-panel">
                     <div className="assignment-top-row">
                       <h4>Library</h4>
                     </div>
-                    {isCommunityOwner && (
-                      <div className="library-upload-row">
-                        <input
-                          type="text"
-                          placeholder="PDF title"
-                          value={libraryTitle}
-                          maxLength={180}
-                          onChange={(e) => setLibraryTitle(e.target.value)}
-                        />
-                        <label className="assignment-file-picker">
-                          <span>{libraryFile ? libraryFile.name : "Choose PDF"}</span>
-                          <input
-                            ref={libraryFileInputRef}
-                            type="file"
-                            accept=".pdf,application/pdf"
-                            onChange={(e) => setLibraryFile(e.target.files?.[0] || null)}
-                          />
-                        </label>
-                        <button type="button" onClick={uploadLibraryPdf}>
-                          Upload PDF
-                        </button>
+                    <div className="community-library-hero">
+                      <div>
+                        <strong>Study shelf and video lounge</strong>
+                        <p>Keep handouts, revision PDFs, and guided video lessons in one polished learning corner.</p>
                       </div>
-                    )}
-                    <div className="library-grid">
-                      {libraryItems.length === 0 ? (
-                        <div className="community-empty">No PDFs in library yet.</div>
-                      ) : (
-                        libraryItems.map((item) => (
-                          <div
-                            key={`library-${item.id}`}
-                            className="library-card"
-                            role="button"
-                            tabIndex={0}
-                            onClick={() => window.open(item.pdf_url, "_blank", "noopener,noreferrer")}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter" || e.key === " ") {
-                                e.preventDefault();
-                                window.open(item.pdf_url, "_blank", "noopener,noreferrer");
-                              }
-                            }}
-                          >
-                            <div className="library-thumb">
-                              <object
-                                data={`${item.pdf_url}#page=1&view=FitH`}
-                                type="application/pdf"
-                                className="library-thumb-preview"
-                                aria-label={item.title}
-                              >
-                                <span>PDF</span>
-                              </object>
-                              <div className="library-thumb-overlay">PDF</div>
-                            </div>
-                            <div className="library-meta">
-                              <strong>{item.title}</strong>
-                              <small>
-                                {item.uploader_display_name || item.uploader_username} •{" "}
-                                {item.created_at ? new Date(item.created_at).toLocaleDateString() : ""}
-                              </small>
-                            </div>
-                            {isCommunityOwner && (
-                              <button
-                                type="button"
-                                className="library-remove-btn"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  deleteLibraryItem(item.id);
+                      <div className="community-library-hero-stats">
+                        <span>{libraryItems.length} PDFs</span>
+                        <span>{libraryVideos.length} videos</span>
+                      </div>
+                    </div>
+                    <div className="library-stack">
+                      <div className="library-section">
+                        <div className="library-section-head">
+                          <div>
+                            <strong>PDF shelf</strong>
+                            <p>Past papers, handouts, and reference material members can open quickly.</p>
+                          </div>
+                        </div>
+                        {isCommunityOwner && (
+                          <div className="library-upload-row">
+                            <input
+                              type="text"
+                              placeholder="PDF title"
+                              value={libraryTitle}
+                              maxLength={180}
+                              onChange={(e) => setLibraryTitle(e.target.value)}
+                            />
+                            <label className="assignment-file-picker">
+                              <span>{libraryFile ? libraryFile.name : "Choose PDF"}</span>
+                              <input
+                                ref={libraryFileInputRef}
+                                type="file"
+                                accept=".pdf,application/pdf"
+                                onChange={(e) => setLibraryFile(e.target.files?.[0] || null)}
+                              />
+                            </label>
+                            <button type="button" onClick={uploadLibraryPdf}>
+                              Upload PDF
+                            </button>
+                          </div>
+                        )}
+                        <div className="library-grid">
+                          {libraryItems.length === 0 ? (
+                            <div className="community-empty">No PDFs in library yet.</div>
+                          ) : (
+                            libraryItems.map((item) => (
+                              <div
+                                key={`library-${item.id}`}
+                                className="library-card"
+                                role="button"
+                                tabIndex={0}
+                                onClick={() => window.open(item.pdf_url, "_blank", "noopener,noreferrer")}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" || e.key === " ") {
+                                    e.preventDefault();
+                                    window.open(item.pdf_url, "_blank", "noopener,noreferrer");
+                                  }
                                 }}
                               >
-                                Remove
-                              </button>
-                            )}
+                                <div className="library-thumb">
+                                  <object
+                                    data={`${item.pdf_url}#page=1&view=FitH`}
+                                    type="application/pdf"
+                                    className="library-thumb-preview"
+                                    aria-label={item.title}
+                                  >
+                                    <span>PDF</span>
+                                  </object>
+                                  <div className="library-thumb-overlay">PDF</div>
+                                </div>
+                                <div className="library-meta">
+                                  <strong>{item.title}</strong>
+                                  <small>
+                                    {item.uploader_display_name || item.uploader_username} •{" "}
+                                    {item.created_at ? new Date(item.created_at).toLocaleDateString() : ""}
+                                  </small>
+                                </div>
+                                {isCommunityOwner && (
+                                  <button
+                                    type="button"
+                                    className="library-remove-btn"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      deleteLibraryItem(item.id);
+                                    }}
+                                  >
+                                    Remove
+                                  </button>
+                                )}
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="library-section video-section">
+                        <div className="library-section-head">
+                          <div>
+                            <strong>Video lessons</strong>
+                            <p>Mods and owners can drop learning videos here, and members can discuss each lesson below it.</p>
                           </div>
-                        ))
-                      )}
+                        </div>
+                        {isCommunityMod && (
+                          <div className="library-video-upload-card">
+                            <input
+                              type="text"
+                              placeholder="Video lesson title"
+                              value={libraryVideoTitle}
+                              maxLength={180}
+                              onChange={(e) => setLibraryVideoTitle(e.target.value)}
+                            />
+                            <div className="library-video-upload-actions">
+                              <label className="assignment-file-picker">
+                                <span>{libraryVideoFile ? libraryVideoFile.name : "Choose video"}</span>
+                                <input
+                                  ref={libraryVideoInputRef}
+                                  type="file"
+                                  accept="video/*"
+                                  onChange={(e) => setLibraryVideoFile(e.target.files?.[0] || null)}
+                                />
+                              </label>
+                              <button type="button" onClick={uploadLibraryVideo}>
+                                Upload Video
+                              </button>
+                            </div>
+                            {libraryVideoPreviewUrl ? (
+                              <video
+                                className="library-video-upload-preview"
+                                src={libraryVideoPreviewUrl}
+                                controls
+                                muted
+                                playsInline
+                                preload="metadata"
+                              />
+                            ) : null}
+                          </div>
+                        )}
+                        <div className="library-video-grid">
+                          {libraryVideos.length === 0 ? (
+                            <div className="community-empty">No video lessons in library yet.</div>
+                          ) : (
+                            libraryVideos.map((video) => (
+                              <article key={`library-video-${video.id}`} className="library-video-card">
+                                <div className="library-video-head">
+                                  <div className="library-meta">
+                                    <strong>{video.title}</strong>
+                                    <small>
+                                      {video.uploader_display_name || video.uploader_username} •{" "}
+                                      {video.created_at ? new Date(video.created_at).toLocaleDateString() : ""}
+                                    </small>
+                                  </div>
+                                  {isCommunityMod && (
+                                    <button
+                                      type="button"
+                                      className="library-remove-btn"
+                                      onClick={() => deleteLibraryVideo(video.id)}
+                                    >
+                                      Remove
+                                    </button>
+                                  )}
+                                </div>
+                                <video
+                                  className="library-video-player"
+                                  src={video.video_url}
+                                  controls
+                                  playsInline
+                                  preload="metadata"
+                                />
+                                <div className="library-video-comments">
+                                  <div className="library-video-comments-head">
+                                    <strong>Discussion</strong>
+                                    <span className="library-comment-count-pill">{Number(video.comment_count || 0)} comments</span>
+                                  </div>
+                                  <div className="library-video-comment-list">
+                                    {Array.isArray(video.comments) && video.comments.length > 0 ? (
+                                      video.comments.map((comment) => {
+                                        const canDeleteComment =
+                                          Number(comment.user_id) === Number(currentUser?.id) || isCommunityMod;
+                                        return (
+                                          <div key={`library-video-comment-${comment.id}`} className="library-video-comment">
+                                            <img
+                                              src={getCommunityUserAvatarSrc(comment.avatar_url)}
+                                              alt={comment.display_name || comment.username}
+                                              onError={(e) => {
+                                                e.currentTarget.src = DEFAULT_AVATAR;
+                                              }}
+                                            />
+                                            <div className="library-video-comment-body">
+                                              <div className="library-video-comment-meta">
+                                                <strong>{comment.display_name || comment.username}</strong>
+                                                <span>
+                                                  {comment.created_at
+                                                    ? new Date(comment.created_at).toLocaleString([], {
+                                                        month: "short",
+                                                        day: "numeric",
+                                                        hour: "numeric",
+                                                        minute: "2-digit",
+                                                      })
+                                                    : ""}
+                                                </span>
+                                              </div>
+                                              <p>{comment.content}</p>
+                                            </div>
+                                            {canDeleteComment && (
+                                              <button
+                                                type="button"
+                                                className="library-video-comment-delete"
+                                                onClick={() => deleteLibraryVideoComment(video.id, comment.id)}
+                                              >
+                                                Delete
+                                              </button>
+                                            )}
+                                          </div>
+                                        );
+                                      })
+                                    ) : (
+                                      <div className="library-video-comments-empty">No comments yet. Start the discussion.</div>
+                                    )}
+                                  </div>
+                                  <div className="library-video-comment-form">
+                                    <div className="library-video-comment-form-head">
+                                      <div>
+                                        <strong>Join the discussion</strong>
+                                        <span>Share a takeaway, question, or correction on this lesson.</span>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() => submitLibraryVideoComment(video.id)}
+                                        disabled={!String(libraryVideoCommentDrafts[video.id] || "").trim()}
+                                      >
+                                        Comment
+                                      </button>
+                                    </div>
+                                    <textarea
+                                      placeholder="Leave a thought on this lesson"
+                                      value={libraryVideoCommentDrafts[video.id] || ""}
+                                      maxLength={1000}
+                                      onChange={(e) =>
+                                        setLibraryVideoCommentDrafts((prev) => ({
+                                          ...prev,
+                                          [video.id]: e.target.value,
+                                        }))
+                                      }
+                                    />
+                                  </div>
+                                </div>
+                              </article>
+                            ))
+                          )}
+                        </div>
+                      </div>
                     </div>
                   </section>
                 )}
-                {activeTab === "memorywall" && (
+                {activeTab === "memorywall" && !showCommunityMembershipGate && (
                   <section className="community-memory-wall">
                     <div className="community-memory-wall-head">
                       <div>
@@ -3860,7 +4452,7 @@ export default function VineCommunities() {
                     </div>
                   </section>
                 )}
-                {activeTab === "announcements" && (
+                {activeTab === "announcements" && !showCommunityMembershipGate && (
                   <section className="community-spotlight-panel">
                     <div className="community-spotlight-head">
                       <div>
@@ -3904,7 +4496,7 @@ export default function VineCommunities() {
                     )}
                   </section>
                 )}
-                {activeTab === "announcements" && isCommunityOwner && announcementPosts.length > 0 && (
+                {activeTab === "announcements" && !showCommunityMembershipGate && isCommunityOwner && announcementPosts.length > 0 && (
                   <section className="community-announcements">
                     <div className="community-announcements-head">
                       <h4>Announcements</h4>
@@ -4025,7 +4617,7 @@ export default function VineCommunities() {
                     </div>
                   </section>
                 )}
-                {activeTab === "announcements" && !isCommunityOwner && announcementPosts.length > 0 && (
+                {activeTab === "announcements" && !showCommunityMembershipGate && !isCommunityOwner && announcementPosts.length > 0 && (
                   <section className="community-announcements">
                     <div className="community-announcements-head">
                       <h4>Announcements</h4>
@@ -4068,7 +4660,7 @@ export default function VineCommunities() {
                     </div>
                   </section>
                 )}
-                {activeTab === "announcements" && isCommunityMod && (
+                {activeTab === "announcements" && !showCommunityMembershipGate && isCommunityMod && (
                   <section className="community-progress-card">
                     <strong>Progress Dashboard</strong>
                     <div className="community-progress-summary">
@@ -4130,6 +4722,20 @@ export default function VineCommunities() {
                     {isCommunityOwner && (
                       <>
                         <label className="settings-row">
+                          <span>Community description</span>
+                          <textarea
+                            value={communityDescriptionDraft}
+                            onChange={(e) => setCommunityDescriptionDraft(e.target.value)}
+                            maxLength={280}
+                            placeholder="Give members a quick feel for what this community is about."
+                          />
+                          <small>{communityDescriptionDraft.trim().length}/280</small>
+                          <div className="community-settings-preview">
+                            <b>Card preview</b>
+                            <p>{communityDescriptionPreview}</p>
+                          </div>
+                        </label>
+                        <label className="settings-row">
                           <span>How members join this community</span>
                           <select value={joinPolicy} onChange={(e) => setJoinPolicy(e.target.value)}>
                             <option value="open">Open (anyone can join)</option>
@@ -4159,24 +4765,66 @@ export default function VineCommunities() {
                         </label>
                         <button className="save-settings-btn" onClick={saveSettings}>Save Settings</button>
                         <div className="community-upload-grid">
-                          <label className="settings-row">
-                            <span>Community avatar</span>
-                            <input
-                              type="file"
-                              accept="image/*,.heic,.heif"
-                              onChange={(e) => setCommunityAvatarFile(e.target.files?.[0] || null)}
-                            />
+                          <div className="community-upload-card">
+                            <div className="community-upload-head">
+                              <span>Community avatar</span>
+                              <small>Use a crisp square image for the community identity.</small>
+                            </div>
+                            <div className="community-upload-preview avatar">
+                              {communityAvatarPreviewSrc ? (
+                                <img src={communityAvatarPreviewSrc} alt="Community avatar preview" />
+                              ) : (
+                                <div className="community-upload-preview-fallback avatar">
+                                  {(activeCommunity?.name || "?").trim().charAt(0).toUpperCase()}
+                                </div>
+                              )}
+                            </div>
+                            <label className="community-file-trigger">
+                              <input
+                                ref={communityAvatarInputRef}
+                                className="community-file-input"
+                                type="file"
+                                accept="image/*,.heic,.heif"
+                                onChange={(e) => setCommunityAvatarFile(e.target.files?.[0] || null)}
+                              />
+                              <span>{communityAvatarFile ? "Change avatar" : "Choose avatar"}</span>
+                            </label>
+                            <div className={`community-file-pill ${communityAvatarFile ? "has-file" : ""}`}>
+                              <strong>{communityAvatarFile ? "Selected file" : "No file selected yet"}</strong>
+                              <span>{communityAvatarFile?.name || "PNG, JPG, HEIC or HEIF"}</span>
+                            </div>
                             <button type="button" onClick={uploadCommunityAvatar} disabled={!communityAvatarFile}>
                               Upload Avatar
                             </button>
-                          </label>
-                          <label className="settings-row">
-                            <span>Community banner</span>
-                            <input
-                              type="file"
-                              accept="image/*,.heic,.heif"
-                              onChange={(e) => setCommunityBannerFile(e.target.files?.[0] || null)}
-                            />
+                          </div>
+                          <div className="community-upload-card">
+                            <div className="community-upload-head">
+                              <span>Community banner</span>
+                              <small>Pick a wide image that gives the community a strong first impression.</small>
+                            </div>
+                            <div className="community-upload-preview banner">
+                              {communityBannerPreviewSrc ? (
+                                <img src={communityBannerPreviewSrc} alt="Community banner preview" />
+                              ) : (
+                                <div className="community-upload-preview-fallback banner">
+                                  <span>Banner preview</span>
+                                </div>
+                              )}
+                            </div>
+                            <label className="community-file-trigger">
+                              <input
+                                ref={communityBannerInputRef}
+                                className="community-file-input"
+                                type="file"
+                                accept="image/*,.heic,.heif"
+                                onChange={(e) => setCommunityBannerFile(e.target.files?.[0] || null)}
+                              />
+                              <span>{communityBannerFile ? "Change banner" : "Choose banner"}</span>
+                            </label>
+                            <div className={`community-file-pill ${communityBannerFile ? "has-file" : ""}`}>
+                              <strong>{communityBannerFile ? "Selected file" : "No file selected yet"}</strong>
+                              <span>{communityBannerFile?.name || "Landscape images work best here"}</span>
+                            </div>
                             <button type="button" onClick={uploadCommunityBanner} disabled={!communityBannerFile}>
                               Upload Banner
                             </button>
@@ -4193,7 +4841,7 @@ export default function VineCommunities() {
                             >
                               {isAdjustingCommunityBanner ? "Save Banner Position" : "Adjust Banner Position"}
                             </button>
-                          </label>
+                          </div>
                         </div>
                       </>
                     )}

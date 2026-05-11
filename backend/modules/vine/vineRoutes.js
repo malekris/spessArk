@@ -1736,6 +1736,84 @@ const ensureScopedCommunityMembershipIndex = async (dbName, tableName, indexName
   }
 };
 
+const logCommunityMembershipConflict = async ({
+  routeKey,
+  tableName,
+  communityId,
+  userId,
+  requestId = null,
+  err,
+}) => {
+  try {
+    const dbName = await getDbName();
+    const indexes = dbName ? await getTableIndexes(dbName, tableName) : [];
+    const suspiciousIndexes = indexes.filter((index) => {
+      if (index.name === "PRIMARY" || index.nonUnique) return false;
+      if (!index.columns.includes("user_id")) return false;
+      return !(index.columns.length === 2 && index.columns.includes("community_id"));
+    });
+
+    const [membershipRows] = await db.query(
+      `
+      SELECT community_id, role, joined_at
+      FROM vine_community_members
+      WHERE user_id = ?
+      ORDER BY joined_at DESC, community_id DESC
+      LIMIT 20
+      `,
+      [userId]
+    ).catch(() => [[]]);
+
+    const [targetMembershipRows] = await db.query(
+      `
+      SELECT community_id, role, joined_at
+      FROM vine_community_members
+      WHERE community_id = ? AND user_id = ?
+      LIMIT 1
+      `,
+      [communityId, userId]
+    ).catch(() => [[]]);
+
+    const [requestRows] = await db.query(
+      `
+      SELECT id, community_id, status, created_at
+      FROM vine_community_join_requests
+      WHERE user_id = ?
+      ORDER BY created_at DESC, id DESC
+      LIMIT 20
+      `,
+      [userId]
+    ).catch(() => [[]]);
+
+    console.error(
+      "[community-membership-debug]",
+      JSON.stringify(
+        {
+          routeKey,
+          tableName,
+          communityId,
+          userId,
+          requestId,
+          errorCode: err?.code || null,
+          errno: err?.errno || null,
+          sqlMessage: err?.sqlMessage || err?.message || null,
+          suspiciousIndexes: suspiciousIndexes.map((index) => ({
+            name: index.name,
+            columns: index.columns,
+          })),
+          targetMembership: targetMembershipRows[0] || null,
+          activeMemberships: membershipRows,
+          activeJoinRequests: requestRows,
+        },
+        null,
+        2
+      )
+    );
+  } catch (debugErr) {
+    console.error("[community-membership-debug] Failed to capture conflict details:", debugErr);
+  }
+};
+
 let vinePerformanceSchemaReady = false;
 let vinePerformanceSchemaPromise = null;
 
@@ -6739,10 +6817,13 @@ router.post("/communities", authenticate, async (req, res) => {
 });
 
 router.post("/communities/:id/join", authenticate, async (req, res) => {
+  let userId = null;
+  let communityId = null;
+  let membershipDebugTable = "vine_community_members";
   try {
     await ensureCommunitySchema();
-    const userId = req.user.id;
-    const communityId = Number(req.params.id);
+    userId = req.user.id;
+    communityId = Number(req.params.id);
     if (!communityId) return res.status(400).json({ message: "Invalid community" });
 
     const [[community]] = await db.query(
@@ -6762,6 +6843,7 @@ router.post("/communities/:id/join", authenticate, async (req, res) => {
     }
 
     if (community.join_policy === "approval") {
+      membershipDebugTable = "vine_community_join_requests";
       const answers = Array.isArray(req.body?.answers) ? req.body.answers.slice(0, 10) : [];
       await db.query(
         `
@@ -6818,6 +6900,18 @@ router.post("/communities/:id/join", authenticate, async (req, res) => {
     }
     res.json({ success: true, status: "member" });
   } catch (err) {
+    if (err?.code === "ER_DUP_ENTRY" && userId && communityId) {
+      await logCommunityMembershipConflict({
+        routeKey: "community-join",
+        tableName: membershipDebugTable,
+        communityId,
+        userId,
+        err,
+      });
+      return res.status(409).json({
+        message: "Community membership conflict detected. Debug details were logged on the backend.",
+      });
+    }
     console.error("Join community error:", err);
     res.status(500).json({ message: "Failed to join community" });
   }
@@ -9350,11 +9444,15 @@ router.delete("/communities/:id/posts/:postId/pin", authenticate, async (req, re
 });
 
 router.post("/communities/:id/requests/:requestId/approve", authenticate, async (req, res) => {
+  let userId = null;
+  let communityId = null;
+  let requestId = null;
+  let targetUserId = null;
   try {
     await ensureCommunitySchema();
-    const userId = req.user.id;
-    const communityId = Number(req.params.id);
-    const requestId = Number(req.params.requestId);
+    userId = req.user.id;
+    communityId = Number(req.params.id);
+    requestId = Number(req.params.requestId);
     if (!communityId || !requestId) return res.status(400).json({ message: "Invalid request" });
 
     const [[roleRow]] = await db.query(
@@ -9381,6 +9479,7 @@ router.post("/communities/:id/requests/:requestId/approve", authenticate, async 
     );
     if (!requestRow) return res.status(404).json({ message: "Request not found" });
     if (requestRow.status !== "pending") return res.status(400).json({ message: "Request already handled" });
+    targetUserId = Number(requestRow.user_id || 0) || null;
 
     await db.query(
       `
@@ -9427,6 +9526,19 @@ router.post("/communities/:id/requests/:requestId/approve", authenticate, async 
 
     res.json({ success: true });
   } catch (err) {
+    if (err?.code === "ER_DUP_ENTRY" && communityId && targetUserId) {
+      await logCommunityMembershipConflict({
+        routeKey: "community-request-approve",
+        tableName: "vine_community_members",
+        communityId,
+        userId: targetUserId,
+        requestId,
+        err,
+      });
+      return res.status(409).json({
+        message: "Community membership conflict detected during approval. Debug details were logged on the backend.",
+      });
+    }
     console.error("Approve community request error:", err);
     res.status(500).json({ message: "Failed to approve request" });
   }

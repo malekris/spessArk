@@ -74,6 +74,18 @@ const getCommunityJoinActionLabel = (community) => {
   return "Join now";
 };
 
+const getCommunityVisibilityMeta = (community) =>
+  Number(community?.is_private) === 1
+    ? { label: "Private circle", tone: "private" }
+    : { label: "Public space", tone: "public" };
+
+const getCommunityMembershipMeta = (community) => {
+  const role = String(community?.viewer_role || "").toLowerCase();
+  if (role === "owner") return { label: "You lead this", tone: "owner" };
+  if (role === "moderator") return { label: "You moderate", tone: "moderator" };
+  return { label: "You are in", tone: "member" };
+};
+
 const getCommunityTeaser = (community) => {
   const description = String(community?.description || "").replace(/\s+/g, " ").trim();
   if (description) return description;
@@ -155,11 +167,6 @@ export default function VineCommunities() {
   const [libraryItems, setLibraryItems] = useState([]);
   const [libraryTitle, setLibraryTitle] = useState("");
   const [libraryFile, setLibraryFile] = useState(null);
-  const [libraryVideos, setLibraryVideos] = useState([]);
-  const [libraryVideoTitle, setLibraryVideoTitle] = useState("");
-  const [libraryVideoFile, setLibraryVideoFile] = useState(null);
-  const [libraryVideoPreviewUrl, setLibraryVideoPreviewUrl] = useState("");
-  const [libraryVideoCommentDrafts, setLibraryVideoCommentDrafts] = useState({});
   const [submissionDrafts, setSubmissionDrafts] = useState({});
   const [submissionFiles, setSubmissionFiles] = useState({});
   const [savedDraftsMap, setSavedDraftsMap] = useState({});
@@ -206,7 +213,6 @@ export default function VineCommunities() {
   const communityBannerInputRef = useRef(null);
   const assignmentFileInputRef = useRef(null);
   const libraryFileInputRef = useRef(null);
-  const libraryVideoInputRef = useRef(null);
   const [nowMs, setNowMs] = useState(Date.now());
   const canManageCommunitySettings = ["owner", "moderator"].includes(
     String(activeCommunity?.viewer_role || "").toLowerCase()
@@ -329,16 +335,6 @@ export default function VineCommunities() {
     return () => URL.revokeObjectURL(nextUrl);
   }, [communityBannerFile]);
 
-  useEffect(() => {
-    if (!libraryVideoFile) {
-      setLibraryVideoPreviewUrl("");
-      return undefined;
-    }
-    const nextUrl = URL.createObjectURL(libraryVideoFile);
-    setLibraryVideoPreviewUrl(nextUrl);
-    return () => URL.revokeObjectURL(nextUrl);
-  }, [libraryVideoFile]);
-
   const loadCommunities = async () => {
     try {
       const res = await fetch(`${API}/api/vine/communities`, {
@@ -380,29 +376,12 @@ export default function VineCommunities() {
     }
   };
 
-  const loadCommunityLibraryVideos = async (communitySlug = slug) => {
-    if (!communitySlug) {
-      setLibraryVideos([]);
-      return;
-    }
-    try {
-      const res = await fetch(`${API}/api/vine/communities/${encodeURIComponent(communitySlug)}/library/videos`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json().catch(() => []);
-      setLibraryVideos(Array.isArray(data) ? data : []);
-    } catch {
-      setLibraryVideos([]);
-    }
-  };
-
   const loadCommunityDetail = async (communitySlug, nextTopic = "") => {
     if (!communitySlug) {
       setActiveCommunity(null);
       setPosts([]);
       setMemoryWallPosts([]);
       setLibraryItems([]);
-      setLibraryVideos([]);
       setCommunityDescriptionDraft("");
       return;
     }
@@ -428,7 +407,7 @@ export default function VineCommunities() {
 
       const isMember = Number(cData?.is_member) === 1;
 
-      const [pRes, mRes, rulesRes, questionsRes, eventsRes, mediaRes, assignmentsRes, libraryRes, libraryVideosRes] = await Promise.all([
+      const [pRes, mRes, rulesRes, questionsRes, eventsRes, mediaRes, assignmentsRes, libraryRes] = await Promise.all([
         isMember
           ? fetch(
               `${API}/api/vine/communities/${encodeURIComponent(communitySlug)}/posts${nextTopic ? `?topic=${encodeURIComponent(nextTopic)}` : ""}`,
@@ -464,11 +443,6 @@ export default function VineCommunities() {
               headers: { Authorization: `Bearer ${token}` },
             })
           : Promise.resolve(null),
-        isMember
-          ? fetch(`${API}/api/vine/communities/${encodeURIComponent(communitySlug)}/library/videos`, {
-              headers: { Authorization: `Bearer ${token}` },
-            })
-          : Promise.resolve(null),
       ]);
       const pData = pRes ? await pRes.json().catch(() => []) : [];
       const mData = mRes ? await mRes.json().catch(() => []) : [];
@@ -478,7 +452,6 @@ export default function VineCommunities() {
       const mediaData = await mediaRes.json().catch(() => []);
       const assignmentsData = assignmentsRes ? await assignmentsRes.json().catch(() => []) : [];
       const libraryData = libraryRes ? await libraryRes.json().catch(() => []) : [];
-      const libraryVideosData = libraryVideosRes ? await libraryVideosRes.json().catch(() => []) : [];
       setActiveCommunity(cData);
       setPosts(Array.isArray(pData) ? pData : []);
       setMemoryWallPosts(
@@ -494,7 +467,6 @@ export default function VineCommunities() {
       const safeAssignments = Array.isArray(assignmentsData) ? assignmentsData : [];
       setAssignments(safeAssignments);
       setLibraryItems(Array.isArray(libraryData) ? libraryData : []);
-      setLibraryVideos(Array.isArray(libraryVideosData) ? libraryVideosData : []);
       const persisted = {};
       for (const a of safeAssignments) {
         if (a.viewer_draft_content && !a.viewer_submission_content) {
@@ -1814,152 +1786,6 @@ export default function VineCommunities() {
     }
   };
 
-  const uploadLibraryVideo = async () => {
-    if (!activeCommunity?.id) return;
-    if (!libraryVideoTitle.trim() || !libraryVideoFile) {
-      showCommunitySuccessModal(
-        "Add the video details first",
-        "Give the video a title and pick a file before uploading it to the library.",
-        { kicker: "Heads up", tone: "warning", buttonLabel: "Close" }
-      );
-      return;
-    }
-    try {
-      const formData = new FormData();
-      formData.append("title", libraryVideoTitle.trim());
-      formData.append("library_video", libraryVideoFile);
-      const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/library/videos`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-        body: formData,
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        showCommunitySuccessModal(
-          "Video upload failed",
-          data.message || "We couldn't upload that community video right now.",
-          { kicker: "Try again", tone: "warning", buttonLabel: "Close" }
-        );
-        return;
-      }
-      setLibraryVideoTitle("");
-      setLibraryVideoFile(null);
-      if (libraryVideoInputRef.current) libraryVideoInputRef.current.value = "";
-      await loadCommunityLibraryVideos(activeCommunity.slug);
-      showCommunitySuccessModal(
-        "Video lesson uploaded",
-        "Your community video is now live in the library and ready for members to watch."
-      );
-    } catch {
-      showCommunitySuccessModal(
-        "Video upload failed",
-        "We couldn't upload that community video right now.",
-        { kicker: "Try again", tone: "warning", buttonLabel: "Close" }
-      );
-    }
-  };
-
-  const deleteLibraryVideo = async (videoId) => {
-    if (!activeCommunity?.id || !videoId) return;
-    const ok = window.confirm("Remove this video from library?");
-    if (!ok) return;
-    try {
-      const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/library/videos/${videoId}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        showCommunitySuccessModal(
-          "Video removal failed",
-          data.message || "We couldn't remove that community video right now.",
-          { kicker: "Try again", tone: "warning", buttonLabel: "Close" }
-        );
-        return;
-      }
-      await loadCommunityLibraryVideos(activeCommunity.slug);
-      showCommunitySuccessModal(
-        "Video removed",
-        "That video lesson has been cleared from the community library."
-      );
-    } catch {
-      showCommunitySuccessModal(
-        "Video removal failed",
-        "We couldn't remove that community video right now.",
-        { kicker: "Try again", tone: "warning", buttonLabel: "Close" }
-      );
-    }
-  };
-
-  const submitLibraryVideoComment = async (videoId) => {
-    if (!activeCommunity?.id || !videoId) return;
-    const content = String(libraryVideoCommentDrafts[videoId] || "").trim();
-    if (!content) {
-      showCommunitySuccessModal(
-        "Write your comment first",
-        "Add a quick thought before posting into the video discussion.",
-        { kicker: "Heads up", tone: "warning", buttonLabel: "Close" }
-      );
-      return;
-    }
-    try {
-      const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/library/videos/${videoId}/comments`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ content }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        showCommunitySuccessModal(
-          "Comment failed",
-          data.message || "We couldn't post that comment right now.",
-          { kicker: "Try again", tone: "warning", buttonLabel: "Close" }
-        );
-        return;
-      }
-      setLibraryVideoCommentDrafts((prev) => ({ ...prev, [videoId]: "" }));
-      await loadCommunityLibraryVideos(activeCommunity.slug);
-    } catch {
-      showCommunitySuccessModal(
-        "Comment failed",
-        "We couldn't post that comment right now.",
-        { kicker: "Try again", tone: "warning", buttonLabel: "Close" }
-      );
-    }
-  };
-
-  const deleteLibraryVideoComment = async (videoId, commentId) => {
-    if (!activeCommunity?.id || !videoId || !commentId) return;
-    try {
-      const res = await fetch(
-        `${API}/api/vine/communities/${activeCommunity.id}/library/videos/${videoId}/comments/${commentId}`,
-        {
-          method: "DELETE",
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        showCommunitySuccessModal(
-          "Comment removal failed",
-          data.message || "We couldn't remove that comment right now.",
-          { kicker: "Try again", tone: "warning", buttonLabel: "Close" }
-        );
-        return;
-      }
-      await loadCommunityLibraryVideos(activeCommunity.slug);
-    } catch {
-      showCommunitySuccessModal(
-        "Comment removal failed",
-        "We couldn't remove that comment right now.",
-        { kicker: "Try again", tone: "warning", buttonLabel: "Close" }
-      );
-    }
-  };
-
   const toggleAssignmentReview = async (assignmentId) => {
     if (!assignmentId) return;
     const viewerRole = String(activeCommunity?.viewer_role || "").toLowerCase();
@@ -2452,8 +2278,30 @@ export default function VineCommunities() {
   });
   const communityAvatarPreviewSrc = communityAvatarPreviewUrl || toCommunityMediaUrl(activeCommunity?.avatar_url);
   const communityBannerPreviewSrc = communityBannerPreviewUrl || toCommunityMediaUrl(activeCommunity?.banner_url);
-  const getCommunityUserAvatarSrc = (rawValue) =>
-    rawValue ? (String(rawValue).startsWith("http") ? rawValue : `${API}${rawValue}`) : DEFAULT_AVATAR;
+  const joinedCommunities = communities.filter((community) => Number(community?.is_member) === 1);
+  const discoverCommunities = communities.filter((community) => Number(community?.is_member) !== 1);
+  const communityListSections = [
+    joinedCommunities.length
+      ? {
+          key: "joined",
+          title: "Your communities",
+          subtitle: "The circles you already belong to.",
+          items: joinedCommunities,
+          emptyMessage: "",
+        }
+      : null,
+    {
+      key: "discover",
+      title: joinedCommunities.length ? "Networkwide communities" : "Communities networkwide",
+      subtitle: joinedCommunities.length
+        ? "Browse the rest of Vine and pick your next circle."
+        : "See every community available across Vine.",
+      items: discoverCommunities,
+      emptyMessage: joinedCommunities.length
+        ? "You are already part of every visible community right now."
+        : "No communities are live yet.",
+    },
+  ].filter(Boolean);
   const isLockedCommunityTab = (tabKey) =>
     Boolean(activeCommunity?.id) && !isCommunityMember && MEMBER_LOCKED_COMMUNITY_TABS.has(tabKey);
   const getCommunityTabClassName = (tabKey) =>
@@ -2849,56 +2697,95 @@ export default function VineCommunities() {
             </div>
           )}
 
-          <div className="community-list">
-            {communities.map((c) => {
-              const joinPolicyMeta = getCommunityJoinPolicyMeta(c);
-              const joinActionLabel = getCommunityJoinActionLabel(c);
-              const teaserText = getCommunityTeaser(c);
-              const isJoined = Number(c.is_member) === 1;
-              const isPending = String(c.join_request_status || "") === "pending" && !isJoined;
-              const isClosed = String(c.join_policy || "").toLowerCase() === "closed" && !isJoined;
-
-              return (
-                <div key={c.id} className={`community-row ${slug === c.slug ? "active" : ""}`}>
-                  <button
-                    className="community-link"
-                    onClick={() => navigate(`/vine/communities/${c.slug}`)}
-                  >
-                    <div className="community-link-avatar">
-                      {c.avatar_url ? (
-                        <img
-                          src={c.avatar_url.startsWith("http") ? c.avatar_url : `${API}${c.avatar_url}`}
-                          alt={c.name}
-                        />
-                      ) : (
-                        (c.name || "?").trim().charAt(0).toUpperCase()
-                      )}
-                    </div>
-                    <div className="community-link-meta">
-                      <strong>{c.name}</strong>
-                      <div className="community-link-subline">
-                        <span>{c.member_count} members</span>
-                        <span className={`community-policy-pill ${joinPolicyMeta.tone}`}>{joinPolicyMeta.label}</span>
-                      </div>
-                      <div className="community-link-teaser">{teaserText}</div>
-                    </div>
-                  </button>
-                  {isJoined ? (
-                    <span className="community-join community-join-static">{joinActionLabel}</span>
-                  ) : (
-                    <button
-                      className={`community-join ${isPending ? "community-join-pending" : ""} ${
-                        isClosed ? "community-join-disabled" : ""
-                      }`}
-                      onClick={() => toggleJoin(c)}
-                      disabled={isClosed}
-                    >
-                      {joinActionLabel}
-                    </button>
-                  )}
+          <div className="community-list-shell">
+            {communityListSections.map((section) => (
+              <section key={section.key} className="community-list-section">
+                <div className="community-list-section-head">
+                  <div>
+                    <strong>{section.title}</strong>
+                    <p>{section.subtitle}</p>
+                  </div>
+                  <span className="community-list-section-count">{section.items.length}</span>
                 </div>
-              );
-            })}
+
+                {section.items.length ? (
+                  <div className="community-list">
+                    {section.items.map((c) => {
+                      const joinPolicyMeta = getCommunityJoinPolicyMeta(c);
+                      const joinActionLabel = getCommunityJoinActionLabel(c);
+                      const visibilityMeta = getCommunityVisibilityMeta(c);
+                      const membershipMeta = getCommunityMembershipMeta(c);
+                      const teaserText = getCommunityTeaser(c);
+                      const isJoined = Number(c.is_member) === 1;
+                      const isPending = String(c.join_request_status || "") === "pending" && !isJoined;
+                      const isClosed = String(c.join_policy || "").toLowerCase() === "closed" && !isJoined;
+
+                      return (
+                        <div
+                          key={`${section.key}-${c.id}`}
+                          className={`community-row ${slug === c.slug ? "active" : ""} ${isJoined ? "joined" : ""}`}
+                        >
+                          <button
+                            className="community-link"
+                            onClick={() => navigate(`/vine/communities/${c.slug}`)}
+                          >
+                            <div className="community-link-head">
+                              <div className="community-link-avatar">
+                                {c.avatar_url ? (
+                                  <img
+                                    src={c.avatar_url.startsWith("http") ? c.avatar_url : `${API}${c.avatar_url}`}
+                                    alt={c.name}
+                                  />
+                                ) : (
+                                  (c.name || "?").trim().charAt(0).toUpperCase()
+                                )}
+                              </div>
+                              <div className="community-link-meta">
+                                <strong>{c.name}</strong>
+                                <div className="community-link-subline">{c.member_count} members</div>
+                              </div>
+                            </div>
+                            <div className="community-card-pills">
+                              <span className={`community-visibility-pill ${visibilityMeta.tone}`}>{visibilityMeta.label}</span>
+                              <span className={`community-policy-pill ${joinPolicyMeta.tone}`}>{joinPolicyMeta.label}</span>
+                              {isJoined && (
+                                <span className={`community-membership-pill ${membershipMeta.tone}`}>{membershipMeta.label}</span>
+                              )}
+                            </div>
+                            <div className="community-link-teaser">{teaserText}</div>
+                          </button>
+
+                          <div className="community-row-footer">
+                            <span className="community-row-requirement">
+                              {String(c.join_policy || "open").toLowerCase() === "approval"
+                                ? "Needs a quick approval"
+                                : String(c.join_policy || "open").toLowerCase() === "closed"
+                                  ? "Invite required to enter"
+                                  : "Open for new members"}
+                            </span>
+                            {isJoined ? (
+                              <span className="community-join community-join-static">{joinActionLabel}</span>
+                            ) : (
+                              <button
+                                className={`community-join ${isPending ? "community-join-pending" : ""} ${
+                                  isClosed ? "community-join-disabled" : ""
+                                }`}
+                                onClick={() => toggleJoin(c)}
+                                disabled={isClosed}
+                              >
+                                {joinActionLabel}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="community-list-empty">{section.emptyMessage}</div>
+                )}
+              </section>
+            ))}
           </div>
         </aside>
 
@@ -4082,12 +3969,11 @@ export default function VineCommunities() {
                     </div>
                     <div className="community-library-hero">
                       <div>
-                        <strong>Study shelf and video lounge</strong>
-                        <p>Keep handouts, revision PDFs, and guided video lessons in one polished learning corner.</p>
+                        <strong>Study shelf</strong>
+                        <p>Keep handouts, revision PDFs, and clean reference material in one polished learning corner.</p>
                       </div>
                       <div className="community-library-hero-stats">
                         <span>{libraryItems.length} PDFs</span>
-                        <span>{libraryVideos.length} videos</span>
                       </div>
                     </div>
                     <div className="library-stack">
@@ -4175,162 +4061,6 @@ export default function VineCommunities() {
                         </div>
                       </div>
 
-                      <div className="library-section video-section">
-                        <div className="library-section-head">
-                          <div>
-                            <strong>Video lessons</strong>
-                            <p>Mods and owners can drop learning videos here, and members can discuss each lesson below it.</p>
-                          </div>
-                        </div>
-                        {isCommunityMod && (
-                          <div className="library-video-upload-card">
-                            <input
-                              type="text"
-                              placeholder="Video lesson title"
-                              value={libraryVideoTitle}
-                              maxLength={180}
-                              onChange={(e) => setLibraryVideoTitle(e.target.value)}
-                            />
-                            <div className="library-video-upload-actions">
-                              <label className="assignment-file-picker">
-                                <span>{libraryVideoFile ? libraryVideoFile.name : "Choose video"}</span>
-                                <input
-                                  ref={libraryVideoInputRef}
-                                  type="file"
-                                  accept="video/*"
-                                  onChange={(e) => setLibraryVideoFile(e.target.files?.[0] || null)}
-                                />
-                              </label>
-                              <button type="button" onClick={uploadLibraryVideo}>
-                                Upload Video
-                              </button>
-                            </div>
-                            {libraryVideoPreviewUrl ? (
-                              <video
-                                className="library-video-upload-preview"
-                                src={libraryVideoPreviewUrl}
-                                controls
-                                muted
-                                playsInline
-                                preload="metadata"
-                              />
-                            ) : null}
-                          </div>
-                        )}
-                        <div className="library-video-grid">
-                          {libraryVideos.length === 0 ? (
-                            <div className="community-empty">No video lessons in library yet.</div>
-                          ) : (
-                            libraryVideos.map((video) => (
-                              <article key={`library-video-${video.id}`} className="library-video-card">
-                                <div className="library-video-head">
-                                  <div className="library-meta">
-                                    <strong>{video.title}</strong>
-                                    <small>
-                                      {video.uploader_display_name || video.uploader_username} •{" "}
-                                      {video.created_at ? new Date(video.created_at).toLocaleDateString() : ""}
-                                    </small>
-                                  </div>
-                                  {isCommunityMod && (
-                                    <button
-                                      type="button"
-                                      className="library-remove-btn"
-                                      onClick={() => deleteLibraryVideo(video.id)}
-                                    >
-                                      Remove
-                                    </button>
-                                  )}
-                                </div>
-                                <video
-                                  className="library-video-player"
-                                  src={video.video_url}
-                                  controls
-                                  playsInline
-                                  preload="metadata"
-                                />
-                                <div className="library-video-comments">
-                                  <div className="library-video-comments-head">
-                                    <strong>Discussion</strong>
-                                    <span className="library-comment-count-pill">{Number(video.comment_count || 0)} comments</span>
-                                  </div>
-                                  <div className="library-video-comment-list">
-                                    {Array.isArray(video.comments) && video.comments.length > 0 ? (
-                                      video.comments.map((comment) => {
-                                        const canDeleteComment =
-                                          Number(comment.user_id) === Number(currentUser?.id) || isCommunityMod;
-                                        return (
-                                          <div key={`library-video-comment-${comment.id}`} className="library-video-comment">
-                                            <img
-                                              src={getCommunityUserAvatarSrc(comment.avatar_url)}
-                                              alt={comment.display_name || comment.username}
-                                              onError={(e) => {
-                                                e.currentTarget.src = DEFAULT_AVATAR;
-                                              }}
-                                            />
-                                            <div className="library-video-comment-body">
-                                              <div className="library-video-comment-meta">
-                                                <strong>{comment.display_name || comment.username}</strong>
-                                                <span>
-                                                  {comment.created_at
-                                                    ? new Date(comment.created_at).toLocaleString([], {
-                                                        month: "short",
-                                                        day: "numeric",
-                                                        hour: "numeric",
-                                                        minute: "2-digit",
-                                                      })
-                                                    : ""}
-                                                </span>
-                                              </div>
-                                              <p>{comment.content}</p>
-                                            </div>
-                                            {canDeleteComment && (
-                                              <button
-                                                type="button"
-                                                className="library-video-comment-delete"
-                                                onClick={() => deleteLibraryVideoComment(video.id, comment.id)}
-                                              >
-                                                Delete
-                                              </button>
-                                            )}
-                                          </div>
-                                        );
-                                      })
-                                    ) : (
-                                      <div className="library-video-comments-empty">No comments yet. Start the discussion.</div>
-                                    )}
-                                  </div>
-                                  <div className="library-video-comment-form">
-                                    <div className="library-video-comment-form-head">
-                                      <div>
-                                        <strong>Join the discussion</strong>
-                                        <span>Share a takeaway, question, or correction on this lesson.</span>
-                                      </div>
-                                      <button
-                                        type="button"
-                                        onClick={() => submitLibraryVideoComment(video.id)}
-                                        disabled={!String(libraryVideoCommentDrafts[video.id] || "").trim()}
-                                      >
-                                        Comment
-                                      </button>
-                                    </div>
-                                    <textarea
-                                      placeholder="Leave a thought on this lesson"
-                                      value={libraryVideoCommentDrafts[video.id] || ""}
-                                      maxLength={1000}
-                                      onChange={(e) =>
-                                        setLibraryVideoCommentDrafts((prev) => ({
-                                          ...prev,
-                                          [video.id]: e.target.value,
-                                        }))
-                                      }
-                                    />
-                                  </div>
-                                </div>
-                              </article>
-                            ))
-                          )}
-                        </div>
-                      </div>
                     </div>
                   </section>
                 )}

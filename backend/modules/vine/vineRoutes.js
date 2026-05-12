@@ -9743,6 +9743,12 @@ const getProfileUserPayload = async (username, viewerId, perfCtx = null) => {
         ) AS post_count,
         (SELECT COUNT(*) FROM vine_follows WHERE following_id = u.id) AS follower_count,
         (SELECT COUNT(*) FROM vine_follows WHERE follower_id = u.id) AS following_count,
+        (
+          SELECT COUNT(*)
+          FROM vine_likes vl
+          JOIN vine_posts vp ON vp.id = vl.post_id
+          WHERE vp.user_id = u.id
+        ) AS total_like_count,
         ${
           safeViewerId
             ? `(SELECT COUNT(*) > 0

@@ -7,6 +7,17 @@ import "./VinePublicProfile.css";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const DEFAULT_AVATAR = "/default-avatar.png";
+const COMPACT_STAT_FORMATTER = new Intl.NumberFormat("en", {
+  notation: "compact",
+  compactDisplay: "short",
+  maximumFractionDigits: 1,
+});
+
+const formatCompactStat = (value) => {
+  const numeric = Number(value || 0);
+  if (!Number.isFinite(numeric)) return "0";
+  return COMPACT_STAT_FORMATTER.format(numeric);
+};
 
 const parseLinkPreview = (value) => {
   if (!value) return null;
@@ -260,6 +271,7 @@ export default function VinePublicProfile() {
                   <div className="vine-public-profile-stats">
                     <span><strong>{profile.user.post_count || 0}</strong> posts</span>
                     <span><strong>{profile.user.follower_count || 0}</strong> followers</span>
+                    <span><strong>{formatCompactStat(profile.user.total_like_count || 0)}</strong> likes</span>
                     <span><strong>{profile.user.following_count || 0}</strong> following</span>
                   </div>
                   {(profile.user.location || profile.user.website) && (

@@ -8,6 +8,11 @@ const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const DEFAULT_AVATAR = "/default-avatar.png";
 const ORIGIN = API.replace(/\/api$/, "");
 const PROFILE_POST_PAGE_SIZE = 12;
+const COMPACT_STAT_FORMATTER = new Intl.NumberFormat("en", {
+  notation: "compact",
+  compactDisplay: "short",
+  maximumFractionDigits: 1,
+});
 
 // ────────────────────────────────────────────────
 //  HELPERS
@@ -55,6 +60,12 @@ const formatProfileBirthday = (date, mode = "month_day") => {
       ? { month: "short", day: "numeric", year: "numeric" }
       : { month: "short", day: "numeric" };
   return parsed.toLocaleDateString("en-US", options);
+};
+
+const formatCompactStat = (value) => {
+  const numeric = Number(value || 0);
+  if (!Number.isFinite(numeric)) return "0";
+  return COMPACT_STAT_FORMATTER.format(numeric);
 };
 
 const renderMentions = (text, navigate) => {
@@ -2040,6 +2051,9 @@ export default function VineProfile() {
               </span>
               <span onClick={() => navigate(`/vine/${resolvedUsername}/followers`)}>
                 <strong>{profile?.user?.follower_count || 0}</strong> Followers
+              </span>
+              <span className="profile-stats-static">
+                <strong>{formatCompactStat(profile?.user?.total_like_count || 0)}</strong> Likes
               </span>
             </div>
           </>

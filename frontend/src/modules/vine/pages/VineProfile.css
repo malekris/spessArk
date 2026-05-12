@@ -1234,6 +1234,7 @@
 /* Stats */
 .profile-stats {
   display: flex;
+  flex-wrap: wrap;
   gap: 25px;
   padding-top: 20px;
   border-top: 1px solid rgba(6, 78, 59, 0.1);
@@ -1250,6 +1251,10 @@
   color: #052e16;
   font-weight: 900;
   font-size: 1.1rem;
+}
+
+.profile-stats-static {
+  cursor: default;
 }
 
 /* ── Edit Profile Form ── */

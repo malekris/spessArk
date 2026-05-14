@@ -57,6 +57,9 @@ const STATUS_RAIL_REFRESH_FALLBACK_MS = 60 * 1000;
 const FEED_EVENT_DEBOUNCE_MS = 350;
 const MAX_VISIBLE_BIRTHDAYS = 5;
 const DESKTOP_DM_WINDOW_LIMIT = 3;
+const PRESENCE_RECENT_DAYS = 3;
+const PRESENCE_AWAY_DAYS = 7;
+const DAY_MS = 24 * 60 * 60 * 1000;
 const formatBadgeCount = (count) => (Number(count || 0) > 99 ? "99+" : String(Number(count || 0)));
 const formatCompactCount = (count) =>
   new Intl.NumberFormat(undefined, {
@@ -134,6 +137,31 @@ const formatPresenceAgo = (value) => {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
+};
+
+const getPresenceAgeDays = (value) => {
+  if (!value) return null;
+  const ts = new Date(value).getTime();
+  if (Number.isNaN(ts)) return null;
+  return Math.max(0, (Date.now() - ts) / DAY_MS);
+};
+
+const getDesktopPresenceTone = ({ isOnline = false, lastActiveAt } = {}) => {
+  if (isOnline) return "online";
+  const ageDays = getPresenceAgeDays(lastActiveAt);
+  if (ageDays === null) return "away";
+  if (ageDays >= PRESENCE_AWAY_DAYS) return "away";
+  if (ageDays <= PRESENCE_RECENT_DAYS) return "recent";
+  return "recent";
+};
+
+const getDesktopPresenceLabel = ({ isOnline = false, lastActiveAt } = {}) => {
+  if (isOnline) return "Online";
+  const ageDays = getPresenceAgeDays(lastActiveAt);
+  const tone = getDesktopPresenceTone({ lastActiveAt });
+  if (tone === "away") return "Away";
+  if (ageDays !== null && ageDays > PRESENCE_RECENT_DAYS) return "Seen this week";
+  return "Recently active";
 };
 
 const formatBirthdayDate = (row) => {
@@ -1706,7 +1734,7 @@ export default function VineFeed() {
     .filter((user) => matchesDesktopDmSearch(user, desktopDmSearch))
     .slice(0, 10);
   const activeFollowerIds = new Set(desktopActiveFollowers.map((user) => Number(user.id)));
-  const desktopRecentFollowers = dedupePresenceUsers(recentlyActiveUsers)
+  const desktopLastSeenFollowers = dedupePresenceUsers(recentlyActiveUsers)
     .filter((user) => matchesDesktopDmSearch(user, desktopDmSearch))
     .filter((user) => !activeFollowerIds.has(Number(user.id)))
     .slice(0, 12);
@@ -2007,21 +2035,24 @@ export default function VineFeed() {
                       <button
                         key={`desktop-active-${user.id}`}
                         type="button"
-                        className="vine-desktop-dm-person online"
+                        className="vine-desktop-dm-person presence-online"
                         onClick={() => openDesktopDmWindow(user)}
                       >
-                        <img
-                          src={avatarSrc}
-                          alt={user.username}
-                          onError={(e) => {
-                            e.currentTarget.src = DEFAULT_AVATAR;
-                          }}
-                        />
+                        <div className="vine-desktop-dm-avatar-wrap">
+                          <img
+                            src={avatarSrc}
+                            alt={user.username}
+                            onError={(e) => {
+                              e.currentTarget.src = DEFAULT_AVATAR;
+                            }}
+                          />
+                          <span className="vine-desktop-dm-presence-dot online" aria-hidden="true" />
+                        </div>
                         <div className="vine-desktop-dm-person-meta">
                           <strong>{user.display_name || user.username}</strong>
                           <span>@{user.username}</span>
                         </div>
-                        <span className="vine-desktop-dm-person-status">Online</span>
+                        <span className="vine-desktop-dm-person-status online">Online</span>
                       </button>
                     );
                   })}
@@ -2031,35 +2062,41 @@ export default function VineFeed() {
 
             <div className="vine-desktop-dm-section">
               <div className="vine-desktop-dm-section-head">
-                <span>Recently active</span>
-                <small>{desktopRecentFollowers.length}</small>
+                <span>Last seen</span>
+                <small>{desktopLastSeenFollowers.length}</small>
               </div>
-              {desktopRecentFollowers.length === 0 ? (
+              {desktopLastSeenFollowers.length === 0 ? (
                 <div className="vine-desktop-dm-empty">No recent follower activity yet.</div>
               ) : (
                 <div className="vine-desktop-dm-list compact">
-                  {desktopRecentFollowers.map((user) => {
+                  {desktopLastSeenFollowers.map((user) => {
                     const avatarSrc = user.avatar_url
                       ? (user.avatar_url.startsWith("http") ? user.avatar_url : `${API}${user.avatar_url}`)
                       : DEFAULT_AVATAR;
+                    const presenceTone = getDesktopPresenceTone({ lastActiveAt: user.last_active_at });
+                    const presenceLabel = getDesktopPresenceLabel({ lastActiveAt: user.last_active_at });
                     return (
                       <button
                         key={`desktop-recent-${user.id}`}
                         type="button"
-                        className="vine-desktop-dm-person"
+                        className={`vine-desktop-dm-person presence-${presenceTone}`}
                         onClick={() => openDesktopDmWindow(user)}
                       >
-                        <img
-                          src={avatarSrc}
-                          alt={user.username}
-                          onError={(e) => {
-                            e.currentTarget.src = DEFAULT_AVATAR;
-                          }}
-                        />
+                        <div className="vine-desktop-dm-avatar-wrap">
+                          <img
+                            src={avatarSrc}
+                            alt={user.username}
+                            onError={(e) => {
+                              e.currentTarget.src = DEFAULT_AVATAR;
+                            }}
+                          />
+                          <span className={`vine-desktop-dm-presence-dot ${presenceTone}`} aria-hidden="true" />
+                        </div>
                         <div className="vine-desktop-dm-person-meta">
                           <strong>{user.display_name || user.username}</strong>
                           <span>{formatPresenceAgo(user.last_active_at) || "@".concat(user.username || "")}</span>
                         </div>
+                        <span className={`vine-desktop-dm-person-status ${presenceTone}`}>{presenceLabel}</span>
                       </button>
                     );
                   })}

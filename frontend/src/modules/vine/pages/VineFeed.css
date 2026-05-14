@@ -1926,8 +1926,22 @@ body:has(.vine-feed-container) {
     0 16px 28px rgba(16, 185, 129, 0.1);
 }
 
-.vine-desktop-dm-person.online {
+.vine-desktop-dm-person.presence-online {
   border-color: rgba(16, 185, 129, 0.22);
+}
+
+.vine-desktop-dm-person.presence-recent {
+  border-color: rgba(249, 115, 22, 0.18);
+}
+
+.vine-desktop-dm-person.presence-away {
+  border-color: rgba(239, 68, 68, 0.16);
+}
+
+.vine-desktop-dm-avatar-wrap {
+  position: relative;
+  width: 42px;
+  height: 42px;
 }
 
 .vine-desktop-dm-person img {
@@ -1936,6 +1950,14 @@ body:has(.vine-feed-container) {
   border-radius: 16px;
   object-fit: cover;
   border: 2px solid rgba(16, 185, 129, 0.2);
+}
+
+.vine-desktop-dm-person.presence-recent img {
+  border-color: rgba(249, 115, 22, 0.18);
+}
+
+.vine-desktop-dm-person.presence-away img {
+  border-color: rgba(239, 68, 68, 0.18);
 }
 
 .vine-desktop-dm-person-meta {
@@ -1961,6 +1983,31 @@ body:has(.vine-feed-container) {
   text-overflow: ellipsis;
 }
 
+.vine-desktop-dm-presence-dot {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.95);
+  box-shadow:
+    0 4px 10px rgba(15, 23, 42, 0.18),
+    0 0 0 2px rgba(255, 255, 255, 0.42);
+}
+
+.vine-desktop-dm-presence-dot.online {
+  background: linear-gradient(180deg, #34d399 0%, #059669 100%);
+}
+
+.vine-desktop-dm-presence-dot.recent {
+  background: linear-gradient(180deg, #fbbf24 0%, #f97316 100%);
+}
+
+.vine-desktop-dm-presence-dot.away {
+  background: linear-gradient(180deg, #f87171 0%, #dc2626 100%);
+}
+
 .vine-desktop-dm-person-status {
   grid-column: 2;
   display: inline-flex;
@@ -1972,6 +2019,21 @@ body:has(.vine-feed-container) {
   color: #047857;
   font-size: 0.7rem;
   font-weight: 900;
+}
+
+.vine-desktop-dm-person-status.online {
+  background: rgba(16, 185, 129, 0.12);
+  color: #047857;
+}
+
+.vine-desktop-dm-person-status.recent {
+  background: rgba(249, 115, 22, 0.12);
+  color: #c2410c;
+}
+
+.vine-desktop-dm-person-status.away {
+  background: rgba(239, 68, 68, 0.12);
+  color: #b91c1c;
 }
 
 .vine-desktop-chat-dock {

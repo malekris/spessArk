@@ -182,6 +182,14 @@ const toCommunityMediaUrl = (value) => {
   return `${API}${raw}`;
 };
 
+const isVineGuardianUser = (user) => {
+  if (!user) return false;
+  if (Number(user.is_admin) === 1) return true;
+  if (String(user.role || "").toLowerCase() === "moderator") return true;
+  if (String(user.badge_type || "").toLowerCase() === "guardian") return true;
+  return ["vine guardian", "vine_guardian"].includes(String(user.username || "").toLowerCase());
+};
+
 export default function VineCommunities() {
   const COMMUNITY_DISCOVERY_DRAWER_STORAGE_KEY = "vine_community_discovery_drawer_open";
   const token = localStorage.getItem("vine_token");
@@ -270,6 +278,7 @@ export default function VineCommunities() {
   const [topicFilter, setTopicFilter] = useState("");
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [communityNameDraft, setCommunityNameDraft] = useState("");
   const [communityDescriptionDraft, setCommunityDescriptionDraft] = useState("");
   const [communityAvatarFile, setCommunityAvatarFile] = useState(null);
   const [communityBannerFile, setCommunityBannerFile] = useState(null);
@@ -471,6 +480,7 @@ export default function VineCommunities() {
       setPosts([]);
       setMemoryWallPosts([]);
       setLibraryItems([]);
+      setCommunityNameDraft("");
       setCommunityDescriptionDraft("");
       return;
     }
@@ -490,11 +500,12 @@ export default function VineCommunities() {
         setMediaPosts([]);
         setLibraryItems([]);
         setLibraryVideos([]);
+        setCommunityNameDraft("");
         setCommunityDescriptionDraft("");
         return;
       }
 
-      const isMember = Number(cData?.is_member) === 1;
+      const isMember = Number(cData?.is_member) === 1 || isVineGuardianUser(currentUser);
 
       const [pRes, mRes, rulesRes, questionsRes, eventsRes, mediaRes, assignmentsRes, libraryRes] = await Promise.all([
         isMember
@@ -566,6 +577,7 @@ export default function VineCommunities() {
       setJoinPolicy(cData?.join_policy || "open");
       setAutoWelcomeEnabled(Number(cData?.auto_welcome_enabled ?? 1) === 1);
       setWelcomeMessage(cData?.welcome_message || "");
+      setCommunityNameDraft(cData?.name || "");
       setCommunityDescriptionDraft(cData?.description || "");
       setCommunityBannerOffset(Number(cData?.banner_offset_y || 0));
       setIsAdjustingCommunityBanner(false);
@@ -594,6 +606,7 @@ export default function VineCommunities() {
       setLibraryItems([]);
       setLibraryVideos([]);
       setSavedDraftsMap({});
+      setCommunityNameDraft("");
       setCommunityDescriptionDraft("");
       setCommunityBannerOffset(0);
       setIsAdjustingCommunityBanner(false);
@@ -936,7 +949,16 @@ export default function VineCommunities() {
   const saveSettings = async () => {
     if (!activeCommunity?.id) return;
     try {
+      const normalizedName = communityNameDraft.trim().slice(0, 80);
       const normalizedDescription = communityDescriptionDraft.trim().slice(0, 280);
+      if (!normalizedName) {
+        showCommunitySuccessModal(
+          "Community name needed",
+          "Add a name before saving these settings.",
+          { kicker: "Try again", tone: "warning", buttonLabel: "Close" }
+        );
+        return;
+      }
       const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/settings`, {
         method: "PATCH",
         headers: {
@@ -944,6 +966,7 @@ export default function VineCommunities() {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
+          name: normalizedName,
           description: normalizedDescription,
           join_policy: joinPolicy,
           post_permission: "mods_only",
@@ -964,6 +987,7 @@ export default function VineCommunities() {
         prev
           ? {
               ...prev,
+              name: data.name || normalizedName,
               description: normalizedDescription || null,
               join_policy: joinPolicy,
               post_permission: "mods_only",
@@ -977,6 +1001,7 @@ export default function VineCommunities() {
           Number(community?.id) === Number(activeCommunity.id)
             ? {
                 ...community,
+                name: data.name || normalizedName,
                 description: normalizedDescription || null,
                 join_policy: joinPolicy,
               }
@@ -2404,9 +2429,55 @@ export default function VineCommunities() {
     if (res.ok) loadCommunityDetail(activeCommunity.slug, topicFilter);
   };
 
+  const deleteCommunity = async () => {
+    if (!activeCommunity?.id) return;
+    const canDeleteCommunity =
+      String(activeCommunity?.viewer_role || "").toLowerCase() === "owner" ||
+      isVineGuardianUser(currentUser);
+    if (!canDeleteCommunity) {
+      alert("Only the community owner or guardian can delete this community.");
+      return;
+    }
+    const communityName = String(activeCommunity.name || "").trim();
+    const typed = window.prompt(
+      `This permanently deletes ${communityName || "this community"} and removes it from Vine. Type DELETE to continue.`
+    );
+    if (typed !== "DELETE") return;
+    const secondCheck = window.confirm(
+      `Delete ${communityName || "this community"} now? This removes posts, members, assignments, library items, and submissions.`
+    );
+    if (!secondCheck) return;
+
+    try {
+      const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || "Failed to delete community");
+        return;
+      }
+      setCommunities((prev) => prev.filter((community) => Number(community.id) !== Number(activeCommunity.id)));
+      setActiveCommunity(null);
+      setPosts([]);
+      setMembers([]);
+      setRules([]);
+      setAssignments([]);
+      setLibraryItems([]);
+      showCommunitySuccessModal("Community deleted", "The community has been removed from Vine.");
+      navigate("/vine/communities");
+      await loadCommunities();
+    } catch {
+      alert("Failed to delete community");
+    }
+  };
+
   const isCommunityMod = ["owner", "moderator"].includes(String(activeCommunity?.viewer_role || "").toLowerCase());
   const isCommunityOwner = String(activeCommunity?.viewer_role || "").toLowerCase() === "owner";
   const isCommunityModerator = String(activeCommunity?.viewer_role || "").toLowerCase() === "moderator";
+  const isVineGuardian = isVineGuardianUser(currentUser);
+  const canDeleteCommunity = isCommunityOwner || isVineGuardian;
   const isCommunityMember = Number(activeCommunity?.is_member) === 1;
   const isAttendanceManager = ["owner", "moderator"].includes(String(activeCommunity?.viewer_role || "").toLowerCase());
   const attendanceSessionDate = getTodayDateInputValue();
@@ -2420,7 +2491,7 @@ export default function VineCommunities() {
   const showSidebarCreateCommunity = !(activeCommunity?.id && activeTab === "announcements");
   const activeTabRequiresMembership = MEMBER_LOCKED_COMMUNITY_TABS.has(activeTab);
   const activeTabMembershipLabel = MEMBER_LOCKED_TAB_LABELS[activeTab] || "this community section";
-  const showCommunityMembershipGate = Boolean(activeCommunity?.id) && !isCommunityMember && activeTabRequiresMembership;
+  const showCommunityMembershipGate = Boolean(activeCommunity?.id) && !isCommunityMember && !isVineGuardian && activeTabRequiresMembership;
   const communityDescriptionPreview = getCommunityTeaser({
     ...activeCommunity,
     description: communityDescriptionDraft,
@@ -3327,20 +3398,16 @@ export default function VineCommunities() {
                         </div>
                       </div>
                     )}
-                    {Number(activeCommunity.is_member) === 1 && (
-                      <button
-                        className="community-join community-leave-about"
-                        onClick={() =>
-                          toggleJoin({
-                            id: activeCommunity.id,
-                            slug: activeCommunity.slug,
-                            is_member: activeCommunity.is_member,
-                            join_request_status: activeCommunity.join_request_status,
-                          })
-                        }
-                      >
-                        Leave Community
-                      </button>
+                    {canDeleteCommunity && (
+                      <div className="community-danger-zone">
+                        <div>
+                          <strong>Delete community</strong>
+                          <p>This removes the community from Vine, including posts, members, assignments, submissions, and library items.</p>
+                        </div>
+                        <button type="button" onClick={deleteCommunity}>
+                          Delete Community
+                        </button>
+                      </div>
                     )}
                     {rules.length > 0 && (
                       <div className="rules-list">
@@ -4916,6 +4983,16 @@ export default function VineCommunities() {
                     <h4>{isCommunityOwner ? "Group Settings" : "Pending Join Requests"}</h4>
                     {isCommunityOwner && (
                       <>
+                        <label className="settings-row">
+                          <span>Community name</span>
+                          <input
+                            value={communityNameDraft}
+                            onChange={(e) => setCommunityNameDraft(e.target.value)}
+                            maxLength={80}
+                            placeholder="Community name"
+                          />
+                          <small>{communityNameDraft.trim().length}/80</small>
+                        </label>
                         <label className="settings-row">
                           <span>Community description</span>
                           <textarea

@@ -1753,6 +1753,41 @@
   color: #b91c1c;
 }
 
+.community-danger-zone {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid #fecaca;
+  border-radius: 14px;
+  background: #fff1f2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.community-danger-zone strong {
+  color: #9f1239;
+}
+
+.community-danger-zone p {
+  margin: 4px 0 0;
+  color: #7f1d1d;
+  font-size: 0.86rem;
+  line-height: 1.35;
+}
+
+.community-danger-zone button {
+  border: none;
+  border-radius: 999px;
+  padding: 10px 14px;
+  background: linear-gradient(135deg, #ef4444, #b91c1c);
+  color: #fff;
+  font-weight: 900;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: 0 12px 22px rgba(185, 28, 28, 0.18);
+}
+
 .community-header h3 {
   margin: 0;
   color: #052e16;
@@ -5394,6 +5429,15 @@
   .assignment-top-row {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .community-danger-zone {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .community-danger-zone button {
+    width: 100%;
   }
 
   .library-upload-row {

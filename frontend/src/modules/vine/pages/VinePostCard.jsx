@@ -295,6 +295,7 @@ function VinePostCard({
   const isModerator =
     Number(currentUser?.is_admin) === 1 ||
     String(currentUser?.role || "").toLowerCase() === "moderator" ||
+    String(currentUser?.badge_type || "").toLowerCase() === "guardian" ||
     ["vine guardian","vine_guardian","vine news","vine_news"].includes(String(currentUser?.username || "").toLowerCase());
   const currentUserAvatar = currentUser?.avatar_url || DEFAULT_AVATAR;
   const isGuardianPost = ["vine guardian","vine_guardian","vine news","vine_news"].includes(String(post.username || "").toLowerCase());

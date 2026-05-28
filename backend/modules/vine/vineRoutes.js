@@ -329,7 +329,18 @@ const isModeratorAccount = (user) => {
   if (!user) return false;
   if (Number(user.is_admin) === 1) return true;
   if (String(user.role || "").toLowerCase() === "moderator") return true;
+  if (String(user.badge_type || "").toLowerCase() === "guardian") return true;
   return ["vine guardian","vine_guardian"].includes(String(user.username || "").toLowerCase());
+};
+
+const isGuardianAccountById = async (userId) => {
+  const numericUserId = Number(userId || 0);
+  if (!numericUserId) return false;
+  const [[row]] = await db.query(
+    "SELECT username, role, is_admin, badge_type FROM vine_users WHERE id = ? LIMIT 1",
+    [numericUserId]
+  );
+  return isModeratorAccount(row);
 };
 
 const getClientIp = (req) => {
@@ -6473,12 +6484,16 @@ const getCommunityRole = async (communityId, userId) => {
   return row?.role || null;
 };
 
-const isCommunityMemberUser = async (communityId, userId) => Boolean(await getCommunityRole(communityId, userId));
+const isCommunityMemberUser = async (communityId, userId) => {
+  if (await getCommunityRole(communityId, userId)) return true;
+  return isGuardianAccountById(userId);
+};
 
 const canAccessCommunityByVisibilityPolicy = async (userId, communityId) => {
   const uid = Number(userId || 0);
   const cid = Number(communityId || 0);
   if (!uid || !cid) return true;
+  if (await isGuardianAccountById(uid)) return true;
   const [[community]] = await db.query(
     `
     SELECT is_private
@@ -6842,6 +6857,7 @@ router.use((req, res, next) => {
       buildCommunityBannerBuffer,
       uploadBufferToCloudinary,
       deleteCloudinaryByUrl,
+      clearVineReadCache,
     });
   }
   return vineCommunitySettingsRouter(req, res, next);

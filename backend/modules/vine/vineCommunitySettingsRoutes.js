@@ -14,19 +14,66 @@ export default function createVineCommunitySettingsRouter({
   buildCommunityBannerBuffer,
   uploadBufferToCloudinary,
   deleteCloudinaryByUrl,
+  clearVineReadCache,
 }) {
   const router = express.Router();
+
+  const collectCommunityStoredUrls = (value) => {
+    const raw = String(value || "").trim();
+    if (!raw) return [];
+    if (/^https?:\/\//i.test(raw)) return [raw];
+    try {
+      const parsed = JSON.parse(raw);
+      const values = Array.isArray(parsed) ? parsed : [parsed];
+      return values
+        .flatMap((item) => {
+          if (!item) return [];
+          if (typeof item === "string") return item;
+          if (typeof item === "object") {
+            return [item.url, item.secure_url, item.image_url, item.media_url].filter(Boolean);
+          }
+          return [];
+        })
+        .filter((url) => /^https?:\/\//i.test(String(url || "")));
+    } catch {
+      return [];
+    }
+  };
+
+  const isGuardianUser = async (user) => {
+    const userId = Number(user?.id || 0);
+    if (!userId) return false;
+    if (Number(user?.is_admin) === 1) return true;
+    if (String(user?.role || "").toLowerCase() === "moderator") return true;
+    if (["vine guardian", "vine_guardian"].includes(String(user?.username || "").toLowerCase())) return true;
+    const [[row]] = await db.query(
+      "SELECT username, role, is_admin, badge_type FROM vine_users WHERE id = ? LIMIT 1",
+      [userId]
+    );
+    if (!row) return false;
+    if (Number(row.is_admin) === 1) return true;
+    if (String(row.role || "").toLowerCase() === "moderator") return true;
+    if (String(row.badge_type || "").toLowerCase() === "guardian") return true;
+    return ["vine guardian", "vine_guardian"].includes(String(row.username || "").toLowerCase());
+  };
 
   router.patch("/communities/:id/settings", authenticate, async (req, res) => {
     try {
       await ensureCommunitySchema();
       const userId = req.user.id;
       const communityId = Number(req.params.id);
+      const name = String(req.body?.name || "").trim();
       const description = String(req.body?.description || "").trim();
       const joinPolicy = String(req.body?.join_policy || "").trim();
       const autoWelcomeEnabled = req.body?.auto_welcome_enabled;
       const welcomeMessage = String(req.body?.welcome_message || "").trim();
       if (!communityId) return res.status(400).json({ message: "Invalid community" });
+      if (!name) {
+        return res.status(400).json({ message: "Community name is required" });
+      }
+      if (name.length > 80) {
+        return res.status(400).json({ message: "Community name is too long" });
+      }
       if (description.length > 280) {
         return res.status(400).json({ message: "Community description is too long" });
       }
@@ -49,7 +96,8 @@ export default function createVineCommunitySettingsRouter({
       await db.query(
         `
         UPDATE vine_communities
-        SET description = ?,
+        SET name = ?,
+            description = ?,
             join_policy = ?,
             post_permission = ?,
             auto_welcome_enabled = ?,
@@ -57,6 +105,7 @@ export default function createVineCommunitySettingsRouter({
         WHERE id = ?
         `,
         [
+          name.slice(0, 80),
           description || null,
           joinPolicy,
           "mods_only",
@@ -67,6 +116,7 @@ export default function createVineCommunitySettingsRouter({
       );
       res.json({
         success: true,
+        name: name.slice(0, 80),
         description: description || null,
         join_policy: joinPolicy,
         post_permission: "mods_only",
@@ -76,6 +126,130 @@ export default function createVineCommunitySettingsRouter({
     } catch (err) {
       console.error("Update community settings error:", err);
       res.status(500).json({ message: "Failed to update settings" });
+    }
+  });
+
+  router.delete("/communities/:id", authenticate, async (req, res) => {
+    try {
+      await ensureCommunitySchema();
+      const userId = Number(req.user.id);
+      const communityId = Number(req.params.id);
+      if (!communityId) return res.status(400).json({ message: "Invalid community" });
+
+      const [[community]] = await db.query(
+        "SELECT id, name, slug, avatar_url, banner_url FROM vine_communities WHERE id = ? LIMIT 1",
+        [communityId]
+      );
+      if (!community) return res.status(404).json({ message: "Community not found" });
+
+      const role = String(await getCommunityRole(communityId, userId) || "").toLowerCase();
+      const allowed = role === "owner" || await isGuardianUser(req.user);
+      if (!allowed) {
+        return res.status(403).json({ message: "Only community owner or guardian can delete this community" });
+      }
+
+      const [posts] = await db.query(
+        "SELECT id, image_url FROM vine_posts WHERE community_id = ?",
+        [communityId]
+      );
+      const postIds = posts.map((row) => Number(row.id)).filter(Boolean);
+      const [assignments] = await db.query(
+        "SELECT attachment_url FROM vine_community_assignments WHERE community_id = ?",
+        [communityId]
+      );
+      const [submissionFiles] = await db.query(
+        "SELECT file_url FROM vine_community_submission_files WHERE community_id = ?",
+        [communityId]
+      );
+      const [submissions] = await db.query(
+        "SELECT attachment_url FROM vine_community_submissions WHERE community_id = ?",
+        [communityId]
+      );
+      const [libraryItems] = await db.query(
+        "SELECT pdf_url FROM vine_community_library WHERE community_id = ?",
+        [communityId]
+      );
+      const [libraryVideos] = await db.query(
+        "SELECT video_url FROM vine_community_library_videos WHERE community_id = ?",
+        [communityId]
+      );
+      const [scheduledPosts] = await db.query(
+        "SELECT image_url FROM vine_scheduled_posts WHERE community_id = ?",
+        [communityId]
+      );
+      const urlsToDelete = [
+        community.avatar_url,
+        community.banner_url,
+        ...posts.flatMap((row) => collectCommunityStoredUrls(row.image_url)),
+        ...scheduledPosts.flatMap((row) => collectCommunityStoredUrls(row.image_url)),
+        ...assignments.map((row) => row.attachment_url),
+        ...submissions.map((row) => row.attachment_url),
+        ...submissionFiles.map((row) => row.file_url),
+        ...libraryItems.map((row) => row.pdf_url),
+        ...libraryVideos.map((row) => row.video_url),
+      ].filter(Boolean);
+
+      if (postIds.length > 0) {
+        const placeholders = postIds.map(() => "?").join(", ");
+        const [polls] = await db.query(
+          `SELECT id FROM vine_polls WHERE post_id IN (${placeholders})`,
+          postIds
+        ).catch(() => [[]]);
+        const pollIds = polls.map((row) => Number(row.id)).filter(Boolean);
+        if (pollIds.length > 0) {
+          const pollPlaceholders = pollIds.map(() => "?").join(", ");
+          await db.query(`DELETE FROM vine_poll_votes WHERE poll_id IN (${pollPlaceholders})`, pollIds).catch(() => {});
+          await db.query(`DELETE FROM vine_poll_options WHERE poll_id IN (${pollPlaceholders})`, pollIds).catch(() => {});
+          await db.query(`DELETE FROM vine_polls WHERE id IN (${pollPlaceholders})`, pollIds).catch(() => {});
+        }
+        await db.query(`DELETE FROM vine_comment_likes WHERE comment_id IN (SELECT id FROM vine_comments WHERE post_id IN (${placeholders}))`, postIds).catch(() => {});
+        await db.query(`DELETE FROM vine_notifications WHERE post_id IN (${placeholders})`, postIds).catch(() => {});
+        await db.query(`DELETE FROM vine_bookmarks WHERE post_id IN (${placeholders})`, postIds).catch(() => {});
+        await db.query(`DELETE FROM vine_revines WHERE post_id IN (${placeholders})`, postIds).catch(() => {});
+        await db.query(`DELETE FROM vine_likes WHERE post_id IN (${placeholders})`, postIds).catch(() => {});
+        await db.query(`DELETE FROM vine_comments WHERE post_id IN (${placeholders})`, postIds).catch(() => {});
+        await db.query(`DELETE FROM vine_post_tags WHERE post_id IN (${placeholders})`, postIds).catch(() => {});
+      }
+
+      await db.query("DELETE FROM vine_community_library_video_comments WHERE community_id = ?", [communityId]).catch(() => {});
+      await db.query("DELETE FROM vine_community_library_videos WHERE community_id = ?", [communityId]).catch(() => {});
+      await db.query("DELETE FROM vine_community_library WHERE community_id = ?", [communityId]).catch(() => {});
+      await db.query("DELETE FROM vine_community_submission_files WHERE community_id = ?", [communityId]);
+      await db.query("DELETE FROM vine_community_submission_drafts WHERE community_id = ?", [communityId]);
+      await db.query("DELETE FROM vine_community_submissions WHERE community_id = ?", [communityId]);
+      await db.query("DELETE FROM vine_community_assignments WHERE community_id = ?", [communityId]);
+      await db.query("DELETE FROM vine_community_attendance WHERE community_id = ?", [communityId]);
+      await db.query("DELETE FROM vine_community_sessions WHERE community_id = ?", [communityId]);
+      await db.query("DELETE FROM vine_community_reports WHERE community_id = ?", [communityId]);
+      await db.query("DELETE FROM vine_community_events WHERE community_id = ?", [communityId]);
+      await db.query("DELETE FROM vine_community_join_questions WHERE community_id = ?", [communityId]);
+      await db.query("DELETE FROM vine_community_rules WHERE community_id = ?", [communityId]);
+      await db.query("DELETE FROM vine_community_join_requests WHERE community_id = ?", [communityId]);
+      await db.query("DELETE FROM vine_community_members WHERE community_id = ?", [communityId]);
+      await db.query("DELETE FROM vine_scheduled_posts WHERE community_id = ?", [communityId]);
+      await db.query("DELETE FROM vine_posts WHERE community_id = ?", [communityId]);
+      await db.query("DELETE FROM vine_communities WHERE id = ?", [communityId]);
+
+      await Promise.allSettled(Array.from(new Set(urlsToDelete)).map((url) => deleteCloudinaryByUrl(url)));
+      clearVineReadCache?.(
+        "community-posts",
+        "community-assignments",
+        "community-assignment-submissions",
+        "community-gradebook",
+        "community-progress",
+        "community-library",
+        "community-library-videos",
+        "community-sessions",
+        "community-attendance-session",
+        "community-attendance-summary",
+        "community-attendance-records",
+        "feed",
+        "profile-header"
+      );
+      res.json({ success: true, deleted_id: communityId, deleted_slug: community.slug });
+    } catch (err) {
+      console.error("Delete community error:", err);
+      res.status(500).json({ message: "Failed to delete community" });
     }
   });
 

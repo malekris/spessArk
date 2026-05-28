@@ -29,6 +29,14 @@ const DEFAULT_COMPONENT_OPTIONS = [
 ];
 const keyOf = (cls, stream) => `${cls}||${stream}`;
 
+const normalizeTermNumber = (value) => {
+  const compact = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
+  if (compact === "3" || compact === "term3" || compact === "iii" || compact === "termiii" || compact === "term1ii") return 3;
+  if (compact === "2" || compact === "term2" || compact === "ii" || compact === "termii" || compact === "term1i") return 2;
+  if (compact === "1" || compact === "term1" || compact === "i" || compact === "termi") return 1;
+  return 1;
+};
+
 export default function AssessmentSubmissionTracker({
   marksSets = [],
   refreshMarks,
@@ -39,8 +47,13 @@ export default function AssessmentSubmissionTracker({
   subtitle = "Track subject submissions per class and stream.",
   componentOptions = DEFAULT_COMPONENT_OPTIONS,
   trackedUnitLabel = "subjects",
+  currentTerm = null,
+  currentYear = null,
+  lockToCurrentTerm = false,
 }) {
-  const [selectedTerm, setSelectedTerm] = useState(1);
+  const drivenTerm = currentTerm ? normalizeTermNumber(currentTerm) : null;
+  const drivenYear = Number(currentYear);
+  const [selectedTerm, setSelectedTerm] = useState(drivenTerm || 1);
   const [selectedComponent, setSelectedComponent] = useState(
     componentOptions[0]?.value || DEFAULT_COMPONENT_OPTIONS[0].value
   );
@@ -49,6 +62,12 @@ export default function AssessmentSubmissionTracker({
     componentOptions.find((option) => option.value === selectedComponent)?.label ||
     componentOptions[0]?.label ||
     "AOI 1";
+
+  useEffect(() => {
+    if (drivenTerm) {
+      setSelectedTerm(drivenTerm);
+    }
+  }, [drivenTerm]);
 
   useEffect(() => {
     const nextDefault = componentOptions[0]?.value || DEFAULT_COMPONENT_OPTIONS[0].value;
@@ -94,20 +113,16 @@ export default function AssessmentSubmissionTracker({
   // Filter marks by selected term
   const filtered = useMemo(() => {
     return marksSets.filter((m) => {
-      const raw = String(m.term ?? "").toLowerCase();
-  
-      // Handle formats like "1", "Term 1", "T1"
-      if (raw.includes("1")) return selectedTerm === 1;
-      if (raw.includes("2")) return selectedTerm === 2;
-      if (raw.includes("3")) return selectedTerm === 3;
-  
-      // fallback if it's numeric
-      const n = Number(m.term);
-      if (!Number.isNaN(n)) return n === selectedTerm;
-  
-      return false;
+      const termMatches = normalizeTermNumber(m.term) === selectedTerm;
+      if (!termMatches) return false;
+
+      if (Number.isFinite(drivenYear) && drivenYear > 0) {
+        return Number(m.year) === drivenYear;
+      }
+
+      return true;
     });
-  }, [marksSets, selectedTerm]);
+  }, [drivenYear, marksSets, selectedTerm]);
   
   // Group by class + stream
   const grouped = useMemo(() => {
@@ -335,15 +350,21 @@ export default function AssessmentSubmissionTracker({
 
   {/* TERM TOGGLE + PDF EXPORT — ALWAYS VISIBLE */}
   <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
-    {TERMS.map(t => (
-      <button
-        key={t}
-        className={t === selectedTerm ? "primary-btn" : "ghost-btn"}
-        onClick={() => setSelectedTerm(t)}
-      >
-        Term {t}
-      </button>
-    ))}
+    {lockToCurrentTerm ? (
+      <span className="primary-btn" style={{ cursor: "default" }}>
+        Term {selectedTerm}
+      </span>
+    ) : (
+      TERMS.map(t => (
+        <button
+          key={t}
+          className={t === selectedTerm ? "primary-btn" : "ghost-btn"}
+          onClick={() => setSelectedTerm(t)}
+        >
+          Term {t}
+        </button>
+      ))
+    )}
 
     <select
       value={selectedComponent}

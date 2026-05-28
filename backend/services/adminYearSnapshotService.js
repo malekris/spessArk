@@ -81,6 +81,12 @@ const safeDateOnly = (value) => {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
 
+const getOperationalTermLabel = (entry = {}) => {
+  if (entry.key === "term3" || entry.key === "holiday3") return "Term 3";
+  if (entry.key === "term2" || entry.key === "holiday2") return "Term 2";
+  return "Term 1";
+};
+
 const deriveOperationalTerm = (calendarPayload, date = new Date()) => {
   const normalized = normalizeSchoolCalendarPayload(calendarPayload || DEFAULT_SCHOOL_CALENDAR);
   const sortedEntries = normalized.entries
@@ -98,12 +104,12 @@ const deriveOperationalTerm = (calendarPayload, date = new Date()) => {
 
   for (const entry of sortedEntries) {
     if (entry.key.startsWith("term")) {
-      lastSeenTerm = entry.label.replace("Term I", "Term 1").replace("Term II", "Term 2").replace("Term III", "Term 3");
+      lastSeenTerm = getOperationalTermLabel(entry);
     }
 
     if (date >= entry.fromDate && date <= entry.toDate) {
       if (entry.key.startsWith("term")) {
-        return entry.label.replace("Term I", "Term 1").replace("Term II", "Term 2").replace("Term III", "Term 3");
+        return getOperationalTermLabel(entry);
       }
       return lastSeenTerm;
     }
@@ -173,7 +179,7 @@ export async function getCurrentAcademicCalendar(executor) {
     const parsed = parseSnapshotJson(row?.calendar_json);
     return normalizeSchoolCalendarPayload({
       academicYear: row?.academic_year,
-      ...(parsed || {}),
+      ...(Array.isArray(parsed) ? { entries: parsed } : parsed || {}),
     });
   } catch {
     return normalizeSchoolCalendarPayload(DEFAULT_SCHOOL_CALENDAR);

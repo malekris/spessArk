@@ -10,7 +10,6 @@ import { useSearchParams } from "react-router-dom";
 import { convertHeicFileToJpeg, isHeicLikeFile } from "../utils/heic";
 import { createClientRequestId } from "../../../utils/requestId";
 import { getCurrentVinePostSource } from "../utils/postSource";
-import { getVineNotificationsSeenAt, setVineNotificationsSeenAt } from "../utils/vineAuth";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const STATUS_COLORS = [
@@ -1292,10 +1291,6 @@ export default function VineFeed() {
   };
 
   const handleOpenNotifications = () => {
-    if (viewerId) {
-      setVineNotificationsSeenAt(viewerId);
-      setUnread(0);
-    }
     navigate("/vine/notifications");
   };
 
@@ -1308,11 +1303,7 @@ export default function VineFeed() {
     // Fetch bell badge count
     const fetchUnreadNotifications = async () => {
       try {
-        const seenAt = viewerId ? getVineNotificationsSeenAt(viewerId) : "";
-        const endpoint = seenAt
-          ? `${API}/api/vine/notifications/unseen-count?since=${encodeURIComponent(seenAt)}`
-          : `${API}/api/vine/notifications/unread-count`;
-        const res = await fetch(endpoint, {
+        const res = await fetch(`${API}/api/vine/notifications/unread-count`, {
           headers: { Authorization: `Bearer ${token}` },
           signal: notificationController.signal,
           cache: "no-store",

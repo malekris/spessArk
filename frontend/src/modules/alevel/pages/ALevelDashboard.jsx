@@ -5,39 +5,26 @@ import ALevelAdminShell from "../components/ALevelAdminShell";
 import { adminFetch, plainFetch } from "../../../lib/api";
 import badge from "../../../assets/badge.png";
 import { loadPdfTools } from "../../../utils/loadPdfTools";
+import {
+  DEFAULT_SCHOOL_CALENDAR,
+  getSchoolCalendarBadge,
+  normalizeSchoolCalendar,
+} from "../../../utils/schoolCalendar";
 import "../../../pages/AdminDashboard.css";
 import "./ALevelAdminTheme.css";
 
 const ALEVEL_TERMS = ["Term 1", "Term 2", "Term 3"];
-const ALEVEL_TERM_ORDER = { "Term 1": 1, "Term 2": 2, "Term 3": 3 };
 
 const normalizeAlevelTerm = (value = "") => {
   const raw = String(value || "").trim().toLowerCase();
-  if (raw.includes("1")) return "Term 1";
-  if (raw.includes("2")) return "Term 2";
-  if (raw.includes("3")) return "Term 3";
+  const compact = raw.replace(/[\s_-]+/g, "");
+  if (compact === "3" || compact === "term3" || compact === "iii" || compact === "termiii" || compact === "term1ii") return "Term 3";
+  if (compact === "2" || compact === "term2" || compact === "ii" || compact === "termii" || compact === "term1i") return "Term 2";
+  if (compact === "1" || compact === "term1" || compact === "i" || compact === "termi") return "Term 1";
   return String(value || "").trim() || "Term 1";
 };
 
 const normalizeAlevelComponent = (value = "") => String(value || "").trim().toUpperCase();
-
-const getLatestAlevelPeriod = (sets = []) => {
-  const normalized = (Array.isArray(sets) ? sets : [])
-    .map((set) => ({
-      term: normalizeAlevelTerm(set.term),
-      year: Number(set.year),
-    }))
-    .filter((set) => Number.isFinite(set.year) && set.term);
-
-  if (normalized.length === 0) {
-    return { term: "Term 1", year: new Date().getFullYear() };
-  }
-
-  return normalized.sort((a, b) => {
-    if (b.year !== a.year) return b.year - a.year;
-    return (ALEVEL_TERM_ORDER[b.term] || 0) - (ALEVEL_TERM_ORDER[a.term] || 0);
-  })[0];
-};
 
 const getCoverageTone = (rate) => {
   if (rate >= 85) return "#22c55e";
@@ -287,7 +274,9 @@ export default function ALevelDashboard() {
   const [readinessError, setReadinessError] = useState("");
   const [selectedReadinessTerm, setSelectedReadinessTerm] = useState("Term 1");
   const [selectedReadinessYear, setSelectedReadinessYear] = useState(new Date().getFullYear());
-  const [readinessSelectionSeeded, setReadinessSelectionSeeded] = useState(false);
+  const [schoolCalendar, setSchoolCalendar] = useState(() =>
+    normalizeSchoolCalendar(DEFAULT_SCHOOL_CALENDAR)
+  );
   const [showMoreInsights, setShowMoreInsights] = useState(false);
   const [dashboardInsights, setDashboardInsights] = useState(null);
   const [insightsLoading, setInsightsLoading] = useState(false);
@@ -302,6 +291,39 @@ export default function ALevelDashboard() {
   }, []);
 
   useEffect(() => {
+    let active = true;
+
+    plainFetch("/api/school-calendar")
+      .then((data) => {
+        if (active) setSchoolCalendar(normalizeSchoolCalendar(data));
+      })
+      .catch((err) => {
+        console.error("A-Level dashboard calendar load error:", err);
+        if (active) setSchoolCalendar(normalizeSchoolCalendar(DEFAULT_SCHOOL_CALENDAR));
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const calendarReadinessPeriod = useMemo(() => {
+    const normalizedCalendar = normalizeSchoolCalendar(schoolCalendar || DEFAULT_SCHOOL_CALENDAR);
+    const badge = getSchoolCalendarBadge(normalizedCalendar);
+    const parsedYear = Number(normalizedCalendar.academicYear);
+
+    return {
+      term: normalizeAlevelTerm(badge.termLabel),
+      year: Number.isFinite(parsedYear) && parsedYear > 0 ? parsedYear : new Date().getFullYear(),
+    };
+  }, [schoolCalendar]);
+
+  useEffect(() => {
+    setSelectedReadinessTerm(calendarReadinessPeriod.term);
+    setSelectedReadinessYear(calendarReadinessPeriod.year);
+  }, [calendarReadinessPeriod.term, calendarReadinessPeriod.year]);
+
+  useEffect(() => {
     const loadReadinessData = async () => {
       setReadinessLoading(true);
       setReadinessError("");
@@ -313,13 +335,6 @@ export default function ALevelDashboard() {
 
         setReadinessAssignments(Array.isArray(assignments) ? assignments : []);
         setReadinessMarksSets(Array.isArray(marksSets) ? marksSets : []);
-
-        if (!readinessSelectionSeeded) {
-          const latest = getLatestAlevelPeriod(marksSets);
-          setSelectedReadinessTerm(latest.term);
-          setSelectedReadinessYear(latest.year);
-          setReadinessSelectionSeeded(true);
-        }
       } catch (err) {
         console.error("A-Level readiness load error:", err);
         setReadinessError(err.message || "Failed to load readiness summary.");
@@ -329,7 +344,7 @@ export default function ALevelDashboard() {
     };
 
     loadReadinessData();
-  }, [readinessSelectionSeeded]);
+  }, []);
 
   const fetchAlevelTrackerData = async () => {
     setTrackerLoading(true);
@@ -389,9 +404,11 @@ export default function ALevelDashboard() {
   const readinessYearOptions = useMemo(() => {
     const years = Array.from(
       new Set(
-        readinessMarksSets
-          .map((set) => Number(set.year))
-          .filter((year) => Number.isFinite(year) && year > 0)
+        [
+          calendarReadinessPeriod.year,
+          selectedReadinessYear,
+          ...readinessMarksSets.map((set) => Number(set.year)),
+        ].filter((year) => Number.isFinite(year) && year > 0)
       )
     ).sort((a, b) => b - a);
 
@@ -400,7 +417,7 @@ export default function ALevelDashboard() {
     }
 
     return years;
-  }, [readinessMarksSets]);
+  }, [calendarReadinessPeriod.year, readinessMarksSets, selectedReadinessYear]);
 
   const effectiveReadinessYear = readinessYearOptions.includes(Number(selectedReadinessYear))
     ? Number(selectedReadinessYear)
@@ -1763,7 +1780,7 @@ export default function ALevelDashboard() {
                   <div className="panel-header">
                     <div>
                       <h2>Assessment Submission Tracker</h2>
-                      <p>A-Level subject submission tracker by term and stream.</p>
+                      <p>A-Level paper submission tracker for {selectedReadinessTerm} {effectiveReadinessYear}.</p>
                     </div>
                     <div style={{ display: "flex", gap: "0.6rem" }}>
                       <button
@@ -1793,6 +1810,9 @@ export default function ALevelDashboard() {
                       officialSubjects={trackerSubjects}
                       assignmentsEndpoint="/api/alevel/admin/assignments"
                       trackedUnitLabel="papers"
+                      currentTerm={selectedReadinessTerm}
+                      currentYear={effectiveReadinessYear}
+                      lockToCurrentTerm
                       componentOptions={[
                         { value: "MID", label: "MID" },
                         { value: "EOT", label: "EOT" },
@@ -1804,7 +1824,7 @@ export default function ALevelDashboard() {
                         { class_level: "A-Level", stream: "S6 Sciences" },
                       ]}
                       title="Assessment Submission Tracker"
-                      subtitle="Track A-Level paper submissions per stream using MID and EOT."
+                      subtitle={`Track A-Level paper submissions per stream using MID and EOT for ${selectedReadinessTerm} ${effectiveReadinessYear}.`}
                     />
                   )}
                 </section>

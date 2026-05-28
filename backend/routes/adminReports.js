@@ -39,11 +39,23 @@ const buildPopulationMeta = (rows, normalizeStream) => {
 };
 
 const normalizeTermLabel = (term) => {
-  if (term === "1" || term === 1) return "Term 1";
-  if (term === "2" || term === 2) return "Term 2";
-  if (term === "3" || term === 3) return "Term 3";
+  const raw = String(term || "").trim().toLowerCase();
+  const compact = raw.replace(/[\s_-]+/g, "");
+
+  if (compact === "3" || compact === "term3" || compact === "iii" || compact === "termiii" || compact === "term1ii") return "Term 3";
+  if (compact === "2" || compact === "term2" || compact === "ii" || compact === "termii" || compact === "term1i") return "Term 2";
+  if (compact === "1" || compact === "term1" || compact === "i" || compact === "termi") return "Term 1";
   return String(term || "").trim();
 };
+
+const NORMALIZED_TERM_SQL = (columnName) => `
+  CASE
+    WHEN LOWER(REPLACE(REPLACE(REPLACE(TRIM(${columnName}), ' ', ''), '-', ''), '_', '')) IN ('3', 'term3', 'iii', 'termiii', 'term1ii') THEN 'Term 3'
+    WHEN LOWER(REPLACE(REPLACE(REPLACE(TRIM(${columnName}), ' ', ''), '-', ''), '_', '')) IN ('2', 'term2', 'ii', 'termii', 'term1i') THEN 'Term 2'
+    WHEN LOWER(REPLACE(REPLACE(REPLACE(TRIM(${columnName}), ' ', ''), '-', ''), '_', '')) IN ('1', 'term1', 'i', 'termi') THEN 'Term 1'
+    ELSE TRIM(${columnName})
+  END
+`;
 
 const O_LEVEL_COMPONENTS_BY_TERM = {
   "Term 1": ["AOI 1", "AOI 2", "AOI 3"],
@@ -297,7 +309,7 @@ const buildReportReadinessSummaryFromSources = async ({
     `
       SELECT DISTINCT learner_id
       FROM alevel_marks
-      WHERE term = ?
+      WHERE ${NORMALIZED_TERM_SQL("term")} = ?
         AND YEAR(created_at) = ?
     `,
     [normalizeTermLabel(term), Number(year)]
@@ -1166,7 +1178,7 @@ router.get("/readiness-incomplete-details", authAdmin, async (req, res) => {
         `
           SELECT DISTINCT learner_id
           FROM alevel_marks
-          WHERE term = ?
+          WHERE ${NORMALIZED_TERM_SQL("term")} = ?
             AND YEAR(created_at) = ?
         `,
         [term, year]

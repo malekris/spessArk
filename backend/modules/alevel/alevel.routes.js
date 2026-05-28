@@ -37,11 +37,21 @@ const normalizePaperLabel = (value = "") => {
 
 const normalizeAlevelTerm = (value = "") => {
   const raw = String(value || "").trim().toLowerCase();
-  if (raw.includes("1")) return "Term 1";
-  if (raw.includes("2")) return "Term 2";
-  if (raw.includes("3")) return "Term 3";
+  const compact = raw.replace(/[\s_-]+/g, "");
+  if (compact === "3" || compact === "term3" || compact === "iii" || compact === "termiii" || compact === "term1ii") return "Term 3";
+  if (compact === "2" || compact === "term2" || compact === "ii" || compact === "termii" || compact === "term1i") return "Term 2";
+  if (compact === "1" || compact === "term1" || compact === "i" || compact === "termi") return "Term 1";
   return String(value || "").trim() || "Term 1";
 };
+
+const NORMALIZED_ALEVEL_TERM_SQL = (columnName) => `
+  CASE
+    WHEN LOWER(REPLACE(REPLACE(REPLACE(TRIM(${columnName}), ' ', ''), '-', ''), '_', '')) IN ('3', 'term3', 'iii', 'termiii', 'term1ii') THEN 'Term 3'
+    WHEN LOWER(REPLACE(REPLACE(REPLACE(TRIM(${columnName}), ' ', ''), '-', ''), '_', '')) IN ('2', 'term2', 'ii', 'termii', 'term1i') THEN 'Term 2'
+    WHEN LOWER(REPLACE(REPLACE(REPLACE(TRIM(${columnName}), ' ', ''), '-', ''), '_', '')) IN ('1', 'term1', 'i', 'termi') THEN 'Term 1'
+    ELSE TRIM(${columnName})
+  END
+`;
 
 const normalizeAlevelComponent = (value = "") =>
   String(value || "").trim().toUpperCase();
@@ -877,7 +887,7 @@ router.get("/admin/marks-sets", async (req, res) => {
         l.stream,
         s.name AS subject,
         ats.paper_label,
-        am.term,
+      ${NORMALIZED_ALEVEL_TERM_SQL("am.term")} AS term,
         YEAR(am.created_at) AS year,
         ae.name AS aoi_label,
         t.name AS teacher_name
@@ -1043,7 +1053,7 @@ const buildAlevelDashboardInsights = async ({ term, year }, executor = db) => {
     JOIN alevel_exams ae ON ae.id = am.exam_id
     JOIN alevel_subjects s ON s.id = am.subject_id
     LEFT JOIN alevel_teacher_subjects ats ON ats.id = am.assignment_id
-    WHERE am.term = ?
+    WHERE ${NORMALIZED_ALEVEL_TERM_SQL("am.term")} = ?
       ${markYearClause}
       AND ae.name IN ('MID', 'EOT')
     ORDER BY am.id DESC

@@ -173,6 +173,10 @@ const extractDownloadFilename = (contentDisposition, fallbackName) => {
 
 const normalizeOperationalTerm = (value) => {
   const raw = String(value || "").trim().toLowerCase();
+  const compact = raw.replace(/[\s_-]+/g, "");
+
+  if (compact === "term1ii") return "Term 3";
+  if (compact === "term1i") return "Term 2";
   if (/\b(term\s*3|iii|3)\b/.test(raw)) return "Term 3";
   if (/\b(term\s*2|ii|2)\b/.test(raw)) return "Term 2";
   if (/\b(term\s*1|i|1)\b/.test(raw)) return "Term 1";
@@ -3345,7 +3349,7 @@ export default function AdminDashboard() {
   }, [scoreSheetStreamOptions, scoreSheetFilters.stream]);
 
   const dashboardViewYear = Number(dashboardSnapshot?.academicYear || selectedDashboardYear || dashboardOperationalYear);
-  const dashboardViewTerm = dashboardSnapshot?.operationalTerm || dashboardOperationalTerm;
+  const dashboardViewTerm = normalizeOperationalTerm(dashboardSnapshot?.operationalTerm || dashboardOperationalTerm);
   const dashboardViewMode = dashboardSnapshot?.mode || (dashboardViewYear === dashboardOperationalYear ? "live" : "snapshot");
   const dashboardViewCapturedAt = dashboardSnapshot?.capturedAt || null;
   const isHistoricalDashboardView = Number(dashboardViewYear) !== Number(dashboardOperationalYear);
@@ -3674,7 +3678,20 @@ export default function AdminDashboard() {
       },
     };
 
-    return dashboardSnapshot?.reportReadinessSummary || reportReadinessSummary || empty;
+    const summaryMatchesDashboardTerm = (summary) =>
+      summary &&
+      normalizeOperationalTerm(summary.term) === dashboardViewTerm &&
+      Number(summary.year) === Number(dashboardViewYear);
+
+    if (summaryMatchesDashboardTerm(reportReadinessSummary)) {
+      return reportReadinessSummary;
+    }
+
+    if (summaryMatchesDashboardTerm(dashboardSnapshot?.reportReadinessSummary)) {
+      return dashboardSnapshot.reportReadinessSummary;
+    }
+
+    return empty;
   }, [
     dashboardALevelLearners.length,
     dashboardSnapshot,

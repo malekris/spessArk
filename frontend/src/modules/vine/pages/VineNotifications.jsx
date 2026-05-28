@@ -5,7 +5,6 @@ import {
   getVineToken,
   getVineUser,
   isVineTokenExpired,
-  setVineNotificationsSeenAt,
 } from "../utils/vineAuth";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
@@ -22,9 +21,6 @@ export default function VineNotifications() {
   }, []);
   useEffect(() => {
     if (!token) return;
-    if (viewerId) {
-      setVineNotificationsSeenAt(viewerId);
-    }
 
     const controller = new AbortController();
     const loadNotifications = async () => {
@@ -36,7 +32,18 @@ export default function VineNotifications() {
 
       const data = await res.json();
       if (controller.signal.aborted) return;
-      setNotifications(Array.isArray(data) ? data : []);
+      const rows = Array.isArray(data) ? data : [];
+      setNotifications(rows);
+      if (rows.some((row) => Number(row?.is_read) !== 1)) {
+        const markReadRes = await fetch(`${API}/api/vine/notifications/mark-read`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
+          cache: "no-store",
+        });
+        if (controller.signal.aborted || !markReadRes.ok) return;
+        setNotifications((prev) => prev.map((n) => ({ ...n, is_read: 1 })));
+      }
     };
 
     loadNotifications().catch((err) => {

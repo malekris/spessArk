@@ -1,6 +1,6 @@
 import express from "express";
 import authAdmin from "../middleware/authAdmin.js";
-import { pool, readMarksEntryLocks } from "../server.js";
+import { pool } from "../server.js";
 import {
   buildLiveAdminYearSnapshot,
   getCurrentAcademicYear,
@@ -517,7 +517,7 @@ router.get("/term", authAdmin, async (req, res) => {
         s.subjects AS registered_subjects,
 
         ta.subject,
-        t.name AS teacher_name,
+        GROUP_CONCAT(DISTINCT t.name ORDER BY t.name SEPARATOR ', ') AS teacher_name,
 
         MAX(CASE WHEN m.aoi_label = 'AOI1' THEN m.score END) AS AOI1,
         MAX(CASE WHEN m.aoi_label = 'AOI2' THEN m.score END) AS AOI2,
@@ -529,7 +529,7 @@ router.get("/term", authAdmin, async (req, res) => {
       FROM students s
       JOIN marks m ON m.student_id = s.id
       JOIN teacher_assignments ta ON ta.id = m.assignment_id
-      JOIN teachers t ON t.id = m.teacher_id
+      LEFT JOIN teachers t ON t.id = m.teacher_id
 
       WHERE
         m.year = ?
@@ -538,8 +538,7 @@ router.get("/term", authAdmin, async (req, res) => {
 
       GROUP BY
         s.id,
-        ta.subject,
-        t.name
+        ta.subject
 
       ORDER BY
         s.name,
@@ -685,7 +684,7 @@ router.get("/year", authAdmin, async (req, res) => {
         s.stream,
         s.subjects AS registered_subjects,
         ta.subject,
-        t.name AS teacher_name,
+        GROUP_CONCAT(DISTINCT t.name ORDER BY t.name SEPARATOR ', ') AS teacher_name,
 
         MAX(CASE WHEN m.term = 'Term 1' AND m.aoi_label = 'AOI1' THEN m.score END) AS T1_AOI1,
         MAX(CASE WHEN m.term = 'Term 1' AND m.aoi_label = 'AOI2' THEN m.score END) AS T1_AOI2,
@@ -712,10 +711,10 @@ router.get("/year", authAdmin, async (req, res) => {
       FROM students s
       JOIN marks m ON m.student_id = s.id
       JOIN teacher_assignments ta ON ta.id = m.assignment_id
-      JOIN teachers t ON t.id = m.teacher_id
+      LEFT JOIN teachers t ON t.id = m.teacher_id
       WHERE m.year = ?
         AND s.class_level = ?
-      GROUP BY s.id, ta.subject, t.name
+      GROUP BY s.id, ta.subject
       ORDER BY s.name, ta.subject
       `,
       [yearParam, class_level]
@@ -854,21 +853,20 @@ router.get("/mini-aoi1", authAdmin, async (req, res) => {
         s.stream,
         s.subjects AS registered_subjects,
         ta.subject,
-        t.name AS teacher_name,
+        GROUP_CONCAT(DISTINCT t.name ORDER BY t.name SEPARATOR ', ') AS teacher_name,
         MAX(CASE WHEN m.aoi_label = 'AOI1' THEN m.score END) AS AOI1,
         MAX(CASE WHEN m.aoi_label = 'AOI1' THEN m.status END) AS AOI1_status
       FROM students s
       JOIN marks m ON m.student_id = s.id
       JOIN teacher_assignments ta ON ta.id = m.assignment_id
-      JOIN teachers t ON t.id = m.teacher_id
+      LEFT JOIN teachers t ON t.id = m.teacher_id
       WHERE m.year = ?
         AND m.term = ?
         AND m.aoi_label = 'AOI1'
         AND s.class_level = ?
       GROUP BY
         s.id,
-        ta.subject,
-        t.name
+        ta.subject
       ORDER BY
         s.name,
         ta.subject
@@ -1066,7 +1064,6 @@ router.get("/dashboard-snapshot", authAdmin, async (req, res) => {
       [year]
     );
 
-    const overviewMarksLocks = await readMarksEntryLocks(term, year);
     const reportReadinessSummary = await buildReportReadinessSummaryFromSources({
       executor: pool,
       term,
@@ -1106,7 +1103,6 @@ router.get("/dashboard-snapshot", authAdmin, async (req, res) => {
       aLevelAssignments: snapshotSource.aLevelAssignments || [],
       marksSets,
       aLevelMarksSets,
-      overviewMarksLocks,
       reportReadinessSummary,
       assessmentCompliance,
       teacherSubmissionHeatmap,

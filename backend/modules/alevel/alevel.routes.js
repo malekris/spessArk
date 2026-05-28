@@ -1,5 +1,5 @@
 import express from "express";
-import { db, getMarksLockComponents, readMarksEntryLocks } from "../../server.js";
+import { db } from "../../server.js";
 import authTeacher from "../../middleware/authTeacher.js";
 import authAdmin, { requireAdminReauth } from "../../middleware/authAdmin.js";
 import { pool } from "../../server.js";
@@ -583,30 +583,6 @@ router.post("/teachers/alevel-marks", authTeacher, async (req, res) => {
       Number.isInteger(Number(year)) && Number(year) > 0
         ? Number(year)
         : new Date().getFullYear();
-    const aLevelLockableComponents = getMarksLockComponents("A-Level");
-    const activeLocks = await readMarksEntryLocks(term, normalizedYear, "A-Level");
-    const lockedComponents = new Set(
-      activeLocks
-        .filter((lock) => Boolean(lock?.effective_locked))
-        .map((lock) => String(lock?.aoi_label || "").trim().toUpperCase())
-    );
-    const touchedComponents = Array.from(
-      new Set(
-        [...marks, ...clearMarks]
-          .map((entry) => String(entry?.aoi || "").trim().toUpperCase())
-          .filter((component) => aLevelLockableComponents.includes(component))
-      )
-    );
-    const touchedLockedComponents = touchedComponents.filter((component) =>
-      lockedComponents.has(component)
-    );
-
-    if (touchedLockedComponents.length > 0) {
-      await conn.rollback();
-      return res.status(423).json({
-        message: `Marks entry locked for ${touchedLockedComponents.join(", ")} in ${term} ${normalizedYear}. Deadline has passed or admin locked it.`,
-      });
-    }
 
     const [[existingMarksMeta]] = await conn.query(
       `SELECT COUNT(*) AS count

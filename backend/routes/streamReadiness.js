@@ -1,6 +1,6 @@
 import express from "express";
 import authAdmin from "../middleware/authAdmin.js";
-import { pool } from "../server.js";
+import { ensureTeacherAssignmentLifecycleColumns, pool } from "../server.js";
 import { buildStreamReadiness } from "../services/streamReadinessService.js";
 
 const router = express.Router();
@@ -8,6 +8,7 @@ const router = express.Router();
 // GET /api/admin/stream-readiness
 router.get("/", authAdmin, async (req, res) => {
   try {
+    await ensureTeacherAssignmentLifecycleColumns(pool);
     const [rows] = await pool.query(
       `
       SELECT
@@ -16,6 +17,8 @@ router.get("/", authAdmin, async (req, res) => {
         ta.subject,
         ta.teacher_id AS teacherId
       FROM teacher_assignments ta
+      WHERE COALESCE(ta.assignment_status, 'active') = 'active'
+        AND ta.ended_at IS NULL
       ORDER BY ta.class_level, ta.stream, ta.subject
       `
     );
@@ -47,4 +50,3 @@ router.get("/", authAdmin, async (req, res) => {
 });
 
 export default router;
-

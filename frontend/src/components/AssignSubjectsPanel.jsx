@@ -43,29 +43,67 @@ export default function AssignSubjectsPanel({ active }) {
   const [pendingDeleteAssignment, setPendingDeleteAssignment] = useState(null);
   const [deleteSaving, setDeleteSaving] = useState(false);
   const [deletePassword, setDeletePassword] = useState("");
+  const [deleteReason, setDeleteReason] = useState("");
   const [deleteError, setDeleteError] = useState("");
+  const [pendingReplaceAssignment, setPendingReplaceAssignment] = useState(null);
+  const [replaceSaving, setReplaceSaving] = useState(false);
+  const [replacePassword, setReplacePassword] = useState("");
+  const [replaceReason, setReplaceReason] = useState("");
+  const [replaceError, setReplaceError] = useState("");
 
   // 🔹 PRINT FILTER STATE (MOVE UP)
   const [printClass, setPrintClass] = useState("");
   const [printStream, setPrintStream] = useState("");
 
   // 2️⃣ DERIVED DATA (NOW SAFE)
+  const isActiveAssignment = (assignment) =>
+    String(assignment?.assignment_status || "active").toLowerCase() === "active" &&
+    !assignment?.ended_at;
+  const getAssignmentMarksCount = (assignment) => Number(assignment?.marks_count || 0);
+  const assignmentHasMarks = (assignment) => getAssignmentMarksCount(assignment) > 0;
+  const getTeacherLabel = (assignment) => assignment?.teacher_name || assignment?.teacher_id || "—";
+  const getReplacementAssignment = (assignment) =>
+    assignments.find((row) => String(row?.id) === String(assignment?.replaced_by_assignment_id || ""));
+  const getReplacementTeacherLabel = (assignment) => {
+    if (!assignment?.replaced_by_assignment_id) return "—";
+    if (assignment?.replacement_teacher_name || assignment?.replacement_teacher_id) {
+      return assignment.replacement_teacher_name || assignment.replacement_teacher_id;
+    }
+    const replacement = getReplacementAssignment(assignment);
+    return getTeacherLabel(replacement);
+  };
+
+  const activeAssignments = assignments.filter(isActiveAssignment);
+  const historicalAssignments = assignments.filter((assignment) => !isActiveAssignment(assignment));
+
   const availablePrintStreams = Array.from(
     new Map(
-      assignments
+      activeAssignments
         .map((a) => String(a?.stream || "").trim())
         .filter(Boolean)
         .map((stream) => [normalizeFilterValue(stream), stream])
     ).values()
   );
 
-  const filteredAssignments = assignments.filter(a => {
+  const filteredAssignments = activeAssignments.filter(a => {
     const classMatch =
       !printClass || normalizeFilterValue(a.class_level || a.class) === normalizeFilterValue(printClass);
     const streamMatch =
       !printStream || normalizeFilterValue(a.stream) === normalizeFilterValue(printStream);
     return classMatch && streamMatch;
   });
+
+  const openAssignmentRemovalModal = (assignment) => {
+    const hasMarks = assignmentHasMarks(assignment);
+    setPendingDeleteAssignment(assignment);
+    setDeletePassword("");
+    setDeleteReason(
+      hasMarks
+        ? `Ended ${assignment.subject || "assignment"} in ${assignment.class_level || assignment.class || ""} ${assignment.stream || ""}`
+        : `Deleted mistaken empty assignment for ${assignment.subject || "assignment"} in ${assignment.class_level || assignment.class || ""} ${assignment.stream || ""}`
+    );
+    setDeleteError("");
+  };
 
   // 3️⃣ EFFECTS
   useEffect(() => {
@@ -83,7 +121,7 @@ export default function AssignSubjectsPanel({ active }) {
         plainFetch("/api/classes").catch(() => []),
         plainFetch("/api/subjects").catch(() => []),
         plainFetch("/api/teachers").catch(() => []),
-        adminFetch("/api/admin/assignments").catch(() => [])
+        adminFetch("/api/admin/assignments?includeInactive=1").catch(() => [])
       ]);
       
 
@@ -167,6 +205,28 @@ export default function AssignSubjectsPanel({ active }) {
 
   const canAssign = form.classId && form.subjectId && form.teacherId && form.stream;
 
+  async function createAssignment(payload, meta, replacement = null) {
+    const body = replacement
+      ? {
+          ...payload,
+          replaceAssignmentId: replacement.assignment.id,
+          replaceReason: replacement.reason,
+        }
+      : payload;
+
+    await adminFetch("/api/admin/assignments", { method: "POST", body });
+
+    const assigns = await adminFetch("/api/admin/assignments?includeInactive=1").catch(() => []);
+    setAssignments(assigns || []);
+    setCreatedAssignment({
+      ...meta,
+      replacedTeacherLabel: replacement?.assignment?.teacher_name || "",
+      handover: Boolean(replacement),
+      createdAt: new Date().toLocaleString(),
+    });
+    setForm({ classId: "", subjectId: "", teacherId: "", stream: "" });
+  }
+
   async function handleAssign(e) {
     e && e.preventDefault();
     if (!canAssign) {
@@ -183,19 +243,32 @@ export default function AssignSubjectsPanel({ active }) {
       const stream = form.stream;
 
       const payload = { class_level: classLabel, subject: subjectLabel, teacherId, stream };
+      const meta = { classLabel, stream, subjectLabel, teacherLabel };
+      const activeConflict = activeAssignments.find(
+        (assignment) =>
+          normalizeFilterValue(assignment.class_level || assignment.class) === normalizeFilterValue(classLabel) &&
+          normalizeFilterValue(assignment.stream) === normalizeFilterValue(stream) &&
+          normalizeFilterValue(assignment.subject) === normalizeFilterValue(subjectLabel)
+      );
 
-      await adminFetch("/api/admin/assignments", { method: "POST", body: payload });
+      if (activeConflict) {
+        if (String(activeConflict.teacher_id) === String(teacherId)) {
+          setError(`${teacherLabel} already owns ${subjectLabel} in ${classLabel} ${stream}.`);
+          return;
+        }
 
-      const assigns = await adminFetch("/api/admin/assignments").catch(() => []);
-      setAssignments(assigns || []);
-      setCreatedAssignment({
-        classLabel,
-        stream,
-        subjectLabel,
-        teacherLabel,
-        createdAt: new Date().toLocaleString(),
-      });
-      setForm({ classId: "", subjectId: "", teacherId: "", stream: "" });
+        setPendingReplaceAssignment({
+          assignment: activeConflict,
+          payload,
+          meta,
+        });
+        setReplaceReason(`Teacher handover for ${subjectLabel} in ${classLabel} ${stream}`);
+        setReplacePassword("");
+        setReplaceError("");
+        return;
+      }
+
+      await createAssignment(payload, meta);
     } catch (err) {
       console.error("assign error", err);
       setError(err?.message || "Failed to create assignment. Check server logs.");
@@ -374,13 +447,15 @@ export default function AssignSubjectsPanel({ active }) {
 
   async function deleteAssignment() {
     if (!pendingDeleteAssignment?.id) return;
+    const hasMarks = assignmentHasMarks(pendingDeleteAssignment);
+    const actionLabel = hasMarks ? "end" : "delete";
     setError("");
     setDeleteError("");
     setDeleteSaving(true);
     try {
       clearAdminReauthToken();
       if (!deletePassword.trim()) {
-        setDeleteError("Enter your admin password before deleting this assignment.");
+        setDeleteError(`Enter your admin password before you ${actionLabel} this assignment.`);
         return;
       }
 
@@ -390,25 +465,91 @@ export default function AssignSubjectsPanel({ active }) {
       });
       storeAdminReauthToken(reauth?.token, reauth?.expiresAt);
 
-      await adminFetch(`/api/admin/assignments/${pendingDeleteAssignment.id}`, { method: "DELETE" });
-      setAssignments((p) => p.filter((a) => String(a.id) !== String(pendingDeleteAssignment.id)));
-      setSuccessMsg("Assignment deleted.");
+      const result = await adminFetch(`/api/admin/assignments/${pendingDeleteAssignment.id}`, {
+        method: "DELETE",
+        body: {
+          reason: deleteReason || (hasMarks
+            ? "Ended by admin from Assign Subjects"
+            : "Deleted empty mistaken assignment from Assign Subjects"),
+        },
+      });
+      const assigns = await adminFetch("/api/admin/assignments?includeInactive=1").catch(() => []);
+      setAssignments(assigns || []);
+      setSuccessMsg(
+        result?.message ||
+          (hasMarks
+            ? "Assignment ended safely."
+            : "Empty assignment deleted successfully.")
+      );
       setPendingDeleteAssignment(null);
       setDeletePassword("");
+      setDeleteReason("");
       setDeleteError("");
       clearAdminReauthToken();
     } catch (err) {
       console.error("delete assignment", err);
       if (err?.code === "ADMIN_REAUTH_REQUIRED") {
         clearAdminReauthToken();
-        setDeleteError("Admin password confirmation expired. Enter your password again to delete this assignment.");
+        setDeleteError(`Admin password confirmation expired. Enter your password again to ${actionLabel} this assignment.`);
       } else {
-        setDeleteError(err?.message || "Failed to delete assignment");
+        setDeleteError(err?.message || `Failed to ${actionLabel} assignment`);
       }
     } finally {
       setDeleteSaving(false);
     }
   }
+
+  async function confirmReplaceAssignment() {
+    if (!pendingReplaceAssignment?.assignment?.id) return;
+    setReplaceSaving(true);
+    setReplaceError("");
+    setError("");
+    setSuccessMsg("");
+    try {
+      clearAdminReauthToken();
+      if (!replacePassword.trim()) {
+        setReplaceError("Enter your admin password before replacing this teacher.");
+        return;
+      }
+
+      const reauth = await adminFetch("/api/admin/reauth", {
+        method: "POST",
+        body: { password: replacePassword },
+      });
+      storeAdminReauthToken(reauth?.token, reauth?.expiresAt);
+
+      await createAssignment(
+        pendingReplaceAssignment.payload,
+        pendingReplaceAssignment.meta,
+        {
+          assignment: pendingReplaceAssignment.assignment,
+          reason: replaceReason || "Teacher handover",
+        }
+      );
+
+      setSuccessMsg("Teacher replaced. Previous assignment was ended and all existing marks were retained.");
+      setPendingReplaceAssignment(null);
+      setReplacePassword("");
+      setReplaceReason("");
+      setReplaceError("");
+      clearAdminReauthToken();
+    } catch (err) {
+      console.error("replace assignment", err);
+      if (err?.code === "ADMIN_REAUTH_REQUIRED") {
+        clearAdminReauthToken();
+        setReplaceError("Admin password confirmation expired. Enter your password again to replace this teacher.");
+      } else {
+        setReplaceError(err?.message || "Failed to replace teacher for this assignment.");
+      }
+    } finally {
+      setReplaceSaving(false);
+    }
+  }
+
+  const pendingDeleteHasMarks = assignmentHasMarks(pendingDeleteAssignment);
+  const pendingDeleteMarksCount = getAssignmentMarksCount(pendingDeleteAssignment);
+  const pendingDeleteModeLabel = pendingDeleteHasMarks ? "End" : "Delete";
+  const pendingDeleteProgressLabel = pendingDeleteHasMarks ? "Ending…" : "Deleting…";
 
   return (
     <div className={`panel assign-subjects-panel ${active ? "active" : ""}`}>
@@ -500,8 +641,8 @@ export default function AssignSubjectsPanel({ active }) {
           </form>
 
           <div style={{ marginTop: 8 }}>
-            <h4>Existing assignments</h4>
-            {assignments.length === 0 ? (
+            <h4>Active assignments</h4>
+            {activeAssignments.length === 0 ? (
               <div className="muted-text">No assignments yet.</div>
             ) : (
               <>
@@ -514,35 +655,117 @@ export default function AssignSubjectsPanel({ active }) {
                         <th>Subject</th>
                         <th>Teacher</th>
                         <th>Added</th>
+                        <th>Marks</th>
                         <th />
                       </tr>
                     </thead>
                     <tbody>
-                      {assignments.map(a => (
-                        <tr key={a.id}>
-                          <td>{a.class_level || a.class || "—"}</td>
-                          <td>{a.stream || "—"}</td>
-                          <td>{a.subject || "—"}</td>
-                          <td>{a.teacher_name || a.teacher_id || "—"}</td>
-                          <td>{formatDateTime(a.created_at)}</td>
-                          <td>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setPendingDeleteAssignment(a);
-                                setDeletePassword("");
-                                setDeleteError("");
-                              }}
-                              className="danger-link"
-                            >
-                              Delete
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
+                      {activeAssignments.map(a => {
+                        const marksCount = getAssignmentMarksCount(a);
+                        const hasMarks = marksCount > 0;
+                        return (
+                          <tr key={a.id}>
+                            <td>{a.class_level || a.class || "—"}</td>
+                            <td>{a.stream || "—"}</td>
+                            <td>{a.subject || "—"}</td>
+                            <td>{a.teacher_name || a.teacher_id || "—"}</td>
+                            <td>{formatDateTime(a.created_at)}</td>
+                            <td>{marksCount}</td>
+                            <td>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const classValue = classes.find(
+                                    (cls) => normalizeFilterValue(cls.name) === normalizeFilterValue(a.class_level || a.class)
+                                  )?.id || a.class_level || a.class || "";
+                                  const subjectValue = subjects.find(
+                                    (sub) => normalizeFilterValue(sub.name) === normalizeFilterValue(a.subject)
+                                  )?.id || a.subject || "";
+                                  setForm({
+                                    classId: classValue,
+                                    subjectId: subjectValue,
+                                    teacherId: "",
+                                    stream: a.stream || "",
+                                  });
+                                  setError("Choose the replacement teacher, then submit to hand over this assignment safely.");
+                                  window.scrollTo({ top: 0, behavior: "smooth" });
+                                }}
+                                className="ghost-btn"
+                                style={{ marginRight: "0.5rem", padding: "0.3rem 0.55rem" }}
+                              >
+                                Replace
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => openAssignmentRemovalModal(a)}
+                                className="danger-link"
+                                title={
+                                  hasMarks
+                                    ? "Marks exist, so this assignment will be ended and kept in history."
+                                    : "No marks exist, so this assignment will be deleted completely."
+                                }
+                              >
+                                {hasMarks ? "End" : "Delete"}
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
+
+                {historicalAssignments.length > 0 && (
+                  <details style={{ marginTop: "1rem" }}>
+                    <summary style={{ cursor: "pointer", fontWeight: 800 }}>
+                      Assignment history ({historicalAssignments.length})
+                    </summary>
+                    <div className="teachers-table-wrapper" style={{ marginTop: 12 }}>
+                      <table className="teachers-table" style={{ width: "100%" }}>
+                        <thead>
+                          <tr>
+                            <th>Class</th>
+                            <th>Stream</th>
+                            <th>Subject</th>
+                            <th>Removed Teacher</th>
+                            <th>Added Teacher</th>
+                            <th>Ended</th>
+                            <th>Reason</th>
+                            <th>Marks</th>
+                            <th />
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {historicalAssignments.map((a) => (
+                            <tr key={`history-${a.id}`}>
+                              <td>{a.class_level || a.class || "—"}</td>
+                              <td>{a.stream || "—"}</td>
+                              <td>{a.subject || "—"}</td>
+                              <td>{getTeacherLabel(a)}</td>
+                              <td>{getReplacementTeacherLabel(a)}</td>
+                              <td>{formatDateTime(a.ended_at)}</td>
+                              <td>{a.ended_reason || "—"}</td>
+                              <td>{getAssignmentMarksCount(a)}</td>
+                              <td>
+                                {!assignmentHasMarks(a) ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => openAssignmentRemovalModal(a)}
+                                    className="danger-link"
+                                  >
+                                    Delete
+                                  </button>
+                                ) : (
+                                  <span className="muted-text">Retained</span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </details>
+                )}
 
                 <div
                   style={{
@@ -601,6 +824,57 @@ export default function AssignSubjectsPanel({ active }) {
                 </div>
               </>
             )}
+            {activeAssignments.length === 0 && historicalAssignments.length > 0 && (
+              <details style={{ marginTop: "1rem" }} open>
+                <summary style={{ cursor: "pointer", fontWeight: 800 }}>
+                  Assignment history ({historicalAssignments.length})
+                </summary>
+                <div className="teachers-table-wrapper" style={{ marginTop: 12 }}>
+                  <table className="teachers-table" style={{ width: "100%" }}>
+                    <thead>
+                      <tr>
+                        <th>Class</th>
+                        <th>Stream</th>
+                        <th>Subject</th>
+                        <th>Removed Teacher</th>
+                        <th>Added Teacher</th>
+                        <th>Ended</th>
+                        <th>Reason</th>
+                        <th>Marks</th>
+                        <th />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {historicalAssignments.map((a) => (
+                        <tr key={`history-only-${a.id}`}>
+                          <td>{a.class_level || a.class || "—"}</td>
+                          <td>{a.stream || "—"}</td>
+                          <td>{a.subject || "—"}</td>
+                          <td>{getTeacherLabel(a)}</td>
+                          <td>{getReplacementTeacherLabel(a)}</td>
+                          <td>{formatDateTime(a.ended_at)}</td>
+                          <td>{a.ended_reason || "—"}</td>
+                          <td>{getAssignmentMarksCount(a)}</td>
+                          <td>
+                            {!assignmentHasMarks(a) ? (
+                              <button
+                                type="button"
+                                onClick={() => openAssignmentRemovalModal(a)}
+                                className="danger-link"
+                              >
+                                Delete
+                              </button>
+                            ) : (
+                              <span className="muted-text">Retained</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </details>
+            )}
           </div>
         </>
       )}
@@ -608,9 +882,11 @@ export default function AssignSubjectsPanel({ active }) {
       {pendingDeleteAssignment && (
         <div className="modal-backdrop" onClick={() => !deleteSaving && setPendingDeleteAssignment(null)}>
           <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "560px" }}>
-            <h2>Delete Assignment</h2>
+            <h2>{pendingDeleteModeLabel} Assignment</h2>
             <p style={{ marginTop: "-0.15rem", marginBottom: "1rem", color: "#475569", lineHeight: 1.6 }}>
-              This assignment controls who captures marks for the selected class, stream, and subject.
+              {pendingDeleteHasMarks
+                ? "This ends the teacher's active access to this class, stream, and subject. Existing marks stay attached for reports and audit history."
+                : "This assignment has no marks, so it can be deleted completely and will cease to exist in the system."}
             </p>
 
             <div
@@ -628,19 +904,32 @@ export default function AssignSubjectsPanel({ active }) {
               <div><strong>Stream:</strong> {pendingDeleteAssignment.stream || "—"}</div>
               <div><strong>Subject:</strong> {pendingDeleteAssignment.subject || "—"}</div>
               <div><strong>Teacher:</strong> {pendingDeleteAssignment.teacher_name || pendingDeleteAssignment.teacher_id || "—"}</div>
+              <div><strong>Marks:</strong> {pendingDeleteMarksCount}</div>
             </div>
 
             <div
               className="panel-alert"
               style={{
                 marginBottom: "1rem",
-                background: "rgba(239, 68, 68, 0.10)",
-                border: "1px solid rgba(239, 68, 68, 0.28)",
-                color: "#991b1b",
+                background: pendingDeleteHasMarks ? "rgba(14, 165, 233, 0.10)" : "rgba(220, 38, 38, 0.08)",
+                border: pendingDeleteHasMarks ? "1px solid rgba(14, 165, 233, 0.28)" : "1px solid rgba(220, 38, 38, 0.22)",
+                color: pendingDeleteHasMarks ? "#075985" : "#991b1b",
                 lineHeight: 1.65,
               }}
             >
-              Assignment deletion is admin-protected. If marks are already tied to this assignment, the system will block the delete. If recent admin confirmation has expired, enter your password below to continue.
+              {pendingDeleteHasMarks
+                ? "Marks already exist, so SPESS ARK will not erase this assignment. It will be ended and retained for reports."
+                : "No learner marks are attached. Deleting removes only this assignment row; no marks will be deleted."}
+            </div>
+
+            <div className="form-row" style={{ marginBottom: "1rem" }}>
+              <label>Reason</label>
+              <input
+                type="text"
+                value={deleteReason}
+                onChange={(e) => setDeleteReason(e.target.value)}
+                placeholder={pendingDeleteHasMarks ? "Example: Teacher left mid-term; handover completed" : "Example: Wrong teacher selected by mistake"}
+              />
             </div>
 
             <div className="form-row" style={{ marginBottom: "1rem" }}>
@@ -663,7 +952,10 @@ export default function AssignSubjectsPanel({ active }) {
               <button
                 className="ghost-btn"
                 disabled={deleteSaving}
-                onClick={() => setPendingDeleteAssignment(null)}
+                onClick={() => {
+                  setPendingDeleteAssignment(null);
+                  setDeleteReason("");
+                }}
               >
                 Cancel
               </button>
@@ -673,7 +965,85 @@ export default function AssignSubjectsPanel({ active }) {
                 onClick={deleteAssignment}
                 style={{ background: "#b91c1c", borderColor: "#b91c1c" }}
               >
-                {deleteSaving ? "Deleting…" : "Delete Assignment"}
+                {deleteSaving ? pendingDeleteProgressLabel : `${pendingDeleteModeLabel} Assignment`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pendingReplaceAssignment && (
+        <div className="modal-backdrop" onClick={() => !replaceSaving && setPendingReplaceAssignment(null)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "620px" }}>
+            <h2>Replace Teacher</h2>
+            <p style={{ marginTop: "-0.15rem", marginBottom: "1rem", color: "#475569", lineHeight: 1.6 }}>
+              This will end the current active assignment and create a new one for the replacement teacher. Existing marks remain tied to the previous teacher's assignment for end-of-year reports.
+            </p>
+
+            <div
+              style={{
+                border: "1px solid rgba(148, 163, 184, 0.22)",
+                background: "rgba(248, 250, 252, 0.95)",
+                borderRadius: "16px",
+                padding: "1rem",
+                marginBottom: "1rem",
+                color: "#0f172a",
+                lineHeight: 1.7,
+              }}
+            >
+              <div><strong>Class:</strong> {pendingReplaceAssignment.meta?.classLabel || "—"}</div>
+              <div><strong>Stream:</strong> {pendingReplaceAssignment.meta?.stream || "—"}</div>
+              <div><strong>Subject:</strong> {pendingReplaceAssignment.meta?.subjectLabel || "—"}</div>
+              <div><strong>Current teacher:</strong> {pendingReplaceAssignment.assignment?.teacher_name || pendingReplaceAssignment.assignment?.teacher_id || "—"}</div>
+              <div><strong>Replacement teacher:</strong> {pendingReplaceAssignment.meta?.teacherLabel || "—"}</div>
+              <div><strong>Existing marks:</strong> {Number(pendingReplaceAssignment.assignment?.marks_count || 0)}</div>
+            </div>
+
+            <div className="form-row" style={{ marginBottom: "1rem" }}>
+              <label>Handover Reason</label>
+              <input
+                type="text"
+                value={replaceReason}
+                onChange={(e) => setReplaceReason(e.target.value)}
+                placeholder="Example: Mid-term teacher handover"
+              />
+            </div>
+
+            <div className="form-row" style={{ marginBottom: "1rem" }}>
+              <label>Admin Password</label>
+              <input
+                type="password"
+                value={replacePassword}
+                onChange={(e) => setReplacePassword(e.target.value)}
+                placeholder="Re-enter admin password"
+              />
+            </div>
+
+            {replaceError && (
+              <div className="panel-alert panel-alert-error" style={{ marginBottom: "1rem" }}>
+                {replaceError}
+              </div>
+            )}
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.65rem", flexWrap: "wrap" }}>
+              <button
+                className="ghost-btn"
+                disabled={replaceSaving}
+                onClick={() => {
+                  setPendingReplaceAssignment(null);
+                  setReplacePassword("");
+                  setReplaceReason("");
+                  setReplaceError("");
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                className="primary-btn"
+                disabled={replaceSaving}
+                onClick={confirmReplaceAssignment}
+              >
+                {replaceSaving ? "Replacing…" : "Replace Teacher"}
               </button>
             </div>
           </div>
@@ -684,10 +1054,14 @@ export default function AssignSubjectsPanel({ active }) {
         <div className="modal-backdrop" onClick={() => setCreatedAssignment(null)}>
           <div className="modal-card assignment-created-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "620px" }}>
             <div className="assignment-created-hero">
-              <span className="assignment-created-badge">Assignment Created</span>
-              <h2>Teacher assignment is now live.</h2>
+              <span className="assignment-created-badge">
+                {createdAssignment.handover ? "Teacher Replaced" : "Assignment Created"}
+              </span>
+              <h2>{createdAssignment.handover ? "Teacher handover is now live." : "Teacher assignment is now live."}</h2>
               <p>
-                The selected teacher can now capture marks for this class, stream, and subject from the teacher dashboard.
+                {createdAssignment.handover
+                  ? "The previous assignment was ended safely and existing marks remain available for reports."
+                  : "The selected teacher can now capture marks for this class, stream, and subject from the teacher dashboard."}
               </p>
             </div>
 
@@ -708,6 +1082,12 @@ export default function AssignSubjectsPanel({ active }) {
                 <span>Teacher</span>
                 <strong>{createdAssignment.teacherLabel}</strong>
               </div>
+              {createdAssignment.handover && (
+                <div className="assignment-created-item">
+                  <span>Previous Teacher</span>
+                  <strong>{createdAssignment.replacedTeacherLabel || "—"}</strong>
+                </div>
+              )}
             </div>
 
             <div className="assignment-created-note">

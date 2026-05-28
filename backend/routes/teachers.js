@@ -9,7 +9,7 @@ import {
   sendTeacherPasswordChangedEmail,
   sendTeacherEmailChangedEmail,
 } from "../utils/email.js";
-import { pool } from "../server.js";
+import { ensureTeacherAssignmentLifecycleColumns, pool } from "../server.js";
 import authTeacher from "../middleware/authTeacher.js";
 import { extractClientIp, logAuditEvent } from "../utils/auditLogger.js";
 import { queueAdminYearSnapshotRefresh } from "../services/adminYearSnapshotService.js";
@@ -571,6 +571,7 @@ router.post("/change-email", authTeacher, async (req, res) => {
 router.get("/assignments", authTeacher, async (req, res) => {
   try {
     const teacherId = req.teacher.id;
+    await ensureTeacherAssignmentLifecycleColumns(pool);
 
     const [rows] = await pool.query(
       `
@@ -581,6 +582,8 @@ router.get("/assignments", authTeacher, async (req, res) => {
         ta.stream
       FROM teacher_assignments ta
       WHERE ta.teacher_id = ?
+        AND COALESCE(ta.assignment_status, 'active') = 'active'
+        AND ta.ended_at IS NULL
       ORDER BY ta.class_level, ta.stream, ta.subject
       `,
       [teacherId]
@@ -909,23 +912,9 @@ router.get("/alevel-analytics/subject", authTeacher, async (req, res) => {
 
 
 router.delete("/assignments/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const [result] = await pool.query(
-      "DELETE FROM teacher_assignments WHERE id = ?",
-      [id]
-    );
-
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ message: "Assignment not found" });
-    }
-
-    res.json({ message: "Assignment deleted" });
-  } catch (err) {
-    console.error("Delete assignment error:", err);
-    res.status(500).json({ message: "Failed to delete assignment" });
-  }
+  return res.status(403).json({
+    message: "Teacher assignment deletion is disabled. Use the admin handover workflow so marks remain intact.",
+  });
 });
 
 export default router;

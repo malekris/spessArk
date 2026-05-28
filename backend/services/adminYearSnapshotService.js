@@ -212,6 +212,8 @@ export async function buildLiveAdminYearSnapshot(executor, academicYearInput = n
     `SELECT ta.id, ta.teacher_id, ta.class_level, ta.stream, ta.subject, ta.created_at, t.name AS teacher_name
      FROM teacher_assignments ta
      LEFT JOIN teachers t ON t.id = ta.teacher_id
+     WHERE COALESCE(ta.assignment_status, 'active') = 'active'
+       AND ta.ended_at IS NULL
      ORDER BY ta.class_level, ta.stream, ta.subject`
   );
 

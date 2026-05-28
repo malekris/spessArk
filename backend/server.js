@@ -712,6 +712,67 @@ async function columnExists(connection, tableName, columnName) {
   return Number(row?.total || 0) > 0;
 }
 
+export async function ensureTeacherAssignmentLifecycleColumns(connection = pool) {
+  if (!(await columnExists(connection, "teacher_assignments", "created_at"))) {
+    await connection.query(
+      `ALTER TABLE teacher_assignments
+       ADD COLUMN created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP`
+    );
+  }
+
+  if (!(await columnExists(connection, "teacher_assignments", "assignment_status"))) {
+    await connection.query(
+      `ALTER TABLE teacher_assignments
+       ADD COLUMN assignment_status VARCHAR(20) NOT NULL DEFAULT 'active'`
+    );
+  }
+
+  if (!(await columnExists(connection, "teacher_assignments", "ended_at"))) {
+    await connection.query(
+      `ALTER TABLE teacher_assignments
+       ADD COLUMN ended_at TIMESTAMP NULL DEFAULT NULL`
+    );
+  }
+
+  if (!(await columnExists(connection, "teacher_assignments", "ended_reason"))) {
+    await connection.query(
+      `ALTER TABLE teacher_assignments
+       ADD COLUMN ended_reason VARCHAR(255) NULL DEFAULT NULL`
+    );
+  }
+
+  if (!(await columnExists(connection, "teacher_assignments", "ended_by_admin_id"))) {
+    await connection.query(
+      `ALTER TABLE teacher_assignments
+       ADD COLUMN ended_by_admin_id INT NULL DEFAULT NULL`
+    );
+  }
+
+  if (!(await columnExists(connection, "teacher_assignments", "replaced_by_assignment_id"))) {
+    await connection.query(
+      `ALTER TABLE teacher_assignments
+       ADD COLUMN replaced_by_assignment_id INT NULL DEFAULT NULL`
+    );
+  }
+
+  await connection.query(
+    `
+    UPDATE teacher_assignments ta
+    LEFT JOIN (
+      SELECT assignment_id, MIN(created_at) AS first_mark_at
+      FROM marks
+      GROUP BY assignment_id
+    ) m ON m.assignment_id = ta.id
+    SET
+      ta.created_at = COALESCE(ta.created_at, m.first_mark_at, NOW()),
+      ta.assignment_status = COALESCE(NULLIF(ta.assignment_status, ''), 'active')
+    WHERE ta.created_at IS NULL
+       OR ta.assignment_status IS NULL
+       OR ta.assignment_status = ''
+    `
+  );
+}
+
 async function getRegisteredStudentIdsForSubject(connection, studentIds, subject, year = null) {
   const normalizedIds = Array.from(
     new Set((studentIds || []).map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0))
@@ -830,36 +891,6 @@ const DEFAULT_SCHOOL_CALENDAR = {
     { key: "term3", from: "2026-09-14", to: "2026-12-04" },
     { key: "holiday3", from: "2026-12-05", to: "2027-01-31" },
   ],
-};
-
-export const MARKS_ENTRY_LOCK_GROUPS = Object.freeze({
-  "O-Level": ["AOI1", "AOI2", "AOI3", "EXAM80"],
-  "A-Level": ["MID", "EOT"],
-});
-
-const MARKS_ENTRY_LOCK_LEVELS = Object.keys(MARKS_ENTRY_LOCK_GROUPS);
-
-const normalizeMarksLockLevel = (value) => {
-  const raw = String(value || "").trim().toLowerCase();
-  if (!raw) return "";
-  if (["o-level", "o level", "olevel"].includes(raw)) return "O-Level";
-  if (["a-level", "a level", "alevel"].includes(raw)) return "A-Level";
-  return "";
-};
-
-const normalizeMarksLockComponent = (value) => {
-  const raw = String(value || "").trim().toUpperCase();
-  if (!raw) return "";
-  if (raw === "AOI 1") return "AOI1";
-  if (raw === "AOI 2") return "AOI2";
-  if (raw === "AOI 3") return "AOI3";
-  if (raw === "/80" || raw === "80") return "EXAM80";
-  return raw;
-};
-
-export const getMarksLockComponents = (level) => {
-  const normalizedLevel = normalizeMarksLockLevel(level);
-  return normalizedLevel ? MARKS_ENTRY_LOCK_GROUPS[normalizedLevel] || [] : [];
 };
 
 const normalizeCalendarDate = (value) => {
@@ -982,163 +1013,6 @@ async function readSchoolCalendarSettings() {
   };
 }
 
-let marksEntryLocksReadyPromise = null;
-
-const normalizeMarksLockDateTime = (value) => {
-  const raw = String(value || "").trim();
-  if (!raw) return null;
-
-  const parsed = new Date(raw);
-  if (Number.isNaN(parsed.getTime())) return null;
-
-  const year = parsed.getFullYear();
-  const month = String(parsed.getMonth() + 1).padStart(2, "0");
-  const day = String(parsed.getDate()).padStart(2, "0");
-  const hours = String(parsed.getHours()).padStart(2, "0");
-  const minutes = String(parsed.getMinutes()).padStart(2, "0");
-  const seconds = String(parsed.getSeconds()).padStart(2, "0");
-  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
-};
-
-async function ensureMarksEntryLocksTable() {
-  if (!marksEntryLocksReadyPromise) {
-    marksEntryLocksReadyPromise = (async () => {
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS marks_entry_locks (
-          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-          term VARCHAR(20) NOT NULL,
-          year INT NOT NULL,
-          level_name VARCHAR(20) NOT NULL DEFAULT 'O-Level',
-          aoi_label VARCHAR(20) NOT NULL,
-          deadline_at DATETIME NULL,
-          is_locked TINYINT(1) NOT NULL DEFAULT 0,
-          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-          UNIQUE KEY uq_marks_entry_locks_term_year_level_aoi (term, year, level_name, aoi_label)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
-      `);
-
-      const [columns] = await pool.query(
-        `SELECT COLUMN_NAME, DATA_TYPE, COLUMN_TYPE
-         FROM information_schema.COLUMNS
-         WHERE TABLE_SCHEMA = DATABASE()
-           AND TABLE_NAME = 'marks_entry_locks'`
-      );
-      const columnMap = new Map((columns || []).map((column) => [column.COLUMN_NAME, column]));
-
-      if (!columnMap.has("level_name")) {
-        await pool.query(
-          `ALTER TABLE marks_entry_locks
-           ADD COLUMN level_name VARCHAR(20) NOT NULL DEFAULT 'O-Level' AFTER year`
-        );
-      }
-
-      const aoiColumn = columnMap.get("aoi_label");
-      if (aoiColumn && String(aoiColumn.DATA_TYPE || "").toLowerCase() !== "varchar") {
-        await pool.query(
-          `ALTER TABLE marks_entry_locks
-           MODIFY COLUMN aoi_label VARCHAR(20) NOT NULL`
-        );
-      }
-
-      const [indexes] = await pool.query(`SHOW INDEX FROM marks_entry_locks`);
-      const indexNames = new Set((indexes || []).map((index) => index.Key_name));
-
-      if (indexNames.has("uq_marks_entry_locks_term_year_aoi")) {
-        await pool.query(
-          `ALTER TABLE marks_entry_locks
-           DROP INDEX uq_marks_entry_locks_term_year_aoi`
-        );
-      }
-
-      if (!indexNames.has("uq_marks_entry_locks_term_year_level_aoi")) {
-        await pool.query(
-          `ALTER TABLE marks_entry_locks
-           ADD UNIQUE KEY uq_marks_entry_locks_term_year_level_aoi (term, year, level_name, aoi_label)`
-        );
-      }
-    })().catch((err) => {
-      marksEntryLocksReadyPromise = null;
-      throw err;
-    });
-  }
-
-  return marksEntryLocksReadyPromise;
-}
-
-export async function readMarksEntryLocks(term, year, level = "") {
-  await ensureMarksEntryLocksTable();
-
-  const normalizedTerm = String(term || "").trim();
-  const normalizedYear = Number(year);
-  const normalizedLevel = normalizeMarksLockLevel(level);
-
-  if (!normalizedTerm || !Number.isInteger(normalizedYear) || normalizedYear <= 0) {
-    return [];
-  }
-
-  const queryParams = [normalizedTerm, normalizedYear];
-  let levelSql = "";
-  if (normalizedLevel) {
-    levelSql = " AND level_name = ?";
-    queryParams.push(normalizedLevel);
-  }
-
-  const [rows] = await pool.query(
-    `SELECT
-        term,
-        year,
-        level_name,
-        aoi_label,
-        is_locked,
-        DATE_FORMAT(deadline_at, '%Y-%m-%dT%H:%i') AS deadline_at,
-        updated_at
-     FROM marks_entry_locks
-     WHERE term = ?
-       AND year = ?${levelSql}`,
-    queryParams
-  );
-
-  const byComponent = new Map(
-    (rows || []).map((row) => [
-      `${normalizeMarksLockLevel(row.level_name) || "O-Level"}__${normalizeMarksLockComponent(row.aoi_label)}`,
-      {
-        term: row.term,
-        year: Number(row.year),
-        level_name: normalizeMarksLockLevel(row.level_name) || "O-Level",
-        aoi_label: normalizeMarksLockComponent(row.aoi_label),
-        deadline_at: row.deadline_at || "",
-        is_locked: Boolean(row.is_locked),
-        updated_at: row.updated_at ?? null,
-      },
-    ])
-  );
-
-  const now = new Date();
-  const levelsToReturn = normalizedLevel ? [normalizedLevel] : MARKS_ENTRY_LOCK_LEVELS;
-
-  return levelsToReturn.flatMap((levelName) =>
-    getMarksLockComponents(levelName).map((component) => {
-      const row = byComponent.get(`${levelName}__${component}`) || {
-        term: normalizedTerm,
-        year: normalizedYear,
-        level_name: levelName,
-        aoi_label: component,
-        deadline_at: "",
-        is_locked: false,
-        updated_at: null,
-      };
-
-      const deadline = row.deadline_at ? new Date(row.deadline_at) : null;
-      const deadlinePassed = deadline && !Number.isNaN(deadline.getTime()) ? now >= deadline : false;
-
-      return {
-        ...row,
-        effective_locked: Boolean(row.is_locked) || Boolean(deadlinePassed),
-        lock_reason: row.is_locked ? "Manual lock" : deadlinePassed ? "Deadline passed" : "Open",
-      };
-    })
-  );
-}
 // ===============================
 // ADMIN → LIST TEACHERS
 // ===============================
@@ -1216,12 +1090,15 @@ app.post("/api/teachers/login", async (req, res) => {
       try {
         const assignmentId = Number(req.params.assignmentId);
         if (!assignmentId) return res.status(400).json({ message: "Invalid assignment id" });
+        await ensureTeacherAssignmentLifecycleColumns(pool);
   
         // 1) Load assignment including subject
         const [[assignment]] = await pool.query(
           `SELECT class_level, stream, subject
            FROM teacher_assignments
-           WHERE id = ? AND teacher_id = ?`,
+           WHERE id = ? AND teacher_id = ?
+         AND COALESCE(assignment_status, 'active') = 'active'
+         AND ended_at IS NULL`,
           [assignmentId, req.teacher.id]
         );
   
@@ -1279,11 +1156,14 @@ app.get(
   authTeacher,
   async (req, res) => {
     const assignmentId = Number(req.params.assignmentId);
+    await ensureTeacherAssignmentLifecycleColumns(pool);
 
     const [[assignment]] = await pool.query(
       `SELECT class_level, stream
        FROM teacher_assignments
-       WHERE id = ? AND teacher_id = ?`,
+       WHERE id = ? AND teacher_id = ?
+         AND COALESCE(assignment_status, 'active') = 'active'
+         AND ended_at IS NULL`,
       [assignmentId, req.teacher.id]
     );
 
@@ -1307,66 +1187,44 @@ app.get(
 
 app.get("/api/admin/assignments", authAdmin, async (req, res) => {
   try {
-    const [[dbRow]] = await pool.query("SELECT DATABASE() AS db_name");
-    const schemaName = process.env.DB_NAME || poolConfig.database || dbRow?.db_name;
+    await ensureTeacherAssignmentLifecycleColumns(pool);
 
-    if (!schemaName) {
-      throw new Error("Could not resolve active database schema name");
-    }
-
-    const [[{ has_created_at }]] = await pool.query(
-      `
-      SELECT COUNT(*) AS has_created_at
-      FROM information_schema.columns
-      WHERE table_schema = ?
-        AND table_name = 'teacher_assignments'
-        AND column_name = 'created_at'
-      `,
-      [schemaName]
+    const includeInactive = ["1", "true", "yes", "all"].includes(
+      String(req.query.includeInactive || "").trim().toLowerCase()
     );
-
-    if (!has_created_at) {
-      await pool.query(
-        `ALTER TABLE teacher_assignments
-         ADD COLUMN created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP`
-      );
-
-      // Backfill existing rows with earliest marks timestamp where possible.
-      await pool.query(
-        `
-        UPDATE teacher_assignments ta
-        LEFT JOIN (
-          SELECT assignment_id, MIN(created_at) AS first_mark_at
-          FROM marks
-          GROUP BY assignment_id
-        ) m ON m.assignment_id = ta.id
-        SET ta.created_at = COALESCE(m.first_mark_at, NOW())
-        WHERE ta.created_at IS NULL
-        `
-      );
-    }
-
-    // Keep legacy rows populated even when column already exists.
-    await pool.query(
-      `
-      UPDATE teacher_assignments ta
-      LEFT JOIN (
-        SELECT assignment_id, MIN(created_at) AS first_mark_at
-        FROM marks
-        GROUP BY assignment_id
-      ) m ON m.assignment_id = ta.id
-      SET ta.created_at = COALESCE(m.first_mark_at, NOW())
-      WHERE ta.created_at IS NULL
-      `
-    );
+    const statusClause = includeInactive
+      ? ""
+      : "WHERE COALESCE(ta.assignment_status, 'active') = 'active' AND ta.ended_at IS NULL";
 
     const [rows] = await pool.query(`
-      SELECT ta.id, ta.class_level, ta.stream, ta.subject,
+      SELECT ta.id, ta.teacher_id, ta.class_level, ta.stream, ta.subject,
              t.name AS teacher_name,
-             ta.created_at
+             ta.created_at,
+             COALESCE(ta.assignment_status, 'active') AS assignment_status,
+             ta.ended_at,
+             ta.ended_reason,
+             ta.ended_by_admin_id,
+             ta.replaced_by_assignment_id,
+             replacement_ta.teacher_id AS replacement_teacher_id,
+             replacement_t.name AS replacement_teacher_name,
+             replacement_ta.created_at AS replacement_created_at,
+             COALESCE(mm.marks_count, 0) AS marks_count
       FROM teacher_assignments ta
       LEFT JOIN teachers t ON ta.teacher_id = t.id
-      ORDER BY ta.class_level, ta.stream, ta.subject
+      LEFT JOIN teacher_assignments replacement_ta ON replacement_ta.id = ta.replaced_by_assignment_id
+      LEFT JOIN teachers replacement_t ON replacement_t.id = replacement_ta.teacher_id
+      LEFT JOIN (
+        SELECT assignment_id, COUNT(*) AS marks_count
+        FROM marks
+        GROUP BY assignment_id
+      ) mm ON mm.assignment_id = ta.id
+      ${statusClause}
+      ORDER BY
+        CASE WHEN COALESCE(ta.assignment_status, 'active') = 'active' AND ta.ended_at IS NULL THEN 0 ELSE 1 END,
+        ta.class_level,
+        ta.stream,
+        ta.subject,
+        ta.ended_at DESC
     `);
     res.json(rows);
   } catch (err) {
@@ -1390,7 +1248,7 @@ app.get("/api/admin/marks-sets", authAdmin, async (req, res) => {
         MAX(m.updated_at) AS submitted_at
       FROM marks m
       JOIN teacher_assignments ta ON m.assignment_id = ta.id
-      JOIN teachers t ON m.teacher_id = t.id
+      LEFT JOIN teachers t ON m.teacher_id = t.id
       GROUP BY
         m.assignment_id,
         ta.class_level,
@@ -1426,7 +1284,7 @@ app.get("/api/admin/marks-sets", authAdmin, async (req, res) => {
             NULL AS submitted_at
           FROM marks m
           JOIN teacher_assignments ta ON m.assignment_id = ta.id
-          JOIN teachers t ON m.teacher_id = t.id
+          LEFT JOIN teachers t ON m.teacher_id = t.id
           GROUP BY
             m.assignment_id,
             ta.class_level,
@@ -1579,6 +1437,7 @@ app.delete("/api/admin/teachers/:id", authAdmin, requireAdminReauth, async (req,
   const conn = await pool.getConnection();
   try {
     const { id } = req.params;
+    await ensureTeacherAssignmentLifecycleColumns(pool);
     await conn.beginTransaction();
 
     const [existing] = await conn.query(
@@ -1592,8 +1451,15 @@ app.delete("/api/admin/teachers/:id", authAdmin, requireAdminReauth, async (req,
     }
 
     const [oLevelCleanup] = await conn.query(
-      "DELETE FROM teacher_assignments WHERE teacher_id = ?",
-      [id]
+      `UPDATE teacher_assignments
+       SET assignment_status = 'inactive',
+           ended_at = COALESCE(ended_at, NOW()),
+           ended_reason = COALESCE(ended_reason, 'Teacher account removed; marks retained'),
+           ended_by_admin_id = COALESCE(ended_by_admin_id, ?)
+       WHERE teacher_id = ?
+         AND COALESCE(assignment_status, 'active') = 'active'
+         AND ended_at IS NULL`,
+      [Number(req.admin?.id) || 1, id]
     );
 
     let aLevelCleanupCount = 0;
@@ -1624,7 +1490,7 @@ app.delete("/api/admin/teachers/:id", authAdmin, requireAdminReauth, async (req,
       message: "Teacher deleted successfully",
       deletedId: id,
       affectedRows: result.affectedRows,
-      deletedAssignments: {
+      endedAssignments: {
         oLevel: oLevelCleanup.affectedRows || 0,
         aLevel: aLevelCleanupCount,
       },
@@ -1786,8 +1652,14 @@ app.get("/api/lookup/teachers", async (req, res) => {
 // ADMIN → ASSIGN SUBJECT TO TEACHER
 // ===============================
 app.post("/api/admin/assignments", authAdmin, async (req, res) => {
+  let conn;
   try {
-    const { teacherId, class_level, stream, subject } = req.body;
+    const teacherId = Number(req.body?.teacherId);
+    const class_level = String(req.body?.class_level || "").trim();
+    const stream = String(req.body?.stream || "").trim();
+    const subject = String(req.body?.subject || "").trim();
+    const replaceAssignmentId = Number(req.body?.replaceAssignmentId || 0);
+    const replaceReason = String(req.body?.replaceReason || "").trim();
 
     if (!teacherId || !class_level || !stream || !subject) {
       return res.status(400).json({
@@ -1795,57 +1667,131 @@ app.post("/api/admin/assignments", authAdmin, async (req, res) => {
       });
     }
 
-    // Prevent duplicates
-    const [existing] = await pool.query(
+    await ensureTeacherAssignmentLifecycleColumns(pool);
+    conn = await pool.getConnection();
+    await conn.beginTransaction();
+
+    const [[teacherRow]] = await conn.query(
+      "SELECT id, name FROM teachers WHERE id = ? LIMIT 1",
+      [teacherId]
+    );
+
+    if (!teacherRow) {
+      await conn.rollback();
+      return res.status(404).json({ message: "Teacher not found" });
+    }
+
+    const [existing] = await conn.query(
       `SELECT id FROM teacher_assignments
-       WHERE teacher_id = ? AND class_level = ? AND stream = ? AND subject = ?`,
+       WHERE teacher_id = ?
+         AND class_level = ?
+         AND stream = ?
+         AND subject = ?
+         AND COALESCE(assignment_status, 'active') = 'active'
+         AND ended_at IS NULL`,
       [teacherId, class_level, stream, subject]
     );
 
     if (existing.length > 0) {
+      await conn.rollback();
       return res.status(409).json({
         message: "This assignment already exists",
       });
     }
-    // Prevent same subject being assigned to multiple teachers in same class + stream
-    const [conflict] = await pool.query(
-     `SELECT teacher_id FROM teacher_assignments
-       WHERE class_level = ? AND stream = ? AND subject = ?`,
-       [class_level, stream, subject]
-      );
 
-          if (conflict.length > 0) {
-          return res.status(409).json({
-       message: `This subject is already assigned to another teacher for ${class_level} ${stream}.`,
-        });
-}
+    const [conflict] = await conn.query(
+      `SELECT ta.id, ta.teacher_id, t.name AS teacher_name
+       FROM teacher_assignments ta
+       LEFT JOIN teachers t ON t.id = ta.teacher_id
+       WHERE ta.class_level = ?
+         AND ta.stream = ?
+         AND ta.subject = ?
+         AND COALESCE(ta.assignment_status, 'active') = 'active'
+         AND ta.ended_at IS NULL
+       FOR UPDATE`,
+      [class_level, stream, subject]
+    );
 
-    const [result] = await pool.query(
+    const activeConflict = conflict[0] || null;
+    if (activeConflict && (!replaceAssignmentId || Number(activeConflict.id) !== replaceAssignmentId)) {
+      await conn.rollback();
+      return res.status(409).json({
+        message: `This subject is already assigned to ${activeConflict.teacher_name || "another teacher"} for ${class_level} ${stream}. Use Replace Teacher to hand this slot over without deleting marks.`,
+        activeAssignment: activeConflict,
+      });
+    }
+
+    if (replaceAssignmentId && !activeConflict) {
+      await conn.rollback();
+      return res.status(404).json({
+        message: "The assignment being replaced is no longer active.",
+      });
+    }
+
+    if (activeConflict && Number(activeConflict.teacher_id) === teacherId) {
+      await conn.rollback();
+      return res.status(409).json({
+        message: "This teacher already owns the active assignment for this subject and stream.",
+      });
+    }
+
+    const [result] = await conn.query(
       `INSERT INTO teacher_assignments
-       (teacher_id, class_level, stream, subject)
-       VALUES (?, ?, ?, ?)`,
+       (teacher_id, class_level, stream, subject, assignment_status, created_at)
+       VALUES (?, ?, ?, ?, 'active', NOW())`,
       [teacherId, class_level, stream, subject]
     );
+
+    if (activeConflict) {
+      await conn.query(
+        `UPDATE teacher_assignments
+         SET assignment_status = 'inactive',
+             ended_at = NOW(),
+             ended_reason = ?,
+             ended_by_admin_id = ?,
+             replaced_by_assignment_id = ?
+         WHERE id = ?`,
+        [
+          replaceReason || `Replaced by ${teacherRow.name || `teacher #${teacherId}`}`,
+          Number(req.admin?.id) || 1,
+          result.insertId,
+          activeConflict.id,
+        ]
+      );
+    }
+
+    await conn.commit();
+    conn.release();
+    conn = null;
 
     await logAuditEvent({
       userId: Number(req.admin?.id) || 1,
       userRole: "admin",
-      action: "ASSIGN_SUBJECT",
+      action: activeConflict ? "REPLACE_ASSIGNMENT_TEACHER" : "ASSIGN_SUBJECT",
       entityType: "subject",
       entityId: Number(result.insertId),
-      description: `${subject} assigned to ${class_level} ${stream} (teacher #${teacherId})`,
+      description: activeConflict
+        ? `${subject} in ${class_level} ${stream} handed over from teacher #${activeConflict.teacher_id} to teacher #${teacherId}`
+        : `${subject} assigned to ${class_level} ${stream} (teacher #${teacherId})`,
       ipAddress: extractClientIp(req),
     });
 
-    queueAdminYearSnapshotRefresh(pool, "olevel-assignment-create");
+    queueAdminYearSnapshotRefresh(pool, activeConflict ? "olevel-assignment-replace" : "olevel-assignment-create");
     res.status(201).json({
       id: result.insertId,
       teacherId,
+      teacher_name: teacherRow.name,
       class_level,
       stream,
       subject,
+      assignment_status: "active",
+      replacedAssignmentId: activeConflict?.id || null,
     });
   } catch (err) {
+    if (conn) {
+      try { await conn.rollback(); } catch (rollbackError) { console.error("Assignment create rollback error:", rollbackError); }
+      conn.release();
+    }
     console.error("Error assigning subject:", err);
     res.status(500).json({ message: "Failed to assign subject" });
   }
@@ -1859,11 +1805,14 @@ app.delete("/api/admin/assignments/:id", authAdmin, requireAdminReauth, async (r
       return res.status(400).json({ message: "Invalid assignment id" });
     }
 
+    await ensureTeacherAssignmentLifecycleColumns(pool);
     conn = await pool.getConnection();
     await conn.beginTransaction();
 
     const [[assignmentRow]] = await conn.query(
-      `SELECT id, teacher_id, class_level, stream, subject
+      `SELECT id, teacher_id, class_level, stream, subject,
+              COALESCE(assignment_status, 'active') AS assignment_status,
+              ended_at
        FROM teacher_assignments
        WHERE id = ?`,
       [assignmentId]
@@ -1882,12 +1831,53 @@ app.delete("/api/admin/assignments/:id", authAdmin, requireAdminReauth, async (r
     );
 
     if (Number(marksMeta?.count || 0) > 0) {
-      await conn.rollback();
-      return res.status(409).json({
-        message:
-          "This assignment already has submitted marks. Delete the mark sets first from Download Marks before removing the assignment.",
+      const [result] = await conn.query(
+        `UPDATE teacher_assignments
+         SET assignment_status = 'inactive',
+             ended_at = COALESCE(ended_at, NOW()),
+             ended_reason = COALESCE(?, ended_reason, 'Ended by admin; marks retained'),
+             ended_by_admin_id = COALESCE(ended_by_admin_id, ?)
+         WHERE id = ?`,
+        [
+          String(req.body?.reason || "").trim() || "Ended by admin; marks retained",
+          Number(req.admin?.id) || 1,
+          assignmentId,
+        ]
+      );
+
+      if (result.affectedRows === 0) {
+        await conn.rollback();
+        return res.status(404).json({ message: "Assignment not found" });
+      }
+
+      await conn.commit();
+      conn.release();
+      conn = null;
+
+      await logAuditEvent({
+        userId: Number(req.admin?.id) || 1,
+        userRole: "admin",
+        action: "END_ASSIGNMENT",
+        entityType: "subject",
+        entityId: assignmentId,
+        description: `Ended ${assignmentRow.subject} assignment for ${assignmentRow.class_level} ${assignmentRow.stream}; retained ${marksMeta.count} mark rows`,
+        ipAddress: extractClientIp(req),
+      });
+
+      queueAdminYearSnapshotRefresh(pool, "olevel-assignment-end");
+      return res.json({
+        message: "Assignment ended. Existing marks were retained for reports and history.",
+        action: "ended",
+        retainedMarks: Number(marksMeta.count || 0),
       });
     }
+
+    await conn.query(
+      `UPDATE teacher_assignments
+       SET replaced_by_assignment_id = NULL
+       WHERE replaced_by_assignment_id = ?`,
+      [assignmentId]
+    );
 
     const [result] = await conn.query("DELETE FROM teacher_assignments WHERE id = ?", [assignmentId]);
 
@@ -1903,15 +1893,15 @@ app.delete("/api/admin/assignments/:id", authAdmin, requireAdminReauth, async (r
     await logAuditEvent({
       userId: Number(req.admin?.id) || 1,
       userRole: "admin",
-      action: "REMOVE_ASSIGNMENT",
+      action: "REMOVE_EMPTY_ASSIGNMENT",
       entityType: "subject",
       entityId: assignmentId,
-      description: `Removed ${assignmentRow.subject} assignment for ${assignmentRow.class_level} ${assignmentRow.stream} (teacher #${assignmentRow.teacher_id})`,
+      description: `Removed empty ${assignmentRow.subject} assignment for ${assignmentRow.class_level} ${assignmentRow.stream} (teacher #${assignmentRow.teacher_id})`,
       ipAddress: extractClientIp(req),
     });
 
     queueAdminYearSnapshotRefresh(pool, "olevel-assignment-delete");
-    res.json({ message: "Assignment deleted successfully" });
+    res.json({ message: "Empty assignment deleted successfully", action: "deleted", retainedMarks: 0 });
   } catch (err) {
     if (conn) {
       try { await conn.rollback(); } catch (rollbackError) { console.error("Rollback error:", rollbackError); }
@@ -2077,11 +2067,15 @@ app.post("/api/teacher/marks", authTeacher, async (req, res) => {
       return res.status(400).json({ message: "Invalid marks payload" });
     }
 
+    await ensureTeacherAssignmentLifecycleColumns(pool);
+
     // 1) Ensure assignment exists and belongs to this teacher
     const [[assignmentRow]] = await pool.query(
       `SELECT subject, class_level, stream
        FROM teacher_assignments
-       WHERE id = ? AND teacher_id = ?`,
+       WHERE id = ? AND teacher_id = ?
+         AND COALESCE(assignment_status, 'active') = 'active'
+         AND ended_at IS NULL`,
       [assignmentId, teacherId]
     );
 
@@ -2090,26 +2084,6 @@ app.post("/api/teacher/marks", authTeacher, async (req, res) => {
     }
 
     const assignmentSubject = (assignmentRow.subject || "").trim();
-    const oLevelLockableAois = getMarksLockComponents("O-Level");
-    const activeLocks = await readMarksEntryLocks(term, year, "O-Level");
-    const lockedAois = new Set(
-      activeLocks
-        .filter((lock) => lock.effective_locked)
-        .map((lock) => String(lock.aoi_label || "").toUpperCase())
-    );
-    const touchedLockedAois = Array.from(
-      new Set(
-        [...marks, ...clearMarks]
-          .map((entry) => String(entry?.aoi || "").trim().toUpperCase())
-          .filter((aoi) => oLevelLockableAois.includes(aoi) && lockedAois.has(aoi))
-      )
-    );
-
-    if (touchedLockedAois.length > 0) {
-      return res.status(423).json({
-        message: `Marks entry locked for ${touchedLockedAois.join(", ")} in ${term} ${year}. Deadline has passed or admin locked it.`,
-      });
-    }
 
     const [[existingMarksMeta]] = await pool.query(
       `SELECT COUNT(*) AS count
@@ -2176,8 +2150,20 @@ app.post("/api/teacher/marks", authTeacher, async (req, res) => {
       }
 
       await archiveOLevelMarks(conn, {
-        whereSql: "m.assignment_id = ? AND m.student_id = ? AND m.year = ? AND m.term = ? AND CAST(m.aoi_label AS CHAR) = ?",
-        params: [assignmentId, sid, year, term, aoi],
+        whereSql: `
+          m.assignment_id IN (
+            SELECT ta_slot.id
+            FROM teacher_assignments ta_slot
+            WHERE ta_slot.class_level = ?
+              AND ta_slot.stream = ?
+              AND LOWER(TRIM(ta_slot.subject)) = LOWER(TRIM(?))
+          )
+          AND m.student_id = ?
+          AND m.year = ?
+          AND m.term = ?
+          AND CAST(m.aoi_label AS CHAR) = ?
+        `,
+        params: [assignmentRow.class_level, assignmentRow.stream, assignmentSubject, sid, year, term, aoi],
         deletedByUserId: teacherId,
         deletedByRole: "teacher",
         deleteReason: `Teacher cleared ${aoi} for ${assignmentSubject} in ${term} ${year}`,
@@ -2185,13 +2171,17 @@ app.post("/api/teacher/marks", authTeacher, async (req, res) => {
       });
 
       await conn.query(
-        `DELETE FROM marks
-         WHERE assignment_id = ?
-           AND student_id = ?
-           AND year = ?
-           AND term = ?
-           AND aoi_label = ?`,
-        [assignmentId, sid, year, term, aoi]
+        `DELETE m
+         FROM marks m
+         JOIN teacher_assignments ta ON ta.id = m.assignment_id
+         WHERE ta.class_level = ?
+           AND ta.stream = ?
+           AND LOWER(TRIM(ta.subject)) = LOWER(TRIM(?))
+           AND m.student_id = ?
+           AND m.year = ?
+           AND m.term = ?
+           AND m.aoi_label = ?`,
+        [assignmentRow.class_level, assignmentRow.stream, assignmentSubject, sid, year, term, aoi]
       );
     }
 
@@ -2239,6 +2229,43 @@ app.post("/api/teacher/marks", authTeacher, async (req, res) => {
           return res.status(400).json({ message: "AOI score must be between 0.9 and 3.0" });
         }
       }
+
+      await archiveOLevelMarks(conn, {
+        whereSql: `
+          m.assignment_id <> ?
+          AND m.assignment_id IN (
+            SELECT ta_slot.id
+            FROM teacher_assignments ta_slot
+            WHERE ta_slot.class_level = ?
+              AND ta_slot.stream = ?
+              AND LOWER(TRIM(ta_slot.subject)) = LOWER(TRIM(?))
+          )
+          AND m.student_id = ?
+          AND m.year = ?
+          AND m.term = ?
+          AND CAST(m.aoi_label AS CHAR) = ?
+        `,
+        params: [assignmentId, assignmentRow.class_level, assignmentRow.stream, assignmentSubject, sid, year, term, aoi],
+        deletedByUserId: teacherId,
+        deletedByRole: "teacher",
+        deleteReason: `Teacher updated carried-over ${aoi} for ${assignmentSubject} in ${term} ${year}`,
+        sourceAction: "REPLACE_HANDOVER_MARK",
+      });
+
+      await conn.query(
+        `DELETE m
+         FROM marks m
+         JOIN teacher_assignments ta ON ta.id = m.assignment_id
+         WHERE m.assignment_id <> ?
+           AND ta.class_level = ?
+           AND ta.stream = ?
+           AND LOWER(TRIM(ta.subject)) = LOWER(TRIM(?))
+           AND m.student_id = ?
+           AND m.year = ?
+           AND m.term = ?
+           AND m.aoi_label = ?`,
+        [assignmentId, assignmentRow.class_level, assignmentRow.stream, assignmentSubject, sid, year, term, aoi]
+      );
 
       // upsert mark (same logic as before), use transaction connection
       await conn.query(
@@ -2300,8 +2327,9 @@ app.post("/api/teacher/marks", authTeacher, async (req, res) => {
 });
 
 
-app.get("/api/teacher/marks", authTeacher, async (req, res) => {
+async function loadTeacherOLevelMarks(req, res, logLabel = "Load marks") {
   try {
+    const teacherId = req.teacher.id;
     const assignmentId = parseInt(req.query.assignmentId, 10);
     const year = parseInt(req.query.year, 10);
     const term = req.query.term?.trim();
@@ -2310,26 +2338,65 @@ app.get("/api/teacher/marks", authTeacher, async (req, res) => {
       return res.status(400).json({ message: "Missing parameters" });
     }
 
+    await ensureTeacherAssignmentLifecycleColumns(pool);
+
+    const [[assignment]] = await pool.query(
+      `SELECT id, class_level, stream, subject
+       FROM teacher_assignments
+       WHERE id = ? AND teacher_id = ?
+         AND COALESCE(assignment_status, 'active') = 'active'
+         AND ended_at IS NULL`,
+      [assignmentId, teacherId]
+    );
+
+    if (!assignment) {
+      return res.status(404).json({ message: "Assignment not found" });
+    }
+
+    // Replacement handovers create a new active assignment id, while old marks
+    // remain attached to previous ended assignment ids. Read by slot so the new
+    // teacher can review the full class/stream/subject history.
     const [rows] = await pool.query(
       `
       SELECT
+        m.assignment_id,
         student_id,
         score,
         status,
         aoi_label
-      FROM marks
-      WHERE assignment_id = ?
-        AND year = ?
-        AND term = ?
+      FROM marks m
+      JOIN teacher_assignments ta ON ta.id = m.assignment_id
+      WHERE ta.class_level = ?
+        AND ta.stream = ?
+        AND LOWER(TRIM(ta.subject)) = LOWER(TRIM(?))
+        AND m.year = ?
+        AND m.term = ?
+      ORDER BY
+        CASE WHEN m.assignment_id = ? THEN 0 ELSE 1 END,
+        m.id DESC
       `,
-      [assignmentId, year, term]
+      [assignment.class_level, assignment.stream, assignment.subject, year, term, assignmentId]
     );
 
-    res.json(rows);
+    const seen = new Set();
+    const dedupedRows = [];
+    for (const row of rows || []) {
+      const key = `${row.student_id}__${String(row.aoi_label || "").trim().toUpperCase()}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const { assignment_id: _assignmentId, ...markRow } = row;
+      dedupedRows.push(markRow);
+    }
+
+    res.json(dedupedRows);
   } catch (err) {
-    console.error("❌ Load marks error:", err);
+    console.error(`❌ ${logLabel}:`, err);
     res.status(500).json({ message: "Failed to load marks" });
   }
+}
+
+app.get("/api/teacher/marks", authTeacher, async (req, res) => {
+  return loadTeacherOLevelMarks(req, res, "Load marks error");
 });
 // -----------------------
 // PLURAL ALIAS: students for an assignment
@@ -2341,11 +2408,14 @@ app.get(
     try {
       const assignmentId = Number(req.params.assignmentId);
       if (!assignmentId) return res.status(400).json({ message: "Invalid assignment id" });
+      await ensureTeacherAssignmentLifecycleColumns(pool);
 
       const [[assignment]] = await pool.query(
         `SELECT class_level, stream, subject
          FROM teacher_assignments
-         WHERE id = ? AND teacher_id = ?`,
+         WHERE id = ? AND teacher_id = ?
+         AND COALESCE(assignment_status, 'active') = 'active'
+         AND ended_at IS NULL`,
         [assignmentId, req.teacher.id]
       );
 
@@ -2380,35 +2450,7 @@ app.get(
 // PLURAL: GET marks (for frontend 'load marks')
 // -----------------------
 app.get("/api/teachers/marks", authTeacher, async (req, res) => {
-  try {
-    const assignmentId = parseInt(req.query.assignmentId, 10);
-    const year = parseInt(req.query.year, 10);
-    const term = req.query.term?.trim();
-
-    if (!assignmentId || !year || !term) {
-      return res.status(400).json({ message: "Missing parameters" });
-    }
-
-    const [rows] = await pool.query(
-      `
-      SELECT
-        student_id,
-        score,
-        status,
-        aoi_label
-      FROM marks
-      WHERE assignment_id = ?
-        AND year = ?
-        AND term = ?
-      `,
-      [assignmentId, year, term]
-    );
-
-    res.json(rows);
-  } catch (err) {
-    console.error("❌ Load marks error (plural):", err);
-    res.status(500).json({ message: "Failed to load marks" });
-  }
+  return loadTeacherOLevelMarks(req, res, "Load marks error (plural)");
 });
 // -----------------------
 // PLURAL: POST marks (save) — transactional, validates registration
@@ -2429,37 +2471,21 @@ app.post("/api/teachers/marks", authTeacher, async (req, res) => {
       return res.status(400).json({ message: "Invalid marks payload" });
     }
 
+    await ensureTeacherAssignmentLifecycleColumns(pool);
+
     // ensure assignment belongs to teacher
     const [[assignmentRow]] = await pool.query(
       `SELECT subject, class_level, stream
        FROM teacher_assignments
-       WHERE id = ? AND teacher_id = ?`,
+       WHERE id = ? AND teacher_id = ?
+         AND COALESCE(assignment_status, 'active') = 'active'
+         AND ended_at IS NULL`,
       [assignmentId, teacherId]
     );
     if (!assignmentRow) {
       return res.status(404).json({ message: "Assignment not found or not assigned to this teacher" });
     }
     const assignmentSubject = (assignmentRow.subject || "").trim();
-    const oLevelLockableAois = getMarksLockComponents("O-Level");
-    const activeLocks = await readMarksEntryLocks(term, year, "O-Level");
-    const lockedAois = new Set(
-      activeLocks
-        .filter((lock) => lock.effective_locked)
-        .map((lock) => String(lock.aoi_label || "").toUpperCase())
-    );
-    const touchedLockedAois = Array.from(
-      new Set(
-        [...marks, ...clearMarks]
-          .map((entry) => String(entry?.aoi || "").trim().toUpperCase())
-          .filter((aoi) => oLevelLockableAois.includes(aoi) && lockedAois.has(aoi))
-      )
-    );
-
-    if (touchedLockedAois.length > 0) {
-      return res.status(423).json({
-        message: `Marks entry locked for ${touchedLockedAois.join(", ")} in ${term} ${year}. Deadline has passed or admin locked it.`,
-      });
-    }
 
     const [[existingMarksMeta]] = await pool.query(
       `SELECT COUNT(*) AS count
@@ -2525,8 +2551,20 @@ app.post("/api/teachers/marks", authTeacher, async (req, res) => {
       }
 
       await archiveOLevelMarks(conn, {
-        whereSql: "m.assignment_id = ? AND m.student_id = ? AND m.year = ? AND m.term = ? AND CAST(m.aoi_label AS CHAR) = ?",
-        params: [assignmentId, sid, year, term, aoi],
+        whereSql: `
+          m.assignment_id IN (
+            SELECT ta_slot.id
+            FROM teacher_assignments ta_slot
+            WHERE ta_slot.class_level = ?
+              AND ta_slot.stream = ?
+              AND LOWER(TRIM(ta_slot.subject)) = LOWER(TRIM(?))
+          )
+          AND m.student_id = ?
+          AND m.year = ?
+          AND m.term = ?
+          AND CAST(m.aoi_label AS CHAR) = ?
+        `,
+        params: [assignmentRow.class_level, assignmentRow.stream, assignmentSubject, sid, year, term, aoi],
         deletedByUserId: teacherId,
         deletedByRole: "teacher",
         deleteReason: `Teacher cleared ${aoi} for ${assignmentSubject} in ${term} ${year}`,
@@ -2534,13 +2572,17 @@ app.post("/api/teachers/marks", authTeacher, async (req, res) => {
       });
 
       await conn.query(
-        `DELETE FROM marks
-         WHERE assignment_id = ?
-           AND student_id = ?
-           AND year = ?
-           AND term = ?
-           AND aoi_label = ?`,
-        [assignmentId, sid, year, term, aoi]
+        `DELETE m
+         FROM marks m
+         JOIN teacher_assignments ta ON ta.id = m.assignment_id
+         WHERE ta.class_level = ?
+           AND ta.stream = ?
+           AND LOWER(TRIM(ta.subject)) = LOWER(TRIM(?))
+           AND m.student_id = ?
+           AND m.year = ?
+           AND m.term = ?
+           AND m.aoi_label = ?`,
+        [assignmentRow.class_level, assignmentRow.stream, assignmentSubject, sid, year, term, aoi]
       );
     }
 
@@ -2584,6 +2626,43 @@ app.post("/api/teachers/marks", authTeacher, async (req, res) => {
           return res.status(400).json({ message: "AOI score must be between 0.9 and 3.0" });
         }
       }
+
+      await archiveOLevelMarks(conn, {
+        whereSql: `
+          m.assignment_id <> ?
+          AND m.assignment_id IN (
+            SELECT ta_slot.id
+            FROM teacher_assignments ta_slot
+            WHERE ta_slot.class_level = ?
+              AND ta_slot.stream = ?
+              AND LOWER(TRIM(ta_slot.subject)) = LOWER(TRIM(?))
+          )
+          AND m.student_id = ?
+          AND m.year = ?
+          AND m.term = ?
+          AND CAST(m.aoi_label AS CHAR) = ?
+        `,
+        params: [assignmentId, assignmentRow.class_level, assignmentRow.stream, assignmentSubject, sid, year, term, aoi],
+        deletedByUserId: teacherId,
+        deletedByRole: "teacher",
+        deleteReason: `Teacher updated carried-over ${aoi} for ${assignmentSubject} in ${term} ${year}`,
+        sourceAction: "REPLACE_HANDOVER_MARK",
+      });
+
+      await conn.query(
+        `DELETE m
+         FROM marks m
+         JOIN teacher_assignments ta ON ta.id = m.assignment_id
+         WHERE m.assignment_id <> ?
+           AND ta.class_level = ?
+           AND ta.stream = ?
+           AND LOWER(TRIM(ta.subject)) = LOWER(TRIM(?))
+           AND m.student_id = ?
+           AND m.year = ?
+           AND m.term = ?
+           AND m.aoi_label = ?`,
+        [assignmentId, assignmentRow.class_level, assignmentRow.stream, assignmentSubject, sid, year, term, aoi]
+      );
 
       await conn.query(
         `
@@ -3169,98 +3248,6 @@ app.put("/api/admin/school-calendar", authAdmin, async (req, res) => {
   }
 });
 
-app.get("/api/teachers/marks-entry-locks", authTeacher, async (req, res) => {
-  try {
-    const term = String(req.query.term || "").trim();
-    const year = Number(req.query.year);
-    const level = normalizeMarksLockLevel(req.query.level);
-
-    if (!term || !Number.isInteger(year) || year <= 0) {
-      return res.status(400).json({ message: "term and year are required" });
-    }
-
-    const locks = await readMarksEntryLocks(term, year, level);
-    res.json({ term, year, level: level || "", locks });
-  } catch (err) {
-    console.error("Teacher load marks entry locks error:", err);
-    res.status(500).json({ message: "Failed to load marks entry locks" });
-  }
-});
-
-app.get("/api/admin/marks-entry-locks", authAdmin, async (req, res) => {
-  try {
-    const term = String(req.query.term || "").trim();
-    const year = Number(req.query.year);
-    const level = normalizeMarksLockLevel(req.query.level);
-
-    if (!term || !Number.isInteger(year) || year <= 0) {
-      return res.status(400).json({ message: "term and year are required" });
-    }
-
-    const locks = await readMarksEntryLocks(term, year, level);
-    res.json({ term, year, level: level || "", locks });
-  } catch (err) {
-    console.error("Admin load marks entry locks error:", err);
-    res.status(500).json({ message: "Failed to load marks entry locks" });
-  }
-});
-
-app.put("/api/admin/marks-entry-locks", authAdmin, async (req, res) => {
-  try {
-    const term = String(req.body?.term || "").trim();
-    const year = Number(req.body?.year);
-    const submittedLocks = Array.isArray(req.body?.locks) ? req.body.locks : [];
-
-    if (!term || !Number.isInteger(year) || year <= 0) {
-      return res.status(400).json({ message: "term and year are required" });
-    }
-
-    const locksByKey = new Map(
-      submittedLocks.map((lock) => {
-        const normalizedLevel = normalizeMarksLockLevel(lock?.level_name || lock?.level) || "O-Level";
-        const normalizedComponent = normalizeMarksLockComponent(lock?.aoi_label);
-        return [`${normalizedLevel}__${normalizedComponent}`, lock];
-      })
-    );
-
-    await ensureMarksEntryLocksTable();
-
-    for (const levelName of MARKS_ENTRY_LOCK_LEVELS) {
-      for (const component of getMarksLockComponents(levelName)) {
-        const row = locksByKey.get(`${levelName}__${component}`) || {};
-        const deadlineAt = normalizeMarksLockDateTime(row.deadline_at);
-        const isLocked = Boolean(row.is_locked);
-
-        await pool.query(
-          `INSERT INTO marks_entry_locks (term, year, level_name, aoi_label, deadline_at, is_locked)
-           VALUES (?, ?, ?, ?, ?, ?)
-           ON DUPLICATE KEY UPDATE
-             deadline_at = VALUES(deadline_at),
-             is_locked = VALUES(is_locked)`,
-          [term, year, levelName, component, deadlineAt, isLocked ? 1 : 0]
-        );
-      }
-    }
-
-    const savedLocks = await readMarksEntryLocks(term, year);
-
-    await logAuditEvent({
-      userId: Number(req.admin?.id) || 1,
-      userRole: "admin",
-      action: "UPDATE_MARKS_LOCKS",
-      entityType: "system",
-      entityId: Number(year),
-      description: `Updated marks entry locks for ${term} ${year}`,
-      ipAddress: extractClientIp(req),
-    });
-
-    res.json({ term, year, locks: savedLocks });
-  } catch (err) {
-    console.error("Save marks entry locks error:", err);
-    res.status(500).json({ message: "Failed to save marks entry locks" });
-  }
-});
-
 // GET /api/notices (teachers)
 app.get("/api/notices", async (req, res) => {
   try {
@@ -3419,12 +3406,16 @@ app.get("/api/teachers/analytics/subject", authTeacher, async (req, res) => {
       });
     }
 
+    await ensureTeacherAssignmentLifecycleColumns(pool);
+
     // 1️⃣ Validate assignment belongs to teacher
     const [[assignment]] = await pool.query(
       `
       SELECT class_level, stream, subject
       FROM teacher_assignments
       WHERE id = ? AND teacher_id = ?
+         AND COALESCE(assignment_status, 'active') = 'active'
+         AND ended_at IS NULL
       `,
       [assignmentId, teacherId]
     );
@@ -3645,4 +3636,7 @@ io.on("connection", (socket) => {
 
 server.listen(PORT, () => {
   console.log(`✅ Spess Ark backend + WS running on http://localhost:${PORT}`);
+  ensureTeacherAssignmentLifecycleColumns(pool).catch((err) => {
+    console.error("Teacher assignment lifecycle setup failed:", err);
+  });
 });

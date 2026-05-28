@@ -2807,6 +2807,22 @@
   color: #9f1239;
 }
 
+.assignment-submission-delete-btn {
+  border: 1px solid #fecaca;
+  border-radius: 999px;
+  padding: 8px 12px;
+  background: #fff1f2;
+  color: #9f1239;
+  font-weight: 900;
+  cursor: pointer;
+  box-shadow: 0 10px 18px rgba(159, 18, 57, 0.08);
+}
+
+.assignment-submission-delete-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .assignment-grade-shell {
   margin-top: 12px;
   padding: 12px;

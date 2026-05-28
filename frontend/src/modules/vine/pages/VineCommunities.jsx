@@ -45,6 +45,16 @@ const sortLearningBadges = (badges) =>
     return String(a).localeCompare(String(b));
   });
 
+const sortCommunityAssignments = (rows) =>
+  [...(Array.isArray(rows) ? rows : [])].sort((a, b) => {
+    const bCreated = new Date(b?.created_at || 0).getTime();
+    const aCreated = new Date(a?.created_at || 0).getTime();
+    const safeBCreated = Number.isNaN(bCreated) ? 0 : bCreated;
+    const safeACreated = Number.isNaN(aCreated) ? 0 : aCreated;
+    if (safeBCreated !== safeACreated) return safeBCreated - safeACreated;
+    return Number(b?.id || 0) - Number(a?.id || 0);
+  });
+
 const parseAnswers = (value) => {
   try {
     const parsed = JSON.parse(value || "[]");
@@ -251,6 +261,7 @@ export default function VineCommunities() {
   const [selectedAssignmentId, setSelectedAssignmentId] = useState(null);
   const [assignmentSubmissions, setAssignmentSubmissions] = useState([]);
   const [gradingDrafts, setGradingDrafts] = useState({});
+  const [deletingSubmissionId, setDeletingSubmissionId] = useState(null);
   const [badgesStreaks, setBadgesStreaks] = useState([]);
   const [progressRows, setProgressRows] = useState([]);
   const [deadlineEdits, setDeadlineEdits] = useState({});
@@ -542,7 +553,7 @@ export default function VineCommunities() {
       setQuestions(Array.isArray(qData) ? qData : []);
       setEvents(Array.isArray(eventsData) ? eventsData : []);
       setMediaPosts(Array.isArray(mediaData) ? mediaData : []);
-      const safeAssignments = Array.isArray(assignmentsData) ? assignmentsData : [];
+      const safeAssignments = sortCommunityAssignments(assignmentsData);
       setAssignments(safeAssignments);
       setLibraryItems(Array.isArray(libraryData) ? libraryData : []);
       const persisted = {};
@@ -1441,6 +1452,58 @@ export default function VineCommunities() {
       await loadCommunityDetail(activeCommunity.slug, topicFilter);
     } catch {
       alert("Failed to delete file");
+    }
+  };
+
+  const deleteAssignmentSubmission = async (assignmentId, submission) => {
+    const submissionId = Number(submission?.id || 0);
+    if (!activeCommunity?.id || !assignmentId || !submissionId) return;
+    const viewerRole = String(activeCommunity?.viewer_role || "").toLowerCase();
+    if (viewerRole !== "owner") {
+      alert("Only community owner can delete submissions");
+      return;
+    }
+    const learnerName = submission?.display_name || submission?.username || "this learner";
+    const confirmed = window.confirm(`Delete ${learnerName}'s submission? This will remove their answer and uploaded files.`);
+    if (!confirmed) return;
+
+    setDeletingSubmissionId(submissionId);
+    try {
+      const res = await fetch(
+        `${API}/api/vine/communities/${activeCommunity.id}/assignments/${assignmentId}/submissions/${submissionId}`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || "Failed to delete submission");
+        return;
+      }
+
+      setAssignmentSubmissions((prev) => prev.filter((s) => Number(s.id) !== submissionId));
+      setGradingDrafts((prev) => {
+        const next = { ...prev };
+        delete next[submissionId];
+        return next;
+      });
+      setAssignments((prev) =>
+        sortCommunityAssignments(
+          prev.map((row) =>
+            Number(row.id) === Number(assignmentId)
+              ? { ...row, submission_count: Math.max(0, Number(row.submission_count || 0) - 1) }
+              : row
+          )
+        )
+      );
+      await loadCommunityDetail(activeCommunity.slug, topicFilter);
+      await loadAssignmentSubmissions(assignmentId);
+      showSessionCreateNotice("Submission deleted. The learner can submit again if the assignment is still open.");
+    } catch {
+      alert("Failed to delete submission");
+    } finally {
+      setDeletingSubmissionId(null);
     }
   };
 
@@ -4186,6 +4249,16 @@ export default function VineCommunities() {
                                                 </span>
                                               )}
                                             </div>
+                                            <button
+                                              type="button"
+                                              className="assignment-submission-delete-btn"
+                                              onClick={() => deleteAssignmentSubmission(a.id, s)}
+                                              disabled={Number(deletingSubmissionId) === Number(s.id)}
+                                            >
+                                              {Number(deletingSubmissionId) === Number(s.id)
+                                                ? "Deleting..."
+                                                : "Delete submission"}
+                                            </button>
                                           </div>
                                           <div className="assignment-body">{s.content || "No content"}</div>
                                           {Array.isArray(s.submission_files) && s.submission_files.length > 0 ? (

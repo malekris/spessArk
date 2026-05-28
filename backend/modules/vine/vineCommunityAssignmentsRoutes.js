@@ -273,7 +273,7 @@ router.get("/communities/:slug/assignments", authenticate, async (req, res) => {
               ON vd.assignment_id = a.id
              AND vd.user_id = ?
             WHERE a.community_id = ?
-            ORDER BY (a.due_at IS NULL) ASC, a.due_at ASC, a.created_at DESC
+            ORDER BY a.created_at DESC, a.id DESC
             `,
             [viewerId, viewerId, community.id]
           );
@@ -721,6 +721,84 @@ router.get("/communities/:id/assignments/:assignmentId/submissions", authenticat
   } catch (err) {
     console.error("Get assignment submissions error:", err);
     res.status(500).json([]);
+  }
+});
+
+router.delete("/communities/:id/assignments/:assignmentId/submissions/:submissionId", authenticate, async (req, res) => {
+  try {
+    await ensureCommunitySchema();
+    const userId = Number(req.user.id);
+    const communityId = Number(req.params.id);
+    const assignmentId = Number(req.params.assignmentId);
+    const submissionId = Number(req.params.submissionId);
+    if (!communityId || !assignmentId || !submissionId) {
+      return res.status(400).json({ message: "Invalid request" });
+    }
+
+    const role = String(await getCommunityRole(communityId, userId) || "").toLowerCase();
+    if (role !== "owner") {
+      return res.status(403).json({ message: "Only community owner can delete submissions" });
+    }
+
+    const [[submission]] = await db.query(
+      `
+      SELECT
+        s.id,
+        s.user_id,
+        s.attachment_url,
+        a.id AS assignment_id
+      FROM vine_community_submissions s
+      JOIN vine_community_assignments a ON a.id = s.assignment_id
+      WHERE s.id = ?
+        AND s.assignment_id = ?
+        AND s.community_id = ?
+        AND a.community_id = ?
+      LIMIT 1
+      `,
+      [submissionId, assignmentId, communityId, communityId]
+    );
+    if (!submission) return res.status(404).json({ message: "Submission not found" });
+
+    const [submissionFiles] = await db.query(
+      `
+      SELECT file_url
+      FROM vine_community_submission_files
+      WHERE submission_id = ?
+        AND assignment_id = ?
+        AND community_id = ?
+      `,
+      [submissionId, assignmentId, communityId]
+    );
+    const urlsToDelete = [...new Set([
+      submission.attachment_url,
+      ...submissionFiles.map((row) => row.file_url),
+    ].filter(Boolean))];
+
+    await db.query(
+      "DELETE FROM vine_community_submission_files WHERE submission_id = ? AND assignment_id = ? AND community_id = ?",
+      [submissionId, assignmentId, communityId]
+    );
+    await db.query(
+      "DELETE FROM vine_community_submission_drafts WHERE assignment_id = ? AND community_id = ? AND user_id = ?",
+      [assignmentId, communityId, submission.user_id]
+    );
+    await db.query(
+      "DELETE FROM vine_community_submissions WHERE id = ? AND assignment_id = ? AND community_id = ?",
+      [submissionId, assignmentId, communityId]
+    );
+    await Promise.all(urlsToDelete.map((url) => deleteCloudinaryByUrl(url)));
+
+    clearVineReadCache(
+      "community-assignments",
+      "community-assignment-submissions",
+      "community-gradebook",
+      "community-progress",
+      "profile-header"
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Delete assignment submission error:", err);
+    res.status(500).json({ message: "Failed to delete submission" });
   }
 });
 

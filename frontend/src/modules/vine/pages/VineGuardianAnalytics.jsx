@@ -58,6 +58,7 @@ const DEFAULT_SITE_VISUAL_FORM = {
   activities_gallery: DEFAULT_ACTIVITY_GALLERY_IMAGES,
   activities_latest_batch: DEFAULT_SITE_VISUALS.activities_latest_batch,
   activities_latest_day: DEFAULT_SITE_VISUALS.activities_latest_day,
+  create_community_enabled: DEFAULT_SITE_VISUALS.create_community_enabled,
 };
 const SITE_VISUAL_NOTICE_DURATION_MS = 4500;
 const SITE_VISUAL_NOTICE_LABELS = {
@@ -66,6 +67,7 @@ const SITE_VISUAL_NOTICE_LABELS = {
   "activities-gallery": "Activities visuals",
   "ark-slides": "ARK auth slideshow",
   "contact-hero": "Contact hero",
+  "community-create-toggle": "Community creation",
 };
 
 const getKampalaDateStamp = (date = new Date()) =>
@@ -580,6 +582,10 @@ export default function VineGuardianAnalytics() {
           : DEFAULT_SITE_VISUAL_FORM.activities_latest_batch,
       activities_latest_day:
         String(source.activities_latest_day || DEFAULT_SITE_VISUAL_FORM.activities_latest_day || "").trim() || null,
+      create_community_enabled:
+        source.create_community_enabled === undefined || source.create_community_enabled === null
+          ? true
+          : Number(source.create_community_enabled) === 1 || source.create_community_enabled === true,
     });
   }, [data?.siteVisualSettings]);
 
@@ -1272,6 +1278,53 @@ export default function VineGuardianAnalytics() {
       shownAt: Date.now(),
       durationMs: SITE_VISUAL_NOTICE_DURATION_MS,
     });
+  };
+
+  const saveCommunityCreateToggle = async (enabled) => {
+    const previousValue = Boolean(siteVisualForm.create_community_enabled);
+    setSiteVisualForm((prev) => ({ ...prev, create_community_enabled: enabled }));
+    try {
+      setSiteVisualSaving(true);
+      setSiteVisualSavingTarget("community-create-toggle");
+      setSiteVisualNotice(null);
+      const res = await fetch(`${API}/api/vine/site-visuals/settings`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          home_hero_url: siteVisualForm.home_hero_url,
+          boarding_login_url: siteVisualForm.boarding_login_url,
+          ark_auth_slides: siteVisualForm.ark_auth_slides,
+          activities_banner_url: siteVisualForm.activities_banner_url,
+          contact_hero_url: siteVisualForm.contact_hero_url,
+          activities_gallery: siteVisualForm.activities_gallery,
+          activities_latest_batch: siteVisualForm.activities_latest_batch,
+          activities_latest_day: siteVisualForm.activities_latest_day,
+          create_community_enabled: enabled,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setSiteVisualForm((prev) => ({ ...prev, create_community_enabled: previousValue }));
+        showSiteVisualNotice("community-create-toggle", "error", body?.message || "Failed to update community create control.");
+        return;
+      }
+      const nextSettings = primeSiteVisualsCache(body.settings || {});
+      setData((prev) => (prev ? { ...prev, siteVisualSettings: nextSettings } : prev));
+      showSiteVisualNotice(
+        "community-create-toggle",
+        "success",
+        enabled ? "Create Community button is visible again." : "Create Community button is hidden from Communities."
+      );
+    } catch {
+      setSiteVisualForm((prev) => ({ ...prev, create_community_enabled: previousValue }));
+      showSiteVisualNotice("community-create-toggle", "error", "Failed to update community create control.");
+    } finally {
+      setSiteVisualSaving(false);
+      setSiteVisualSavingTarget("");
+    }
   };
 
   const saveSiteVisuals = async (target = "site-visuals") => {
@@ -2485,6 +2538,25 @@ export default function VineGuardianAnalytics() {
 
       <div className="guardian-section">
         <h3>Website, Activities, Ark & Boarding Visuals</h3>
+        <div className="guardian-news-card guardian-community-control-card">
+          <span className="guardian-news-label">Communities Control</span>
+          <label className="guardian-notice-toggle">
+            <input
+              type="checkbox"
+              checked={Boolean(siteVisualForm.create_community_enabled)}
+              disabled={siteVisualSaving && siteVisualSavingTarget === "community-create-toggle"}
+              onChange={(e) => saveCommunityCreateToggle(e.target.checked)}
+            />
+            <span>
+              {siteVisualForm.create_community_enabled
+                ? "Show Create Community button"
+                : "Hide Create Community button"}
+            </span>
+          </label>
+          <p className="guardian-community-control-copy">
+            Turn this off when you do not want learners creating new communities from the Communities page.
+          </p>
+        </div>
         <div className="guardian-site-visual-layout">
           <div className="guardian-site-visual-stack">
             <div className="guardian-news-card guardian-auth-theme-card">

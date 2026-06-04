@@ -28,6 +28,13 @@ export default function createVineCommunityAssignmentsRouter({
     if (type.startsWith("image/")) return true;
     return /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(name);
   };
+  const parseAssignmentDueDate = (value) => {
+    const raw = String(value || "").trim();
+    if (!raw) return null;
+    const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw);
+    const parsed = new Date(hasTimezone ? raw : `${raw}+03:00`);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  };
 
 router.post("/communities/:id/assignments", authenticate, uploadPostCloudinary.single("assignment_file"), async (req, res) => {
   try {
@@ -49,8 +56,8 @@ router.post("/communities/:id/assignments", authenticate, uploadPostCloudinary.s
     }
     const role = await getCommunityRole(communityId, userId);
     if (!isCommunityModOrOwner(role)) return res.status(403).json({ message: "Not allowed" });
-    const dueAt = dueAtRaw ? new Date(dueAtRaw) : null;
-    if (dueAtRaw && Number.isNaN(dueAt?.getTime?.())) {
+    const dueAt = dueAtRaw ? parseAssignmentDueDate(dueAtRaw) : null;
+    if (dueAtRaw && !dueAt) {
       return res.status(400).json({ message: "Invalid due date" });
     }
     let attachmentUrl = null;
@@ -206,8 +213,8 @@ router.patch("/communities/:id/assignments/:assignmentId/deadline", authenticate
     }
 
     const currentDue = new Date(assignment.due_at);
-    const nextDue = new Date(dueAtRaw);
-    if (Number.isNaN(nextDue.getTime())) {
+    const nextDue = parseAssignmentDueDate(dueAtRaw);
+    if (!nextDue) {
       return res.status(400).json({ message: "Invalid due date" });
     }
     const now = Date.now();

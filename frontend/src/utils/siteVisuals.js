@@ -39,6 +39,7 @@ export const DEFAULT_SITE_VISUALS = {
   activities_gallery: DEFAULT_ACTIVITY_GALLERY_IMAGES,
   activities_latest_batch: DEFAULT_ACTIVITY_GALLERY_IMAGES.slice(0, 6),
   activities_latest_day: null,
+  create_community_enabled: true,
 };
 
 let siteVisualCache = DEFAULT_SITE_VISUALS;
@@ -77,6 +78,10 @@ const normalizeSiteVisuals = (value = {}) => {
         ? activitiesLatestBatch
         : (activitiesGallery.length ? activitiesGallery.slice(0, 6) : DEFAULT_SITE_VISUALS.activities_latest_batch),
     activities_latest_day: activitiesLatestDay || null,
+    create_community_enabled:
+      value.create_community_enabled === undefined || value.create_community_enabled === null
+        ? true
+        : Number(value.create_community_enabled) === 1 || value.create_community_enabled === true,
     updated_at: value.updated_at || null,
   };
 };

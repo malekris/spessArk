@@ -3485,6 +3485,9 @@ const normalizeSiteVisualSettings = (value = {}) => {
     .filter((url, index, array) => array.indexOf(url) === index)
     .filter((url) => cleanedActivitiesGallery.includes(url));
   const activitiesLatestDay = String(value.activities_latest_day || "").trim();
+  const createCommunityEnabled = value.create_community_enabled === undefined || value.create_community_enabled === null
+    ? true
+    : Number(value.create_community_enabled) === 1 || value.create_community_enabled === true;
 
   return {
     home_hero_url: homeHeroUrl || VINE_SITE_VISUAL_DEFAULT_HOME_HERO_URL,
@@ -3506,6 +3509,7 @@ const normalizeSiteVisualSettings = (value = {}) => {
             ? cleanedActivitiesGallery.slice(0, 6)
             : [...VINE_SITE_VISUAL_DEFAULT_ACTIVITIES_LATEST_BATCH]),
     activities_latest_day: activitiesLatestDay || null,
+    create_community_enabled: createCommunityEnabled,
     updated_by: value.updated_by ? Number(value.updated_by) : null,
     updated_at: value.updated_at || null,
   };
@@ -3526,6 +3530,7 @@ const ensureSiteVisualSettingsSchema = async () => {
       activities_gallery_json LONGTEXT NULL,
       activities_latest_batch_json LONGTEXT NULL,
       activities_latest_day VARCHAR(10) NULL,
+      create_community_enabled TINYINT NOT NULL DEFAULT 1,
       updated_by INT NULL,
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
@@ -3566,6 +3571,12 @@ const ensureSiteVisualSettingsSchema = async () => {
     "activities_latest_day",
     "VARCHAR(10) NULL"
   );
+  await ensureColumnExists(
+    dbName,
+    "vine_site_visual_settings",
+    "create_community_enabled",
+    "TINYINT NOT NULL DEFAULT 1"
+  );
   siteVisualSettingsSchemaReady = true;
 };
 
@@ -3583,7 +3594,8 @@ const getCurrentSiteVisualSettings = async ({ force = false } = {}) => {
     `
     SELECT home_hero_url, boarding_login_url, ark_auth_slides_json AS ark_auth_slides,
            activities_banner_url, contact_hero_url, activities_gallery_json AS activities_gallery,
-           activities_latest_batch_json AS activities_latest_batch, activities_latest_day, updated_by, updated_at
+           activities_latest_batch_json AS activities_latest_batch, activities_latest_day,
+           create_community_enabled, updated_by, updated_at
     FROM vine_site_visual_settings
     WHERE id = 1
     LIMIT 1
@@ -3609,14 +3621,15 @@ const saveSiteVisualSettings = async (payload = {}, updatedBy = null) => {
     activities_gallery: payload.activities_gallery,
     activities_latest_batch: payload.activities_latest_batch,
     activities_latest_day: payload.activities_latest_day,
+    create_community_enabled: payload.create_community_enabled,
   });
 
   await db.query(
     `
     INSERT INTO vine_site_visual_settings
-      (id, home_hero_url, boarding_login_url, ark_auth_slides_json, activities_banner_url, contact_hero_url, activities_gallery_json, activities_latest_batch_json, activities_latest_day, updated_by, updated_at)
+      (id, home_hero_url, boarding_login_url, ark_auth_slides_json, activities_banner_url, contact_hero_url, activities_gallery_json, activities_latest_batch_json, activities_latest_day, create_community_enabled, updated_by, updated_at)
     VALUES
-      (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+      (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
     ON DUPLICATE KEY UPDATE
       home_hero_url = VALUES(home_hero_url),
       boarding_login_url = VALUES(boarding_login_url),
@@ -3626,6 +3639,7 @@ const saveSiteVisualSettings = async (payload = {}, updatedBy = null) => {
       activities_gallery_json = VALUES(activities_gallery_json),
       activities_latest_batch_json = VALUES(activities_latest_batch_json),
       activities_latest_day = VALUES(activities_latest_day),
+      create_community_enabled = VALUES(create_community_enabled),
       updated_by = VALUES(updated_by),
       updated_at = NOW()
     `,
@@ -3638,6 +3652,7 @@ const saveSiteVisualSettings = async (payload = {}, updatedBy = null) => {
       JSON.stringify(merged.activities_gallery),
       JSON.stringify(merged.activities_latest_batch),
       merged.activities_latest_day,
+      merged.create_community_enabled ? 1 : 0,
       updatedBy ? Number(updatedBy) : null,
     ]
   );
@@ -3646,7 +3661,8 @@ const saveSiteVisualSettings = async (payload = {}, updatedBy = null) => {
     `
     SELECT home_hero_url, boarding_login_url, ark_auth_slides_json AS ark_auth_slides,
            activities_banner_url, contact_hero_url, activities_gallery_json AS activities_gallery,
-           activities_latest_batch_json AS activities_latest_batch, activities_latest_day, updated_by, updated_at
+           activities_latest_batch_json AS activities_latest_batch, activities_latest_day,
+           create_community_enabled, updated_by, updated_at
     FROM vine_site_visual_settings
     WHERE id = 1
     LIMIT 1
@@ -8170,6 +8186,10 @@ router.put("/site-visuals/settings", managedVisualNoCache, authenticate, async (
       req.body?.activities_latest_day === undefined
         ? current.activities_latest_day
         : String(req.body?.activities_latest_day || "").trim();
+    const nextCreateCommunityEnabled =
+      req.body?.create_community_enabled === undefined
+        ? current.create_community_enabled
+        : Number(req.body?.create_community_enabled) === 1 || req.body?.create_community_enabled === true;
     const settings = await saveSiteVisualSettings(
       {
         home_hero_url:
@@ -8192,6 +8212,7 @@ router.put("/site-visuals/settings", managedVisualNoCache, authenticate, async (
         activities_gallery: nextActivitiesGallery,
         activities_latest_batch: nextActivitiesLatestBatch,
         activities_latest_day: nextActivitiesLatestDay,
+        create_community_enabled: nextCreateCommunityEnabled,
       },
       user.id || null
     );

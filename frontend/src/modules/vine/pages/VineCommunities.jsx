@@ -1339,6 +1339,26 @@ export default function VineCommunities() {
     }
   };
 
+  const addPracticalSubmissionFiles = (assignmentId, fileList) => {
+    const incomingFiles = Array.from(fileList || []).filter(Boolean);
+    if (!assignmentId || incomingFiles.length === 0) return;
+    setSubmissionFiles((prev) => {
+      const currentFiles = Array.isArray(prev[assignmentId]) ? prev[assignmentId] : [];
+      const seen = new Set(
+        currentFiles.map((file) => `${file.name || ""}:${file.size || 0}:${file.lastModified || 0}`)
+      );
+      const merged = [...currentFiles];
+      incomingFiles.forEach((file) => {
+        const key = `${file.name || ""}:${file.size || 0}:${file.lastModified || 0}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          merged.push(file);
+        }
+      });
+      return { ...prev, [assignmentId]: merged.slice(0, 10) };
+    });
+  };
+
   const submitAssignment = async (assignmentId, assignmentTypeValue = "theory") => {
     if (!activeCommunity?.id || !assignmentId) return;
     const text = String(submissionDrafts[assignmentId] || savedDraftsMap[assignmentId] || "").trim();
@@ -1346,9 +1366,9 @@ export default function VineCommunities() {
     const isPractical = String(assignmentTypeValue || "theory").toLowerCase() === "practical";
     if (!text && files.length === 0) {
       showCommunitySuccessModal(
-        "Write your answer first",
+        isPractical ? "Attach your practical files first" : "Write your answer first",
         isPractical
-          ? "Add your answer or attach your work before submitting this assignment."
+          ? "Attach one or more files before submitting this practical assignment."
           : "Add your answer before submitting this assignment.",
         { kicker: "Heads up", tone: "warning" }
       );
@@ -1356,6 +1376,7 @@ export default function VineCommunities() {
     }
     try {
       const formData = new FormData();
+      formData.append("assignment_type", isPractical ? "practical" : "theory");
       if (text) formData.append("content", text);
       if (isPractical && files.length > 0) {
         files.forEach((file) => formData.append("submission_files", file));
@@ -4257,10 +4278,8 @@ export default function VineCommunities() {
                                             multiple
                                             onChange={(e) => {
                                               touchVineActivity();
-                                              setSubmissionFiles((prev) => ({
-                                                ...prev,
-                                                [a.id]: Array.from(e.target.files || []),
-                                              }));
+                                              addPracticalSubmissionFiles(a.id, e.target.files);
+                                              e.target.value = "";
                                             }}
                                             disabled={pastDue}
                                           />
@@ -4293,7 +4312,7 @@ export default function VineCommunities() {
                                             Save Draft
                                           </button>
                                         )}
-                                        <button onClick={() => submitAssignment(a.id, a.assignment_type)} disabled={pastDue}>
+                                        <button type="button" onClick={() => submitAssignment(a.id, a.assignment_type)} disabled={pastDue}>
                                           {isPractical ? "Submit" : (viewerStatus ? "Resubmit" : "Submit")}
                                         </button>
                                       </div>

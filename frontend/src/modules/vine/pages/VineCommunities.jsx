@@ -185,6 +185,12 @@ const toCommunityMediaUrl = (value) => {
   return `${API}${raw}`;
 };
 
+const isAssignmentImageAttachment = (assignment) => {
+  const mime = String(assignment?.attachment_mime || "").toLowerCase();
+  const name = String(assignment?.attachment_name || assignment?.attachment_url || "").toLowerCase();
+  return mime.startsWith("image/") || /\.(jpe?g|png|webp|gif|heic|heif)(?:$|\?)/i.test(name);
+};
+
 const isVineGuardianUser = (user) => {
   if (!user) return false;
   if (Number(user.is_admin) === 1) return true;
@@ -3961,13 +3967,13 @@ export default function VineCommunities() {
                           </label>
                           <div className="assignment-field assignment-field-wide assignment-upload-field">
                             <span className="assignment-field-label">Attachment</span>
-                            <span className="assignment-field-hint">Upload a PDF worksheet, guide, or brief.</span>
+                            <span className="assignment-field-hint">Upload a PDF worksheet or a photo for visual questions.</span>
                             <label className="assignment-file-picker">
-                              <span>Attach PDF</span>
+                              <span>Attach PDF or Photo</span>
                               <input
                                 ref={assignmentFileInputRef}
                                 type="file"
-                                accept=".pdf,application/pdf"
+                                accept=".pdf,application/pdf,image/*,.jpg,.jpeg,.png,.webp,.gif,.heic,.heif"
                                 onChange={(e) => setAssignmentFile(e.target.files?.[0] || null)}
                               />
                             </label>
@@ -4023,6 +4029,7 @@ export default function VineCommunities() {
                                   String(viewerStatus || "").toLowerCase()
                                 )
                               );
+                          const hasImageAttachment = isAssignmentImageAttachment(a);
                           return (
                             <div key={a.id} className={`assignment-row ${isCommunityMod ? "mod-view" : ""}`}>
                               <div className="assignment-card-head">
@@ -4085,13 +4092,25 @@ export default function VineCommunities() {
                               {a.instructions && <div className="assignment-body">{a.instructions}</div>}
                               {a.attachment_url && (
                                 <div className="assignment-attachment">
-                                  <a
-                                    href={a.attachment_url}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                  >
-                                    📄 {a.attachment_name || "Assignment attachment"}
-                                  </a>
+                                  {hasImageAttachment ? (
+                                    <a
+                                      className="assignment-image-attachment"
+                                      href={a.attachment_url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                    >
+                                      <img src={a.attachment_url} alt={a.attachment_name || "Assignment photo"} />
+                                      <span>{a.attachment_name || "Assignment photo"}</span>
+                                    </a>
+                                  ) : (
+                                    <a
+                                      href={a.attachment_url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                    >
+                                      📄 {a.attachment_name || "Assignment attachment"}
+                                    </a>
+                                  )}
                                 </div>
                               )}
                               {a.rubric && <div className="assignment-rubric"><strong>Rubric:</strong> {a.rubric}</div>}

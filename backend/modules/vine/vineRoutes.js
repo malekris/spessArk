@@ -3992,6 +3992,7 @@ const ensureCommunitySchema = async () => {
       assignment_type VARCHAR(20) NOT NULL DEFAULT 'theory',
       attachment_url TEXT NULL,
       attachment_name VARCHAR(255) NULL,
+      attachment_mime VARCHAR(120) NULL,
       due_at DATETIME NULL,
       points DECIMAL(8,2) NOT NULL DEFAULT 100.00,
       rubric TEXT NULL,
@@ -4154,6 +4155,7 @@ const ensureCommunitySchema = async () => {
   await ensureColumnExists(dbName, "vine_community_assignments", "rubric", "TEXT NULL");
   await ensureColumnExists(dbName, "vine_community_assignments", "attachment_url", "TEXT NULL");
   await ensureColumnExists(dbName, "vine_community_assignments", "attachment_name", "VARCHAR(255) NULL");
+  await ensureColumnExists(dbName, "vine_community_assignments", "attachment_mime", "VARCHAR(120) NULL");
   await ensureColumnExists(dbName, "vine_community_assignments", "assignment_type", "VARCHAR(20) NOT NULL DEFAULT 'theory'");
   try {
     await db.query(

@@ -22,6 +22,12 @@ export default function createVineCommunityAssignmentsRouter({
   isPracticalSubmissionFile,
 }) {
   const router = express.Router();
+  const isAssignmentImageFile = (file) => {
+    const type = String(file?.mimetype || "").toLowerCase();
+    const name = String(file?.originalname || "").toLowerCase();
+    if (type.startsWith("image/")) return true;
+    return /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(name);
+  };
 
 router.post("/communities/:id/assignments", authenticate, uploadPostCloudinary.single("assignment_file"), async (req, res) => {
   try {
@@ -49,27 +55,33 @@ router.post("/communities/:id/assignments", authenticate, uploadPostCloudinary.s
     }
     let attachmentUrl = null;
     let attachmentName = null;
+    let attachmentMime = null;
     if (req.file) {
-      if (!isPdfFile(req.file)) {
-        return res.status(400).json({ message: "Only PDF is allowed for assignment attachment." });
+      const isPdfAttachment = isPdfFile(req.file);
+      const isImageAttachment = isAssignmentImageFile(req.file);
+      if (!isPdfAttachment && !isImageAttachment) {
+        return res.status(400).json({ message: "Use a PDF or photo for assignment attachment." });
       }
+      const originalName = String(req.file.originalname || "").trim();
+      const ext = originalName.includes(".") ? originalName.split(".").pop().toLowerCase() : (isPdfAttachment ? "pdf" : "jpg");
       const uploaded = await uploadBufferToCloudinary(req.file.buffer, {
-        folder: "vine/assignment-docs",
-        resource_type: "raw",
+        folder: isPdfAttachment ? "vine/assignment-docs" : "vine/assignment-images",
+        resource_type: isPdfAttachment ? "raw" : "image",
         public_id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
-        format: "pdf",
-        content_type: req.file.mimetype || "application/pdf",
+        format: isPdfAttachment ? "pdf" : ext,
+        content_type: req.file.mimetype || (isPdfAttachment ? "application/pdf" : "image/jpeg"),
       });
       attachmentUrl = uploaded.secure_url || uploaded.url || null;
-      attachmentName = String(req.file.originalname || "").slice(0, 255) || "assignment.pdf";
+      attachmentName = originalName.slice(0, 255) || (isPdfAttachment ? "assignment.pdf" : `assignment.${ext}`);
+      attachmentMime = String(req.file.mimetype || "").slice(0, 120) || (isPdfAttachment ? "application/pdf" : "image/*");
     }
     const [result] = await db.query(
       `
       INSERT INTO vine_community_assignments
-      (community_id, creator_id, title, instructions, assignment_type, attachment_url, attachment_name, due_at, points, rubric, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+      (community_id, creator_id, title, instructions, assignment_type, attachment_url, attachment_name, attachment_mime, due_at, points, rubric, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
       `,
-      [communityId, userId, title.slice(0, 160), instructions || null, assignmentType, attachmentUrl, attachmentName, dueAt || null, points, rubric || null]
+      [communityId, userId, title.slice(0, 160), instructions || null, assignmentType, attachmentUrl, attachmentName, attachmentMime, dueAt || null, points, rubric || null]
     );
 
     const [members] = await db.query(
@@ -245,6 +257,7 @@ router.get("/communities/:slug/assignments", authenticate, async (req, res) => {
               a.assignment_type,
               a.attachment_url,
               a.attachment_name,
+              a.attachment_mime,
               a.rubric,
               a.due_at,
               a.points,

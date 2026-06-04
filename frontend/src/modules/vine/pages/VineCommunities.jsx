@@ -84,7 +84,10 @@ const formatAttendanceSessionDate = (dateInput) => {
 
 const buildDateTimeFromToday = (dateInput, timeInput) => {
   if (!dateInput || !timeInput) return "";
-  return `${dateInput}T${timeInput}`;
+  const [year, month, day] = String(dateInput).split("-").map(Number);
+  const [hour, minute] = String(timeInput).split(":").map(Number);
+  const localDate = new Date(year, month - 1, day, hour, minute || 0, 0, 0);
+  return Number.isNaN(localDate.getTime()) ? "" : localDate.toISOString();
 };
 
 const formatAttendanceSessionDay = (value) => {

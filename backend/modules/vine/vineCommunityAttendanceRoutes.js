@@ -13,6 +13,13 @@ export default function createVineCommunityAttendanceRouter({
   clearVineReadCache,
 }) {
   const router = express.Router();
+  const parseAttendanceSessionDate = (value) => {
+    const raw = String(value || "").trim();
+    if (!raw) return null;
+    const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw);
+    const parsed = new Date(hasTimezone ? raw : `${raw}+03:00`);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  };
 
   router.post("/communities/:id/sessions", authenticate, async (req, res) => {
     try {
@@ -28,9 +35,9 @@ export default function createVineCommunityAttendanceRouter({
       }
       const role = await getCommunityRole(communityId, userId);
       if (!isCommunityModOrOwner(role)) return res.status(403).json({ message: "Not allowed" });
-      const startsAt = new Date(startsAtRaw);
-      const endsAt = endsAtRaw ? new Date(endsAtRaw) : null;
-      if (Number.isNaN(startsAt.getTime()) || (endsAt && Number.isNaN(endsAt.getTime()))) {
+      const startsAt = parseAttendanceSessionDate(startsAtRaw);
+      const endsAt = endsAtRaw ? parseAttendanceSessionDate(endsAtRaw) : null;
+      if (!startsAt || (endsAtRaw && !endsAt)) {
         return res.status(400).json({ message: "Invalid date" });
       }
       await db.query(

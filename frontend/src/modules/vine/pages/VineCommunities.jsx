@@ -2880,15 +2880,45 @@ export default function VineCommunities() {
       acc.count += 1;
       acc.avgAttendance += Number(row.attendance_rate || 0);
       acc.avgSubmission += Number(row.submission_rate || 0);
+      if (row.avg_percent !== null && row.avg_percent !== undefined) {
+        acc.masteryCount += 1;
+        acc.avgMastery += Number(row.avg_percent || 0);
+      }
       if (row.avg_score !== null && row.avg_score !== undefined) {
         acc.scoredCount += 1;
         acc.avgScore += Number(row.avg_score || 0);
       }
       if (String(row.risk_flag || "") === "at_risk") acc.atRisk += 1;
+      if (String(row.risk_flag || "") === "watch") acc.watch += 1;
+      if (String(row.risk_flag || "") === "on_track") acc.onTrack += 1;
       return acc;
     },
-    { count: 0, avgAttendance: 0, avgSubmission: 0, avgScore: 0, scoredCount: 0, atRisk: 0 }
+    { count: 0, avgAttendance: 0, avgSubmission: 0, avgMastery: 0, masteryCount: 0, avgScore: 0, scoredCount: 0, atRisk: 0, watch: 0, onTrack: 0 }
   );
+  const progressMasteryAverage = progressSummary.masteryCount
+    ? Math.round(progressSummary.avgMastery / progressSummary.masteryCount)
+    : null;
+  const getProgressStatusLabel = (flag) => {
+    const normalized = String(flag || "").toLowerCase();
+    if (normalized === "at_risk") return "Needs support";
+    if (normalized === "watch") return "Keep watch";
+    if (normalized === "on_track") return "On track";
+    return "Getting started";
+  };
+  const getProgressNudge = (row) => {
+    const mastery = row.avg_percent === null || row.avg_percent === undefined ? null : Number(row.avg_percent);
+    const submission = Number(row.submission_rate || 0);
+    const attendance = Number(row.attendance_rate || 0);
+    const hasSessions = Number(row.total_sessions || 0) > 0;
+    const hasDueAssignments = Number(row.due_assignments || 0) > 0;
+    if (hasSessions && attendance < 50) return "Attendance needs attention";
+    if (hasDueAssignments && submission < 50) return "Missing assignment work";
+    if (mastery !== null && mastery < 50) return "Review marked work";
+    if (hasDueAssignments && submission < 75) return "Encourage completion";
+    if (hasSessions && attendance < 70) return "Check class presence";
+    if (mastery !== null && mastery >= 80) return "Strong mastery";
+    return "Building data";
+  };
 
   return (
     <div className="vine-communities-page">
@@ -4946,23 +4976,26 @@ export default function VineCommunities() {
                 )}
                 {activeTab === "announcements" && !showCommunityMembershipGate && isCommunityMod && (
                   <section className="community-progress-card">
-                    <strong>Progress Dashboard</strong>
+                    <div className="community-progress-head">
+                      <div>
+                        <span className="community-progress-kicker">Progress Dashboard</span>
+                        <strong>Learning pulse</strong>
+                      </div>
+                      <small>
+                        Marks are normalized to mastery, so a 3/3 assignment reads as 100%.
+                      </small>
+                    </div>
                     <div className="community-progress-summary">
                       <div>
                         <span>Learners</span>
                         <b>{progressSummary.count}</b>
                       </div>
                       <div>
-                        <span>Avg attendance</span>
-                        <b>
-                          {progressSummary.count
-                            ? Math.round(progressSummary.avgAttendance / progressSummary.count)
-                            : 0}
-                          %
-                        </b>
+                        <span>Mastery</span>
+                        <b>{progressMasteryAverage === null ? "-" : `${progressMasteryAverage}%`}</b>
                       </div>
                       <div>
-                        <span>Submission rate</span>
+                        <span>Completion</span>
                         <b>
                           {progressSummary.count
                             ? Math.round(progressSummary.avgSubmission / progressSummary.count)
@@ -4971,7 +5004,16 @@ export default function VineCommunities() {
                         </b>
                       </div>
                       <div>
-                        <span>At risk</span>
+                        <span>Attendance</span>
+                        <b>
+                          {progressSummary.count
+                            ? Math.round(progressSummary.avgAttendance / progressSummary.count)
+                            : 0}
+                          %
+                        </b>
+                      </div>
+                      <div>
+                        <span>Needs support</span>
                         <b>{progressSummary.atRisk}</b>
                       </div>
                     </div>
@@ -4986,12 +5028,30 @@ export default function VineCommunities() {
                                 e.currentTarget.src = DEFAULT_AVATAR;
                               }}
                             />
-                            <span>{row.learner_display_name || row.learner_username}</span>
+                            <span>
+                              <b>{row.learner_display_name || row.learner_username}</b>
+                              <small>@{row.learner_username}</small>
+                            </span>
                           </div>
-                          <span>{row.attendance_rate}% attend</span>
-                          <span>{row.submission_rate}% submit</span>
-                          <span>{row.avg_score === null ? "-" : Number(row.avg_score).toFixed(1)}</span>
-                          <span className={`risk-pill ${row.risk_flag}`}>{row.risk_flag}</span>
+                          <div className="progress-metric">
+                            <span>Mastery</span>
+                            <b>{row.avg_percent === null || row.avg_percent === undefined ? "-" : `${Math.round(Number(row.avg_percent))}%`}</b>
+                            <small>{row.avg_score === null ? "No marks yet" : `Avg ${Number(row.avg_score).toFixed(1)}`}</small>
+                          </div>
+                          <div className="progress-metric">
+                            <span>Done</span>
+                            <b>{row.submission_rate}%</b>
+                            <small>{row.due_submission_count || 0}/{row.due_assignments || 0} due</small>
+                          </div>
+                          <div className="progress-metric">
+                            <span>Attend</span>
+                            <b>{row.attendance_rate}%</b>
+                            <small>{row.present_count || 0}/{row.total_sessions || 0} sessions</small>
+                          </div>
+                          <div className="progress-status">
+                            <span className={`risk-pill ${row.risk_flag}`}>{getProgressStatusLabel(row.risk_flag)}</span>
+                            <small>{getProgressNudge(row)}</small>
+                          </div>
                         </div>
                       ))}
                       {(!progressRows || progressRows.length === 0) && (

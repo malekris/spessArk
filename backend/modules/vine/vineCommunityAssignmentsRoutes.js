@@ -1013,12 +1013,15 @@ router.get("/communities/:id/progress", authenticate, async (req, res) => {
           const [[assignmentTotals]] = await timedVineQuery(
             perfCtx,
             "community-progress.assignment-totals",
-            `SELECT COUNT(*) AS total_assignments
+            `SELECT
+               COUNT(*) AS total_assignments,
+               SUM(CASE WHEN due_at IS NULL OR due_at <= NOW() THEN 1 ELSE 0 END) AS due_assignments
              FROM vine_community_assignments
              WHERE community_id = ?`,
             [communityId]
           );
           const totalAssignments = Number(assignmentTotals?.total_assignments || 0);
+          const dueAssignments = Number(assignmentTotals?.due_assignments || 0);
 
           const [[sessionTotals]] = await timedVineQuery(
             perfCtx,
@@ -1043,7 +1046,11 @@ router.get("/communities/:id/progress", authenticate, async (req, res) => {
               u.is_verified AS learner_is_verified,
               m.role AS community_role,
               COALESCE(subq.submission_count, 0) AS submission_count,
+              COALESCE(subq.due_submission_count, 0) AS due_submission_count,
+              COALESCE(subq.graded_count, 0) AS graded_count,
               COALESCE(subq.avg_score, NULL) AS avg_score,
+              COALESCE(subq.avg_percent, NULL) AS avg_percent,
+              subq.last_submitted_at,
               COALESCE(attq.present_count, 0) AS present_count
             FROM vine_community_members m
             JOIN vine_users u ON u.id = m.user_id
@@ -1051,8 +1058,21 @@ router.get("/communities/:id/progress", authenticate, async (req, res) => {
               SELECT
                 s.user_id,
                 COUNT(DISTINCT s.assignment_id) AS submission_count,
-                AVG(s.score) AS avg_score
+                COUNT(DISTINCT CASE WHEN a.due_at IS NULL OR a.due_at <= NOW() THEN s.assignment_id END) AS due_submission_count,
+                COUNT(CASE WHEN s.score IS NOT NULL THEN 1 END) AS graded_count,
+                AVG(s.score) AS avg_score,
+                AVG(
+                  CASE
+                    WHEN s.score IS NULL THEN NULL
+                    WHEN a.points IS NOT NULL AND a.points > 0 AND a.points <= 10 THEN (s.score / a.points) * 100
+                    WHEN s.score <= 3 THEN (s.score / 3) * 100
+                    WHEN a.points IS NOT NULL AND a.points > 0 THEN (s.score / a.points) * 100
+                    ELSE s.score
+                  END
+                ) AS avg_percent,
+                MAX(s.submitted_at) AS last_submitted_at
               FROM vine_community_submissions s
+              JOIN vine_community_assignments a ON a.id = s.assignment_id
               WHERE s.community_id = ?
               GROUP BY s.user_id
             ) subq ON subq.user_id = m.user_id
@@ -1064,7 +1084,7 @@ router.get("/communities/:id/progress", authenticate, async (req, res) => {
               JOIN vine_community_sessions sess ON sess.id = a.session_id
               WHERE a.community_id = ?
                 AND sess.starts_at <= NOW()
-                AND a.status = 'present'
+                AND a.status IN ('present', 'late')
               GROUP BY a.user_id
             ) attq ON attq.user_id = m.user_id
             WHERE m.community_id = ?
@@ -1075,27 +1095,47 @@ router.get("/communities/:id/progress", authenticate, async (req, res) => {
           );
 
           return rows.map((r) => {
-            const submissionRate = totalAssignments > 0
-              ? Math.round((Number(r.submission_count || 0) / totalAssignments) * 100)
+            const submissionBase = dueAssignments;
+            const submissionCount = Number(r.due_submission_count || 0);
+            const submissionRate = submissionBase > 0
+              ? Math.round((submissionCount / submissionBase) * 100)
               : 0;
             const attendanceRate = totalSessions > 0
               ? Math.round((Number(r.present_count || 0) / totalSessions) * 100)
               : 0;
             const avgScoreNum = r.avg_score === null || r.avg_score === undefined ? null : Number(r.avg_score);
-            let riskFlag = "on_track";
-            if (attendanceRate < 60 || submissionRate < 50 || (avgScoreNum !== null && avgScoreNum < 40)) {
+            const avgPercentNum = r.avg_percent === null || r.avg_percent === undefined ? null : Math.max(0, Math.min(100, Number(r.avg_percent)));
+            const hasAttendanceSignal = totalSessions > 0;
+            const hasSubmissionSignal = submissionBase > 0;
+            const hasGradeSignal = Number(r.graded_count || 0) > 0 && avgPercentNum !== null;
+            let riskFlag = "getting_started";
+            if (!hasAttendanceSignal && !hasSubmissionSignal && !hasGradeSignal) {
+              riskFlag = "getting_started";
+            } else if (
+              (hasAttendanceSignal && attendanceRate < 50) ||
+              (hasSubmissionSignal && submissionRate < 50) ||
+              (hasGradeSignal && avgPercentNum < 50)
+            ) {
               riskFlag = "at_risk";
-            } else if (attendanceRate < 75 || submissionRate < 75 || (avgScoreNum !== null && avgScoreNum < 60)) {
+            } else if (
+              (hasAttendanceSignal && attendanceRate < 70) ||
+              (hasSubmissionSignal && submissionRate < 75) ||
+              (hasGradeSignal && avgPercentNum < 67)
+            ) {
               riskFlag = "watch";
+            } else {
+              riskFlag = "on_track";
             }
 
             return {
               ...r,
               total_assignments: totalAssignments,
+              due_assignments: dueAssignments,
               total_sessions: totalSessions,
               submission_rate: submissionRate,
               attendance_rate: attendanceRate,
               avg_score: avgScoreNum,
+              avg_percent: avgPercentNum,
               risk_flag: riskFlag,
             };
           });

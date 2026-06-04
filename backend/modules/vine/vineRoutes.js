@@ -6774,22 +6774,15 @@ router.post("/communities/:id/join", authenticate, async (req, res) => {
 router.delete("/communities/:id/leave", authenticate, async (req, res) => {
   try {
     await ensureCommunitySchema();
-    const userId = req.user.id;
     const communityId = Number(req.params.id);
     if (!communityId) return res.status(400).json({ message: "Invalid community" });
 
-    await db.query(
-      "DELETE FROM vine_community_members WHERE community_id = ? AND user_id = ? AND role != 'owner'",
-      [communityId, userId]
-    );
-    await db.query(
-      "DELETE FROM vine_community_join_requests WHERE community_id = ? AND user_id = ?",
-      [communityId, userId]
-    );
-    res.json({ success: true });
+    return res.status(403).json({
+      message: "Members cannot leave communities themselves. Ask a community owner or moderator to remove you.",
+    });
   } catch (err) {
     console.error("Leave community error:", err);
-    res.status(500).json({ message: "Failed to leave community" });
+    res.status(500).json({ message: "Failed to process leave request" });
   }
 });
 
@@ -6903,7 +6896,7 @@ router.delete("/communities/:id/members/:memberId", authenticate, async (req, re
     const memberId = Number(req.params.memberId);
     if (!communityId || !memberId) return res.status(400).json({ message: "Invalid request" });
     if (memberId === userId) {
-      return res.status(400).json({ message: "Use leave to remove yourself" });
+      return res.status(400).json({ message: "Members cannot remove themselves from a community" });
     }
 
     const actorRole = String(await getCommunityRole(communityId, userId) || "").toLowerCase();

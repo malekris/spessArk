@@ -186,6 +186,7 @@ router.patch("/communities/:id/assignments/:assignmentId/deadline", authenticate
     const communityId = Number(req.params.id);
     const assignmentId = Number(req.params.assignmentId);
     const dueAtRaw = String(req.body?.due_at || "").trim();
+    const resurrect = req.body?.resurrect === true;
     if (!communityId || !assignmentId || !dueAtRaw) {
       return res.status(400).json({ message: "due_at is required" });
     }
@@ -209,8 +210,13 @@ router.patch("/communities/:id/assignments/:assignmentId/deadline", authenticate
     if (Number.isNaN(nextDue.getTime())) {
       return res.status(400).json({ message: "Invalid due date" });
     }
-    if (currentDue.getTime() <= Date.now()) {
+    const now = Date.now();
+    const deadlineElapsed = currentDue.getTime() <= now;
+    if (deadlineElapsed && !resurrect) {
       return res.status(403).json({ message: "Deadline already elapsed. Extension is locked." });
+    }
+    if (deadlineElapsed && nextDue.getTime() <= now) {
+      return res.status(400).json({ message: "Resurrected deadline must be in the future" });
     }
     if (nextDue.getTime() <= currentDue.getTime()) {
       return res.status(400).json({ message: "New deadline must be later than current deadline" });

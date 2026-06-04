@@ -4209,9 +4209,33 @@
 .assignment-deadline-locked {
   margin-top: 6px;
   margin-bottom: 6px;
-  color: #b91c1c;
-  font-size: 0.82rem;
-  font-weight: 700;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid rgba(252, 165, 165, 0.82);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(255, 247, 237, 0.98), rgba(254, 242, 242, 0.92));
+}
+
+.assignment-deadline-locked .assignment-deadline-edit-copy span {
+  color: #991b1b;
+}
+
+.assignment-deadline-locked input {
+  min-width: 220px;
+}
+
+.assignment-deadline-locked button {
+  border: 1px solid #991b1b;
+  background: linear-gradient(180deg, #dc2626, #991b1b);
+  color: #fff;
+  border-radius: 999px;
+  padding: 10px 14px;
+  font-weight: 900;
+  cursor: pointer;
+  box-shadow: 0 12px 20px rgba(153, 27, 27, 0.16);
 }
 
 .library-upload-row {
@@ -5614,12 +5638,14 @@
     justify-content: flex-start;
   }
 
-  .assignment-deadline-edit {
+  .assignment-deadline-edit,
+  .assignment-deadline-locked {
     grid-template-columns: 1fr;
     align-items: stretch;
   }
 
-  .assignment-deadline-edit input {
+  .assignment-deadline-edit input,
+  .assignment-deadline-locked input {
     min-width: 0;
   }
 

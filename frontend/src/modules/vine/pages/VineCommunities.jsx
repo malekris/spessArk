@@ -1882,8 +1882,9 @@ export default function VineCommunities() {
     return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`;
   };
 
-  const extendAssignmentDeadline = async (assignmentId) => {
+  const extendAssignmentDeadline = async (assignmentId, options = {}) => {
     if (!activeCommunity?.id || !assignmentId) return;
+    const resurrect = options.resurrect === true;
     const nextDueAt = String(deadlineEdits[assignmentId] || "").trim();
     if (!nextDueAt) {
       alert("Pick a new deadline first");
@@ -1898,18 +1899,18 @@ export default function VineCommunities() {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({ due_at: nextDueAt }),
+          body: JSON.stringify({ due_at: nextDueAt, ...(resurrect ? { resurrect: true } : {}) }),
         }
       );
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        alert(data.message || "Failed to extend deadline");
+        alert(data.message || (resurrect ? "Failed to resurrect deadline" : "Failed to extend deadline"));
         return;
       }
       await loadCommunityDetail(activeCommunity.slug, topicFilter);
-      alert("Deadline extended");
+      alert(resurrect ? "Deadline resurrected" : "Deadline extended");
     } catch {
-      alert("Failed to extend deadline");
+      alert(resurrect ? "Failed to resurrect deadline" : "Failed to extend deadline");
     }
   };
 
@@ -4105,7 +4106,25 @@ export default function VineCommunities() {
                               )}
                               {isCommunityOwner && a.due_at && isAssignmentPastDue(a) && (
                                 <div className="assignment-deadline-locked">
-                                  Deadline elapsed. Extension locked.
+                                  <div className="assignment-deadline-edit-copy">
+                                    <span>Resurrect deadline</span>
+                                    <small>Owner power: reopen submissions with a new future close time.</small>
+                                  </div>
+                                  <input
+                                    className="assignment-date-input"
+                                    type="datetime-local"
+                                    min={toDatetimeLocalValue(new Date())}
+                                    value={deadlineEdits[a.id] ?? toDatetimeLocalValue(new Date(Date.now() + 24 * 60 * 60 * 1000))}
+                                    onChange={(e) =>
+                                      setDeadlineEdits((prev) => ({ ...prev, [a.id]: e.target.value }))
+                                    }
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => extendAssignmentDeadline(a.id, { resurrect: true })}
+                                  >
+                                    Resurrect deadline
+                                  </button>
                                 </div>
                               )}
                               <div className="assignment-card-timeline">

@@ -2,6 +2,7 @@
 .vine-suggestions {
   min-height: 100vh;
   width: 100%;
+  max-width: 100vw;
   padding: 40px 20px;
   box-sizing: border-box;
   
@@ -15,6 +16,7 @@
 /* ───── Content Wrapper (PC Optimized) ───── */
 .suggestions-content {
   width: 100%;
+  box-sizing: border-box;
   max-width: 1100px;
   background: rgba(255, 255, 255, 0.7);
   backdrop-filter: blur(12px);
@@ -98,6 +100,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  min-width: 0;
   padding: 16px;
   background: #ffffff;
   border-radius: 18px;
@@ -195,6 +198,7 @@
   cursor: pointer;
   margin-left: 10px;
   transition: background 0.2s;
+  flex-shrink: 0;
 }
 
 .follow-mini:hover {
@@ -205,22 +209,73 @@
 @media (max-width: 600px) {
   .vine-suggestions {
     padding: 10px;
-    background: #ffffff; /* White bg on mobile for speed */
+    overflow-x: hidden;
+    background:
+      radial-gradient(circle at top left, rgba(16, 185, 129, 0.18), transparent 34%),
+      #ffffff;
   }
 
   .suggestions-content {
-    padding: 10px;
+    width: 100%;
+    max-width: 100%;
+    padding: 8px;
     background: none;
     border: none;
     box-shadow: none;
+    overflow-x: hidden;
   }
 
   .suggestions-list {
     grid-template-columns: 1fr;
+    gap: 12px;
   }
 
   .suggestions-title {
     font-size: 1.5rem;
+    margin: 12px 0 16px;
+    line-height: 1.15;
+  }
+
+  .suggestion-row {
+    width: 100%;
+    box-sizing: border-box;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    padding: 12px;
+    border-radius: 16px;
+  }
+
+  .user-left {
+    min-width: 0;
+    gap: 10px;
+  }
+
+  .avatar,
+  .avatar-initial {
+    width: 44px;
+    height: 44px;
+  }
+
+  .user-info,
+  .user-name,
+  .user-info strong,
+  .user-info span {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .user-info span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .follow-mini {
+    margin-left: 0;
+    min-width: 76px;
+    padding: 8px 12px;
+    border-radius: 999px;
   }
 }
 .suggestion-row {
@@ -249,11 +304,24 @@
   .suggestions-back {
     width: 44px;
     min-width: 44px;
+    max-width: 44px;
     padding: 0;
     justify-content: center;
+    margin-bottom: 12px;
   }
 
   .suggestions-back-label {
     display: none;
+  }
+}
+
+@media (max-width: 380px) {
+  .suggestion-row {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .follow-mini {
+    width: 100%;
   }
 }

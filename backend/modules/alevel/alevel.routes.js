@@ -55,6 +55,7 @@ const NORMALIZED_ALEVEL_TERM_SQL = (columnName) => `
 
 const normalizeAlevelComponent = (value = "") =>
   String(value || "").trim().toUpperCase();
+const ALEVEL_MARK_COMPONENTS = ["MID", "EOT"];
 
 const resolvePaperLabel = (subjectName = "", requestedPaper = "") => {
   const allowed = getPaperOptionsForSubject(subjectName);
@@ -610,6 +611,13 @@ router.post("/teachers/alevel-marks", authTeacher, async (req, res) => {
 
     const examMap = {};
     exams.forEach(e => examMap[e.name] = e.id);
+    const touchedComponents = Array.from(
+      new Set(
+        [...marks, ...clearMarks]
+          .map((entry) => normalizeAlevelComponent(entry?.aoi))
+          .filter((component) => ALEVEL_MARK_COMPONENTS.includes(component))
+      )
+    );
 
     for (const component of touchedComponents) {
       if (!examMap[component]) {
@@ -676,8 +684,8 @@ router.post("/teachers/alevel-marks", authTeacher, async (req, res) => {
     // 4. Insert new marks
     const rows = [];
     for (const mark of marks) {
-      const aoi = String(mark?.aoi || "").trim().toUpperCase();
-      if (!aLevelLockableComponents.includes(aoi)) {
+      const aoi = normalizeAlevelComponent(mark?.aoi);
+      if (!ALEVEL_MARK_COMPONENTS.includes(aoi)) {
         await conn.rollback();
         return res.status(400).json({ message: "A-Level marks must use MID or EOT." });
       }

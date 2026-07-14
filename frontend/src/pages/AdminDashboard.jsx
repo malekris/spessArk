@@ -166,6 +166,14 @@ const normalizeOperationalTerm = (value) => {
   return "Term 1";
 };
 
+const getOperationalTermNumber = (value) => {
+  const match = normalizeOperationalTerm(value).match(/\d+/);
+  return Number(match?.[0] || 1);
+};
+
+const getMarksPeriodKey = (group) =>
+  `${Number(group?.year || 0)}|${normalizeOperationalTerm(group?.term)}`;
+
 const toPercent = (value, total) => {
   if (!total) return 0;
   return Math.max(0, Math.min(100, Math.round((Number(value || 0) / Number(total || 0)) * 100)));
@@ -794,6 +802,11 @@ export default function AdminDashboard() {
   const [restoringArchiveKey, setRestoringArchiveKey] = useState("");
   const [selectedGroup, setSelectedGroup] = useState(null);
   const [selectedAoi, setSelectedAoi] = useState(null);
+  const [marksPeriodView, setMarksPeriodView] = useState("current");
+  const [marksHistoryPeriod, setMarksHistoryPeriod] = useState("");
+  const [marksListClassFilter, setMarksListClassFilter] = useState("all");
+  const [marksListStreamFilter, setMarksListStreamFilter] = useState("all");
+  const [marksListQuery, setMarksListQuery] = useState("");
   const [pendingAoiDelete, setPendingAoiDelete] = useState(null);
   const [deletingAoiKey, setDeletingAoiKey] = useState("");
   const [scoreSheetLoading, setScoreSheetLoading] = useState(false);
@@ -3080,14 +3093,144 @@ export default function AdminDashboard() {
   
       map[key].aois.push(m);
     });
-  
-    return Object.values(map);
+
+    return Object.values(map)
+      .map((group) => ({
+        ...group,
+        aois: [...group.aois].sort((a, b) =>
+          String(a.aoi_label || "").localeCompare(String(b.aoi_label || ""), undefined, {
+            numeric: true,
+          })
+        ),
+      }))
+      .sort((a, b) => {
+        const classDifference = String(a.class_level || "").localeCompare(
+          String(b.class_level || ""),
+          undefined,
+          { numeric: true }
+        );
+        if (classDifference !== 0) return classDifference;
+
+        const streamDifference = String(a.stream || "").localeCompare(String(b.stream || ""));
+        if (streamDifference !== 0) return streamDifference;
+        return String(a.subject || "").localeCompare(String(b.subject || ""));
+      });
   }, [marksSets]);
+
+  const currentMarksPeriodKey = `${dashboardOperationalYear}|${dashboardOperationalTerm}`;
+  const marksHistoryPeriods = useMemo(() => {
+    const periods = new Map();
+
+    groupedMarkSets.forEach((group) => {
+      const key = getMarksPeriodKey(group);
+      if (key === currentMarksPeriodKey || periods.has(key)) return;
+      periods.set(key, {
+        key,
+        term: normalizeOperationalTerm(group.term),
+        year: Number(group.year || 0),
+      });
+    });
+
+    return Array.from(periods.values()).sort(
+      (a, b) => b.year - a.year || getOperationalTermNumber(b.term) - getOperationalTermNumber(a.term)
+    );
+  }, [currentMarksPeriodKey, groupedMarkSets]);
+  const effectiveMarksHistoryPeriod = marksHistoryPeriods.some(
+    (period) => period.key === marksHistoryPeriod
+  )
+    ? marksHistoryPeriod
+    : marksHistoryPeriods[0]?.key || "";
+  const marksPeriodGroups = useMemo(() => {
+    const activePeriodKey =
+      marksPeriodView === "history" ? effectiveMarksHistoryPeriod : currentMarksPeriodKey;
+    return groupedMarkSets.filter((group) => getMarksPeriodKey(group) === activePeriodKey);
+  }, [currentMarksPeriodKey, effectiveMarksHistoryPeriod, groupedMarkSets, marksPeriodView]);
+  const marksListClassOptions = useMemo(
+    () =>
+      Array.from(new Set(marksPeriodGroups.map((group) => group.class_level).filter(Boolean))).sort(
+        (a, b) => String(a).localeCompare(String(b), undefined, { numeric: true })
+      ),
+    [marksPeriodGroups]
+  );
+  const marksListStreamOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          marksPeriodGroups
+            .filter(
+              (group) =>
+                marksListClassFilter === "all" || group.class_level === marksListClassFilter
+            )
+            .map((group) => group.stream)
+            .filter(Boolean)
+        )
+      ).sort((a, b) => String(a).localeCompare(String(b))),
+    [marksListClassFilter, marksPeriodGroups]
+  );
+  const visibleMarksGroups = useMemo(() => {
+    const query = marksListQuery.trim().toLowerCase();
+    return marksPeriodGroups.filter((group) => {
+      if (marksListClassFilter !== "all" && group.class_level !== marksListClassFilter) return false;
+      if (marksListStreamFilter !== "all" && group.stream !== marksListStreamFilter) return false;
+      if (!query) return true;
+      return [group.subject, group.teacher_name, group.class_level, group.stream].some((value) =>
+        String(value || "").toLowerCase().includes(query)
+      );
+    });
+  }, [marksListClassFilter, marksListQuery, marksListStreamFilter, marksPeriodGroups]);
+  const visibleMarksSections = useMemo(() => {
+    const sections = new Map();
+
+    visibleMarksGroups.forEach((group) => {
+      const key = `${group.class_level}|${group.stream}`;
+      if (!sections.has(key)) {
+        sections.set(key, {
+          key,
+          class_level: group.class_level,
+          stream: group.stream,
+          groups: [],
+        });
+      }
+      sections.get(key).groups.push(group);
+    });
+
+    return Array.from(sections.values());
+  }, [visibleMarksGroups]);
+  const selectedMarksHistoryPeriod = marksHistoryPeriods.find(
+    (period) => period.key === effectiveMarksHistoryPeriod
+  );
+  const visibleMarksPeriodLabel =
+    marksPeriodView === "history" && selectedMarksHistoryPeriod
+      ? `${selectedMarksHistoryPeriod.term} ${selectedMarksHistoryPeriod.year}`
+      : `${dashboardOperationalTerm} ${dashboardOperationalYear}`;
+  const clearMarksSelection = () => {
+    setSelectedGroup(null);
+    setSelectedAoi(null);
+    setMarksDetail([]);
+  };
+  const changeMarksPeriodView = (nextView) => {
+    setMarksPeriodView(nextView);
+    setMarksListClassFilter("all");
+    setMarksListStreamFilter("all");
+    setMarksListQuery("");
+    clearMarksSelection();
+  };
   const getMarksGroupKey = (group) =>
     group
       ? [group.class_level, group.stream, group.subject, group.term, group.year].join("|")
       : "";
   const selectedGroupKey = getMarksGroupKey(selectedGroup);
+  useEffect(() => {
+    if (!selectedGroupKey) return;
+    const selectionIsVisible = visibleMarksGroups.some(
+      (group) => getMarksGroupKey(group) === selectedGroupKey
+    );
+    if (selectionIsVisible) return;
+
+    setSelectedGroup(null);
+    setSelectedAoi(null);
+    setMarksDetail([]);
+  }, [selectedGroupKey, visibleMarksGroups]);
   useEffect(() => {
     if (!selectedGroupKey) return;
 
@@ -4440,93 +4583,205 @@ export default function AdminDashboard() {
               <div className="panel-card-header">
                 <div>
                   <h3>Available Subjects</h3>
-                  <p className="download-marks-subtitle">Choose a class stream subject block, then drill into the AOIs on the right.</p>
+                  <p className="download-marks-subtitle">
+                    Showing one school-calendar period at a time. Historical marks remain available in History.
+                  </p>
                 </div>
-                <div style={{ display: "flex", gap: "0.55rem", alignItems: "center", flexWrap: "wrap" }}>
-                  <span className="download-marks-pill">{groupedMarkSets.length} subject blocks</span>
-                  <button className="ghost-btn" onClick={fetchMarksSets} disabled={loadingMarksSets}>
+                <div className="download-marks-header-actions">
+                  <span className="download-marks-pill">{visibleMarksPeriodLabel}</span>
+                  <button type="button" className="ghost-btn" onClick={fetchMarksSets} disabled={loadingMarksSets}>
                     {loadingMarksSets ? "Refreshing…" : "Refresh"}
                   </button>
                 </div>
               </div>
-    
-              <div className="teachers-table-wrapper download-marks-table-shell">
-                <table className="teachers-table download-marks-table">
-                  <thead>
-                    <tr>
-                      <th>Class</th>
-                      <th>Stream</th>
-                      <th>Subject</th>
-                      <th>AOIs</th>
-                      <th>Term</th>
-                      <th>Year</th>
-                      <th>Submitted by</th>
-                      <th>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {groupedMarkSets.map((group) => (
-                      <tr
-                        key={`${group.class_level}-${group.stream}-${group.subject}-${group.term}-${group.year}`}
-                        className={selectedGroupKey === getMarksGroupKey(group) ? "download-marks-row-active" : ""}
-                        onClick={() => {
-                          setSelectedGroup(group);
-                          setSelectedAoi(null);
-                          setMarksDetail([]);
+
+              <div className="download-marks-browser-controls">
+                <div className="download-marks-period-tabs" role="group" aria-label="Marks period view">
+                  <button
+                    type="button"
+                    className={marksPeriodView === "current" ? "is-active" : ""}
+                    aria-pressed={marksPeriodView === "current"}
+                    onClick={() => changeMarksPeriodView("current")}
+                  >
+                    Current Term
+                  </button>
+                  <button
+                    type="button"
+                    className={marksPeriodView === "history" ? "is-active" : ""}
+                    aria-pressed={marksPeriodView === "history"}
+                    disabled={marksHistoryPeriods.length === 0}
+                    onClick={() => changeMarksPeriodView("history")}
+                  >
+                    History
+                  </button>
+                </div>
+
+                <div className="download-marks-filter-grid">
+                  {marksPeriodView === "history" && (
+                    <label className="download-marks-filter-field">
+                      <span>Period</span>
+                      <select
+                        value={effectiveMarksHistoryPeriod}
+                        onChange={(event) => {
+                          setMarksHistoryPeriod(event.target.value);
+                          setMarksListClassFilter("all");
+                          setMarksListStreamFilter("all");
+                          clearMarksSelection();
                         }}
-                        style={{ cursor: "pointer" }}
                       >
-                        <td><span className="download-marks-pill download-marks-pill-soft">{group.class_level}</span></td>
-                        <td>{group.stream}</td>
-                        <td>
-                          <div className="download-marks-subject-name">{group.subject}</div>
-                        </td>
-                        <td><span className="download-marks-pill">{group.aois.length} AOIs</span></td>
-                        <td>{group.term}</td>
-                        <td>{group.year}</td>
-                        <td>{group.teacher_name || "—"}</td>
-                        <td>
-                          <button
-                            className="danger-link"
-                            onClick={(e) => {
-                              e.stopPropagation();
+                        {marksHistoryPeriods.map((period) => (
+                          <option key={period.key} value={period.key}>
+                            {period.term} {period.year}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
 
-                              requestAdminReauth({
-                                title: "Confirm Subject Marks Deletion",
-                                description: `Re-enter your admin password to delete all AOIs for ${group.subject} in ${group.class_level} ${group.stream}.`,
-                                onApproved: async () => {
-                                  try {
-                                    for (const aoi of group.aois) {
-                                      await adminFetch("/api/admin/marks-set", {
-                                        method: "DELETE",
-                                        body: {
-                                          assignmentId: aoi.assignment_id,
-                                          term: aoi.term,
-                                          year: aoi.year,
-                                          aoi: aoi.aoi_label,
-                                        },
-                                      });
-                                    }
+                  <label className="download-marks-filter-field download-marks-search-field">
+                    <span>Find Subject</span>
+                    <input
+                      type="search"
+                      value={marksListQuery}
+                      placeholder="Subject or teacher"
+                      onChange={(event) => setMarksListQuery(event.target.value)}
+                    />
+                  </label>
 
-                                    await fetchMarksSets();
-                                    setSelectedGroup(null);
-                                    setSelectedAoi(null);
-                                    setMarksDetail([]);
-                                  } catch (err) {
-                                    setMarksError(err.message || "Failed to delete subject marks.");
-                                  }
-                                },
-                              });
-                            }}
-                          >
-                            Delete
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                  <label className="download-marks-filter-field">
+                    <span>Class</span>
+                    <select
+                      value={marksListClassFilter}
+                      onChange={(event) => {
+                        setMarksListClassFilter(event.target.value);
+                        setMarksListStreamFilter("all");
+                        clearMarksSelection();
+                      }}
+                    >
+                      <option value="all">All classes</option>
+                      {marksListClassOptions.map((classLevel) => (
+                        <option key={classLevel} value={classLevel}>{classLevel}</option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="download-marks-filter-field">
+                    <span>Stream</span>
+                    <select
+                      value={marksListStreamFilter}
+                      onChange={(event) => {
+                        setMarksListStreamFilter(event.target.value);
+                        clearMarksSelection();
+                      }}
+                    >
+                      <option value="all">All streams</option>
+                      {marksListStreamOptions.map((stream) => (
+                        <option key={stream} value={stream}>{stream}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
+                <div className="download-marks-results-line" aria-live="polite">
+                  <strong>{visibleMarksGroups.length}</strong> subject {visibleMarksGroups.length === 1 ? "block" : "blocks"}
+                  {marksPeriodView === "current" && <span>Calendar-selected period</span>}
+                </div>
               </div>
+
+              {loadingMarksSets && groupedMarkSets.length === 0 ? (
+                <div className="download-marks-empty-state">Loading submitted marks…</div>
+              ) : marksPeriodGroups.length === 0 ? (
+                <div className="download-marks-empty-state">
+                  No marks have been submitted for {visibleMarksPeriodLabel} yet.
+                  {marksHistoryPeriods.length > 0 && marksPeriodView === "current" && (
+                    <button type="button" className="ghost-btn" onClick={() => changeMarksPeriodView("history")}>
+                      Open History
+                    </button>
+                  )}
+                </div>
+              ) : visibleMarksSections.length === 0 ? (
+                <div className="download-marks-empty-state">No subjects match these filters.</div>
+              ) : (
+                <div className="teachers-table-wrapper download-marks-table-shell">
+                  <table className="teachers-table download-marks-table download-marks-subject-table">
+                    <thead>
+                      <tr>
+                        <th>Subject</th>
+                        <th>AOIs</th>
+                        <th>Submitted by</th>
+                        <th><span className="visually-hidden">Actions</span></th>
+                      </tr>
+                    </thead>
+                    {visibleMarksSections.map((section) => (
+                      <tbody key={section.key}>
+                        <tr className="download-marks-section-row">
+                          <th colSpan="4" scope="rowgroup">
+                            <span className="download-marks-pill download-marks-pill-soft">{section.class_level}</span>
+                            <strong>{section.stream}</strong>
+                            <span>{section.groups.length} {section.groups.length === 1 ? "subject" : "subjects"}</span>
+                          </th>
+                        </tr>
+                        {section.groups.map((group) => (
+                          <tr
+                            key={`${group.class_level}-${group.stream}-${group.subject}-${group.term}-${group.year}`}
+                            className={selectedGroupKey === getMarksGroupKey(group) ? "download-marks-row-active" : ""}
+                            onClick={() => {
+                              setSelectedGroup(group);
+                              setSelectedAoi(null);
+                              setMarksDetail([]);
+                            }}
+                            style={{ cursor: "pointer" }}
+                          >
+                            <td>
+                              <div className="download-marks-subject-name">{group.subject}</div>
+                            </td>
+                            <td>
+                              <span className="download-marks-pill">{group.aois.length} AOIs</span>
+                            </td>
+                            <td>{group.teacher_name || "—"}</td>
+                            <td className="download-marks-row-action">
+                              <button
+                                type="button"
+                                className="danger-link"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+
+                                  requestAdminReauth({
+                                    title: "Confirm Subject Marks Deletion",
+                                    description: `Re-enter your admin password to delete all AOIs for ${group.subject} in ${group.class_level} ${group.stream}, ${normalizeOperationalTerm(group.term)} ${group.year}.`,
+                                    onApproved: async () => {
+                                      try {
+                                        for (const aoi of group.aois) {
+                                          await adminFetch("/api/admin/marks-set", {
+                                            method: "DELETE",
+                                            body: {
+                                              assignmentId: aoi.assignment_id,
+                                              term: aoi.term,
+                                              year: aoi.year,
+                                              aoi: aoi.aoi_label,
+                                            },
+                                          });
+                                        }
+
+                                        await fetchMarksSets();
+                                        clearMarksSelection();
+                                      } catch (err) {
+                                        setMarksError(err.message || "Failed to delete subject marks.");
+                                      }
+                                    },
+                                  });
+                                }}
+                              >
+                                Delete
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    ))}
+                  </table>
+                </div>
+              )}
             </div>
     
             {/* RIGHT PANEL */}
@@ -5198,6 +5453,8 @@ export default function AdminDashboard() {
           <AssessmentSubmissionTracker
             marksSets={marksSets}
             refreshMarks={fetchMarksSets}
+            currentTerm={dashboardOperationalTerm}
+            currentYear={dashboardOperationalYear}
           />
         </section>
       );

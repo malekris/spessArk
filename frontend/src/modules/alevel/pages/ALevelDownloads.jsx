@@ -1,11 +1,32 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { loadPdfTools } from "../../../utils/loadPdfTools";
 import ALevelAdminShell from "../components/ALevelAdminShell";
+import {
+  DEFAULT_SCHOOL_CALENDAR,
+  getSchoolCalendarBadge,
+  normalizeSchoolCalendar,
+} from "../../../utils/schoolCalendar";
 import "../../../pages/AdminDashboard.css";
 import "./ALevelAdminTheme.css";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
 const ALEVEL_TERMS = ["Term 1", "Term 2", "Term 3"];
+
+const normalizeAlevelTerm = (value = "") => {
+  const raw = String(value || "").trim().toLowerCase();
+  const compact = raw.replace(/[\s_-]+/g, "");
+  if (["3", "term3", "iii", "termiii", "term1ii"].includes(compact)) return "Term 3";
+  if (["2", "term2", "ii", "termii", "term1i"].includes(compact)) return "Term 2";
+  if (["1", "term1", "i", "termi"].includes(compact)) return "Term 1";
+  if (raw.includes("term iii") || raw.includes("term 3")) return "Term 3";
+  if (raw.includes("term ii") || raw.includes("term 2")) return "Term 2";
+  return "Term 1";
+};
+
+const getAlevelTermNumber = (value) => Number(normalizeAlevelTerm(value).match(/\d+/)?.[0] || 1);
+
+const getAlevelPeriodKey = (item = {}) =>
+  `${Number(item.year || 0)}|${normalizeAlevelTerm(item.term)}`;
 
 const parseStreamContext = (rawStream = "") => {
   const value = String(rawStream || "").trim();
@@ -35,6 +56,14 @@ export default function ALevelDownload() {
   const [loadingSets, setLoadingSets] = useState(true);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [error, setError] = useState("");
+  const [schoolCalendar, setSchoolCalendar] = useState(() =>
+    normalizeSchoolCalendar(DEFAULT_SCHOOL_CALENDAR)
+  );
+  const [registryPeriodView, setRegistryPeriodView] = useState("current");
+  const [registryHistoryPeriod, setRegistryHistoryPeriod] = useState("");
+  const [registryClassFilter, setRegistryClassFilter] = useState("all");
+  const [registryStreamFilter, setRegistryStreamFilter] = useState("all");
+  const [registryQuery, setRegistryQuery] = useState("");
   const [scoreSheetFilters, setScoreSheetFilters] = useState({
     stream: "",
     term: "Term 1",
@@ -59,6 +88,15 @@ export default function ALevelDownload() {
   /* ---------------- LOAD SETS ---------------- */
   useEffect(() => {
     fetchSets();
+    fetch(`${API_BASE}/api/school-calendar`)
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to load school calendar");
+        return res.json();
+      })
+      .then((data) => setSchoolCalendar(normalizeSchoolCalendar(data)))
+      .catch((err) => {
+        console.error("A-Level Data Center calendar load failed:", err);
+      });
   }, []);
 
   useEffect(() => {
@@ -66,10 +104,26 @@ export default function ALevelDownload() {
     const latest = sets[0];
     setScoreSheetFilters((previous) => ({
       stream: previous.stream || latest.stream || "",
-      term: previous.term || latest.term || "Term 1",
-      year: previous.year || Number(latest.year) || new Date().getFullYear(),
+      term: previous.term,
+      year: previous.year,
     }));
   }, [sets]);
+
+  const calendarBadge = useMemo(
+    () => getSchoolCalendarBadge(schoolCalendar, new Date()),
+    [schoolCalendar]
+  );
+  const currentTerm = normalizeAlevelTerm(calendarBadge.termLabel);
+  const currentYear = Number(schoolCalendar.academicYear) || new Date().getFullYear();
+  const currentPeriodKey = `${currentYear}|${currentTerm}`;
+
+  useEffect(() => {
+    setScoreSheetFilters((previous) => ({
+      ...previous,
+      term: currentTerm,
+      year: currentYear,
+    }));
+  }, [currentTerm, currentYear]);
 
   async function fetchSets() {
     setError("");
@@ -119,12 +173,12 @@ export default function ALevelDownload() {
   async function deleteSet(e, set) {
     e.stopPropagation();
 
-    if (!confirm(`Delete ${set.subject_display || set.subject} (${set.exam}) Term ${set.term}?`)) return;
+    if (!confirm(`Delete ${set.subject_display || set.subject} (${set.exam}) ${set.term}?`)) return;
 
     try {
       const res = await fetch(
         `${API_BASE}/api/alevel/download/sets/${set.setId}`,
-        { method: "DELETE" }
+        { method: "DELETE", headers: adminHeaders }
       );
 
       if (!res.ok) throw new Error("Delete failed");
@@ -150,13 +204,193 @@ export default function ALevelDownload() {
   const scoreSheetYears = useMemo(() => {
     const years = Array.from(
       new Set(
-        (sets || [])
-          .map((set) => Number(set.year))
-          .filter((year) => Number.isFinite(year) && year > 0)
+        [currentYear, ...(sets || []).map((set) => Number(set.year))]
+          .filter((yearValue) => Number.isFinite(yearValue) && yearValue > 0)
       )
     ).sort((a, b) => b - a);
-    return years.length > 0 ? years : [new Date().getFullYear()];
-  }, [sets]);
+    return years.length > 0 ? years : [currentYear];
+  }, [currentYear, sets]);
+
+  const registryHistoryPeriods = useMemo(() => {
+    const periods = new Map();
+
+    sets.forEach((set) => {
+      const key = getAlevelPeriodKey(set);
+      if (key === currentPeriodKey || periods.has(key)) return;
+      periods.set(key, {
+        key,
+        term: normalizeAlevelTerm(set.term),
+        year: Number(set.year || 0),
+      });
+    });
+
+    return Array.from(periods.values()).sort(
+      (a, b) => b.year - a.year || getAlevelTermNumber(b.term) - getAlevelTermNumber(a.term)
+    );
+  }, [currentPeriodKey, sets]);
+
+  const effectiveRegistryHistoryPeriod = registryHistoryPeriods.some(
+    (period) => period.key === registryHistoryPeriod
+  )
+    ? registryHistoryPeriod
+    : registryHistoryPeriods[0]?.key || "";
+
+  const registryPeriodSets = useMemo(() => {
+    const periodKey =
+      registryPeriodView === "history" ? effectiveRegistryHistoryPeriod : currentPeriodKey;
+    return sets.filter((set) => getAlevelPeriodKey(set) === periodKey);
+  }, [currentPeriodKey, effectiveRegistryHistoryPeriod, registryPeriodView, sets]);
+
+  const registryGroups = useMemo(() => {
+    const groups = new Map();
+
+    registryPeriodSets.forEach((set) => {
+      const paperLabel = String(set.paper_label || "Single").trim() || "Single";
+      const normalizedTerm = normalizeAlevelTerm(set.term);
+      const key = [set.stream, set.subject, paperLabel, normalizedTerm, set.year].join("|");
+      if (!groups.has(key)) {
+        const streamContext = parseStreamContext(set.stream);
+        groups.set(key, {
+          key,
+          classLevel: streamContext.classLevel,
+          streamName: streamContext.streamName,
+          fullStream: set.stream,
+          subject: set.subject,
+          subjectDisplay: set.subject_display || set.subject,
+          paperLabel,
+          term: normalizedTerm,
+          year: Number(set.year || 0),
+          teachers: new Set(),
+          components: [],
+        });
+      }
+
+      const group = groups.get(key);
+      if (set.submitted_by) group.teachers.add(set.submitted_by);
+      const existingComponent = group.components.find(
+        (component) => component.setId === set.setId
+      );
+
+      if (existingComponent) {
+        const componentTeachers = new Set(
+          [...(existingComponent.submittedByNames || []), set.submitted_by].filter(Boolean)
+        );
+        existingComponent.submittedByNames = Array.from(componentTeachers);
+        existingComponent.submitted_by = existingComponent.submittedByNames.join(", ");
+      } else {
+        group.components.push({
+          ...set,
+          submittedByNames: set.submitted_by ? [set.submitted_by] : [],
+        });
+      }
+    });
+
+    return Array.from(groups.values())
+      .map((group) => ({
+        ...group,
+        teachers: Array.from(group.teachers).sort((a, b) => String(a).localeCompare(String(b))),
+        components: [...group.components].sort((a, b) => {
+          const order = { MID: 0, EOT: 1 };
+          return (order[String(a.exam || "").toUpperCase()] ?? 99) -
+            (order[String(b.exam || "").toUpperCase()] ?? 99);
+        }),
+      }))
+      .sort((a, b) => {
+        const classDifference = String(a.classLevel).localeCompare(String(b.classLevel), undefined, {
+          numeric: true,
+        });
+        if (classDifference !== 0) return classDifference;
+        const streamDifference = String(a.streamName).localeCompare(String(b.streamName));
+        if (streamDifference !== 0) return streamDifference;
+        return String(a.subjectDisplay).localeCompare(String(b.subjectDisplay));
+      });
+  }, [registryPeriodSets]);
+
+  const registryClassOptions = useMemo(
+    () =>
+      Array.from(new Set(registryGroups.map((group) => group.classLevel).filter(Boolean))).sort(
+        (a, b) => String(a).localeCompare(String(b), undefined, { numeric: true })
+      ),
+    [registryGroups]
+  );
+
+  const registryStreamOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          registryGroups
+            .filter(
+              (group) => registryClassFilter === "all" || group.classLevel === registryClassFilter
+            )
+            .map((group) => group.streamName)
+            .filter(Boolean)
+        )
+      ).sort((a, b) => String(a).localeCompare(String(b))),
+    [registryClassFilter, registryGroups]
+  );
+
+  const visibleRegistryGroups = useMemo(() => {
+    const query = registryQuery.trim().toLowerCase();
+    return registryGroups.filter((group) => {
+      if (registryClassFilter !== "all" && group.classLevel !== registryClassFilter) return false;
+      if (registryStreamFilter !== "all" && group.streamName !== registryStreamFilter) return false;
+      if (!query) return true;
+      return [group.subjectDisplay, group.subject, group.teachers.join(" "), group.fullStream].some(
+        (value) => String(value || "").toLowerCase().includes(query)
+      );
+    });
+  }, [registryClassFilter, registryGroups, registryQuery, registryStreamFilter]);
+
+  const visibleRegistrySections = useMemo(() => {
+    const sections = new Map();
+
+    visibleRegistryGroups.forEach((group) => {
+      const key = `${group.classLevel}|${group.streamName}`;
+      if (!sections.has(key)) {
+        sections.set(key, {
+          key,
+          classLevel: group.classLevel,
+          streamName: group.streamName,
+          groups: [],
+        });
+      }
+      sections.get(key).groups.push(group);
+    });
+
+    return Array.from(sections.values());
+  }, [visibleRegistryGroups]);
+
+  const selectedRegistryHistoryPeriod = registryHistoryPeriods.find(
+    (period) => period.key === effectiveRegistryHistoryPeriod
+  );
+  const registryPeriodLabel =
+    registryPeriodView === "history" && selectedRegistryHistoryPeriod
+      ? `${selectedRegistryHistoryPeriod.term} ${selectedRegistryHistoryPeriod.year}`
+      : `${currentTerm} ${currentYear}`;
+
+  const clearRegistrySelection = () => {
+    setSelected(null);
+    setContents({ columns: [], rows: [] });
+  };
+
+  const changeRegistryPeriodView = (nextView) => {
+    setRegistryPeriodView(nextView);
+    setRegistryClassFilter("all");
+    setRegistryStreamFilter("all");
+    setRegistryQuery("");
+    clearRegistrySelection();
+  };
+
+  useEffect(() => {
+    if (!selected?.setId) return;
+    const selectionIsVisible = visibleRegistryGroups.some((group) =>
+      group.components.some((component) => component.setId === selected.setId)
+    );
+    if (!selectionIsVisible) {
+      setSelected(null);
+      setContents({ columns: [], rows: [] });
+    }
+  }, [selected?.setId, visibleRegistryGroups]);
 
   /* ---------------- CSV EXPORT ---------------- */
   function exportCsv() {
@@ -175,7 +409,7 @@ export default function ALevelDownload() {
 
     const a = document.createElement("a");
     a.href = url;
-    a.download = `Marks_${(selected.subject_display || selected.subject).replace(/\s+/g, "_")}_Term${selected.term}_${selected.exam}.csv`;
+    a.download = `Marks_${(selected.subject_display || selected.subject).replace(/\s+/g, "_")}_${selected.term}_${selected.exam}.csv`;
     a.click();
 
     URL.revokeObjectURL(url);
@@ -591,19 +825,220 @@ export default function ALevelDownload() {
                 }
                 .alevel-download-grid {
                   display: grid;
-                  grid-template-columns: minmax(320px, 400px) minmax(0, 1fr);
+                  grid-template-columns: minmax(360px, 460px) minmax(0, 1fr);
                   gap: 2rem;
                   align-items: start;
+                }
+                .alevel-registry-heading {
+                  display: flex;
+                  align-items: flex-start;
+                  justify-content: space-between;
+                  gap: 0.75rem;
+                  margin-bottom: 1rem;
+                }
+                .alevel-registry-heading h3 {
+                  margin: 0;
+                  color: var(--alevel-accent);
+                  font-size: 0.72rem;
+                  font-weight: 900;
+                  letter-spacing: 0;
+                  text-transform: uppercase;
+                }
+                .alevel-registry-period {
+                  color: var(--alevel-shell-muted);
+                  font-size: 0.72rem;
+                  font-weight: 750;
+                }
+                .alevel-registry-tabs {
+                  display: grid;
+                  grid-template-columns: repeat(2, minmax(0, 1fr));
+                  padding: 3px;
+                  border: 1px solid rgba(148, 163, 184, 0.22);
+                  border-radius: 8px;
+                  background: rgba(2, 6, 23, 0.48);
+                }
+                .alevel-registry-tabs button {
+                  min-height: 34px;
+                  padding: 0.4rem 0.65rem;
+                  border: 0;
+                  border-radius: 6px;
+                  background: transparent;
+                  color: var(--alevel-shell-muted);
+                  font: inherit;
+                  font-size: 0.76rem;
+                  font-weight: 800;
+                  letter-spacing: 0;
+                  cursor: pointer;
+                }
+                .alevel-registry-tabs button.is-active {
+                  background: #e2e8f0;
+                  color: #0f172a;
+                  box-shadow: 0 1px 4px rgba(2, 6, 23, 0.22);
+                }
+                .alevel-registry-tabs button:disabled {
+                  cursor: default;
+                  opacity: 0.45;
+                }
+                .alevel-registry-filters {
+                  display: grid;
+                  grid-template-columns: repeat(2, minmax(0, 1fr));
+                  gap: 0.55rem;
+                  margin: 0.65rem 0;
+                }
+                .alevel-registry-filter {
+                  display: grid;
+                  gap: 0.28rem;
+                  min-width: 0;
+                }
+                .alevel-registry-filter.is-wide {
+                  grid-column: 1 / -1;
+                }
+                .alevel-registry-filter span {
+                  color: var(--alevel-shell-muted);
+                  font-size: 0.66rem;
+                  font-weight: 800;
+                  letter-spacing: 0;
+                  text-transform: uppercase;
+                }
+                .alevel-registry-filter input,
+                .alevel-registry-filter select {
+                  width: 100%;
+                  min-width: 0;
+                  min-height: 37px;
+                  padding: 0.45rem 0.55rem;
+                  border: 1px solid rgba(148, 163, 184, 0.22);
+                  border-radius: 6px;
+                  background: rgba(15, 23, 42, 0.72);
+                  color: var(--alevel-shell-body);
+                  font: inherit;
+                  font-size: 0.78rem;
+                  letter-spacing: 0;
+                  color-scheme: dark;
+                }
+                .alevel-registry-summary {
+                  display: flex;
+                  justify-content: space-between;
+                  gap: 0.5rem;
+                  margin-bottom: 0.75rem;
+                  color: var(--alevel-shell-muted);
+                  font-size: 0.74rem;
                 }
                 .alevel-download-registry {
                   display: flex;
                   flex-direction: column;
-                  gap: 0.75rem;
+                  gap: 0;
                   max-height: min(72vh, 920px);
                   overflow-y: auto;
-                  padding-right: 0.35rem;
+                  padding-right: 0.25rem;
                   scrollbar-width: thin;
                   scrollbar-color: rgba(56, 189, 248, 0.6) rgba(148, 163, 184, 0.12);
+                }
+                .alevel-registry-section + .alevel-registry-section {
+                  margin-top: 0.8rem;
+                }
+                .alevel-registry-section-head {
+                  display: flex;
+                  align-items: center;
+                  gap: 0.45rem;
+                  padding: 0.5rem 0.55rem;
+                  border-bottom: 1px solid rgba(56, 189, 248, 0.18);
+                  background: rgba(8, 47, 73, 0.28);
+                  color: var(--alevel-shell-title);
+                  font-size: 0.75rem;
+                }
+                .alevel-registry-section-head span:last-child {
+                  margin-left: auto;
+                  color: var(--alevel-shell-muted);
+                  font-size: 0.68rem;
+                }
+                .alevel-registry-row {
+                  padding: 0.7rem 0.55rem;
+                  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+                  background: transparent;
+                }
+                .alevel-registry-row.is-selected {
+                  background: rgba(56, 189, 248, 0.08);
+                }
+                .alevel-registry-row-title {
+                  color: var(--alevel-shell-title);
+                  font-size: 0.86rem;
+                  font-weight: 800;
+                  line-height: 1.35;
+                }
+                .alevel-registry-row-meta {
+                  margin-top: 0.2rem;
+                  color: var(--alevel-shell-muted);
+                  font-size: 0.69rem;
+                  line-height: 1.4;
+                }
+                .alevel-registry-components {
+                  display: flex;
+                  gap: 0.4rem;
+                  flex-wrap: wrap;
+                  margin-top: 0.55rem;
+                }
+                .alevel-registry-component {
+                  display: inline-flex;
+                  align-items: center;
+                  overflow: hidden;
+                  border: 1px solid rgba(56, 189, 248, 0.24);
+                  border-radius: 6px;
+                  background: rgba(14, 165, 233, 0.08);
+                }
+                .alevel-registry-component > button:first-child {
+                  min-height: 30px;
+                  padding: 0.3rem 0.55rem;
+                  border: 0;
+                  background: transparent;
+                  color: #bae6fd;
+                  font: inherit;
+                  font-size: 0.7rem;
+                  font-weight: 850;
+                  letter-spacing: 0;
+                  cursor: pointer;
+                }
+                .alevel-registry-component.is-selected {
+                  border-color: #38bdf8;
+                  background: rgba(56, 189, 248, 0.18);
+                }
+                .alevel-registry-delete {
+                  width: 29px;
+                  height: 30px;
+                  border: 0;
+                  border-left: 1px solid rgba(248, 113, 113, 0.2);
+                  background: rgba(127, 29, 29, 0.12);
+                  color: #fca5a5;
+                  font-size: 1rem;
+                  line-height: 1;
+                  cursor: pointer;
+                }
+                .alevel-registry-empty {
+                  min-height: 112px;
+                  display: grid;
+                  align-content: center;
+                  justify-items: start;
+                  gap: 0.6rem;
+                  padding: 1rem;
+                  border: 1px dashed rgba(148, 163, 184, 0.24);
+                  border-radius: 8px;
+                  color: var(--alevel-shell-muted);
+                  font-size: 0.82rem;
+                  line-height: 1.5;
+                }
+                .alevel-admin-root.mode-light .alevel-registry-tabs {
+                  background: rgba(226, 232, 240, 0.72);
+                }
+                .alevel-admin-root.mode-light .alevel-registry-filter input,
+                .alevel-admin-root.mode-light .alevel-registry-filter select {
+                  background: rgba(255, 255, 255, 0.96);
+                  color: #0f172a;
+                  color-scheme: light;
+                }
+                .alevel-admin-root.mode-light .alevel-registry-section-head {
+                  background: rgba(224, 242, 254, 0.7);
+                }
+                .alevel-admin-root.mode-light .alevel-registry-component > button:first-child {
+                  color: #075985;
                 }
                 .alevel-download-registry::-webkit-scrollbar {
                   width: 10px;
@@ -624,6 +1059,14 @@ export default function ALevelDownload() {
                   }
                   .alevel-download-registry {
                     max-height: 55vh;
+                  }
+                }
+                @media (max-width: 620px) {
+                  .alevel-registry-filters {
+                    grid-template-columns: 1fr;
+                  }
+                  .alevel-registry-filter.is-wide {
+                    grid-column: auto;
                   }
                 }
               `}
@@ -693,82 +1136,196 @@ export default function ALevelDownload() {
                       : "0 18px 38px rgba(15, 23, 42, 0.09)",
                   }}
                 >
-                  <h3
-                    style={{
-                      fontSize: "0.7rem",
-                      fontWeight: "900",
-                      color: amethyst,
-                      letterSpacing: "0.15em",
-                      textTransform: "uppercase",
-                      marginBottom: "1.5rem",
-                    }}
-                  >
-                    Registry
-                  </h3>
+                  <div className="alevel-registry-heading">
+                    <h3>Teacher Submissions</h3>
+                    <span className="alevel-registry-period">{registryPeriodLabel}</span>
+                  </div>
+
+                  <div className="alevel-registry-tabs" aria-label="Submission period">
+                    <button
+                      type="button"
+                      className={registryPeriodView === "current" ? "is-active" : ""}
+                      onClick={() => changeRegistryPeriodView("current")}
+                    >
+                      Current Term
+                    </button>
+                    <button
+                      type="button"
+                      className={registryPeriodView === "history" ? "is-active" : ""}
+                      onClick={() => changeRegistryPeriodView("history")}
+                      disabled={registryHistoryPeriods.length === 0}
+                    >
+                      History
+                    </button>
+                  </div>
+
+                  <div className="alevel-registry-filters">
+                    {registryPeriodView === "history" && (
+                      <label className="alevel-registry-filter is-wide">
+                        <span>Period</span>
+                        <select
+                          value={effectiveRegistryHistoryPeriod}
+                          onChange={(event) => {
+                            setRegistryHistoryPeriod(event.target.value);
+                            setRegistryClassFilter("all");
+                            setRegistryStreamFilter("all");
+                            setRegistryQuery("");
+                            clearRegistrySelection();
+                          }}
+                        >
+                          {registryHistoryPeriods.map((period) => (
+                            <option key={period.key} value={period.key}>
+                              {period.term} {period.year}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
+
+                    <label className="alevel-registry-filter is-wide">
+                      <span>Find submission</span>
+                      <input
+                        type="search"
+                        value={registryQuery}
+                        onChange={(event) => setRegistryQuery(event.target.value)}
+                        placeholder="Subject, teacher or stream"
+                      />
+                    </label>
+
+                    <label className="alevel-registry-filter">
+                      <span>Class</span>
+                      <select
+                        value={registryClassFilter}
+                        onChange={(event) => {
+                          setRegistryClassFilter(event.target.value);
+                          setRegistryStreamFilter("all");
+                        }}
+                      >
+                        <option value="all">All classes</option>
+                        {registryClassOptions.map((classLevel) => (
+                          <option key={classLevel} value={classLevel}>
+                            {classLevel}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="alevel-registry-filter">
+                      <span>Stream</span>
+                      <select
+                        value={registryStreamFilter}
+                        onChange={(event) => setRegistryStreamFilter(event.target.value)}
+                      >
+                        <option value="all">All streams</option>
+                        {registryStreamOptions.map((streamName) => (
+                          <option key={streamName} value={streamName}>
+                            {streamName}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+
+                  <div className="alevel-registry-summary">
+                    <span>
+                      <strong>{visibleRegistryGroups.length}</strong>{" "}
+                      {visibleRegistryGroups.length === 1 ? "subject block" : "subject blocks"}
+                    </span>
+                    <span>
+                      {visibleRegistryGroups.reduce(
+                        (total, group) => total + group.components.length,
+                        0
+                      )}{" "}
+                      records
+                    </span>
+                  </div>
 
                   {loadingSets ? (
-                    <p style={{ color: surfaceMuted, fontSize: "0.9rem" }}>Syncing Database...</p>
+                    <p style={{ color: surfaceMuted, fontSize: "0.9rem" }}>Syncing database...</p>
+                  ) : visibleRegistryGroups.length === 0 ? (
+                    <div className="alevel-registry-empty">
+                      <span>
+                        {sets.length === 0
+                          ? "No A-Level marks have been submitted yet."
+                          : registryPeriodView === "current" && registryPeriodSets.length === 0
+                            ? `No submissions found for ${currentTerm} ${currentYear}.`
+                            : "No submissions match these filters."}
+                      </span>
+                      {registryPeriodView === "current" &&
+                        registryPeriodSets.length === 0 &&
+                        registryHistoryPeriods.length > 0 && (
+                          <button
+                            type="button"
+                            style={buttonSecondary}
+                            onClick={() => changeRegistryPeriodView("history")}
+                          >
+                            Open History
+                          </button>
+                        )}
+                    </div>
                   ) : (
                     <div className="alevel-download-registry">
-                      {sets.length === 0 ? (
-                        <p style={{ color: surfaceMuted, textAlign: "center", padding: "2rem 0" }}>Empty Registry</p>
-                      ) : (
-                        sets.map((set) => (
-                          <div
-                            key={set.setId}
-                            onClick={() => viewSet(set)}
-                            style={{
-                              padding: "1rem",
-                              borderRadius: "16px",
-                              background:
-                                selected?.setId === set.setId
-                                  ? "rgba(56, 189, 248, 0.12)"
-                                  : isDark
-                                  ? "rgba(255, 255, 255, 0.03)"
-                                  : "rgba(255, 255, 255, 0.78)",
-                              border: `1px solid ${
-                                selected?.setId === set.setId ? amethyst : isDark ? "rgba(255,255,255,0.05)" : "rgba(15,23,42,0.08)"
-                              }`,
-                              cursor: "pointer",
-                              transition: "all 0.2s ease",
-                            }}
-                          >
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start" }}>
-                              <div style={{ flex: 1 }}>
-                                <div
-                                  style={{
-                                    fontWeight: "800",
-                                    fontSize: "1rem",
-                                    color: selected?.setId === set.setId ? amethyst : surfaceText,
-                                  }}
-                                >
-                                  {set.subject_display || set.subject}
+                      {visibleRegistrySections.map((section) => (
+                        <section className="alevel-registry-section" key={section.key}>
+                          <div className="alevel-registry-section-head">
+                            <strong>{section.classLevel}</strong>
+                            <span>{section.streamName}</span>
+                            <span>
+                              {section.groups.length}{" "}
+                              {section.groups.length === 1 ? "subject" : "subjects"}
+                            </span>
+                          </div>
+
+                          {section.groups.map((group) => {
+                            const groupIsSelected = group.components.some(
+                              (component) => component.setId === selected?.setId
+                            );
+
+                            return (
+                              <div
+                                className={`alevel-registry-row${groupIsSelected ? " is-selected" : ""}`}
+                                key={group.key}
+                              >
+                                <div className="alevel-registry-row-title">
+                                  {group.subjectDisplay}
                                 </div>
-                                <div style={{ fontSize: "0.75rem", color: surfaceMuted }}>
-                                  {(set.paper_label && set.paper_label !== "Single" ? `${set.paper_label} • ` : "")}
-                                  {set.exam} • Term {set.term}
+                                <div className="alevel-registry-row-meta">
+                                  {group.teachers.length > 0
+                                    ? `Submitted by ${group.teachers.join(", ")}`
+                                    : "Teacher not recorded"}
                                 </div>
-                                <div style={{ fontSize: "0.7rem", color: surfaceMuted, fontStyle: "italic", marginTop: "2px" }}>
-                                  {set.submitted_by}
+                                <div className="alevel-registry-components">
+                                  {group.components.map((component) => (
+                                    <div
+                                      className={`alevel-registry-component${
+                                        selected?.setId === component.setId ? " is-selected" : ""
+                                      }`}
+                                      key={component.setId}
+                                    >
+                                      <button
+                                        type="button"
+                                        onClick={() => viewSet(component)}
+                                        title={`Preview ${component.exam} marks`}
+                                      >
+                                        {component.exam || "Marks"}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="alevel-registry-delete"
+                                        onClick={(event) => deleteSet(event, component)}
+                                        title={`Delete ${component.exam || "marks"}`}
+                                        aria-label={`Delete ${component.exam || "marks"} for ${group.subjectDisplay}`}
+                                      >
+                                        ×
+                                      </button>
+                                    </div>
+                                  ))}
                                 </div>
                               </div>
-
-                              <button
-                                onClick={(e) => deleteSet(e, set)}
-                                style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", opacity: 0.7 }}
-                              >
-                                <svg width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
-                                  <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5zm3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0V6z" />
-                                  <path
-                                    fillRule="evenodd"
-                                    d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1v1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4H4.118zM2.5 3V2h11v1h-11z"
-                                  />
-                                </svg>
-                              </button>
-                            </div>
-                          </div>
-                        ))
-                      )}
+                            );
+                          })}
+                        </section>
+                      ))}
                     </div>
                   )}
                 </div>

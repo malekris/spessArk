@@ -104,17 +104,24 @@ const buildAlevelPaperLabel = (subjectGroup = {}, paper = {}) => {
   return paperLabel && paperLabel !== "Single" ? `${subject} ${paperLabel}` : subject;
 };
 
-const collectAlevelComponentIssues = (student, { missedOnly = false } = {}) => {
+const collectAlevelComponentIssues = (
+  student,
+  { missedOnly = false, assessmentMode = "FULL" } = {}
+) => {
   const details = [];
+  const midOnly = String(assessmentMode || "").trim().toUpperCase() === "MID";
 
   getAlevelSubjectGroups(student).forEach((subjectGroup) => {
     const papers = Array.isArray(subjectGroup.papers) ? subjectGroup.papers : [];
 
     papers.forEach((paper) => {
-      const components = [
-        ["mid_status", "MID"],
-        ["eot_status", "EOT"],
-      ]
+      const componentDefinitions = midOnly
+        ? [["mid_status", "MID"]]
+        : [
+            ["mid_status", "MID"],
+            ["eot_status", "EOT"],
+          ];
+      const components = componentDefinitions
         .map(([statusKey, label]) => {
           const status = paper?.[statusKey];
           if (missedOnly) {
@@ -135,8 +142,9 @@ const collectAlevelComponentIssues = (student, { missedOnly = false } = {}) => {
   return details;
 };
 
-const countAlevelExplicitMissedComponents = (student) =>
-  getAlevelSubjectGroups(student).reduce((sum, subjectGroup) => {
+const countAlevelExplicitMissedComponents = (student, assessmentMode = "FULL") => {
+  const midOnly = String(assessmentMode || "").trim().toUpperCase() === "MID";
+  return getAlevelSubjectGroups(student).reduce((sum, subjectGroup) => {
     const papers = Array.isArray(subjectGroup.papers) ? subjectGroup.papers : [];
     return (
       sum +
@@ -144,11 +152,12 @@ const countAlevelExplicitMissedComponents = (student) =>
         (paperSum, paper) =>
           paperSum +
           (isMissedStatus(paper?.mid_status) ? 1 : 0) +
-          (isMissedStatus(paper?.eot_status) ? 1 : 0),
+          (!midOnly && isMissedStatus(paper?.eot_status) ? 1 : 0),
         0
       )
     );
   }, 0);
+};
 
 const classifyAlevelMissedRisk = (missedCount) => {
   const count = Number(missedCount || 0);
@@ -217,7 +226,13 @@ const getAlevelSubjectTone = (descriptor) => {
   };
 };
 
-const buildAlevelPerformanceRows = (reportData = [], registeredLearners = [], fallbackMeta = {}) => {
+const buildAlevelPerformanceRows = (
+  reportData = [],
+  registeredLearners = [],
+  fallbackMeta = {},
+  { assessmentMode = "FULL" } = {}
+) => {
+  const midOnly = String(assessmentMode || "").trim().toUpperCase() === "MID";
   const reportByLearner = new Map();
   (Array.isArray(reportData) ? reportData : []).forEach((student) => {
     const id = getAlevelLearnerId(student);
@@ -239,11 +254,11 @@ const buildAlevelPerformanceRows = (reportData = [], registeredLearners = [], fa
       const subjects = report ? getAlevelSubjectGroups(report) : [];
       const registeredSubjects = splitSubjectList(registered?.subjects);
       const issueDetails = report
-        ? collectAlevelComponentIssues(report)
+        ? collectAlevelComponentIssues(report, { assessmentMode })
         : [
             registeredSubjects.length > 0
-              ? `No submitted A-Level marks found for: ${registeredSubjects.join(", ")}`
-              : "No submitted A-Level marks found",
+              ? `No submitted A-Level${midOnly ? " MID" : ""} marks found for: ${registeredSubjects.join(", ")}`
+              : `No submitted A-Level${midOnly ? " MID" : ""} marks found`,
           ];
       const totalPoints = toNumberOrNull(report?.totals?.overall);
       const principalPoints = toNumberOrNull(report?.totals?.principal);
@@ -274,16 +289,23 @@ const buildAlevelPerformanceRows = (reportData = [], registeredLearners = [], fa
     });
 };
 
-const buildAlevelMissedRiskRows = (reportData = []) =>
-  (Array.isArray(reportData) ? reportData : [])
+const buildAlevelMissedRiskRows = (reportData = [], { assessmentMode = "FULL" } = {}) => {
+  const midOnly = String(assessmentMode || "").trim().toUpperCase() === "MID";
+  return (Array.isArray(reportData) ? reportData : [])
     .map((student) => {
-      const missedCount = countAlevelExplicitMissedComponents(student);
+      const missedCount = countAlevelExplicitMissedComponents(student, assessmentMode);
       if (missedCount === 0) return null;
 
       const subjects = new Set();
       getAlevelSubjectGroups(student).forEach((subjectGroup) => {
         const papers = Array.isArray(subjectGroup.papers) ? subjectGroup.papers : [];
-        if (papers.some((paper) => isMissedStatus(paper?.mid_status) || isMissedStatus(paper?.eot_status))) {
+        if (
+          papers.some(
+            (paper) =>
+              isMissedStatus(paper?.mid_status) ||
+              (!midOnly && isMissedStatus(paper?.eot_status))
+          )
+        ) {
           subjects.add(subjectGroup.subject || "Subject");
         }
       });
@@ -296,7 +318,7 @@ const buildAlevelMissedRiskRows = (reportData = []) =>
         combination: student?.learner?.combination || "—",
         missedCount,
         subjectCount: subjects.size,
-        details: collectAlevelComponentIssues(student, { missedOnly: true }),
+        details: collectAlevelComponentIssues(student, { missedOnly: true, assessmentMode }),
         risk,
         action: getAlevelMissedRiskAction(risk),
       };
@@ -308,8 +330,14 @@ const buildAlevelMissedRiskRows = (reportData = []) =>
       if (b.missedCount !== a.missedCount) return b.missedCount - a.missedCount;
       return a.learnerName.localeCompare(b.learnerName);
     });
+};
 
-const buildAlevelSubjectRankRows = (reportData = [], registeredLearners = []) => {
+const buildAlevelSubjectRankRows = (
+  reportData = [],
+  registeredLearners = [],
+  { assessmentMode = "FULL" } = {}
+) => {
+  const midOnly = String(assessmentMode || "").trim().toUpperCase() === "MID";
   const bySubject = new Map();
   const ensureSubject = (subjectName) => {
     const subject = String(subjectName || "").trim();
@@ -357,7 +385,7 @@ const buildAlevelSubjectRankRows = (reportData = [], registeredLearners = []) =>
       const papers = Array.isArray(subjectGroup.papers) ? subjectGroup.papers : [];
       papers.forEach((paper) => {
         if (isMissedStatus(paper?.mid_status)) bucket.missedCount += 1;
-        if (isMissedStatus(paper?.eot_status)) bucket.missedCount += 1;
+        if (!midOnly && isMissedStatus(paper?.eot_status)) bucket.missedCount += 1;
       });
     });
   });
@@ -386,6 +414,7 @@ const buildAlevelSubjectRankRows = (reportData = [], registeredLearners = []) =>
 };
 
 export default function AlevelReport() {
+  const [reportMode, setReportMode] = useState("full");
   const [term, setTerm] = useState("");
   const [year, setYear] = useState(new Date().getFullYear());
   const [cls, setCls] = useState("");
@@ -423,9 +452,18 @@ export default function AlevelReport() {
     }),
     [derivedReportDates, reportDatesCache, reportDatesKey]
   );
+  const assessmentMode = reportMode === "mid" ? "MID" : "FULL";
+  const isMidReport = assessmentMode === "MID";
+  const componentScopeLabel = isMidReport ? "MID" : "MID/EOT";
   const performanceRows = useMemo(
-    () => buildAlevelPerformanceRows(reportData, registeredLearners, { cls, stream }),
-    [reportData, registeredLearners, cls, stream]
+    () =>
+      buildAlevelPerformanceRows(
+        reportData,
+        registeredLearners,
+        { cls, stream },
+        { assessmentMode }
+      ),
+    [assessmentMode, reportData, registeredLearners, cls, stream]
   );
   const performanceSummary = useMemo(
     () => ({
@@ -435,8 +473,8 @@ export default function AlevelReport() {
     [performanceRows]
   );
   const missedRiskRows = useMemo(
-    () => buildAlevelMissedRiskRows(reportData),
-    [reportData]
+    () => buildAlevelMissedRiskRows(reportData, { assessmentMode }),
+    [assessmentMode, reportData]
   );
   const missedRiskSummary = useMemo(
     () => ({
@@ -448,8 +486,8 @@ export default function AlevelReport() {
     [missedRiskRows]
   );
   const subjectRankRows = useMemo(
-    () => buildAlevelSubjectRankRows(reportData, registeredLearners),
-    [reportData, registeredLearners]
+    () => buildAlevelSubjectRankRows(reportData, registeredLearners, { assessmentMode }),
+    [assessmentMode, reportData, registeredLearners]
   );
   const bestSubject = subjectRankRows[0] || null;
   const weakestSubject = subjectRankRows.length > 0 ? subjectRankRows[subjectRankRows.length - 1] : null;
@@ -478,7 +516,7 @@ export default function AlevelReport() {
     setReportData([]);
     setRegisteredLearners([]);
     setError("");
-  }, [term, year, cls, stream]);
+  }, [term, year, cls, stream, reportMode]);
 
   const updateReportDate = (field, value) => {
     setReportDatesCache((prev) => {
@@ -500,6 +538,7 @@ export default function AlevelReport() {
   };
 
   const validateReportDates = (actionLabel) => {
+    if (isMidReport) return true;
     if (reportDates.termEndedOn && reportDates.nextTermBeginsOn) return true;
     setError(`Set both report dates before ${actionLabel} A-Level reports.`);
     return false;
@@ -520,7 +559,7 @@ export default function AlevelReport() {
 
     try {
       setLoading(true);
-      const payload = { term, class: cls, stream, year };
+      const payload = { term, class: cls, stream, year, assessmentMode };
       const fullStream = `${cls} ${stream}`;
 
       const [previewRes, reportRes, learnersRes] = await Promise.all([
@@ -572,7 +611,7 @@ export default function AlevelReport() {
         const res = await fetch(`${API_BASE}/api/alevel/reports/download`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ term, class: cls, stream, year }),
+          body: JSON.stringify({ term, class: cls, stream, year, assessmentMode }),
         });
 
         data = await res.json();
@@ -588,6 +627,7 @@ export default function AlevelReport() {
         year,
         cls,
         stream,
+        assessmentMode,
         termEndedOn: reportDates.termEndedOn,
         nextTermBeginsOn: reportDates.nextTermBeginsOn,
       });
@@ -624,7 +664,12 @@ export default function AlevelReport() {
       doc.text("ST PHILLIP'S EQUATORIAL SECONDARY SCHOOL", pageW / 2, 17, { align: "center" });
 
       doc.setFontSize(14);
-      doc.text("A-Level Performance Indicator", pageW / 2, 26, { align: "center" });
+      doc.text(
+        isMidReport ? "A-Level MID Performance Indicator" : "A-Level Performance Indicator",
+        pageW / 2,
+        26,
+        { align: "center" }
+      );
 
       doc.setFont("helvetica", "normal");
       doc.setFontSize(9);
@@ -650,7 +695,7 @@ export default function AlevelReport() {
       autoTable(doc, {
         startY: 51,
         margin: { left: 10, right: 10, bottom: 14 },
-        head: [["#", "Learner", "Status", "Total Pts", "Principal", "Subsidiary", "Subjects", "MID/EOT Readiness Notes"]],
+        head: [["#", "Learner", "Status", "Total Pts", "Principal", "Subsidiary", "Subjects", `${componentScopeLabel} Readiness Notes`]],
         body,
         theme: "grid",
         styles: {
@@ -714,7 +759,7 @@ export default function AlevelReport() {
 
   const handleDownloadMissedRiskPdf = async () => {
     if (missedRiskRows.length === 0) {
-      setError("Preview reports first. No explicitly missed MID/EOT entries are available for this class.");
+      setError(`Preview reports first. No explicitly missed ${componentScopeLabel} entries are available for this class.`);
       return;
     }
 
@@ -737,7 +782,7 @@ export default function AlevelReport() {
       doc.text("ST PHILLIP'S EQUATORIAL SECONDARY SCHOOL", pageW / 2, 17, { align: "center" });
 
       doc.setFontSize(14);
-      doc.text("A-Level MID/EOT Missed-Risk Report", pageW / 2, 26, { align: "center" });
+      doc.text(`A-Level ${componentScopeLabel} Missed-Risk Report`, pageW / 2, 26, { align: "center" });
 
       doc.setFont("helvetica", "normal");
       doc.setFontSize(9);
@@ -763,7 +808,7 @@ export default function AlevelReport() {
       autoTable(doc, {
         startY: 51,
         margin: { left: 10, right: 10, bottom: 14 },
-        head: [["#", "Stream", "Learner", "Risk", "Missed MID/EOT", "Subjects", "Where Missed", "Staff Action"]],
+        head: [["#", "Stream", "Learner", "Risk", `Missed ${componentScopeLabel}`, "Subjects", "Where Missed", "Staff Action"]],
         body,
         theme: "grid",
         styles: {
@@ -819,8 +864,8 @@ export default function AlevelReport() {
 
       openNamedPdfPreview(
         doc,
-        `ALevel_MID_EOT_Missed_Risk_${cls}_${stream}_${term}_${year}.pdf`.replace(/\s+/g, "_"),
-        `A-Level MID/EOT Missed-Risk - ${cls} ${stream} - ${term} ${year}`
+        `ALevel_${componentScopeLabel.replace("/", "_")}_Missed_Risk_${cls}_${stream}_${term}_${year}.pdf`.replace(/\s+/g, "_"),
+        `A-Level ${componentScopeLabel} Missed-Risk - ${cls} ${stream} - ${term} ${year}`
       );
     } catch (err) {
       setError(err.message || "Failed to generate A-Level missed-risk PDF.");
@@ -877,7 +922,7 @@ export default function AlevelReport() {
       autoTable(doc, {
         startY: 51,
         margin: { left: 10, right: 10, bottom: 14 },
-        head: [["Rank", "Subject", "Average", "Band", "Scores", "Learners", "Missed MID/EOT", "Streams"]],
+        head: [["Rank", "Subject", "Average", "Band", "Scores", "Learners", `Missed ${componentScopeLabel}`, "Streams"]],
         body,
         theme: "grid",
         styles: {
@@ -1025,8 +1070,38 @@ export default function AlevelReport() {
                   boxShadow: isDark ? "0 8px 32px 0 rgba(0, 0, 0, 0.37)" : "0 20px 40px rgba(15, 23, 42, 0.08)",
                 }}
               >
+                <div className="alevel-report-mode-panel">
+                  <div>
+                    <span className="alevel-report-mode-eyebrow">Report Card Type</span>
+                    <strong>{isMidReport ? "MID Parent Report" : "Full Term Report"}</strong>
+                    <p>
+                      {isMidReport
+                        ? "A parent-facing progress report calculated strictly from MID marks, with full A-Level grades and points."
+                        : "The established A-Level report card calculated from MID and EOT performance."}
+                    </p>
+                  </div>
+                  <div className="alevel-report-mode-switch" role="group" aria-label="A-Level report card type">
+                    <button
+                      type="button"
+                      className={!isMidReport ? "is-active" : ""}
+                      aria-pressed={!isMidReport}
+                      onClick={() => setReportMode("full")}
+                    >
+                      Full Report
+                    </button>
+                    <button
+                      type="button"
+                      className={isMidReport ? "is-active" : ""}
+                      aria-pressed={isMidReport}
+                      onClick={() => setReportMode("mid")}
+                    >
+                      MID Parent Report
+                    </button>
+                  </div>
+                </div>
+
                 <h2 style={{ fontSize: "1.25rem", fontWeight: "800", marginBottom: "2rem", color: bodyText }}>
-                  Report Generation Parameters
+                  {isMidReport ? "MID Report Parameters" : "Report Generation Parameters"}
                 </h2>
 
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1.5rem" }}>
@@ -1095,7 +1170,7 @@ export default function AlevelReport() {
                     onClick={handlePreview}
                     disabled={loading}
                   >
-                    {loading ? "PROCESSING..." : "PREVIEW REPORTS"}
+                    {loading ? "PROCESSING..." : isMidReport ? "PREVIEW MID REPORTS" : "PREVIEW REPORTS"}
                   </button>
                   {error && (
                     <p style={{ color: isDark ? "#fca5a5" : "#991b1b", fontSize: "0.85rem", fontWeight: "600", margin: 0 }}>
@@ -1104,58 +1179,70 @@ export default function AlevelReport() {
                   )}
                 </div>
 
-                <div
-                  style={{
-                    marginTop: "1.4rem",
-                    padding: "1rem 1.1rem",
-                    borderRadius: "1rem",
-                    border: `1px solid ${isDark ? "rgba(148, 163, 184, 0.2)" : "rgba(15, 23, 42, 0.1)"}`,
-                    background: isDark ? "rgba(2, 6, 23, 0.72)" : "rgba(248, 250, 252, 0.88)",
-                    display: "grid",
-                    gap: "0.9rem",
-                  }}
-                >
-                  <div>
-                    <div style={{ fontSize: "0.74rem", fontWeight: "800", letterSpacing: "0.14em", textTransform: "uppercase", color: amethyst }}>
-                      Report Dates
-                    </div>
-                    <div style={{ fontSize: "0.88rem", color: softText, marginTop: "0.28rem", lineHeight: 1.55 }}>
-                      Auto-filled from the shared school calendar when available. You can still adjust them here before generating reports.
+                {isMidReport ? (
+                  <div className="alevel-mid-report-note">
+                    <span>MID only</span>
+                    <div>
+                      <strong>Built for parent progress conversations</strong>
+                      <p>
+                        Only MID marks are read. EOT marks, even when already entered, are excluded from every grade and point total.
+                      </p>
                     </div>
                   </div>
-
+                ) : (
                   <div
                     style={{
+                      marginTop: "1.4rem",
+                      padding: "1rem 1.1rem",
+                      borderRadius: "1rem",
+                      border: `1px solid ${isDark ? "rgba(148, 163, 184, 0.2)" : "rgba(15, 23, 42, 0.1)"}`,
+                      background: isDark ? "rgba(2, 6, 23, 0.72)" : "rgba(248, 250, 252, 0.88)",
                       display: "grid",
-                      gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                      gap: "0.85rem",
+                      gap: "0.9rem",
                     }}
                   >
-                    <label style={{ display: "grid", gap: "0.35rem" }}>
-                      <span style={{ fontSize: "0.75rem", fontWeight: "700", letterSpacing: "0.12em", textTransform: "uppercase", color: softText }}>
-                        This Term Ended On
-                      </span>
-                      <input
-                        type="date"
-                        style={themedInputStyle}
-                        value={reportDates.termEndedOn || ""}
-                        onChange={(e) => updateReportDate("termEndedOn", e.target.value)}
-                      />
-                    </label>
+                    <div>
+                      <div style={{ fontSize: "0.74rem", fontWeight: "800", letterSpacing: "0.14em", textTransform: "uppercase", color: amethyst }}>
+                        Report Dates
+                      </div>
+                      <div style={{ fontSize: "0.88rem", color: softText, marginTop: "0.28rem", lineHeight: 1.55 }}>
+                        Auto-filled from the shared school calendar when available. You can still adjust them here before generating reports.
+                      </div>
+                    </div>
 
-                    <label style={{ display: "grid", gap: "0.35rem" }}>
-                      <span style={{ fontSize: "0.75rem", fontWeight: "700", letterSpacing: "0.12em", textTransform: "uppercase", color: softText }}>
-                        Next Term Begins On
-                      </span>
-                      <input
-                        type="date"
-                        style={themedInputStyle}
-                        value={reportDates.nextTermBeginsOn || ""}
-                        onChange={(e) => updateReportDate("nextTermBeginsOn", e.target.value)}
-                      />
-                    </label>
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                        gap: "0.85rem",
+                      }}
+                    >
+                      <label style={{ display: "grid", gap: "0.35rem" }}>
+                        <span style={{ fontSize: "0.75rem", fontWeight: "700", letterSpacing: "0.12em", textTransform: "uppercase", color: softText }}>
+                          This Term Ended On
+                        </span>
+                        <input
+                          type="date"
+                          style={themedInputStyle}
+                          value={reportDates.termEndedOn || ""}
+                          onChange={(e) => updateReportDate("termEndedOn", e.target.value)}
+                        />
+                      </label>
+
+                      <label style={{ display: "grid", gap: "0.35rem" }}>
+                        <span style={{ fontSize: "0.75rem", fontWeight: "700", letterSpacing: "0.12em", textTransform: "uppercase", color: softText }}>
+                          Next Term Begins On
+                        </span>
+                        <input
+                          type="date"
+                          style={themedInputStyle}
+                          value={reportDates.nextTermBeginsOn || ""}
+                          onChange={(e) => updateReportDate("nextTermBeginsOn", e.target.value)}
+                        />
+                      </label>
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
 
               {previewData && (
@@ -1176,7 +1263,7 @@ export default function AlevelReport() {
                     }}
                   >
                     <p style={{ margin: 0, fontSize: "1rem", color: softText }}>
-                      <span style={{ color: amethyst, fontWeight: "800" }}>{previewData.learners}</span> student reports available ·{" "}
+                      <span style={{ color: amethyst, fontWeight: "800" }}>{previewData.learners}</span> {isMidReport ? "MID parent reports" : "student reports"} available ·{" "}
                       <span style={{ color: amethyst, fontWeight: "800" }}>{previewData.subjects}</span> subjects included ·{" "}
                       <span style={{ color: amethyst, fontWeight: "800" }}>{registeredLearners.length}</span> learners on register
                     </p>
@@ -1200,7 +1287,7 @@ export default function AlevelReport() {
                       onClick={handleDownload}
                       disabled={downloading || reportData.length === 0}
                     >
-                      {downloading ? "PREPARING..." : "DOWNLOAD REPORTS"}
+                      {downloading ? "PREPARING..." : isMidReport ? "DOWNLOAD MID REPORTS" : "DOWNLOAD REPORTS"}
                     </button>
                 </div>
               )}
@@ -1231,7 +1318,7 @@ export default function AlevelReport() {
                           Performance Indicator
                         </div>
                         <div style={{ fontSize: "0.88rem", color: "#cbd5e1", lineHeight: 1.6 }}>
-                          Eligible A-Level learners come first by total points. Ineligible learners remain visible with the exact missing or missed MID/EOT paper details.
+                          Eligible A-Level learners come first by total points. Ineligible learners remain visible with the exact missing or missed {componentScopeLabel} paper details.
                         </div>
                       </div>
 
@@ -1366,7 +1453,7 @@ export default function AlevelReport() {
                     >
                       <div>
                         <div style={{ fontSize: "0.78rem", textTransform: "uppercase", letterSpacing: "0.14em", color: "#fca5a5", marginBottom: "0.3rem", fontWeight: 900 }}>
-                          MID/EOT Missed-Risk Report
+                          {componentScopeLabel} Missed-Risk Report
                         </div>
                         <div style={{ fontSize: "0.88rem", color: "#cbd5e1", lineHeight: 1.6 }}>
                           Counts only papers where a teacher explicitly marked the learner as missed. Missing uploads are not treated as missed here.
@@ -1430,7 +1517,7 @@ export default function AlevelReport() {
                           fontSize: "0.86rem",
                         }}
                       >
-                        No learner has been explicitly marked as missed for MID/EOT in this selection.
+                        No learner has been explicitly marked as missed for {componentScopeLabel} in this selection.
                       </div>
                     ) : (
                       <div style={{ maxHeight: "320px", overflow: "auto", borderRadius: "0.9rem" }}>
@@ -1441,7 +1528,7 @@ export default function AlevelReport() {
                               <th>Stream</th>
                               <th>Learner</th>
                               <th>Risk</th>
-                              <th>Missed MID/EOT</th>
+                              <th>Missed {componentScopeLabel}</th>
                               <th>Subjects</th>
                               <th>Where missed</th>
                               <th>Staff action</th>
@@ -1510,7 +1597,7 @@ export default function AlevelReport() {
                           Subject Rank
                         </div>
                         <div style={{ fontSize: "0.88rem", color: "#cbd5e1", lineHeight: 1.6 }}>
-                          Shows strongest and weakest A-Level subjects using completed subject averages, with missed MID/EOT counts kept visible.
+                          Shows strongest and weakest A-Level subjects using completed {isMidReport ? "MID averages" : "subject averages"}, with missed {componentScopeLabel} counts kept visible.
                         </div>
                       </div>
 
@@ -1587,7 +1674,7 @@ export default function AlevelReport() {
                               <th>Band</th>
                               <th>Scores</th>
                               <th>Learners</th>
-                              <th>Missed MID/EOT</th>
+                              <th>Missed {componentScopeLabel}</th>
                               <th>Streams</th>
                             </tr>
                           </thead>
@@ -1654,6 +1741,13 @@ async function generateAlevelPDF(data, meta) {
   const doc = new jsPDF("p", "mm", "a4");
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
+  const midOnly = String(meta?.assessmentMode || "").trim().toUpperCase() === "MID";
+  const reportTitle = midOnly
+    ? `MID-TERM PARENT REPORT - ${meta.term} ${meta.year}`
+    : `END OF ${meta.term} ${meta.year} REPORT CARD`;
+  const subjectTableHead = midOnly
+    ? [["Subject", "Paper", "MID Score", "Paper Grade", "Subject Grade", "Points", "Teacher"]]
+    : [["Subject", "Paper", "MID", "EOT", "Paper Avg", "Score", "Grade", "Points", "Teacher"]];
 
   const formatPaperScore = (value) => {
     if (value === null || value === undefined || value === "") return "Missing";
@@ -1677,7 +1771,7 @@ async function generateAlevelPDF(data, meta) {
     return Number.isFinite(parsed) ? parsed.toFixed(1) : String(value);
   };
 
-  const buildSubjectRows = (subjects = [], includeScore = true) => {
+  const buildSubjectRows = (subjects = []) => {
     const rows = [];
 
     subjects.forEach((subjectGroup) => {
@@ -1709,8 +1803,10 @@ async function generateAlevelPDF(data, meta) {
 
         row.push(paperRow.paper || "Single");
         row.push(formatComponentScore(paperRow.mid, paperRow.mid_status));
-        row.push(formatComponentScore(paperRow.eot, paperRow.eot_status));
-        row.push(formatAverage(paperRow.avg, paperRow.resultStatus));
+        if (!midOnly) {
+          row.push(formatComponentScore(paperRow.eot, paperRow.eot_status));
+          row.push(formatAverage(paperRow.avg, paperRow.resultStatus));
+        }
         row.push(paperRow.paperScore || "Missing");
 
         if (index === 0) {
@@ -1785,7 +1881,7 @@ doc.line(15, 40, pageWidth - 15, 40);
 doc.setFont("helvetica", "bold");
 doc.setFontSize(11);
 doc.text(
-  `END OF ${meta.term} ${meta.year} REPORT CARD`,
+  reportTitle,
   pageWidth / 2,
   50,
   { align: "center" }
@@ -1842,8 +1938,8 @@ doc.text(learner.combination, 110 + w + gap, y + 12);
 
     autoTable(doc, {
       startY: y + 20,
-      head: [["Subject", "Paper", "MID", "EOT", "Paper Avg", "Score", "Grade", "Points", "Teacher"]],
-      body: buildSubjectRows(principals, true),
+      head: subjectTableHead,
+      body: buildSubjectRows(principals),
       theme: "grid",
       styles: {
         fontSize: 8.4,
@@ -1871,8 +1967,8 @@ doc.text(learner.combination, 110 + w + gap, y + 12);
 
     autoTable(doc, {
       startY: nextY + 6,
-      head: [["Subject", "Paper", "MID", "EOT", "Paper Avg", "Score", "Grade", "Points", "Teacher"]],
-      body: buildSubjectRows(subsidiaries, false),
+      head: subjectTableHead,
+      body: buildSubjectRows(subsidiaries),
       theme: "grid",
       styles: {
         fontSize: 8.4,
@@ -1989,8 +2085,15 @@ let afterTablesY = subsidiaryNoteY + 8;
 
 doc.setFontSize(9);
 
-doc.text(`This term ended on: ${formatReportDateValue(meta?.termEndedOn)}`, 15, afterTablesY);
-doc.text(`Next term begins on: ${formatReportDateValue(meta?.nextTermBeginsOn)}`, 110, afterTablesY);
+if (midOnly) {
+  doc.setFont("helvetica", "bold");
+  doc.text("Assessment basis:", 15, afterTablesY);
+  doc.setFont("helvetica", "normal");
+  doc.text(`MID marks only • ${meta.term} ${meta.year}`, 47, afterTablesY);
+} else {
+  doc.text(`This term ended on: ${formatReportDateValue(meta?.termEndedOn)}`, 15, afterTablesY);
+  doc.text(`Next term begins on: ${formatReportDateValue(meta?.nextTermBeginsOn)}`, 110, afterTablesY);
+}
 
     doc.setFontSize(8);
     doc.text(
@@ -2001,10 +2104,10 @@ doc.text(`Next term begins on: ${formatReportDateValue(meta?.nextTermBeginsOn)}`
     );
   });
 
-  const filename = `ALevel_Report_${String(meta.cls || "Class")}_${String(meta.stream || "Stream")}_${String(meta.term || "Term")}_${String(meta.year || "")}.pdf`
+  const filename = `ALevel_${midOnly ? "MID_Parent_Report" : "Report"}_${String(meta.cls || "Class")}_${String(meta.stream || "Stream")}_${String(meta.term || "Term")}_${String(meta.year || "")}.pdf`
     .replace(/\s+/g, "_")
     .replace(/[^a-zA-Z0-9_.-]/g, "");
-  const title = `A-Level Report - ${meta.cls || "Class"} ${meta.stream || ""} - ${meta.term || ""} ${meta.year || ""}`.trim();
+  const title = `A-Level ${midOnly ? "MID Parent Report" : "Report"} - ${meta.cls || "Class"} ${meta.stream || ""} - ${meta.term || ""} ${meta.year || ""}`.trim();
   openNamedPdfPreview(doc, filename, title);
 }
 

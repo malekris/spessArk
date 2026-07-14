@@ -773,6 +773,65 @@ export async function ensureTeacherAssignmentLifecycleColumns(connection = pool)
   );
 }
 
+async function ensureALevelTeacherSubjectLifecycleColumns(connection = pool) {
+  if (!(await tableExists(connection, "alevel_teacher_subjects"))) {
+    return false;
+  }
+
+  if (!(await columnExists(connection, "alevel_teacher_subjects", "created_at"))) {
+    await connection.query(
+      `ALTER TABLE alevel_teacher_subjects
+       ADD COLUMN created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP`
+    );
+  }
+
+  if (!(await columnExists(connection, "alevel_teacher_subjects", "assignment_status"))) {
+    await connection.query(
+      `ALTER TABLE alevel_teacher_subjects
+       ADD COLUMN assignment_status VARCHAR(20) NOT NULL DEFAULT 'active'`
+    );
+  }
+
+  if (!(await columnExists(connection, "alevel_teacher_subjects", "ended_at"))) {
+    await connection.query(
+      `ALTER TABLE alevel_teacher_subjects
+       ADD COLUMN ended_at TIMESTAMP NULL DEFAULT NULL`
+    );
+  }
+
+  if (!(await columnExists(connection, "alevel_teacher_subjects", "ended_reason"))) {
+    await connection.query(
+      `ALTER TABLE alevel_teacher_subjects
+       ADD COLUMN ended_reason VARCHAR(255) NULL DEFAULT NULL`
+    );
+  }
+
+  if (!(await columnExists(connection, "alevel_teacher_subjects", "ended_by_admin_id"))) {
+    await connection.query(
+      `ALTER TABLE alevel_teacher_subjects
+       ADD COLUMN ended_by_admin_id INT NULL DEFAULT NULL`
+    );
+  }
+
+  if (!(await columnExists(connection, "alevel_teacher_subjects", "replaced_by_assignment_id"))) {
+    await connection.query(
+      `ALTER TABLE alevel_teacher_subjects
+       ADD COLUMN replaced_by_assignment_id INT NULL DEFAULT NULL`
+    );
+  }
+
+  await connection.query(
+    `UPDATE alevel_teacher_subjects
+     SET created_at = COALESCE(created_at, NOW()),
+         assignment_status = COALESCE(NULLIF(assignment_status, ''), 'active')
+     WHERE created_at IS NULL
+        OR assignment_status IS NULL
+        OR assignment_status = ''`
+  );
+
+  return true;
+}
+
 async function getRegisteredStudentIdsForSubject(connection, studentIds, subject, year = null) {
   const normalizedIds = Array.from(
     new Set((studentIds || []).map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0))
@@ -1438,6 +1497,7 @@ app.delete("/api/admin/teachers/:id", authAdmin, requireAdminReauth, async (req,
   try {
     const { id } = req.params;
     await ensureTeacherAssignmentLifecycleColumns(pool);
+    const hasAlevelAssignmentsTable = await ensureALevelTeacherSubjectLifecycleColumns(pool);
     await conn.beginTransaction();
 
     const [existing] = await conn.query(
@@ -1463,15 +1523,19 @@ app.delete("/api/admin/teachers/:id", authAdmin, requireAdminReauth, async (req,
     );
 
     let aLevelCleanupCount = 0;
-    try {
+    if (hasAlevelAssignmentsTable) {
       const [aLevelCleanup] = await conn.query(
-        "DELETE FROM alevel_teacher_subjects WHERE teacher_id = ?",
-        [id]
+        `UPDATE alevel_teacher_subjects
+         SET assignment_status = 'inactive',
+             ended_at = COALESCE(ended_at, NOW()),
+             ended_reason = COALESCE(ended_reason, 'Teacher account removed; marks retained'),
+             ended_by_admin_id = COALESCE(ended_by_admin_id, ?)
+         WHERE teacher_id = ?
+           AND COALESCE(assignment_status, 'active') = 'active'
+           AND ended_at IS NULL`,
+        [Number(req.admin?.id) || 1, id]
       );
       aLevelCleanupCount = aLevelCleanup.affectedRows || 0;
-    } catch (cleanupErr) {
-      // Keep delete behavior compatible where A-Level tables are not provisioned.
-      if (cleanupErr?.code !== "ER_NO_SUCH_TABLE") throw cleanupErr;
     }
 
     const [result] = await conn.query(

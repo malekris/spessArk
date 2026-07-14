@@ -9,17 +9,40 @@ import "../../../pages/AdminDashboard.css";
 import "../pages/ALevelAdminTheme.css";
 
 const STORAGE_THEME_KEY = "alevelDashboardTheme";
-const STORAGE_SIDEBAR_KEY = "alevelSidebarCollapsed";
-const COMPACT_VIEWPORT_WIDTH = 1180;
 const ADMIN_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 const ADMIN_IDLE_WARNING_MS = 90 * 1000;
 
 const NAV_ITEMS = [
-  { label: "Overview", shortLabel: "OV", path: "/ark/admin/alevel" },
-  { label: "Learners", shortLabel: "LR", path: "/ark/admin/alevel/learners" },
-  { label: "Assignments", shortLabel: "AS", path: "/ark/admin/alevel/assign" },
-  { label: "Data Center", shortLabel: "DC", path: "/ark/admin/alevel/downloads" },
-  { label: "Report Hub", shortLabel: "RP", path: "/ark/admin/alevel/reports" },
+  {
+    label: "Overview",
+    shortLabel: "OV",
+    description: "Readiness, submissions and executive insight",
+    path: "/ark/admin/alevel",
+  },
+  {
+    label: "Learners",
+    shortLabel: "LR",
+    description: "Candidate registration and subject profiles",
+    path: "/ark/admin/alevel/learners",
+  },
+  {
+    label: "Assignments",
+    shortLabel: "AS",
+    description: "Teacher, paper and stream ownership",
+    path: "/ark/admin/alevel/assign",
+  },
+  {
+    label: "Data Center",
+    shortLabel: "DC",
+    description: "Submitted marks, previews and exports",
+    path: "/ark/admin/alevel/downloads",
+  },
+  {
+    label: "Report Hub",
+    shortLabel: "RP",
+    description: "MID and terminal learner reports",
+    path: "/ark/admin/alevel/reports",
+  },
 ];
 
 const buildAlevelDocumentTitle = (pageTitle) => {
@@ -48,27 +71,6 @@ export default function ALevelAdminShell({
     }
   });
 
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
-    try {
-      return localStorage.getItem(STORAGE_SIDEBAR_KEY) === "true";
-    } catch {
-      return false;
-    }
-  });
-  const [viewportWidth, setViewportWidth] = useState(() => {
-    if (typeof window === "undefined") return COMPACT_VIEWPORT_WIDTH + 1;
-    return window.innerWidth;
-  });
-
-  useEffect(() => {
-    if (typeof window === "undefined") return undefined;
-
-    const handleResize = () => setViewportWidth(window.innerWidth);
-    handleResize();
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
-
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_THEME_KEY, themeMode);
@@ -78,20 +80,10 @@ export default function ALevelAdminShell({
   }, [themeMode]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_SIDEBAR_KEY, String(sidebarCollapsed));
-    } catch {
-      // ignore storage issues
-    }
-  }, [sidebarCollapsed]);
-
-  useEffect(() => {
     document.title = buildAlevelDocumentTitle(title);
   }, [title]);
 
   const isDark = themeMode !== "light";
-  const isCompactViewport = viewportWidth <= COMPACT_VIEWPORT_WIDTH;
-  const isSidebarCompact = sidebarCollapsed || isCompactViewport;
   const { promptVisible, secondsRemaining, renewSession, logoutNow } = useIdleSessionPrompt({
     onTimeout: () => forceAdminLogout("/ark"),
     idleMs: ADMIN_IDLE_TIMEOUT_MS,
@@ -125,8 +117,6 @@ export default function ALevelAdminShell({
 
   const palette = isDark
     ? {
-        sidebarBackground: "#050608",
-        sidebarBorder: "rgba(255, 255, 255, 0.05)",
         titleText: "#f8fafc",
         bodyText: "#e2e8f0",
         mutedText: "#94a3b8",
@@ -143,8 +133,6 @@ export default function ALevelAdminShell({
         ghostBorder: "rgba(255, 255, 255, 0.08)",
       }
     : {
-        sidebarBackground: "rgba(255, 255, 255, 0.96)",
-        sidebarBorder: "rgba(15, 23, 42, 0.08)",
         titleText: "#0f172a",
         bodyText: "#0f172a",
         mutedText: "#475569",
@@ -162,10 +150,7 @@ export default function ALevelAdminShell({
       };
 
   const shellVars = {
-    "--alevel-sidebar-width": isSidebarCompact ? "92px" : "270px",
     "--alevel-shell-bg": palette.shellBackground,
-    "--alevel-sidebar-bg": palette.sidebarBackground,
-    "--alevel-sidebar-border": palette.sidebarBorder,
     "--alevel-topbar-bg": palette.topBarBackground,
     "--alevel-topbar-border": palette.topBarBorder,
     "--alevel-nav-bg": palette.navBackground,
@@ -181,91 +166,13 @@ export default function ALevelAdminShell({
     "--alevel-shell-ghost-border": palette.ghostBorder,
   };
 
-  const content = typeof children === "function" ? children({ isDark, themeMode, sidebarCollapsed, palette }) : children;
+  const content = typeof children === "function" ? children({ isDark, themeMode, palette }) : children;
 
   return (
     <div
-      className={`admin-root alevel-admin-root alevel-shell-root ${isDark ? "mode-dark" : "mode-light"} ${
-        isSidebarCompact ? "sidebar-collapsed" : ""
-      } ${isCompactViewport ? "viewport-compact" : ""} ${
-        isCompactViewport ? "sidebar-auto-compact" : ""
-      }`}
+      className={`admin-root alevel-admin-root alevel-shell-root ${isDark ? "mode-dark" : "mode-light"}`}
       style={shellVars}
     >
-      <aside className="alevel-sidebar alevel-shell-sidebar">
-        <div className="alevel-shell-brand">
-          <div className="alevel-shell-brand-copy">
-            <div className="alevel-shell-brand-title">
-              <span>ARK</span>
-              {!isSidebarCompact && <span className="alevel-shell-brand-accent">ADMIN</span>}
-            </div>
-            {!isSidebarCompact && <p>A-Level Control Room</p>}
-          </div>
-          <button
-            type="button"
-            className="alevel-shell-collapse-btn"
-            onClick={() => setSidebarCollapsed((prev) => !prev)}
-            title={
-              isCompactViewport
-                ? "Navigation auto-compacts at this window size"
-                : isSidebarCompact
-                  ? "Expand navigation"
-                  : "Collapse navigation"
-            }
-            aria-label={
-              isCompactViewport
-                ? "Navigation auto-compacts at this window size"
-                : isSidebarCompact
-                  ? "Expand navigation"
-                  : "Collapse navigation"
-            }
-            disabled={isCompactViewport}
-          >
-            {isCompactViewport ? "•" : isSidebarCompact ? "→" : "←"}
-          </button>
-        </div>
-
-        <nav className="alevel-shell-nav">
-          {NAV_ITEMS.map((item) => {
-            const isActive = activePath === item.path;
-            return (
-              <button
-                key={item.path}
-                type="button"
-                className={`alevel-shell-nav-item ${isActive ? "is-active" : ""}`}
-                onClick={() => navigate(item.path)}
-                title={item.label}
-              >
-                <span className="alevel-shell-nav-badge">{isSidebarCompact ? item.shortLabel : item.label.slice(0, 2)}</span>
-                {!isSidebarCompact && <span className="alevel-shell-nav-label">{item.label}</span>}
-              </button>
-            );
-          })}
-        </nav>
-
-        <div className="alevel-shell-sidebar-actions">
-          <button
-            type="button"
-            className="alevel-shell-sidebar-btn"
-            onClick={() => setThemeMode((prev) => (prev === "dark" ? "light" : "dark"))}
-            title={isDark ? "Switch to light mode" : "Switch to dark mode"}
-          >
-            <span>{isDark ? "Light" : "Dark"}</span>
-            {!isSidebarCompact && <span>{isDark ? "Switch to Light Mode" : "Switch to Dark Mode"}</span>}
-          </button>
-
-          <button
-            type="button"
-            className="alevel-shell-sidebar-btn"
-            onClick={() => navigate("/ark/admin")}
-            title="Go to O-Level system"
-          >
-            <span>OL</span>
-            {!isSidebarCompact && <span>O-Level System</span>}
-          </button>
-        </div>
-      </aside>
-
       <div className="alevel-shell-main">
         <header className="admin-nav alevel-shell-topbar">
           <div className="alevel-shell-topbar-copy">
@@ -284,14 +191,6 @@ export default function ALevelAdminShell({
             <button
               type="button"
               className="ghost-btn alevel-shell-topbar-btn"
-              onClick={() => setSidebarCollapsed((prev) => !prev)}
-              disabled={isCompactViewport}
-            >
-              {isCompactViewport ? "Nav Compact" : isSidebarCompact ? "Show Nav" : "Collapse Nav"}
-            </button>
-            <button
-              type="button"
-              className="ghost-btn alevel-shell-topbar-btn"
               onClick={() => setThemeMode((prev) => (prev === "dark" ? "light" : "dark"))}
             >
               {isDark ? "Light Mode" : "Dark Mode"}
@@ -304,6 +203,30 @@ export default function ALevelAdminShell({
             </button>
           </div>
         </header>
+
+        <div className="alevel-module-nav-shell">
+          <nav className="alevel-module-nav" aria-label="A-Level modules">
+            {NAV_ITEMS.map((item) => {
+              const isActive = activePath === item.path;
+              return (
+                <button
+                  key={item.path}
+                  type="button"
+                  className={`alevel-module-card ${isActive ? "is-active" : ""}`}
+                  onClick={() => navigate(item.path)}
+                  aria-current={isActive ? "page" : undefined}
+                >
+                  <span className="alevel-module-card-head">
+                    <span className="alevel-module-card-code">{item.shortLabel}</span>
+                    <span className="alevel-module-card-state">{isActive ? "Current" : "Open"}</span>
+                  </span>
+                  <strong>{item.label}</strong>
+                  <span className="alevel-module-card-copy">{item.description}</span>
+                </button>
+              );
+            })}
+          </nav>
+        </div>
 
         <main className={`admin-main alevel-admin-main alevel-shell-content ${contentClassName}`.trim()} style={contentStyle}>
           {content}

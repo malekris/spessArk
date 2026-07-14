@@ -67,6 +67,16 @@ function calcAverage(mid, eot) {
   return Math.round(((midScore + eotScore) / 2) * 10) / 10;
 }
 
+function normalizeAssessmentMode(value = "") {
+  return String(value || "").trim().toUpperCase() === "MID" ? "MID" : "FULL";
+}
+
+function normalizeSingleComponentScore(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const score = Number(value);
+  return Number.isFinite(score) ? Math.round(score * 10) / 10 : null;
+}
+
 function componentStatus(hasRecord, score) {
   if (!hasRecord) return "Missing";
   if (score === null || score === undefined) return "Missed";
@@ -282,7 +292,8 @@ function pickComments(total) {
   return { headTeacher, classTeacher };
 }
 
-function groupRowsBySubject(rows = []) {
+function groupRowsBySubject(rows = [], { assessmentMode = "FULL" } = {}) {
+  const midOnly = normalizeAssessmentMode(assessmentMode) === "MID";
   const grouped = new Map();
 
   rows.forEach((row) => {
@@ -299,11 +310,14 @@ function groupRowsBySubject(rows = []) {
     }
 
     const group = grouped.get(key);
-    const paperAverage = calcAverage(row.mid, row.eot);
+    const paperAverage = midOnly
+      ? normalizeSingleComponentScore(row.mid)
+      : calcAverage(row.mid, row.eot);
     const midStatus = row.mid_status || (row.mid === null || row.mid === undefined ? "Missing" : "Submitted");
     const eotStatus = row.eot_status || (row.eot === null || row.eot === undefined ? "Missing" : "Submitted");
+    const relevantStatuses = midOnly ? [midStatus] : [midStatus, eotStatus];
     const paperResultStatus =
-      paperAverage === null ? incompleteLabelFromStatuses([midStatus, eotStatus]) : "Submitted";
+      paperAverage === null ? incompleteLabelFromStatuses(relevantStatuses) : "Submitted";
     const paperScore = paperAverage === null ? paperResultStatus : scoreFromAverage(paperAverage);
     group.papers.push({
       paper: normalizePaperLabel(row.paper_label) || "Single",
@@ -328,7 +342,11 @@ function groupRowsBySubject(rows = []) {
 
       const hasIncompletePaper = papers.some((paper) => paper.avg === null || paper.avg === undefined);
       const incompleteLabel = incompleteLabelFromStatuses(
-        papers.flatMap((paper) => [paper.mid_status, paper.eot_status, paper.resultStatus])
+        papers.flatMap((paper) =>
+          midOnly
+            ? [paper.mid_status, paper.resultStatus]
+            : [paper.mid_status, paper.eot_status, paper.resultStatus]
+        )
       );
       const availablePaperAverages = papers
         .map((paper) => Number(paper.avg))
@@ -392,27 +410,36 @@ function random(arr) {
 router.post("/preview", async (req, res) => {
   try {
     const { term, class: cls, stream, year } = req.body;
+    const assessmentMode = normalizeAssessmentMode(req.body?.assessmentMode);
     const fullStream = `${cls} ${stream}`;
 
     const [[l]] = await db.query(`
       SELECT COUNT(DISTINCT l.id) AS total
       FROM alevel_marks m
       JOIN alevel_learners l ON l.id = m.learner_id
+      JOIN alevel_exams e ON e.id = m.exam_id
       WHERE l.stream = ?
       AND m.term = ?
       AND YEAR(m.created_at) = ?
-    `, [fullStream, term, year]);
+      AND (? = 'FULL' OR UPPER(e.name) = 'MID')
+    `, [fullStream, term, year, assessmentMode]);
 
     const [[s]] = await db.query(`
       SELECT COUNT(DISTINCT m.subject_id) AS total
       FROM alevel_marks m
       JOIN alevel_learners l ON l.id = m.learner_id
+      JOIN alevel_exams e ON e.id = m.exam_id
       WHERE l.stream = ?
       AND m.term = ?
       AND YEAR(m.created_at) = ?
-    `, [fullStream, term, year]);
+      AND (? = 'FULL' OR UPPER(e.name) = 'MID')
+    `, [fullStream, term, year, assessmentMode]);
 
-    res.json({ learners: l.total || 0, subjects: s.total || 0 });
+    res.json({
+      learners: l.total || 0,
+      subjects: s.total || 0,
+      assessmentMode,
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Preview failed" });
@@ -425,6 +452,7 @@ router.post("/preview", async (req, res) => {
 router.post("/download", async (req, res) => {
     try {
       const { term, class: cls, stream, year } = req.body;
+      const assessmentMode = normalizeAssessmentMode(req.body?.assessmentMode);
       const fullStream = `${cls} ${stream}`;
   
       const [learners] = await db.query(
@@ -487,11 +515,12 @@ router.post("/download", async (req, res) => {
               WHERE m.learner_id = ?
                 AND m.term = ?
                 AND YEAR(m.created_at) = ?
+                AND (? = 'FULL' OR UPPER(e.name) = 'MID')
                 AND m.subject_id IN (?)
               GROUP BY m.subject_id, ats.paper_label, t.name
               ORDER BY m.subject_id ASC, ats.paper_label ASC
               `,
-              [learner.id, term, year, subjectIds]
+              [learner.id, term, year, assessmentMode, subjectIds]
             )
           : [[]];
 
@@ -528,12 +557,14 @@ router.post("/download", async (req, res) => {
 
         // Only generate reports for learners with at least one uploaded mark row.
         // A NULL score row is an explicit teacher-marked MISSED exam; no row is MISSING.
-        const hasAnyMark = expectedRows.some(
-          (r) => r.mid_status !== "Missing" || r.eot_status !== "Missing"
+        const hasAnyMark = expectedRows.some((row) =>
+          assessmentMode === "MID"
+            ? row.mid_status !== "Missing"
+            : row.mid_status !== "Missing" || row.eot_status !== "Missing"
         );
         if (!hasAnyMark) continue;
   
-        const groupedSubjects = groupRowsBySubject(expectedRows);
+        const groupedSubjects = groupRowsBySubject(expectedRows, { assessmentMode });
         const principals = groupedSubjects.filter((row) => !row.isSubsidiary);
         const subsidiaries = groupedSubjects.filter((row) => row.isSubsidiary);
   
@@ -557,7 +588,8 @@ router.post("/download", async (req, res) => {
             subsidiary: totalS,
             overall: totalP + totalS
           },
-          comments: pickComments(totalP + totalS)
+          comments: pickComments(totalP + totalS),
+          assessmentMode,
         });
       }
   

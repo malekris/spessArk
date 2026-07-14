@@ -72,8 +72,32 @@ const buildSubjectDisplay = (subjectName = "", paperLabel = "") => {
     : subjectName;
 };
 
+const normalizeAssignmentStatus = (value = "") =>
+  String(value || "active").trim().toLowerCase();
+
+const activeAlevelAssignmentClause = (alias = "ats") =>
+  `COALESCE(${alias}.assignment_status, 'active') = 'active' AND ${alias}.ended_at IS NULL`;
+
+const getScopedTeacherIds = async (executor, teacher = {}) => {
+  const ids = new Set();
+  const teacherId = Number(teacher?.id);
+  if (Number.isInteger(teacherId) && teacherId > 0) ids.add(teacherId);
+
+  const teacherEmail = String(teacher?.email || "").trim().toLowerCase();
+  if (teacherEmail) {
+    const [[teacherRow]] = await executor.query(
+      `SELECT id FROM teachers WHERE LOWER(TRIM(email)) = ? LIMIT 1`,
+      [teacherEmail]
+    );
+    if (teacherRow?.id) ids.add(Number(teacherRow.id));
+  }
+
+  return Array.from(ids).filter((id) => Number.isInteger(id) && id > 0);
+};
+
 let aLevelMarksSchemaReadyPromise = null;
 let aLevelMarksHasCreatedAtPromise = null;
+let aLevelAssignmentLifecycleReadyPromise = null;
 
 const getActiveSchemaName = async (executor = db) => {
   if (process.env.DB_NAME) return process.env.DB_NAME;
@@ -154,6 +178,91 @@ const ensureALevelMarksSchemaReady = async (executor = pool) => {
 
   return aLevelMarksSchemaReadyPromise;
 };
+
+const alevelColumnExists = async (executor, tableName, columnName) => {
+  const [[row]] = await executor.query(
+    `SELECT COUNT(*) AS total
+     FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = ?
+       AND COLUMN_NAME = ?`,
+    [tableName, columnName]
+  );
+  return Number(row?.total || 0) > 0;
+};
+
+const ensureALevelAssignmentLifecycleColumns = async (executor = pool) => {
+  if (!aLevelAssignmentLifecycleReadyPromise) {
+    aLevelAssignmentLifecycleReadyPromise = (async () => {
+      await ensureALevelMarksSchemaReady(executor);
+
+      if (!(await alevelColumnExists(executor, "alevel_teacher_subjects", "created_at"))) {
+        await executor.query(
+          `ALTER TABLE alevel_teacher_subjects
+           ADD COLUMN created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP`
+        );
+      }
+
+      if (!(await alevelColumnExists(executor, "alevel_teacher_subjects", "assignment_status"))) {
+        await executor.query(
+          `ALTER TABLE alevel_teacher_subjects
+           ADD COLUMN assignment_status VARCHAR(20) NOT NULL DEFAULT 'active'`
+        );
+      }
+
+      if (!(await alevelColumnExists(executor, "alevel_teacher_subjects", "ended_at"))) {
+        await executor.query(
+          `ALTER TABLE alevel_teacher_subjects
+           ADD COLUMN ended_at TIMESTAMP NULL DEFAULT NULL`
+        );
+      }
+
+      if (!(await alevelColumnExists(executor, "alevel_teacher_subjects", "ended_reason"))) {
+        await executor.query(
+          `ALTER TABLE alevel_teacher_subjects
+           ADD COLUMN ended_reason VARCHAR(255) NULL DEFAULT NULL`
+        );
+      }
+
+      if (!(await alevelColumnExists(executor, "alevel_teacher_subjects", "ended_by_admin_id"))) {
+        await executor.query(
+          `ALTER TABLE alevel_teacher_subjects
+           ADD COLUMN ended_by_admin_id INT NULL DEFAULT NULL`
+        );
+      }
+
+      if (!(await alevelColumnExists(executor, "alevel_teacher_subjects", "replaced_by_assignment_id"))) {
+        await executor.query(
+          `ALTER TABLE alevel_teacher_subjects
+           ADD COLUMN replaced_by_assignment_id INT NULL DEFAULT NULL`
+        );
+      }
+
+      await executor.query(
+        `
+        UPDATE alevel_teacher_subjects ats
+        LEFT JOIN (
+          SELECT assignment_id, MIN(created_at) AS first_mark_at
+          FROM alevel_marks
+          WHERE assignment_id IS NOT NULL
+          GROUP BY assignment_id
+        ) am ON am.assignment_id = ats.id
+        SET
+          ats.created_at = COALESCE(ats.created_at, am.first_mark_at, NOW()),
+          ats.assignment_status = COALESCE(NULLIF(ats.assignment_status, ''), 'active')
+        WHERE ats.created_at IS NULL
+           OR ats.assignment_status IS NULL
+           OR ats.assignment_status = ''
+        `
+      );
+    })().catch((err) => {
+      aLevelAssignmentLifecycleReadyPromise = null;
+      throw err;
+    });
+  }
+
+  return aLevelAssignmentLifecycleReadyPromise;
+};
 // ===== A-LEVEL LEARNERS =====
 router.get("/learners", getLearners);
 router.post("/learners", createLearner);
@@ -188,19 +297,59 @@ router.get("/subjects", async (req, res) => {
 // assignments (admin view)
 router.get("/admin/assignments", authAdmin, async (req, res) => {
   try {
+    await ensureALevelAssignmentLifecycleColumns(pool);
+
+    const includeInactive = ["1", "true", "yes", "all"].includes(
+      String(req.query.includeInactive || "").trim().toLowerCase()
+    );
+    const statusClause = includeInactive
+      ? ""
+      : `WHERE ${activeAlevelAssignmentClause("ats")}`;
+
     const [rows] = await db.query(`
       SELECT 
         ats.id,
         ats.teacher_id,
+        ats.subject_id,
         ats.stream,
         ats.paper_label,
         s.name AS subject,
+        ats.created_at,
+        COALESCE(ats.assignment_status, 'active') AS assignment_status,
+        ats.ended_at,
+        ats.ended_reason,
+        ats.ended_by_admin_id,
+        ats.replaced_by_assignment_id,
         t.name AS teacher_name,
-        t.email AS teacher_email
+        t.email AS teacher_email,
+        replacement_ats.teacher_id AS replacement_teacher_id,
+        replacement_t.name AS replacement_teacher_name,
+        replacement_ats.created_at AS replacement_created_at,
+        (
+          SELECT COUNT(*)
+          FROM alevel_marks am
+          LEFT JOIN alevel_learners l ON l.id = am.learner_id
+          WHERE am.assignment_id = ats.id
+             OR (
+               am.assignment_id IS NULL
+               AND am.subject_id = ats.subject_id
+               AND am.teacher_id = ats.teacher_id
+               AND l.stream = ats.stream
+             )
+        ) AS marks_count
       FROM alevel_teacher_subjects ats
       JOIN alevel_subjects s ON s.id = ats.subject_id
-      JOIN teachers t ON t.id = ats.teacher_id
-      ORDER BY ats.id DESC
+      LEFT JOIN teachers t ON t.id = ats.teacher_id
+      LEFT JOIN alevel_teacher_subjects replacement_ats ON replacement_ats.id = ats.replaced_by_assignment_id
+      LEFT JOIN teachers replacement_t ON replacement_t.id = replacement_ats.teacher_id
+      ${statusClause}
+      ORDER BY
+        CASE WHEN ${activeAlevelAssignmentClause("ats")} THEN 0 ELSE 1 END,
+        ats.stream,
+        s.name,
+        ats.paper_label,
+        ats.ended_at DESC,
+        ats.id DESC
     `);
 
     res.json(
@@ -217,47 +366,86 @@ router.get("/admin/assignments", authAdmin, async (req, res) => {
 });
 // create assignment
 router.post("/admin/assignments", authAdmin, async (req, res) => {
-  const { teacherId, subjectId, stream, paperLabel } = req.body;
+  const teacherId = Number(req.body?.teacherId);
+  const subjectId = Number(req.body?.subjectId);
+  const stream = String(req.body?.stream || "").trim();
+  const paperLabel = String(req.body?.paperLabel || "").trim();
+  const replaceAssignmentId = Number(req.body?.replaceAssignmentId || 0);
+  const replaceReason = String(req.body?.replaceReason || "").trim();
+  let conn;
 
   if (!teacherId || !subjectId || !stream) {
     return res.status(400).json({ message: "Missing fields" });
   }
 
   try {
-    const [[subjectRow]] = await db.query(
+    await ensureALevelAssignmentLifecycleColumns(pool);
+    conn = await db.getConnection();
+    await conn.beginTransaction();
+
+    const [[teacherRow]] = await conn.query(
+      `SELECT id, name FROM teachers WHERE id = ? LIMIT 1`,
+      [teacherId]
+    );
+
+    if (!teacherRow) {
+      await conn.rollback();
+      return res.status(404).json({ message: "Teacher not found" });
+    }
+
+    const [[subjectRow]] = await conn.query(
       `SELECT name FROM alevel_subjects WHERE id = ?`,
       [subjectId]
     );
 
     if (!subjectRow) {
+      await conn.rollback();
       return res.status(404).json({ message: "Subject not found" });
     }
 
     const resolvedPaper = resolvePaperLabel(subjectRow.name, paperLabel);
 
-    const [[existing]] = await db.query(
+    const [[sameTeacherAssignment]] = await conn.query(
+      `SELECT ats.id
+       FROM alevel_teacher_subjects ats
+       WHERE ats.teacher_id = ?
+         AND ats.subject_id = ?
+         AND ats.stream = ?
+         AND ats.paper_label = ?
+         AND ${activeAlevelAssignmentClause("ats")}
+       LIMIT 1`,
+      [teacherId, subjectId, stream, resolvedPaper]
+    );
+
+    if (sameTeacherAssignment) {
+      await conn.rollback();
+      return res.status(409).json({
+        message: `${teacherRow.name || "This teacher"} already owns ${buildSubjectDisplay(subjectRow.name, resolvedPaper)} in ${stream}.`,
+      });
+    }
+
+    const [conflicts] = await conn.query(
       `SELECT ats.id, ats.teacher_id, COALESCE(t.name, 'Another teacher') AS teacher_name
        FROM alevel_teacher_subjects ats
        LEFT JOIN teachers t ON t.id = ats.teacher_id
        WHERE ats.subject_id = ?
          AND ats.stream = ?
          AND ats.paper_label = ?
-       LIMIT 1`,
+         AND ${activeAlevelAssignmentClause("ats")}
+       FOR UPDATE`,
       [subjectId, stream, resolvedPaper]
     );
+    const activeConflict = conflicts[0] || null;
 
-    if (existing) {
-      const teacherName = String(existing.teacher_name || "Another teacher").trim() || "Another teacher";
-      const teacherSpecificMessage =
-        Number(existing.teacher_id) === Number(teacherId)
-          ? `${buildSubjectDisplay(subjectRow.name, resolvedPaper)} is already assigned to you in ${stream}.`
-          : `${buildSubjectDisplay(subjectRow.name, resolvedPaper)} is already assigned to ${teacherName} in ${stream}.`;
+    if (activeConflict && (!replaceAssignmentId || Number(activeConflict.id) !== replaceAssignmentId)) {
+      await conn.rollback();
+      const teacherName = String(activeConflict.teacher_name || "Another teacher").trim() || "Another teacher";
 
       return res.status(409).json({
-        message: teacherSpecificMessage,
-        existingAssignment: {
-          id: Number(existing.id),
-          teacherId: Number(existing.teacher_id),
+        message: `${buildSubjectDisplay(subjectRow.name, resolvedPaper)} is already assigned to ${teacherName} in ${stream}. Use Replace Teacher to hand this paper over without deleting marks.`,
+        activeAssignment: {
+          id: Number(activeConflict.id),
+          teacherId: Number(activeConflict.teacher_id),
           teacherName,
           subject: subjectRow.name,
           stream,
@@ -266,25 +454,79 @@ router.post("/admin/assignments", authAdmin, async (req, res) => {
       });
     }
 
-    const [result] = await db.query(
-      `INSERT INTO alevel_teacher_subjects (teacher_id, subject_id, stream, paper_label)
-       VALUES (?, ?, ?, ?)`,
+    if (replaceAssignmentId && !activeConflict) {
+      await conn.rollback();
+      return res.status(404).json({
+        message: "The assignment being replaced is no longer active.",
+      });
+    }
+
+    if (activeConflict && Number(activeConflict.teacher_id) === teacherId) {
+      await conn.rollback();
+      return res.status(409).json({
+        message: "This teacher already owns the active assignment for this A-Level paper.",
+      });
+    }
+
+    const [result] = await conn.query(
+      `INSERT INTO alevel_teacher_subjects
+       (teacher_id, subject_id, stream, paper_label, assignment_status, created_at)
+       VALUES (?, ?, ?, ?, 'active', NOW())`,
       [teacherId, subjectId, stream, resolvedPaper]
     );
 
+    if (activeConflict) {
+      await conn.query(
+        `UPDATE alevel_teacher_subjects
+         SET assignment_status = 'inactive',
+             ended_at = NOW(),
+             ended_reason = ?,
+             ended_by_admin_id = ?,
+             replaced_by_assignment_id = ?
+         WHERE id = ?`,
+        [
+          replaceReason || `Replaced by ${teacherRow.name || `teacher #${teacherId}`}`,
+          Number(req.admin?.id) || AUDIT_ADMIN_USER_ID,
+          result.insertId,
+          activeConflict.id,
+        ]
+      );
+    }
+
+    await conn.commit();
+    conn.release();
+    conn = null;
+
     await logAuditEvent({
-      userId: AUDIT_ADMIN_USER_ID,
+      userId: Number(req.admin?.id) || AUDIT_ADMIN_USER_ID,
       userRole: "admin",
-      action: "ASSIGN_SUBJECT",
+      action: activeConflict ? "REPLACE_ALEVEL_ASSIGNMENT_TEACHER" : "ASSIGN_SUBJECT",
       entityType: "subject",
       entityId: Number(result.insertId),
-      description: `${buildSubjectDisplay(subjectRow.name, resolvedPaper)} assigned to ${stream} (teacher #${teacherId})`,
+      description: activeConflict
+        ? `${buildSubjectDisplay(subjectRow.name, resolvedPaper)} in ${stream} handed over from teacher #${activeConflict.teacher_id} to teacher #${teacherId}`
+        : `${buildSubjectDisplay(subjectRow.name, resolvedPaper)} assigned to ${stream} (teacher #${teacherId})`,
       ipAddress: extractClientIp(req),
     });
 
-    queueAdminYearSnapshotRefresh(db, "alevel-assignment-create");
-    res.json({ success: true });
+    queueAdminYearSnapshotRefresh(db, activeConflict ? "alevel-assignment-replace" : "alevel-assignment-create");
+    res.status(201).json({
+      success: true,
+      id: Number(result.insertId),
+      teacherId,
+      teacher_name: teacherRow.name,
+      subjectId,
+      subject: subjectRow.name,
+      stream,
+      paperLabel: resolvedPaper,
+      assignment_status: "active",
+      replacedAssignmentId: activeConflict?.id || null,
+    });
   } catch (err) {
+    if (conn) {
+      try { await conn.rollback(); } catch (rollbackError) { console.error("A-Level assignment create rollback error:", rollbackError); }
+      conn.release();
+    }
     console.error("POST assignment error:", err);
     res.status(500).json({ message: "Failed to save assignment" });
   }
@@ -299,14 +541,18 @@ router.delete("/admin/assignments/:id", authAdmin, requireAdminReauth, async (re
       return res.status(400).json({ message: "Invalid assignment id" });
     }
 
+    await ensureALevelAssignmentLifecycleColumns(pool);
     conn = await db.getConnection();
     await conn.beginTransaction();
 
     const [[assignment]] = await conn.query(
-      `SELECT ats.id, ats.subject_id, ats.teacher_id, ats.stream, ats.paper_label, s.name AS subject
+      `SELECT ats.id, ats.subject_id, ats.teacher_id, ats.stream, ats.paper_label, s.name AS subject,
+              COALESCE(ats.assignment_status, 'active') AS assignment_status,
+              ats.ended_at
        FROM alevel_teacher_subjects ats
        JOIN alevel_subjects s ON s.id = ats.subject_id
-       WHERE ats.id = ?`,
+       WHERE ats.id = ?
+       FOR UPDATE`,
       [assignmentId]
     );
 
@@ -330,12 +576,53 @@ router.delete("/admin/assignments/:id", authAdmin, requireAdminReauth, async (re
     );
 
     if (Number(marksMeta?.count || 0) > 0) {
-      await conn.rollback();
-      return res.status(409).json({
-        message:
-          "This A-Level assignment already has submitted marks. Delete the marks set first from Data Center before removing the assignment.",
+      const [result] = await conn.query(
+        `UPDATE alevel_teacher_subjects
+         SET assignment_status = 'inactive',
+             ended_at = COALESCE(ended_at, NOW()),
+             ended_reason = COALESCE(?, ended_reason, 'Ended by admin; marks retained'),
+             ended_by_admin_id = COALESCE(ended_by_admin_id, ?)
+         WHERE id = ?`,
+        [
+          String(req.body?.reason || "").trim() || "Ended by admin; marks retained",
+          Number(req.admin?.id) || AUDIT_ADMIN_USER_ID,
+          assignmentId,
+        ]
+      );
+
+      if (result.affectedRows === 0) {
+        await conn.rollback();
+        return res.status(404).json({ message: "Assignment not found" });
+      }
+
+      await conn.commit();
+      conn.release();
+      conn = null;
+
+      await logAuditEvent({
+        userId: Number(req.admin?.id) || AUDIT_ADMIN_USER_ID,
+        userRole: "admin",
+        action: "END_ALEVEL_ASSIGNMENT",
+        entityType: "subject",
+        entityId: Number(assignment.id),
+        description: `Ended A-Level assignment ${buildSubjectDisplay(assignment.subject, assignment.paper_label)} in ${assignment.stream}; retained ${marksMeta.count} mark rows`,
+        ipAddress: extractClientIp(req),
+      });
+      queueAdminYearSnapshotRefresh(db, "alevel-assignment-end");
+      return res.json({
+        success: true,
+        message: "A-Level assignment ended. Existing marks were retained for reports and handover history.",
+        action: "ended",
+        retainedMarks: Number(marksMeta.count || 0),
       });
     }
+
+    await conn.query(
+      `UPDATE alevel_teacher_subjects
+       SET replaced_by_assignment_id = NULL
+       WHERE replaced_by_assignment_id = ?`,
+      [assignmentId]
+    );
 
     await conn.query(`DELETE FROM alevel_teacher_subjects WHERE id = ?`, [assignmentId]);
     await conn.commit();
@@ -352,7 +639,11 @@ router.delete("/admin/assignments/:id", authAdmin, requireAdminReauth, async (re
       ipAddress: extractClientIp(req),
     });
     queueAdminYearSnapshotRefresh(db, "alevel-assignment-delete");
-    res.json({ success: true });
+    res.json({
+      success: true,
+      message: "Empty A-Level assignment deleted successfully.",
+      action: "deleted",
+    });
   } catch (err) {
     if (conn) {
       try { await conn.rollback(); } catch (rollbackError) { console.error("A-Level delete assignment rollback error:", rollbackError); }
@@ -366,7 +657,10 @@ router.delete("/admin/assignments/:id", authAdmin, requireAdminReauth, async (re
 /* GET A-Level assignments (scoped to logged-in teacher) */
 router.get("/teachers/alevel-assignments", authTeacher, async (req, res) => {
   try {
-    const teacherId = req.teacher.id;
+    await ensureALevelAssignmentLifecycleColumns(pool);
+    const scopedTeacherIds = await getScopedTeacherIds(db, req.teacher);
+    if (scopedTeacherIds.length === 0) return res.json([]);
+    const teacherPlaceholders = scopedTeacherIds.map(() => "?").join(", ");
 
     const [rows] = await db.query(`
       SELECT
@@ -376,9 +670,10 @@ router.get("/teachers/alevel-assignments", authTeacher, async (req, res) => {
         s.name AS subject
       FROM alevel_teacher_subjects ats
       JOIN alevel_subjects s ON s.id = ats.subject_id
-      WHERE ats.teacher_id = ?
+      WHERE ats.teacher_id IN (${teacherPlaceholders})
+        AND ${activeAlevelAssignmentClause("ats")}
       ORDER BY ats.id DESC
-    `, [teacherId]);
+    `, scopedTeacherIds);
 
     res.json(
       (rows || []).map((row) => ({
@@ -396,8 +691,10 @@ router.get("/teachers/alevel-assignments", authTeacher, async (req, res) => {
 /* GET A-Level assignments by logged-in teacher email (id-drift safe) */
 router.get("/teachers/alevel-assignments-by-email", authTeacher, async (req, res) => {
   try {
-    const teacherEmail = String(req.teacher?.email || "").trim();
-    if (!teacherEmail) return res.json([]);
+    await ensureALevelAssignmentLifecycleColumns(pool);
+    const scopedTeacherIds = await getScopedTeacherIds(db, req.teacher);
+    if (scopedTeacherIds.length === 0) return res.json([]);
+    const teacherPlaceholders = scopedTeacherIds.map(() => "?").join(", ");
 
     const [rows] = await db.query(
       `
@@ -408,11 +705,11 @@ router.get("/teachers/alevel-assignments-by-email", authTeacher, async (req, res
         s.name AS subject
       FROM alevel_teacher_subjects ats
       JOIN alevel_subjects s ON s.id = ats.subject_id
-      JOIN teachers t ON t.id = ats.teacher_id
-      WHERE LOWER(t.email) = LOWER(?)
+      WHERE ats.teacher_id IN (${teacherPlaceholders})
+        AND ${activeAlevelAssignmentClause("ats")}
       ORDER BY ats.id DESC
       `,
-      [teacherEmail]
+      scopedTeacherIds
     );
 
     res.json(
@@ -429,13 +726,22 @@ router.get("/teachers/alevel-assignments-by-email", authTeacher, async (req, res
 });
 
 /* GET learners for an A-Level assignment */
-router.get("/teachers/alevel-assignments/:id/students", async (req, res) => {
+router.get("/teachers/alevel-assignments/:id/students", authTeacher, async (req, res) => {
   const { id } = req.params;
 
   try {
+    await ensureALevelAssignmentLifecycleColumns(pool);
+    const scopedTeacherIds = await getScopedTeacherIds(db, req.teacher);
+    if (scopedTeacherIds.length === 0) return res.json([]);
+    const teacherPlaceholders = scopedTeacherIds.map(() => "?").join(", ");
+
     const [[assignment]] = await db.query(
-      `SELECT subject_id, stream FROM alevel_teacher_subjects WHERE id = ?`,
-      [id]
+      `SELECT subject_id, stream
+       FROM alevel_teacher_subjects ats
+       WHERE ats.id = ?
+         AND ats.teacher_id IN (${teacherPlaceholders})
+         AND ${activeAlevelAssignmentClause("ats")}`,
+      [id, ...scopedTeacherIds]
     );
 
     if (!assignment) {
@@ -465,21 +771,27 @@ router.get("/teachers/alevel-assignments/:id/students", async (req, res) => {
 router.get("/teachers/alevel-marks", authTeacher, async (req, res) => {
   try {
     const { assignmentId, term, year } = req.query;
-    const teacherId = Number(req.teacher?.id);
 
     if (!assignmentId || !term) return res.json([]);
-    await ensureALevelMarksSchemaReady(pool);
+    await ensureALevelAssignmentLifecycleColumns(pool);
+    const scopedTeacherIds = await getScopedTeacherIds(db, req.teacher);
+    if (scopedTeacherIds.length === 0) return res.json([]);
+    const teacherPlaceholders = scopedTeacherIds.map(() => "?").join(", ");
+    const normalizedTerm = normalizeAlevelTerm(term);
 
     // Get assignment context scoped to the logged-in teacher.
     const [[ts]] = await db.query(
-      `SELECT id, subject_id, teacher_id, stream
-       FROM alevel_teacher_subjects
-       WHERE id = ?
-         AND teacher_id = ?`,
-      [assignmentId, teacherId]
+      `SELECT ats.id, ats.subject_id, ats.teacher_id, ats.stream, ats.paper_label, s.name AS subject_name
+       FROM alevel_teacher_subjects ats
+       JOIN alevel_subjects s ON s.id = ats.subject_id
+       WHERE ats.id = ?
+         AND ats.teacher_id IN (${teacherPlaceholders})
+         AND ${activeAlevelAssignmentClause("ats")}`,
+      [assignmentId, ...scopedTeacherIds]
     );
 
     if (!ts) return res.json([]);
+    const resolvedPaper = normalizePaperLabel(ts.paper_label) || resolvePaperLabel(ts.subject_name, ts.paper_label);
     const hasCreatedAt = await getAlevelMarksHasCreatedAt(db);
     const yearClause =
       year && hasCreatedAt ? "AND YEAR(am.created_at) = ?" : "";
@@ -497,16 +809,20 @@ router.get("/teachers/alevel-marks", authTeacher, async (req, res) => {
       FROM alevel_marks am
       JOIN alevel_exams ae 
         ON ae.id = am.exam_id
-      WHERE am.term = ?
+      LEFT JOIN alevel_learners l ON l.id = am.learner_id
+      WHERE ${NORMALIZED_ALEVEL_TERM_SQL("am.term")} = ?
         AND (
-          am.assignment_id = ?
+          am.assignment_id IN (
+            SELECT slot.id
+            FROM alevel_teacher_subjects slot
+            WHERE slot.subject_id = ?
+              AND slot.stream = ?
+              AND COALESCE(NULLIF(slot.paper_label, ''), 'Single') = ?
+          )
           OR (
             am.assignment_id IS NULL
             AND am.subject_id = ?
-            AND am.teacher_id = ?
-            AND am.learner_id IN (
-              SELECT id FROM alevel_learners WHERE stream = ?
-            )
+            AND l.stream = ?
           )
         )
         ${yearClause}
@@ -516,10 +832,11 @@ router.get("/teachers/alevel-marks", authTeacher, async (req, res) => {
         CASE WHEN am.assignment_id = ? THEN 0 ELSE 1 END,
         am.id DESC
     `, [
-      term,
-      ts.id,
+      normalizedTerm,
       ts.subject_id,
-      teacherId,
+      ts.stream,
+      resolvedPaper,
+      ts.subject_id,
       ts.stream,
       ...(year && hasCreatedAt ? [year] : []),
       ts.id,
@@ -559,11 +876,17 @@ router.post("/teachers/alevel-marks", authTeacher, async (req, res) => {
   }
 
   try {
-    await ensureALevelMarksSchemaReady(pool);
+    await ensureALevelAssignmentLifecycleColumns(pool);
     await ensureMarksArchiveTablesReady(pool);
     conn = await db.getConnection();
     await conn.beginTransaction();
     const teacherId = Number(req.teacher?.id);
+    const scopedTeacherIds = await getScopedTeacherIds(conn, req.teacher);
+    if (scopedTeacherIds.length === 0) {
+      await conn.rollback();
+      return res.status(404).json({ message: "Assignment not found" });
+    }
+    const teacherPlaceholders = scopedTeacherIds.map(() => "?").join(", ");
 
     // 1. Get assignment context scoped to the logged-in teacher
     const [[ts]] = await conn.query(
@@ -571,8 +894,9 @@ router.post("/teachers/alevel-marks", authTeacher, async (req, res) => {
        FROM alevel_teacher_subjects ats
        JOIN alevel_subjects s ON s.id = ats.subject_id
        WHERE ats.id = ?
-         AND ats.teacher_id = ?`,
-      [assignmentId, teacherId]
+         AND ats.teacher_id IN (${teacherPlaceholders})
+         AND ${activeAlevelAssignmentClause("ats")}`,
+      [assignmentId, ...scopedTeacherIds]
     );
 
     if (!ts) {
@@ -584,23 +908,39 @@ router.post("/teachers/alevel-marks", authTeacher, async (req, res) => {
       Number.isInteger(Number(year)) && Number(year) > 0
         ? Number(year)
         : new Date().getFullYear();
+    const normalizedTerm = normalizeAlevelTerm(term);
+    const resolvedPaper = normalizePaperLabel(ts.paper_label) || resolvePaperLabel(ts.subject_name, ts.paper_label);
+
+    const [slotAssignments] = await conn.query(
+      `SELECT id
+       FROM alevel_teacher_subjects slot
+       WHERE slot.subject_id = ?
+         AND slot.stream = ?
+         AND COALESCE(NULLIF(slot.paper_label, ''), 'Single') = ?`,
+      [ts.subject_id, ts.stream, resolvedPaper]
+    );
+    const slotAssignmentIds = Array.from(
+      new Set(
+        [...(slotAssignments || []).map((row) => Number(row.id)), Number(ts.id)]
+          .filter((id) => Number.isInteger(id) && id > 0)
+      )
+    );
+    const slotPlaceholders = slotAssignmentIds.map(() => "?").join(", ");
 
     const [[existingMarksMeta]] = await conn.query(
       `SELECT COUNT(*) AS count
-       FROM alevel_marks
-       WHERE term = ?
+       FROM alevel_marks am
+       LEFT JOIN alevel_learners l ON l.id = am.learner_id
+       WHERE ${NORMALIZED_ALEVEL_TERM_SQL("am.term")} = ?
          AND (
-           assignment_id = ?
+           am.assignment_id IN (${slotPlaceholders})
            OR (
-             assignment_id IS NULL
-             AND subject_id = ?
-             AND teacher_id = ?
-             AND learner_id IN (
-               SELECT id FROM alevel_learners WHERE stream = ?
-             )
+             am.assignment_id IS NULL
+             AND am.subject_id = ?
+             AND l.stream = ?
            )
          )`,
-      [term, ts.id, ts.subject_id, teacherId, ts.stream]
+      [normalizedTerm, ...slotAssignmentIds, ts.subject_id, ts.stream]
     );
     const hasExistingMarks = Number(existingMarksMeta?.count || 0) > 0;
 
@@ -631,24 +971,22 @@ router.post("/teachers/alevel-marks", authTeacher, async (req, res) => {
       const examIdsToReplace = touchedComponents.map((component) => examMap[component]);
       const placeholders = examIdsToReplace.map(() => "?").join(", ");
       const replaceParams = [
-        term,
+        normalizedTerm,
         ...examIdsToReplace,
-        ts.id,
+        ...slotAssignmentIds,
         ts.subject_id,
-        teacherId,
         ts.stream,
       ];
 
       await archiveALevelMarks(conn, {
         whereSql: `
-          am.term = ?
+          ${NORMALIZED_ALEVEL_TERM_SQL("am.term")} = ?
           AND am.exam_id IN (${placeholders})
           AND (
-            am.assignment_id = ?
+            am.assignment_id IN (${slotPlaceholders})
             OR (
               am.assignment_id IS NULL
               AND am.subject_id = ?
-              AND am.teacher_id = ?
               AND am.learner_id IN (
                 SELECT id FROM alevel_learners WHERE stream = ?
               )
@@ -658,21 +996,21 @@ router.post("/teachers/alevel-marks", authTeacher, async (req, res) => {
         params: replaceParams,
         deletedByUserId: teacherId,
         deletedByRole: "teacher",
-        deleteReason: `Teacher replaced ${touchedComponents.join(", ")} for ${buildSubjectDisplay(ts.subject_name, ts.paper_label)} in ${term} ${normalizedYear}`,
+        deleteReason: `Teacher replaced ${touchedComponents.join(", ")} for ${buildSubjectDisplay(ts.subject_name, ts.paper_label)} in ${normalizedTerm} ${normalizedYear}`,
         sourceAction: "REPLACE_MARKS_SET",
       });
 
       await conn.query(
-        `DELETE FROM alevel_marks
-         WHERE term = ?
-           AND exam_id IN (${placeholders})
+        `DELETE am
+         FROM alevel_marks am
+         WHERE ${NORMALIZED_ALEVEL_TERM_SQL("am.term")} = ?
+           AND am.exam_id IN (${placeholders})
            AND (
-             assignment_id = ?
+             am.assignment_id IN (${slotPlaceholders})
              OR (
-               assignment_id IS NULL
-               AND subject_id = ?
-               AND teacher_id = ?
-               AND learner_id IN (
+               am.assignment_id IS NULL
+               AND am.subject_id = ?
+               AND am.learner_id IN (
                  SELECT id FROM alevel_learners WHERE stream = ?
                )
              )
@@ -706,7 +1044,7 @@ router.post("/teachers/alevel-marks", authTeacher, async (req, res) => {
         examMap[aoi],
         isMissed ? null : Number(mark.score),
         teacherId,
-        term,
+        normalizedTerm,
       ]);
     }
 
@@ -729,7 +1067,7 @@ router.post("/teachers/alevel-marks", authTeacher, async (req, res) => {
       action: marksAction,
       entityType: "marks",
       entityId: Number(ts.id),
-      description: `${marksVerb} A-Level marks for ${buildSubjectDisplay(ts.subject_name, ts.paper_label)} in ${ts.stream} (${term} ${normalizedYear})`,
+      description: `${marksVerb} A-Level marks for ${buildSubjectDisplay(ts.subject_name, ts.paper_label)} in ${ts.stream} (${normalizedTerm} ${normalizedYear})`,
       ipAddress: extractClientIp(req),
     });
 

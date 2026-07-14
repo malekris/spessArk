@@ -3,7 +3,7 @@
     grid-template-columns: repeat(2, 1fr);
     gap: 1rem;
   }
-  
+
   .form-group {
     display: flex;
     flex-direction: column;
@@ -29,4 +29,136 @@
     outline: none;
     border-color: #3b82f6;
   }
-  
+
+.alevel-report-mode-panel {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1.25rem;
+  margin-bottom: 1.6rem;
+  padding-bottom: 1.35rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.alevel-report-mode-panel > div:first-child {
+  display: grid;
+  gap: 0.3rem;
+  max-width: 610px;
+}
+
+.alevel-report-mode-eyebrow {
+  color: #7dd3fc;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.alevel-report-mode-panel strong {
+  color: var(--alevel-shell-title, #f8fafc);
+  font-size: 1rem;
+}
+
+.alevel-report-mode-panel p {
+  margin: 0;
+  color: var(--alevel-shell-muted, #94a3b8);
+  font-size: 0.84rem;
+  line-height: 1.55;
+}
+
+.alevel-report-mode-switch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(120px, 1fr));
+  flex: 0 0 auto;
+  padding: 3px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 8px;
+  background: rgba(2, 6, 23, 0.55);
+}
+
+.alevel-report-mode-switch button {
+  min-height: 38px;
+  padding: 0.48rem 0.72rem;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #94a3b8;
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+
+.alevel-report-mode-switch button.is-active {
+  background: #e2e8f0;
+  color: #0f172a;
+  box-shadow: 0 1px 5px rgba(2, 6, 23, 0.24);
+}
+
+.alevel-mid-report-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.8rem;
+  margin-top: 1.4rem;
+  padding: 0.9rem 0 0.9rem 1rem;
+  border-left: 3px solid #22c55e;
+  background: rgba(22, 101, 52, 0.12);
+}
+
+.alevel-mid-report-note > span {
+  flex: 0 0 auto;
+  padding: 0.22rem 0.48rem;
+  border-radius: 4px;
+  background: rgba(34, 197, 94, 0.18);
+  color: #bbf7d0;
+  font-size: 0.68rem;
+  font-weight: 850;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.alevel-mid-report-note strong {
+  display: block;
+  color: var(--alevel-shell-title, #f8fafc);
+  font-size: 0.86rem;
+}
+
+.alevel-mid-report-note p {
+  margin: 0.22rem 0 0;
+  color: var(--alevel-shell-muted, #94a3b8);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.alevel-admin-root.mode-light .alevel-report-mode-switch {
+  background: rgba(226, 232, 240, 0.76);
+  border-color: rgba(148, 163, 184, 0.3);
+}
+
+.alevel-admin-root.mode-light .alevel-report-mode-switch button.is-active {
+  background: #ffffff;
+  color: #0f172a;
+}
+
+.alevel-admin-root.mode-light .alevel-mid-report-note {
+  background: rgba(220, 252, 231, 0.65);
+}
+
+.alevel-admin-root.mode-light .alevel-mid-report-note > span {
+  color: #166534;
+}
+
+@media (max-width: 760px) {
+  .alevel-report-mode-panel {
+    flex-direction: column;
+  }
+
+  .alevel-report-mode-switch {
+    width: 100%;
+  }
+
+  .alevel-mid-report-note {
+    flex-direction: column;
+  }
+}

@@ -44,6 +44,97 @@ const fireAndForgetTeacherEmail = (job, label) => {
     });
 };
 
+let aLevelTeacherSubjectLifecycleReadyPromise = null;
+
+async function teacherRouteTableExists(connection, tableName) {
+  const [[row]] = await connection.query(
+    `SELECT COUNT(*) AS total
+     FROM information_schema.tables
+     WHERE table_schema = DATABASE()
+       AND table_name = ?`,
+    [tableName]
+  );
+  return Number(row?.total || 0) > 0;
+}
+
+async function teacherRouteColumnExists(connection, tableName, columnName) {
+  const [[row]] = await connection.query(
+    `SELECT COUNT(*) AS total
+     FROM information_schema.columns
+     WHERE table_schema = DATABASE()
+       AND table_name = ?
+       AND column_name = ?`,
+    [tableName, columnName]
+  );
+  return Number(row?.total || 0) > 0;
+}
+
+async function ensureAlevelTeacherSubjectLifecycleColumns(connection = pool) {
+  if (!aLevelTeacherSubjectLifecycleReadyPromise) {
+    aLevelTeacherSubjectLifecycleReadyPromise = (async () => {
+      if (!(await teacherRouteTableExists(connection, "alevel_teacher_subjects"))) return false;
+
+      if (!(await teacherRouteColumnExists(connection, "alevel_teacher_subjects", "created_at"))) {
+        await connection.query(
+          `ALTER TABLE alevel_teacher_subjects
+           ADD COLUMN created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP`
+        );
+      }
+
+      if (!(await teacherRouteColumnExists(connection, "alevel_teacher_subjects", "assignment_status"))) {
+        await connection.query(
+          `ALTER TABLE alevel_teacher_subjects
+           ADD COLUMN assignment_status VARCHAR(20) NOT NULL DEFAULT 'active'`
+        );
+      }
+
+      if (!(await teacherRouteColumnExists(connection, "alevel_teacher_subjects", "ended_at"))) {
+        await connection.query(
+          `ALTER TABLE alevel_teacher_subjects
+           ADD COLUMN ended_at TIMESTAMP NULL DEFAULT NULL`
+        );
+      }
+
+      if (!(await teacherRouteColumnExists(connection, "alevel_teacher_subjects", "ended_reason"))) {
+        await connection.query(
+          `ALTER TABLE alevel_teacher_subjects
+           ADD COLUMN ended_reason VARCHAR(255) NULL DEFAULT NULL`
+        );
+      }
+
+      if (!(await teacherRouteColumnExists(connection, "alevel_teacher_subjects", "ended_by_admin_id"))) {
+        await connection.query(
+          `ALTER TABLE alevel_teacher_subjects
+           ADD COLUMN ended_by_admin_id INT NULL DEFAULT NULL`
+        );
+      }
+
+      if (!(await teacherRouteColumnExists(connection, "alevel_teacher_subjects", "replaced_by_assignment_id"))) {
+        await connection.query(
+          `ALTER TABLE alevel_teacher_subjects
+           ADD COLUMN replaced_by_assignment_id INT NULL DEFAULT NULL`
+        );
+      }
+
+      await connection.query(
+        `UPDATE alevel_teacher_subjects
+         SET created_at = COALESCE(created_at, NOW()),
+             assignment_status = COALESCE(NULLIF(assignment_status, ''), 'active')
+         WHERE created_at IS NULL
+            OR assignment_status IS NULL
+            OR assignment_status = ''`
+      );
+
+      return true;
+    })().catch((err) => {
+      aLevelTeacherSubjectLifecycleReadyPromise = null;
+      throw err;
+    });
+  }
+
+  return aLevelTeacherSubjectLifecycleReadyPromise;
+}
+
 
 
 /* =======================
@@ -605,6 +696,7 @@ router.get("/alevel-assignments", authTeacher, async (req, res) => {
   try {
     const teacherId = Number(req.teacher.id);
     const teacherEmail = normalizeTeacherEmail(req.teacher.email);
+    await ensureAlevelTeacherSubjectLifecycleColumns(pool);
 
     // Resolve canonical teacher id by email to survive id drift across environments.
     let canonicalTeacherId = teacherId;
@@ -627,8 +719,9 @@ router.get("/alevel-assignments", authTeacher, async (req, res) => {
       FROM alevel_teacher_subjects ats
       LEFT JOIN alevel_subjects s 
         ON s.id = ats.subject_id
-      WHERE ats.teacher_id = ?
-         OR ats.teacher_id = ?
+      WHERE ats.teacher_id IN (?, ?)
+        AND COALESCE(ats.assignment_status, 'active') = 'active'
+        AND ats.ended_at IS NULL
       ORDER BY ats.stream, s.name
       `,
       [teacherId, canonicalTeacherId]
@@ -654,6 +747,7 @@ router.get("/teachers/alevel-assignments", authTeacher, async (req, res) => {
   try {
     const teacherId = Number(req.teacher.id);
     const teacherEmail = normalizeTeacherEmail(req.teacher.email);
+    await ensureAlevelTeacherSubjectLifecycleColumns(pool);
 
     let canonicalTeacherId = teacherId;
     if (teacherEmail) {
@@ -675,8 +769,9 @@ router.get("/teachers/alevel-assignments", authTeacher, async (req, res) => {
       FROM alevel_teacher_subjects ats
       LEFT JOIN alevel_subjects s
         ON s.id = ats.subject_id
-      WHERE ats.teacher_id = ?
-         OR ats.teacher_id = ?
+      WHERE ats.teacher_id IN (?, ?)
+        AND COALESCE(ats.assignment_status, 'active') = 'active'
+        AND ats.ended_at IS NULL
       ORDER BY ats.stream, s.name
       `,
       [teacherId, canonicalTeacherId]
@@ -704,11 +799,28 @@ router.get("/teachers/alevel-assignments", authTeacher, async (req, res) => {
 router.get("/teachers/alevel-assignments/:id/students", authTeacher, async (req, res) => {
   try {
     const teacherSubjectId = req.params.id;
+    const teacherId = Number(req.teacher.id);
+    const teacherEmail = normalizeTeacherEmail(req.teacher.email);
+    await ensureAlevelTeacherSubjectLifecycleColumns(pool);
+
+    let canonicalTeacherId = teacherId;
+    if (teacherEmail) {
+      const [[teacherRow]] = await pool.query(
+        `SELECT id FROM teachers WHERE LOWER(TRIM(email)) = ? LIMIT 1`,
+        [teacherEmail]
+      );
+      if (teacherRow?.id) canonicalTeacherId = Number(teacherRow.id);
+    }
 
     // Get subject_id from teacher_subjects
     const [[ts]] = await pool.query(
-      `SELECT subject_id FROM alevel_teacher_subjects WHERE id = ?`,
-      [teacherSubjectId]
+      `SELECT subject_id, stream
+       FROM alevel_teacher_subjects ats
+       WHERE ats.id = ?
+         AND ats.teacher_id IN (?, ?)
+         AND COALESCE(ats.assignment_status, 'active') = 'active'
+         AND ats.ended_at IS NULL`,
+      [teacherSubjectId, teacherId, canonicalTeacherId]
     );
 
     if (!ts) return res.json([]);
@@ -723,8 +835,9 @@ router.get("/teachers/alevel-assignments/:id/students", authTeacher, async (req,
       FROM alevel_learner_subjects als
       JOIN alevel_learners l ON l.id = als.learner_id
       WHERE als.subject_id = ?
+        AND l.stream = ?
       ORDER BY l.first_name, l.last_name
-    `, [subjectId]);
+    `, [subjectId, ts.stream]);
 
     res.json(rows || []);
   } catch (err) {
@@ -739,29 +852,71 @@ router.get("/teachers/alevel-assignments/:id/students", authTeacher, async (req,
 router.get("/alevel-marks", authTeacher, async (req, res) => {
   try {
     const { assignmentId, term } = req.query;
-    const teacherId = req.teacher.id;
+    const teacherId = Number(req.teacher.id);
+    const teacherEmail = normalizeTeacherEmail(req.teacher.email);
+    await ensureAlevelTeacherSubjectLifecycleColumns(pool);
+
+    let canonicalTeacherId = teacherId;
+    if (teacherEmail) {
+      const [[teacherRow]] = await pool.query(
+        `SELECT id FROM teachers WHERE LOWER(TRIM(email)) = ? LIMIT 1`,
+        [teacherEmail]
+      );
+      if (teacherRow?.id) canonicalTeacherId = Number(teacherRow.id);
+    }
 
     const [[ts]] = await pool.query(
-      `SELECT subject_id FROM alevel_teacher_subjects WHERE id = ?`,
-      [assignmentId]
+      `SELECT ats.id, ats.subject_id, ats.stream, ats.paper_label
+       FROM alevel_teacher_subjects ats
+       WHERE ats.id = ?
+         AND ats.teacher_id IN (?, ?)
+         AND COALESCE(ats.assignment_status, 'active') = 'active'
+         AND ats.ended_at IS NULL`,
+      [assignmentId, teacherId, canonicalTeacherId]
     );
 
     if (!ts || !term) return res.json([]);
+    const paperLabel = normalizeAlevelPaperLabel(ts.paper_label) || "Single";
 
     const [rows] = await pool.query(`
-      SELECT 
+      SELECT
+        am.assignment_id,
         am.learner_id AS student_id,
         ae.name AS aoi_label,
         am.score,
         CASE WHEN am.score IS NULL THEN 'Missed' ELSE 'Present' END AS status
       FROM alevel_marks am
       JOIN alevel_exams ae ON ae.id = am.exam_id
-      WHERE am.subject_id = ?
-        AND am.teacher_id = ?
+      LEFT JOIN alevel_learners l ON l.id = am.learner_id
+      WHERE (
+          am.assignment_id IN (
+            SELECT slot.id
+            FROM alevel_teacher_subjects slot
+            WHERE slot.subject_id = ?
+              AND slot.stream = ?
+              AND COALESCE(NULLIF(slot.paper_label, ''), 'Single') = ?
+          )
+          OR (
+            am.assignment_id IS NULL
+            AND am.subject_id = ?
+            AND l.stream = ?
+          )
+        )
         AND am.term = ?
-    `, [ts.subject_id, teacherId, term]);
+      ORDER BY
+        am.learner_id,
+        FIELD(ae.name, 'MID', 'EOT'),
+        CASE WHEN am.assignment_id = ? THEN 0 ELSE 1 END,
+        am.id DESC
+    `, [ts.subject_id, ts.stream, paperLabel, ts.subject_id, ts.stream, term, ts.id]);
 
-    res.json(rows || []);
+    const deduped = new Map();
+    for (const row of rows || []) {
+      const key = `${row.student_id}:${String(row.aoi_label || "").trim().toUpperCase()}`;
+      if (!deduped.has(key)) deduped.set(key, row);
+    }
+
+    res.json(Array.from(deduped.values()).map(({ assignment_id, ...row }) => row));
   } catch (err) {
     console.error("❌ A-Level marks error:", err);
     res.status(500).json({ message: "Failed to load marks" });
@@ -775,12 +930,28 @@ router.get("/alevel-marks", authTeacher, async (req, res) => {
 router.post("/alevel-marks", authTeacher, async (req, res) => {
   try {
     const { assignmentId, examType, term, marks } = req.body;
-    const teacherId = req.teacher.id;
+    const teacherId = Number(req.teacher.id);
+    const teacherEmail = normalizeTeacherEmail(req.teacher.email);
+    await ensureAlevelTeacherSubjectLifecycleColumns(pool);
+
+    let canonicalTeacherId = teacherId;
+    if (teacherEmail) {
+      const [[teacherRow]] = await pool.query(
+        `SELECT id FROM teachers WHERE LOWER(TRIM(email)) = ? LIMIT 1`,
+        [teacherEmail]
+      );
+      if (teacherRow?.id) canonicalTeacherId = Number(teacherRow.id);
+    }
 
     // 1. Resolve subject from assignment
     const [[ts]] = await pool.query(
-      `SELECT subject_id, stream FROM alevel_teacher_subjects WHERE id = ?`,
-      [assignmentId]
+      `SELECT ats.subject_id, ats.stream
+       FROM alevel_teacher_subjects ats
+       WHERE ats.id = ?
+         AND ats.teacher_id IN (?, ?)
+         AND COALESCE(ats.assignment_status, 'active') = 'active'
+         AND ats.ended_at IS NULL`,
+      [assignmentId, teacherId, canonicalTeacherId]
     );
 
     // 2. Resolve exam from name (MID / EOT)

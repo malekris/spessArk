@@ -691,6 +691,31 @@
   width: max-content;
 }
 
+.tt-teacher-schedule-note {
+  display: block;
+  margin-top: 0.2rem;
+  color: var(--tt-muted);
+  font-size: 0.65rem;
+  font-weight: 600;
+}
+
+.tt-availability-exempt {
+  display: grid;
+  gap: 0.2rem;
+  max-width: 340px;
+}
+
+.tt-availability-exempt strong {
+  color: var(--tt-success) !important;
+  font-size: 0.72rem;
+}
+
+.tt-availability-exempt small {
+  color: var(--tt-muted);
+  font-size: 0.66rem;
+  line-height: 1.4;
+}
+
 .tt-day-picker button,
 .tt-segmented button,
 .tt-output-toolbar button,

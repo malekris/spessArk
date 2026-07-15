@@ -19,6 +19,7 @@ import {
   normalizeAlevelTimetablePaperLabel,
   timetableAlevelSubjectName,
 } from "./timetable.alevel.generator.js";
+import { buildTeacherAvailabilityRows } from "./timetable.availability.js";
 import { regenerateOLevelStreamLessons } from "./timetable.regenerator.js";
 import { ensureTimetableSchemaReady } from "./timetable.schema.js";
 
@@ -203,27 +204,15 @@ async function attachAvailability(pool, assignments) {
 }
 
 function buildReadiness(assignments) {
-  const teachers = new Map();
-  assignments.forEach((row) => {
-    if (!teachers.has(Number(row.teacher_id))) {
-      teachers.set(Number(row.teacher_id), {
-        teacherId: Number(row.teacher_id),
-        teacherName: row.teacher_name,
-        availableDays: row.available_days || [],
-        assignmentCount: 0,
-      });
-    }
-    teachers.get(Number(row.teacher_id)).assignmentCount += 1;
-  });
-  const teacherRows = Array.from(teachers.values()).sort((left, right) =>
-    left.teacherName.localeCompare(right.teacherName)
-  );
+  const teacherRows = buildTeacherAvailabilityRows(assignments);
   const reviewAssignments = assignments.filter(
     (row) => String(row.lesson_kind || "") === "review"
   );
   const invalidAvailability = teacherRows.filter(
-    (row) => row.availableDays.length < 1 || row.availableDays.length > 3
+    (row) => row.availabilityRequired &&
+      (row.availableDays.length < 1 || row.availableDays.length > 3)
   );
+  const availabilityExemptTeachers = teacherRows.filter((row) => !row.availabilityRequired);
   const aLevelAssignments = assignments.filter((row) => row.assignment_scope === "alevel");
   const aLevelCoverageIssues = [];
   const aLevelPaperIssues = [];
@@ -336,6 +325,11 @@ function buildReadiness(assignments) {
       teacherId: row.teacherId,
       teacherName: row.teacherName,
       selectedDays: row.availableDays.length,
+    })),
+    availabilityExemptTeachers: availabilityExemptTeachers.map((row) => ({
+      teacherId: row.teacherId,
+      teacherName: row.teacherName,
+      reason: row.availabilityExemptReason,
     })),
     aLevelCoverageIssues,
     aLevelPaperIssues,
@@ -533,21 +527,7 @@ export default function createTimetableRoutes(pool) {
       const assignments = allAssignments.filter((row) => row.assignment_scope === "olevel");
       const aLevelAssignments = allAssignments.filter((row) => row.assignment_scope === "alevel");
       const readiness = buildReadiness(allAssignments);
-      const teachers = Array.from(
-        allAssignments.reduce((map, row) => {
-          const teacherId = Number(row.teacher_id);
-          if (!map.has(teacherId)) {
-            map.set(teacherId, {
-              teacherId,
-              teacherName: row.teacher_name,
-              availableDays: row.available_days,
-              assignmentCount: 0,
-            });
-          }
-          map.get(teacherId).assignmentCount += 1;
-          return map;
-        }, new Map()).values()
-      ).sort((left, right) => left.teacherName.localeCompare(right.teacherName));
+      const teachers = buildTeacherAvailabilityRows(allAssignments);
 
       res.json({
         academicYear,

@@ -592,7 +592,15 @@ export default function TimetableDashboard() {
         </div>
         <div className="tt-metric-grid">
           <article><span>Streams</span><strong>12</strong><small>O-Level and A-Level</small></article>
-          <article><span>Teachers ready</span><strong>{readiness?.configuredTeachers || 0}/{readiness?.teachers || 0}</strong><small>1-3 available days</small></article>
+          <article>
+            <span>Teachers ready</span>
+            <strong>{readiness?.configuredTeachers || 0}/{readiness?.teachers || 0}</strong>
+            <small>
+              {(readiness?.availabilityExemptTeachers?.length || 0) > 0
+                ? `${readiness.availabilityExemptTeachers.length} weekend Paper 2 teacher${readiness.availabilityExemptTeachers.length === 1 ? "" : "s"} outside weekday grid`
+                : "1-3 available days"}
+            </small>
+          </article>
           <article><span>Rules ready</span><strong>{readiness?.configuredAssignments || 0}/{readiness?.assignments || 0}</strong><small>Active assignments</small></article>
           <article><span>Drafts</span><strong>{setup?.versions?.length || 0}</strong><small>Versioned safely</small></article>
         </div>
@@ -679,32 +687,47 @@ export default function TimetableDashboard() {
         <StatusPill value={setup?.readiness?.ready ? "Ready" : "Setup required"} />
       </div>
       <div className="tt-panel-band">
-        <div className="tt-panel-title"><h3>Teacher availability</h3><span>Choose 1-3 days</span></div>
+        <div className="tt-panel-title"><h3>Teacher availability</h3><span>Choose 1-3 days for weekday teachers</span></div>
         <div className="tt-table-scroll" ref={availabilityTableRef}>
           <table className="tt-data-table">
             <thead><tr><th>Teacher</th><th>Assignments</th><th>Available days</th><th>Action</th></tr></thead>
-            <tbody>{(setup?.teachers || []).map((teacher) => (
-              <tr
-                key={teacher.teacherId}
-                ref={(node) => {
-                  const key = String(teacher.teacherId);
-                  if (node) availabilityRowRefs.current.set(key, node);
-                  else availabilityRowRefs.current.delete(key);
-                }}
-              >
-                <td><strong>{teacher.teacherName}</strong></td>
-                <td>{teacher.assignmentCount}</td>
-                <td><div className="tt-day-picker">{DAYS.map((day) => (
-                  <button
-                    type="button"
-                    key={day}
-                    className={(availabilityDrafts[teacher.teacherId] || []).includes(day) ? "is-selected" : ""}
-                    onClick={() => toggleAvailabilityDay(teacher.teacherId, day)}
-                  >{day.slice(0, 3)}</button>
-                ))}</div></td>
-                <td><button type="button" className={`tt-action-button${String(availabilityConfirmation?.teacherId) === String(teacher.teacherId) ? " is-saved" : ""}`} disabled={busyKey === `teacher-${teacher.teacherId}`} onClick={() => saveAvailability(teacher)}>{busyKey === `teacher-${teacher.teacherId}` ? "Saving" : String(availabilityConfirmation?.teacherId) === String(teacher.teacherId) ? "Saved" : "Save"}</button></td>
-              </tr>
-            ))}</tbody>
+            <tbody>{(setup?.teachers || []).map((teacher) => {
+              const availabilityExempt = teacher.availabilityRequired === false;
+              return (
+                <tr
+                  key={teacher.teacherId}
+                  ref={(node) => {
+                    const key = String(teacher.teacherId);
+                    if (node) availabilityRowRefs.current.set(key, node);
+                    else availabilityRowRefs.current.delete(key);
+                  }}
+                >
+                  <td>
+                    <strong>{teacher.teacherName}</strong>
+                    {availabilityExempt ? <small className="tt-teacher-schedule-note">Weekend practicals only</small> : null}
+                  </td>
+                  <td>{teacher.assignmentCount}</td>
+                  <td>{availabilityExempt ? (
+                    <span className="tt-availability-exempt">
+                      <strong>Not required</strong>
+                      <small>{teacher.availabilityExemptReason}</small>
+                    </span>
+                  ) : <div className="tt-day-picker">{DAYS.map((day) => (
+                    <button
+                      type="button"
+                      key={day}
+                      className={(availabilityDrafts[teacher.teacherId] || []).includes(day) ? "is-selected" : ""}
+                      onClick={() => toggleAvailabilityDay(teacher.teacherId, day)}
+                    >{day.slice(0, 3)}</button>
+                  ))}</div>}</td>
+                  <td>{availabilityExempt ? (
+                    <span className="tt-status tt-status-complete">Outside weekday grid</span>
+                  ) : (
+                    <button type="button" className={`tt-action-button${String(availabilityConfirmation?.teacherId) === String(teacher.teacherId) ? " is-saved" : ""}`} disabled={busyKey === `teacher-${teacher.teacherId}`} onClick={() => saveAvailability(teacher)}>{busyKey === `teacher-${teacher.teacherId}` ? "Saving" : String(availabilityConfirmation?.teacherId) === String(teacher.teacherId) ? "Saved" : "Save"}</button>
+                  )}</td>
+                </tr>
+              );
+            })}</tbody>
           </table>
         </div>
       </div>

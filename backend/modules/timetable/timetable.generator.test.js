@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { defaultRequirementForAssignment } from "./timetable.constants.js";
 import { generateALevelTimetable } from "./timetable.alevel.generator.js";
+import { buildTeacherAvailabilityRows } from "./timetable.availability.js";
 import { generateOLevelTimetable } from "./timetable.generator.js";
 import { regenerateOLevelStreamLessons } from "./timetable.regenerator.js";
 import { generateSchoolTimetable } from "./timetable.school.generator.js";
@@ -373,6 +374,62 @@ test("A-Level generation blocks incomplete paper staffing", () => {
     ),
     false,
     "an incomplete subject must not be partially scheduled"
+  );
+});
+
+test("Paper 2-only weekend teachers do not require weekday availability", () => {
+  const teachers = buildTeacherAvailabilityRows([
+    {
+      assignment_scope: "alevel",
+      teacher_id: 1,
+      teacher_name: "Weekend Practical Teacher",
+      paper_label: "Paper 2",
+      available_days: [],
+    },
+    {
+      assignment_scope: "alevel",
+      teacher_id: 2,
+      teacher_name: "Weekday Paper 2 Teacher",
+      paper_label: "Paper 2",
+      available_days: ["Tuesday"],
+    },
+    {
+      assignment_scope: "olevel",
+      teacher_id: 3,
+      teacher_name: "O-Level Teacher",
+      available_days: [],
+    },
+  ]);
+
+  assert.equal(teachers.find((teacher) => teacher.teacherId === 1).availabilityRequired, false);
+  assert.equal(teachers.find((teacher) => teacher.teacherId === 2).availabilityRequired, true);
+  assert.equal(teachers.find((teacher) => teacher.teacherId === 3).availabilityRequired, true);
+});
+
+test("A-Level generator keeps weekend Paper 2 practical owners outside the weekday grid", () => {
+  const fixture = buildAlevelFixture();
+  const historyPaperOne = fixture.find(
+    (row) => row.stream === "S5 Arts" && row.subject === "History" && row.paper_label === "Paper 1"
+  );
+  const historyPaperTwo = fixture.find(
+    (row) => row.stream === "S5 Arts" && row.subject === "History" && row.paper_label === "Paper 2"
+  );
+  historyPaperTwo.teacher_id = 99_003;
+  historyPaperTwo.teacher_name = "Weekend Practical Teacher";
+  historyPaperTwo.available_days = [];
+
+  const result = generateALevelTimetable(fixture);
+
+  assert.equal(result.validation.valid, true, JSON.stringify(result.validation.unallocated, null, 2));
+  assert.equal(
+    result.sessions.filter((session) => session.assignmentId === historyPaperOne.assignment_id).length,
+    2,
+    "Paper 1 owner should carry both neutral weekday History lessons"
+  );
+  assert.equal(
+    result.sessions.filter((session) => session.assignmentId === historyPaperTwo.assignment_id).length,
+    0,
+    "Weekend Paper 2 owner must remain outside the weekday timetable"
   );
 });
 

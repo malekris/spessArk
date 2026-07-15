@@ -174,7 +174,13 @@ function buildSubjectUnits(assignments) {
 function occurrenceAssignment(unit, occurrence) {
   if (!unit.paperReady || unit.paperAssignments.length === 0) return null;
   if (!unit.usesTwoPapers) return unit.paperAssignments[0];
-  return unit.paperAssignments[occurrence % unit.paperAssignments.length];
+  const preferred = unit.paperAssignments[occurrence % unit.paperAssignments.length];
+  if (preferred?.paperLabel !== "Paper 2" || preferred.availableDays.size > 0) return preferred;
+
+  // A zero-day Paper 2 owner handles weekend practicals and marks only.
+  return unit.paperAssignments.find(
+    (assignment) => assignment?.paperLabel === "Paper 1" && assignment.availableDays.size > 0
+  ) || preferred;
 }
 
 function unallocatedItem(unit, reason) {

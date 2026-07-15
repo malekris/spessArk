@@ -233,7 +233,7 @@ function buildReadiness(assignments) {
       ["ENT / Economics", ["entrepreneurship", "economics", "ent_econ"]],
       ["Geography", ["geography"]],
       ["Art", ["art"]],
-      ["CRE / IRE", ["cre", "ire", "cre_ire"]],
+      ["Divinity", ["divinity"]],
       ["Literature / Luganda", ["literature", "luganda", "lit_lug"]],
       ["General Paper", ["general_paper"]],
     ],

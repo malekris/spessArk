@@ -59,14 +59,10 @@ export function canonicalAlevelSubject(value) {
   if ((has("ent") || key.includes("entrepreneurship")) && (has("econ") || key.includes("economic"))) {
     return "ent_econ";
   }
-  if ((key === "cre" || key.includes("christian religious")) && (key.includes("ire") || key.includes("islamic"))) {
-    return "cre_ire";
-  }
   if (key.includes("lit") && (key.includes("lug") || key.includes("luganda"))) return "lit_lug";
   if (key === "ent" || key.includes("entrepreneurship")) return "entrepreneurship";
   if (key === "econ" || key.includes("economic")) return "economics";
-  if (key === "cre" || key.includes("christian religious")) return "cre";
-  if (key === "ire" || key.includes("islamic religious")) return "ire";
+  if (key.includes("divinity")) return "divinity";
   if (key === "lit" || key.includes("literature")) return "literature";
   if (key === "lug" || key.includes("luganda")) return "luganda";
   if (key === "math" || key === "maths" || key.includes("mathematics")) return "mathematics";
@@ -95,9 +91,7 @@ function subjectLabel(subjectKey, fallback) {
     entrepreneurship: "ENT",
     economics: "ECON",
     ent_econ: "ENT / ECON",
-    cre: "CRE",
-    ire: "IRE",
-    cre_ire: "CRE / IRE",
+    divinity: "Divinity",
     literature: "LIT",
     luganda: "LUG",
     lit_lug: "LIT / LUG",
@@ -109,7 +103,6 @@ function subjectLabel(subjectKey, fallback) {
 
 function pairCode(subjectKey) {
   if (["entrepreneurship", "economics", "ent_econ"].includes(subjectKey)) return "ENT_ECON";
-  if (["cre", "ire", "cre_ire"].includes(subjectKey)) return "CRE_IRE";
   if (["literature", "luganda", "lit_lug"].includes(subjectKey)) return "LIT_LUG";
   return "";
 }

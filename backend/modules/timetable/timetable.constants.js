@@ -88,7 +88,6 @@ export const DEFAULT_TIMETABLE_CONFIG = {
     lessonsPerSubject: 2,
     pairedSubjects: [
       { code: "ENT_ECON", subjects: ["entrepreneurship", "economics"] },
-      { code: "CRE_IRE", subjects: ["cre", "ire"] },
       { code: "LIT_LUG", subjects: ["literature", "luganda"] },
     ],
     generalPaper: {

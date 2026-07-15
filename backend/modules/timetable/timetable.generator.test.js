@@ -76,9 +76,7 @@ function buildAlevelFixture() {
     ];
     const pairedDays = ["Entrepreneurship", "Economics"].includes(subject)
       ? ["Tuesday", "Thursday", "Friday"]
-      : ["CRE", "IRE"].includes(subject)
-        ? ["Monday", "Wednesday", "Thursday"]
-        : ["Literature", "Luganda"].includes(subject)
+      : ["Literature", "Luganda"].includes(subject)
           ? ["Tuesday", "Wednesday", "Friday"]
           : null;
     const availableDays = fixedSubs
@@ -107,7 +105,7 @@ function buildAlevelFixture() {
   for (const classLevel of ["S5", "S6"]) {
     for (const subject of [
       "History", "Entrepreneurship", "Economics", "Geography", "Art",
-      "CRE", "IRE", "Literature", "Luganda",
+      "Divinity", "Literature", "Luganda",
     ]) add(classLevel, "Arts", subject);
     for (const subject of [
       "Mathematics", "Chemistry", "Physics", "Biology", "Entrepreneurship",
@@ -313,6 +311,17 @@ test("A-Level generator keeps fixed subsidiaries, combined GP and maths separati
   );
   assert.equal(s5GeneralPaper.length, 4);
   assert.equal(s5GeneralPaper.filter((event) => event.slotCode === "P3").length, 2);
+  for (const classLevel of ["S5", "S6"]) {
+    assert.equal(
+      result.events.filter((event) =>
+        event.classLevel === classLevel &&
+        event.stream === "Arts" &&
+        event.subjectLabel === "Divinity"
+      ).length,
+      2,
+      `${classLevel} Arts must receive two Divinity lessons`
+    );
+  }
   assert.equal(
     result.sessions.filter((session) => session.assignmentId === historyPaperOne.assignment_id).length,
     1,

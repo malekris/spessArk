@@ -56,6 +56,7 @@ const SUBJECT_CODES = new Map([
   ["biology", "BIO"],
   ["geography", "GEOG"],
   ["history", "HIS"],
+  ["divinity", "DIV"],
   ["kiswahili", "KIS"],
   ["swahili", "KIS"],
   ["physical education", "PE"],

@@ -28,7 +28,7 @@ const aLevelRuleLabel = (subject) => {
   const key = String(subject || "").trim().toLowerCase();
   if (key.includes("general paper") || key === "gp") return "Combined GP";
   if (key.includes("ict") || key.includes("sub math")) return "Fixed subsidiary";
-  if (["entrepreneurship", "ent", "economics", "econ", "cre", "ire", "literature", "luganda"].includes(key)) {
+  if (["entrepreneurship", "ent", "economics", "econ", "literature", "luganda"].includes(key)) {
     return "Parallel pair";
   }
   return "Flexible principal";

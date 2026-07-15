@@ -98,6 +98,8 @@ export default function TimetableDashboard() {
   const [notice, setNotice] = useState("");
   const [availabilityConfirmation, setAvailabilityConfirmation] = useState(null);
   const availabilityConfirmationTimerRef = useRef(null);
+  const [generationConfirmation, setGenerationConfirmation] = useState(null);
+  const generationConfirmationTimerRef = useRef(null);
   const availabilityTableRef = useRef(null);
   const availabilityRowRefs = useRef(new Map());
   const [draftName, setDraftName] = useState("");
@@ -152,6 +154,9 @@ export default function TimetableDashboard() {
   useEffect(() => () => {
     if (availabilityConfirmationTimerRef.current) {
       window.clearTimeout(availabilityConfirmationTimerRef.current);
+    }
+    if (generationConfirmationTimerRef.current) {
+      window.clearTimeout(generationConfirmationTimerRef.current);
     }
   }, []);
 
@@ -261,6 +266,16 @@ export default function TimetableDashboard() {
   };
 
   const generateDraft = async () => {
+    if (availabilityConfirmationTimerRef.current) {
+      window.clearTimeout(availabilityConfirmationTimerRef.current);
+      availabilityConfirmationTimerRef.current = null;
+    }
+    if (generationConfirmationTimerRef.current) {
+      window.clearTimeout(generationConfirmationTimerRef.current);
+      generationConfirmationTimerRef.current = null;
+    }
+    setAvailabilityConfirmation(null);
+    setGenerationConfirmation(null);
     setBusyKey("generate");
     setError("");
     setNotice("");
@@ -274,13 +289,18 @@ export default function TimetableDashboard() {
       setSelectedVersionId(versionId);
       setVersion(detail);
       setDraftName("");
-      setNotice(`${detail.name} generated.`);
-      setActiveModule("timetables");
-      const data = await adminFetch("/api/admin/timetable/setup");
-      setSetup(data);
-      setAvailabilityDrafts(
-        Object.fromEntries(data.teachers.map((teacher) => [teacher.teacherId, teacher.availableDays]))
-      );
+      setSetup((current) => ({
+        ...current,
+        versions: [detail, ...(current?.versions || []).filter((item) => String(item.id) !== versionId)],
+      }));
+      if (generationConfirmationTimerRef.current) {
+        window.clearTimeout(generationConfirmationTimerRef.current);
+      }
+      setGenerationConfirmation({ name: detail.name, createdAt: detail.createdAt });
+      generationConfirmationTimerRef.current = window.setTimeout(() => {
+        setGenerationConfirmation(null);
+        generationConfirmationTimerRef.current = null;
+      }, 5000);
     } catch (generateError) {
       if (generateError?.body?.readiness) {
         setSetup((current) => current
@@ -836,6 +856,7 @@ export default function TimetableDashboard() {
   const renderGenerate = () => {
     const readiness = setup?.readiness;
     const exactBlockers = readinessBlockerItems(readiness);
+    const latestDraft = setup?.versions?.[0] || null;
     return (
       <section className="tt-page-section">
         <div className="tt-section-heading">
@@ -878,6 +899,38 @@ export default function TimetableDashboard() {
             </div>
           </div>
         ) : null}
+        <div className="tt-panel-band tt-generation-log">
+          <div className="tt-panel-title tt-panel-title-actions">
+            <div>
+              <h3>Latest generated draft</h3>
+              <span>{latestDraft ? "Recorded" : "No drafts"}</span>
+            </div>
+            {latestDraft ? (
+              <button type="button" className="tt-action-button" onClick={() => {
+                chooseVersion(String(latestDraft.id));
+                setActiveModule("timetables");
+              }}>Open draft</button>
+            ) : null}
+          </div>
+          {latestDraft ? (
+            <dl className="tt-generation-log-grid">
+              <div>
+                <dt>Draft name</dt>
+                <dd>{latestDraft.name}</dd>
+              </div>
+              <div>
+                <dt>Generated</dt>
+                <dd>{formatDate(latestDraft.createdAt)}</dd>
+              </div>
+              <div>
+                <dt>Status</dt>
+                <dd><StatusPill value={latestDraft.status} /></dd>
+              </div>
+            </dl>
+          ) : (
+            <div className="tt-generation-log-empty">The first generated draft will be recorded here.</div>
+          )}
+        </div>
       </section>
     );
   };
@@ -1017,6 +1070,16 @@ export default function TimetableDashboard() {
             </span>
           </span>
           <button type="button" onClick={() => setAvailabilityConfirmation(null)}>Dismiss</button>
+        </div>
+      ) : null}
+      {generationConfirmation ? (
+        <div className="tt-save-confirmation" role="status" aria-live="polite" aria-atomic="true">
+          <span className="tt-save-confirmation-mark" aria-hidden="true" />
+          <span className="tt-save-confirmation-copy">
+            <strong>Draft generated</strong>
+            <span>{generationConfirmation.name} was generated at {formatDate(generationConfirmation.createdAt)}.</span>
+          </span>
+          <button type="button" onClick={() => setGenerationConfirmation(null)}>Dismiss</button>
         </div>
       ) : null}
     </TimetableAdminShell>

@@ -121,21 +121,80 @@ function buildAlevelFixture() {
   return rows;
 }
 
-test("default requirements keep lower compulsory optionals outside clusters", () => {
+test("default requirements map lower subjects to the correct frequencies and groups", () => {
   const lowerKiswahili = defaultRequirementForAssignment({ class_level: "S1", subject: "Kiswahili" });
+  const lowerEntrepreneurship = defaultRequirementForAssignment({ class_level: "S2", subject: "Entrepreneurship" });
+  const lowerPhysicalEducation = defaultRequirementForAssignment({ class_level: "S1", subject: "Physical Education" });
+  const lowerCre = defaultRequirementForAssignment({ class_level: "S1", subject: "CRE" });
+  const lowerIre = defaultRequirementForAssignment({ class_level: "S2", subject: "IRE" });
+  const lowerLuganda = defaultRequirementForAssignment({ class_level: "S1", subject: "Luganda" });
   const lowerArt = defaultRequirementForAssignment({ class_level: "S2", subject: "Art" });
   const upperArt = defaultRequirementForAssignment({ class_level: "S4", subject: "Art" });
+  const upperKiswahili = defaultRequirementForAssignment({ class_level: "S3", subject: "Kiswahili" });
 
   assert.deepEqual(lowerKiswahili, {
-    lessonsPerWeek: 1,
+    lessonsPerWeek: 2,
     lessonKind: "ordinary",
     clusterCode: null,
     enabled: true,
   });
+  assert.deepEqual(lowerEntrepreneurship, lowerKiswahili);
+  assert.deepEqual(lowerPhysicalEducation, lowerKiswahili);
+  assert.equal(lowerCre.lessonKind, "cluster");
+  assert.equal(lowerCre.clusterCode, "OTHERS");
+  assert.equal(lowerCre.lessonsPerWeek, 2);
+  assert.deepEqual(lowerIre, lowerCre);
+  assert.equal(lowerLuganda.lessonKind, "cluster");
+  assert.equal(lowerLuganda.clusterCode, "VOCATIONAL");
+  assert.equal(lowerLuganda.lessonsPerWeek, 1);
   assert.equal(lowerArt.lessonKind, "cluster");
+  assert.equal(lowerArt.clusterCode, "VOCATIONAL");
   assert.equal(lowerArt.lessonsPerWeek, 1);
   assert.equal(upperArt.lessonKind, "cluster");
+  assert.equal(upperArt.clusterCode, "VOCATIONAL");
   assert.equal(upperArt.lessonsPerWeek, 2);
+  assert.equal(upperKiswahili.lessonKind, "cluster");
+  assert.equal(upperKiswahili.clusterCode, "OTHERS");
+  assert.equal(upperKiswahili.lessonsPerWeek, 2);
+});
+
+test("S1 and S2 choice subjects move in their correct parallel groups", () => {
+  let assignmentId = 70_000;
+  const rows = [];
+  const add = (stream, subject, lessonsPerWeek, clusterCode) => {
+    rows.push({
+      assignment_id: assignmentId,
+      teacher_id: assignmentId,
+      teacher_name: `Choice Teacher ${assignmentId}`,
+      class_level: "S1",
+      stream,
+      subject,
+      lessons_per_week: lessonsPerWeek,
+      lesson_kind: "cluster",
+      cluster_code: clusterCode,
+      enabled: 1,
+      available_days: ["Monday", "Tuesday", "Wednesday"],
+    });
+    assignmentId += 1;
+  };
+  for (const stream of ["North", "South"]) {
+    for (const subject of ["CRE", "IRE"]) add(stream, subject, 2, "OTHERS");
+    for (const subject of ["Art", "Agriculture", "ICT", "Luganda"]) {
+      add(stream, subject, 1, "VOCATIONAL");
+    }
+  }
+
+  const result = generateOLevelTimetable(rows);
+  const creIreEvents = result.events.filter((event) => event.subjectLabel === "CRE / IRE");
+  const vocationalEvents = result.events.filter((event) => event.subjectLabel === "Vocational Cluster");
+
+  assert.equal(new Set(creIreEvents.map((event) => event.blockKey)).size, 2);
+  assert.equal(new Set(vocationalEvents.map((event) => event.blockKey)).size, 1);
+  assert.equal(
+    result.events.some((event) => event.subjectLabel === "Luganda"),
+    false,
+    "lower Luganda must remain inside the vocational choice group"
+  );
 });
 
 test("generator respects assembly, church, project and clash rules", () => {

@@ -21,7 +21,7 @@ export const A_LEVEL_STREAMS = [
 export const SCHOOL_STREAMS = [...O_LEVEL_STREAMS, ...A_LEVEL_STREAMS];
 
 export const DEFAULT_TIMETABLE_CONFIG = {
-  version: 3,
+  version: 4,
   scope: "SCHOOL_S1_S6",
   days: TIMETABLE_DAYS,
   slots: [
@@ -170,10 +170,6 @@ const LOWER_ORDINARY_SUBJECTS = new Set([
   "pe",
   "entrepreneurship",
   "ent",
-  "cre",
-  "christian religious education",
-  "ire",
-  "islamic religious education",
 ]);
 
 const VOCATIONAL_SUBJECTS = new Set([
@@ -183,6 +179,19 @@ const VOCATIONAL_SUBJECTS = new Set([
   "ict",
   "information communication technology",
   "information and communication technology",
+]);
+
+const LOWER_VOCATIONAL_SUBJECTS = new Set([
+  ...VOCATIONAL_SUBJECTS,
+  "luganda",
+  "lug",
+]);
+
+const LOWER_OTHER_CLUSTER_SUBJECTS = new Set([
+  "cre",
+  "christian religious education",
+  "ire",
+  "islamic religious education",
 ]);
 
 const UPPER_VOCATIONAL_SUBJECTS = new Set([
@@ -219,15 +228,15 @@ export function defaultRequirementForAssignment(assignment) {
   }
 
   if (lower && LOWER_ORDINARY_SUBJECTS.has(subjectKey)) {
-    return { lessonsPerWeek: 1, lessonKind: "ordinary", clusterCode: null, enabled: true };
+    return { lessonsPerWeek: 2, lessonKind: "ordinary", clusterCode: null, enabled: true };
   }
 
-  if (lower && VOCATIONAL_SUBJECTS.has(subjectKey)) {
+  if (lower && LOWER_VOCATIONAL_SUBJECTS.has(subjectKey)) {
     return { lessonsPerWeek: 1, lessonKind: "cluster", clusterCode: "VOCATIONAL", enabled: true };
   }
 
-  if (lower && (subjectKey === "luganda" || subjectKey.startsWith("literature"))) {
-    return { lessonsPerWeek: 1, lessonKind: "cluster", clusterCode: "OTHERS", enabled: true };
+  if (lower && LOWER_OTHER_CLUSTER_SUBJECTS.has(subjectKey)) {
+    return { lessonsPerWeek: 2, lessonKind: "cluster", clusterCode: "OTHERS", enabled: true };
   }
 
   if (!lower && UPPER_VOCATIONAL_SUBJECTS.has(subjectKey)) {

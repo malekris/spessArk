@@ -287,10 +287,11 @@ function buildAttempt(rawAssignments, rawConfig, attemptNumber, options = {}) {
     const [classLevel, clusterCode] = groupKey.split("::");
     const requiredBlocks = Math.max(...groupAssignments.map((row) => row.lessonsPerWeek));
     const lower = classLevel === "S1" || classLevel === "S2";
-    const configuredWindows = lower
+    const lowerVocational = lower && clusterCode === "VOCATIONAL";
+    const configuredWindows = lowerVocational
       ? config.clusterWindows?.lower || DEFAULT_TIMETABLE_CONFIG.clusterWindows.lower
       : config.clusterWindows?.upper || DEFAULT_TIMETABLE_CONFIG.clusterWindows.upper;
-    const windows = lower
+    const windows = lowerVocational
       ? configuredWindows
       : configuredWindows.flatMap((window) =>
           window.slotCodes
@@ -369,7 +370,11 @@ function buildAttempt(rawAssignments, rawConfig, attemptNumber, options = {}) {
 
       usedDays.add(selected.day);
       const blockKey = `CL-${++blockSequence}-${classLevel}-${clusterCode}`;
-      const label = clusterCode === "VOCATIONAL" ? "Vocational Cluster" : "Other Subjects Cluster";
+      const label = clusterCode === "VOCATIONAL"
+        ? "Vocational Cluster"
+        : lower
+          ? "CRE / IRE"
+          : "Other Subjects Cluster";
       const eventKeys = [];
       for (const stream of ["North", "South"]) {
         for (const slotCode of selected.slotCodes) {

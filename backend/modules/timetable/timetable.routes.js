@@ -10,6 +10,7 @@ import {
   normalizeAlevelStream,
   normalizeClassLevel,
   normalizeStream,
+  normalizeSubject,
 } from "./timetable.constants.js";
 import { generateSchoolTimetable } from "./timetable.school.generator.js";
 import {
@@ -24,6 +25,26 @@ import { ensureTimetableSchemaReady } from "./timetable.schema.js";
 
 const ALLOWED_REQUIREMENT_KINDS = new Set(["ordinary", "cluster", "project", "review"]);
 const ALLOWED_VERSION_STATUSES = new Set(["draft", "frozen", "published", "archived"]);
+const LOWER_RULE_V4_SUBJECTS = new Set([
+  "entrepreneurship",
+  "ent",
+  "physical education",
+  "pe",
+  "kiswahili",
+  "swahili",
+  "cre",
+  "christian religious education",
+  "ire",
+  "islamic religious education",
+  "art",
+  "agriculture",
+  "agric",
+  "ict",
+  "information communication technology",
+  "information and communication technology",
+  "luganda",
+  "lug",
+]);
 const MANUAL_ORDINARY_SLOTS = {
   Monday: new Set(["P1", "P3", "P4", "P5"]),
   Tuesday: new Set(["P1", "P2", "P3", "P4", "P5"]),
@@ -96,6 +117,9 @@ async function readTimetableConfig(pool) {
     "SELECT academic_year, config_json, updated_at FROM timetable_settings WHERE id = 1 LIMIT 1"
   );
   const storedConfig = parseJson(row?.config_json, DEFAULT_TIMETABLE_CONFIG);
+  if (Number(storedConfig?.version || 0) < 4) {
+    await migrateLowerLessonRulesV4(pool);
+  }
   const config = mergeConfig(storedConfig);
   if (
     String(row?.academic_year || "") !== academicYear ||
@@ -134,6 +158,43 @@ async function loadActiveOLevelAssignments(pool) {
   return rows.filter(
     (row) => normalizeClassLevel(row.class_level) && normalizeStream(row.stream)
   );
+}
+
+async function migrateLowerLessonRulesV4(pool) {
+  const assignments = await loadActiveOLevelAssignments(pool);
+  const affected = assignments.filter((assignment) =>
+    ["S1", "S2"].includes(normalizeClassLevel(assignment.class_level)) &&
+    LOWER_RULE_V4_SUBJECTS.has(normalizeSubject(assignment.subject))
+  );
+
+  for (const assignment of affected) {
+    const rule = defaultRequirementForAssignment(assignment);
+    const alreadyCurrent =
+      Number(assignment.lessons_per_week) === rule.lessonsPerWeek &&
+      String(assignment.lesson_kind || "") === rule.lessonKind &&
+      String(assignment.cluster_code || "") === String(rule.clusterCode || "") &&
+      Boolean(Number(assignment.enabled)) === rule.enabled;
+    if (alreadyCurrent) continue;
+
+    await pool.query(
+      `INSERT INTO timetable_lesson_requirements
+        (assignment_id, lessons_per_week, lesson_kind, cluster_code, enabled)
+       VALUES (?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         lessons_per_week = VALUES(lessons_per_week),
+         lesson_kind = VALUES(lesson_kind),
+         cluster_code = VALUES(cluster_code),
+         enabled = VALUES(enabled),
+         updated_at = NOW()`,
+      [
+        assignment.assignment_id,
+        rule.lessonsPerWeek,
+        rule.lessonKind,
+        rule.clusterCode,
+        rule.enabled ? 1 : 0,
+      ]
+    );
+  }
 }
 
 async function loadActiveALevelAssignments(pool) {
@@ -539,8 +600,8 @@ export default function createTimetableRoutes(pool) {
 
   router.get("/setup", async (_req, res) => {
     try {
-      const [{ academicYear, currentTerm, config, updatedAt }, seededAssignments, aLevelRows, versions] = await Promise.all([
-        readTimetableConfig(pool),
+      const { academicYear, currentTerm, config, updatedAt } = await readTimetableConfig(pool);
+      const [seededAssignments, aLevelRows, versions] = await Promise.all([
         seedLessonRequirements(pool),
         loadActiveALevelAssignments(pool),
         readVersions(pool),
@@ -704,8 +765,8 @@ export default function createTimetableRoutes(pool) {
   router.post("/generate", async (req, res) => {
     let connection;
     try {
-      const [{ academicYear, config }, seededAssignments, aLevelRows] = await Promise.all([
-        readTimetableConfig(pool),
+      const { academicYear, config } = await readTimetableConfig(pool);
+      const [seededAssignments, aLevelRows] = await Promise.all([
         seedLessonRequirements(pool),
         loadActiveALevelAssignments(pool),
       ]);
@@ -834,10 +895,8 @@ export default function createTimetableRoutes(pool) {
           message: "Resolve unallocated lessons with a full generation before regenerating one stream.",
         });
       }
-      const [{ config }, seededAssignments] = await Promise.all([
-        readTimetableConfig(pool),
-        seedLessonRequirements(pool),
-      ]);
+      const { config } = await readTimetableConfig(pool);
+      const seededAssignments = await seedLessonRequirements(pool);
       const assignments = await attachAvailability(pool, seededAssignments);
       const result = regenerateOLevelStreamLessons({
         version: source,

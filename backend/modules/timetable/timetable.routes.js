@@ -10,7 +10,6 @@ import {
   normalizeAlevelStream,
   normalizeClassLevel,
   normalizeStream,
-  normalizeSubject,
 } from "./timetable.constants.js";
 import { generateSchoolTimetable } from "./timetable.school.generator.js";
 import {
@@ -26,10 +25,10 @@ import { ensureTimetableSchemaReady } from "./timetable.schema.js";
 const ALLOWED_REQUIREMENT_KINDS = new Set(["ordinary", "cluster", "project", "review"]);
 const ALLOWED_VERSION_STATUSES = new Set(["draft", "frozen", "published", "archived"]);
 const MANUAL_ORDINARY_SLOTS = {
-  Monday: new Set(["P1", "P4", "P5"]),
-  Tuesday: new Set(["P1", "P2", "P4", "P5"]),
-  Wednesday: new Set(["P1", "P2", "P4", "P5"]),
-  Thursday: new Set(["P1", "P2", "P4", "P5"]),
+  Monday: new Set(["P1", "P3", "P4", "P5"]),
+  Tuesday: new Set(["P1", "P2", "P3", "P4", "P5"]),
+  Wednesday: new Set(["P1", "P2", "P3", "P4", "P5"]),
+  Thursday: new Set(["P1", "P2", "P3", "P4", "P5"]),
   Friday: new Set(["P1", "P2", "P3A", "P4", "P5"]),
 };
 
@@ -42,22 +41,30 @@ const parseJson = (value, fallback) => {
   }
 };
 
-const mergeConfig = (value) => ({
-  ...DEFAULT_TIMETABLE_CONFIG,
-  ...(value || {}),
-  clusterWindows: {
-    ...DEFAULT_TIMETABLE_CONFIG.clusterWindows,
-    ...(value?.clusterWindows || {}),
-  },
-  aLevel: {
-    ...DEFAULT_TIMETABLE_CONFIG.aLevel,
-    ...(value?.aLevel || {}),
-    subsidiaryBlocks: {
-      ...DEFAULT_TIMETABLE_CONFIG.aLevel.subsidiaryBlocks,
-      ...(value?.aLevel?.subsidiaryBlocks || {}),
+const mergeConfig = (value) => {
+  const source = value || {};
+  const needsSinglePeriodClusterUpgrade = Number(source.version || 0) < 3;
+  return {
+    ...DEFAULT_TIMETABLE_CONFIG,
+    ...source,
+    version: DEFAULT_TIMETABLE_CONFIG.version,
+    clusterWindows: {
+      ...DEFAULT_TIMETABLE_CONFIG.clusterWindows,
+      ...(source.clusterWindows || {}),
+      upper: needsSinglePeriodClusterUpgrade
+        ? DEFAULT_TIMETABLE_CONFIG.clusterWindows.upper
+        : source.clusterWindows?.upper || DEFAULT_TIMETABLE_CONFIG.clusterWindows.upper,
     },
-  },
-});
+    aLevel: {
+      ...DEFAULT_TIMETABLE_CONFIG.aLevel,
+      ...(source.aLevel || {}),
+      subsidiaryBlocks: {
+        ...DEFAULT_TIMETABLE_CONFIG.aLevel.subsidiaryBlocks,
+        ...(source.aLevel?.subsidiaryBlocks || {}),
+      },
+    },
+  };
+};
 
 async function readAcademicContext(pool) {
   try {
@@ -88,11 +95,15 @@ async function readTimetableConfig(pool) {
   const [[row]] = await pool.query(
     "SELECT academic_year, config_json, updated_at FROM timetable_settings WHERE id = 1 LIMIT 1"
   );
-  const config = mergeConfig(parseJson(row?.config_json, DEFAULT_TIMETABLE_CONFIG));
-  if (String(row?.academic_year || "") !== academicYear) {
+  const storedConfig = parseJson(row?.config_json, DEFAULT_TIMETABLE_CONFIG);
+  const config = mergeConfig(storedConfig);
+  if (
+    String(row?.academic_year || "") !== academicYear ||
+    Number(storedConfig?.version || 0) < DEFAULT_TIMETABLE_CONFIG.version
+  ) {
     await pool.query(
-      "UPDATE timetable_settings SET academic_year = ?, updated_at = NOW() WHERE id = 1",
-      [academicYear]
+      "UPDATE timetable_settings SET academic_year = ?, config_json = ?, updated_at = NOW() WHERE id = 1",
+      [academicYear, JSON.stringify(config)]
     );
   }
   return { academicYear, currentTerm, config, updatedAt: row?.updated_at || null };
@@ -482,13 +493,6 @@ export default function createTimetableRoutes(pool) {
   ) => {
     if (!TIMETABLE_DAYS.includes(targetDay) || !MANUAL_ORDINARY_SLOTS[targetDay]?.has(targetSlotCode)) {
       return "Choose a schedulable ordinary lesson period.";
-    }
-    if (targetDay === "Friday" && targetSlotCode === "P3A") {
-      const { config } = await readTimetableConfig(pool);
-      const simpleSubjects = new Set((config.simpleFridaySubjects || []).map(normalizeSubject));
-      if (!simpleSubjects.has(normalizeSubject(event.subject_label))) {
-        return `${event.subject_label} is not configured as a Friday short-lesson subject.`;
-      }
     }
     const excluded = [...new Set(excludedEventIds.map(Number).filter(Boolean))];
     const exclusionSql = excluded.length > 0

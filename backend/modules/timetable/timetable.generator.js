@@ -8,10 +8,10 @@ import {
 } from "./timetable.constants.js";
 
 const ORDINARY_SLOTS = {
-  Monday: ["P1", "P4", "P5"],
-  Tuesday: ["P1", "P2", "P4", "P5"],
-  Wednesday: ["P1", "P2", "P4", "P5"],
-  Thursday: ["P1", "P2", "P4", "P5"],
+  Monday: ["P1", "P3", "P4", "P5"],
+  Tuesday: ["P1", "P2", "P3", "P4", "P5"],
+  Wednesday: ["P1", "P2", "P3", "P4", "P5"],
+  Thursday: ["P1", "P2", "P3", "P4", "P5"],
   Friday: ["P1", "P2", "P3A", "P4", "P5"],
 };
 
@@ -287,9 +287,16 @@ function buildAttempt(rawAssignments, rawConfig, attemptNumber, options = {}) {
     const [classLevel, clusterCode] = groupKey.split("::");
     const requiredBlocks = Math.max(...groupAssignments.map((row) => row.lessonsPerWeek));
     const lower = classLevel === "S1" || classLevel === "S2";
-    const windows = lower
+    const configuredWindows = lower
       ? config.clusterWindows?.lower || DEFAULT_TIMETABLE_CONFIG.clusterWindows.lower
       : config.clusterWindows?.upper || DEFAULT_TIMETABLE_CONFIG.clusterWindows.upper;
+    const windows = lower
+      ? configuredWindows
+      : configuredWindows.flatMap((window) =>
+          window.slotCodes
+            .filter((slotCode) => slotCode !== "P3A")
+            .map((slotCode) => ({ day: window.day, slotCodes: [slotCode] }))
+        );
     const usedDays = new Set();
 
     for (let occurrence = 0; occurrence < requiredBlocks; occurrence += 1) {
@@ -336,6 +343,7 @@ function buildAttempt(rawAssignments, rawConfig, attemptNumber, options = {}) {
               const preference = row.preferredDays.indexOf(window.day);
               return sum + (preference < 0 ? 5 : preference * 0.25);
             }, 0) +
+            (window.slotCodes.includes("P3") ? -12 : 0) +
             rng(),
         }))
         .sort((left, right) => left.score - right.score);
@@ -418,9 +426,6 @@ function buildAttempt(rawAssignments, rawConfig, attemptNumber, options = {}) {
     return rng() - 0.5;
   });
 
-  const fridaySimple = new Set(
-    (config.simpleFridaySubjects || DEFAULT_TIMETABLE_CONFIG.simpleFridaySubjects).map(normalizeSubject)
-  );
   for (const { assignment } of tasks) {
     const assignmentStreamKey = streamKey(assignment.classLevel, assignment.stream);
     const subjectDayKey = `${assignmentStreamKey}::${assignment.subjectKey}`;
@@ -430,9 +435,6 @@ function buildAttempt(rawAssignments, rawConfig, attemptNumber, options = {}) {
     for (const day of TIMETABLE_DAYS) {
       if (!assignment.availableDays.has(day) || usedSubjectDays.has(day)) continue;
       for (const slotCode of ORDINARY_SLOTS[day]) {
-        if (day === "Friday" && slotCode === "P3A" && !fridaySimple.has(assignment.subjectKey)) {
-          continue;
-        }
         if (!isStreamFree(assignment.classLevel, assignment.stream, day, [slotCode])) continue;
         if (!isTeacherFree(assignment.teacherId, day, [slotCode])) continue;
         candidates.push({
@@ -443,7 +445,8 @@ function buildAttempt(rawAssignments, rawConfig, attemptNumber, options = {}) {
             getLoad(teacherDayLoads, `${assignment.teacherId}::${day}`) * 3 +
             Math.max(0, assignment.preferredDays.indexOf(day)) * 0.3 +
             (slotCode === "P5" ? 0.8 : 0) +
-            (slotCode === "P3A" ? 0.5 : 0) +
+            (slotCode === "P3" ? -2.5 : 0) +
+            (slotCode === "P3A" ? -3 : 0) +
             rng(),
         });
       }

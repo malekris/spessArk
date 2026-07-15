@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { defaultRequirementForAssignment } from "./timetable.constants.js";
+import { DEFAULT_TIMETABLE_CONFIG, defaultRequirementForAssignment } from "./timetable.constants.js";
 import { generateALevelTimetable } from "./timetable.alevel.generator.js";
 import { buildTeacherAvailabilityRows } from "./timetable.availability.js";
 import { generateOLevelTimetable } from "./timetable.generator.js";
@@ -168,6 +168,56 @@ test("generator respects assembly, church, project and clash rules", () => {
     assert.equal(ordinarySubjectDays.has(key), false, `same-day duplicate at ${key}`);
     ordinarySubjectDays.add(key);
   });
+});
+
+test("O-Level ordinary lessons use open P3 and Friday short periods", () => {
+  const result = generateOLevelTimetable(buildFeasibleFixture());
+
+  assert.equal(
+    result.events.some((event) => event.eventType === "lesson" && event.slotCode === "P3"),
+    true,
+    "ordinary lessons should fill P3 after cluster priority"
+  );
+  assert.equal(
+    result.events.some((event) => event.eventType === "lesson" && event.day === "Friday" && event.slotCode === "P3A"),
+    true,
+    "an available individual lesson should use the Friday short period"
+  );
+});
+
+test("S3 and S4 cluster occurrences occupy one period and separate days", () => {
+  const legacyPairedConfig = {
+    ...DEFAULT_TIMETABLE_CONFIG,
+    clusterWindows: {
+      ...DEFAULT_TIMETABLE_CONFIG.clusterWindows,
+      upper: [
+        { day: "Tuesday", slotCodes: ["P4", "P5"] },
+        { day: "Thursday", slotCodes: ["P4", "P5"] },
+      ],
+    },
+  };
+  const result = generateOLevelTimetable(buildFeasibleFixture(), legacyPairedConfig);
+  const upperClusterEvents = result.events.filter(
+    (event) => ["S3", "S4"].includes(event.classLevel) && event.eventType === "cluster"
+  );
+  const blocks = new Map();
+  upperClusterEvents.forEach((event) => {
+    if (!blocks.has(event.blockKey)) blocks.set(event.blockKey, { days: new Set(), slots: new Set() });
+    blocks.get(event.blockKey).days.add(event.day);
+    blocks.get(event.blockKey).slots.add(event.slotCode);
+  });
+
+  assert.equal(blocks.size > 0, true);
+  blocks.forEach((block) => {
+    assert.equal(block.days.size, 1);
+    assert.equal(block.slots.size, 1, "an upper cluster must not span consecutive periods");
+  });
+  for (const classLevel of ["S3", "S4"]) {
+    const occurrenceDays = new Set(
+      upperClusterEvents.filter((event) => event.classLevel === classLevel).map((event) => event.day)
+    );
+    assert.equal(occurrenceDays.size, 2, `${classLevel} cluster occurrences must use separate days`);
+  }
 });
 
 test("impossible availability produces diagnostics instead of a clash", () => {
@@ -345,6 +395,11 @@ test("A-Level generator keeps fixed subsidiaries, combined GP and maths separati
     ).length,
     2,
     "paper assignments must produce two neutral subject lessons"
+  );
+  assert.equal(
+    result.events.some((event) => event.day === "Friday" && event.slotCode === "P3A"),
+    true,
+    "A-Level individual subjects should be able to use the Friday short period"
   );
 });
 

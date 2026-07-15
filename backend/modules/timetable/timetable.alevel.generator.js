@@ -12,7 +12,7 @@ const FLEXIBLE_SLOTS = {
   Tuesday: ["P1", "P2", "P3", "P4", "P5"],
   Wednesday: ["P1", "P2", "P3", "P4", "P5"],
   Thursday: ["P1", "P2", "P3", "P4", "P5"],
-  Friday: ["P1", "P2", "P4", "P5"],
+  Friday: ["P1", "P2", "P3A", "P4", "P5"],
 };
 
 const ORDINARY_SLOTS = Object.fromEntries(
@@ -466,7 +466,7 @@ export function generateALevelTimetable(
         if (usedDays.has(day)) continue;
         const slots = pattern === "quadruple"
           ? (day === "Friday" ? [] : ["P3"])
-          : ORDINARY_SLOTS[day];
+          : ORDINARY_SLOTS[day].filter((slotCode) => slotCode !== "P3A");
         for (const slotCode of slots) {
           if (!canPlaceBlock({
             classLevel,
@@ -558,6 +558,7 @@ export function generateALevelTimetable(
     const isArtsGeography = group.stream === "Arts" && group.units.some(
       (unit) => unit.subjectKey === "geography"
     );
+    const isParallelGroup = group.units.length > 1 || ["ENT_ECON", "LIT_LUG"].includes(group.groupCode);
 
     for (let occurrence = 0; occurrence < lessonsPerSubject; occurrence += 1) {
       const { rows, overloadedTeacherId } = participantRows(group.units, occurrence);
@@ -573,6 +574,7 @@ export function generateALevelTimetable(
       for (const day of TIMETABLE_DAYS) {
         if (usedDays.has(day)) continue;
         for (const slotCode of FLEXIBLE_SLOTS[day]) {
+          if (slotCode === "P3A" && isParallelGroup) continue;
           const slotKey = daySlotKey(day, slotCode);
           const special = getOccupancy(specialOccupancy, group.classLevel);
           if (isScienceMath && special.has(`GEOG::${slotKey}`)) continue;
@@ -594,7 +596,8 @@ export function generateALevelTimetable(
                 0
               ) * 3 +
               (slotCode === "P5" ? 0.8 : 0) +
-              (slotCode === "P3" ? -0.35 : 0) +
+              (slotCode === "P3" ? 1.25 : 0) +
+              (slotCode === "P3A" ? -3 : 0) +
               rng(),
           });
         }

@@ -7,10 +7,10 @@ import {
 } from "./timetable.constants.js";
 
 const ORDINARY_SLOTS = {
-  Monday: ["P1", "P4", "P5"],
-  Tuesday: ["P1", "P2", "P4", "P5"],
-  Wednesday: ["P1", "P2", "P4", "P5"],
-  Thursday: ["P1", "P2", "P4", "P5"],
+  Monday: ["P1", "P3", "P4", "P5"],
+  Tuesday: ["P1", "P2", "P3", "P4", "P5"],
+  Wednesday: ["P1", "P2", "P3", "P4", "P5"],
+  Thursday: ["P1", "P2", "P3", "P4", "P5"],
   Friday: ["P1", "P2", "P3A", "P4", "P5"],
 };
 
@@ -129,9 +129,6 @@ function runAttempt({ version, assignments, config, classLevel, stream, attempt 
     rng() - 0.5
   );
 
-  const fridaySimple = new Set(
-    (config.simpleFridaySubjects || DEFAULT_TIMETABLE_CONFIG.simpleFridaySubjects).map(normalizeSubject)
-  );
   const events = [];
   const sessions = [];
   const failures = [];
@@ -144,9 +141,6 @@ function runAttempt({ version, assignments, config, classLevel, stream, attempt 
     for (const day of TIMETABLE_DAYS) {
       if (!assignment.availableDays.has(day) || usedDays.has(day)) continue;
       for (const slotCode of ORDINARY_SLOTS[day]) {
-        if (day === "Friday" && slotCode === "P3A" && !fridaySimple.has(assignment.subjectKey)) {
-          continue;
-        }
         const key = slotKey(day, slotCode);
         if (streamOccupancy.has(key) || teacherSlots.has(key)) continue;
         const preference = assignment.preferredDays.indexOf(day);
@@ -158,6 +152,8 @@ function runAttempt({ version, assignments, config, classLevel, stream, attempt 
             Number(teacherDayLoads.get(`${assignment.teacherId}::${day}`) || 0) * 3 +
             (preference < 0 ? 5 : preference * 0.3) +
             (slotCode === "P5" ? 0.8 : 0) +
+            (slotCode === "P3" ? -2.5 : 0) +
+            (slotCode === "P3A" ? -3 : 0) +
             rng(),
         });
       }
@@ -255,4 +251,3 @@ export function regenerateOLevelStreamLessons({
   }
   return best;
 }
-

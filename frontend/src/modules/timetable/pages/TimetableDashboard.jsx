@@ -33,7 +33,7 @@ const readinessBlockerItems = (readiness) => [
   ...(readiness?.teachersNeedingAvailability || []).map((teacher) => ({
     key: `teacher-${teacher.teacherId}`,
     title: teacher.teacherName,
-    detail: "Select 1-3 weekday availability days.",
+    detail: "Select 1-4 weekday availability days.",
   })),
   ...(readiness?.reviewAssignments || []).map((assignment) => ({
     key: `assignment-${assignment.assignmentId}`,
@@ -870,7 +870,7 @@ export default function TimetableDashboard() {
             <small>
               {(readiness?.availabilityExemptTeachers?.length || 0) > 0
                 ? `${readiness.availabilityExemptTeachers.length} weekend Paper 2 teacher${readiness.availabilityExemptTeachers.length === 1 ? "" : "s"} outside weekday grid`
-                : "1-3 available days"}
+                : "1-4 available days"}
             </small>
           </article>
           <article><span>Rules ready</span><strong>{readiness?.configuredAssignments || 0}/{readiness?.assignments || 0}</strong><small>Active assignments</small></article>
@@ -966,7 +966,7 @@ export default function TimetableDashboard() {
         <StatusPill value={setup?.readiness?.ready ? "Ready" : "Setup required"} />
       </div>
       <div className="tt-panel-band">
-        <div className="tt-panel-title"><h3>Teacher availability</h3><span>Choose 1-3 days for weekday teachers</span></div>
+        <div className="tt-panel-title"><h3>Teacher availability</h3><span>Choose 1-4 days for weekday teachers</span></div>
         <div className="tt-table-scroll" ref={availabilityTableRef}>
           <table className="tt-data-table">
             <thead><tr><th>Teacher</th><th>Assignments</th><th>Available days</th><th>Action</th></tr></thead>
@@ -1099,7 +1099,7 @@ export default function TimetableDashboard() {
         </div>
         {!readiness?.ready ? (
           <div className="tt-blocker-list">
-            <div><strong>{readiness?.teachersNeedingAvailability?.length || 0}</strong><span>teachers need 1-3 available days</span></div>
+            <div><strong>{readiness?.teachersNeedingAvailability?.length || 0}</strong><span>teachers need 1-4 available days</span></div>
             <div><strong>{readiness?.reviewAssignments?.length || 0}</strong><span>assignment rules need review</span></div>
             <div><strong>{readiness?.aLevelCoverageIssues?.length || 0}</strong><span>A-Level subject groups are missing</span></div>
             <div><strong>{readiness?.aLevelPaperIssues?.length || 0}</strong><span>A-Level paper assignments need attention</span></div>

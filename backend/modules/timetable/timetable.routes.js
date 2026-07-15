@@ -20,6 +20,7 @@ import {
   timetableAlevelSubjectName,
 } from "./timetable.alevel.generator.js";
 import { buildTeacherAvailabilityRows } from "./timetable.availability.js";
+import { applyManualCredits } from "./timetable.manual.js";
 import { regenerateOLevelStreamLessons } from "./timetable.regenerator.js";
 import { ensureTimetableSchemaReady } from "./timetable.schema.js";
 
@@ -52,6 +53,18 @@ const MANUAL_ORDINARY_SLOTS = {
   Thursday: new Set(["P1", "P2", "P3", "P4", "P5"]),
   Friday: new Set(["P1", "P2", "P3A", "P4", "P5"]),
 };
+const MANUAL_ALEVEL_GROUPED_SUBJECTS = new Set([
+  "general_paper",
+  "sub_ict",
+  "sub_math",
+  "subsidiary_block",
+  "entrepreneurship",
+  "economics",
+  "ent_econ",
+  "literature",
+  "luganda",
+  "lit_lug",
+]);
 
 const parseJson = (value, fallback) => {
   try {
@@ -598,6 +611,315 @@ export default function createTimetableRoutes(pool) {
     return "";
   };
 
+  const buildManualInsertionPlan = async (executor, versionId, payload, { lockVersion = false } = {}) => {
+    const mode = String(payload?.mode || "subject").trim().toLowerCase();
+    const day = String(payload?.day || "").trim();
+    const slotCode = String(payload?.slotCode || "").trim().toUpperCase();
+    const conflicts = [];
+    const warnings = [];
+    const [[versionRow]] = await executor.query(
+      `SELECT id, name, status, generation_stats_json, validation_json
+       FROM timetable_versions WHERE id = ? LIMIT 1${lockVersion ? " FOR UPDATE" : ""}`,
+      [versionId]
+    );
+    if (!versionRow) {
+      return { valid: false, status: 404, conflicts: ["Timetable version not found."], warnings };
+    }
+    if (versionRow.status !== "draft") {
+      return { valid: false, status: 409, conflicts: ["Manual lessons can only be added to a draft timetable."], warnings };
+    }
+    if (!TIMETABLE_DAYS.includes(day) || !MANUAL_ORDINARY_SLOTS[day]?.has(slotCode)) {
+      return { valid: false, status: 400, conflicts: ["Choose a schedulable school day and period."], warnings };
+    }
+
+    const plan = {
+      mode,
+      day,
+      slotCode,
+      label: "",
+      classLevel: "",
+      streams: [],
+      events: [],
+      sessions: [],
+      credits: [],
+      requiredLessons: 0,
+      conflicts,
+      warnings,
+      versionRow,
+    };
+
+    if (mode === "subject") {
+      const scope = String(payload?.scope || "olevel").trim().toLowerCase();
+      const assignmentId = Number(payload?.assignmentId);
+      if (!assignmentId || !["olevel", "alevel"].includes(scope)) {
+        conflicts.push("Choose a valid subject assignment.");
+        return { ...plan, valid: false, status: 400 };
+      }
+
+      let assignment = null;
+      if (scope === "olevel") {
+        const [[row]] = await executor.query(
+          `SELECT ta.id AS assignment_id, ta.teacher_id, ta.class_level, ta.stream, ta.subject,
+                  t.name AS teacher_name, r.lessons_per_week, r.lesson_kind, r.cluster_code, r.enabled
+           FROM teacher_assignments ta
+           JOIN teachers t ON t.id = ta.teacher_id
+           LEFT JOIN timetable_lesson_requirements r ON r.assignment_id = ta.id
+           WHERE ta.id = ? AND COALESCE(ta.assignment_status, 'active') = 'active'
+             AND ta.ended_at IS NULL LIMIT 1`,
+          [assignmentId]
+        );
+        if (row) {
+          const fallback = defaultRequirementForAssignment(row);
+          assignment = {
+            assignmentId,
+            teacherId: Number(row.teacher_id),
+            teacherName: row.teacher_name,
+            classLevel: normalizeClassLevel(row.class_level),
+            stream: normalizeStream(row.stream),
+            subjectLabel: String(row.subject || "").trim(),
+            lessonKind: String(row.lesson_kind || fallback.lessonKind).toLowerCase(),
+            enabled: row.enabled === null || row.enabled === undefined
+              ? fallback.enabled
+              : Boolean(Number(row.enabled)),
+            requiredLessons: Number(row.lessons_per_week ?? fallback.lessonsPerWeek),
+            scope,
+          };
+        }
+      } else {
+        const [[row]] = await executor.query(
+          `SELECT ats.id AS assignment_id, ats.teacher_id, ats.stream, ats.paper_label,
+                  s.name AS subject, t.name AS teacher_name
+           FROM alevel_teacher_subjects ats
+           JOIN alevel_subjects s ON s.id = ats.subject_id
+           JOIN teachers t ON t.id = ats.teacher_id
+           WHERE ats.id = ? AND COALESCE(ats.assignment_status, 'active') = 'active'
+             AND ats.ended_at IS NULL LIMIT 1`,
+          [assignmentId]
+        );
+        if (row) {
+          const subjectKey = canonicalAlevelSubject(row.subject);
+          assignment = {
+            assignmentId,
+            teacherId: Number(row.teacher_id),
+            teacherName: row.teacher_name,
+            classLevel: normalizeAlevelClassLevel(row.stream),
+            stream: normalizeAlevelStream(row.stream),
+            subjectLabel: timetableAlevelSubjectName(row.subject),
+            subjectKey,
+            paperLabel: normalizeAlevelTimetablePaperLabel(row.paper_label),
+            lessonKind: "ordinary",
+            enabled: !MANUAL_ALEVEL_GROUPED_SUBJECTS.has(subjectKey),
+            requiredLessons: Number(DEFAULT_TIMETABLE_CONFIG.aLevel?.lessonsPerSubject || 2),
+            scope,
+          };
+        }
+      }
+
+      if (!assignment || !assignment.classLevel || !assignment.stream) {
+        conflicts.push("The selected assignment is no longer active.");
+        return { ...plan, valid: false, status: 404 };
+      }
+      if (!assignment.enabled || assignment.lessonKind !== "ordinary") {
+        conflicts.push(scope === "alevel"
+          ? "This A-Level subject belongs to a combined or fixed block. Add it through its group rather than as an individual lesson."
+          : "This assignment belongs to a cluster or fixed lesson. Choose Cluster mode instead.");
+        return { ...plan, valid: false, status: 409 };
+      }
+
+      plan.label = assignment.subjectLabel;
+      plan.classLevel = assignment.classLevel;
+      plan.streams = [assignment.stream];
+      plan.requiredLessons = assignment.requiredLessons;
+      plan.events.push({
+        classLevel: assignment.classLevel,
+        stream: assignment.stream,
+        eventType: "lesson",
+        subjectLabel: assignment.subjectLabel,
+        assignmentId: assignment.assignmentId,
+        teacherId: assignment.teacherId,
+        teacherName: assignment.teacherName,
+        blockKey: null,
+      });
+      plan.sessions.push({
+        teacherId: assignment.teacherId,
+        teacherName: assignment.teacherName,
+        assignmentId: assignment.assignmentId,
+        subjectLabel: assignment.subjectLabel,
+        classLevel: assignment.classLevel,
+        streamsLabel: assignment.stream,
+        blockKey: null,
+      });
+      plan.credits.push({
+        assignmentId: assignment.assignmentId,
+        classLevel: assignment.classLevel,
+        stream: assignment.stream,
+        subjectLabel: assignment.subjectLabel,
+      });
+    } else if (mode === "cluster") {
+      const classLevel = normalizeClassLevel(payload?.classLevel);
+      const clusterCode = String(payload?.clusterCode || "").trim().toUpperCase();
+      if (!classLevel || !["VOCATIONAL", "OTHERS"].includes(clusterCode)) {
+        conflicts.push("Choose a valid O-Level class and cluster.");
+        return { ...plan, valid: false, status: 400 };
+      }
+      const lowerVocational = ["S1", "S2"].includes(classLevel) && clusterCode === "VOCATIONAL";
+      if (lowerVocational && (day === "Friday" || slotCode !== "P3")) {
+        conflicts.push(`${classLevel} Vocational must remain in the Monday-Thursday P3 block.`);
+      } else if (slotCode === "P3A") {
+        conflicts.push("The Friday short lesson is reserved for individual subjects, not clusters.");
+      }
+
+      const activeAssignments = await loadActiveOLevelAssignments(executor);
+      const assignments = activeAssignments.filter((row) =>
+        normalizeClassLevel(row.class_level) === classLevel &&
+        String(row.lesson_kind || "").toUpperCase() === "CLUSTER" &&
+        String(row.cluster_code || "").toUpperCase() === clusterCode &&
+        Boolean(Number(row.enabled))
+      );
+      if (assignments.length === 0) {
+        conflicts.push(`No active ${classLevel} ${clusterCode.toLowerCase()} assignments were found.`);
+        return { ...plan, valid: false, status: 404 };
+      }
+      const coveredStreams = new Set(assignments.map((row) => normalizeStream(row.stream)).filter(Boolean));
+      if (!coveredStreams.has("North") || !coveredStreams.has("South")) {
+        conflicts.push(`${classLevel} ${clusterCode.toLowerCase()} assignments must cover both North and South before the block can be added.`);
+      }
+
+      const label = clusterCode === "VOCATIONAL"
+        ? "Vocational Cluster"
+        : ["S1", "S2"].includes(classLevel)
+          ? "CRE / IRE"
+          : "Other Subjects Cluster";
+      const teacherSubjects = new Map();
+      assignments.forEach((assignment) => {
+        const teacherId = Number(assignment.teacher_id);
+        if (!teacherSubjects.has(teacherId)) teacherSubjects.set(teacherId, new Set());
+        teacherSubjects.get(teacherId).add(normalizeSubject(assignment.subject));
+      });
+      const overloadedTeacher = Array.from(teacherSubjects.entries()).find(([, subjects]) => subjects.size > 1);
+      if (overloadedTeacher) {
+        const assignment = assignments.find((row) => Number(row.teacher_id) === overloadedTeacher[0]);
+        conflicts.push(`${assignment?.teacher_name || "One teacher"} owns more than one parallel subject in this cluster.`);
+      }
+
+      plan.label = label;
+      plan.classLevel = classLevel;
+      plan.streams = ["North", "South"];
+      plan.clusterCode = clusterCode;
+      plan.requiredLessons = Math.max(...assignments.map((row) => Number(row.lessons_per_week || 0)));
+      for (const stream of plan.streams) {
+        plan.events.push({
+          classLevel,
+          stream,
+          eventType: "cluster",
+          subjectLabel: label,
+          assignmentId: null,
+          teacherId: null,
+          teacherName: null,
+          blockKey: "__MANUAL_CLUSTER__",
+        });
+      }
+      const uniqueSessions = new Map();
+      assignments.forEach((assignment) => {
+        const key = `${Number(assignment.teacher_id)}::${normalizeSubject(assignment.subject)}`;
+        if (!uniqueSessions.has(key)) uniqueSessions.set(key, []);
+        uniqueSessions.get(key).push(assignment);
+        plan.credits.push({
+          assignmentId: Number(assignment.assignment_id),
+          classLevel,
+          stream: normalizeStream(assignment.stream),
+          subjectLabel: assignment.subject,
+        });
+      });
+      uniqueSessions.forEach((rows) => {
+        const assignment = rows[0];
+        plan.sessions.push({
+          teacherId: Number(assignment.teacher_id),
+          teacherName: assignment.teacher_name,
+          assignmentId: Number(assignment.assignment_id),
+          subjectLabel: assignment.subject,
+          classLevel,
+          streamsLabel: [...new Set(rows.map((row) => normalizeStream(row.stream)).filter(Boolean))].join(" & "),
+          blockKey: "__MANUAL_CLUSTER__",
+        });
+      });
+    } else {
+      conflicts.push("Choose Subject or Cluster mode.");
+      return { ...plan, valid: false, status: 400 };
+    }
+
+    for (const event of plan.events) {
+      const [[occupied]] = await executor.query(
+        `SELECT subject_label FROM timetable_events
+         WHERE version_id = ? AND class_level = ? AND stream = ?
+           AND day_of_week = ? AND slot_code = ? LIMIT 1`,
+        [versionId, event.classLevel, event.stream, day, slotCode]
+      );
+      if (occupied) {
+        conflicts.push(`${event.classLevel} ${event.stream} already has ${occupied.subject_label} in ${day} ${slotCode}.`);
+      }
+    }
+
+    for (const session of plan.sessions) {
+      const [[availability]] = await executor.query(
+        `SELECT id FROM timetable_teacher_availability
+         WHERE teacher_id = ? AND day_of_week = ? LIMIT 1`,
+        [session.teacherId, day]
+      );
+      if (!availability) conflicts.push(`${session.teacherName} is not available on ${day}.`);
+      const [[teacherConflict]] = await executor.query(
+        `SELECT subject_label, class_level, streams_label FROM timetable_teacher_sessions
+         WHERE version_id = ? AND teacher_id = ? AND day_of_week = ? AND slot_code = ? LIMIT 1`,
+        [versionId, session.teacherId, day, slotCode]
+      );
+      if (teacherConflict) {
+        conflicts.push(`${session.teacherName} already teaches ${teacherConflict.subject_label} in ${teacherConflict.class_level} ${teacherConflict.streams_label}.`);
+      }
+    }
+
+    const [[sameDay]] = await executor.query(
+      `SELECT id FROM timetable_events
+       WHERE version_id = ? AND class_level = ? AND stream = ?
+         AND subject_label = ? AND day_of_week = ? LIMIT 1`,
+      [versionId, plan.classLevel, plan.streams[0], plan.label, day]
+    );
+    if (sameDay) conflicts.push(`${plan.label} already appears on ${day} for ${plan.classLevel} ${plan.streams.join(" & ")}.`);
+
+    const [[existingCount]] = await executor.query(
+      `SELECT COUNT(DISTINCT CONCAT(day_of_week, '::', slot_code)) AS lesson_count
+       FROM timetable_events
+       WHERE version_id = ? AND class_level = ? AND stream = ? AND subject_label = ?`,
+      [versionId, plan.classLevel, plan.streams[0], plan.label]
+    );
+    const scheduledLessons = Number(existingCount?.lesson_count || 0);
+    if (plan.requiredLessons > 0 && scheduledLessons >= plan.requiredLessons) {
+      warnings.push(`${plan.label} already has ${scheduledLessons}/${plan.requiredLessons} required weekly lessons. This will be an extra lesson.`);
+    }
+
+    plan.valid = conflicts.length === 0;
+    plan.status = plan.valid ? 200 : 409;
+    plan.scheduledLessons = scheduledLessons;
+    return plan;
+  };
+
+  const publicManualPlan = (plan) => ({
+    valid: Boolean(plan.valid),
+    conflicts: [...new Set(plan.conflicts || [])],
+    warnings: [...new Set(plan.warnings || [])],
+    summary: plan.label ? {
+      mode: plan.mode,
+      label: plan.label,
+      classLevel: plan.classLevel,
+      streams: plan.streams,
+      teacherNames: [...new Set((plan.sessions || []).map((session) => session.teacherName))],
+      day: plan.day,
+      slotCode: plan.slotCode,
+      scheduledLessons: plan.scheduledLessons,
+      requiredLessons: plan.requiredLessons,
+      locked: true,
+    } : null,
+  });
+
   router.get("/setup", async (_req, res) => {
     try {
       const { academicYear, currentTerm, config, updatedAt } = await readTimetableConfig(pool);
@@ -642,6 +964,10 @@ export default function createTimetableRoutes(pool) {
           stream: row.normalized_stream,
           subject: timetableAlevelSubjectName(row.subject),
           subjectKey: canonicalAlevelSubject(row.subject),
+          paperLabel: normalizeAlevelTimetablePaperLabel(row.paper_label),
+          weekdaySchedulable:
+            normalizeAlevelTimetablePaperLabel(row.paper_label) !== "Paper 2" ||
+            row.available_days.length > 0,
           lessonsPerWeek: Number(config.aLevel?.lessonsPerSubject || 2),
           lessonKind: "A-Level rule",
           enabled: true,
@@ -1088,6 +1414,161 @@ export default function createTimetableRoutes(pool) {
     } catch (error) {
       console.error("Load timetable version failed:", error);
       res.status(500).json({ message: "Failed to load the timetable version." });
+    }
+  });
+
+  router.post("/versions/:versionId/manual/preview", async (req, res) => {
+    try {
+      const versionId = Number(req.params.versionId);
+      if (!versionId) return res.status(400).json({ message: "Choose a timetable draft." });
+      const plan = await buildManualInsertionPlan(pool, versionId, req.body);
+      if (plan.status === 404 && !plan.versionRow) {
+        return res.status(404).json({ message: plan.conflicts[0], ...publicManualPlan(plan) });
+      }
+      res.json(publicManualPlan(plan));
+    } catch (error) {
+      console.error("Preview manual timetable lesson failed:", error);
+      res.status(500).json({ message: "Failed to check the selected timetable period." });
+    }
+  });
+
+  router.post("/versions/:versionId/manual", async (req, res) => {
+    let connection;
+    try {
+      const versionId = Number(req.params.versionId);
+      if (!versionId) return res.status(400).json({ message: "Choose a timetable draft." });
+      connection = await pool.getConnection();
+      await connection.beginTransaction();
+      const plan = await buildManualInsertionPlan(
+        connection,
+        versionId,
+        req.body,
+        { lockVersion: true }
+      );
+      if (!plan.valid) {
+        await connection.rollback();
+        connection.release();
+        connection = null;
+        return res.status(plan.status || 409).json({
+          message: plan.conflicts?.[0] || "The manual lesson would create a clash.",
+          ...publicManualPlan(plan),
+        });
+      }
+
+      const previousStats = parseJson(plan.versionRow.generation_stats_json, {});
+      const previousValidation = parseJson(plan.versionRow.validation_json, {});
+      const blockKey = plan.mode === "cluster"
+        ? `MAN-${versionId}-${Date.now().toString(36)}`
+        : null;
+      const eventIds = [];
+      for (const event of plan.events) {
+        const [insert] = await connection.query(
+          `INSERT INTO timetable_events
+            (version_id, class_level, stream, day_of_week, slot_code, event_type,
+             subject_label, assignment_id, teacher_id, teacher_name, block_key,
+             is_locked, is_manual)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1)`,
+          [
+            versionId,
+            event.classLevel,
+            event.stream,
+            plan.day,
+            plan.slotCode,
+            event.eventType,
+            event.subjectLabel,
+            event.assignmentId,
+            event.teacherId,
+            event.teacherName,
+            blockKey,
+          ]
+        );
+        eventIds.push(Number(insert.insertId));
+      }
+      const sessionEventId = eventIds[0] || null;
+      for (const session of plan.sessions) {
+        await connection.query(
+          `INSERT INTO timetable_teacher_sessions
+            (version_id, event_id, teacher_id, teacher_name, assignment_id, subject_label,
+             class_level, streams_label, day_of_week, slot_code, block_key)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            versionId,
+            sessionEventId,
+            session.teacherId,
+            session.teacherName,
+            session.assignmentId,
+            session.subjectLabel,
+            session.classLevel,
+            session.streamsLabel,
+            plan.day,
+            plan.slotCode,
+            blockKey,
+          ]
+        );
+      }
+
+      const updatedReport = applyManualCredits(previousValidation, previousStats, plan);
+      await connection.query(
+        `UPDATE timetable_versions
+         SET generation_stats_json = ?, validation_json = ?, updated_at = NOW()
+         WHERE id = ?`,
+        [
+          JSON.stringify(updatedReport.stats),
+          JSON.stringify(updatedReport.validation),
+          versionId,
+        ]
+      );
+      await connection.query(
+        `INSERT INTO timetable_actions
+          (version_id, admin_id, action_type, payload_json, undo_payload_json)
+         VALUES (?, ?, 'manual_add', ?, ?)`,
+        [
+          versionId,
+          Number(req.admin?.id) || 1,
+          JSON.stringify({
+            eventIds,
+            blockKey,
+            summary: publicManualPlan(plan).summary,
+            warnings: plan.warnings,
+            creditedLessons: updatedReport.creditedLessons,
+          }),
+          JSON.stringify({
+            eventIds,
+            blockKey,
+            stats: previousStats,
+            validation: previousValidation,
+          }),
+        ]
+      );
+      await connection.commit();
+      connection.release();
+      connection = null;
+
+      await logAuditEvent({
+        userId: Number(req.admin?.id) || 1,
+        action: "TIMETABLE_MANUAL_LESSON_ADDED",
+        entityType: "system",
+        entityId: versionId,
+        description: `${plan.label} manually added to ${plan.classLevel} ${plan.streams.join(" & ")} on ${plan.day} ${plan.slotCode} and locked`,
+        ipAddress: extractClientIp(req),
+      });
+      const detail = await readVersionDetail(pool, versionId);
+      res.status(201).json({
+        ...detail,
+        manualOverride: {
+          summary: publicManualPlan(plan).summary,
+          warnings: plan.warnings,
+          creditedLessons: updatedReport.creditedLessons,
+        },
+      });
+    } catch (error) {
+      if (connection) await connection.rollback().catch(() => {});
+      if (connection) connection.release();
+      console.error("Add manual timetable lesson failed:", error);
+      if (error?.code === "ER_DUP_ENTRY") {
+        return res.status(409).json({ message: "That stream or teacher became occupied. Check the slot again." });
+      }
+      res.status(500).json({ message: "Failed to add the manual timetable lesson." });
     }
   });
 
@@ -1556,7 +2037,7 @@ export default function createTimetableRoutes(pool) {
         `SELECT id, action_type, undo_payload_json
          FROM timetable_actions
          WHERE version_id = ? AND undone_at IS NULL
-           AND action_type IN ('move', 'swap', 'lock_event', 'pin_teacher', 'status_change')
+           AND action_type IN ('move', 'swap', 'lock_event', 'pin_teacher', 'status_change', 'manual_add')
          ORDER BY id DESC LIMIT 1 FOR UPDATE`,
         [versionId]
       );
@@ -1619,6 +2100,33 @@ export default function createTimetableRoutes(pool) {
         await connection.query(
           "UPDATE timetable_versions SET status = ? WHERE id = ?",
           [undo.status, versionId]
+        );
+      } else if (action.action_type === "manual_add") {
+        const eventIds = [...new Set((undo.eventIds || []).map(Number).filter(Boolean))];
+        if (undo.blockKey) {
+          await connection.query(
+            "DELETE FROM timetable_teacher_sessions WHERE version_id = ? AND block_key = ?",
+            [versionId, undo.blockKey]
+          );
+        } else if (eventIds.length > 0) {
+          await connection.query(
+            `DELETE FROM timetable_teacher_sessions
+             WHERE version_id = ? AND event_id IN (${eventIds.map(() => "?").join(",")})`,
+            [versionId, ...eventIds]
+          );
+        }
+        if (eventIds.length > 0) {
+          await connection.query(
+            `DELETE FROM timetable_events
+             WHERE version_id = ? AND id IN (${eventIds.map(() => "?").join(",")})`,
+            [versionId, ...eventIds]
+          );
+        }
+        await connection.query(
+          `UPDATE timetable_versions
+           SET generation_stats_json = ?, validation_json = ?
+           WHERE id = ?`,
+          [JSON.stringify(undo.stats || {}), JSON.stringify(undo.validation || {}), versionId]
         );
       }
       await connection.query(

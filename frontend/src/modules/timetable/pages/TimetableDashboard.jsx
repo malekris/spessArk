@@ -28,6 +28,25 @@ const SCHOOL_DAY_CAPACITY = {
   Thursday: 5,
   Friday: 5,
 };
+const MANUAL_SLOT_OPTIONS = {
+  Monday: ["P1", "P3", "P4", "P5"],
+  Tuesday: ["P1", "P2", "P3", "P4", "P5"],
+  Wednesday: ["P1", "P2", "P3", "P4", "P5"],
+  Thursday: ["P1", "P2", "P3", "P4", "P5"],
+  Friday: ["P1", "P2", "P3A", "P4", "P5"],
+};
+const MANUAL_ALEVEL_GROUPED_KEYS = new Set([
+  "general_paper",
+  "sub_ict",
+  "sub_math",
+  "subsidiary_block",
+  "entrepreneurship",
+  "economics",
+  "ent_econ",
+  "literature",
+  "luganda",
+  "lit_lug",
+]);
 
 const readinessBlockerItems = (readiness) => [
   ...(readiness?.teachersNeedingAvailability || []).map((teacher) => ({
@@ -313,6 +332,12 @@ export default function TimetableDashboard() {
   const [moveSlot, setMoveSlot] = useState("P1");
   const [swapFirstId, setSwapFirstId] = useState("");
   const [swapSecondId, setSwapSecondId] = useState("");
+  const [manualMode, setManualMode] = useState("subject");
+  const [manualAssignmentKey, setManualAssignmentKey] = useState("");
+  const [manualClusterKey, setManualClusterKey] = useState("");
+  const [manualDay, setManualDay] = useState("Monday");
+  const [manualSlot, setManualSlot] = useState("P1");
+  const [manualPreview, setManualPreview] = useState(null);
   const [adviserFocus, setAdviserFocus] = useState("best");
 
   const timetableAdvice = useMemo(() => {
@@ -386,6 +411,7 @@ export default function TimetableDashboard() {
   const chooseVersion = async (value) => {
     setSelectedVersionId(value);
     selectedVersionRef.current = value;
+    setManualPreview(null);
     setError("");
     try {
       await loadVersion(value);
@@ -511,6 +537,7 @@ export default function TimetableDashboard() {
       selectedVersionRef.current = versionId;
       setSelectedVersionId(versionId);
       setVersion(detail);
+      setManualPreview(null);
       setDraftName("");
       setSetup((current) => ({
         ...current,
@@ -611,6 +638,73 @@ export default function TimetableDashboard() {
     }
   };
 
+  const manualOverridePayload = () => {
+    if (manualMode === "cluster") {
+      const [classLevel, clusterCode] = manualClusterKey.split("::");
+      return {
+        mode: "cluster",
+        classLevel,
+        clusterCode,
+        day: manualDay,
+        slotCode: manualSlot,
+      };
+    }
+    const [scope, assignmentId] = manualAssignmentKey.split("::");
+    return {
+      mode: "subject",
+      scope,
+      assignmentId: Number(assignmentId),
+      day: manualDay,
+      slotCode: manualSlot,
+    };
+  };
+
+  const checkManualOverride = async () => {
+    if (!version) return;
+    setBusyKey("manual-preview");
+    setError("");
+    setNotice("");
+    try {
+      const preview = await adminFetch(
+        `/api/admin/timetable/versions/${version.id}/manual/preview`,
+        { method: "POST", body: manualOverridePayload() }
+      );
+      setManualPreview(preview);
+    } catch (previewError) {
+      setManualPreview(previewError?.body || null);
+      setError(previewError.message || "Failed to check the selected timetable period.");
+    } finally {
+      setBusyKey("");
+    }
+  };
+
+  const addManualOverride = async () => {
+    if (!version || !manualPreview?.valid) return;
+    setBusyKey("manual-add");
+    setError("");
+    setNotice("");
+    try {
+      const updated = await adminFetch(`/api/admin/timetable/versions/${version.id}/manual`, {
+        method: "POST",
+        body: manualOverridePayload(),
+      });
+      setVersion(updated);
+      setSetup((current) => ({
+        ...current,
+        versions: (current?.versions || []).map((item) =>
+          String(item.id) === String(updated.id) ? updated : item
+        ),
+      }));
+      setManualPreview(null);
+      setNotice(`${updated.manualOverride?.summary?.label || "Lesson"} added manually and locked against regeneration.`);
+    } catch (addError) {
+      setManualPreview(addError?.body || null);
+      setError(addError.message || "Failed to add the manual timetable lesson.");
+    } finally {
+      setBusyKey("");
+    }
+  };
+
   const pinTeacher = async (teacherId, pinned) => {
     if (!version || !teacherId) return;
     setBusyKey("pin-teacher");
@@ -662,6 +756,7 @@ export default function TimetableDashboard() {
       selectedVersionRef.current = versionId;
       setSelectedVersionId(versionId);
       setVersion(updated);
+      setManualPreview(null);
       setNotice(`${classLevel} ${stream} regenerated in a new draft; the source version is unchanged.`);
       const versions = await adminFetch("/api/admin/timetable/versions");
       setSetup((current) => ({ ...current, versions }));
@@ -1370,6 +1465,37 @@ export default function TimetableDashboard() {
       (event) => event.eventType === "lesson" && !event.blockKey && !event.isLocked
     );
     const activeControlEvent = controlEvents.find((event) => String(event.id) === String(controlEventId));
+    const manualSubjectOptions = [
+      ...(setup?.assignments || [])
+        .filter((assignment) =>
+          assignment.enabled && assignment.lessonKind === "ordinary"
+        )
+        .map((assignment) => ({
+          key: `olevel::${assignment.assignmentId}`,
+          label: `${assignment.classLevel} ${assignment.stream} / ${assignment.subject} / ${assignment.teacherName}`,
+        })),
+      ...(setup?.aLevelAssignments || [])
+        .filter((assignment) =>
+          assignment.weekdaySchedulable !== false &&
+          !MANUAL_ALEVEL_GROUPED_KEYS.has(assignment.subjectKey)
+        )
+        .map((assignment) => ({
+          key: `alevel::${assignment.assignmentId}`,
+          label: `${assignment.classLevel} ${assignment.stream} / ${assignment.subject}${assignment.paperLabel ? ` ${assignment.paperLabel}` : ""} / ${assignment.teacherName}`,
+        })),
+    ].sort((left, right) => left.label.localeCompare(right.label));
+    const manualClusterOptions = Array.from((setup?.assignments || []).reduce((map, assignment) => {
+      if (!assignment.enabled || assignment.lessonKind !== "cluster" || !assignment.clusterCode) return map;
+      const key = `${assignment.classLevel}::${assignment.clusterCode}`;
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          label: `${assignment.classLevel} / ${assignment.clusterCode === "VOCATIONAL" ? "Vocational" : "Others"} Cluster`,
+        });
+      }
+      return map;
+    }, new Map()).values()).sort((left, right) => left.label.localeCompare(right.label));
+    const manualSlots = MANUAL_SLOT_OPTIONS[manualDay] || [];
     return (
       <section className="tt-page-section">
         <div className="tt-section-heading">
@@ -1412,6 +1538,91 @@ export default function TimetableDashboard() {
                     <select value={swapFirstId} onChange={(event) => setSwapFirstId(event.target.value)}><option value="">First lesson</option>{movableEvents.map((event) => <option key={event.id} value={event.id}>{event.classLevel} {event.stream} / {event.subjectLabel} / {event.day} {event.slotCode}</option>)}</select>
                     <select value={swapSecondId} onChange={(event) => setSwapSecondId(event.target.value)}><option value="">Second lesson</option>{movableEvents.map((event) => <option key={event.id} value={event.id}>{event.classLevel} {event.stream} / {event.subjectLabel} / {event.day} {event.slotCode}</option>)}</select>
                     <button type="button" onClick={swapEvents} disabled={!swapFirstId || !swapSecondId || swapFirstId === swapSecondId || busyKey === "swap"}>{busyKey === "swap" ? "Swapping" : "Swap lessons"}</button>
+                  </div>
+                  <div className="tt-operation-group tt-manual-override-group">
+                    <div className="tt-manual-override-head">
+                      <span>
+                        <strong>Manual override</strong>
+                        <small>Add and lock a new subject lesson or complete cluster block</small>
+                      </span>
+                      <div className="tt-segmented" aria-label="Manual override type">
+                        <button type="button" className={manualMode === "subject" ? "is-active" : ""} onClick={() => {
+                          setManualMode("subject");
+                          setManualPreview(null);
+                        }}>Subject</button>
+                        <button type="button" className={manualMode === "cluster" ? "is-active" : ""} onClick={() => {
+                          setManualMode("cluster");
+                          setManualPreview(null);
+                        }}>Cluster</button>
+                      </div>
+                    </div>
+                    <div className="tt-manual-override-controls">
+                      <label>
+                        <span>{manualMode === "subject" ? "Assignment" : "Cluster"}</span>
+                        {manualMode === "subject" ? (
+                          <select value={manualAssignmentKey} onChange={(event) => {
+                            setManualAssignmentKey(event.target.value);
+                            setManualPreview(null);
+                          }}>
+                            <option value="">Select subject assignment</option>
+                            {manualSubjectOptions.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}
+                          </select>
+                        ) : (
+                          <select value={manualClusterKey} onChange={(event) => {
+                            setManualClusterKey(event.target.value);
+                            setManualPreview(null);
+                          }}>
+                            <option value="">Select complete cluster</option>
+                            {manualClusterOptions.map((item) => <option key={item.key} value={item.key}>{item.label}</option>)}
+                          </select>
+                        )}
+                      </label>
+                      <label>
+                        <span>Day</span>
+                        <select value={manualDay} onChange={(event) => {
+                          const nextDay = event.target.value;
+                          setManualDay(nextDay);
+                          setManualSlot((current) => MANUAL_SLOT_OPTIONS[nextDay].includes(current) ? current : "P1");
+                          setManualPreview(null);
+                        }}>{DAYS.map((day) => <option key={day}>{day}</option>)}</select>
+                      </label>
+                      <label>
+                        <span>Period</span>
+                        <select value={manualSlot} onChange={(event) => {
+                          setManualSlot(event.target.value);
+                          setManualPreview(null);
+                        }}>{manualSlots.map((slot) => <option key={slot}>{slot}</option>)}</select>
+                      </label>
+                      <button
+                        type="button"
+                        onClick={checkManualOverride}
+                        disabled={
+                          busyKey === "manual-preview" ||
+                          (manualMode === "subject" ? !manualAssignmentKey : !manualClusterKey)
+                        }
+                      >{busyKey === "manual-preview" ? "Checking" : "Check slot"}</button>
+                    </div>
+                    {manualPreview ? (
+                      <div className={`tt-manual-preview ${manualPreview.valid ? "is-clear" : "is-conflict"}`} role="status" aria-live="polite">
+                        <div>
+                          <strong>{manualPreview.valid ? "Slot is clear" : "Manual override blocked"}</strong>
+                          {manualPreview.summary ? (
+                            <span>{manualPreview.summary.label} / {manualPreview.summary.classLevel} {manualPreview.summary.streams?.join(" & ")} / {manualPreview.summary.day} {manualPreview.summary.slotCode}</span>
+                          ) : null}
+                        </div>
+                        {(manualPreview.conflicts || []).length > 0 ? (
+                          <ul>{manualPreview.conflicts.map((item) => <li key={item}>{item}</li>)}</ul>
+                        ) : null}
+                        {(manualPreview.warnings || []).length > 0 ? (
+                          <ul className="is-warning">{manualPreview.warnings.map((item) => <li key={item}>{item}</li>)}</ul>
+                        ) : null}
+                        {manualPreview.valid ? (
+                          <button type="button" className="tt-primary-command" onClick={addManualOverride} disabled={busyKey === "manual-add"}>
+                            {busyKey === "manual-add" ? "Adding lesson" : "Add and lock lesson"}
+                          </button>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               </div>

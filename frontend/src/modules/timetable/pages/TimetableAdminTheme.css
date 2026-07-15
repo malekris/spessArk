@@ -1498,6 +1498,127 @@
   border-right: 0;
 }
 
+.tt-manual-override-group {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--tt-border);
+  border-right: 0;
+}
+
+.tt-manual-override-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.tt-manual-override-head > span {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.tt-manual-override-head strong {
+  color: var(--tt-title);
+  font-size: 0.78rem;
+}
+
+.tt-manual-override-head small {
+  color: var(--tt-muted);
+  font-size: 0.68rem;
+}
+
+.tt-manual-override-head .tt-segmented button {
+  border: 0;
+  border-right: 1px solid var(--tt-border);
+  border-radius: 0;
+}
+
+.tt-manual-override-head .tt-segmented button:last-child {
+  border-right: 0;
+}
+
+.tt-manual-override-controls {
+  display: grid;
+  grid-template-columns: minmax(280px, 2fr) minmax(130px, 0.6fr) minmax(110px, 0.5fr) auto;
+  align-items: end;
+  gap: 0.6rem;
+}
+
+.tt-manual-override-controls label {
+  display: grid;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.tt-manual-override-controls label > span {
+  color: var(--tt-muted);
+  font-size: 0.64rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.tt-manual-override-controls select {
+  width: 100%;
+}
+
+.tt-manual-preview {
+  display: grid;
+  grid-template-columns: minmax(190px, 0.8fr) minmax(240px, 1.5fr) auto;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.8rem;
+  border-left: 3px solid #f87171;
+  background: color-mix(in srgb, #f87171 7%, var(--tt-surface));
+}
+
+.tt-manual-preview.is-clear {
+  border-left-color: var(--tt-success);
+  background: color-mix(in srgb, var(--tt-success) 7%, var(--tt-surface));
+}
+
+.tt-manual-preview > div {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.tt-manual-preview strong {
+  color: var(--tt-title);
+  font-size: 0.75rem;
+}
+
+.tt-manual-preview span,
+.tt-manual-preview li {
+  overflow-wrap: anywhere;
+  color: var(--tt-muted);
+  font-size: 0.68rem;
+  line-height: 1.4;
+}
+
+.tt-manual-preview ul {
+  display: grid;
+  gap: 0.2rem;
+  margin: 0;
+  padding-left: 1rem;
+}
+
+.tt-manual-preview ul.is-warning li {
+  color: var(--tt-warning);
+}
+
+.tt-manual-preview > button {
+  justify-self: end;
+  min-width: 150px;
+}
+
+.tt-manual-preview > button.tt-primary-command {
+  min-height: 40px;
+  border-color: color-mix(in srgb, var(--tt-success) 65%, transparent);
+  background: var(--tt-success);
+  color: #07130f;
+  font-weight: 900;
+}
+
 .tt-operation-group > strong {
   color: var(--tt-title);
   font-size: 0.76rem;
@@ -1620,6 +1741,20 @@
 
   .tt-operation-grid {
     grid-template-columns: 1fr;
+  }
+
+  .tt-manual-override-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .tt-manual-override-controls,
+  .tt-manual-preview {
+    grid-template-columns: 1fr;
+  }
+
+  .tt-manual-preview > button {
+    justify-self: start;
   }
 
   .tt-operation-group {

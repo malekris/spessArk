@@ -548,6 +548,19 @@
   font-size: 0.7rem;
 }
 
+.tt-check-copy {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.tt-check-copy small {
+  overflow-wrap: anywhere;
+  color: var(--tt-warning);
+  font-size: 0.68rem;
+  line-height: 1.4;
+}
+
 .tt-check-row.is-good {
   justify-content: flex-start;
   border-left: 3px solid var(--tt-success);

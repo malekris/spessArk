@@ -336,6 +336,24 @@ function buildReadiness(assignments) {
   };
 }
 
+function describeReadinessBlockers(readiness) {
+  return [
+    ...(readiness.teachersNeedingAvailability || []).map(
+      (teacher) => `${teacher.teacherName} needs 1-3 weekday availability days.`
+    ),
+    ...(readiness.reviewAssignments || []).map(
+      (assignment) =>
+        `${assignment.classLevel} ${assignment.stream}: review the ${assignment.subject} lesson rule.`
+    ),
+    ...(readiness.aLevelCoverageIssues || []).map(
+      (issue) => `${issue.classLevel} ${issue.stream}: assign ${issue.subjectGroup}.`
+    ),
+    ...(readiness.aLevelPaperIssues || []).map(
+      (issue) => `${issue.classLevel} ${issue.stream}: ${issue.message}`
+    ),
+  ];
+}
+
 async function readVersions(pool) {
   const [rows] = await pool.query(`
     SELECT id, academic_year, name, status, generation_stats_json, validation_json,
@@ -692,9 +710,13 @@ export default function createTimetableRoutes(pool) {
       const aLevelAssignments = allAssignments.filter((row) => row.assignment_scope === "alevel");
       const readiness = buildReadiness(allAssignments);
       if (!readiness.ready) {
+        const blockers = describeReadinessBlockers(readiness);
         return res.status(409).json({
-          message: "Finish teacher availability, subject coverage, and A-Level paper staffing before generating.",
+          message: blockers.length === 1
+            ? `Cannot generate the timetable. ${blockers[0]}`
+            : `Cannot generate the timetable. Resolve the ${blockers.length} listed setup blockers.`,
           readiness,
+          blockers,
         });
       }
 

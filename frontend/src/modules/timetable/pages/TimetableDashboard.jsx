@@ -22,6 +22,29 @@ const CLASS_LEVELS = ["S1", "S2", "S3", "S4", "S5", "S6"];
 const GRID_COLUMNS = ["P1", "P2", "MIDDAY", "P4", "P5"];
 const DAY_LIST_FORMATTER = new Intl.ListFormat("en", { style: "long", type: "conjunction" });
 
+const readinessBlockerItems = (readiness) => [
+  ...(readiness?.teachersNeedingAvailability || []).map((teacher) => ({
+    key: `teacher-${teacher.teacherId}`,
+    title: teacher.teacherName,
+    detail: "Select 1-3 weekday availability days.",
+  })),
+  ...(readiness?.reviewAssignments || []).map((assignment) => ({
+    key: `assignment-${assignment.assignmentId}`,
+    title: `${assignment.classLevel} ${assignment.stream}`,
+    detail: `Review the ${assignment.subject} lesson rule.`,
+  })),
+  ...(readiness?.aLevelCoverageIssues || []).map((issue) => ({
+    key: `coverage-${issue.classLevel}-${issue.stream}-${issue.subjectGroup}`,
+    title: `${issue.classLevel} ${issue.stream}`,
+    detail: `Assign ${issue.subjectGroup} before generating.`,
+  })),
+  ...(readiness?.aLevelPaperIssues || []).map((issue) => ({
+    key: `paper-${issue.classLevel}-${issue.stream}-${issue.subjectGroup}`,
+    title: `${issue.classLevel} ${issue.stream}`,
+    detail: issue.message,
+  })),
+];
+
 const streamLabel = (key) => String(key || "").replace("::", " ");
 const classStreams = (classLevel) =>
   ["S5", "S6"].includes(classLevel) ? ["Arts", "Sciences"] : ["North", "South"];
@@ -259,6 +282,12 @@ export default function TimetableDashboard() {
         Object.fromEntries(data.teachers.map((teacher) => [teacher.teacherId, teacher.availableDays]))
       );
     } catch (generateError) {
+      if (generateError?.body?.readiness) {
+        setSetup((current) => current
+          ? { ...current, readiness: generateError.body.readiness }
+          : current
+        );
+      }
       setError(generateError.message || "Failed to generate timetable.");
     } finally {
       setBusyKey("");
@@ -623,7 +652,14 @@ export default function TimetableDashboard() {
                   <button type="button" onClick={() => setActiveModule("constraints")}>Review rules</button>
                 </div>
                 <div className="tt-check-row">
-                  <strong>{readiness?.aLevelCoverageIssues?.length || 0} A-Level subject groups are missing</strong>
+                  <span className="tt-check-copy">
+                    <strong>{readiness?.aLevelCoverageIssues?.length || 0} A-Level subject groups are missing</strong>
+                    {(readiness?.aLevelCoverageIssues?.length || 0) > 0 ? (
+                      <small>{readiness.aLevelCoverageIssues.map((issue) =>
+                        `${issue.classLevel} ${issue.stream}: ${issue.subjectGroup}`
+                      ).join("; ")}</small>
+                    ) : null}
+                  </span>
                   <button type="button" onClick={() => setActiveModule("constraints")}>View coverage</button>
                 </div>
                 <div className="tt-check-row">
@@ -797,34 +833,54 @@ export default function TimetableDashboard() {
     </section>
   );
 
-  const renderGenerate = () => (
-    <section className="tt-page-section">
-      <div className="tt-section-heading">
-        <div><span className="tt-kicker">Constraint-aware engine</span><h2>Generate Draft</h2><p>Hard conflicts are never written</p></div>
-        <StatusPill value={setup?.readiness?.ready ? "Ready" : "Blocked"} />
-      </div>
-      <div className="tt-generator-layout">
-        <div className="tt-generate-command">
-          <label htmlFor="tt-draft-name">Draft name</label>
-          <input id="tt-draft-name" value={draftName} onChange={(event) => setDraftName(event.target.value)} placeholder={`School timetable ${setup?.academicYear || ""}`} />
-          <button type="button" className="tt-primary-command" onClick={generateDraft} disabled={!setup?.readiness?.ready || busyKey === "generate"}>{busyKey === "generate" ? "Generating draft" : "Generate conflict-free draft"}</button>
+  const renderGenerate = () => {
+    const readiness = setup?.readiness;
+    const exactBlockers = readinessBlockerItems(readiness);
+    return (
+      <section className="tt-page-section">
+        <div className="tt-section-heading">
+          <div><span className="tt-kicker">Constraint-aware engine</span><h2>Generate Draft</h2><p>Hard conflicts are never written</p></div>
+          <StatusPill value={readiness?.ready ? "Ready" : "Blocked"} />
         </div>
-        <div className="tt-generation-priorities">
-          <h3>Priority order</h3>
-          <ol><li>No clashes</li><li>Teacher availability</li><li>Required lessons</li><li>Balanced schedules</li><li>Teacher preferences</li></ol>
+        <div className="tt-generator-layout">
+          <div className="tt-generate-command">
+            <label htmlFor="tt-draft-name">Draft name</label>
+            <input id="tt-draft-name" value={draftName} onChange={(event) => setDraftName(event.target.value)} placeholder={`School timetable ${setup?.academicYear || ""}`} />
+            <button type="button" className="tt-primary-command" onClick={generateDraft} disabled={!readiness?.ready || busyKey === "generate"}>{busyKey === "generate" ? "Generating draft" : "Generate conflict-free draft"}</button>
+          </div>
+          <div className="tt-generation-priorities">
+            <h3>Priority order</h3>
+            <ol><li>No clashes</li><li>Teacher availability</li><li>Required lessons</li><li>Balanced schedules</li><li>Teacher preferences</li></ol>
+          </div>
         </div>
-      </div>
-      {!setup?.readiness?.ready ? (
-        <div className="tt-blocker-list">
-          <div><strong>{setup?.readiness?.teachersNeedingAvailability?.length || 0}</strong><span>teachers need 1-3 available days</span></div>
-          <div><strong>{setup?.readiness?.reviewAssignments?.length || 0}</strong><span>assignment rules need review</span></div>
-          <div><strong>{setup?.readiness?.aLevelCoverageIssues?.length || 0}</strong><span>A-Level subject groups are missing</span></div>
-          <div><strong>{setup?.readiness?.aLevelPaperIssues?.length || 0}</strong><span>A-Level paper assignments need attention</span></div>
-          <button type="button" onClick={() => setActiveModule("constraints")}>Resolve constraints</button>
-        </div>
-      ) : null}
-    </section>
-  );
+        {!readiness?.ready ? (
+          <div className="tt-blocker-list">
+            <div><strong>{readiness?.teachersNeedingAvailability?.length || 0}</strong><span>teachers need 1-3 available days</span></div>
+            <div><strong>{readiness?.reviewAssignments?.length || 0}</strong><span>assignment rules need review</span></div>
+            <div><strong>{readiness?.aLevelCoverageIssues?.length || 0}</strong><span>A-Level subject groups are missing</span></div>
+            <div><strong>{readiness?.aLevelPaperIssues?.length || 0}</strong><span>A-Level paper assignments need attention</span></div>
+            <button type="button" onClick={() => setActiveModule("constraints")}>Resolve constraints</button>
+          </div>
+        ) : null}
+        {exactBlockers.length > 0 ? (
+          <div className="tt-panel-band tt-generation-blocker-details">
+            <div className="tt-panel-title">
+              <h3>Exact blockers</h3>
+              <span>{exactBlockers.length}</span>
+            </div>
+            <div className="tt-issue-list">
+              {exactBlockers.map((blocker) => (
+                <div key={blocker.key}>
+                  <strong>{blocker.title}</strong>
+                  <span>{blocker.detail}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </section>
+    );
+  };
 
   const renderTimetable = () => {
     const matrix = version ? exportMatrix() : null;

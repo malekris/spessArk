@@ -49,6 +49,13 @@ const TIMETABLE_MODULES = [
     description: "Review, export and publish",
     state: "Views",
   },
+  {
+    code: "adviser",
+    shortCode: "AD",
+    label: "Adviser",
+    description: "Best draft, workload, balance and conflict forecasts",
+    state: "Analysis",
+  },
 ];
 
 export default function TimetableAdminShell({

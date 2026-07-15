@@ -21,6 +21,13 @@ const STREAMS = [
 const CLASS_LEVELS = ["S1", "S2", "S3", "S4", "S5", "S6"];
 const GRID_COLUMNS = ["P1", "P2", "MIDDAY", "P4", "P5"];
 const DAY_LIST_FORMATTER = new Intl.ListFormat("en", { style: "long", type: "conjunction" });
+const SCHOOL_DAY_CAPACITY = {
+  Monday: 4,
+  Tuesday: 5,
+  Wednesday: 5,
+  Thursday: 5,
+  Friday: 5,
+};
 
 const readinessBlockerItems = (readiness) => [
   ...(readiness?.teachersNeedingAvailability || []).map((teacher) => ({
@@ -69,10 +76,204 @@ const formatDate = (value) => {
   });
 };
 
+const numberValue = (value) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const versionQuality = (item) => {
+  const requested = numberValue(item?.stats?.lessonsRequested);
+  const placed = numberValue(item?.stats?.lessonsPlaced);
+  return {
+    valid: Boolean(item?.validation?.valid),
+    unallocated: numberValue(item?.stats?.unallocatedLessons),
+    requested,
+    placed,
+    completion: requested > 0 ? placed / requested : 0,
+    createdAt: new Date(item?.createdAt || 0).getTime() || 0,
+  };
+};
+
+const suggestBestVersion = (versions = []) => [...versions].sort((left, right) => {
+  const leftQuality = versionQuality(left);
+  const rightQuality = versionQuality(right);
+  return Number(rightQuality.valid) - Number(leftQuality.valid) ||
+    leftQuality.unallocated - rightQuality.unallocated ||
+    rightQuality.completion - leftQuality.completion ||
+    rightQuality.createdAt - leftQuality.createdAt;
+})[0] || null;
+
+function buildTeacherLoadAnalysis(version, teachers = []) {
+  if (!version) return [];
+  const teacherMeta = new Map(teachers.map((teacher) => [Number(teacher.teacherId), teacher]));
+  const buckets = new Map();
+
+  (version.sessions || []).forEach((session) => {
+    const teacherId = Number(session.teacherId);
+    if (!teacherId || !DAYS.includes(session.day) || !session.slotCode) return;
+    if (!buckets.has(teacherId)) {
+      buckets.set(teacherId, {
+        teacherId,
+        teacherName: session.teacherName || `Teacher #${teacherId}`,
+        slots: new Set(),
+      });
+    }
+    buckets.get(teacherId).slots.add(`${session.day}::${session.slotCode}`);
+  });
+
+  return Array.from(buckets.values()).map((bucket) => {
+    const meta = teacherMeta.get(bucket.teacherId);
+    const scheduledDays = DAYS.filter((day) =>
+      Array.from(bucket.slots).some((slot) => slot.startsWith(`${day}::`))
+    );
+    const configuredDays = (meta?.availableDays || []).filter((day) => DAYS.includes(day));
+    const capacityDays = configuredDays.length > 0 ? configuredDays : scheduledDays;
+    const dailyLoads = Object.fromEntries(DAYS.map((day) => [
+      day,
+      Array.from(bucket.slots).filter((slot) => slot.startsWith(`${day}::`)).length,
+    ]));
+    const total = bucket.slots.size;
+    const capacity = capacityDays.reduce((sum, day) => sum + SCHOOL_DAY_CAPACITY[day], 0);
+    const [peakDay, peakLoad] = Object.entries(dailyLoads)
+      .sort((left, right) => right[1] - left[1])[0] || ["-", 0];
+    const utilization = capacity > 0 ? total / capacity : 0;
+    const overloaded = total > capacity || peakLoad >= 5 || utilization >= 0.85;
+
+    return {
+      teacherId: bucket.teacherId,
+      teacherName: bucket.teacherName,
+      availableDays: capacityDays,
+      dailyLoads,
+      total,
+      capacity,
+      utilization,
+      peakDay,
+      peakLoad,
+      overloaded,
+    };
+  }).sort((left, right) =>
+    Number(right.overloaded) - Number(left.overloaded) ||
+    right.utilization - left.utilization ||
+    right.total - left.total ||
+    left.teacherName.localeCompare(right.teacherName)
+  );
+}
+
+function buildBalanceRecommendations(version, teacherLoads) {
+  if (!version) return [];
+  const recommendations = [];
+
+  teacherLoads.forEach((teacher) => {
+    const availableLoads = teacher.availableDays.map((day) => ({
+      day,
+      load: teacher.dailyLoads[day] || 0,
+    })).sort((left, right) => right.load - left.load);
+    const heaviest = availableLoads[0];
+    const lightest = availableLoads[availableLoads.length - 1];
+    if (!heaviest || !lightest) return;
+
+    if (teacher.availableDays.length === 1 && teacher.utilization >= 0.8) {
+      recommendations.push({
+        key: `teacher-day-${teacher.teacherId}`,
+        title: teacher.teacherName,
+        detail: `${teacher.total} of ${teacher.capacity} available teaching blocks are used on ${heaviest.day}. Add another available day or hand over one assignment before the load grows.`,
+        priority: teacher.utilization + 1,
+      });
+      return;
+    }
+
+    const spread = heaviest.load - lightest.load;
+    if (spread >= 2 && heaviest.load >= 3) {
+      recommendations.push({
+        key: `teacher-spread-${teacher.teacherId}`,
+        title: teacher.teacherName,
+        detail: `${heaviest.day} has ${heaviest.load} teaching blocks while ${lightest.day} has ${lightest.load}. Test moving one unlocked ordinary lesson to ${lightest.day}.`,
+        priority: spread + teacher.utilization,
+      });
+    }
+  });
+
+  const streamLoads = new Map();
+  (version.events || [])
+    .filter((event) => ["lesson", "cluster", "project"].includes(event.eventType))
+    .forEach((event) => {
+      const key = `${event.classLevel}::${event.stream}`;
+      if (!streamLoads.has(key)) {
+        streamLoads.set(key, Object.fromEntries(DAYS.map((day) => [day, new Set()])));
+      }
+      streamLoads.get(key)[event.day]?.add(event.slotCode);
+    });
+
+  streamLoads.forEach((loads, streamKey) => {
+    const ordered = DAYS.map((day) => ({ day, load: loads[day].size }))
+      .sort((left, right) => right.load - left.load);
+    const heaviest = ordered[0];
+    const lightest = ordered[ordered.length - 1];
+    if (heaviest.load - lightest.load < 3) return;
+    recommendations.push({
+      key: `stream-${streamKey}`,
+      title: streamLabel(streamKey),
+      detail: `${heaviest.day} carries ${heaviest.load} lessons while ${lightest.day} carries ${lightest.load}. Review an unlocked ordinary lesson for a safer day-to-day spread.`,
+      priority: heaviest.load - lightest.load,
+    });
+  });
+
+  return recommendations
+    .sort((left, right) => right.priority - left.priority)
+    .slice(0, 10);
+}
+
+function buildConflictForecast(setup, version, teacherLoads) {
+  const risks = readinessBlockerItems(setup?.readiness).map((blocker) => ({
+    key: `setup-${blocker.key}`,
+    title: blocker.title,
+    detail: blocker.detail,
+    level: "High risk",
+  }));
+
+  (version?.validation?.unallocated || []).slice(0, 8).forEach((item, index) => {
+    risks.push({
+      key: `unallocated-${item.assignmentId || index}`,
+      title: `${item.subject || "Scheduling block"}${item.classLevel ? ` / ${item.classLevel} ${item.stream || ""}` : ""}`,
+      detail: item.reason || "This lesson could not be placed in the selected draft.",
+      level: "High risk",
+    });
+  });
+
+  teacherLoads.filter((teacher) => teacher.overloaded).slice(0, 6).forEach((teacher) => {
+    risks.push({
+      key: `capacity-${teacher.teacherId}`,
+      title: teacher.teacherName,
+      detail: `${teacher.total}/${teacher.capacity} available teaching blocks are occupied, peaking at ${teacher.peakLoad} on ${teacher.peakDay}. Future moves are likely to run out of space.`,
+      level: teacher.total > teacher.capacity ? "High risk" : "Moderate risk",
+    });
+  });
+
+  if (version) {
+    const schedulableEvents = (version.events || []).filter((event) =>
+      ["lesson", "cluster", "project"].includes(event.eventType)
+    );
+    const lockedCount = schedulableEvents.filter((event) => event.isLocked).length;
+    if (schedulableEvents.length > 0 && lockedCount / schedulableEvents.length >= 0.6) {
+      risks.push({
+        key: "locked-density",
+        title: "Limited regeneration room",
+        detail: `${lockedCount} of ${schedulableEvents.length} scheduled lessons are locked. Further regeneration may have too little room to resolve new constraints.`,
+        level: "Moderate risk",
+      });
+    }
+  }
+
+  return risks.slice(0, 14);
+}
+
 const csvCell = (value) => `"${String(value ?? "").replace(/"/g, '""')}"`;
 
 function StatusPill({ value }) {
-  const normalized = String(value || "unknown").toLowerCase().replace(/_/g, "-");
+  const normalized = String(value || "unknown")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
   return <span className={`tt-status tt-status-${normalized}`}>{String(value || "Unknown").replace(/_/g, " ")}</span>;
 }
 
@@ -112,6 +313,28 @@ export default function TimetableDashboard() {
   const [moveSlot, setMoveSlot] = useState("P1");
   const [swapFirstId, setSwapFirstId] = useState("");
   const [swapSecondId, setSwapSecondId] = useState("");
+  const [adviserFocus, setAdviserFocus] = useState("best");
+
+  const timetableAdvice = useMemo(() => {
+    const bestVersion = suggestBestVersion(setup?.versions || []);
+    const teacherLoads = buildTeacherLoadAnalysis(version, setup?.teachers || []);
+    const overloadedTeachers = teacherLoads.filter((teacher) => teacher.overloaded);
+    const balanceRecommendations = buildBalanceRecommendations(version, teacherLoads);
+    const conflictRisks = buildConflictForecast(setup, version, teacherLoads);
+    return {
+      bestVersion,
+      bestQuality: bestVersion ? versionQuality(bestVersion) : null,
+      teacherLoads,
+      overloadedTeachers,
+      balanceRecommendations,
+      conflictRisks,
+      conflictLevel: conflictRisks.some((risk) => risk.level === "High risk")
+        ? "High risk"
+        : conflictRisks.length > 0
+          ? "Moderate risk"
+          : "Low risk",
+    };
+  }, [setup, version]);
 
   const loadVersion = useCallback(async (versionId) => {
     if (!versionId) {
@@ -935,6 +1158,171 @@ export default function TimetableDashboard() {
     );
   };
 
+  const renderAdviser = () => {
+    const {
+      bestVersion,
+      bestQuality,
+      teacherLoads,
+      overloadedTeachers,
+      balanceRecommendations,
+      conflictRisks,
+      conflictLevel,
+    } = timetableAdvice;
+    const adviserTools = [
+      {
+        code: "best",
+        title: "Suggest best timetable",
+        detail: bestVersion
+          ? `${bestVersion.name} leads the available drafts.`
+          : "Generate a draft to receive a recommendation.",
+        state: bestVersion ? "Ready" : "Waiting",
+        command: "Show recommendation",
+      },
+      {
+        code: "overload",
+        title: "Detect overloaded teachers",
+        detail: version
+          ? `${overloadedTeachers.length} of ${teacherLoads.length} scheduled teachers need attention.`
+          : "Select a timetable to inspect teacher capacity.",
+        state: overloadedTeachers.length > 0 ? "Attention" : "Clear",
+        command: "Review workload",
+      },
+      {
+        code: "balance",
+        title: "Recommend balancing",
+        detail: version
+          ? `${balanceRecommendations.length} practical balancing suggestion${balanceRecommendations.length === 1 ? "" : "s"}.`
+          : "Select a timetable to compare daily loads.",
+        state: balanceRecommendations.length > 0 ? "Review" : "Balanced",
+        command: "Show recommendations",
+      },
+      {
+        code: "conflicts",
+        title: "Predict conflicts",
+        detail: conflictRisks.length > 0
+          ? `${conflictRisks.length} current or emerging scheduling risk${conflictRisks.length === 1 ? "" : "s"}.`
+          : "No conflict pressure detected in the current data.",
+        state: conflictLevel,
+        command: "Run forecast",
+      },
+    ];
+    const activeTool = adviserTools.find((tool) => tool.code === adviserFocus) || adviserTools[0];
+
+    return (
+      <section className="tt-page-section">
+        <div className="tt-section-heading">
+          <div>
+            <span className="tt-kicker">Decision support</span>
+            <h2>Timetable Adviser</h2>
+            <p>Read-only analysis of generated drafts, workload pressure and likely clashes</p>
+          </div>
+          <StatusPill value={version ? "Analysis ready" : "Select draft"} />
+        </div>
+
+        <div className="tt-adviser-toolbar">
+          <label htmlFor="tt-adviser-version">Timetable under analysis</label>
+          <select
+            id="tt-adviser-version"
+            value={selectedVersionId}
+            onChange={(event) => chooseVersion(event.target.value)}
+          >
+            <option value="">Select version</option>
+            {(setup?.versions || []).map((item) => (
+              <option key={item.id} value={item.id}>{item.name} / {item.status}</option>
+            ))}
+          </select>
+          <span>{version ? `${version.stats?.lessonsPlaced || 0}/${version.stats?.lessonsRequested || 0} lessons placed` : "No timetable selected"}</span>
+        </div>
+
+        <div className="tt-adviser-tool-grid">
+          {adviserTools.map((tool) => (
+            <article key={tool.code} className={adviserFocus === tool.code ? "is-active" : ""}>
+              <div className="tt-adviser-tool-head">
+                <span>{tool.code === "best" ? "01" : tool.code === "overload" ? "02" : tool.code === "balance" ? "03" : "04"}</span>
+                <StatusPill value={tool.state} />
+              </div>
+              <h3>{tool.title}</h3>
+              <p>{tool.detail}</p>
+              <button type="button" onClick={() => setAdviserFocus(tool.code)}>{tool.command}</button>
+            </article>
+          ))}
+        </div>
+
+        <div className="tt-panel-band tt-adviser-result">
+          <div className="tt-panel-title">
+            <h3>{activeTool.title}</h3>
+            <span>{activeTool.state}</span>
+          </div>
+
+          {adviserFocus === "best" ? (
+            bestVersion ? (
+              <div className="tt-adviser-best">
+                <div>
+                  <span>Recommended draft</span>
+                  <strong>{bestVersion.name}</strong>
+                  <p>Chosen by hard-constraint validation first, then fewest unallocated lessons, highest completion and newest generation time.</p>
+                </div>
+                <dl>
+                  <div><dt>Validation</dt><dd>{bestQuality.valid ? "Passed" : "Needs attention"}</dd></div>
+                  <div><dt>Lessons</dt><dd>{bestQuality.placed}/{bestQuality.requested}</dd></div>
+                  <div><dt>Unallocated</dt><dd>{bestQuality.unallocated}</dd></div>
+                  <div><dt>Generated</dt><dd>{formatDate(bestVersion.createdAt)}</dd></div>
+                </dl>
+                <div className="tt-adviser-actions">
+                  {String(bestVersion.id) !== String(selectedVersionId) ? (
+                    <button type="button" onClick={() => chooseVersion(String(bestVersion.id))}>Use for analysis</button>
+                  ) : null}
+                  <button type="button" className="tt-primary-command" onClick={async () => {
+                    await chooseVersion(String(bestVersion.id));
+                    setActiveModule("timetables");
+                  }}>Open recommended timetable</button>
+                </div>
+              </div>
+            ) : <EmptyState title="No timetable to compare" detail="Generate at least one draft and the adviser will rank it automatically." />
+          ) : null}
+
+          {adviserFocus === "overload" ? (
+            !version ? <EmptyState title="Select a timetable" detail="Teacher capacity is calculated from the chosen draft and saved available days." />
+              : overloadedTeachers.length === 0
+                ? <EmptyState title="No overloaded teachers detected" detail="Every scheduled teacher remains below the current capacity threshold." />
+                : <div className="tt-adviser-list">{overloadedTeachers.map((teacher) => (
+                    <div key={teacher.teacherId}>
+                      <span>
+                        <strong>{teacher.teacherName}</strong>
+                        <small>{teacher.total}/{teacher.capacity || "?"} available blocks used; busiest on {teacher.peakDay} with {teacher.peakLoad}</small>
+                      </span>
+                      <StatusPill value={teacher.total > teacher.capacity ? "Over capacity" : `${Math.round(teacher.utilization * 100)}% used`} />
+                    </div>
+                  ))}</div>
+          ) : null}
+
+          {adviserFocus === "balance" ? (
+            !version ? <EmptyState title="Select a timetable" detail="Balancing advice needs a generated schedule." />
+              : balanceRecommendations.length === 0
+                ? <EmptyState title="Daily loads look balanced" detail="No teacher or stream has a strong heavy-day to light-day imbalance." />
+                : <div className="tt-adviser-list">{balanceRecommendations.map((item) => (
+                    <div key={item.key}>
+                      <span><strong>{item.title}</strong><small>{item.detail}</small></span>
+                      <StatusPill value="Recommendation" />
+                    </div>
+                  ))}</div>
+          ) : null}
+
+          {adviserFocus === "conflicts" ? (
+            conflictRisks.length === 0
+              ? <EmptyState title="Low conflict pressure" detail="The selected draft and current setup expose no immediate conflict risks." />
+              : <div className="tt-adviser-list">{conflictRisks.map((risk) => (
+                  <div key={risk.key}>
+                    <span><strong>{risk.title}</strong><small>{risk.detail}</small></span>
+                    <StatusPill value={risk.level} />
+                  </div>
+                ))}</div>
+          ) : null}
+        </div>
+      </section>
+    );
+  };
+
   const renderTimetable = () => {
     const matrix = version ? exportMatrix() : null;
     const workloads = version
@@ -1048,6 +1436,7 @@ export default function TimetableDashboard() {
   else if (activeModule === "constraints") content = renderConstraints();
   else if (activeModule === "generate") content = renderGenerate();
   else if (activeModule === "timetables") content = renderTimetable();
+  else if (activeModule === "adviser") content = renderAdviser();
   else content = renderOverview();
 
   return (

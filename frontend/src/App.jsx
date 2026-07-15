@@ -28,6 +28,7 @@ const ALevelLearners = lazy(() => import("./modules/alevel/pages/ALevelLearners"
 const ALevelAssignSubjects = lazy(() => import("./modules/alevel/pages/ALevelAssignSubjects"));
 const ALevelDownloads = lazy(() => import("./modules/alevel/pages/ALevelDownloads"));
 const ALevelReports = lazy(() => import("./modules/alevel/pages/ALevelReports"));
+const TimetableDashboard = lazy(() => import("./modules/timetable/pages/TimetableDashboard"));
 const BoardingLogin = lazy(() => import("./modules/boarding/pages/BoardingLogin"));
 const BoardingDashboard = lazy(() => import("./modules/boarding/pages/BoardingDashboard"));
 const BoardingLearners = lazy(() => import("./modules/boarding/pages/BoardingLearners"));
@@ -188,6 +189,7 @@ function App() {
     <Route path="/ark/admin/alevel/assign" element={<ArkLayout><ALevelAssignSubjects /></ArkLayout>} />
     <Route path="/ark/admin/alevel/downloads" element={<ArkLayout><ALevelDownloads /></ArkLayout>} />
     <Route path="/ark/admin/alevel/reports" element={<ArkLayout><ALevelReports /></ArkLayout>} />
+    <Route path="/ark/admin/timetable" element={<ArkLayout><TimetableDashboard /></ArkLayout>} />
     <Route path="/ark/boarding-login" element={<ArkLayout><BoardingLogin /></ArkLayout>} />
     <Route path="/ark/boarding" element={<ArkLayout><BoardingDashboard /></ArkLayout>} />
     <Route path="/ark/boarding/learners" element={<ArkLayout><BoardingLearners /></ArkLayout>} />

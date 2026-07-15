@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { adminFetch } from "../lib/api";
 import generateMiniProgressReportPdf from "../components/miniProgressReportPdf";
+import { recordAdminReportGeneration } from "../utils/adminAuditEvents";
 
 function MiniProgressReports({ onClose }) {
   const currentYear = new Date().getFullYear();
@@ -86,6 +87,15 @@ function MiniProgressReports({ onClose }) {
           },
         }
       );
+      await recordAdminReportGeneration({
+        reportKind: "OLEVEL_MINI",
+        classLevel,
+        stream,
+        term: term === "1" ? "Term 1" : term === "2" ? "Term 2" : "Term 3",
+        year,
+        studentId: studentId || null,
+        learnerCount: groupedStudents.length,
+      });
     } catch (err) {
       setError(err.message || "Failed to generate mini report PDF.");
     } finally {

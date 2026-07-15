@@ -4,6 +4,7 @@ import generateReportCardPDF from "../components/reportCardPdf";
 import { normalizeSchoolCalendar } from "../utils/schoolCalendar";
 import { loadPdfTools } from "../utils/loadPdfTools";
 import { adminFetch } from "../lib/api";
+import { recordAdminReportGeneration } from "../utils/adminAuditEvents";
 
   const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5001";
   const REPORT_DATES_STORAGE_KEY = "spess_report_card_dates";
@@ -882,6 +883,19 @@ import { adminFetch } from "../lib/api";
           },
         }
       );
+      await recordAdminReportGeneration({
+        reportKind: isEndOfYearMode ? "OLEVEL_END_OF_YEAR" : "OLEVEL_END_OF_TERM",
+        classLevel,
+        stream,
+        term: isEndOfYearMode ? "Term 3" : term,
+        year,
+        studentId: studentId || null,
+        learnerCount: new Set(
+          (Array.isArray(data) ? data : [])
+            .map((row) => String(row?.student_id || "").trim())
+            .filter(Boolean)
+        ).size,
+      });
     } catch (err) {
       setError(err.message || "Failed to generate report card PDF.");
     } finally {

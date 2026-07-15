@@ -2945,6 +2945,10 @@ export default function AdminDashboard() {
   const handleCardClick = (card) => {
     if (card?.status === "archived") return;
     console.log("[AdminDashboard] card clicked:", card?.title);
+    if (card?.moduleRoute) {
+      navigate(card.moduleRoute);
+      return;
+    }
     setActiveSection((prev) => (prev === card?.title ? "" : card?.title));
   };
 
@@ -5518,6 +5522,14 @@ export default function AdminDashboard() {
 
           <button
             type="button"
+            className="admin-timetable-nav-button"
+            onClick={() => navigate("/ark/admin/timetable")}
+          >
+            Timetable
+          </button>
+
+          <button
+            type="button"
             className="ghost-btn"
             onClick={() => navigate("/ark/admin/alevel")}
           >
@@ -6658,7 +6670,7 @@ export default function AdminDashboard() {
               key={card.title}
               className={`admin-card ${card.status === "archived" ? "admin-card-archived" : ""}`}
             >
-              <div className="card-icon">{card.icon}</div>
+              <div className={`card-icon ${card.iconClassName || ""}`.trim()}>{card.icon}</div>
               <div className="card-body">
                 <h2>{card.title}</h2>
                 <p>{card.subtitle}</p>

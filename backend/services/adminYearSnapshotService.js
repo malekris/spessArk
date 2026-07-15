@@ -87,7 +87,7 @@ const getOperationalTermLabel = (entry = {}) => {
   return "Term 1";
 };
 
-const deriveOperationalTerm = (calendarPayload, date = new Date()) => {
+export const deriveOperationalTerm = (calendarPayload, date = new Date()) => {
   const normalized = normalizeSchoolCalendarPayload(calendarPayload || DEFAULT_SCHOOL_CALENDAR);
   const sortedEntries = normalized.entries
     .map((entry) => ({

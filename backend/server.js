@@ -37,6 +37,8 @@ import { extractClientIp, logAuditEvent } from "./utils/auditLogger.js";
 import { sendTeacherPasswordChangedEmail } from "./utils/email.js";
 import { ensureMarksArchiveTablesReady, archiveOLevelMarks } from "./utils/marksArchive.js";
 import { captureAdminYearSnapshot, queueAdminYearSnapshotRefresh } from "./services/adminYearSnapshotService.js";
+import createTimetableRoutes from "./modules/timetable/timetable.routes.js";
+import { ensureTimetableSchemaReady } from "./modules/timetable/timetable.schema.js";
 import {
   publicMaintenancePayload,
   readMaintenanceSettings,
@@ -618,6 +620,8 @@ if (dbUrl) {
 
 export const pool = mysql.createPool(poolConfig);
 export const db = pool;//alias, no behavior change
+
+app.use("/api/admin/timetable", createTimetableRoutes(pool));
 
 app.get("/api/system/maintenance", async (_req, res) => {
   try {
@@ -1835,8 +1839,8 @@ app.post("/api/admin/assignments", authAdmin, async (req, res) => {
       entityType: "subject",
       entityId: Number(result.insertId),
       description: activeConflict
-        ? `${subject} in ${class_level} ${stream} handed over from teacher #${activeConflict.teacher_id} to teacher #${teacherId}`
-        : `${subject} assigned to ${class_level} ${stream} (teacher #${teacherId})`,
+        ? `${subject} in ${class_level} ${stream} handed over from ${activeConflict.teacher_name || `teacher #${activeConflict.teacher_id}`} (#${activeConflict.teacher_id}) to ${teacherRow.name || `teacher #${teacherId}`} (#${teacherId})`
+        : `${subject} assigned to ${class_level} ${stream} (${teacherRow.name || `teacher #${teacherId}`}, #${teacherId})`,
       ipAddress: extractClientIp(req),
     });
 
@@ -1874,11 +1878,13 @@ app.delete("/api/admin/assignments/:id", authAdmin, requireAdminReauth, async (r
     await conn.beginTransaction();
 
     const [[assignmentRow]] = await conn.query(
-      `SELECT id, teacher_id, class_level, stream, subject,
-              COALESCE(assignment_status, 'active') AS assignment_status,
-              ended_at
-       FROM teacher_assignments
-       WHERE id = ?`,
+      `SELECT ta.id, ta.teacher_id, ta.class_level, ta.stream, ta.subject,
+              COALESCE(ta.assignment_status, 'active') AS assignment_status,
+              ta.ended_at,
+              COALESCE(t.name, CONCAT('Teacher #', ta.teacher_id)) AS teacher_name
+       FROM teacher_assignments ta
+       LEFT JOIN teachers t ON t.id = ta.teacher_id
+       WHERE ta.id = ?`,
       [assignmentId]
     );
 
@@ -1924,7 +1930,7 @@ app.delete("/api/admin/assignments/:id", authAdmin, requireAdminReauth, async (r
         action: "END_ASSIGNMENT",
         entityType: "subject",
         entityId: assignmentId,
-        description: `Ended ${assignmentRow.subject} assignment for ${assignmentRow.class_level} ${assignmentRow.stream}; retained ${marksMeta.count} mark rows`,
+        description: `Ended ${assignmentRow.subject} assignment for ${assignmentRow.class_level} ${assignmentRow.stream} (${assignmentRow.teacher_name}); retained ${marksMeta.count} mark rows`,
         ipAddress: extractClientIp(req),
       });
 
@@ -1960,7 +1966,7 @@ app.delete("/api/admin/assignments/:id", authAdmin, requireAdminReauth, async (r
       action: "REMOVE_EMPTY_ASSIGNMENT",
       entityType: "subject",
       entityId: assignmentId,
-      description: `Removed empty ${assignmentRow.subject} assignment for ${assignmentRow.class_level} ${assignmentRow.stream} (teacher #${assignmentRow.teacher_id})`,
+      description: `Removed empty ${assignmentRow.subject} assignment for ${assignmentRow.class_level} ${assignmentRow.stream} (${assignmentRow.teacher_name}, #${assignmentRow.teacher_id})`,
       ipAddress: extractClientIp(req),
     });
 
@@ -3703,4 +3709,9 @@ server.listen(PORT, () => {
   ensureTeacherAssignmentLifecycleColumns(pool).catch((err) => {
     console.error("Teacher assignment lifecycle setup failed:", err);
   });
+  ensureTimetableSchemaReady(pool)
+    .then(() => console.log("✅ Timetable storage ready"))
+    .catch((err) => {
+      console.error("Timetable storage setup failed:", err);
+    });
 });

@@ -504,8 +504,8 @@ router.post("/admin/assignments", authAdmin, async (req, res) => {
       entityType: "subject",
       entityId: Number(result.insertId),
       description: activeConflict
-        ? `${buildSubjectDisplay(subjectRow.name, resolvedPaper)} in ${stream} handed over from teacher #${activeConflict.teacher_id} to teacher #${teacherId}`
-        : `${buildSubjectDisplay(subjectRow.name, resolvedPaper)} assigned to ${stream} (teacher #${teacherId})`,
+        ? `${buildSubjectDisplay(subjectRow.name, resolvedPaper)} in ${stream} handed over from ${activeConflict.teacher_name || `teacher #${activeConflict.teacher_id}`} (#${activeConflict.teacher_id}) to ${teacherRow.name || `teacher #${teacherId}`} (#${teacherId})`
+        : `${buildSubjectDisplay(subjectRow.name, resolvedPaper)} assigned to ${stream} (${teacherRow.name || `teacher #${teacherId}`}, #${teacherId})`,
       ipAddress: extractClientIp(req),
     });
 
@@ -548,9 +548,11 @@ router.delete("/admin/assignments/:id", authAdmin, requireAdminReauth, async (re
     const [[assignment]] = await conn.query(
       `SELECT ats.id, ats.subject_id, ats.teacher_id, ats.stream, ats.paper_label, s.name AS subject,
               COALESCE(ats.assignment_status, 'active') AS assignment_status,
-              ats.ended_at
+              ats.ended_at,
+              COALESCE(t.name, CONCAT('Teacher #', ats.teacher_id)) AS teacher_name
        FROM alevel_teacher_subjects ats
        JOIN alevel_subjects s ON s.id = ats.subject_id
+       LEFT JOIN teachers t ON t.id = ats.teacher_id
        WHERE ats.id = ?
        FOR UPDATE`,
       [assignmentId]
@@ -605,7 +607,7 @@ router.delete("/admin/assignments/:id", authAdmin, requireAdminReauth, async (re
         action: "END_ALEVEL_ASSIGNMENT",
         entityType: "subject",
         entityId: Number(assignment.id),
-        description: `Ended A-Level assignment ${buildSubjectDisplay(assignment.subject, assignment.paper_label)} in ${assignment.stream}; retained ${marksMeta.count} mark rows`,
+        description: `Ended A-Level assignment ${buildSubjectDisplay(assignment.subject, assignment.paper_label)} in ${assignment.stream} (${assignment.teacher_name}); retained ${marksMeta.count} mark rows`,
         ipAddress: extractClientIp(req),
       });
       queueAdminYearSnapshotRefresh(db, "alevel-assignment-end");
@@ -630,12 +632,12 @@ router.delete("/admin/assignments/:id", authAdmin, requireAdminReauth, async (re
     conn = null;
 
     await logAuditEvent({
-      userId: AUDIT_ADMIN_USER_ID,
+      userId: Number(req.admin?.id) || AUDIT_ADMIN_USER_ID,
       userRole: "admin",
-      action: "REMOVE_ASSIGNMENT",
+      action: "REMOVE_ALEVEL_EMPTY_ASSIGNMENT",
       entityType: "subject",
       entityId: Number(assignment.id),
-      description: `Removed A-Level assignment ${buildSubjectDisplay(assignment.subject, assignment.paper_label)} from ${assignment.stream} (teacher #${assignment.teacher_id})`,
+      description: `Removed empty A-Level assignment ${buildSubjectDisplay(assignment.subject, assignment.paper_label)} from ${assignment.stream} (${assignment.teacher_name}, #${assignment.teacher_id})`,
       ipAddress: extractClientIp(req),
     });
     queueAdminYearSnapshotRefresh(db, "alevel-assignment-delete");

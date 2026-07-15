@@ -2,26 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { adminFetch } from "../lib/api";
 import { loadPdfTools } from "../utils/loadPdfTools";
 
-const ACTION_OPTIONS = [
-  "LOGIN",
-  "SUBMIT_MARKS",
-  "UPDATE_MARKS",
-  "ASSIGN_SUBJECT",
-  "UNLOCK_MARKS",
-  "BOARDING_LOGIN",
-  "BOARDING_CREATE_LEARNER",
-  "BOARDING_UPDATE_LEARNER",
-  "BOARDING_DELETE_LEARNER",
-  "BOARDING_SUBMIT_MARKS",
-  "BOARDING_UPDATE_MARKS",
-  "BOARDING_GENERATE_REPORTS",
-  "BOARDING_EXPORT_LEARNERS_CSV",
-  "BOARDING_EXPORT_LEARNERS_PDF",
-  "BOARDING_EXPORT_MARKS_PDF",
-  "BOARDING_EXPORT_REPORTS_PDF",
-];
-
-const ENTITY_TYPES = ["login", "marks", "subject", "stream", "teacher", "system"];
+const DEFAULT_ENTITY_TYPES = ["login", "marks", "subject", "stream", "teacher", "system"];
 
 const formatTime = (value) => {
   if (!value) return "—";
@@ -37,6 +18,8 @@ export default function AuditLogsPanel() {
   const [limit, setLimit] = useState(25);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [actionOptions, setActionOptions] = useState([]);
+  const [entityTypeOptions, setEntityTypeOptions] = useState(DEFAULT_ENTITY_TYPES);
 
   const [filters, setFilters] = useState({
     userId: "",
@@ -51,24 +34,39 @@ export default function AuditLogsPanel() {
     [total, limit]
   );
 
-  const fetchLogs = async () => {
+  const fetchLogs = async ({
+    requestedPage = page,
+    requestedLimit = limit,
+    requestedFilters = filters,
+  } = {}) => {
     setLoading(true);
     setError("");
     try {
       const params = new URLSearchParams({
-        page: String(page),
-        limit: String(limit),
+        page: String(requestedPage),
+        limit: String(requestedLimit),
       });
 
-      if (filters.userId.trim()) params.set("userId", filters.userId.trim());
-      if (filters.action) params.set("action", filters.action);
-      if (filters.entityType) params.set("entityType", filters.entityType);
-      if (filters.dateFrom) params.set("dateFrom", `${filters.dateFrom} 00:00:00`);
-      if (filters.dateTo) params.set("dateTo", `${filters.dateTo} 23:59:59`);
+      if (requestedFilters.userId.trim()) params.set("userId", requestedFilters.userId.trim());
+      if (requestedFilters.action) params.set("action", requestedFilters.action);
+      if (requestedFilters.entityType) params.set("entityType", requestedFilters.entityType);
+      if (requestedFilters.dateFrom) params.set("dateFrom", `${requestedFilters.dateFrom} 00:00:00`);
+      if (requestedFilters.dateTo) params.set("dateTo", `${requestedFilters.dateTo} 23:59:59`);
 
       const data = await adminFetch(`/api/admin/audit-logs?${params.toString()}`);
       setLogs(Array.isArray(data?.logs) ? data.logs : []);
       setTotal(Number(data?.total || 0));
+      setActionOptions(
+        Array.from(new Set((Array.isArray(data?.actions) ? data.actions : []).filter(Boolean))).sort()
+      );
+      setEntityTypeOptions(
+        Array.from(
+          new Set([
+            ...DEFAULT_ENTITY_TYPES,
+            ...(Array.isArray(data?.entityTypes) ? data.entityTypes : []),
+          ].filter(Boolean))
+        ).sort()
+      );
     } catch (err) {
       console.error("Audit logs load error:", err);
       setError(err.message || "Failed to load audit logs.");
@@ -85,8 +83,28 @@ export default function AuditLogsPanel() {
   }, [page, limit]);
 
   const applyFilters = () => {
+    if (page === 1) {
+      fetchLogs({ requestedPage: 1, requestedFilters: filters });
+      return;
+    }
     setPage(1);
-    fetchLogs();
+  };
+
+  const clearFilters = () => {
+    const emptyFilters = {
+      userId: "",
+      action: "",
+      entityType: "",
+      dateFrom: "",
+      dateTo: "",
+    };
+    setFilters(emptyFilters);
+
+    if (page === 1) {
+      fetchLogs({ requestedPage: 1, requestedFilters: emptyFilters });
+      return;
+    }
+    setPage(1);
   };
 
   const handleExportPdf = async () => {
@@ -161,7 +179,7 @@ export default function AuditLogsPanel() {
     <div className="panel-card audit-log-panel">
       <div className="panel-card-header">
         <h3>Audit Logs</h3>
-        <button type="button" className="ghost-btn" onClick={fetchLogs} disabled={loading}>
+        <button type="button" className="ghost-btn" onClick={() => fetchLogs()} disabled={loading}>
           {loading ? "Refreshing…" : "Refresh"}
         </button>
       </div>
@@ -182,7 +200,7 @@ export default function AuditLogsPanel() {
           onChange={(e) => setFilters((p) => ({ ...p, action: e.target.value }))}
         >
           <option value="">All actions</option>
-          {ACTION_OPTIONS.map((action) => (
+          {actionOptions.map((action) => (
             <option key={action} value={action}>{action}</option>
           ))}
         </select>
@@ -192,7 +210,7 @@ export default function AuditLogsPanel() {
           onChange={(e) => setFilters((p) => ({ ...p, entityType: e.target.value }))}
         >
           <option value="">All entity types</option>
-          {ENTITY_TYPES.map((entityType) => (
+          {entityTypeOptions.map((entityType) => (
             <option key={entityType} value={entityType}>{entityType}</option>
           ))}
         </select>
@@ -225,11 +243,7 @@ export default function AuditLogsPanel() {
         <button
           type="button"
           className="ghost-btn"
-          onClick={() => {
-            setFilters({ userId: "", action: "", entityType: "", dateFrom: "", dateTo: "" });
-            setPage(1);
-            setTimeout(fetchLogs, 0);
-          }}
+          onClick={clearFilters}
           disabled={loading}
         >
           Clear

@@ -7,6 +7,7 @@ import "./ALevelAdminTheme.css";
 import badge from "../../../assets/badge.png";
 import { loadPdfTools } from "../../../utils/loadPdfTools";
 import { normalizeSchoolCalendar } from "../../../utils/schoolCalendar";
+import { recordAdminReportGeneration } from "../../../utils/adminAuditEvents";
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const ALEVEL_REPORT_DATES_STORAGE_KEY = "spess_alevel_report_dates";
 
@@ -630,6 +631,14 @@ export default function AlevelReport() {
         assessmentMode,
         termEndedOn: reportDates.termEndedOn,
         nextTermBeginsOn: reportDates.nextTermBeginsOn,
+      });
+      await recordAdminReportGeneration({
+        reportKind: isMidReport ? "ALEVEL_MID" : "ALEVEL_END_OF_TERM",
+        classLevel: cls,
+        stream,
+        term,
+        year,
+        learnerCount: data.length,
       });
     } catch (err) {
       console.error(err);

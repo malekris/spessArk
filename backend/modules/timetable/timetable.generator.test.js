@@ -254,6 +254,7 @@ test("A-Level generator keeps fixed subsidiaries, combined GP and maths separati
   historyPaperTwo.teacher_id = 99_002;
   historyPaperTwo.teacher_name = "A Teacher 99002";
   historyPaperTwo.subject = "History Paper 2";
+  historyPaperTwo.available_days = ["Thursday"];
   const result = generateALevelTimetable(fixture);
 
   assert.equal(

@@ -222,7 +222,7 @@ function buildReadiness(assignments) {
     (row) => String(row.lesson_kind || "") === "review"
   );
   const invalidAvailability = teacherRows.filter(
-    (row) => row.availableDays.length < 2 || row.availableDays.length > 3
+    (row) => row.availableDays.length < 1 || row.availableDays.length > 3
   );
   const aLevelAssignments = assignments.filter((row) => row.assignment_scope === "alevel");
   const aLevelCoverageIssues = [];
@@ -602,8 +602,8 @@ export default function createTimetableRoutes(pool) {
       if (!teacherId || days.some((day) => !TIMETABLE_DAYS.includes(day))) {
         return res.status(400).json({ message: "Select valid school days." });
       }
-      if (days.length < 2 || days.length > 3) {
-        return res.status(400).json({ message: "Each teacher must have 2 or 3 available days." });
+      if (days.length < 1 || days.length > 3) {
+        return res.status(400).json({ message: "Each teacher must have between 1 and 3 available days." });
       }
       const [[teacher]] = await pool.query("SELECT id, name FROM teachers WHERE id = ? LIMIT 1", [teacherId]);
       if (!teacher) return res.status(404).json({ message: "Teacher not found." });

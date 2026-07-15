@@ -545,7 +545,7 @@ export default function TimetableDashboard() {
         </div>
         <div className="tt-metric-grid">
           <article><span>Streams</span><strong>12</strong><small>O-Level and A-Level</small></article>
-          <article><span>Teachers ready</span><strong>{readiness?.configuredTeachers || 0}/{readiness?.teachers || 0}</strong><small>2-3 available days</small></article>
+          <article><span>Teachers ready</span><strong>{readiness?.configuredTeachers || 0}/{readiness?.teachers || 0}</strong><small>1-3 available days</small></article>
           <article><span>Rules ready</span><strong>{readiness?.configuredAssignments || 0}/{readiness?.assignments || 0}</strong><small>Active assignments</small></article>
           <article><span>Drafts</span><strong>{setup?.versions?.length || 0}</strong><small>Versioned safely</small></article>
         </div>
@@ -632,7 +632,7 @@ export default function TimetableDashboard() {
         <StatusPill value={setup?.readiness?.ready ? "Ready" : "Setup required"} />
       </div>
       <div className="tt-panel-band">
-        <div className="tt-panel-title"><h3>Teacher availability</h3><span>Choose 2-3 days</span></div>
+        <div className="tt-panel-title"><h3>Teacher availability</h3><span>Choose 1-3 days</span></div>
         <div className="tt-table-scroll">
           <table className="tt-data-table">
             <thead><tr><th>Teacher</th><th>Assignments</th><th>Available days</th><th>Action</th></tr></thead>
@@ -739,7 +739,7 @@ export default function TimetableDashboard() {
       </div>
       {!setup?.readiness?.ready ? (
         <div className="tt-blocker-list">
-          <div><strong>{setup?.readiness?.teachersNeedingAvailability?.length || 0}</strong><span>teachers need 2-3 available days</span></div>
+          <div><strong>{setup?.readiness?.teachersNeedingAvailability?.length || 0}</strong><span>teachers need 1-3 available days</span></div>
           <div><strong>{setup?.readiness?.reviewAssignments?.length || 0}</strong><span>assignment rules need review</span></div>
           <div><strong>{setup?.readiness?.aLevelCoverageIssues?.length || 0}</strong><span>A-Level subject groups are missing</span></div>
           <div><strong>{setup?.readiness?.aLevelPaperIssues?.length || 0}</strong><span>A-Level paper assignments need attention</span></div>

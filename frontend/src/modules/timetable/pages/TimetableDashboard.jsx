@@ -20,6 +20,7 @@ const STREAMS = [
 ];
 const CLASS_LEVELS = ["S1", "S2", "S3", "S4", "S5", "S6"];
 const GRID_COLUMNS = ["P1", "P2", "MIDDAY", "P4", "P5"];
+const DAY_LIST_FORMATTER = new Intl.ListFormat("en", { style: "long", type: "conjunction" });
 
 const streamLabel = (key) => String(key || "").replace("::", " ");
 const classStreams = (classLevel) =>
@@ -72,6 +73,10 @@ export default function TimetableDashboard() {
   const [busyKey, setBusyKey] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [availabilityConfirmation, setAvailabilityConfirmation] = useState(null);
+  const availabilityConfirmationTimerRef = useRef(null);
+  const availabilityTableRef = useRef(null);
+  const availabilityRowRefs = useRef(new Map());
   const [draftName, setDraftName] = useState("");
   const [classFilter, setClassFilter] = useState("All");
   const [viewMode, setViewMode] = useState("stream");
@@ -93,8 +98,8 @@ export default function TimetableDashboard() {
     return detail;
   }, []);
 
-  const loadSetup = useCallback(async () => {
-    setLoading(true);
+  const loadSetup = useCallback(async ({ showLoading = true } = {}) => {
+    if (showLoading) setLoading(true);
     setError("");
     try {
       const data = await adminFetch("/api/admin/timetable/setup");
@@ -113,13 +118,19 @@ export default function TimetableDashboard() {
     } catch (loadError) {
       setError(loadError.message || "Failed to load timetable setup.");
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   }, [loadVersion]);
 
   useEffect(() => {
     loadSetup();
   }, [loadSetup]);
+
+  useEffect(() => () => {
+    if (availabilityConfirmationTimerRef.current) {
+      window.clearTimeout(availabilityConfirmationTimerRef.current);
+    }
+  }, []);
 
   const chooseVersion = async (value) => {
     setSelectedVersionId(value);
@@ -143,15 +154,51 @@ export default function TimetableDashboard() {
   };
 
   const saveAvailability = async (teacher) => {
+    const teacherKey = String(teacher.teacherId);
+    const savedDays = [...(availabilityDrafts[teacher.teacherId] || [])];
+    const table = availabilityTableRef.current;
+    const row = availabilityRowRefs.current.get(teacherKey);
+    const position = {
+      pageX: window.scrollX,
+      pageY: window.scrollY,
+      rowTop: row?.getBoundingClientRect().top ?? null,
+      tableScrollLeft: table?.scrollLeft ?? 0,
+    };
+
     setBusyKey(`teacher-${teacher.teacherId}`);
     setError("");
     try {
       await adminFetch(`/api/admin/timetable/teachers/${teacher.teacherId}/availability`, {
         method: "PUT",
-        body: { days: availabilityDrafts[teacher.teacherId] || [] },
+        body: { days: savedDays },
       });
-      setNotice(`${teacher.teacherName} availability saved.`);
-      await loadSetup();
+      await loadSetup({ showLoading: false });
+
+      if (availabilityConfirmationTimerRef.current) {
+        window.clearTimeout(availabilityConfirmationTimerRef.current);
+      }
+      setAvailabilityConfirmation({
+        teacherId: teacher.teacherId,
+        teacherName: teacher.teacherName,
+        days: savedDays,
+      });
+      availabilityConfirmationTimerRef.current = window.setTimeout(() => {
+        setAvailabilityConfirmation(null);
+        availabilityConfirmationTimerRef.current = null;
+      }, 5000);
+
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          const refreshedTable = availabilityTableRef.current;
+          const refreshedRow = availabilityRowRefs.current.get(teacherKey);
+          if (refreshedTable) refreshedTable.scrollLeft = position.tableScrollLeft;
+          if (refreshedRow && position.rowTop !== null) {
+            window.scrollBy(0, refreshedRow.getBoundingClientRect().top - position.rowTop);
+          } else {
+            window.scrollTo(position.pageX, position.pageY);
+          }
+        });
+      });
     } catch (saveError) {
       setError(saveError.message || "Failed to save availability.");
     } finally {
@@ -633,11 +680,18 @@ export default function TimetableDashboard() {
       </div>
       <div className="tt-panel-band">
         <div className="tt-panel-title"><h3>Teacher availability</h3><span>Choose 1-3 days</span></div>
-        <div className="tt-table-scroll">
+        <div className="tt-table-scroll" ref={availabilityTableRef}>
           <table className="tt-data-table">
             <thead><tr><th>Teacher</th><th>Assignments</th><th>Available days</th><th>Action</th></tr></thead>
             <tbody>{(setup?.teachers || []).map((teacher) => (
-              <tr key={teacher.teacherId}>
+              <tr
+                key={teacher.teacherId}
+                ref={(node) => {
+                  const key = String(teacher.teacherId);
+                  if (node) availabilityRowRefs.current.set(key, node);
+                  else availabilityRowRefs.current.delete(key);
+                }}
+              >
                 <td><strong>{teacher.teacherName}</strong></td>
                 <td>{teacher.assignmentCount}</td>
                 <td><div className="tt-day-picker">{DAYS.map((day) => (
@@ -648,7 +702,7 @@ export default function TimetableDashboard() {
                     onClick={() => toggleAvailabilityDay(teacher.teacherId, day)}
                   >{day.slice(0, 3)}</button>
                 ))}</div></td>
-                <td><button type="button" className="tt-action-button" disabled={busyKey === `teacher-${teacher.teacherId}`} onClick={() => saveAvailability(teacher)}>{busyKey === `teacher-${teacher.teacherId}` ? "Saving" : "Save"}</button></td>
+                <td><button type="button" className={`tt-action-button${String(availabilityConfirmation?.teacherId) === String(teacher.teacherId) ? " is-saved" : ""}`} disabled={busyKey === `teacher-${teacher.teacherId}`} onClick={() => saveAvailability(teacher)}>{busyKey === `teacher-${teacher.teacherId}` ? "Saving" : String(availabilityConfirmation?.teacherId) === String(teacher.teacherId) ? "Saved" : "Save"}</button></td>
               </tr>
             ))}</tbody>
           </table>
@@ -874,6 +928,18 @@ export default function TimetableDashboard() {
       {error && setup ? <div className="tt-alert is-error"><span>{error}</span><button type="button" onClick={() => setError("")}>Close</button></div> : null}
       {notice ? <div className="tt-alert is-success"><span>{notice}</span><button type="button" onClick={() => setNotice("")}>Close</button></div> : null}
       {content}
+      {availabilityConfirmation ? (
+        <div className="tt-save-confirmation" role="status" aria-live="polite" aria-atomic="true">
+          <span className="tt-save-confirmation-mark" aria-hidden="true" />
+          <span className="tt-save-confirmation-copy">
+            <strong>Teacher availability saved</strong>
+            <span>
+              {availabilityConfirmation.teacherName} is available on {DAY_LIST_FORMATTER.format(availabilityConfirmation.days)}.
+            </span>
+          </span>
+          <button type="button" onClick={() => setAvailabilityConfirmation(null)}>Dismiss</button>
+        </div>
+      ) : null}
     </TimetableAdminShell>
   );
 }

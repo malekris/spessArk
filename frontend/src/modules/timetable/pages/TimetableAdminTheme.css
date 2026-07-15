@@ -1,6 +1,8 @@
 .timetable-admin-root.timetable-shell-root {
   display: block;
   min-height: 100vh;
+  isolation: isolate;
+  overflow-x: clip;
   background: var(--tt-shell-bg) !important;
   color: var(--tt-body) !important;
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
@@ -10,11 +12,17 @@
   position: sticky;
   top: 0;
   z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
   width: 100%;
   padding: 1rem clamp(1rem, 3vw, 3rem);
   border-bottom: 1px solid var(--tt-border);
   background: var(--tt-topbar-bg);
   backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
 }
 
 .timetable-shell-topbar-copy {
@@ -55,6 +63,8 @@
 }
 
 .timetable-module-nav-shell {
+  position: relative;
+  z-index: 1;
   padding: 1rem clamp(1rem, 3vw, 3rem);
   border-bottom: 1px solid var(--tt-border);
   background: var(--tt-surface);
@@ -292,7 +302,10 @@
 
 @media (max-width: 640px) {
   .timetable-shell-topbar {
-    align-items: flex-start;
+    position: relative;
+    top: auto;
+    flex-direction: column;
+    align-items: stretch;
     padding: 0.9rem 1rem;
   }
 

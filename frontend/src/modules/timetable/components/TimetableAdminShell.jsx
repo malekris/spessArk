@@ -148,7 +148,7 @@ export default function TimetableAdminShell({
       }`}
       style={shellVars}
     >
-      <header className="admin-nav timetable-shell-topbar">
+      <header className="timetable-shell-topbar">
         <div className="timetable-shell-topbar-copy">
           <div className="brand">
             <span className="brand-dot" />

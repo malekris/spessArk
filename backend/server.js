@@ -3635,6 +3635,27 @@ const userIdToSockets = new Map();
 
 export const getOnlineUserIds = () => Array.from(userIdToSockets.keys());
 
+const isDmConversationParticipant = async (conversationId, userId) => {
+  const cid = Number(conversationId);
+  const uid = Number(userId);
+  if (!cid || !uid) return false;
+  try {
+    const [[row]] = await db.query(
+      `
+      SELECT 1
+      FROM vine_conversations
+      WHERE id = ?
+        AND (user1_id = ? OR user2_id = ?)
+      LIMIT 1
+      `,
+      [cid, uid, uid]
+    );
+    return Boolean(row);
+  } catch {
+    return false;
+  }
+};
+
 io.on("connection", (socket) => {
   console.log("🔌 Socket connected:", socket.id);
 
@@ -3679,6 +3700,62 @@ io.on("connection", (socket) => {
     socket.to(`conversation-${conversationId}`).emit("dm_typing_stop", {
       conversationId,
       userId,
+    });
+  });
+
+  socket.on("dm_call_invite", async (payload = {}) => {
+    const conversationId = payload.conversationId;
+    if (!conversationId || !payload.callId || !payload.offer) return;
+    const fromUserId = socketToUserId.get(socket.id) || payload.fromUserId || null;
+    if (!(await isDmConversationParticipant(conversationId, fromUserId))) return;
+    socket.to(`conversation-${conversationId}`).emit("dm_call_invite", {
+      ...payload,
+      fromUserId,
+      createdAt: new Date().toISOString(),
+    });
+  });
+
+  socket.on("dm_call_accept", async (payload = {}) => {
+    const conversationId = payload.conversationId;
+    if (!conversationId || !payload.callId || !payload.answer) return;
+    const fromUserId = socketToUserId.get(socket.id) || payload.fromUserId || null;
+    if (!(await isDmConversationParticipant(conversationId, fromUserId))) return;
+    socket.to(`conversation-${conversationId}`).emit("dm_call_accept", {
+      ...payload,
+      fromUserId,
+    });
+  });
+
+  socket.on("dm_call_decline", async (payload = {}) => {
+    const conversationId = payload.conversationId;
+    if (!conversationId || !payload.callId) return;
+    const fromUserId = socketToUserId.get(socket.id) || payload.fromUserId || null;
+    if (!(await isDmConversationParticipant(conversationId, fromUserId))) return;
+    socket.to(`conversation-${conversationId}`).emit("dm_call_decline", {
+      ...payload,
+      fromUserId,
+    });
+  });
+
+  socket.on("dm_call_end", async (payload = {}) => {
+    const conversationId = payload.conversationId;
+    if (!conversationId || !payload.callId) return;
+    const fromUserId = socketToUserId.get(socket.id) || payload.fromUserId || null;
+    if (!(await isDmConversationParticipant(conversationId, fromUserId))) return;
+    socket.to(`conversation-${conversationId}`).emit("dm_call_end", {
+      ...payload,
+      fromUserId,
+    });
+  });
+
+  socket.on("dm_call_signal", async (payload = {}) => {
+    const conversationId = payload.conversationId;
+    if (!conversationId || !payload.callId || !payload.candidate) return;
+    const fromUserId = socketToUserId.get(socket.id) || payload.fromUserId || null;
+    if (!(await isDmConversationParticipant(conversationId, fromUserId))) return;
+    socket.to(`conversation-${conversationId}`).emit("dm_call_signal", {
+      ...payload,
+      fromUserId,
     });
   });
 

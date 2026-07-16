@@ -76,6 +76,15 @@
   padding: 4px 6px;
 }
 
+.chat-window-compact .dm-call-actions {
+  margin-left: 0;
+}
+
+.chat-window-compact .dm-call-btn {
+  width: 34px;
+  height: 34px;
+}
+
 .chat-window-compact .chat-avatar {
   width: 36px;
   height: 36px;
@@ -200,6 +209,133 @@
 
 .dm-chat-close {
   font-size: 0.92rem;
+}
+
+.dm-call-actions {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.dm-call-btn {
+  width: 40px;
+  height: 40px;
+  border: 1px solid rgba(16, 185, 129, 0.22);
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.42), transparent 38%),
+    linear-gradient(145deg, #10b981, #047857);
+  color: #ffffff;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 12px 22px rgba(5, 150, 105, 0.2);
+  transition: transform 0.16s ease, box-shadow 0.16s ease, opacity 0.16s ease;
+}
+
+.dm-call-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 16px 28px rgba(5, 150, 105, 0.26);
+}
+
+.dm-call-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.dm-call-btn-end {
+  background:
+    radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.28), transparent 38%),
+    linear-gradient(145deg, #ef4444, #991b1b);
+  border-color: rgba(239, 68, 68, 0.34);
+  box-shadow: 0 12px 22px rgba(185, 28, 28, 0.2);
+}
+
+.dm-call-banner,
+.dm-call-toast {
+  position: relative;
+  z-index: 2;
+  margin: 10px 14px 0;
+  border-radius: 18px;
+  border: 1px solid rgba(16, 185, 129, 0.24);
+  background:
+    radial-gradient(circle at 10% 0%, rgba(250, 204, 21, 0.18), transparent 36%),
+    linear-gradient(145deg, rgba(236, 253, 245, 0.98), rgba(255, 255, 255, 0.96));
+  color: #064e3b;
+  box-shadow: 0 14px 28px rgba(6, 95, 70, 0.1);
+}
+
+.dm-call-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+}
+
+.dm-call-banner strong,
+.dm-call-banner span {
+  display: block;
+}
+
+.dm-call-banner strong {
+  font-size: 0.92rem;
+}
+
+.dm-call-banner span {
+  margin-top: 2px;
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.dm-call-banner.incoming {
+  border-color: rgba(250, 204, 21, 0.48);
+  background:
+    radial-gradient(circle at 8% 0%, rgba(250, 204, 21, 0.28), transparent 36%),
+    linear-gradient(145deg, #fffbeb, #ecfdf5);
+}
+
+.dm-call-banner.active {
+  border-color: rgba(16, 185, 129, 0.42);
+  background:
+    radial-gradient(circle at 90% 0%, rgba(45, 212, 191, 0.2), transparent 34%),
+    linear-gradient(145deg, #ecfdf5, #ffffff);
+}
+
+.dm-call-banner-actions {
+  display: inline-flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.dm-call-answer,
+.dm-call-decline {
+  border: none;
+  border-radius: 999px;
+  padding: 9px 14px;
+  color: #ffffff;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 900;
+  box-shadow: 0 10px 18px rgba(15, 23, 42, 0.12);
+}
+
+.dm-call-answer {
+  background: linear-gradient(145deg, #10b981, #047857);
+}
+
+.dm-call-decline {
+  background: linear-gradient(145deg, #ef4444, #991b1b);
+}
+
+.dm-call-toast {
+  padding: 10px 12px;
+  color: #047857;
+  font-size: 0.82rem;
+  font-weight: 800;
 }
 
 .chat-user {
@@ -702,6 +838,23 @@
   .chat-vanish-banner {
     margin: 8px 10px 0;
     font-size: 0.82rem;
+  }
+
+  .dm-call-banner {
+    align-items: stretch;
+    flex-direction: column;
+    margin: 8px 10px 0;
+  }
+
+  .dm-call-banner-actions,
+  .dm-call-answer,
+  .dm-call-decline {
+    width: 100%;
+  }
+
+  .dm-call-banner-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
   }
 
   .dm-profile-sheet {

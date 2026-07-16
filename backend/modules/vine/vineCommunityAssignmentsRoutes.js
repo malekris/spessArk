@@ -1121,20 +1121,30 @@ router.get("/communities/:id/progress", authenticate, async (req, res) => {
             const hasAttendanceSignal = totalSessions > 0;
             const hasSubmissionSignal = submissionBase > 0;
             const hasGradeSignal = Number(r.graded_count || 0) > 0 && avgPercentNum !== null;
+            const signalScores = [
+              hasAttendanceSignal ? attendanceRate : null,
+              hasSubmissionSignal ? submissionRate : null,
+              hasGradeSignal ? avgPercentNum : null,
+            ].filter((value) => value !== null);
+            const progressScore = signalScores.length
+              ? Math.round(signalScores.reduce((sum, value) => sum + value, 0) / signalScores.length)
+              : null;
+            const urgentSignals = [
+              hasAttendanceSignal && attendanceRate < 50,
+              hasSubmissionSignal && submissionRate < 50,
+              hasGradeSignal && avgPercentNum < 50,
+            ].filter(Boolean).length;
+            const watchSignals = [
+              hasAttendanceSignal && attendanceRate < 75,
+              hasSubmissionSignal && submissionRate < 80,
+              hasGradeSignal && avgPercentNum < 70,
+            ].filter(Boolean).length;
             let riskFlag = "getting_started";
             if (!hasAttendanceSignal && !hasSubmissionSignal && !hasGradeSignal) {
               riskFlag = "getting_started";
-            } else if (
-              (hasAttendanceSignal && attendanceRate < 50) ||
-              (hasSubmissionSignal && submissionRate < 50) ||
-              (hasGradeSignal && avgPercentNum < 50)
-            ) {
+            } else if (urgentSignals >= 2 || (progressScore !== null && progressScore < 50)) {
               riskFlag = "at_risk";
-            } else if (
-              (hasAttendanceSignal && attendanceRate < 70) ||
-              (hasSubmissionSignal && submissionRate < 75) ||
-              (hasGradeSignal && avgPercentNum < 67)
-            ) {
+            } else if (urgentSignals >= 1 || watchSignals >= 1 || (progressScore !== null && progressScore < 76)) {
               riskFlag = "watch";
             } else {
               riskFlag = "on_track";
@@ -1149,6 +1159,7 @@ router.get("/communities/:id/progress", authenticate, async (req, res) => {
               attendance_rate: attendanceRate,
               avg_score: avgScoreNum,
               avg_percent: avgPercentNum,
+              progress_score: progressScore,
               risk_flag: riskFlag,
             };
           });

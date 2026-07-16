@@ -5591,6 +5591,32 @@
   box-shadow: 0 18px 28px rgba(6, 95, 70, 0.1);
 }
 
+.progress-row-head {
+  padding: 9px 12px;
+  border-color: rgba(5, 150, 105, 0.22);
+  background: linear-gradient(90deg, rgba(6, 95, 70, 0.96), rgba(4, 120, 87, 0.92));
+  color: #ecfdf5;
+  box-shadow: none;
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.progress-row-head::before {
+  background: #facc15;
+}
+
+.progress-row-head:hover {
+  transform: none;
+  border-color: rgba(5, 150, 105, 0.22);
+  box-shadow: none;
+}
+
+.progress-row-head span {
+  min-width: 0;
+}
+
 .progress-user {
   display: flex;
   align-items: center;
@@ -5730,6 +5756,10 @@
   .progress-row {
     grid-template-columns: 1fr;
     justify-items: start;
+  }
+
+  .progress-row-head {
+    display: none;
   }
 
   .progress-status {

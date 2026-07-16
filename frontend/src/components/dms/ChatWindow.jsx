@@ -13,6 +13,12 @@ const DISAPPEARING_OPTIONS = [
   { value: "1h", label: "1 hour" },
   { value: "24h", label: "24 hours" },
 ];
+const RTC_CONFIG = {
+  iceServers: [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" },
+  ],
+};
 
 const formatLastSeenAgo = (dateString) => {
   if (!dateString) return "";
@@ -160,16 +166,174 @@ export default function ChatWindow({
     disappearing_enabled: false,
     disappear_mode: "after_read",
   });
+  const [callState, setCallState] = useState("idle");
+  const [callNotice, setCallNotice] = useState("");
+  const [incomingCall, setIncomingCall] = useState(null);
   const [, setLastSeenTick] = useState(0);
 
   const scrollRef = useRef(null);
+  const remoteAudioRef = useRef(null);
   const stickToBottomRef = useRef(true);
   const typingRef = useRef({ active: false, timeout: null });
   const inFlightMessageKeysRef = useRef(new Set());
   const inFlightRequestIdsRef = useRef(new Map());
+  const peerRef = useRef(null);
+  const localStreamRef = useRef(null);
+  const callIdRef = useRef(null);
+  const callStateRef = useRef("idle");
 
   const currentUser = JSON.parse(localStorage.getItem("vine_user"));
   const myId = currentUser?.id;
+  const partnerUserId = Number(partner?.user_id || partner?.id || receiverId || 0);
+
+  const setCallStatus = (nextState, notice = "") => {
+    callStateRef.current = nextState;
+    setCallState(nextState);
+    setCallNotice(notice);
+  };
+
+  const stopLocalCallStream = () => {
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach((track) => track.stop());
+      localStreamRef.current = null;
+    }
+  };
+
+  const resetCall = (notice = "") => {
+    if (peerRef.current) {
+      try {
+        peerRef.current.close();
+      } catch {}
+      peerRef.current = null;
+    }
+    stopLocalCallStream();
+    callIdRef.current = null;
+    setIncomingCall(null);
+    if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null;
+    setCallStatus("idle", notice);
+  };
+
+  const createPeerConnection = (callId) => {
+    if (peerRef.current) {
+      try {
+        peerRef.current.close();
+      } catch {}
+    }
+    const pc = new RTCPeerConnection(RTC_CONFIG);
+    peerRef.current = pc;
+    pc.onicecandidate = (event) => {
+      if (!event.candidate || !conversationId || !callId) return;
+      socket.emit("dm_call_signal", {
+        conversationId,
+        callId,
+        fromUserId: myId,
+        candidate: event.candidate,
+      });
+    };
+    pc.ontrack = (event) => {
+      const [remoteStream] = event.streams || [];
+      if (remoteAudioRef.current && remoteStream) {
+        remoteAudioRef.current.srcObject = remoteStream;
+        remoteAudioRef.current.play?.().catch(() => {});
+      }
+    };
+    pc.onconnectionstatechange = () => {
+      if (["failed", "disconnected"].includes(pc.connectionState)) {
+        setCallStatus("idle", "Call disconnected");
+        resetCall("Call disconnected");
+      }
+    };
+    return pc;
+  };
+
+  const getLocalAudioStream = async () => {
+    if (localStreamRef.current) return localStreamRef.current;
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error("Audio calls are not supported on this browser.");
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+      video: false,
+    });
+    localStreamRef.current = stream;
+    return stream;
+  };
+
+  const startAudioCall = async () => {
+    if (!conversationId) {
+      setCallNotice("Send the first message before starting a call.");
+      return;
+    }
+    if (!partnerUserId || callState !== "idle") return;
+    const callId = `${conversationId}-${myId}-${Date.now()}`;
+    callIdRef.current = callId;
+    setCallStatus("outgoing", "Calling...");
+    try {
+      const pc = createPeerConnection(callId);
+      const stream = await getLocalAudioStream();
+      stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      socket.emit("dm_call_invite", {
+        conversationId,
+        callId,
+        fromUserId: myId,
+        toUserId: partnerUserId,
+        offer,
+      });
+    } catch (err) {
+      resetCall(err?.message || "Could not start audio call.");
+    }
+  };
+
+  const acceptIncomingCall = async () => {
+    if (!incomingCall || !conversationId) return;
+    const callId = incomingCall.callId;
+    callIdRef.current = callId;
+    setCallStatus("connecting", "Connecting...");
+    try {
+      const pc = createPeerConnection(callId);
+      const stream = await getLocalAudioStream();
+      stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+      await pc.setRemoteDescription(new RTCSessionDescription(incomingCall.offer));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      socket.emit("dm_call_accept", {
+        conversationId,
+        callId,
+        fromUserId: myId,
+        answer,
+      });
+      setIncomingCall(null);
+      setCallStatus("active", "Audio call connected");
+    } catch (err) {
+      socket.emit("dm_call_end", { conversationId, callId, fromUserId: myId });
+      resetCall(err?.message || "Could not answer audio call.");
+    }
+  };
+
+  const declineIncomingCall = () => {
+    if (incomingCall?.callId && conversationId) {
+      socket.emit("dm_call_decline", {
+        conversationId,
+        callId: incomingCall.callId,
+        fromUserId: myId,
+      });
+    }
+    resetCall("Call declined");
+  };
+
+  const endAudioCall = () => {
+    const callId = callIdRef.current || incomingCall?.callId;
+    if (conversationId && callId) {
+      socket.emit("dm_call_end", { conversationId, callId, fromUserId: myId });
+    }
+    resetCall("Call ended");
+  };
 
   const removeMessagesByIds = (ids = []) => {
     const idSet = new Set((ids || []).map((id) => Number(id)).filter(Boolean));
@@ -677,6 +841,53 @@ export default function ChatWindow({
         };
       });
     });
+    socket.on("dm_call_invite", (payload = {}) => {
+      if (String(payload.conversationId) !== String(conversationId)) return;
+      if (Number(payload.fromUserId) === Number(myId)) return;
+      if (payload.toUserId && Number(payload.toUserId) !== Number(myId)) return;
+      if (!payload.callId || !payload.offer) return;
+      if (callStateRef.current !== "idle") {
+        socket.emit("dm_call_decline", {
+          conversationId,
+          callId: payload.callId,
+          fromUserId: myId,
+          reason: "busy",
+        });
+        return;
+      }
+      callIdRef.current = payload.callId;
+      setIncomingCall(payload);
+      setCallStatus("incoming", "Incoming audio call");
+    });
+    socket.on("dm_call_accept", async (payload = {}) => {
+      if (String(payload.conversationId) !== String(conversationId)) return;
+      if (payload.callId !== callIdRef.current || !payload.answer || !peerRef.current) return;
+      try {
+        await peerRef.current.setRemoteDescription(new RTCSessionDescription(payload.answer));
+        setCallStatus("active", "Audio call connected");
+      } catch {
+        resetCall("Call connection failed");
+      }
+    });
+    socket.on("dm_call_decline", (payload = {}) => {
+      if (String(payload.conversationId) !== String(conversationId)) return;
+      if (payload.callId !== callIdRef.current) return;
+      resetCall(payload.reason === "busy" ? "User is already on a call" : "Call declined");
+    });
+    socket.on("dm_call_end", (payload = {}) => {
+      if (String(payload.conversationId) !== String(conversationId)) return;
+      if (payload.callId !== callIdRef.current) return;
+      resetCall("Call ended");
+    });
+    socket.on("dm_call_signal", async (payload = {}) => {
+      if (String(payload.conversationId) !== String(conversationId)) return;
+      if (payload.callId !== callIdRef.current || !payload.candidate || !peerRef.current) return;
+      try {
+        await peerRef.current.addIceCandidate(new RTCIceCandidate(payload.candidate));
+      } catch {
+        // ICE candidates can arrive during teardown; ignore late candidates.
+      }
+    });
   
     return () => {
       socket.off("dm_received", handleNewMessage);
@@ -688,14 +899,27 @@ export default function ChatWindow({
       socket.off("dm_reaction_updated");
       socket.off("dm_settings_updated");
       socket.off("user_presence_changed");
+      socket.off("dm_call_invite");
+      socket.off("dm_call_accept");
+      socket.off("dm_call_decline");
+      socket.off("dm_call_end");
+      socket.off("dm_call_signal");
     };
   }, [conversationId, myId]);
 
   useEffect(() => {
     return () => {
       if (typingRef.current.timeout) clearTimeout(typingRef.current.timeout);
+      if (callIdRef.current && conversationId) {
+        socket.emit("dm_call_end", {
+          conversationId,
+          callId: callIdRef.current,
+          fromUserId: myId,
+        });
+      }
+      resetCall();
     };
-  }, []);
+  }, [conversationId, myId]);
 
   const handleTyping = (value) => {
     if (!conversationId || !myId) return;
@@ -893,6 +1117,43 @@ export default function ChatWindow({
           <div style={{ opacity: 0.6 }}>Loading chat…</div>
         )}
 
+        <div className="dm-call-actions">
+          {["outgoing", "connecting", "active"].includes(callState) ? (
+            <button
+              type="button"
+              className="dm-call-btn dm-call-btn-end"
+              onClick={endAudioCall}
+              aria-label="End audio call"
+              title="End audio call"
+            >
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden="true">
+                <path d="M5 15.5c4.4-3 9.6-3 14 0" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
+                <path d="M7.5 14.4l-1.1 2.8a1 1 0 0 0 .72 1.34l2.15.48a1 1 0 0 0 1.16-.72l.48-1.86" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M16.5 14.4l1.1 2.8a1 1 0 0 1-.72 1.34l-2.15.48a1 1 0 0 1-1.16-.72l-.48-1.86" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="dm-call-btn"
+              onClick={startAudioCall}
+              disabled={!conversationId || !partnerUserId || callState !== "idle"}
+              aria-label="Start audio call"
+              title={conversationId ? "Start audio call" : "Send a message first to start calls"}
+            >
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden="true">
+                <path
+                  d="M8.4 4.8 10 8.4a1.6 1.6 0 0 1-.38 1.82l-1.1 1.1a12.2 12.2 0 0 0 4.16 4.16l1.1-1.1A1.6 1.6 0 0 1 15.6 14l3.6 1.6a1.6 1.6 0 0 1 .94 1.76l-.42 2.08A1.9 1.9 0 0 1 17.86 21C9.65 21 3 14.35 3 6.14A1.9 1.9 0 0 1 4.56 4.28l2.08-.42A1.6 1.6 0 0 1 8.4 4.8Z"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
+          )}
+        </div>
+
         {compact && (onMinimize || onClose) && (
           <div className="dm-chat-window-actions">
             {onMinimize && (
@@ -920,6 +1181,43 @@ export default function ChatWindow({
           </div>
         )}
       </div>
+
+      <audio ref={remoteAudioRef} autoPlay playsInline />
+
+      {callState !== "idle" && (
+        <div className={`dm-call-banner ${callState}`}>
+          <div>
+            <strong>
+              {callState === "incoming"
+                ? "Incoming audio call"
+                : callState === "active"
+                  ? "Audio call live"
+                  : callState === "outgoing"
+                    ? "Calling..."
+                    : "Connecting..."}
+            </strong>
+            <span>{callNotice || (partner ? partner.display_name || partner.username : "Vine call")}</span>
+          </div>
+          {callState === "incoming" ? (
+            <div className="dm-call-banner-actions">
+              <button type="button" className="dm-call-answer" onClick={acceptIncomingCall}>
+                Answer
+              </button>
+              <button type="button" className="dm-call-decline" onClick={declineIncomingCall}>
+                Decline
+              </button>
+            </div>
+          ) : (
+            <button type="button" className="dm-call-decline" onClick={endAudioCall}>
+              End
+            </button>
+          )}
+        </div>
+      )}
+
+      {callState === "idle" && callNotice && (
+        <div className="dm-call-toast">{callNotice}</div>
+      )}
 
       {chatSettings.disappearing_enabled && (
         <div className="chat-vanish-banner">

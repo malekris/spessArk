@@ -683,4 +683,20 @@
       font-size: 1rem;
     }
   }
+
+@media (max-width: 768px) {
+  .vine-auth-card-login .vine-title {
+    font-size: 1.6rem;
+    line-height: 1.16;
+  }
+
+  .vine-auth-card-login .vine-login-subcopy {
+    font-size: 0.9rem;
+    line-height: 1.45;
+  }
+
+  .vine-auth-card-login .vine-btn {
+    font-size: 1rem;
+  }
+}
   

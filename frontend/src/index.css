@@ -16,6 +16,8 @@
      height: 100%;
      overflow-x: hidden;
      background: #020617; /* match app background */
+     -webkit-text-size-adjust: 100%;
+     text-size-adjust: 100%;
    }
    
    /* root app container (Vite / React) */
@@ -36,6 +38,25 @@ body {
     "Segoe UI", sans-serif;
   background: #020817;
   color: #f9fafb;
+}
+
+/* Keep Vine and Ark compact on phones in both browser and installed PWA modes. */
+@media (max-width: 768px) {
+  html[data-app-surface="vine"],
+  html[data-app-surface="ark"] {
+    font-size: 15px;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  html[data-app-surface="vine"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  html[data-app-surface="vine"] textarea,
+  html[data-app-surface="vine"] select,
+  html[data-app-surface="ark"] input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  html[data-app-surface="ark"] textarea,
+  html[data-app-surface="ark"] select {
+    font-size: 16px;
+  }
 }
 
 #root {

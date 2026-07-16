@@ -143,6 +143,11 @@ export default function VineNotifications() {
       if (meta.community_slug) return `/vine/communities/${meta.community_slug}`;
       return null;
     }
+    if (notification.type === "missed_call") {
+      if (meta.target_path) return meta.target_path;
+      if (meta.conversation_id) return `/vine/dms/${meta.conversation_id}`;
+      return "/vine/dms";
+    }
 
     const postTarget = hasLiveSession
       ? buildFeedTarget(notification)
@@ -200,6 +205,7 @@ export default function VineNotifications() {
       case "mention_comment": return "mentioned you in a comment";
       case "follow_request": return "requested to follow you";
       case "follow_request_accepted": return "accepted your follow request";
+      case "missed_call": return "called you. You missed the audio call";
       case "report_post": return "reported a post to Guardian";
       case "report_comment": return "reported a comment to Guardian";
       case "appeal": return "submitted an appeal";

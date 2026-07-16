@@ -4180,6 +4180,34 @@
   }
 }
 
+@media (max-width: 768px) {
+  .admin-heading h1 {
+    font-size: 1.55rem;
+    line-height: 1.2;
+  }
+
+  .admin-heading p {
+    font-size: 0.88rem;
+    line-height: 1.5;
+  }
+
+  .section-title {
+    font-size: 1.18rem;
+  }
+
+  .notice-header h3,
+  .notice-item h4 {
+    font-size: 0.96rem;
+  }
+
+  .notice-body p,
+  .notice-item p,
+  .notice-item-body {
+    font-size: 0.9rem;
+    line-height: 1.5;
+  }
+}
+
 .admin-root.mode-light .teachers-table thead {
   background: rgba(226, 232, 240, 0.98);
 }

@@ -264,6 +264,16 @@ export default function ChatWindow({
   };
 
   const startAudioCall = async () => {
+    if (window.__vineCallLayerActive) {
+      window.dispatchEvent(new CustomEvent("vine:start-audio-call", {
+        detail: {
+          conversationId,
+          toUserId: partnerUserId,
+          partner,
+        },
+      }));
+      return;
+    }
     if (!conversationId) {
       setCallNotice("Send the first message before starting a call.");
       return;
@@ -842,6 +852,7 @@ export default function ChatWindow({
       });
     });
     socket.on("dm_call_invite", (payload = {}) => {
+      if (window.__vineCallLayerActive) return;
       if (String(payload.conversationId) !== String(conversationId)) return;
       if (Number(payload.fromUserId) === Number(myId)) return;
       if (payload.toUserId && Number(payload.toUserId) !== Number(myId)) return;
@@ -860,6 +871,7 @@ export default function ChatWindow({
       setCallStatus("incoming", "Incoming audio call");
     });
     socket.on("dm_call_accept", async (payload = {}) => {
+      if (window.__vineCallLayerActive) return;
       if (String(payload.conversationId) !== String(conversationId)) return;
       if (payload.callId !== callIdRef.current || !payload.answer || !peerRef.current) return;
       try {
@@ -870,16 +882,19 @@ export default function ChatWindow({
       }
     });
     socket.on("dm_call_decline", (payload = {}) => {
+      if (window.__vineCallLayerActive) return;
       if (String(payload.conversationId) !== String(conversationId)) return;
       if (payload.callId !== callIdRef.current) return;
       resetCall(payload.reason === "busy" ? "User is already on a call" : "Call declined");
     });
     socket.on("dm_call_end", (payload = {}) => {
+      if (window.__vineCallLayerActive) return;
       if (String(payload.conversationId) !== String(conversationId)) return;
       if (payload.callId !== callIdRef.current) return;
       resetCall("Call ended");
     });
     socket.on("dm_call_signal", async (payload = {}) => {
+      if (window.__vineCallLayerActive) return;
       if (String(payload.conversationId) !== String(conversationId)) return;
       if (payload.callId !== callIdRef.current || !payload.candidate || !peerRef.current) return;
       try {

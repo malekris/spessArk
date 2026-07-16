@@ -1,7 +1,7 @@
 // src/App.jsx
 import { Suspense, lazy, useEffect } from "react";
 import { socket } from "./socket";
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, useLocation } from "react-router-dom";
 import LoginPage from "./pages/LoginPage";
 import TeacherLogin from "./pages/TeacherLogin";
 import TeacherForgotPassword from "./pages/TeacherForgotPassword";
@@ -13,6 +13,7 @@ import VineLogin from "./modules/vine/pages/VineLogin";
 import VineRegister from "./modules/vine/pages/VineRegister";
 import VineProtectedRoute from "./modules/vine/components/VineProtectedRoute";
 import VineRouteErrorBoundary from "./modules/vine/components/VineRouteErrorBoundary";
+import VineCallLayer from "./components/dms/VineCallLayer";
 import {
   clearVineAuth,
   getRemainingVineSessionMs,
@@ -92,6 +93,28 @@ function RouteLoadingScreen() {
 
 
 function App() {
+  const location = useLocation();
+
+  useEffect(() => {
+    const appSurface = location.pathname.startsWith("/vine")
+      ? "vine"
+      : location.pathname.startsWith("/ark")
+        ? "ark"
+        : "";
+    const root = document.documentElement;
+
+    if (appSurface) {
+      root.dataset.appSurface = appSurface;
+    } else {
+      delete root.dataset.appSurface;
+    }
+
+    return () => {
+      if (root.dataset.appSurface === appSurface) {
+        delete root.dataset.appSurface;
+      }
+    };
+  }, [location.pathname]);
 
   useEffect(() => {
     const user = getVineUser();
@@ -205,7 +228,7 @@ function App() {
 <Route path="/vine/verify-email" element={<VineRouteErrorBoundary><VineVerifyEmail /></VineRouteErrorBoundary>} />
 <Route path="/vine/post/:id" element={<VineRouteErrorBoundary><VinePublicPost /></VineRouteErrorBoundary>} />
 <Route path="/vine/u/:username" element={<VineRouteErrorBoundary><VinePublicProfile /></VineRouteErrorBoundary>} />
-<Route element={<VineRouteErrorBoundary><VineProtectedRoute /></VineRouteErrorBoundary>}>
+<Route element={<VineRouteErrorBoundary><><VineCallLayer /><VineProtectedRoute /></></VineRouteErrorBoundary>}>
   <Route path="/vine/birthday-required" element={<VineBirthdayRequired />} />
   <Route path="/vine/feed" element={<VineFeed />} />
   <Route path="/vine/profile/:username" element={<VineProfile />} />

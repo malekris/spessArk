@@ -2668,6 +2668,45 @@
   }
 }
 
+/* Compact mobile reading scale, close to a native social feed. */
+@media (max-width: 768px) {
+  .vine-post {
+    padding: 13px 14px;
+  }
+
+  .vine-post-content,
+  .vine-post-content.big-text {
+    font-size: 1rem !important;
+    line-height: 1.42 !important;
+    margin-block: 9px;
+  }
+
+  .vine-post-content.styled-card-text {
+    min-height: 150px;
+    padding: 22px 18px !important;
+    font-size: 1.28rem !important;
+    line-height: 1.32 !important;
+  }
+
+  .display-name {
+    font-size: 0.98rem;
+  }
+
+  .username.handle,
+  .top-time {
+    font-size: 0.84rem;
+  }
+
+  .comment-meta strong {
+    font-size: 0.9rem;
+  }
+
+  .comment-text {
+    font-size: 0.93rem;
+    line-height: 1.42;
+  }
+}
+
 .post-poll-box {
   border: 1px solid #d1fae5;
   border-radius: 14px;

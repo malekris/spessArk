@@ -3656,6 +3656,74 @@ const isDmConversationParticipant = async (conversationId, userId) => {
   }
 };
 
+const getDmConversationParticipants = async (conversationId) => {
+  const cid = Number(conversationId);
+  if (!cid) return null;
+  try {
+    const [[row]] = await db.query(
+      `
+      SELECT user1_id, user2_id
+      FROM vine_conversations
+      WHERE id = ?
+      LIMIT 1
+      `,
+      [cid]
+    );
+    return row || null;
+  } catch {
+    return null;
+  }
+};
+
+const getVineUserCallSummary = async (userId) => {
+  const uid = Number(userId);
+  if (!uid) return null;
+  try {
+    const [[row]] = await db.query(
+      `
+      SELECT id, username, display_name, avatar_url, is_verified
+      FROM vine_users
+      WHERE id = ?
+      LIMIT 1
+      `,
+      [uid]
+    );
+    return row || null;
+  } catch {
+    return null;
+  }
+};
+
+const createMissedCallNotification = async ({ toUserId, fromUserId, conversationId, callId }) => {
+  const targetId = Number(toUserId);
+  const actorId = Number(fromUserId);
+  const cid = Number(conversationId);
+  if (!targetId || !actorId || !cid) return;
+  const meta = JSON.stringify({
+    conversation_id: cid,
+    call_id: callId || null,
+    target_path: `/vine/dms/${cid}`,
+  });
+  try {
+    await db.query(
+      `
+      INSERT INTO vine_notifications (user_id, actor_id, type, post_id, comment_id, meta_json)
+      VALUES (?, ?, 'missed_call', NULL, NULL, ?)
+      `,
+      [targetId, actorId, meta]
+    );
+  } catch {
+    await db.query(
+      `
+      INSERT INTO vine_notifications (user_id, actor_id, type, post_id, comment_id)
+      VALUES (?, ?, 'missed_call', NULL, NULL)
+      `,
+      [targetId, actorId]
+    ).catch(() => {});
+  }
+  io.to(`user-${targetId}`).emit("notification");
+};
+
 io.on("connection", (socket) => {
   console.log("🔌 Socket connected:", socket.id);
 
@@ -3683,6 +3751,10 @@ io.on("connection", (socket) => {
     console.log("💬 Joined conversation:", conversationId);
   });
 
+  socket.on("leave_conversation", (conversationId) => {
+    socket.leave(`conversation-${conversationId}`);
+  });
+
   socket.on("send_dm", ({ conversationId, message }) => {
     io.to(`conversation-${conversationId}`).emit("dm_received", message);
   });
@@ -3708,11 +3780,37 @@ io.on("connection", (socket) => {
     if (!conversationId || !payload.callId || !payload.offer) return;
     const fromUserId = socketToUserId.get(socket.id) || payload.fromUserId || null;
     if (!(await isDmConversationParticipant(conversationId, fromUserId))) return;
-    socket.to(`conversation-${conversationId}`).emit("dm_call_invite", {
+    const participants = await getDmConversationParticipants(conversationId);
+    const toUserId =
+      Number(payload.toUserId || 0) ||
+      (Number(participants?.user1_id) === Number(fromUserId)
+        ? Number(participants?.user2_id || 0)
+        : Number(participants?.user1_id || 0));
+    if (!toUserId || Number(toUserId) === Number(fromUserId)) return;
+    const caller = await getVineUserCallSummary(fromUserId);
+    const invitePayload = {
       ...payload,
       fromUserId,
+      toUserId,
+      caller,
       createdAt: new Date().toISOString(),
-    });
+    };
+    io.to(`user-${toUserId}`).emit("dm_call_invite", invitePayload);
+    if (!userIdToSockets.has(Number(toUserId))) {
+      await createMissedCallNotification({
+        toUserId,
+        fromUserId,
+        conversationId,
+        callId: payload.callId,
+      });
+      io.to(`user-${fromUserId}`).emit("dm_call_decline", {
+        conversationId,
+        callId: payload.callId,
+        fromUserId: toUserId,
+        toUserId: fromUserId,
+        reason: "offline",
+      });
+    }
   });
 
   socket.on("dm_call_accept", async (payload = {}) => {
@@ -3720,7 +3818,9 @@ io.on("connection", (socket) => {
     if (!conversationId || !payload.callId || !payload.answer) return;
     const fromUserId = socketToUserId.get(socket.id) || payload.fromUserId || null;
     if (!(await isDmConversationParticipant(conversationId, fromUserId))) return;
-    socket.to(`conversation-${conversationId}`).emit("dm_call_accept", {
+    const targetUserId = Number(payload.toUserId || 0);
+    const targetRoom = targetUserId ? `user-${targetUserId}` : `conversation-${conversationId}`;
+    socket.to(targetRoom).emit("dm_call_accept", {
       ...payload,
       fromUserId,
     });
@@ -3731,7 +3831,9 @@ io.on("connection", (socket) => {
     if (!conversationId || !payload.callId) return;
     const fromUserId = socketToUserId.get(socket.id) || payload.fromUserId || null;
     if (!(await isDmConversationParticipant(conversationId, fromUserId))) return;
-    socket.to(`conversation-${conversationId}`).emit("dm_call_decline", {
+    const targetUserId = Number(payload.toUserId || 0);
+    const targetRoom = targetUserId ? `user-${targetUserId}` : `conversation-${conversationId}`;
+    socket.to(targetRoom).emit("dm_call_decline", {
       ...payload,
       fromUserId,
     });
@@ -3742,7 +3844,9 @@ io.on("connection", (socket) => {
     if (!conversationId || !payload.callId) return;
     const fromUserId = socketToUserId.get(socket.id) || payload.fromUserId || null;
     if (!(await isDmConversationParticipant(conversationId, fromUserId))) return;
-    socket.to(`conversation-${conversationId}`).emit("dm_call_end", {
+    const targetUserId = Number(payload.toUserId || 0);
+    const targetRoom = targetUserId ? `user-${targetUserId}` : `conversation-${conversationId}`;
+    socket.to(targetRoom).emit("dm_call_end", {
       ...payload,
       fromUserId,
     });
@@ -3753,7 +3857,9 @@ io.on("connection", (socket) => {
     if (!conversationId || !payload.callId || !payload.candidate) return;
     const fromUserId = socketToUserId.get(socket.id) || payload.fromUserId || null;
     if (!(await isDmConversationParticipant(conversationId, fromUserId))) return;
-    socket.to(`conversation-${conversationId}`).emit("dm_call_signal", {
+    const targetUserId = Number(payload.toUserId || 0);
+    const targetRoom = targetUserId ? `user-${targetUserId}` : `conversation-${conversationId}`;
+    socket.to(targetRoom).emit("dm_call_signal", {
       ...payload,
       fromUserId,
     });

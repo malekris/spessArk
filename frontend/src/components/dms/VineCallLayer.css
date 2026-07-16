@@ -1,0 +1,187 @@
+.vine-call-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background:
+    radial-gradient(circle at 50% 12%, rgba(250, 204, 21, 0.18), transparent 28%),
+    radial-gradient(circle at 18% 82%, rgba(16, 185, 129, 0.24), transparent 30%),
+    linear-gradient(145deg, rgba(2, 44, 34, 0.98), rgba(6, 78, 59, 0.96));
+  color: #ecfdf5;
+}
+
+.vine-call-layer.notice {
+  background: rgba(2, 6, 23, 0.42);
+}
+
+.vine-call-panel {
+  position: relative;
+  width: min(460px, 100%);
+  min-height: min(720px, calc(100vh - 36px));
+  border: 1px solid rgba(167, 243, 208, 0.28);
+  border-radius: 34px;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(250, 204, 21, 0.14), transparent 30%),
+    linear-gradient(180deg, rgba(5, 46, 22, 0.92), rgba(6, 95, 70, 0.94));
+  box-shadow:
+    0 34px 80px rgba(0, 0, 0, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 28px;
+  padding: 54px 24px 30px;
+  overflow: hidden;
+}
+
+.vine-call-panel::before {
+  content: "";
+  position: absolute;
+  width: 230px;
+  height: 230px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(16, 185, 129, 0.3), transparent 68%);
+  filter: blur(8px);
+  top: 112px;
+  pointer-events: none;
+}
+
+.vine-call-dm-link {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  border: 1px solid rgba(236, 253, 245, 0.24);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #ecfdf5;
+  cursor: pointer;
+  font-weight: 900;
+  padding: 9px 13px;
+}
+
+.vine-call-orb {
+  position: relative;
+  z-index: 1;
+  width: 148px;
+  height: 148px;
+  border-radius: 50%;
+  padding: 6px;
+  background:
+    conic-gradient(from 120deg, #facc15, #10b981, #22d3ee, #10b981, #facc15);
+  box-shadow: 0 24px 54px rgba(0, 0, 0, 0.22);
+}
+
+.vine-call-orb img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 4px solid rgba(5, 46, 22, 0.94);
+}
+
+.vine-call-copy {
+  position: relative;
+  z-index: 1;
+  text-align: center;
+  display: grid;
+  gap: 8px;
+}
+
+.vine-call-copy span {
+  color: #a7f3d0;
+  font-size: 0.82rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.vine-call-copy strong {
+  max-width: 360px;
+  color: #ffffff;
+  font-size: clamp(1.7rem, 5vw, 2.45rem);
+  line-height: 1.05;
+  overflow-wrap: anywhere;
+}
+
+.vine-call-copy b {
+  color: #fef3c7;
+  font-size: 1.2rem;
+  font-weight: 900;
+}
+
+.vine-call-actions {
+  position: relative;
+  z-index: 1;
+  width: min(340px, 100%);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.vine-call-action {
+  min-height: 54px;
+  border: none;
+  border-radius: 18px;
+  color: #ffffff;
+  cursor: pointer;
+  font-size: 0.95rem;
+  font-weight: 950;
+  box-shadow: 0 18px 34px rgba(0, 0, 0, 0.18);
+}
+
+.vine-call-action.answer {
+  background: linear-gradient(145deg, #22c55e, #047857);
+}
+
+.vine-call-action.mute {
+  background: linear-gradient(145deg, #0f766e, #0f172a);
+}
+
+.vine-call-action.mute.active {
+  background: linear-gradient(145deg, #f59e0b, #b45309);
+}
+
+.vine-call-action.end {
+  background: linear-gradient(145deg, #ef4444, #991b1b);
+}
+
+.vine-call-layer.notice .vine-call-panel {
+  min-height: 280px;
+}
+
+.vine-call-layer.notice .vine-call-orb {
+  display: none;
+}
+
+.vine-call-layer.notice .vine-call-actions {
+  grid-template-columns: 1fr;
+}
+
+@media (max-width: 640px) {
+  .vine-call-layer {
+    padding: 0;
+  }
+
+  .vine-call-panel {
+    width: 100%;
+    min-height: 100vh;
+    border-radius: 0;
+    border: none;
+  }
+
+  .vine-call-actions {
+    position: fixed;
+    left: 18px;
+    right: 18px;
+    bottom: calc(18px + env(safe-area-inset-bottom));
+    width: auto;
+  }
+
+  .vine-call-dm-link {
+    top: calc(14px + env(safe-area-inset-top));
+  }
+}

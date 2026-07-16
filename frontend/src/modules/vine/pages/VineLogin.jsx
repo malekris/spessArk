@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
+import { getRequestedSessionMode } from "../../../utils/deviceSession";
 import { touchVineActivity } from "../utils/vineAuth";
 import VineAuthFlorals from "../components/VineAuthFlorals";
 import { buildVineAuthThemeClasses, shouldRenderVineAuthFlorals, useVineAuthTheme } from "../utils/authTheme";
@@ -49,7 +50,11 @@ export default function VineLogin() {
       const res = await fetch(`${API}/api/vine/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ identifier, password }),
+        body: JSON.stringify({
+          identifier,
+          password,
+          session_mode: getRequestedSessionMode(),
+        }),
       });
 
       const data = await res.json();

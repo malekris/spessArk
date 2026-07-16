@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { socket } from "../../socket";
 import { getVineUser } from "../../modules/vine/utils/vineAuth";
@@ -38,18 +38,20 @@ export default function VineCallLayer() {
   const [duration, setDuration] = useState(0);
 
   const remoteAudioRef = useRef(null);
+  const ringtoneAudioRef = useRef(null);
   const peerRef = useRef(null);
   const localStreamRef = useRef(null);
   const callRef = useRef(null);
   const stateRef = useRef("idle");
   const activeStartedAtRef = useRef(null);
+  const noticeConversationIdRef = useRef(null);
 
   const partnerName = useMemo(
     () => callPartner?.display_name || callPartner?.username || "Vine audio call",
     [callPartner]
   );
 
-  const setStatus = (nextState, notice = "") => {
+  const setStatus = useCallback((nextState, notice = "") => {
     stateRef.current = nextState;
     setCallState(nextState);
     setCallNotice(notice);
@@ -57,34 +59,45 @@ export default function VineCallLayer() {
       activeStartedAtRef.current = Date.now();
       setDuration(0);
     }
-  };
+  }, []);
 
-  const stopLocalStream = () => {
+  const stopLocalStream = useCallback(() => {
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((track) => track.stop());
       localStreamRef.current = null;
     }
-  };
+  }, []);
 
-  const resetCall = (notice = "") => {
+  const resetCall = useCallback((notice = "") => {
+    const endingCall = callRef.current;
+    if (endingCall?.conversationId) {
+      noticeConversationIdRef.current = endingCall.conversationId;
+    }
     if (peerRef.current) {
       try {
         peerRef.current.close();
-      } catch {}
+      } catch {
+        // The peer may already be closed during teardown.
+      }
       peerRef.current = null;
     }
     stopLocalStream();
     if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null;
+    if (ringtoneAudioRef.current) {
+      ringtoneAudioRef.current.pause();
+      ringtoneAudioRef.current.currentTime = 0;
+    }
+    navigator.vibrate?.(0);
     callRef.current = null;
     activeStartedAtRef.current = null;
     setIncomingCall(null);
     setMuted(false);
     setDuration(0);
-    setCallPartner(null);
+    if (!notice) setCallPartner(null);
     setStatus("idle", notice);
-  };
+  }, [setStatus, stopLocalStream]);
 
-  const emitCallEvent = (eventName, extra = {}) => {
+  const emitCallEvent = useCallback((eventName, extra = {}) => {
     const call = callRef.current;
     if (!call?.conversationId || !call?.callId) return;
     socket.emit(eventName, {
@@ -94,13 +107,15 @@ export default function VineCallLayer() {
       toUserId: call.remoteUserId,
       ...extra,
     });
-  };
+  }, [myId]);
 
-  const createPeerConnection = (call) => {
+  const createPeerConnection = useCallback(() => {
     if (peerRef.current) {
       try {
         peerRef.current.close();
-      } catch {}
+      } catch {
+        // Replacing an already-closed peer is harmless.
+      }
     }
     const pc = new RTCPeerConnection(RTC_CONFIG);
     peerRef.current = pc;
@@ -119,14 +134,17 @@ export default function VineCallLayer() {
       if (pc.connectionState === "connected") {
         setStatus("active", "Audio connected");
       }
-      if (["failed", "disconnected", "closed"].includes(pc.connectionState)) {
-        if (stateRef.current !== "idle") resetCall("Call ended");
+      if (["failed", "disconnected"].includes(pc.connectionState)) {
+        if (stateRef.current !== "idle") {
+          emitCallEvent("dm_call_end", { reason: "connection_lost" });
+          resetCall("Call ended");
+        }
       }
     };
     return pc;
-  };
+  }, [emitCallEvent, resetCall, setStatus]);
 
-  const getLocalAudioStream = async () => {
+  const getLocalAudioStream = useCallback(async () => {
     if (localStreamRef.current) return localStreamRef.current;
     if (!navigator.mediaDevices?.getUserMedia) {
       throw new Error("Audio calls are not supported on this browser.");
@@ -141,9 +159,9 @@ export default function VineCallLayer() {
     });
     localStreamRef.current = stream;
     return stream;
-  };
+  }, []);
 
-  const startCall = async ({ conversationId, toUserId, partner }) => {
+  const startCall = useCallback(async ({ conversationId, toUserId, partner }) => {
     if (!conversationId || !toUserId || !myId || stateRef.current !== "idle") return;
     const callId = `${conversationId}-${myId}-${Date.now()}`;
     const call = {
@@ -152,10 +170,11 @@ export default function VineCallLayer() {
       remoteUserId: Number(toUserId),
     };
     callRef.current = call;
+    noticeConversationIdRef.current = conversationId;
     setCallPartner(partner || null);
     setStatus("outgoing", "Calling...");
     try {
-      const pc = createPeerConnection(call);
+      const pc = createPeerConnection();
       const stream = await getLocalAudioStream();
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
       const offer = await pc.createOffer();
@@ -164,13 +183,13 @@ export default function VineCallLayer() {
     } catch (err) {
       resetCall(err?.message || "Could not start audio call.");
     }
-  };
+  }, [createPeerConnection, emitCallEvent, getLocalAudioStream, myId, resetCall, setStatus]);
 
   const answerCall = async () => {
     if (!incomingCall) return;
     setStatus("connecting", "Connecting...");
     try {
-      const pc = createPeerConnection(callRef.current);
+      const pc = createPeerConnection();
       const stream = await getLocalAudioStream();
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
       await pc.setRemoteDescription(new RTCSessionDescription(incomingCall.offer));
@@ -204,6 +223,43 @@ export default function VineCallLayer() {
   };
 
   useEffect(() => {
+    if (typeof Audio === "undefined") return undefined;
+    const audio = new Audio("/vine-incoming-call.mp3");
+    audio.preload = "auto";
+    audio.loop = true;
+    audio.setAttribute("playsinline", "");
+    ringtoneAudioRef.current = audio;
+
+    const unlockRingtone = () => {
+      audio.muted = true;
+      audio.play()
+        .then(() => {
+          audio.pause();
+          audio.currentTime = 0;
+          audio.muted = false;
+          if (stateRef.current === "incoming") {
+            audio.play().catch(() => {});
+          }
+          document.removeEventListener("pointerdown", unlockRingtone, true);
+          document.removeEventListener("keydown", unlockRingtone, true);
+        })
+        .catch(() => {
+          audio.muted = false;
+        });
+    };
+
+    document.addEventListener("pointerdown", unlockRingtone, true);
+    document.addEventListener("keydown", unlockRingtone, true);
+    return () => {
+      document.removeEventListener("pointerdown", unlockRingtone, true);
+      document.removeEventListener("keydown", unlockRingtone, true);
+      audio.pause();
+      audio.src = "";
+      if (ringtoneAudioRef.current === audio) ringtoneAudioRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
     window.__vineCallLayerActive = true;
     const handleStart = (event) => startCall(event.detail || {});
     window.addEventListener("vine:start-audio-call", handleStart);
@@ -213,7 +269,7 @@ export default function VineCallLayer() {
       if (callRef.current) emitCallEvent("dm_call_end");
       resetCall();
     };
-  }, [myId]);
+  }, [emitCallEvent, resetCall, startCall]);
 
   useEffect(() => {
     if (callState !== "active") return undefined;
@@ -232,7 +288,7 @@ export default function VineCallLayer() {
       resetCall("No answer");
     }, 45000);
     return () => window.clearTimeout(timer);
-  }, [callState]);
+  }, [callState, emitCallEvent, resetCall]);
 
   useEffect(() => {
     const handleInvite = (payload = {}) => {
@@ -254,6 +310,7 @@ export default function VineCallLayer() {
         callId: payload.callId,
         remoteUserId: Number(payload.fromUserId || 0),
       };
+      noticeConversationIdRef.current = payload.conversationId;
       setIncomingCall(payload);
       setCallPartner(payload.caller || null);
       setStatus("incoming", "Incoming audio call");
@@ -289,7 +346,9 @@ export default function VineCallLayer() {
       if (payload.callId !== callRef.current?.callId || !payload.candidate || !peerRef.current) return;
       try {
         await peerRef.current.addIceCandidate(new RTCIceCandidate(payload.candidate));
-      } catch {}
+      } catch {
+        // Ignore candidates that arrive after call teardown.
+      }
     };
 
     socket.on("dm_call_invite", handleInvite);
@@ -304,7 +363,34 @@ export default function VineCallLayer() {
       socket.off("dm_call_end", handleEnd);
       socket.off("dm_call_signal", handleSignal);
     };
-  }, [myId]);
+  }, [myId, resetCall, setStatus]);
+
+  useEffect(() => {
+    const audio = ringtoneAudioRef.current;
+    if (!audio) return undefined;
+
+    if (callState !== "incoming") {
+      audio.pause();
+      audio.currentTime = 0;
+      navigator.vibrate?.(0);
+      return undefined;
+    }
+
+    audio.loop = true;
+    audio.muted = false;
+    audio.volume = 0.72;
+    audio.currentTime = 0;
+    audio.play().catch(() => {
+      // Mobile browsers can block audio until the first interaction; vibration remains available.
+    });
+    navigator.vibrate?.([650, 300, 650, 1100]);
+
+    return () => {
+      audio.pause();
+      audio.currentTime = 0;
+      navigator.vibrate?.(0);
+    };
+  }, [callState]);
 
   if (callState === "idle" && !callNotice) return null;
 
@@ -316,7 +402,10 @@ export default function VineCallLayer() {
           type="button"
           className="vine-call-dm-link"
           onClick={() => {
-            const cid = callRef.current?.conversationId || incomingCall?.conversationId;
+            const cid =
+              callRef.current?.conversationId ||
+              incomingCall?.conversationId ||
+              noticeConversationIdRef.current;
             if (cid) navigate(`/vine/dms/${cid}`);
           }}
         >
@@ -332,9 +421,15 @@ export default function VineCallLayer() {
           />
         </div>
         <div className="vine-call-copy">
-          <span>{callState === "incoming" ? "Vine audio call" : callNotice || "Vine audio"}</span>
+          <span>
+            {callState === "incoming"
+              ? "Vine audio call"
+              : callState === "idle"
+                ? "Call update"
+                : callNotice || "Vine audio"}
+          </span>
           <strong>{partnerName}</strong>
-          <b>{callState === "active" ? formatDuration(duration) : callState === "idle" ? callNotice : callNotice}</b>
+          <b>{callState === "active" ? formatDuration(duration) : callNotice}</b>
         </div>
 
         {callState === "incoming" ? (
@@ -348,7 +443,15 @@ export default function VineCallLayer() {
           </div>
         ) : callState === "idle" ? (
           <div className="vine-call-actions">
-            <button type="button" className="vine-call-action answer" onClick={() => setCallNotice("")}>
+            <button
+              type="button"
+              className="vine-call-action answer"
+              onClick={() => {
+                setCallNotice("");
+                setCallPartner(null);
+                noticeConversationIdRef.current = null;
+              }}
+            >
               OK
             </button>
           </div>

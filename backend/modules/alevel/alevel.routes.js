@@ -2,7 +2,7 @@ import express from "express";
 import { db } from "../../server.js";
 import authTeacher from "../../middleware/authTeacher.js";
 import authAdmin, { requireAdminReauth } from "../../middleware/authAdmin.js";
-import { pool } from "../../server.js";
+import { ensureTeacherAccountLifecycleColumns, pool } from "../../server.js";
 import { extractClientIp, logAuditEvent } from "../../utils/auditLogger.js";
 import { ensureMarksArchiveTablesReady, archiveALevelMarks } from "../../utils/marksArchive.js";
 import { queueAdminYearSnapshotRefresh } from "../../services/adminYearSnapshotService.js";
@@ -297,6 +297,7 @@ router.get("/subjects", async (req, res) => {
 // assignments (admin view)
 router.get("/admin/assignments", authAdmin, async (req, res) => {
   try {
+    await ensureTeacherAccountLifecycleColumns(pool);
     await ensureALevelAssignmentLifecycleColumns(pool);
 
     const includeInactive = ["1", "true", "yes", "all"].includes(
@@ -320,7 +321,7 @@ router.get("/admin/assignments", authAdmin, async (req, res) => {
         ats.ended_reason,
         ats.ended_by_admin_id,
         ats.replaced_by_assignment_id,
-        t.name AS teacher_name,
+        COALESCE(t.name, CONCAT('Former teacher #', ats.teacher_id)) AS teacher_name,
         t.email AS teacher_email,
         replacement_ats.teacher_id AS replacement_teacher_id,
         replacement_t.name AS replacement_teacher_name,
@@ -379,12 +380,17 @@ router.post("/admin/assignments", authAdmin, async (req, res) => {
   }
 
   try {
+    await ensureTeacherAccountLifecycleColumns(pool);
     await ensureALevelAssignmentLifecycleColumns(pool);
     conn = await db.getConnection();
     await conn.beginTransaction();
 
     const [[teacherRow]] = await conn.query(
-      `SELECT id, name FROM teachers WHERE id = ? LIMIT 1`,
+      `SELECT id, name FROM teachers
+       WHERE id = ?
+         AND COALESCE(NULLIF(account_status, ''), 'active') = 'active'
+         AND retired_at IS NULL
+       LIMIT 1`,
       [teacherId]
     );
 
@@ -1214,11 +1220,11 @@ router.get("/admin/marks-sets", async (req, res) => {
       ${NORMALIZED_ALEVEL_TERM_SQL("am.term")} AS term,
         YEAR(am.created_at) AS year,
         ae.name AS aoi_label,
-        t.name AS teacher_name
+        COALESCE(t.name, CONCAT('Former teacher #', am.teacher_id)) AS teacher_name
       FROM alevel_marks am
       JOIN alevel_teacher_subjects ats ON ats.id = am.assignment_id
       JOIN alevel_subjects s ON s.id = am.subject_id
-      JOIN teachers t ON t.id = am.teacher_id
+      LEFT JOIN teachers t ON t.id = am.teacher_id
       JOIN alevel_learners l ON l.id = am.learner_id
       JOIN alevel_exams ae ON ae.id = am.exam_id
       ORDER BY year DESC, term, subject, stream
@@ -1789,14 +1795,14 @@ router.get("/download/sets", async (req, res) => {
         subj.name AS subject,
         ats.paper_label,
         ats.stream,
-        t.name AS submitted_by,
+        COALESCE(t.name, CONCAT('Former teacher #', am.teacher_id)) AS submitted_by,
         am.term,
         YEAR(COALESCE(am.created_at, NOW())) AS year,
         ae.name AS exam
       FROM alevel_marks am
       JOIN alevel_teacher_subjects ats ON ats.id = am.assignment_id
       JOIN alevel_subjects subj ON subj.id = am.subject_id
-      JOIN teachers t ON t.id = am.teacher_id
+      LEFT JOIN teachers t ON t.id = am.teacher_id
       JOIN alevel_exams ae ON ae.id = am.exam_id
       GROUP BY 
         am.assignment_id,
@@ -1806,6 +1812,7 @@ router.get("/download/sets", async (req, res) => {
         ats.paper_label,
         ats.stream,
         t.name,
+        am.teacher_id,
         YEAR(COALESCE(am.created_at, NOW())),
         ae.name
       ORDER BY YEAR(COALESCE(am.created_at, NOW())) DESC, am.term DESC, subj.name, ats.stream, ae.name

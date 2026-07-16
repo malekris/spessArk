@@ -3915,7 +3915,7 @@ export default function AdminDashboard() {
                               onClick={() => setPendingTeacherDelete(t)}
                               disabled={deletingTeacherId === t.id}
                             >
-                              {deletingTeacherId === t.id ? "Deleting…" : "Delete"}
+                              {deletingTeacherId === t.id ? "Retiring…" : "Retire"}
                             </button>
                           </td>
                         </tr>
@@ -3955,13 +3955,13 @@ export default function AdminDashboard() {
                     marginBottom: "0.9rem",
                   }}
                 >
-                  Remove Teacher
+                  Retire Teacher
                 </div>
 
-                <h2 style={{ color: "#f8fafc", marginBottom: "0.5rem" }}>Delete This Teacher?</h2>
+                <h2 style={{ color: "#f8fafc", marginBottom: "0.5rem" }}>Retire This Teacher Account?</h2>
                 <p style={{ color: "#cbd5e1", lineHeight: 1.65, marginBottom: "1rem" }}>
-                  You are about to remove <strong>{pendingTeacherDelete.name}</strong>
-                  {pendingTeacherDelete.email ? <> ({pendingTeacherDelete.email})</> : null} from the teacher register.
+                  You are about to retire <strong>{pendingTeacherDelete.name}</strong>
+                  {pendingTeacherDelete.email ? <> ({pendingTeacherDelete.email})</> : null} from the active teacher register.
                 </p>
 
                 <div
@@ -3973,7 +3973,7 @@ export default function AdminDashboard() {
                     color: "#fecaca",
                   }}
                 >
-                  This action removes the teacher account from the current register. Proceed only if you are sure.
+                  Login access will be disabled and active assignments will end. Existing marks, reports, and assignment history will remain intact.
                 </div>
 
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.65rem", flexWrap: "wrap" }}>
@@ -3990,8 +3990,8 @@ export default function AdminDashboard() {
                     className="primary-btn"
                     onClick={() =>
                       requestAdminReauth({
-                        title: "Confirm Teacher Deletion",
-                        description: "Re-enter your admin password to delete this teacher account.",
+                        title: "Confirm Teacher Retirement",
+                        description: "Re-enter your admin password to retire this teacher account while preserving academic records.",
                         onApproved: () => handleDeleteTeacher(pendingTeacherDelete.id),
                       })
                     }
@@ -4001,7 +4001,7 @@ export default function AdminDashboard() {
                       borderColor: "rgba(248, 113, 113, 0.4)",
                     }}
                   >
-                    {deletingTeacherId === pendingTeacherDelete.id ? "Deleting…" : "Delete Teacher"}
+                    {deletingTeacherId === pendingTeacherDelete.id ? "Retiring…" : "Retire Teacher"}
                   </button>
                 </div>
               </div>

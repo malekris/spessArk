@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "../../../pages/LoginPage.css";
+import { getRequestedSessionMode } from "../../../utils/deviceSession";
 import { useSiteVisuals } from "../../../utils/siteVisuals";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5001";
@@ -65,7 +66,7 @@ export default function BoardingLogin() {
       const response = await fetch(`${API_BASE}/api/boarding/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, session_mode: getRequestedSessionMode() }),
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) {

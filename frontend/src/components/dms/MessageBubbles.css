@@ -12,6 +12,72 @@
   justify-content: flex-start;
 }
 
+.dm-call-history-card {
+  width: min(290px, 84%);
+  min-height: 62px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 13px;
+  border: 1px solid #cfe7dc;
+  border-radius: 14px;
+  background: #f7fcf9;
+  color: #153b31;
+  box-shadow: 0 2px 8px rgba(15, 118, 110, 0.08);
+}
+
+.msg-row.call-event.mine .dm-call-history-card {
+  border-color: #a7dfc3;
+  background: #e9f9f0;
+}
+
+.dm-call-history-icon {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #d7f5e5;
+  color: #087554;
+  font-size: 1.15rem;
+  line-height: 1;
+}
+
+.dm-call-history-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.dm-call-history-copy strong {
+  color: inherit;
+  font-size: 0.91rem;
+  line-height: 1.2;
+}
+
+.dm-call-history-copy span {
+  color: #5b746b;
+  font-size: 0.78rem;
+  line-height: 1.25;
+}
+
+.msg-row.call-event.theirs .dm-call-history-card.missed {
+  border-color: #fecaca;
+  background: #fff7f7;
+  color: #991b1b;
+}
+
+.msg-row.call-event.theirs .dm-call-history-card.missed .dm-call-history-icon {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.msg-row.call-event.theirs .dm-call-history-card.missed .dm-call-history-copy span {
+  color: #a53f3f;
+}
+
 .msg-content-wrapper {
   max-width: 78%;
   display: flex;

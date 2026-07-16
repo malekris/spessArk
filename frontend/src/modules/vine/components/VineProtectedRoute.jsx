@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import {
+  getRequestedSessionMode,
+  isMobileSessionDevice,
+} from "../../../utils/deviceSession";
+import {
   clearVineAuth,
   getRemainingVineSessionMs,
   getVineLastActivityAt,
@@ -30,6 +34,7 @@ const formatSessionCountdown = (totalSeconds) => {
 
 export default function VineProtectedRoute() {
   const location = useLocation();
+  const persistentMobileSession = isMobileSessionDevice();
   const [status, setStatus] = useState("checking");
   const [requirementsChecked, setRequirementsChecked] = useState(false);
   const [birthdayMissing, setBirthdayMissing] = useState(false);
@@ -81,14 +86,22 @@ export default function VineProtectedRoute() {
     const storedUser = getVineUser();
     const remainingMs = getRemainingVineSessionMs();
 
-    if (!token || !storedUser?.id || isVineTokenExpired(token) || remainingMs <= 0) {
+    if (
+      !token ||
+      !storedUser?.id ||
+      isVineTokenExpired(token) ||
+      (!persistentMobileSession && remainingMs <= 0)
+    ) {
       forceLogout();
       return;
     }
 
     try {
       const res = await fetch(`${API}/api/vine/auth/session`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "X-SPESS-Session-Mode": getRequestedSessionMode(),
+        },
       });
 
       if (!res.ok) {
@@ -100,10 +113,13 @@ export default function VineProtectedRoute() {
       if (data?.user) {
         localStorage.setItem("vine_user", JSON.stringify(data.user));
       }
+      if (data?.token) {
+        localStorage.setItem("vine_token", data.token);
+      }
 
       const rememberedActivity = getVineLastActivityAt();
       const now = Date.now();
-      if (!rememberedActivity) {
+      if (persistentMobileSession || !rememberedActivity) {
         setVineLastActivityAt(now);
         lastPersistRef.current = now;
         lastActivityRef.current = now;
@@ -118,7 +134,7 @@ export default function VineProtectedRoute() {
       // Network hiccups should not instantly throw the user out.
       setStatus("allowed");
     }
-  }, [forceLogout]);
+  }, [forceLogout, persistentMobileSession]);
 
   const loadEntryRequirements = useCallback(async () => {
     const token = getVineToken();
@@ -252,6 +268,29 @@ export default function VineProtectedRoute() {
   useEffect(() => {
     if (status !== "allowed") return undefined;
 
+    if (!persistentMobileSession) return undefined;
+
+    const handleMobileVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        setWarningVisible(false);
+        setRenewError("");
+        return;
+      }
+
+      const now = touchVineActivity();
+      lastActivityRef.current = now;
+      lastPersistRef.current = now;
+      setSecondsRemaining(Math.ceil(VINE_SESSION_IDLE_MS / 1000));
+      validateSession();
+    };
+
+    document.addEventListener("visibilitychange", handleMobileVisibility);
+    return () => document.removeEventListener("visibilitychange", handleMobileVisibility);
+  }, [persistentMobileSession, status, validateSession]);
+
+  useEffect(() => {
+    if (status !== "allowed") return undefined;
+
     const recordActivity = () => {
       if (warningVisible) return;
       const now = Date.now();
@@ -267,6 +306,8 @@ export default function VineProtectedRoute() {
     });
 
     const interval = window.setInterval(() => {
+      if (persistentMobileSession && document.visibilityState === "hidden") return;
+
       const now = Date.now();
       const remainingMs = Math.max(0, VINE_SESSION_IDLE_MS - (now - lastActivityRef.current));
       setSecondsRemaining(Math.ceil(remainingMs / 1000));
@@ -297,7 +338,7 @@ export default function VineProtectedRoute() {
         window.removeEventListener(eventName, recordActivity, true);
       });
     };
-  }, [forceLogout, sendActivityKeepalive, status, warningVisible]);
+  }, [forceLogout, persistentMobileSession, sendActivityKeepalive, status, warningVisible]);
 
   const handleRenewSession = useCallback(async () => {
     const token = getVineToken();
@@ -312,7 +353,11 @@ export default function VineProtectedRoute() {
 
       const res = await fetch(`${API}/api/vine/auth/renew`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ session_mode: getRequestedSessionMode() }),
       });
 
       if (!res.ok) {

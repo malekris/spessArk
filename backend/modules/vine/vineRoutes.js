@@ -24,6 +24,11 @@ import createVineCommunityDiscoveryRouter from "./vineCommunityDiscoveryRoutes.j
 import createVineNotificationRouter from "./vineNotificationRoutes.js";
 import { VINE_READ_NOTIFICATION_RETENTION_DAYS, createCleanupExpiredReadNotifications } from "./vineNotificationCleanup.js";
 import { VINE_CACHE_TTLS, buildVineCacheKey, readThroughVineCache, clearVineReadCache } from "./vineCache.js";
+import {
+  getSessionExpiry,
+  getVineSessionIdleMs,
+  resolveRequestedSessionMode,
+} from "../../utils/deviceSession.js";
 
 const router = express.Router();
 const applyManagedVisualNoCache = (res) => {
@@ -2905,7 +2910,7 @@ const buildVineAuthUser = (user) => ({
     : null,
 });
 
-const signVineSessionToken = (user, sessionJti) =>
+const signVineSessionToken = (user, sessionJti, sessionMode = "browser_session") =>
   jwt.sign(
     {
       id: user.id,
@@ -2914,9 +2919,10 @@ const signVineSessionToken = (user, sessionJti) =>
       role: user.role || "user",
       badge_type: user.badge_type || null,
       jti: sessionJti,
+      session_mode: sessionMode,
     },
     JWT_SECRET,
-    { expiresIn: VINE_JWT_EXPIRES_IN }
+    { expiresIn: getSessionExpiry(sessionMode, VINE_JWT_EXPIRES_IN) }
   );
 
 const getActiveInteractionSuspension = async (userId) => {
@@ -6318,7 +6324,8 @@ router.post("/auth/login", async (req, res) => {
       }
   
       const sessionJti = crypto.randomBytes(16).toString("hex");
-      const token = signVineSessionToken(user, sessionJti);
+      const sessionMode = resolveRequestedSessionMode(req, req.body?.session_mode);
+      const token = signVineSessionToken(user, sessionJti, sessionMode);
 
       // Optional analytics event: no-op if table does not exist
       try {
@@ -6339,6 +6346,7 @@ router.post("/auth/login", async (req, res) => {
   
       res.json({
         token,
+        session_mode: sessionMode,
         user: buildVineAuthUser(user),
       });
   
@@ -6365,9 +6373,17 @@ router.get("/auth/session", authenticate, async (req, res) => {
       return res.status(401).json({ message: "Session expired" });
     }
 
+    const sessionMode = resolveRequestedSessionMode(
+      req,
+      req.get("x-spess-session-mode") || req.user?.session_mode
+    );
+    const token = signVineSessionToken(user, req.user.jti, sessionMode);
+
     res.setHeader("Cache-Control", "no-store");
     res.json({
       authenticated: true,
+      token,
+      session_mode: sessionMode,
       user: buildVineAuthUser(user),
     });
   } catch (err) {
@@ -6393,12 +6409,17 @@ router.post("/auth/renew", authenticate, async (req, res) => {
       return res.status(401).json({ message: "Session expired" });
     }
 
-    const token = signVineSessionToken(user, req.user.jti);
+    const sessionMode = resolveRequestedSessionMode(
+      req,
+      req.body?.session_mode || req.user?.session_mode
+    );
+    const token = signVineSessionToken(user, req.user.jti, sessionMode);
 
     res.setHeader("Cache-Control", "no-store");
     res.json({
       renewed: true,
       token,
+      session_mode: sessionMode,
       user: buildVineAuthUser(user),
     });
   } catch (err) {
@@ -6451,7 +6472,7 @@ async function requireVineAuth(req, res, next) {
         return res.status(401).json({ message: "Session expired" });
       }
       const lastSeenAt = new Date(session.last_seen_at || 0).getTime();
-      if (!lastSeenAt || Date.now() - lastSeenAt > SESSION_IDLE_MS) {
+      if (!lastSeenAt || Date.now() - lastSeenAt > getVineSessionIdleMs(req.user, SESSION_IDLE_MS)) {
         await db.query(
           "UPDATE vine_user_sessions SET revoked_at = NOW() WHERE user_id = ? AND session_jti = ? AND revoked_at IS NULL",
           [req.user.id, req.user.jti]

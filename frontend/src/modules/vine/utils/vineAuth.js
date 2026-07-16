@@ -1,3 +1,5 @@
+import { isMobileSessionDevice } from "../../../utils/deviceSession";
+
 const TOKEN_KEY = "vine_token";
 const USER_KEY = "vine_user";
 const ACTIVITY_KEY = "vine_last_activity_at";
@@ -52,6 +54,7 @@ export const setVineNotificationsSeenAt = (userId, value = new Date()) => {
 export const touchVineActivity = () => setVineLastActivityAt(Date.now());
 
 export const getRemainingVineSessionMs = (now = Date.now()) => {
+  if (isMobileSessionDevice()) return VINE_SESSION_IDLE_MS;
   const lastActivityAt = getVineLastActivityAt();
   if (!lastActivityAt) return VINE_SESSION_IDLE_MS;
   return Math.max(0, VINE_SESSION_IDLE_MS - (Number(now) - lastActivityAt));

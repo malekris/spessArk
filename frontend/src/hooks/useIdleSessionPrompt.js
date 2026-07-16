@@ -6,6 +6,7 @@ import {
   readAdminIdleExpiry,
   writeAdminIdleExpiry,
 } from "../utils/adminSecurity";
+import { isMobileSessionDevice } from "../utils/deviceSession";
 
 const DEFAULT_IDLE_MS = 15 * 60 * 1000;
 const DEFAULT_WARNING_MS = 90 * 1000;
@@ -32,6 +33,7 @@ export default function useIdleSessionPrompt({
   writeIdleExpiry = writeAdminIdleExpiry,
   notifySessionExpired = notifyAdminSessionExpired,
 }) {
+  const persistentMobileSession = isMobileSessionDevice();
   const warningTimerRef = useRef(null);
   const logoutTimerRef = useRef(null);
   const countdownTimerRef = useRef(null);
@@ -150,15 +152,26 @@ export default function useIdleSessionPrompt({
   useEffect(() => {
     if (!enabled) {
       clearTimers();
+      // The disabled state must synchronously dismiss any security prompt left open.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       closePrompt();
       return undefined;
     }
 
-    const storedDeadline = readIdleExpiry();
-    if (storedDeadline > 0) {
-      scheduleFromDeadline(storedDeadline);
+    if (persistentMobileSession) {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        clearTimers();
+        closePrompt();
+      } else {
+        renewSession();
+      }
     } else {
-      renewSession();
+      const storedDeadline = readIdleExpiry();
+      if (storedDeadline > 0) {
+        scheduleFromDeadline(storedDeadline);
+      } else {
+        renewSession();
+      }
     }
 
     const handleActivity = () => {
@@ -168,6 +181,15 @@ export default function useIdleSessionPrompt({
 
     const handleVisibilityRefresh = () => {
       if (!enabled) return;
+      if (persistentMobileSession) {
+        if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+          clearTimers();
+          closePrompt();
+          return;
+        }
+        renewSession();
+        return;
+      }
       if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
       const sharedDeadline = readIdleExpiry();
       if (sharedDeadline > 0) {
@@ -180,6 +202,13 @@ export default function useIdleSessionPrompt({
     const handleStorage = (event) => {
       if (!enabled) return;
       if (event.key === idleExpiryKey) {
+        if (
+          persistentMobileSession &&
+          typeof document !== "undefined" &&
+          document.visibilityState === "hidden"
+        ) {
+          return;
+        }
         const sharedDeadline = Number(event.newValue || 0);
         if (Number.isFinite(sharedDeadline) && sharedDeadline > 0) {
           scheduleFromDeadline(sharedDeadline);
@@ -216,6 +245,7 @@ export default function useIdleSessionPrompt({
     idleExpiryKey,
     logoutSignalKey,
     notifySessionExpired,
+    persistentMobileSession,
     readIdleExpiry,
     renewSession,
     scheduleFromDeadline,

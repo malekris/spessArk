@@ -9,9 +9,14 @@ import {
   sendTeacherPasswordChangedEmail,
   sendTeacherEmailChangedEmail,
 } from "../utils/email.js";
-import { ensureTeacherAssignmentLifecycleColumns, pool } from "../server.js";
+import {
+  ensureTeacherAccountLifecycleColumns,
+  ensureTeacherAssignmentLifecycleColumns,
+  pool,
+} from "../server.js";
 import authTeacher from "../middleware/authTeacher.js";
 import { extractClientIp, logAuditEvent } from "../utils/auditLogger.js";
+import { getSessionExpiry, resolveRequestedSessionMode } from "../utils/deviceSession.js";
 import { queueAdminYearSnapshotRefresh } from "../services/adminYearSnapshotService.js";
 import { readMaintenanceSettings } from "../services/maintenanceModeService.js";
 
@@ -35,6 +40,18 @@ const buildAlevelSubjectDisplay = (subject = "", paperLabel = "") => {
 
 const normalizeTeacherEmail = (value = "") =>
   String(value || "").trim().toLowerCase();
+
+const signTeacherSessionToken = (teacher, sessionMode = "browser_session") =>
+  jwt.sign(
+    {
+      id: teacher.id,
+      email: teacher.email,
+      role: "teacher",
+      session_mode: sessionMode,
+    },
+    process.env.JWT_SECRET || "dev_secret",
+    { expiresIn: getSessionExpiry(sessionMode, "7d") }
+  );
 
 const fireAndForgetTeacherEmail = (job, label) => {
   Promise.resolve()
@@ -225,6 +242,7 @@ router.get("/verify/:token", async (req, res) => {
 ======================= */
 router.post("/login", async (req, res) => {
   try {
+    await ensureTeacherAccountLifecycleColumns(pool);
     const maintenance = await readMaintenanceSettings(pool);
     if (maintenance.enabled) {
       return res.status(503).json({
@@ -238,7 +256,11 @@ router.post("/login", async (req, res) => {
     const normalizedEmail = normalizeTeacherEmail(email);
 
     const [rows] = await pool.query(
-      "SELECT * FROM teachers WHERE LOWER(TRIM(email)) = ? LIMIT 1",
+      `SELECT * FROM teachers
+       WHERE LOWER(TRIM(email)) = ?
+         AND COALESCE(NULLIF(account_status, ''), 'active') = 'active'
+         AND retired_at IS NULL
+       LIMIT 1`,
       [normalizedEmail]
     );
 
@@ -267,15 +289,8 @@ router.post("/login", async (req, res) => {
     }
 
     // 🎫 Token
-    const token = jwt.sign(
-      {
-        id: teacher.id,
-        email: teacher.email,
-        role: "teacher",
-      },
-      process.env.JWT_SECRET || "dev_secret",
-      { expiresIn: "7d" }
-    );
+    const sessionMode = resolveRequestedSessionMode(req, req.body?.session_mode);
+    const token = signTeacherSessionToken(teacher, sessionMode);
 
     await logAuditEvent({
       userId: teacher.id,
@@ -289,6 +304,7 @@ router.post("/login", async (req, res) => {
 
     res.json({
       token,
+      session_mode: sessionMode,
       teacher: {
         id: teacher.id,
         name: teacher.name,
@@ -306,13 +322,18 @@ router.post("/login", async (req, res) => {
 ======================= */
 router.post("/forgot-password", async (req, res) => {
   try {
+    await ensureTeacherAccountLifecycleColumns(pool);
     const normalizedEmail = normalizeTeacherEmail(req.body?.email);
     if (!normalizedEmail) {
       return res.status(400).json({ message: "Email is required" });
     }
 
     const [rows] = await pool.query(
-      "SELECT id FROM teachers WHERE LOWER(TRIM(email)) = ? LIMIT 1",
+      `SELECT id FROM teachers
+       WHERE LOWER(TRIM(email)) = ?
+         AND COALESCE(NULLIF(account_status, ''), 'active') = 'active'
+         AND retired_at IS NULL
+       LIMIT 1`,
       [normalizedEmail]
     );
 
@@ -342,6 +363,7 @@ router.post("/forgot-password", async (req, res) => {
 ======================= */
 router.post("/verify-reset-code", async (req, res) => {
   try {
+    await ensureTeacherAccountLifecycleColumns(pool);
     const normalizedEmail = normalizeTeacherEmail(req.body?.email);
     const { code } = req.body;
     if (!normalizedEmail || !code) {
@@ -349,7 +371,12 @@ router.post("/verify-reset-code", async (req, res) => {
     }
 
     const [rows] = await pool.query(
-      "SELECT id, name, email, reset_token, reset_expires FROM teachers WHERE LOWER(TRIM(email)) = ? LIMIT 1",
+      `SELECT id, name, email, reset_token, reset_expires
+       FROM teachers
+       WHERE LOWER(TRIM(email)) = ?
+         AND COALESCE(NULLIF(account_status, ''), 'active') = 'active'
+         AND retired_at IS NULL
+       LIMIT 1`,
       [normalizedEmail]
     );
 
@@ -634,19 +661,16 @@ router.post("/change-email", authTeacher, async (req, res) => {
       "Teacher new-email change notice"
     );
 
-    const token = jwt.sign(
-      {
-        id: teacherId,
-        email: normalizedEmail,
-        role: "teacher",
-      },
-      process.env.JWT_SECRET || "dev_secret",
-      { expiresIn: "7d" }
+    const sessionMode = req.teacher?.session_mode || "browser_session";
+    const token = signTeacherSessionToken(
+      { id: teacherId, email: normalizedEmail },
+      sessionMode
     );
 
     return res.json({
       message: "Email updated successfully",
       token,
+      session_mode: sessionMode,
       teacher: {
         id: teacherId,
         name: teacher.name,

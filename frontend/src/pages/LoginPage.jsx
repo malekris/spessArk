@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { writeAdminIdleExpiry } from "../utils/adminSecurity";
+import { getRequestedSessionMode } from "../utils/deviceSession";
 import { useSiteVisuals } from "../utils/siteVisuals";
 import "./LoginPage.css";
 
@@ -80,7 +81,7 @@ function LoginPage() {
       const res = await fetch(`${API_BASE}/api/admin/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, session_mode: getRequestedSessionMode() }),
       });
 
       const data = await res.json();
@@ -96,7 +97,7 @@ function LoginPage() {
       localStorage.removeItem("SPESS_ADMIN_REAUTH_TOKEN");
       writeAdminIdleExpiry(Date.now() + 15 * 60 * 1000);
       navigate("/ark/admin");
-    } catch (err) {
+    } catch {
       setError("Server error. Try again.");
       triggerShake();
     } finally {

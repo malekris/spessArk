@@ -1,7 +1,8 @@
  // backend/middleware/authTeacher.js
 import jwt from "jsonwebtoken";
+import { ensureTeacherAccountLifecycleColumns, pool } from "../server.js";
 
-export default function authTeacher(req, res, next) {
+export default async function authTeacher(req, res, next) {
   try {
     const authHeader = req.headers.authorization || "";
 
@@ -18,6 +19,24 @@ export default function authTeacher(req, res, next) {
       token,
       process.env.JWT_SECRET || "dev_secret"
     );
+
+    await ensureTeacherAccountLifecycleColumns(pool);
+    const [[teacherAccount]] = await pool.query(
+      `SELECT id
+       FROM teachers
+       WHERE id = ?
+         AND COALESCE(NULLIF(account_status, ''), 'active') = 'active'
+         AND retired_at IS NULL
+       LIMIT 1`,
+      [decoded.id]
+    );
+
+    if (!teacherAccount) {
+      return res.status(403).json({
+        code: "TEACHER_ACCOUNT_RETIRED",
+        message: "This teacher account is no longer active.",
+      });
+    }
 
     // Attach teacher info to request
     req.teacher = decoded;

@@ -9,6 +9,7 @@ import { recordPerfQuery, recordPerfRoute } from "./perfStore.js";
 
 const router = express.Router();
 const DISAPPEARING_MODES = new Set(["after_read", "1h", "24h"]);
+const DM_CALL_STATUSES = new Set(["missed", "declined", "busy", "completed"]);
 const USE_R2_UPLOADS = String(process.env.USE_R2_UPLOADS || "").toLowerCase() === "true";
 const R2_ACCOUNT_ID = String(process.env.R2_ACCOUNT_ID || "").trim();
 const R2_BUCKET = String(process.env.R2_BUCKET || "").trim();
@@ -422,6 +423,18 @@ const ensureDmSchema = async () => {
   );
   await addColumnIfMissing("vine_messages", "expires_at", "expires_at DATETIME NULL");
   await addColumnIfMissing("vine_messages", "client_request_id", "client_request_id VARCHAR(80) NULL");
+  await addColumnIfMissing(
+    "vine_messages",
+    "message_type",
+    "message_type VARCHAR(20) NOT NULL DEFAULT 'text'"
+  );
+  await addColumnIfMissing("vine_messages", "call_id", "call_id VARCHAR(120) NULL");
+  await addColumnIfMissing("vine_messages", "call_status", "call_status VARCHAR(20) NULL");
+  await addColumnIfMissing(
+    "vine_messages",
+    "call_duration_seconds",
+    "call_duration_seconds INT NOT NULL DEFAULT 0"
+  );
   const dbName = await getDmDbName();
   if (dbName) {
     await ensureDmUniqueIndexExists(
@@ -429,6 +442,12 @@ const ensureDmSchema = async () => {
       "vine_messages",
       "uniq_vine_messages_sender_request",
       ["sender_id", "client_request_id"]
+    );
+    await ensureDmUniqueIndexExists(
+      dbName,
+      "vine_messages",
+      "uniq_vine_messages_call_id",
+      ["call_id"]
     );
   }
   dmSchemaReady = true;
@@ -1027,6 +1046,10 @@ const getHydratedMessageById = async (messageId, viewerId) => {
       m.disappear_mode,
       m.expires_at,
       m.client_request_id,
+      m.message_type,
+      m.call_id,
+      m.call_status,
+      m.call_duration_seconds,
       u.username,
       u.avatar_url,
       u.is_verified
@@ -1040,6 +1063,96 @@ const getHydratedMessageById = async (messageId, viewerId) => {
   if (!rawMessage) return null;
   const [hydrated] = await hydrateMessages([rawMessage], viewerId);
   return hydrated || rawMessage;
+};
+
+const formatDmCallDuration = (durationSeconds) => {
+  const total = Math.max(0, Number(durationSeconds || 0));
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+};
+
+const getDmCallContent = (status, durationSeconds) => {
+  if (status === "completed") {
+    return `Audio call - ${formatDmCallDuration(durationSeconds)}`;
+  }
+  if (status === "declined") return "Audio call - Declined";
+  if (status === "busy") return "Audio call - User busy";
+  return "Audio call - No answer";
+};
+
+export const recordDmCallMessage = async ({
+  conversationId,
+  callId,
+  callerId,
+  status,
+  durationSeconds = 0,
+}) => {
+  const cid = Number(conversationId || 0);
+  const senderId = Number(callerId || 0);
+  const safeCallId = String(callId || "").trim().slice(0, 120);
+  const safeStatus = DM_CALL_STATUSES.has(String(status || "")) ? String(status) : "missed";
+  const safeDuration = Math.max(0, Math.floor(Number(durationSeconds || 0)));
+  const isRead = ["completed", "declined"].includes(safeStatus) ? 1 : 0;
+  if (!cid || !senderId || !safeCallId) return null;
+
+  await ensureDmPerformanceSchema();
+  const conversation = await getConversationForUser(cid, senderId);
+  if (!conversation) return null;
+  await db.query(
+    "DELETE FROM vine_conversation_deletes WHERE conversation_id = ? AND user_id IN (?, ?)",
+    [cid, conversation.user1_id, conversation.user2_id]
+  );
+
+  let messageId = null;
+  let created = false;
+  try {
+    const [result] = await db.query(
+      `
+      INSERT INTO vine_messages (
+        conversation_id, sender_id, content, is_read, read_at, is_disappearing,
+        disappear_mode, expires_at, client_request_id, message_type, call_id,
+        call_status, call_duration_seconds
+      )
+      VALUES (?, ?, ?, ?, IF(? = 1, NOW(), NULL), 0, 'after_read', NULL, NULL, 'call', ?, ?, ?)
+      `,
+      [
+        cid,
+        senderId,
+        getDmCallContent(safeStatus, safeDuration),
+        isRead,
+        isRead,
+        safeCallId,
+        safeStatus,
+        safeDuration,
+      ]
+    );
+    messageId = Number(result.insertId || 0);
+    created = messageId > 0;
+  } catch (err) {
+    if (err?.code !== "ER_DUP_ENTRY") throw err;
+    const [[existing]] = await db.query(
+      "SELECT id FROM vine_messages WHERE call_id = ? LIMIT 1",
+      [safeCallId]
+    );
+    messageId = Number(existing?.id || 0);
+  }
+
+  if (!messageId) return null;
+  const fullMessage = await getHydratedMessageById(messageId, senderId);
+  if (!fullMessage || !created) return fullMessage;
+
+  io.to(`conversation-${cid}`).emit("dm_received", fullMessage);
+  io.to(`user-${conversation.user1_id}`).emit("dm_received", fullMessage);
+  io.to(`user-${conversation.user2_id}`).emit("dm_received", fullMessage);
+  io.to(`user-${conversation.user1_id}`).emit("inbox_updated");
+  io.to(`user-${conversation.user2_id}`).emit("inbox_updated");
+  clearDmReadCache(
+    "dm-conversations",
+    "dm-unread",
+    buildDmCacheKey("dm-messages", cid)
+  );
+  return fullMessage;
 };
 
 /* =========================
@@ -1249,6 +1362,10 @@ router.get("/conversations/:id/messages", authenticate, async (req, res) => {
               m.is_disappearing,
               m.disappear_mode,
               m.expires_at,
+              m.message_type,
+              m.call_id,
+              m.call_status,
+              m.call_duration_seconds,
               u.username,
               u.avatar_url,
               u.is_verified
@@ -2034,6 +2151,10 @@ router.get("/conversations/:id/messages", authenticate, async (req, res) => {
               m.is_disappearing,
               m.disappear_mode,
               m.expires_at,
+              m.message_type,
+              m.call_id,
+              m.call_status,
+              m.call_duration_seconds,
               u.username,
               u.avatar_url
             FROM vine_messages m

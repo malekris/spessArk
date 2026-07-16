@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { writeTeacherIdleExpiry } from "../utils/teacherSecurity";
+import { getRequestedSessionMode } from "../utils/deviceSession";
 import { useSiteVisuals } from "../utils/siteVisuals";
 import ArkMaintenancePage from "../components/ArkMaintenancePage";
 import "./LoginPage.css"; // Make sure this matches your new isolated CSS filename
@@ -96,7 +97,11 @@ function TeacherLogin() {
       const res = await fetch(`${API_BASE}/api/teachers/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: normalizedEmail, password: form.password }),
+        body: JSON.stringify({
+          email: normalizedEmail,
+          password: form.password,
+          session_mode: getRequestedSessionMode(),
+        }),
       });
 
       if (!res.ok) {

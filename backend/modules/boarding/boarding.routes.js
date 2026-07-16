@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import { pool } from "../../server.js";
 import authBoardingAdmin from "../../middleware/authBoardingAdmin.js";
 import { extractClientIp, logAuditEvent } from "../../utils/auditLogger.js";
+import { getSessionExpiry, resolveRequestedSessionMode } from "../../utils/deviceSession.js";
 
 const router = express.Router();
 
@@ -345,10 +346,17 @@ router.post("/login", async (req, res) => {
 
     await ensureBoardingSchemaReady();
 
+    const sessionMode = resolveRequestedSessionMode(req, req.body?.session_mode);
     const token = jwt.sign(
-      { id: 1, username: expectedUsername, role: "boarding_admin", name: "Boarding Admin" },
+      {
+        id: 1,
+        username: expectedUsername,
+        role: "boarding_admin",
+        name: "Boarding Admin",
+        session_mode: sessionMode,
+      },
       process.env.JWT_SECRET || "dev_secret",
-      { expiresIn: "7d" }
+      { expiresIn: getSessionExpiry(sessionMode, "7d") }
     );
 
     await logBoardingAudit(req, {
@@ -360,6 +368,7 @@ router.post("/login", async (req, res) => {
 
     return res.json({
       token,
+      session_mode: sessionMode,
       user: {
         id: 1,
         username: expectedUsername,

@@ -169,8 +169,10 @@
   .vine-call-panel {
     width: 100%;
     min-height: 100vh;
+    min-height: 100dvh;
     border-radius: 0;
     border: none;
+    padding-bottom: calc(94px + env(safe-area-inset-bottom));
   }
 
   .vine-call-actions {
@@ -183,5 +185,46 @@
 
   .vine-call-dm-link {
     top: calc(14px + env(safe-area-inset-top));
+  }
+
+  .vine-call-layer.notice {
+    align-items: center;
+    padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+  }
+
+  .vine-call-layer.notice .vine-call-panel {
+    width: min(360px, 100%);
+    min-height: 0;
+    border: 1px solid rgba(167, 243, 208, 0.28);
+    border-radius: 24px;
+    gap: 18px;
+    padding: 68px 20px 20px;
+    overflow: visible;
+  }
+
+  .vine-call-layer.notice .vine-call-copy {
+    width: 100%;
+    gap: 6px;
+  }
+
+  .vine-call-layer.notice .vine-call-copy strong {
+    max-width: 100%;
+    font-size: 1.35rem;
+    line-height: 1.15;
+  }
+
+  .vine-call-layer.notice .vine-call-copy b {
+    font-size: 1rem;
+  }
+
+  .vine-call-layer.notice .vine-call-actions {
+    position: static;
+    width: 100%;
+    margin-top: 4px;
+  }
+
+  .vine-call-layer.notice .vine-call-action {
+    min-height: 50px;
+    border-radius: 12px;
   }
 }

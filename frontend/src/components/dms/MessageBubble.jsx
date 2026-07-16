@@ -10,10 +10,44 @@ const getMessageDisappearingLabel = (mode) => {
   return "Disappears after read";
 };
 
+const formatCallDuration = (seconds) => {
+  const total = Math.max(0, Number(seconds || 0));
+  const minutes = Math.floor(total / 60);
+  const remainingSeconds = total % 60;
+  return `${minutes}:${String(remainingSeconds).padStart(2, "0")}`;
+};
+
+const getCallHistoryCopy = (message, isMine) => {
+  const status = String(message?.call_status || "missed").toLowerCase();
+  if (status === "completed") {
+    return {
+      title: isMine ? "Outgoing audio call" : "Incoming audio call",
+      detail: `Duration ${formatCallDuration(message?.call_duration_seconds)}`,
+    };
+  }
+  if (status === "declined") {
+    return {
+      title: isMine ? "Outgoing audio call" : "Incoming audio call",
+      detail: isMine ? "Call declined" : "You declined this call",
+    };
+  }
+  if (status === "busy") {
+    return {
+      title: isMine ? "Outgoing audio call" : "Incoming audio call",
+      detail: isMine ? "User was busy" : "Call while you were busy",
+    };
+  }
+  return {
+    title: isMine ? "Outgoing audio call" : "Missed audio call",
+    detail: isMine ? "No answer" : "You missed this call",
+  };
+};
+
 function MessageBubble({ message, onReply, onReact, onDelete }) {
   const currentUser = JSON.parse(localStorage.getItem("vine_user"));
   const myId = currentUser?.id;
   const isMine = Number(message.sender_id) === Number(myId);
+  const isCallMessage = String(message?.message_type || "").toLowerCase() === "call";
   const reactions = message?.reactions || {};
   const [menuOpen, setMenuOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -153,6 +187,22 @@ function MessageBubble({ message, onReply, onReact, onDelete }) {
       window.open(current.media_url, "_blank", "noopener,noreferrer");
     }
   };
+
+  if (isCallMessage) {
+    const callCopy = getCallHistoryCopy(message, isMine);
+    const callStatus = String(message?.call_status || "missed").toLowerCase();
+    return (
+      <div className={`msg-row call-event ${isMine ? "mine" : "theirs"}`}>
+        <div className={`dm-call-history-card ${callStatus}`}>
+          <span className="dm-call-history-icon" aria-hidden="true">&#9742;</span>
+          <span className="dm-call-history-copy">
+            <strong>{callCopy.title}</strong>
+            <span>{callCopy.detail}</span>
+          </span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`msg-row ${isMine ? "mine" : "theirs"}`}>

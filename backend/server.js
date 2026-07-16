@@ -30,10 +30,11 @@ import newSignupRoutes from "./routes/newSignup.js";
 import alevelReports from "./modules/alevel/alevelReports.js";
 import vineRoutes from "./modules/vine/vineRoutes.js";
 import vineAuth from "./modules/vine/vineAuth.js";
-import dmRoutes from "./modules/vine/dms.js";
+import dmRoutes, { recordDmCallMessage } from "./modules/vine/dms.js";
 import path from "path";
 import { fileURLToPath } from "url";
 import { extractClientIp, logAuditEvent } from "./utils/auditLogger.js";
+import { getSessionExpiry, resolveRequestedSessionMode } from "./utils/deviceSession.js";
 import { sendTeacherPasswordChangedEmail } from "./utils/email.js";
 import { ensureMarksArchiveTablesReady, archiveOLevelMarks } from "./utils/marksArchive.js";
 import { captureAdminYearSnapshot, queueAdminYearSnapshotRefresh } from "./services/adminYearSnapshotService.js";
@@ -109,7 +110,13 @@ app.use(cors({
     "http://localhost:5001"
   ],
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "x-admin-key", "x-admin-reauth"],
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "x-admin-key",
+    "x-admin-reauth",
+    "X-SPESS-Session-Mode",
+  ],
 }));
 
 // Explicitly handle preflight requests
@@ -165,20 +172,21 @@ app.get("/api/teachers", async (req, res) => {
 function generateVerifyToken() {
   return crypto.randomBytes(32).toString("hex");
 }
-function signTeacherToken(teacher) {
+function signTeacherToken(teacher, sessionMode = "browser_session") {
   return jwt.sign(
     {
       id: teacher.id,
       email: teacher.email,
       name: teacher.name,
       role: "teacher",
+      session_mode: sessionMode,
     },
     process.env.JWT_SECRET || "dev_secret",
-    { expiresIn: "7d" }
+    { expiresIn: getSessionExpiry(sessionMode, "7d") }
   );
 }
 
-function authTeacher(req, res, next) {
+async function authTeacher(req, res, next) {
   const authHeader = req.headers.authorization || "";
   const token = authHeader.startsWith("Bearer ")
     ? authHeader.slice(7)
@@ -189,10 +197,27 @@ function authTeacher(req, res, next) {
   }
 
   try {
-    req.teacher = jwt.verify(
+    const decoded = jwt.verify(
       token,
       process.env.JWT_SECRET || "dev_secret"
     );
+    await ensureTeacherAccountLifecycleColumns(pool);
+    const [[teacherAccount]] = await pool.query(
+      `SELECT id
+       FROM teachers
+       WHERE id = ?
+         AND COALESCE(NULLIF(account_status, ''), 'active') = 'active'
+         AND retired_at IS NULL
+       LIMIT 1`,
+      [decoded.id]
+    );
+    if (!teacherAccount) {
+      return res.status(403).json({
+        code: "TEACHER_ACCOUNT_RETIRED",
+        message: "This teacher account is no longer active.",
+      });
+    }
+    req.teacher = decoded;
     next();
   } catch {
     return res.status(401).json({ message: "Invalid or expired token" });
@@ -222,7 +247,8 @@ app.post("/api/admin/login", async (req, res) => {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
-    const token = signAdminSessionToken(admin);
+    const sessionMode = resolveRequestedSessionMode(req, req.body?.session_mode);
+    const token = signAdminSessionToken(admin, sessionMode);
 
     await logAuditEvent({
       userId: Number(admin.id) || 1,
@@ -238,6 +264,7 @@ app.post("/api/admin/login", async (req, res) => {
       token,
       username: admin.username,
       idleTimeoutMinutes: 15,
+      session_mode: sessionMode,
     });
   } catch (err) {
     console.error("Admin login error:", err);
@@ -777,6 +804,54 @@ export async function ensureTeacherAssignmentLifecycleColumns(connection = pool)
   );
 }
 
+let teacherAccountLifecycleReadyPromise = null;
+
+async function prepareTeacherAccountLifecycleColumns(connection) {
+  if (!(await columnExists(connection, "teachers", "account_status"))) {
+    await connection.query(
+      `ALTER TABLE teachers
+       ADD COLUMN account_status VARCHAR(20) NOT NULL DEFAULT 'active'`
+    );
+  }
+
+  if (!(await columnExists(connection, "teachers", "retired_at"))) {
+    await connection.query(
+      `ALTER TABLE teachers
+       ADD COLUMN retired_at TIMESTAMP NULL DEFAULT NULL`
+    );
+  }
+
+  if (!(await columnExists(connection, "teachers", "retired_reason"))) {
+    await connection.query(
+      `ALTER TABLE teachers
+       ADD COLUMN retired_reason VARCHAR(255) NULL DEFAULT NULL`
+    );
+  }
+
+  if (!(await columnExists(connection, "teachers", "retired_by_admin_id"))) {
+    await connection.query(
+      `ALTER TABLE teachers
+       ADD COLUMN retired_by_admin_id INT NULL DEFAULT NULL`
+    );
+  }
+
+  await connection.query(
+    `UPDATE teachers
+     SET account_status = COALESCE(NULLIF(account_status, ''), 'active')
+     WHERE account_status IS NULL OR account_status = ''`
+  );
+}
+
+export async function ensureTeacherAccountLifecycleColumns(connection = pool) {
+  if (!teacherAccountLifecycleReadyPromise) {
+    teacherAccountLifecycleReadyPromise = prepareTeacherAccountLifecycleColumns(connection).catch((err) => {
+      teacherAccountLifecycleReadyPromise = null;
+      throw err;
+    });
+  }
+  return teacherAccountLifecycleReadyPromise;
+}
+
 async function ensureALevelTeacherSubjectLifecycleColumns(connection = pool) {
   if (!(await tableExists(connection, "alevel_teacher_subjects"))) {
     return false;
@@ -1081,9 +1156,16 @@ async function readSchoolCalendarSettings() {
 // ===============================
 app.get("/api/admin/teachers", authAdmin, async (req, res) => {
   try {
+    await ensureTeacherAccountLifecycleColumns(pool);
+    const includeRetired = ["1", "true", "yes", "all"].includes(
+      String(req.query.includeRetired || "").trim().toLowerCase()
+    );
     const [rows] = await pool.query(
-      `SELECT id, name, email, subject1, subject2, created_at
+      `SELECT id, name, email, subject1, subject2, created_at,
+              COALESCE(NULLIF(account_status, ''), 'active') AS account_status,
+              retired_at, retired_reason
        FROM teachers
+       ${includeRetired ? "" : "WHERE COALESCE(NULLIF(account_status, ''), 'active') = 'active' AND retired_at IS NULL"}
        ORDER BY created_at DESC`
     );
     res.json(rows);
@@ -1115,9 +1197,14 @@ app.post("/api/teachers/login", async (req, res) => {
 
   const { email, password } = req.body;
   const normalizedEmail = String(email || "").trim().toLowerCase();
+  await ensureTeacherAccountLifecycleColumns(pool);
 
   const [rows] = await pool.query(
-    "SELECT * FROM teachers WHERE LOWER(TRIM(email)) = ? LIMIT 1",
+    `SELECT * FROM teachers
+     WHERE LOWER(TRIM(email)) = ?
+       AND COALESCE(NULLIF(account_status, ''), 'active') = 'active'
+       AND retired_at IS NULL
+     LIMIT 1`,
     [normalizedEmail]
   );
 
@@ -1132,10 +1219,12 @@ app.post("/api/teachers/login", async (req, res) => {
     return res.status(401).json({ message: "Invalid credentials" });
   }
 
-  const token = signTeacherToken(teacher);
+  const sessionMode = resolveRequestedSessionMode(req, req.body?.session_mode);
+  const token = signTeacherToken(teacher, sessionMode);
 
   res.json({
     token,
+    session_mode: sessionMode,
     teacher: {
       id: teacher.id,
       name: teacher.name,
@@ -1261,7 +1350,7 @@ app.get("/api/admin/assignments", authAdmin, async (req, res) => {
 
     const [rows] = await pool.query(`
       SELECT ta.id, ta.teacher_id, ta.class_level, ta.stream, ta.subject,
-             t.name AS teacher_name,
+             COALESCE(t.name, CONCAT('Former teacher #', ta.teacher_id)) AS teacher_name,
              ta.created_at,
              COALESCE(ta.assignment_status, 'active') AS assignment_status,
              ta.ended_at,
@@ -1303,7 +1392,7 @@ app.get("/api/admin/marks-sets", authAdmin, async (req, res) => {
         ta.class_level,
         ta.stream,
         ta.subject,
-        t.name AS teacher_name,
+        COALESCE(t.name, CONCAT('Former teacher #', m.teacher_id)) AS teacher_name,
         m.term,
         m.year,
         m.aoi_label,
@@ -1318,6 +1407,7 @@ app.get("/api/admin/marks-sets", authAdmin, async (req, res) => {
         ta.stream,
         ta.subject,
         t.name,
+        m.teacher_id,
         m.term,
         m.year,
         m.aoi_label
@@ -1339,7 +1429,7 @@ app.get("/api/admin/marks-sets", authAdmin, async (req, res) => {
             ta.class_level,
             ta.stream,
             ta.subject,
-            t.name AS teacher_name,
+            COALESCE(t.name, CONCAT('Former teacher #', m.teacher_id)) AS teacher_name,
             m.term,
             m.year,
             m.aoi_label,
@@ -1354,6 +1444,7 @@ app.get("/api/admin/marks-sets", authAdmin, async (req, res) => {
             ta.stream,
             ta.subject,
             t.name,
+            m.teacher_id,
             m.term,
             m.year,
             m.aoi_label
@@ -1413,9 +1504,16 @@ app.get("/api/students", async (req, res) => {
 // ===============================
 app.get("/api/admin/teachers", authAdmin, async (req, res) => {
   try {
+    await ensureTeacherAccountLifecycleColumns(pool);
+    const includeRetired = ["1", "true", "yes", "all"].includes(
+      String(req.query.includeRetired || "").trim().toLowerCase()
+    );
     const [rows] = await pool.query(
-      `SELECT id, name, email, subject1, subject2, created_at
+      `SELECT id, name, email, subject1, subject2, created_at,
+              COALESCE(NULLIF(account_status, ''), 'active') AS account_status,
+              retired_at, retired_reason
        FROM teachers
+       ${includeRetired ? "" : "WHERE COALESCE(NULLIF(account_status, ''), 'active') = 'active' AND retired_at IS NULL"}
        ORDER BY created_at DESC`
     );
     res.json(rows);
@@ -1495,35 +1593,71 @@ app.post("/api/teachers", authAdmin, async (req, res) => {
     res.status(500).json({ message: "Failed to add teacher" });
   }
 });
-// ADMIN → DELETE TEACHER
+// ADMIN → RETIRE TEACHER ACCOUNT
 app.delete("/api/admin/teachers/:id", authAdmin, requireAdminReauth, async (req, res) => {
   const conn = await pool.getConnection();
   try {
-    const { id } = req.params;
+    const teacherId = Number(req.params.id);
+    const adminId = Number(req.admin?.id) || 1;
+    const retiredReason = String(req.body?.reason || "").trim() || "Teacher left school";
+    if (!Number.isInteger(teacherId) || teacherId <= 0) {
+      return res.status(400).json({ message: "Invalid teacher id" });
+    }
+
+    await ensureTeacherAccountLifecycleColumns(pool);
     await ensureTeacherAssignmentLifecycleColumns(pool);
     const hasAlevelAssignmentsTable = await ensureALevelTeacherSubjectLifecycleColumns(pool);
     await conn.beginTransaction();
 
-    const [existing] = await conn.query(
-      "SELECT id FROM teachers WHERE id = ?",
-      [id]
+    const [[teacher]] = await conn.query(
+      `SELECT id, name, email, COALESCE(NULLIF(account_status, ''), 'active') AS account_status
+       FROM teachers WHERE id = ? FOR UPDATE`,
+      [teacherId]
     );
 
-    if (!existing.length) {
+    if (!teacher) {
       await conn.rollback();
       return res.status(404).json({ message: "Teacher not found" });
+    }
+    if (teacher.account_status === "retired") {
+      await conn.rollback();
+      return res.status(409).json({ message: "This teacher account is already retired." });
+    }
+
+    const [[oLevelMarksMeta]] = await conn.query(
+      `SELECT COUNT(*) AS count
+       FROM marks m
+       WHERE m.teacher_id = ?
+          OR m.assignment_id IN (
+            SELECT ta.id FROM teacher_assignments ta WHERE ta.teacher_id = ?
+          )`,
+      [teacherId, teacherId]
+    );
+
+    let aLevelMarksCount = 0;
+    if (hasAlevelAssignmentsTable) {
+      const [[aLevelMarksMeta]] = await conn.query(
+        `SELECT COUNT(*) AS count
+         FROM alevel_marks am
+         WHERE am.teacher_id = ?
+            OR am.assignment_id IN (
+              SELECT ats.id FROM alevel_teacher_subjects ats WHERE ats.teacher_id = ?
+            )`,
+        [teacherId, teacherId]
+      );
+      aLevelMarksCount = Number(aLevelMarksMeta?.count || 0);
     }
 
     const [oLevelCleanup] = await conn.query(
       `UPDATE teacher_assignments
        SET assignment_status = 'inactive',
            ended_at = COALESCE(ended_at, NOW()),
-           ended_reason = COALESCE(ended_reason, 'Teacher account removed; marks retained'),
+           ended_reason = COALESCE(ended_reason, 'Teacher account retired; marks retained'),
            ended_by_admin_id = COALESCE(ended_by_admin_id, ?)
        WHERE teacher_id = ?
          AND COALESCE(assignment_status, 'active') = 'active'
          AND ended_at IS NULL`,
-      [Number(req.admin?.id) || 1, id]
+      [adminId, teacherId]
     );
 
     let aLevelCleanupCount = 0;
@@ -1532,32 +1666,55 @@ app.delete("/api/admin/teachers/:id", authAdmin, requireAdminReauth, async (req,
         `UPDATE alevel_teacher_subjects
          SET assignment_status = 'inactive',
              ended_at = COALESCE(ended_at, NOW()),
-             ended_reason = COALESCE(ended_reason, 'Teacher account removed; marks retained'),
+             ended_reason = COALESCE(ended_reason, 'Teacher account retired; marks retained'),
              ended_by_admin_id = COALESCE(ended_by_admin_id, ?)
          WHERE teacher_id = ?
            AND COALESCE(assignment_status, 'active') = 'active'
            AND ended_at IS NULL`,
-        [Number(req.admin?.id) || 1, id]
+        [adminId, teacherId]
       );
       aLevelCleanupCount = aLevelCleanup.affectedRows || 0;
     }
 
-    const [result] = await conn.query(
-      "DELETE FROM teachers WHERE id = ?",
-      [id]
+    const [retirement] = await conn.query(
+      `UPDATE teachers
+       SET account_status = 'retired',
+           retired_at = NOW(),
+           retired_reason = ?,
+           retired_by_admin_id = ?
+       WHERE id = ?
+         AND COALESCE(NULLIF(account_status, ''), 'active') = 'active'`,
+      [retiredReason, adminId, teacherId]
     );
 
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ message: "Teacher not found" });
+    if (retirement.affectedRows === 0) {
+      await conn.rollback();
+      return res.status(409).json({ message: "This teacher account could not be retired." });
     }
 
     await conn.commit();
-    queueAdminYearSnapshotRefresh(pool, "teacher-delete");
+    queueAdminYearSnapshotRefresh(pool, "teacher-retire");
+
+    await logAuditEvent({
+      userId: adminId,
+      userRole: "admin",
+      action: "RETIRE_TEACHER_ACCOUNT",
+      entityType: "teacher",
+      entityId: teacherId,
+      description: `Retired ${teacher.name} (#${teacherId}); preserved ${Number(oLevelMarksMeta?.count || 0)} O-Level and ${aLevelMarksCount} A-Level mark rows`,
+      ipAddress: extractClientIp(req),
+    });
 
     return res.json({
-      message: "Teacher deleted successfully",
-      deletedId: id,
-      affectedRows: result.affectedRows,
+      message: "Teacher account retired. Existing marks and assignment history were retained.",
+      action: "retired",
+      retiredId: teacherId,
+      deletedId: teacherId,
+      affectedRows: retirement.affectedRows,
+      retainedMarks: {
+        oLevel: Number(oLevelMarksMeta?.count || 0),
+        aLevel: aLevelMarksCount,
+      },
       endedAssignments: {
         oLevel: oLevelCleanup.affectedRows || 0,
         aLevel: aLevelCleanupCount,
@@ -1735,12 +1892,17 @@ app.post("/api/admin/assignments", authAdmin, async (req, res) => {
       });
     }
 
+    await ensureTeacherAccountLifecycleColumns(pool);
     await ensureTeacherAssignmentLifecycleColumns(pool);
     conn = await pool.getConnection();
     await conn.beginTransaction();
 
     const [[teacherRow]] = await conn.query(
-      "SELECT id, name FROM teachers WHERE id = ? LIMIT 1",
+      `SELECT id, name FROM teachers
+       WHERE id = ?
+         AND COALESCE(NULLIF(account_status, ''), 'active') = 'active'
+         AND retired_at IS NULL
+       LIMIT 1`,
       [teacherId]
     );
 
@@ -3632,6 +3794,7 @@ export const io = new Server(server, {
 });
 const socketToUserId = new Map();
 const userIdToSockets = new Map();
+const activeDmCalls = new Map();
 
 export const getOnlineUserIds = () => Array.from(userIdToSockets.keys());
 
@@ -3724,6 +3887,41 @@ const createMissedCallNotification = async ({ toUserId, fromUserId, conversation
   io.to(`user-${targetId}`).emit("notification");
 };
 
+const finalizeDmCall = async (callId, status) => {
+  const normalizedCallId = String(callId || "").trim();
+  const call = activeDmCalls.get(normalizedCallId);
+  if (!call) return null;
+
+  activeDmCalls.delete(normalizedCallId);
+  if (call.ringTimer) clearTimeout(call.ringTimer);
+  const durationSeconds = call.acceptedAt
+    ? Math.max(1, Math.floor((Date.now() - call.acceptedAt) / 1000))
+    : 0;
+
+  let message = null;
+  try {
+    message = await recordDmCallMessage({
+      conversationId: call.conversationId,
+      callId: normalizedCallId,
+      callerId: call.callerId,
+      status,
+      durationSeconds,
+    });
+  } catch (err) {
+    console.warn("DM call history could not be saved:", err?.message || err);
+  }
+
+  if (status === "missed") {
+    await createMissedCallNotification({
+      toUserId: call.calleeId,
+      fromUserId: call.callerId,
+      conversationId: call.conversationId,
+      callId: normalizedCallId,
+    }).catch(() => {});
+  }
+  return message;
+};
+
 io.on("connection", (socket) => {
   console.log("🔌 Socket connected:", socket.id);
 
@@ -3777,16 +3975,42 @@ io.on("connection", (socket) => {
 
   socket.on("dm_call_invite", async (payload = {}) => {
     const conversationId = payload.conversationId;
-    if (!conversationId || !payload.callId || !payload.offer) return;
+    const callId = String(payload.callId || "").trim();
+    if (!conversationId || !callId || callId.length > 120 || !payload.offer) return;
     const fromUserId = socketToUserId.get(socket.id) || payload.fromUserId || null;
     if (!(await isDmConversationParticipant(conversationId, fromUserId))) return;
     const participants = await getDmConversationParticipants(conversationId);
-    const toUserId =
-      Number(payload.toUserId || 0) ||
-      (Number(participants?.user1_id) === Number(fromUserId)
-        ? Number(participants?.user2_id || 0)
-        : Number(participants?.user1_id || 0));
+    const toUserId = Number(participants?.user1_id) === Number(fromUserId)
+      ? Number(participants?.user2_id || 0)
+      : Number(participants?.user1_id || 0);
     if (!toUserId || Number(toUserId) === Number(fromUserId)) return;
+    if (activeDmCalls.has(callId)) return;
+    const activeCall = {
+      callId,
+      conversationId: Number(conversationId),
+      callerId: Number(fromUserId),
+      calleeId: Number(toUserId),
+      callerSocketId: socket.id,
+      calleeSocketId: null,
+      createdAt: Date.now(),
+      acceptedAt: null,
+      ringTimer: null,
+    };
+    activeCall.ringTimer = setTimeout(async () => {
+      if (!activeDmCalls.has(callId)) return;
+      io.to(`user-${activeCall.callerId}`).emit("dm_call_end", {
+        conversationId: activeCall.conversationId,
+        callId,
+        reason: "no_answer",
+      });
+      io.to(`user-${activeCall.calleeId}`).emit("dm_call_end", {
+        conversationId: activeCall.conversationId,
+        callId,
+        reason: "no_answer",
+      });
+      await finalizeDmCall(callId, "missed");
+    }, 50000);
+    activeDmCalls.set(callId, activeCall);
     const caller = await getVineUserCallSummary(fromUserId);
     const invitePayload = {
       ...payload,
@@ -3797,15 +4021,10 @@ io.on("connection", (socket) => {
     };
     io.to(`user-${toUserId}`).emit("dm_call_invite", invitePayload);
     if (!userIdToSockets.has(Number(toUserId))) {
-      await createMissedCallNotification({
-        toUserId,
-        fromUserId,
-        conversationId,
-        callId: payload.callId,
-      });
+      await finalizeDmCall(callId, "missed");
       io.to(`user-${fromUserId}`).emit("dm_call_decline", {
         conversationId,
-        callId: payload.callId,
+        callId,
         fromUserId: toUserId,
         toUserId: fromUserId,
         reason: "offline",
@@ -3818,8 +4037,17 @@ io.on("connection", (socket) => {
     if (!conversationId || !payload.callId || !payload.answer) return;
     const fromUserId = socketToUserId.get(socket.id) || payload.fromUserId || null;
     if (!(await isDmConversationParticipant(conversationId, fromUserId))) return;
-    const targetUserId = Number(payload.toUserId || 0);
-    const targetRoom = targetUserId ? `user-${targetUserId}` : `conversation-${conversationId}`;
+    const activeCall = activeDmCalls.get(String(payload.callId || "").trim());
+    if (
+      !activeCall ||
+      activeCall.conversationId !== Number(conversationId) ||
+      Number(activeCall.calleeId) !== Number(fromUserId)
+    ) return;
+    activeCall.acceptedAt = activeCall.acceptedAt || Date.now();
+    activeCall.calleeSocketId = socket.id;
+    if (activeCall.ringTimer) clearTimeout(activeCall.ringTimer);
+    activeCall.ringTimer = null;
+    const targetRoom = `user-${activeCall.callerId}`;
     socket.to(targetRoom).emit("dm_call_accept", {
       ...payload,
       fromUserId,
@@ -3831,12 +4059,21 @@ io.on("connection", (socket) => {
     if (!conversationId || !payload.callId) return;
     const fromUserId = socketToUserId.get(socket.id) || payload.fromUserId || null;
     if (!(await isDmConversationParticipant(conversationId, fromUserId))) return;
-    const targetUserId = Number(payload.toUserId || 0);
-    const targetRoom = targetUserId ? `user-${targetUserId}` : `conversation-${conversationId}`;
+    const activeCall = activeDmCalls.get(String(payload.callId || "").trim());
+    if (
+      !activeCall ||
+      activeCall.conversationId !== Number(conversationId) ||
+      Number(activeCall.calleeId) !== Number(fromUserId)
+    ) return;
+    const targetRoom = `user-${activeCall.callerId}`;
     socket.to(targetRoom).emit("dm_call_decline", {
       ...payload,
       fromUserId,
     });
+    await finalizeDmCall(
+      payload.callId,
+      payload.reason === "busy" ? "busy" : "declined"
+    );
   });
 
   socket.on("dm_call_end", async (payload = {}) => {
@@ -3844,12 +4081,21 @@ io.on("connection", (socket) => {
     if (!conversationId || !payload.callId) return;
     const fromUserId = socketToUserId.get(socket.id) || payload.fromUserId || null;
     if (!(await isDmConversationParticipant(conversationId, fromUserId))) return;
-    const targetUserId = Number(payload.toUserId || 0);
-    const targetRoom = targetUserId ? `user-${targetUserId}` : `conversation-${conversationId}`;
+    const activeCall = activeDmCalls.get(String(payload.callId || "").trim());
+    if (
+      !activeCall ||
+      activeCall.conversationId !== Number(conversationId) ||
+      ![activeCall.callerId, activeCall.calleeId].includes(Number(fromUserId))
+    ) return;
+    const targetUserId = Number(fromUserId) === activeCall.callerId
+      ? activeCall.calleeId
+      : activeCall.callerId;
+    const targetRoom = `user-${targetUserId}`;
     socket.to(targetRoom).emit("dm_call_end", {
       ...payload,
       fromUserId,
     });
+    await finalizeDmCall(payload.callId, activeCall?.acceptedAt ? "completed" : "missed");
   });
 
   socket.on("dm_call_signal", async (payload = {}) => {
@@ -3857,8 +4103,16 @@ io.on("connection", (socket) => {
     if (!conversationId || !payload.callId || !payload.candidate) return;
     const fromUserId = socketToUserId.get(socket.id) || payload.fromUserId || null;
     if (!(await isDmConversationParticipant(conversationId, fromUserId))) return;
-    const targetUserId = Number(payload.toUserId || 0);
-    const targetRoom = targetUserId ? `user-${targetUserId}` : `conversation-${conversationId}`;
+    const activeCall = activeDmCalls.get(String(payload.callId || "").trim());
+    if (
+      !activeCall ||
+      activeCall.conversationId !== Number(conversationId) ||
+      ![activeCall.callerId, activeCall.calleeId].includes(Number(fromUserId))
+    ) return;
+    const targetUserId = Number(fromUserId) === activeCall.callerId
+      ? activeCall.calleeId
+      : activeCall.callerId;
+    const targetRoom = `user-${targetUserId}`;
     socket.to(targetRoom).emit("dm_call_signal", {
       ...payload,
       fromUserId,
@@ -3867,12 +4121,14 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     const uid = socketToUserId.get(socket.id);
+    let userIsOffline = false;
     if (uid) {
       const set = userIdToSockets.get(uid);
       if (set) {
         set.delete(socket.id);
         if (set.size === 0) {
           userIdToSockets.delete(uid);
+          userIsOffline = true;
           db.query("UPDATE vine_users SET last_active_at = NOW() WHERE id = ?", [uid]).catch(() => {});
           io.emit("user_presence_changed", {
             userId: uid,
@@ -3883,12 +4139,30 @@ io.on("connection", (socket) => {
       }
       socketToUserId.delete(socket.id);
     }
+    const disconnectedCalls = Array.from(activeDmCalls.values()).filter((call) =>
+      call.callerSocketId === socket.id ||
+      call.calleeSocketId === socket.id ||
+      (!call.acceptedAt && userIsOffline && Number(call.calleeId) === Number(uid))
+    );
+    disconnectedCalls.forEach((call) => {
+      const otherUserId = Number(uid) === call.callerId ? call.calleeId : call.callerId;
+      io.to(`user-${otherUserId}`).emit("dm_call_end", {
+        conversationId: call.conversationId,
+        callId: call.callId,
+        fromUserId: uid,
+        reason: "disconnected",
+      });
+      void finalizeDmCall(call.callId, call.acceptedAt ? "completed" : "missed");
+    });
     console.log("❌ Socket disconnected:", socket.id);
   });
 });
 
 server.listen(PORT, () => {
   console.log(`✅ Spess Ark backend + WS running on http://localhost:${PORT}`);
+  ensureTeacherAccountLifecycleColumns(pool).catch((err) => {
+    console.error("Teacher account lifecycle setup failed:", err);
+  });
   ensureTeacherAssignmentLifecycleColumns(pool).catch((err) => {
     console.error("Teacher assignment lifecycle setup failed:", err);
   });

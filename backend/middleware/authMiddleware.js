@@ -1,5 +1,9 @@
 import jwt from "jsonwebtoken";
 import { db } from "../server.js";
+import {
+  getVineSessionIdleMs,
+  resolveRequestedSessionMode,
+} from "../utils/deviceSession.js";
 
 const SESSION_IDLE_MS = 1 * 60 * 60 * 1000;
 
@@ -31,7 +35,10 @@ export default async function authMiddleware(req, res, next) {
         return res.status(401).json({ message: "Session expired" });
       }
       const lastSeenAt = new Date(session.last_seen_at || 0).getTime();
-      if (!lastSeenAt || Date.now() - lastSeenAt > SESSION_IDLE_MS) {
+      const sessionMode =
+        decoded?.session_mode ||
+        resolveRequestedSessionMode(req, req.get("x-spess-session-mode"));
+      if (!lastSeenAt || Date.now() - lastSeenAt > getVineSessionIdleMs(sessionMode, SESSION_IDLE_MS)) {
         await db.query(
           "UPDATE vine_user_sessions SET revoked_at = NOW() WHERE user_id = ? AND session_jti = ? AND revoked_at IS NULL",
           [decoded.id, decoded.jti]

@@ -1,4 +1,5 @@
 import jwt from "jsonwebtoken";
+import { getSessionExpiry } from "../utils/deviceSession.js";
 
 const ADMIN_JWT_SECRET = process.env.JWT_SECRET || "dev_secret";
 
@@ -12,16 +13,17 @@ const readBearerToken = (req) => {
   return authHeader.slice(7).trim();
 };
 
-export function signAdminSessionToken(admin) {
+export function signAdminSessionToken(admin, sessionMode = "browser_session") {
   return jwt.sign(
     {
       id: Number(admin?.id) || 1,
       username: String(admin?.username || "admin").trim() || "admin",
       role: "admin",
       type: "admin_session",
+      session_mode: sessionMode,
     },
     ADMIN_JWT_SECRET,
-    { expiresIn: "12h" }
+    { expiresIn: getSessionExpiry(sessionMode, "12h") }
   );
 }
 

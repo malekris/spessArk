@@ -2,6 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import TimetableAdminShell from "../components/TimetableAdminShell";
 import { adminFetch } from "../../../lib/api";
 import { openTimetablePdfPreview } from "../utils/timetablePdf";
+import {
+  buildLessonAllocationRows,
+  buildLessonAllocationSummary,
+  openLessonAllocationPdfPreview,
+} from "../utils/lessonAllocationReport";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 const STREAMS = [
@@ -320,6 +325,7 @@ export default function TimetableDashboard() {
   const availabilityConfirmationTimerRef = useRef(null);
   const [generationConfirmation, setGenerationConfirmation] = useState(null);
   const generationConfirmationTimerRef = useRef(null);
+  const [allocationReportOpen, setAllocationReportOpen] = useState(false);
   const availabilityTableRef = useRef(null);
   const availabilityRowRefs = useRef(new Map());
   const [draftName, setDraftName] = useState("");
@@ -360,6 +366,12 @@ export default function TimetableDashboard() {
           : "Low risk",
     };
   }, [setup, version]);
+
+  const allocationRows = useMemo(() => buildLessonAllocationRows(version), [version]);
+  const allocationSummary = useMemo(
+    () => buildLessonAllocationSummary(allocationRows),
+    [allocationRows]
+  );
 
   const loadVersion = useCallback(async (versionId) => {
     if (!versionId) {
@@ -945,6 +957,28 @@ export default function TimetableDashboard() {
     }
   };
 
+  const openAllocationReport = async (draftId) => {
+    if (draftId && String(version?.id || "") !== String(draftId)) {
+      await chooseVersion(String(draftId));
+    }
+    setAllocationReportOpen(true);
+  };
+
+  const exportAllocationReportPdf = async () => {
+    setBusyKey("allocation-report-pdf");
+    setError("");
+    try {
+      await openLessonAllocationPdfPreview({
+        version,
+        currentTerm: setup?.currentTerm,
+      });
+    } catch (pdfError) {
+      setError(pdfError.message || "Failed to create the lesson allocation report.");
+    } finally {
+      setBusyKey("");
+    }
+  };
+
   const renderOverview = () => {
     const readiness = setup?.readiness;
     return (
@@ -1224,27 +1258,106 @@ export default function TimetableDashboard() {
               <span>{latestDraft ? "Recorded" : "No drafts"}</span>
             </div>
             {latestDraft ? (
-              <button type="button" className="tt-action-button" onClick={() => {
-                chooseVersion(String(latestDraft.id));
-                setActiveModule("timetables");
-              }}>Open draft</button>
+              <div className="tt-generation-log-actions">
+                <button
+                  type="button"
+                  className="tt-action-button"
+                  onClick={() => openAllocationReport(latestDraft.id)}
+                >Lesson allocation report</button>
+                <button type="button" className="tt-action-button" onClick={() => {
+                  chooseVersion(String(latestDraft.id));
+                  setActiveModule("timetables");
+                }}>Open draft</button>
+              </div>
             ) : null}
           </div>
           {latestDraft ? (
-            <dl className="tt-generation-log-grid">
-              <div>
-                <dt>Draft name</dt>
-                <dd>{latestDraft.name}</dd>
-              </div>
-              <div>
-                <dt>Generated</dt>
-                <dd>{formatDate(latestDraft.createdAt)}</dd>
-              </div>
-              <div>
-                <dt>Status</dt>
-                <dd><StatusPill value={latestDraft.status} /></dd>
-              </div>
-            </dl>
+            <>
+              <dl className="tt-generation-log-grid">
+                <div>
+                  <dt>Draft name</dt>
+                  <dd>{latestDraft.name}</dd>
+                </div>
+                <div>
+                  <dt>Generated</dt>
+                  <dd>{formatDate(latestDraft.createdAt)}</dd>
+                </div>
+                <div>
+                  <dt>Status</dt>
+                  <dd><StatusPill value={latestDraft.status} /></dd>
+                </div>
+              </dl>
+              {allocationReportOpen ? (
+                <section className="tt-allocation-report" aria-label="Lesson allocation report">
+                  <div className="tt-allocation-report-toolbar">
+                    <div>
+                      <h4>Subject, teacher and lesson allocation</h4>
+                      <span>Scheduled lesson counts for the selected timetable draft</span>
+                    </div>
+                    <label>
+                      <span>Timetable draft</span>
+                      <select
+                        value={selectedVersionId}
+                        onChange={(event) => chooseVersion(event.target.value)}
+                      >
+                        {(setup?.versions || []).map((item) => (
+                          <option key={item.id} value={item.id}>{item.name}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      type="button"
+                      className="tt-action-button tt-report-pdf-button"
+                      disabled={allocationRows.length === 0 || busyKey === "allocation-report-pdf"}
+                      onClick={exportAllocationReportPdf}
+                    >
+                      {busyKey === "allocation-report-pdf" ? "Preparing PDF..." : "Preview PDF"}
+                    </button>
+                    <button
+                      type="button"
+                      className="tt-action-button"
+                      onClick={() => setAllocationReportOpen(false)}
+                    >Close</button>
+                  </div>
+                  <div className="tt-allocation-summary" aria-label="Allocation summary">
+                    <div><strong>{allocationSummary.classGroups}</strong><span>Class groups</span></div>
+                    <div><strong>{allocationSummary.subjects}</strong><span>Subjects</span></div>
+                    <div><strong>{allocationSummary.teachers}</strong><span>Teachers</span></div>
+                    <div><strong>{allocationSummary.scheduledLessons}</strong><span>Scheduled lessons</span></div>
+                  </div>
+                  {allocationRows.length > 0 ? (
+                    <div className="tt-table-scroll tt-allocation-table-wrap">
+                      <table className="tt-data-table tt-allocation-table">
+                        <thead>
+                          <tr>
+                            <th>Class</th>
+                            <th>Stream</th>
+                            <th>Subject</th>
+                            <th>Teacher</th>
+                            <th>Lessons</th>
+                            <th>Scheduled periods</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {allocationRows.map((row) => (
+                            <tr key={row.key}>
+                              <td><strong>{row.classLevel}</strong></td>
+                              <td>{row.streamsLabel}</td>
+                              <td><strong>{row.subject}</strong></td>
+                              <td>{row.teacherName}</td>
+                              <td className="tt-allocation-count">{row.lessonCount}</td>
+                              <td className="tt-allocation-periods">{row.scheduledPeriods}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="tt-generation-log-empty">This draft has no scheduled teacher lessons to report.</div>
+                  )}
+                </section>
+              ) : null}
+            </>
           ) : (
             <div className="tt-generation-log-empty">The first generated draft will be recorded here.</div>
           )}

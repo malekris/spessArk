@@ -3,6 +3,7 @@ import TimetableAdminShell from "../components/TimetableAdminShell";
 import { adminFetch } from "../../../lib/api";
 import { openTimetablePdfPreview } from "../utils/timetablePdf";
 import {
+  buildLessonAllocationAnomalies,
   buildLessonAllocationRows,
   buildLessonAllocationSummary,
   openLessonAllocationPdfPreview,
@@ -368,6 +369,10 @@ export default function TimetableDashboard() {
   }, [setup, version]);
 
   const allocationRows = useMemo(() => buildLessonAllocationRows(version), [version]);
+  const allocationAnomalies = useMemo(
+    () => buildLessonAllocationAnomalies(version),
+    [version]
+  );
   const allocationSummary = useMemo(
     () => buildLessonAllocationSummary(allocationRows),
     [allocationRows]
@@ -426,9 +431,10 @@ export default function TimetableDashboard() {
     setManualPreview(null);
     setError("");
     try {
-      await loadVersion(value);
+      return await loadVersion(value);
     } catch (loadError) {
       setError(loadError.message || "Failed to load timetable version.");
+      return null;
     }
   };
 
@@ -959,7 +965,8 @@ export default function TimetableDashboard() {
 
   const openAllocationReport = async (draftId) => {
     if (draftId && String(version?.id || "") !== String(draftId)) {
-      await chooseVersion(String(draftId));
+      const loadedVersion = await chooseVersion(String(draftId));
+      if (!loadedVersion) return;
     }
     setAllocationReportOpen(true);
   };
@@ -1308,7 +1315,10 @@ export default function TimetableDashboard() {
                     <button
                       type="button"
                       className="tt-action-button tt-report-pdf-button"
-                      disabled={allocationRows.length === 0 || busyKey === "allocation-report-pdf"}
+                      disabled={
+                        (allocationRows.length === 0 && allocationAnomalies.length === 0) ||
+                        busyKey === "allocation-report-pdf"
+                      }
                       onClick={exportAllocationReportPdf}
                     >
                       {busyKey === "allocation-report-pdf" ? "Preparing PDF..." : "Preview PDF"}
@@ -1355,6 +1365,43 @@ export default function TimetableDashboard() {
                   ) : (
                     <div className="tt-generation-log-empty">This draft has no scheduled teacher lessons to report.</div>
                   )}
+                  <div className="tt-allocation-anomalies">
+                    <div className="tt-allocation-anomalies-heading">
+                      <div>
+                        <h4>Scheduling anomalies</h4>
+                        <span>Lessons that could not be placed in this draft</span>
+                      </div>
+                      <strong>{allocationAnomalies.length}</strong>
+                    </div>
+                    {allocationAnomalies.length > 0 ? (
+                      <div className="tt-table-scroll">
+                        <table className="tt-data-table tt-anomaly-table">
+                          <thead>
+                            <tr>
+                              <th>Class</th>
+                              <th>Subject / teacher</th>
+                              <th>What happened</th>
+                              <th>Underlying cause</th>
+                              <th>Suggested fix</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {allocationAnomalies.map((item) => (
+                              <tr key={item.key}>
+                                <td><strong>{item.classLevel} {item.stream}</strong></td>
+                                <td><strong>{item.subject}</strong><span>{item.teacherName}</span></td>
+                                <td>{item.reason}</td>
+                                <td>{item.cause}</td>
+                                <td>{item.solution}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <div className="tt-allocation-clear-state">No unallocated lessons were recorded for this draft.</div>
+                    )}
+                  </div>
                 </section>
               ) : null}
             </>
@@ -1744,7 +1791,6 @@ export default function TimetableDashboard() {
               <div className="tt-panel-band"><div className="tt-panel-title"><h3>Generation report</h3><StatusPill value={version.stats?.status} /></div><dl className="tt-stat-list"><div><dt>Streams</dt><dd>{version.stats?.streams || 0}</dd></div><div><dt>Teachers</dt><dd>{version.stats?.teachers || 0}</dd></div><div><dt>Lessons placed</dt><dd>{version.stats?.lessonsPlaced || 0}/{version.stats?.lessonsRequested || 0}</dd></div><div><dt>Unallocated</dt><dd>{version.stats?.unallocatedLessons || 0}</dd></div></dl></div>
               <div className="tt-panel-band"><div className="tt-panel-title"><h3>Validation</h3><StatusPill value={version.validation?.valid ? "Passed" : "Needs attention"} /></div><div className="tt-validation-list">{Object.entries(version.validation?.checks || {}).map(([key, value]) => <div key={key}><span>{key.replace(/([A-Z])/g, " $1")}</span><strong>{value}</strong></div>)}</div></div>
             </div>
-            {(version.validation?.unallocated || []).length > 0 ? <div className="tt-panel-band"><div className="tt-panel-title"><h3>Unallocated lessons</h3><span>{version.validation.unallocated.length}</span></div><div className="tt-issue-list">{version.validation.unallocated.map((item, index) => <div key={`${item.assignmentId || "general"}-${index}`}><strong>{item.subject || "Scheduling block"}{item.classLevel ? ` / ${item.classLevel} ${item.stream || ""}` : ""}</strong><span>{item.reason}</span></div>)}</div></div> : null}
             <div className="tt-panel-band"><div className="tt-panel-title"><h3>Teacher workload</h3><span>Scheduled periods</span></div><div className="tt-workload-grid">{workloads.map((teacher) => <div key={teacher.name}><strong>{teacher.name}</strong><span>{teacher.periods} periods / {teacher.days.size} days</span></div>)}</div></div>
             <div className="tt-publish-bar"><div><strong>{version.name}</strong><span>Only complete validated drafts can be published.</span></div><div>{version.status === "draft" ? <button type="button" onClick={() => updateVersionStatus("frozen")} disabled={busyKey === "status-frozen"}>Freeze</button> : null}{version.status === "frozen" ? <><button type="button" onClick={() => updateVersionStatus("draft")} disabled={busyKey === "status-draft"}>Return to draft</button><button type="button" className="tt-primary-command" onClick={() => updateVersionStatus("published")} disabled={!version.validation?.valid || busyKey === "status-published"}>Publish</button></> : null}{version.status === "published" ? <button type="button" onClick={() => updateVersionStatus("archived")} disabled={busyKey === "status-archived"}>Archive</button> : null}</div></div>
           </>

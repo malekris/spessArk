@@ -1234,6 +1234,82 @@
   line-height: 1.5;
 }
 
+.tt-allocation-anomalies {
+  border-top: 1px solid var(--tt-border);
+}
+
+.tt-allocation-anomalies-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.8rem 1rem;
+  border-bottom: 1px solid var(--tt-border);
+  background: color-mix(in srgb, var(--tt-warning) 7%, var(--tt-surface));
+}
+
+.tt-allocation-anomalies-heading h4 {
+  color: var(--tt-title);
+  font-size: 0.82rem;
+  font-weight: 850;
+}
+
+.tt-allocation-anomalies-heading span {
+  display: block;
+  margin-top: 0.18rem;
+  color: var(--tt-muted);
+  font-size: 0.66rem;
+}
+
+.tt-allocation-anomalies-heading > strong {
+  min-width: 30px;
+  color: var(--tt-warning);
+  font-size: 1rem;
+  text-align: right;
+}
+
+.tt-anomaly-table {
+  min-width: 1280px;
+  table-layout: fixed;
+}
+
+.tt-anomaly-table th:nth-child(1) {
+  width: 110px;
+}
+
+.tt-anomaly-table th:nth-child(2) {
+  width: 180px;
+}
+
+.tt-anomaly-table th:nth-child(3),
+.tt-anomaly-table th:nth-child(4),
+.tt-anomaly-table th:nth-child(5) {
+  width: 330px;
+}
+
+.tt-anomaly-table td {
+  vertical-align: top;
+  line-height: 1.5;
+}
+
+.tt-anomaly-table td:nth-child(2) span {
+  display: block;
+  margin-top: 0.22rem;
+  color: var(--tt-muted);
+  font-size: 0.68rem;
+}
+
+.tt-anomaly-table td:nth-child(5) {
+  color: var(--tt-success);
+}
+
+.tt-allocation-clear-state {
+  padding: 0.9rem 1rem;
+  color: var(--tt-success);
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
 .tt-blocker-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr)) auto;

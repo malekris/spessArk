@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  buildLessonAllocationAnomalies,
   buildLessonAllocationRows,
   buildLessonAllocationSummary,
 } from "./lessonAllocationReport.js";
@@ -95,4 +96,27 @@ test("summarizes combined allocations without double-counting teachers or subjec
     teachers: 1,
     scheduledLessons: 2,
   });
+});
+
+test("turns raw unallocated reasons into explicit causes and corrective actions", () => {
+  const anomalies = buildLessonAllocationAnomalies({
+    validation: {
+      unallocated: [
+        {
+          assignmentId: 31,
+          teacherId: 9,
+          teacherName: "John Kato",
+          classLevel: "S3",
+          stream: "North & South",
+          subject: "VOCATIONAL Cluster",
+          reason: "The S3 VOCATIONAL teachers have no shared available day.",
+        },
+      ],
+    },
+  });
+
+  assert.equal(anomalies.length, 1);
+  assert.match(anomalies[0].cause, /no weekday in common/i);
+  assert.match(anomalies[0].solution, /common available day/i);
+  assert.equal(anomalies[0].reason, "The S3 VOCATIONAL teachers have no shared available day.");
 });

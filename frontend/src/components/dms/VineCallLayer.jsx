@@ -6,11 +6,29 @@ import "./VineCallLayer.css";
 
 const DEFAULT_AVATAR = "/default-avatar.png";
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
+const CONNECTION_TIMEOUT_MS = 25000;
+const DISCONNECT_GRACE_MS = 12000;
+const TURN_URLS = String(import.meta.env.VITE_TURN_URLS || "")
+  .split(",")
+  .map((value) => value.trim())
+  .filter(Boolean);
+const TURN_USERNAME = String(import.meta.env.VITE_TURN_USERNAME || "").trim();
+const TURN_CREDENTIAL = String(import.meta.env.VITE_TURN_CREDENTIAL || "").trim();
+const TURN_SERVER = TURN_URLS.length
+  ? {
+      urls: TURN_URLS,
+      ...(TURN_USERNAME && TURN_CREDENTIAL
+        ? { username: TURN_USERNAME, credential: TURN_CREDENTIAL }
+        : {}),
+    }
+  : null;
 const RTC_CONFIG = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
     { urls: "stun:stun1.l.google.com:19302" },
+    ...(TURN_SERVER ? [TURN_SERVER] : []),
   ],
+  iceCandidatePoolSize: 10,
 };
 
 const formatDuration = (seconds) => {
@@ -36,6 +54,7 @@ export default function VineCallLayer() {
   const [incomingCall, setIncomingCall] = useState(null);
   const [muted, setMuted] = useState(false);
   const [duration, setDuration] = useState(0);
+  const [audioBlocked, setAudioBlocked] = useState(false);
 
   const remoteAudioRef = useRef(null);
   const ringtoneAudioRef = useRef(null);
@@ -45,6 +64,9 @@ export default function VineCallLayer() {
   const stateRef = useRef("idle");
   const activeStartedAtRef = useRef(null);
   const noticeConversationIdRef = useRef(null);
+  const pendingIceCandidatesRef = useRef([]);
+  const disconnectTimerRef = useRef(null);
+  const connectedEventSentRef = useRef(false);
 
   const partnerName = useMemo(
     () => callPartner?.display_name || callPartner?.username || "Vine audio call",
@@ -55,9 +77,44 @@ export default function VineCallLayer() {
     stateRef.current = nextState;
     setCallState(nextState);
     setCallNotice(notice);
-    if (nextState === "active") {
+    if (nextState === "active" && !activeStartedAtRef.current) {
       activeStartedAtRef.current = Date.now();
       setDuration(0);
+    }
+  }, []);
+
+  const clearDisconnectTimer = useCallback(() => {
+    if (disconnectTimerRef.current) {
+      window.clearTimeout(disconnectTimerRef.current);
+      disconnectTimerRef.current = null;
+    }
+  }, []);
+
+  const resumeRemoteAudio = useCallback(async () => {
+    const audio = remoteAudioRef.current;
+    if (!audio?.srcObject) return false;
+    audio.muted = false;
+    audio.volume = 1;
+    try {
+      await audio.play();
+      setAudioBlocked(false);
+      return true;
+    } catch {
+      setAudioBlocked(true);
+      return false;
+    }
+  }, []);
+
+  const flushPendingIceCandidates = useCallback(async (pc) => {
+    if (!pc?.remoteDescription || pc.signalingState === "closed") return;
+    const pending = pendingIceCandidatesRef.current.splice(0);
+    for (const candidate of pending) {
+      if (pc.signalingState === "closed") return;
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch {
+        // A stale candidate from a superseded network path can be ignored.
+      }
     }
   }, []);
 
@@ -81,6 +138,7 @@ export default function VineCallLayer() {
       }
       peerRef.current = null;
     }
+    clearDisconnectTimer();
     stopLocalStream();
     if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null;
     if (ringtoneAudioRef.current) {
@@ -90,12 +148,15 @@ export default function VineCallLayer() {
     navigator.vibrate?.(0);
     callRef.current = null;
     activeStartedAtRef.current = null;
+    pendingIceCandidatesRef.current = [];
+    connectedEventSentRef.current = false;
     setIncomingCall(null);
     setMuted(false);
     setDuration(0);
+    setAudioBlocked(false);
     if (!notice) setCallPartner(null);
     setStatus("idle", notice);
-  }, [setStatus, stopLocalStream]);
+  }, [clearDisconnectTimer, setStatus, stopLocalStream]);
 
   const emitCallEvent = useCallback((eventName, extra = {}) => {
     const call = callRef.current;
@@ -125,24 +186,58 @@ export default function VineCallLayer() {
     };
     pc.ontrack = (event) => {
       const [remoteStream] = event.streams || [];
-      if (remoteAudioRef.current && remoteStream) {
-        remoteAudioRef.current.srcObject = remoteStream;
-        remoteAudioRef.current.play?.().catch(() => {});
+      const playableStream = remoteStream || (event.track ? new MediaStream([event.track]) : null);
+      if (remoteAudioRef.current && playableStream) {
+        remoteAudioRef.current.srcObject = playableStream;
+        event.track.onunmute = () => {
+          void resumeRemoteAudio();
+        };
+        void resumeRemoteAudio();
       }
     };
-    pc.onconnectionstatechange = () => {
-      if (pc.connectionState === "connected") {
+
+    const handleConnectionState = () => {
+      if (peerRef.current !== pc || stateRef.current === "idle") return;
+      const isConnected =
+        pc.connectionState === "connected" ||
+        ["connected", "completed"].includes(pc.iceConnectionState);
+      if (isConnected) {
+        clearDisconnectTimer();
         setStatus("active", "Audio connected");
-      }
-      if (["failed", "disconnected"].includes(pc.connectionState)) {
-        if (stateRef.current !== "idle") {
-          emitCallEvent("dm_call_end", { reason: "connection_lost" });
-          resetCall("Call ended");
+        if (!connectedEventSentRef.current) {
+          connectedEventSentRef.current = true;
+          emitCallEvent("dm_call_connected");
         }
+        void resumeRemoteAudio();
+        return;
       }
+
+      const hasFailed = pc.connectionState === "failed" || pc.iceConnectionState === "failed";
+      if (hasFailed) {
+        emitCallEvent("dm_call_end", { reason: "connection_failed" });
+        resetCall("Audio connection failed");
+        return;
+      }
+
+      const isDisconnected =
+        pc.connectionState === "disconnected" || pc.iceConnectionState === "disconnected";
+      if (!isDisconnected || disconnectTimerRef.current) return;
+      setStatus("reconnecting", "Reconnecting audio...");
+      disconnectTimerRef.current = window.setTimeout(() => {
+        disconnectTimerRef.current = null;
+        if (peerRef.current !== pc || stateRef.current === "idle") return;
+        const recovered =
+          pc.connectionState === "connected" ||
+          ["connected", "completed"].includes(pc.iceConnectionState);
+        if (recovered) return;
+        emitCallEvent("dm_call_end", { reason: "connection_lost" });
+        resetCall("Audio connection lost");
+      }, DISCONNECT_GRACE_MS);
     };
+    pc.onconnectionstatechange = handleConnectionState;
+    pc.oniceconnectionstatechange = handleConnectionState;
     return pc;
-  }, [emitCallEvent, resetCall, setStatus]);
+  }, [clearDisconnectTimer, emitCallEvent, resetCall, resumeRemoteAudio, setStatus]);
 
   const getLocalAudioStream = useCallback(async () => {
     if (localStreamRef.current) return localStreamRef.current;
@@ -157,6 +252,10 @@ export default function VineCallLayer() {
       },
       video: false,
     });
+    stream.getAudioTracks().forEach((track) => {
+      track.enabled = true;
+      if ("contentHint" in track) track.contentHint = "speech";
+    });
     localStreamRef.current = stream;
     return stream;
   }, []);
@@ -170,6 +269,9 @@ export default function VineCallLayer() {
       remoteUserId: Number(toUserId),
     };
     callRef.current = call;
+    pendingIceCandidatesRef.current = [];
+    connectedEventSentRef.current = false;
+    setAudioBlocked(false);
     noticeConversationIdRef.current = conversationId;
     setCallPartner(partner || null);
     setStatus("outgoing", "Calling...");
@@ -193,13 +295,13 @@ export default function VineCallLayer() {
       const stream = await getLocalAudioStream();
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
       await pc.setRemoteDescription(new RTCSessionDescription(incomingCall.offer));
+      await flushPendingIceCandidates(pc);
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       emitCallEvent("dm_call_accept", { answer });
       setIncomingCall(null);
-      setStatus("active", "Audio connected");
     } catch (err) {
-      emitCallEvent("dm_call_end");
+      emitCallEvent("dm_call_end", { reason: "negotiation_failed" });
       resetCall(err?.message || "Could not answer audio call.");
     }
   };
@@ -272,13 +374,23 @@ export default function VineCallLayer() {
   }, [emitCallEvent, resetCall, startCall]);
 
   useEffect(() => {
-    if (callState !== "active") return undefined;
+    if (!["active", "reconnecting"].includes(callState)) return undefined;
     const timer = window.setInterval(() => {
       if (!activeStartedAtRef.current) return;
       setDuration(Math.floor((Date.now() - activeStartedAtRef.current) / 1000));
     }, 1000);
     return () => window.clearInterval(timer);
   }, [callState]);
+
+  useEffect(() => {
+    if (callState !== "connecting") return undefined;
+    const timer = window.setTimeout(() => {
+      if (stateRef.current !== "connecting") return;
+      emitCallEvent("dm_call_end", { reason: "connection_timeout" });
+      resetCall("Audio could not connect");
+    }, CONNECTION_TIMEOUT_MS);
+    return () => window.clearTimeout(timer);
+  }, [callState, emitCallEvent, resetCall]);
 
   useEffect(() => {
     if (callState !== "outgoing") return undefined;
@@ -305,6 +417,9 @@ export default function VineCallLayer() {
         });
         return;
       }
+      pendingIceCandidatesRef.current = [];
+      connectedEventSentRef.current = false;
+      setAudioBlocked(false);
       callRef.current = {
         conversationId: payload.conversationId,
         callId: payload.callId,
@@ -318,11 +433,13 @@ export default function VineCallLayer() {
 
     const handleAccept = async (payload = {}) => {
       if (payload.callId !== callRef.current?.callId || !payload.answer || !peerRef.current) return;
+      setStatus("connecting", "Connecting audio...");
       try {
         await peerRef.current.setRemoteDescription(new RTCSessionDescription(payload.answer));
-        setStatus("active", "Audio connected");
+        await flushPendingIceCandidates(peerRef.current);
       } catch {
-        resetCall("Call connection failed");
+        emitCallEvent("dm_call_end", { reason: "negotiation_failed" });
+        resetCall("Audio connection failed");
       }
     };
 
@@ -339,15 +456,28 @@ export default function VineCallLayer() {
 
     const handleEnd = (payload = {}) => {
       if (payload.callId !== callRef.current?.callId) return;
-      resetCall("Call ended");
+      resetCall(payload.reason === "disconnected" ? "Audio connection lost" : "Call ended");
+    };
+
+    const handleAnsweredElsewhere = (payload = {}) => {
+      if (payload.callId !== callRef.current?.callId || stateRef.current !== "incoming") return;
+      resetCall("Answered on another device");
     };
 
     const handleSignal = async (payload = {}) => {
-      if (payload.callId !== callRef.current?.callId || !payload.candidate || !peerRef.current) return;
+      if (payload.callId !== callRef.current?.callId || !payload.candidate) return;
+      const pc = peerRef.current;
+      if (!pc?.remoteDescription) {
+        pendingIceCandidatesRef.current = [
+          ...pendingIceCandidatesRef.current.slice(-127),
+          payload.candidate,
+        ];
+        return;
+      }
       try {
-        await peerRef.current.addIceCandidate(new RTCIceCandidate(payload.candidate));
+        await pc.addIceCandidate(new RTCIceCandidate(payload.candidate));
       } catch {
-        // Ignore candidates that arrive after call teardown.
+        // Ignore stale candidates that arrive after a network path changes.
       }
     };
 
@@ -355,15 +485,17 @@ export default function VineCallLayer() {
     socket.on("dm_call_accept", handleAccept);
     socket.on("dm_call_decline", handleDecline);
     socket.on("dm_call_end", handleEnd);
+    socket.on("dm_call_answered_elsewhere", handleAnsweredElsewhere);
     socket.on("dm_call_signal", handleSignal);
     return () => {
       socket.off("dm_call_invite", handleInvite);
       socket.off("dm_call_accept", handleAccept);
       socket.off("dm_call_decline", handleDecline);
       socket.off("dm_call_end", handleEnd);
+      socket.off("dm_call_answered_elsewhere", handleAnsweredElsewhere);
       socket.off("dm_call_signal", handleSignal);
     };
-  }, [myId, resetCall, setStatus]);
+  }, [emitCallEvent, flushPendingIceCandidates, myId, resetCall, setStatus]);
 
   useEffect(() => {
     const audio = ringtoneAudioRef.current;
@@ -429,7 +561,7 @@ export default function VineCallLayer() {
                 : callNotice || "Vine audio"}
           </span>
           <strong>{partnerName}</strong>
-          <b>{callState === "active" ? formatDuration(duration) : callNotice}</b>
+          <b>{["active", "reconnecting"].includes(callState) ? formatDuration(duration) : callNotice}</b>
         </div>
 
         {callState === "incoming" ? (
@@ -456,7 +588,12 @@ export default function VineCallLayer() {
             </button>
           </div>
         ) : (
-          <div className="vine-call-actions">
+          <div className={`vine-call-actions ${audioBlocked ? "has-audio-recovery" : ""}`}>
+            {audioBlocked ? (
+              <button type="button" className="vine-call-action sound" onClick={resumeRemoteAudio}>
+                Enable audio
+              </button>
+            ) : null}
             <button
               type="button"
               className={`vine-call-action mute ${muted ? "active" : ""}`}

@@ -9,7 +9,7 @@ import { recordPerfQuery, recordPerfRoute } from "./perfStore.js";
 
 const router = express.Router();
 const DISAPPEARING_MODES = new Set(["after_read", "1h", "24h"]);
-const DM_CALL_STATUSES = new Set(["missed", "declined", "busy", "completed"]);
+const DM_CALL_STATUSES = new Set(["missed", "declined", "busy", "failed", "completed"]);
 const USE_R2_UPLOADS = String(process.env.USE_R2_UPLOADS || "").toLowerCase() === "true";
 const R2_ACCOUNT_ID = String(process.env.R2_ACCOUNT_ID || "").trim();
 const R2_BUCKET = String(process.env.R2_BUCKET || "").trim();
@@ -1076,6 +1076,7 @@ const getDmCallContent = (status, durationSeconds) => {
   if (status === "completed") {
     return `Audio call - ${formatDmCallDuration(durationSeconds)}`;
   }
+  if (status === "failed") return "Audio call - Could not connect";
   if (status === "declined") return "Audio call - Declined";
   if (status === "busy") return "Audio call - User busy";
   return "Audio call - No answer";
@@ -1093,7 +1094,7 @@ export const recordDmCallMessage = async ({
   const safeCallId = String(callId || "").trim().slice(0, 120);
   const safeStatus = DM_CALL_STATUSES.has(String(status || "")) ? String(status) : "missed";
   const safeDuration = Math.max(0, Math.floor(Number(durationSeconds || 0)));
-  const isRead = ["completed", "declined"].includes(safeStatus) ? 1 : 0;
+  const isRead = ["completed", "declined", "failed"].includes(safeStatus) ? 1 : 0;
   if (!cid || !senderId || !safeCallId) return null;
 
   await ensureDmPerformanceSchema();

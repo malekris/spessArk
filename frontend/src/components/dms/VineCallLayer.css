@@ -19,6 +19,7 @@
 
 .vine-call-panel {
   position: relative;
+  box-sizing: border-box;
   width: min(460px, 100%);
   min-height: min(720px, calc(100vh - 36px));
   border: 1px solid rgba(167, 243, 208, 0.28);
@@ -143,6 +144,15 @@
 
 .vine-call-action.mute.active {
   background: linear-gradient(145deg, #f59e0b, #b45309);
+}
+
+.vine-call-action.sound {
+  background: #ffffff;
+  color: #065f46;
+}
+
+.vine-call-actions.has-audio-recovery .vine-call-action.sound {
+  grid-column: 1 / -1;
 }
 
 .vine-call-action.end {

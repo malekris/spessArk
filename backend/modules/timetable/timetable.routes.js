@@ -20,7 +20,7 @@ import {
   timetableAlevelSubjectName,
 } from "./timetable.alevel.generator.js";
 import { buildTeacherAvailabilityRows } from "./timetable.availability.js";
-import { applyManualCredits } from "./timetable.manual.js";
+import { applyManualCredits, applyManualRemoval } from "./timetable.manual.js";
 import { regenerateOLevelStreamLessons } from "./timetable.regenerator.js";
 import { ensureTimetableSchemaReady } from "./timetable.schema.js";
 
@@ -920,6 +920,328 @@ export default function createTimetableRoutes(pool) {
     } : null,
   });
 
+  const buildManualRemovalPlan = async (
+    executor,
+    versionId,
+    eventId,
+    { lockVersion = false } = {}
+  ) => {
+    const conflicts = [];
+    const warnings = [];
+    const [[versionRow]] = await executor.query(
+      `SELECT id, name, status, generation_stats_json, validation_json
+       FROM timetable_versions WHERE id = ? LIMIT 1${lockVersion ? " FOR UPDATE" : ""}`,
+      [versionId]
+    );
+    if (!versionRow) {
+      return { valid: false, status: 404, conflicts: ["Timetable version not found."], warnings };
+    }
+    if (versionRow.status !== "draft") {
+      return {
+        valid: false,
+        status: 409,
+        conflicts: ["Lessons can only be deleted from a draft timetable."],
+        warnings,
+        versionRow,
+      };
+    }
+
+    const [[selectedEvent]] = await executor.query(
+      `SELECT id, version_id, class_level, stream, day_of_week, slot_code, event_type,
+              subject_label, assignment_id, teacher_id, teacher_name, block_key,
+              is_locked, is_manual, created_at, updated_at
+       FROM timetable_events
+       WHERE version_id = ? AND id = ? LIMIT 1${lockVersion ? " FOR UPDATE" : ""}`,
+      [versionId, eventId]
+    );
+    if (!selectedEvent) {
+      return {
+        valid: false,
+        status: 404,
+        conflicts: ["The selected timetable lesson no longer exists."],
+        warnings,
+        versionRow,
+      };
+    }
+    if (!["lesson", "cluster"].includes(String(selectedEvent.event_type || "").toLowerCase())) {
+      return {
+        valid: false,
+        status: 409,
+        conflicts: ["Assembly, church and project periods cannot be deleted here."],
+        warnings,
+        versionRow,
+      };
+    }
+
+    const blockKey = String(selectedEvent.block_key || "").trim();
+    const [events] = blockKey
+      ? await executor.query(
+          `SELECT id, version_id, class_level, stream, day_of_week, slot_code, event_type,
+                  subject_label, assignment_id, teacher_id, teacher_name, block_key,
+                  is_locked, is_manual, created_at, updated_at
+           FROM timetable_events
+           WHERE version_id = ? AND block_key = ?${lockVersion ? " FOR UPDATE" : ""}`,
+          [versionId, blockKey]
+        )
+      : await executor.query(
+          `SELECT id, version_id, class_level, stream, day_of_week, slot_code, event_type,
+                  subject_label, assignment_id, teacher_id, teacher_name, block_key,
+                  is_locked, is_manual, created_at, updated_at
+           FROM timetable_events
+           WHERE version_id = ? AND id = ?${lockVersion ? " FOR UPDATE" : ""}`,
+          [versionId, eventId]
+        );
+    const eventIds = events.map((row) => Number(row.id));
+    const [sessions] = blockKey
+      ? await executor.query(
+          `SELECT id, version_id, event_id, teacher_id, teacher_name, assignment_id,
+                  subject_label, class_level, streams_label, day_of_week, slot_code,
+                  block_key, created_at
+           FROM timetable_teacher_sessions
+           WHERE version_id = ? AND block_key = ?${lockVersion ? " FOR UPDATE" : ""}`,
+          [versionId, blockKey]
+        )
+      : eventIds.length > 0
+        ? await executor.query(
+            `SELECT id, version_id, event_id, teacher_id, teacher_name, assignment_id,
+                    subject_label, class_level, streams_label, day_of_week, slot_code,
+                    block_key, created_at
+             FROM timetable_teacher_sessions
+             WHERE version_id = ? AND event_id IN (${eventIds.map(() => "?").join(",")})${lockVersion ? " FOR UPDATE" : ""}`,
+            [versionId, ...eventIds]
+          )
+        : [[]];
+
+    const impacts = [];
+    const selectedClass = normalizeClassLevel(selectedEvent.class_level) ||
+      normalizeAlevelClassLevel(selectedEvent.class_level);
+    const isOLevel = ["S1", "S2", "S3", "S4"].includes(selectedClass);
+    const selectedIsCluster = events.some((event) => event.event_type === "cluster");
+
+    if (isOLevel && selectedIsCluster) {
+      const clusterCode = String(selectedEvent.subject_label || "").toLowerCase().includes("vocational")
+        ? "VOCATIONAL"
+        : "OTHERS";
+      const assignments = (await loadActiveOLevelAssignments(executor)).filter((row) =>
+        normalizeClassLevel(row.class_level) === selectedClass &&
+        String(row.lesson_kind || "").trim().toUpperCase() === "CLUSTER" &&
+        String(row.cluster_code || "").trim().toUpperCase() === clusterCode &&
+        Boolean(Number(row.enabled))
+      );
+      for (const assignment of assignments) {
+        const stream = normalizeStream(assignment.stream);
+        const fallback = defaultRequirementForAssignment(assignment);
+        const requiredLessons = Number(assignment.lessons_per_week ?? fallback.lessonsPerWeek);
+        const [[countRow]] = await executor.query(
+          `SELECT COUNT(DISTINCT CONCAT(day_of_week, '::', slot_code)) AS lesson_count
+           FROM timetable_events
+           WHERE version_id = ? AND class_level = ? AND stream = ?
+             AND event_type = 'cluster' AND subject_label = ?`,
+          [versionId, selectedClass, stream, selectedEvent.subject_label]
+        );
+        const removedSlots = new Set(
+          events
+            .filter((event) => event.class_level === selectedClass && normalizeStream(event.stream) === stream)
+            .map((event) => `${event.day_of_week}::${event.slot_code}`)
+        ).size;
+        const scheduledBefore = Number(countRow?.lesson_count || 0);
+        impacts.push({
+          assignmentId: Number(assignment.assignment_id),
+          teacherId: Number(assignment.teacher_id),
+          teacherName: assignment.teacher_name,
+          subjectLabel: assignment.subject,
+          classLevel: selectedClass,
+          stream,
+          requiredLessons,
+          scheduledBefore,
+          scheduledAfter: Math.max(0, scheduledBefore - removedSlots),
+        });
+      }
+    } else if (isOLevel) {
+      const assignmentIds = [...new Set([
+        ...events.map((event) => Number(event.assignment_id)),
+        ...sessions.map((session) => Number(session.assignment_id)),
+      ].filter(Boolean))];
+      if (assignmentIds.length > 0) {
+        const [assignments] = await executor.query(
+          `SELECT ta.id AS assignment_id, ta.teacher_id, ta.class_level, ta.stream, ta.subject,
+                  t.name AS teacher_name, r.lessons_per_week, r.lesson_kind, r.cluster_code, r.enabled
+           FROM teacher_assignments ta
+           LEFT JOIN teachers t ON t.id = ta.teacher_id
+           LEFT JOIN timetable_lesson_requirements r ON r.assignment_id = ta.id
+           WHERE ta.id IN (${assignmentIds.map(() => "?").join(",")})`,
+          assignmentIds
+        );
+        for (const assignment of assignments) {
+          const fallback = defaultRequirementForAssignment(assignment);
+          const requiredLessons = Number(assignment.lessons_per_week ?? fallback.lessonsPerWeek);
+          const [[countRow]] = await executor.query(
+            `SELECT COUNT(DISTINCT CONCAT(day_of_week, '::', slot_code)) AS lesson_count
+             FROM timetable_events WHERE version_id = ? AND assignment_id = ?`,
+            [versionId, assignment.assignment_id]
+          );
+          const removedSlots = new Set(
+            events
+              .filter((event) => Number(event.assignment_id) === Number(assignment.assignment_id))
+              .map((event) => `${event.day_of_week}::${event.slot_code}`)
+          ).size;
+          const scheduledBefore = Number(countRow?.lesson_count || 0);
+          impacts.push({
+            assignmentId: Number(assignment.assignment_id),
+            teacherId: Number(assignment.teacher_id),
+            teacherName: assignment.teacher_name,
+            subjectLabel: assignment.subject,
+            classLevel: normalizeClassLevel(assignment.class_level),
+            stream: normalizeStream(assignment.stream),
+            requiredLessons,
+            scheduledBefore,
+            scheduledAfter: Math.max(0, scheduledBefore - removedSlots),
+          });
+        }
+      }
+    } else {
+      const [allSessions] = await executor.query(
+        `SELECT ts.id, ts.assignment_id, ts.teacher_id, ts.teacher_name, ts.subject_label,
+                ts.class_level, ts.streams_label, ts.day_of_week, ts.slot_code,
+                ats.subject_id, ats.stream AS assignment_stream, s.name AS assignment_subject
+         FROM timetable_teacher_sessions ts
+         LEFT JOIN alevel_teacher_subjects ats ON ats.id = ts.assignment_id
+         LEFT JOIN alevel_subjects s ON s.id = ats.subject_id
+         WHERE ts.version_id = ? AND ts.class_level IN ('S5', 'S6')`,
+        [versionId]
+      );
+      const removedSessionIds = new Set(sessions.map((session) => Number(session.id)));
+      const affectedKeys = new Set();
+      const unitRows = new Map();
+      for (const session of allSessions) {
+        if (!session.subject_id) continue;
+        const coveredStreams = String(session.streams_label || "")
+          .split("&")
+          .map((stream) => normalizeAlevelStream(stream))
+          .filter(Boolean);
+        const streams = coveredStreams.length > 0
+          ? coveredStreams
+          : [normalizeAlevelStream(session.assignment_stream)].filter(Boolean);
+        for (const stream of streams) {
+          const key = `${session.class_level}::${stream}::${session.subject_id}`;
+          if (!unitRows.has(key)) unitRows.set(key, []);
+          unitRows.get(key).push(session);
+          if (removedSessionIds.has(Number(session.id))) affectedKeys.add(key);
+        }
+      }
+
+      for (const key of affectedKeys) {
+        const rows = unitRows.get(key) || [];
+        const [classLevel, stream] = key.split("::");
+        const subjectId = Number(key.split("::")[2]);
+        const slotsBefore = new Set(rows.map((row) => `${row.day_of_week}::${row.slot_code}`));
+        const removedSlots = new Set(
+          rows
+            .filter((row) => removedSessionIds.has(Number(row.id)))
+            .map((row) => `${row.day_of_week}::${row.slot_code}`)
+        );
+        const representative = rows[0] || {};
+        const [[assignment]] = await executor.query(
+          `SELECT ats.id, ats.teacher_id, t.name AS teacher_name
+           FROM alevel_teacher_subjects ats
+           LEFT JOIN teachers t ON t.id = ats.teacher_id
+           WHERE ats.subject_id = ? AND ats.stream = ?
+           ORDER BY CASE WHEN COALESCE(ats.assignment_status, 'active') = 'active' AND ats.ended_at IS NULL THEN 0 ELSE 1 END,
+                    ats.id DESC LIMIT 1`,
+          [subjectId, `${classLevel} ${stream}`]
+        );
+        const scheduledBefore = slotsBefore.size;
+        impacts.push({
+          assignmentId: Number(assignment?.id || representative.assignment_id) || null,
+          teacherId: Number(assignment?.teacher_id || representative.teacher_id) || null,
+          teacherName: assignment?.teacher_name || representative.teacher_name,
+          subjectLabel: representative.assignment_subject || representative.subject_label,
+          classLevel,
+          stream,
+          requiredLessons: Number(DEFAULT_TIMETABLE_CONFIG.aLevel?.lessonsPerSubject || 2),
+          scheduledBefore,
+          scheduledAfter: Math.max(0, scheduledBefore - removedSlots.size),
+        });
+      }
+    }
+
+    const createsShortage = impacts.some((impact) =>
+      Number(impact.scheduledAfter) < Number(impact.requiredLessons)
+    );
+    const consequenceRows = impacts.map((impact) => {
+      const remaining = Number(impact.scheduledAfter || 0);
+      const required = Number(impact.requiredLessons || 0);
+      if (remaining < required) {
+        const remainingLabel = remaining === 0
+          ? "no lessons"
+          : `only ${remaining} lesson${remaining === 1 ? "" : "s"}`;
+        return `Deleting this lesson means ${remainingLabel} for ${impact.subjectLabel} will remain in ${impact.classLevel} ${impact.stream}, below the required ${required}.`;
+      }
+      return `${impact.subjectLabel} will retain ${remaining}/${required} required weekly lessons in ${impact.classLevel} ${impact.stream}.`;
+    });
+    if (selectedIsCluster && impacts.length > 0) {
+      const remaining = Math.min(...impacts.map((impact) => Number(impact.scheduledAfter || 0)));
+      const required = Math.max(...impacts.map((impact) => Number(impact.requiredLessons || 0)));
+      const clusterRemaining = remaining === 0
+        ? "no cluster sessions"
+        : `only ${remaining} cluster session${remaining === 1 ? "" : "s"}`;
+      consequenceRows.unshift(
+        `Deleting this cluster means ${clusterRemaining} will remain for ${selectedClass} ${[...new Set(events.map((event) => event.stream))].join(" & ")}, against ${required} required. Every subject in the block loses one weekly lesson.`
+      );
+    }
+    if (impacts.length === 0) {
+      consequenceRows.push("This scheduling cell will be removed. It has no matched teacher session, so no additional required-lesson shortage was detected.");
+    }
+    if (events.some((event) => Boolean(Number(event.is_locked)))) {
+      warnings.push("This selection contains a locked lesson. Confirming deletion will remove it anyway.");
+    }
+    if (createsShortage) {
+      warnings.push("The draft will return to Needs Attention until the missing lesson is replaced.");
+    }
+
+    return {
+      valid: true,
+      status: 200,
+      conflicts,
+      warnings,
+      versionRow,
+      selectedEvent,
+      events,
+      sessions,
+      impacts,
+      consequences: [...new Set(consequenceRows)],
+      createsShortage,
+      summary: {
+        kind: selectedIsCluster ? "cluster" : blockKey ? "linked block" : "lesson",
+        label: selectedEvent.subject_label,
+        classLevel: selectedClass || selectedEvent.class_level,
+        streams: [...new Set(events.map((event) => event.stream))],
+        day: selectedEvent.day_of_week,
+        slotCode: selectedEvent.slot_code,
+        eventCount: events.length,
+        sessionCount: sessions.length,
+        locked: events.some((event) => Boolean(Number(event.is_locked))),
+      },
+    };
+  };
+
+  const publicManualRemovalPlan = (plan) => ({
+    valid: Boolean(plan.valid),
+    conflicts: [...new Set(plan.conflicts || [])],
+    warnings: [...new Set(plan.warnings || [])],
+    consequences: [...new Set(plan.consequences || [])],
+    createsShortage: Boolean(plan.createsShortage),
+    summary: plan.summary || null,
+    impacts: (plan.impacts || []).map((impact) => ({
+      subject: impact.subjectLabel,
+      classLevel: impact.classLevel,
+      stream: impact.stream,
+      requiredLessons: Number(impact.requiredLessons || 0),
+      scheduledBefore: Number(impact.scheduledBefore || 0),
+      scheduledAfter: Number(impact.scheduledAfter || 0),
+    })),
+  });
+
   router.get("/setup", async (_req, res) => {
     try {
       const { academicYear, currentTerm, config, updatedAt } = await readTimetableConfig(pool);
@@ -1432,6 +1754,27 @@ export default function createTimetableRoutes(pool) {
     }
   });
 
+  router.post("/versions/:versionId/manual/remove/preview", async (req, res) => {
+    try {
+      const versionId = Number(req.params.versionId);
+      const eventId = Number(req.body?.eventId);
+      if (!versionId || !eventId) {
+        return res.status(400).json({ message: "Choose a timetable draft and lesson." });
+      }
+      const plan = await buildManualRemovalPlan(pool, versionId, eventId);
+      if (!plan.valid) {
+        return res.status(plan.status || 409).json({
+          message: plan.conflicts?.[0] || "This timetable lesson cannot be deleted.",
+          ...publicManualRemovalPlan(plan),
+        });
+      }
+      res.json(publicManualRemovalPlan(plan));
+    } catch (error) {
+      console.error("Preview timetable lesson deletion failed:", error);
+      res.status(500).json({ message: "Failed to calculate the consequence of deleting this lesson." });
+    }
+  });
+
   router.post("/versions/:versionId/manual", async (req, res) => {
     let connection;
     try {
@@ -1569,6 +1912,117 @@ export default function createTimetableRoutes(pool) {
         return res.status(409).json({ message: "That stream or teacher became occupied. Check the slot again." });
       }
       res.status(500).json({ message: "Failed to add the manual timetable lesson." });
+    }
+  });
+
+  router.delete("/versions/:versionId/events/:eventId", async (req, res) => {
+    let connection;
+    try {
+      const versionId = Number(req.params.versionId);
+      const eventId = Number(req.params.eventId);
+      if (!versionId || !eventId) {
+        return res.status(400).json({ message: "Choose a timetable draft and lesson." });
+      }
+
+      connection = await pool.getConnection();
+      await connection.beginTransaction();
+      const plan = await buildManualRemovalPlan(
+        connection,
+        versionId,
+        eventId,
+        { lockVersion: true }
+      );
+      if (!plan.valid) {
+        await connection.rollback();
+        connection.release();
+        connection = null;
+        return res.status(plan.status || 409).json({
+          message: plan.conflicts?.[0] || "This timetable lesson cannot be deleted.",
+          ...publicManualRemovalPlan(plan),
+        });
+      }
+
+      const previousStats = parseJson(plan.versionRow.generation_stats_json, {});
+      const previousValidation = parseJson(plan.versionRow.validation_json, {});
+      const eventIds = plan.events.map((event) => Number(event.id)).filter(Boolean);
+      const sessionIds = plan.sessions.map((session) => Number(session.id)).filter(Boolean);
+      const updatedReport = applyManualRemoval(previousValidation, previousStats, {
+        impacts: plan.impacts,
+        eventsRemoved: eventIds.length,
+        sessionsRemoved: sessionIds.length,
+      });
+
+      if (sessionIds.length > 0) {
+        await connection.query(
+          `DELETE FROM timetable_teacher_sessions
+           WHERE version_id = ? AND id IN (${sessionIds.map(() => "?").join(",")})`,
+          [versionId, ...sessionIds]
+        );
+      }
+      if (eventIds.length > 0) {
+        await connection.query(
+          `DELETE FROM timetable_events
+           WHERE version_id = ? AND id IN (${eventIds.map(() => "?").join(",")})`,
+          [versionId, ...eventIds]
+        );
+      }
+      await connection.query(
+        `UPDATE timetable_versions
+         SET generation_stats_json = ?, validation_json = ?, updated_at = NOW()
+         WHERE id = ?`,
+        [
+          JSON.stringify(updatedReport.stats),
+          JSON.stringify(updatedReport.validation),
+          versionId,
+        ]
+      );
+      await connection.query(
+        `INSERT INTO timetable_actions
+          (version_id, admin_id, action_type, payload_json, undo_payload_json)
+         VALUES (?, ?, 'manual_remove', ?, ?)`,
+        [
+          versionId,
+          Number(req.admin?.id) || 1,
+          JSON.stringify({
+            eventIds,
+            sessionIds,
+            summary: plan.summary,
+            consequences: plan.consequences,
+            removedRequiredLessons: updatedReport.removedRequiredLessons,
+          }),
+          JSON.stringify({
+            events: plan.events,
+            sessions: plan.sessions,
+            stats: previousStats,
+            validation: previousValidation,
+          }),
+        ]
+      );
+      await connection.commit();
+      connection.release();
+      connection = null;
+
+      await logAuditEvent({
+        userId: Number(req.admin?.id) || 1,
+        action: "TIMETABLE_LESSON_DELETED",
+        entityType: "system",
+        entityId: versionId,
+        description: `${plan.summary.label} ${plan.summary.kind} deleted from ${plan.summary.classLevel} ${plan.summary.streams.join(" & ")} on ${plan.summary.day} ${plan.summary.slotCode}; ${updatedReport.removedRequiredLessons} required lesson allocation${updatedReport.removedRequiredLessons === 1 ? "" : "s"} removed`,
+        ipAddress: extractClientIp(req),
+      });
+      const detail = await readVersionDetail(pool, versionId);
+      res.json({
+        ...detail,
+        manualRemoval: {
+          ...publicManualRemovalPlan(plan),
+          removedRequiredLessons: updatedReport.removedRequiredLessons,
+        },
+      });
+    } catch (error) {
+      if (connection) await connection.rollback().catch(() => {});
+      if (connection) connection.release();
+      console.error("Delete timetable lesson failed:", error);
+      res.status(500).json({ message: "Failed to delete the timetable lesson." });
     }
   });
 
@@ -2037,7 +2491,7 @@ export default function createTimetableRoutes(pool) {
         `SELECT id, action_type, undo_payload_json
          FROM timetable_actions
          WHERE version_id = ? AND undone_at IS NULL
-           AND action_type IN ('move', 'swap', 'lock_event', 'pin_teacher', 'status_change', 'manual_add')
+           AND action_type IN ('move', 'swap', 'lock_event', 'pin_teacher', 'status_change', 'manual_add', 'manual_remove')
          ORDER BY id DESC LIMIT 1 FOR UPDATE`,
         [versionId]
       );
@@ -2120,6 +2574,64 @@ export default function createTimetableRoutes(pool) {
             `DELETE FROM timetable_events
              WHERE version_id = ? AND id IN (${eventIds.map(() => "?").join(",")})`,
             [versionId, ...eventIds]
+          );
+        }
+        await connection.query(
+          `UPDATE timetable_versions
+           SET generation_stats_json = ?, validation_json = ?
+           WHERE id = ?`,
+          [JSON.stringify(undo.stats || {}), JSON.stringify(undo.validation || {}), versionId]
+        );
+      } else if (action.action_type === "manual_remove") {
+        for (const event of undo.events || []) {
+          await connection.query(
+            `INSERT INTO timetable_events
+              (id, version_id, class_level, stream, day_of_week, slot_code, event_type,
+               subject_label, assignment_id, teacher_id, teacher_name, block_key,
+               is_locked, is_manual, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              event.id,
+              event.version_id,
+              event.class_level,
+              event.stream,
+              event.day_of_week,
+              event.slot_code,
+              event.event_type,
+              event.subject_label,
+              event.assignment_id,
+              event.teacher_id,
+              event.teacher_name,
+              event.block_key,
+              event.is_locked,
+              event.is_manual,
+              event.created_at,
+              event.updated_at,
+            ]
+          );
+        }
+        for (const session of undo.sessions || []) {
+          await connection.query(
+            `INSERT INTO timetable_teacher_sessions
+              (id, version_id, event_id, teacher_id, teacher_name, assignment_id,
+               subject_label, class_level, streams_label, day_of_week, slot_code,
+               block_key, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              session.id,
+              session.version_id,
+              session.event_id,
+              session.teacher_id,
+              session.teacher_name,
+              session.assignment_id,
+              session.subject_label,
+              session.class_level,
+              session.streams_label,
+              session.day_of_week,
+              session.slot_code,
+              session.block_key,
+              session.created_at,
+            ]
           );
         }
         await connection.query(

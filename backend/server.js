@@ -3894,8 +3894,8 @@ const finalizeDmCall = async (callId, status) => {
 
   activeDmCalls.delete(normalizedCallId);
   if (call.ringTimer) clearTimeout(call.ringTimer);
-  const durationSeconds = call.acceptedAt
-    ? Math.max(1, Math.floor((Date.now() - call.acceptedAt) / 1000))
+  const durationSeconds = call.connectedAt
+    ? Math.max(1, Math.floor((Date.now() - call.connectedAt) / 1000))
     : 0;
 
   let message = null;
@@ -3994,6 +3994,7 @@ io.on("connection", (socket) => {
       calleeSocketId: null,
       createdAt: Date.now(),
       acceptedAt: null,
+      connectedAt: null,
       ringTimer: null,
     };
     activeCall.ringTimer = setTimeout(async () => {
@@ -4052,6 +4053,25 @@ io.on("connection", (socket) => {
       ...payload,
       fromUserId,
     });
+    socket.to(`user-${activeCall.calleeId}`).emit("dm_call_answered_elsewhere", {
+      conversationId: activeCall.conversationId,
+      callId: activeCall.callId,
+    });
+  });
+
+  socket.on("dm_call_connected", async (payload = {}) => {
+    const conversationId = payload.conversationId;
+    if (!conversationId || !payload.callId) return;
+    const fromUserId = socketToUserId.get(socket.id) || payload.fromUserId || null;
+    if (!(await isDmConversationParticipant(conversationId, fromUserId))) return;
+    const activeCall = activeDmCalls.get(String(payload.callId || "").trim());
+    if (
+      !activeCall ||
+      !activeCall.acceptedAt ||
+      activeCall.conversationId !== Number(conversationId) ||
+      ![activeCall.callerId, activeCall.calleeId].includes(Number(fromUserId))
+    ) return;
+    activeCall.connectedAt = activeCall.connectedAt || Date.now();
   });
 
   socket.on("dm_call_decline", async (payload = {}) => {
@@ -4069,6 +4089,11 @@ io.on("connection", (socket) => {
     socket.to(targetRoom).emit("dm_call_decline", {
       ...payload,
       fromUserId,
+    });
+    socket.to(`user-${activeCall.calleeId}`).emit("dm_call_end", {
+      conversationId: activeCall.conversationId,
+      callId: activeCall.callId,
+      reason: "declined_elsewhere",
     });
     await finalizeDmCall(
       payload.callId,
@@ -4095,7 +4120,12 @@ io.on("connection", (socket) => {
       ...payload,
       fromUserId,
     });
-    await finalizeDmCall(payload.callId, activeCall?.acceptedAt ? "completed" : "missed");
+    const finalStatus = activeCall.connectedAt
+      ? "completed"
+      : activeCall.acceptedAt
+        ? "failed"
+        : "missed";
+    await finalizeDmCall(payload.callId, finalStatus);
   });
 
   socket.on("dm_call_signal", async (payload = {}) => {
@@ -4152,7 +4182,12 @@ io.on("connection", (socket) => {
         fromUserId: uid,
         reason: "disconnected",
       });
-      void finalizeDmCall(call.callId, call.acceptedAt ? "completed" : "missed");
+      const finalStatus = call.connectedAt
+        ? "completed"
+        : call.acceptedAt
+          ? "failed"
+          : "missed";
+      void finalizeDmCall(call.callId, finalStatus);
     });
     console.log("❌ Socket disconnected:", socket.id);
   });

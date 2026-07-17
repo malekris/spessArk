@@ -345,6 +345,9 @@ export default function TimetableDashboard() {
   const [manualDay, setManualDay] = useState("Monday");
   const [manualSlot, setManualSlot] = useState("P1");
   const [manualPreview, setManualPreview] = useState(null);
+  const [removalEventId, setRemovalEventId] = useState("");
+  const [removalPreview, setRemovalPreview] = useState(null);
+  const [removalConfirmation, setRemovalConfirmation] = useState(null);
   const [adviserFocus, setAdviserFocus] = useState("best");
 
   const timetableAdvice = useMemo(() => {
@@ -429,6 +432,8 @@ export default function TimetableDashboard() {
     setSelectedVersionId(value);
     selectedVersionRef.current = value;
     setManualPreview(null);
+    setRemovalEventId("");
+    setRemovalPreview(null);
     setError("");
     try {
       return await loadVersion(value);
@@ -556,6 +561,8 @@ export default function TimetableDashboard() {
       setSelectedVersionId(versionId);
       setVersion(detail);
       setManualPreview(null);
+      setRemovalEventId("");
+      setRemovalPreview(null);
       setDraftName("");
       setSetup((current) => ({
         ...current,
@@ -714,10 +721,68 @@ export default function TimetableDashboard() {
         ),
       }));
       setManualPreview(null);
+      setRemovalPreview(null);
       setNotice(`${updated.manualOverride?.summary?.label || "Lesson"} added manually and locked against regeneration.`);
     } catch (addError) {
       setManualPreview(addError?.body || null);
       setError(addError.message || "Failed to add the manual timetable lesson.");
+    } finally {
+      setBusyKey("");
+    }
+  };
+
+  const reviewManualRemoval = async () => {
+    if (!version || !removalEventId) return;
+    setBusyKey("manual-remove-preview");
+    setError("");
+    setNotice("");
+    try {
+      const preview = await adminFetch(
+        `/api/admin/timetable/versions/${version.id}/manual/remove/preview`,
+        { method: "POST", body: { eventId: Number(removalEventId) } }
+      );
+      setRemovalPreview(preview);
+    } catch (previewError) {
+      setRemovalPreview(previewError?.body || null);
+      setError(previewError.message || "Failed to review the consequence of deleting this lesson.");
+    } finally {
+      setBusyKey("");
+    }
+  };
+
+  const deleteManualSelection = async () => {
+    if (!version || !removalEventId || !removalPreview?.valid) return;
+    setBusyKey("manual-remove");
+    setError("");
+    setNotice("");
+    try {
+      const updated = await adminFetch(
+        `/api/admin/timetable/versions/${version.id}/events/${removalEventId}`,
+        { method: "DELETE" }
+      );
+      setVersion(updated);
+      setSetup((current) => ({
+        ...current,
+        versions: (current?.versions || []).map((item) =>
+          String(item.id) === String(updated.id) ? updated : item
+        ),
+      }));
+      const consequence = updated.manualRemoval?.consequences?.[0] ||
+        "The selected timetable lesson was removed.";
+      setAvailabilityConfirmation(null);
+      setGenerationConfirmation(null);
+      setRemovalConfirmation({
+        label: updated.manualRemoval?.summary?.label || "Lesson",
+        consequence,
+        createsShortage: Boolean(updated.manualRemoval?.createsShortage),
+      });
+      setRemovalEventId("");
+      setRemovalPreview(null);
+      setControlEventId("");
+      setNotice(`${updated.manualRemoval?.summary?.label || "Lesson"} deleted from the draft. Undo Last can restore it.`);
+    } catch (removeError) {
+      setRemovalPreview(removeError?.body || removalPreview);
+      setError(removeError.message || "Failed to delete the timetable lesson.");
     } finally {
       setBusyKey("");
     }
@@ -750,6 +815,9 @@ export default function TimetableDashboard() {
         method: "POST",
       });
       setVersion(updated);
+      setRemovalEventId("");
+      setRemovalPreview(null);
+      setRemovalConfirmation(null);
       setNotice("Last timetable action undone.");
       const versions = await adminFetch("/api/admin/timetable/versions");
       setSetup((current) => ({ ...current, versions }));
@@ -775,6 +843,8 @@ export default function TimetableDashboard() {
       setSelectedVersionId(versionId);
       setVersion(updated);
       setManualPreview(null);
+      setRemovalEventId("");
+      setRemovalPreview(null);
       setNotice(`${classLevel} ${stream} regenerated in a new draft; the source version is unchanged.`);
       const versions = await adminFetch("/api/admin/timetable/versions");
       setSetup((current) => ({ ...current, versions }));
@@ -1655,6 +1725,35 @@ export default function TimetableDashboard() {
       }
       return map;
     }, new Map()).values()).sort((left, right) => left.label.localeCompare(right.label));
+    const removalGroups = new Map();
+    (version?.events || [])
+      .filter((event) => ["lesson", "cluster"].includes(event.eventType))
+      .forEach((event) => {
+        const key = event.blockKey ? `block::${event.blockKey}` : `event::${event.id}`;
+        if (!removalGroups.has(key)) {
+          removalGroups.set(key, {
+            eventId: event.id,
+            classLevel: event.classLevel,
+            subjectLabel: event.subjectLabel,
+            day: event.day,
+            streams: new Set(),
+            slots: new Set(),
+            isLocked: false,
+            isCluster: event.eventType === "cluster",
+          });
+        }
+        const group = removalGroups.get(key);
+        group.streams.add(event.stream);
+        group.slots.add(event.slotCode);
+        group.isLocked = group.isLocked || event.isLocked;
+        group.isCluster = group.isCluster || event.eventType === "cluster";
+      });
+    const removalOptions = Array.from(removalGroups.values())
+      .map((group) => ({
+        ...group,
+        label: `${group.day} ${Array.from(group.slots).join(" + ")} / ${group.classLevel} ${Array.from(group.streams).join(" & ")} / ${group.subjectLabel}${group.isLocked ? " / Locked" : ""}`,
+      }))
+      .sort((left, right) => left.label.localeCompare(right.label));
     const manualSlots = MANUAL_SLOT_OPTIONS[manualDay] || [];
     return (
       <section className="tt-page-section">
@@ -1783,6 +1882,68 @@ export default function TimetableDashboard() {
                         ) : null}
                       </div>
                     ) : null}
+                    <div className="tt-manual-removal">
+                      <div className="tt-manual-removal-head">
+                        <span>
+                          <strong>Remove a scheduled lesson</strong>
+                          <small>Review the weekly consequence before deleting a lesson or complete linked block</small>
+                        </span>
+                      </div>
+                      <div className="tt-manual-removal-controls">
+                        <label>
+                          <span>Lesson or cluster</span>
+                          <select value={removalEventId} onChange={(event) => {
+                            setRemovalEventId(event.target.value);
+                            setRemovalPreview(null);
+                          }}>
+                            <option value="">Select scheduled lesson</option>
+                            {removalOptions.map((item) => (
+                              <option key={item.eventId} value={item.eventId}>{item.label}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <button
+                          type="button"
+                          onClick={reviewManualRemoval}
+                          disabled={!removalEventId || busyKey === "manual-remove-preview"}
+                        >
+                          {busyKey === "manual-remove-preview" ? "Reviewing" : "Review deletion"}
+                        </button>
+                      </div>
+                      {removalPreview ? (
+                        <div className={`tt-removal-preview ${removalPreview.createsShortage ? "is-shortage" : "is-safe"}`} role="alert" aria-live="assertive">
+                          <div className="tt-removal-preview-copy">
+                            <strong>{removalPreview.createsShortage ? "Required lessons will be reduced" : "Required lesson count remains covered"}</strong>
+                            <span>{removalPreview.consequences?.[0] || removalPreview.conflicts?.[0]}</span>
+                          </div>
+                          {(removalPreview.impacts || []).length > 0 ? (
+                            <div className="tt-removal-impact-list">
+                              {removalPreview.impacts.map((impact) => (
+                                <div key={`${impact.classLevel}-${impact.stream}-${impact.subject}`}>
+                                  <span>{impact.classLevel} {impact.stream} / {impact.subject}</span>
+                                  <strong>{impact.scheduledAfter}/{impact.requiredLessons} remain</strong>
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
+                          {(removalPreview.warnings || []).length > 0 ? (
+                            <ul>{removalPreview.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
+                          ) : null}
+                          {removalPreview.valid ? (
+                            <button
+                              type="button"
+                              className="tt-danger-command"
+                              onClick={deleteManualSelection}
+                              disabled={busyKey === "manual-remove"}
+                            >
+                              {busyKey === "manual-remove"
+                                ? "Deleting"
+                                : `Delete ${removalPreview.summary?.kind || "lesson"}`}
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1839,6 +2000,16 @@ export default function TimetableDashboard() {
             <span>{generationConfirmation.name} was generated at {formatDate(generationConfirmation.createdAt)}.</span>
           </span>
           <button type="button" onClick={() => setGenerationConfirmation(null)}>Dismiss</button>
+        </div>
+      ) : null}
+      {removalConfirmation ? (
+        <div className={`tt-save-confirmation tt-removal-confirmation ${removalConfirmation.createsShortage ? "is-shortage" : ""}`} role="alert" aria-live="assertive" aria-atomic="true">
+          <span className="tt-removal-confirmation-mark" aria-hidden="true" />
+          <span className="tt-save-confirmation-copy">
+            <strong>{removalConfirmation.label} deleted</strong>
+            <span>{removalConfirmation.consequence}</span>
+          </span>
+          <button type="button" onClick={() => setRemovalConfirmation(null)}>Dismiss</button>
         </div>
       ) : null}
     </TimetableAdminShell>

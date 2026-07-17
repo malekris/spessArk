@@ -491,7 +491,9 @@ router.post("/download", async (req, res) => {
               LEFT JOIN teachers t ON t.id = ats.teacher_id
               WHERE ats.stream = ?
                 AND ats.subject_id IN (?)
-              ORDER BY ats.subject_id ASC, ats.paper_label ASC
+                AND COALESCE(ats.assignment_status, 'active') = 'active'
+                AND ats.ended_at IS NULL
+              ORDER BY ats.subject_id ASC, ats.paper_label ASC, ats.created_at DESC, ats.id DESC
               `,
               [learner.stream, subjectIds]
             )
@@ -503,7 +505,6 @@ router.post("/download", async (req, res) => {
               SELECT
                 m.subject_id,
                 ats.paper_label,
-                COALESCE(t.name, '—') AS teacher,
                 MAX(CASE WHEN e.name = 'MID' THEN m.score END) AS mid,
                 MAX(CASE WHEN e.name = 'EOT' THEN m.score END) AS eot,
                 MAX(CASE WHEN e.name = 'MID' THEN 1 ELSE 0 END) AS mid_recorded,
@@ -511,13 +512,12 @@ router.post("/download", async (req, res) => {
               FROM alevel_marks m
               JOIN alevel_exams e ON e.id = m.exam_id
               LEFT JOIN alevel_teacher_subjects ats ON ats.id = m.assignment_id
-              LEFT JOIN teachers t ON t.id = COALESCE(ats.teacher_id, m.teacher_id)
               WHERE m.learner_id = ?
                 AND m.term = ?
                 AND YEAR(m.created_at) = ?
                 AND (? = 'FULL' OR UPPER(e.name) = 'MID')
                 AND m.subject_id IN (?)
-              GROUP BY m.subject_id, ats.paper_label, t.name
+              GROUP BY m.subject_id, ats.paper_label
               ORDER BY m.subject_id ASC, ats.paper_label ASC
               `,
               [learner.id, term, year, assessmentMode, subjectIds]
@@ -546,7 +546,7 @@ router.post("/download", async (req, res) => {
               subject_id: Number(subjectRow.subject_id),
               subject: subjectRow.subject,
               paper_label: normalizedPaper,
-              teacher: mark?.teacher || assignment?.teacher || "—",
+              teacher: assignment?.teacher || "—",
               mid: mark?.mid ?? null,
               eot: mark?.eot ?? null,
               mid_status: componentStatus(Number(mark?.mid_recorded || 0) > 0, mark?.mid),

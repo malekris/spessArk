@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applyManualCredits } from "./timetable.manual.js";
+import { applyManualCredits, applyManualRemoval } from "./timetable.manual.js";
 
 const cleanValidation = (overrides = {}) => ({
   valid: false,
@@ -105,4 +105,112 @@ test("manual extra lesson is recorded without exceeding generated lesson complet
   assert.equal(result.stats.lessonsPlaced, 20);
   assert.equal(result.stats.manualExtras, 1);
   assert.equal(result.validation.valid, true);
+});
+
+test("manual removal creates an exact required-lesson shortage", () => {
+  const result = applyManualRemoval(cleanValidation({ valid: true }), {
+    lessonsPlaced: 20,
+    lessonsRequested: 20,
+    timetableCells: 40,
+    teacherSessions: 30,
+  }, {
+    eventsRemoved: 1,
+    sessionsRemoved: 1,
+    impacts: [{
+      assignmentId: 55,
+      teacherId: 8,
+      teacherName: "Nabirye",
+      subjectLabel: "Physics",
+      classLevel: "S2",
+      stream: "North",
+      requiredLessons: 2,
+      scheduledBefore: 2,
+      scheduledAfter: 1,
+    }],
+  });
+
+  assert.equal(result.removedRequiredLessons, 1);
+  assert.equal(result.stats.lessonsPlaced, 19);
+  assert.equal(result.stats.timetableCells, 39);
+  assert.equal(result.validation.valid, false);
+  assert.deepEqual(result.validation.missingLessons[0], {
+    assignmentId: 55,
+    label: "Physics - S2 North",
+    required: 2,
+    placed: 1,
+    missing: 1,
+  });
+  assert.match(result.validation.unallocated[0].reason, /1 of 2 required weekly lessons remain/);
+});
+
+test("removing an extra lesson does not create a shortage", () => {
+  const result = applyManualRemoval(cleanValidation({ valid: true }), {
+    lessonsPlaced: 20,
+    lessonsRequested: 20,
+    timetableCells: 41,
+    teacherSessions: 31,
+    manualExtras: 1,
+  }, {
+    eventsRemoved: 1,
+    sessionsRemoved: 1,
+    impacts: [{
+      assignmentId: 55,
+      subjectLabel: "English",
+      classLevel: "S2",
+      stream: "South",
+      requiredLessons: 2,
+      scheduledBefore: 3,
+      scheduledAfter: 2,
+    }],
+  });
+
+  assert.equal(result.removedRequiredLessons, 0);
+  assert.equal(result.removedExtraLessons, 1);
+  assert.equal(result.stats.lessonsPlaced, 20);
+  assert.equal(result.stats.manualExtras, 0);
+  assert.equal(result.validation.missingLessons.length, 0);
+  assert.equal(result.validation.unallocated.length, 0);
+  assert.equal(result.validation.valid, true);
+});
+
+test("removing a cluster records shortages for every participating stream", () => {
+  const result = applyManualRemoval(cleanValidation({ valid: true }), {
+    lessonsPlaced: 40,
+    lessonsRequested: 40,
+    timetableCells: 70,
+    teacherSessions: 52,
+  }, {
+    eventsRemoved: 2,
+    sessionsRemoved: 2,
+    impacts: [
+      {
+        assignmentId: 101,
+        subjectLabel: "Agriculture",
+        classLevel: "S3",
+        stream: "North",
+        requiredLessons: 2,
+        scheduledBefore: 2,
+        scheduledAfter: 1,
+      },
+      {
+        assignmentId: 102,
+        subjectLabel: "Agriculture",
+        classLevel: "S3",
+        stream: "South",
+        requiredLessons: 2,
+        scheduledBefore: 2,
+        scheduledAfter: 1,
+      },
+    ],
+  });
+
+  assert.equal(result.removedRequiredLessons, 2);
+  assert.equal(result.stats.lessonsPlaced, 38);
+  assert.equal(result.stats.timetableCells, 68);
+  assert.equal(result.validation.missingLessons.length, 2);
+  assert.deepEqual(
+    result.validation.missingLessons.map((item) => item.label),
+    ["Agriculture - S3 North", "Agriculture - S3 South"]
+  );
+  assert.equal(result.validation.valid, false);
 });

@@ -31,6 +31,12 @@ const getCallHistoryCopy = (message, isMine) => {
       detail: isMine ? "Call declined" : "You declined this call",
     };
   }
+  if (status === "failed") {
+    return {
+      title: isMine ? "Outgoing audio call" : "Incoming audio call",
+      detail: "Call could not connect",
+    };
+  }
   if (status === "busy") {
     return {
       title: isMine ? "Outgoing audio call" : "Incoming audio call",

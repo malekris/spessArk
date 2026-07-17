@@ -1623,6 +1623,40 @@
   cursor: pointer;
 }
 
+.tt-removal-confirmation {
+  border-color: color-mix(in srgb, var(--tt-warning) 48%, var(--tt-border));
+}
+
+.tt-removal-confirmation.is-shortage {
+  border-color: color-mix(in srgb, #ef4444 52%, var(--tt-border));
+}
+
+.tt-removal-confirmation-mark {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--tt-warning) 14%, var(--tt-surface));
+}
+
+.tt-removal-confirmation.is-shortage .tt-removal-confirmation-mark {
+  background: color-mix(in srgb, #ef4444 14%, var(--tt-surface));
+}
+
+.tt-removal-confirmation-mark::after {
+  position: absolute;
+  inset: 7px 0 0;
+  color: var(--tt-warning);
+  content: "!";
+  font-size: 1rem;
+  font-weight: 900;
+  text-align: center;
+}
+
+.tt-removal-confirmation.is-shortage .tt-removal-confirmation-mark::after {
+  color: #ef4444;
+}
+
 @keyframes tt-confirmation-in {
   from {
     opacity: 0;
@@ -1791,6 +1825,138 @@
 .tt-manual-preview > button {
   justify-self: end;
   min-width: 150px;
+}
+
+.tt-manual-removal {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 0.35rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--tt-border);
+}
+
+.tt-manual-removal-head > span {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.tt-manual-removal-head strong {
+  color: var(--tt-title);
+  font-size: 0.78rem;
+}
+
+.tt-manual-removal-head small {
+  color: var(--tt-muted);
+  font-size: 0.68rem;
+}
+
+.tt-manual-removal-controls {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) auto;
+  align-items: end;
+  gap: 0.6rem;
+}
+
+.tt-manual-removal-controls label {
+  display: grid;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.tt-manual-removal-controls label > span {
+  color: var(--tt-muted);
+  font-size: 0.64rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.tt-manual-removal-controls select {
+  width: 100%;
+}
+
+.tt-removal-preview {
+  display: grid;
+  gap: 0.7rem;
+  padding: 0.8rem;
+  border-left: 3px solid var(--tt-success);
+  background: color-mix(in srgb, var(--tt-success) 7%, var(--tt-surface));
+}
+
+.tt-removal-preview.is-shortage {
+  border-left-color: #ef4444;
+  background: color-mix(in srgb, #ef4444 7%, var(--tt-surface));
+}
+
+.tt-removal-preview-copy {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.tt-removal-preview-copy strong {
+  color: var(--tt-title);
+  font-size: 0.76rem;
+}
+
+.tt-removal-preview-copy span,
+.tt-removal-preview li {
+  overflow-wrap: anywhere;
+  color: var(--tt-muted);
+  font-size: 0.69rem;
+  line-height: 1.45;
+}
+
+.tt-removal-impact-list {
+  display: grid;
+  max-height: 180px;
+  overflow-y: auto;
+  border-top: 1px solid var(--tt-border);
+  border-bottom: 1px solid var(--tt-border);
+}
+
+.tt-removal-impact-list > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid var(--tt-border);
+}
+
+.tt-removal-impact-list > div:last-child {
+  border-bottom: 0;
+}
+
+.tt-removal-impact-list span,
+.tt-removal-impact-list strong {
+  font-size: 0.68rem;
+}
+
+.tt-removal-impact-list span {
+  color: var(--tt-body);
+}
+
+.tt-removal-impact-list strong {
+  color: var(--tt-title);
+  white-space: nowrap;
+}
+
+.tt-removal-preview ul {
+  display: grid;
+  gap: 0.2rem;
+  margin: 0;
+  padding-left: 1rem;
+}
+
+.tt-operation-group .tt-danger-command {
+  justify-self: start;
+  border-color: color-mix(in srgb, #ef4444 52%, var(--tt-border));
+  background: color-mix(in srgb, #ef4444 12%, var(--tt-surface));
+  color: #ef4444;
+}
+
+.tt-operation-group .tt-danger-command:hover:not(:disabled) {
+  border-color: #ef4444;
+  background: color-mix(in srgb, #ef4444 18%, var(--tt-surface));
 }
 
 .tt-manual-preview > button.tt-primary-command {
@@ -1965,7 +2131,8 @@
   }
 
   .tt-manual-override-controls,
-  .tt-manual-preview {
+  .tt-manual-preview,
+  .tt-manual-removal-controls {
     grid-template-columns: 1fr;
   }
 

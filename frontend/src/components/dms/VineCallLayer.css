@@ -92,7 +92,7 @@
   gap: 8px;
 }
 
-.vine-call-copy span {
+.vine-call-kicker {
   color: #a7f3d0;
   font-size: 0.82rem;
   font-weight: 900;
@@ -100,12 +100,42 @@
   text-transform: uppercase;
 }
 
-.vine-call-copy strong {
+.vine-call-name {
+  max-width: 360px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.vine-call-name strong {
+  min-width: 0;
   max-width: 360px;
   color: #ffffff;
   font-size: clamp(1.7rem, 5vw, 2.45rem);
   line-height: 1.05;
   overflow-wrap: anywhere;
+}
+
+.vine-call-verified {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #1d9bf0;
+  color: #ffffff;
+  font-size: 0.82rem;
+  font-weight: 950;
+  line-height: 1;
+  box-shadow: 0 0 9px rgba(29, 155, 240, 0.55);
+}
+
+.vine-call-verified.guardian {
+  background: #ef4444;
+  box-shadow: 0 0 9px rgba(239, 68, 68, 0.48);
 }
 
 .vine-call-copy b {
@@ -217,7 +247,7 @@
     gap: 6px;
   }
 
-  .vine-call-layer.notice .vine-call-copy strong {
+  .vine-call-layer.notice .vine-call-name strong {
     max-width: 100%;
     font-size: 1.35rem;
     line-height: 1.15;

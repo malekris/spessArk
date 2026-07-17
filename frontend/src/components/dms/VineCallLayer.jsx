@@ -6,6 +6,7 @@ import "./VineCallLayer.css";
 
 const DEFAULT_AVATAR = "/default-avatar.png";
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
+const SPECIAL_VERIFIED_USERS = new Set(["vine guardian", "vine_guardian", "vine news", "vine_news"]);
 const CONNECTION_TIMEOUT_MS = 25000;
 const DISCONNECT_GRACE_MS = 12000;
 const TURN_URLS = String(import.meta.env.VITE_TURN_URLS || "")
@@ -72,6 +73,10 @@ export default function VineCallLayer() {
     () => callPartner?.display_name || callPartner?.username || "Vine audio call",
     [callPartner]
   );
+  const partnerHasSpecialBadge = SPECIAL_VERIFIED_USERS.has(
+    String(callPartner?.username || "").toLowerCase()
+  );
+  const partnerIsVerified = Number(callPartner?.is_verified) === 1 || partnerHasSpecialBadge;
 
   const setStatus = useCallback((nextState, notice = "") => {
     stateRef.current = nextState;
@@ -553,14 +558,21 @@ export default function VineCallLayer() {
           />
         </div>
         <div className="vine-call-copy">
-          <span>
-            {callState === "incoming"
-              ? "Vine audio call"
-              : callState === "idle"
-                ? "Call update"
-                : callNotice || "Vine audio"}
+          <span className="vine-call-kicker">
+            {callState === "idle" ? "Call update" : "Vine audio call"}
           </span>
-          <strong>{partnerName}</strong>
+          <div className="vine-call-name">
+            <strong>{partnerName}</strong>
+            {partnerIsVerified ? (
+              <span
+                className={`vine-call-verified ${partnerHasSpecialBadge ? "guardian" : ""}`}
+                title="Verified"
+                aria-label="Verified account"
+              >
+                &#10003;
+              </span>
+            ) : null}
+          </div>
           <b>{["active", "reconnecting"].includes(callState) ? formatDuration(duration) : callNotice}</b>
         </div>
 

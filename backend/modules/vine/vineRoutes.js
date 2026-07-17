@@ -12802,6 +12802,7 @@ router.use((req, res, next) => {
       ensureVinePerformanceSchema,
       getDbName,
       hasColumn,
+      io,
       runVinePerfRoute,
       timedVineQuery,
       clearVineReadCache,

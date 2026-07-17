@@ -1,5 +1,29 @@
 import express from "express";
 
+export const markOneVineNotificationRead = async ({ db, notificationId, viewerId }) => {
+  const id = Number(notificationId);
+  const userId = Number(viewerId);
+  if (!id || !userId) return { valid: false, id, viewerId: userId, changed: false };
+
+  const [result] = await db.query(
+    `
+    UPDATE vine_notifications
+    SET is_read = 1
+    WHERE id = ?
+      AND user_id = ?
+      AND is_read = 0
+    `,
+    [id, userId]
+  );
+
+  return {
+    valid: true,
+    id,
+    viewerId: userId,
+    changed: Number(result?.affectedRows || 0) > 0,
+  };
+};
+
 export default function createVineNotificationRouter({
   db,
   authenticate,
@@ -7,6 +31,7 @@ export default function createVineNotificationRouter({
   ensureVinePerformanceSchema,
   getDbName,
   hasColumn,
+  io,
   runVinePerfRoute,
   timedVineQuery,
   clearVineReadCache,
@@ -61,6 +86,7 @@ export default function createVineNotificationRouter({
         }
       );
 
+      res.set("Cache-Control", "no-store");
       res.json(rows);
     } catch (err) {
       console.error("Get notifications error:", err);
@@ -88,6 +114,7 @@ export default function createVineNotificationRouter({
       [viewerId]
     );
 
+    res.set("Cache-Control", "no-store");
     res.json({ count: Number(row?.total || 0) });
   });
 
@@ -117,29 +144,30 @@ export default function createVineNotificationRouter({
       [viewerId, since]
     );
 
+    res.set("Cache-Control", "no-store");
     res.json({ count: Number(row?.total || 0) });
   });
 
-  router.post("/notifications/mark-read", authenticate, async (req, res) => {
-    await db.query(
-      "UPDATE vine_notifications SET is_read = 1 WHERE user_id = ?",
-      [req.user.id]
-    );
-
-    clearVineReadCache("notifications", "notifications-unread", "notifications-unseen");
-    void cleanupExpiredReadNotifications();
-    res.json({ success: true });
-  });
-
   router.post("/notifications/:id/read", authenticate, async (req, res) => {
-    await db.query(
-      "UPDATE vine_notifications SET is_read = 1 WHERE id = ? AND user_id = ?",
-      [req.params.id, req.user.id]
-    );
+    const readResult = await markOneVineNotificationRead({
+      db,
+      notificationId: req.params.id,
+      viewerId: req.user.id,
+    });
+    if (!readResult.valid) {
+      return res.status(400).json({ message: "Invalid notification" });
+    }
 
-    clearVineReadCache("notifications", "notifications-unread", "notifications-unseen");
-    void cleanupExpiredReadNotifications();
-    res.json({ success: true });
+    const { id: notificationId, viewerId, changed } = readResult;
+    if (changed) {
+      clearVineReadCache("notifications", "notifications-unread", "notifications-unseen");
+      io?.to(`user-${viewerId}`).emit("notification_read", {
+        id: notificationId,
+      });
+      io?.to(`user-${viewerId}`).emit("notification");
+      void cleanupExpiredReadNotifications();
+    }
+    return res.json({ success: true, id: notificationId, is_read: 1, changed });
   });
 
   return router;

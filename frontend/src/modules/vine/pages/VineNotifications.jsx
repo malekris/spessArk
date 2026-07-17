@@ -6,12 +6,13 @@ import {
   getVineUser,
   isVineTokenExpired,
 } from "../utils/vineAuth";
+import { socket } from "../../../socket";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 
 export default function VineNotifications() {
   const [notifications, setNotifications] = useState([]);
-  const [markingAllRead, setMarkingAllRead] = useState(false);
+  const [notificationFilter, setNotificationFilter] = useState("all");
   const navigate = useNavigate();
   const token = getVineToken();
   const viewerId = Number(getVineUser()?.id || 0);
@@ -34,25 +35,36 @@ export default function VineNotifications() {
       if (controller.signal.aborted) return;
       const rows = Array.isArray(data) ? data : [];
       setNotifications(rows);
-      if (rows.some((row) => Number(row?.is_read) !== 1)) {
-        const markReadRes = await fetch(`${API}/api/vine/notifications/mark-read`, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${token}` },
-          signal: controller.signal,
-          cache: "no-store",
-        });
-        if (controller.signal.aborted || !markReadRes.ok) return;
-        setNotifications((prev) => prev.map((n) => ({ ...n, is_read: 1 })));
-      }
     };
 
-    loadNotifications().catch((err) => {
-      if (err?.name !== "AbortError") {
-        console.error("Failed to load notifications", err);
-      }
-    });
+    const handleNotificationRead = ({ id } = {}) => {
+      if (!id) return;
+      setNotifications((prev) =>
+        prev.map((notification) =>
+          String(notification.id) === String(id)
+            ? { ...notification, is_read: 1 }
+            : notification
+        )
+      );
+    };
 
-    return () => controller.abort();
+    const refreshNotifications = () => {
+      loadNotifications().catch((err) => {
+        if (err?.name !== "AbortError") {
+          console.error("Failed to load notifications", err);
+        }
+      });
+    };
+
+    refreshNotifications();
+    socket.on("notification", refreshNotifications);
+    socket.on("notification_read", handleNotificationRead);
+
+    return () => {
+      controller.abort();
+      socket.off("notification", refreshNotifications);
+      socket.off("notification_read", handleNotificationRead);
+    };
   }, [token, viewerId]);
   
   const getMeta = (n) => {
@@ -86,7 +98,8 @@ export default function VineNotifications() {
     ).trim();
   };
 
-  const openActorProfile = (notification) => {
+  const openActorProfile = async (notification) => {
+    await markRead(notification.id);
     const username = getActorUsername(notification);
     if (!username) return;
     navigate(`/vine/profile/${username}`);
@@ -272,36 +285,44 @@ export default function VineNotifications() {
   };
 
   const markRead = async (id) => {
+    const notificationKey = String(id || "");
+    if (!notificationKey) return false;
+    const current = notifications.find((notification) => String(notification.id) === notificationKey);
+    if (Number(current?.is_read) === 1) return true;
+
+    setNotifications((prev) =>
+      prev.map((notification) =>
+        String(notification.id) === notificationKey
+          ? { ...notification, is_read: 1 }
+          : notification
+      )
+    );
     try {
-      await fetch(`${API}/api/vine/notifications/${id}/read`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      setNotifications((prev) =>
-        prev.map((n) => (n.id === id ? { ...n, is_read: 1 } : n))
+      const res = await fetch(
+        `${API}/api/vine/notifications/${encodeURIComponent(notificationKey)}/read`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        }
       );
+      if (!res.ok) throw new Error("Notification read update failed");
+      return true;
     } catch {
-      // no-op
+      setNotifications((prev) =>
+        prev.map((notification) =>
+          String(notification.id) === notificationKey
+            ? { ...notification, is_read: 0 }
+            : notification
+        )
+      );
+      return false;
     }
   };
 
-  const unreadCount = notifications.filter((n) => Number(n?.is_read) !== 1).length;
-
-  const markAllAsRead = async () => {
-    if (!token || unreadCount === 0 || markingAllRead) return;
-    try {
-      setMarkingAllRead(true);
-      const res = await fetch(`${API}/api/vine/notifications/mark-read`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) return;
-      setNotifications((prev) => prev.map((n) => ({ ...n, is_read: 1 })));
-    } catch {
-      // no-op
-    } finally {
-      setMarkingAllRead(false);
-    }
+  const openNotification = async (notification) => {
+    await markRead(notification.id);
+    const target = resolveNotificationPath(notification);
+    if (target) navigate(target);
   };
 
   const respondFollowRequest = async (notification, action) => {
@@ -337,6 +358,10 @@ export default function VineNotifications() {
       console.error("Follow request response failed", err);
     }
   };
+
+  const visibleNotifications = notificationFilter === "unread"
+    ? notifications.filter((notification) => Number(notification?.is_read) !== 1)
+    : notifications;
 
   const startBirthdayDm = async (notification) => {
     const userId = Number(notification?.actor_id || getMeta(notification)?.birthday_user_id || 0);
@@ -388,52 +413,55 @@ export default function VineNotifications() {
         <h3>Notifications</h3>
       </div>
 
-      <div className="notif-summary-bar">
-        <div className="notif-summary-copy">
-          <div className="notif-summary-title">
-            {unreadCount > 0
-              ? `${unreadCount} unread notification${unreadCount === 1 ? "" : "s"}`
-              : "All caught up"}
-          </div>
-          <div className="notif-summary-subtitle">
-            {notifications.length > 0
-              ? `${notifications.length} total loaded in your notifications list`
-              : "New activity will show up here"}
-          </div>
-        </div>
-        {unreadCount > 0 && (
-          <button
-            type="button"
-            className="notif-mark-all-btn"
-            onClick={markAllAsRead}
-            disabled={markingAllRead}
-          >
-            {markingAllRead ? "Marking..." : "Mark all as read"}
-          </button>
-        )}
+      <div className="notif-filter-bar" role="tablist" aria-label="Notification filters">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={notificationFilter === "all"}
+          className={notificationFilter === "all" ? "active" : ""}
+          onClick={() => setNotificationFilter("all")}
+        >
+          All
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={notificationFilter === "unread"}
+          className={notificationFilter === "unread" ? "active" : ""}
+          onClick={() => setNotificationFilter("unread")}
+        >
+          Unread
+        </button>
       </div>
 
       {/* Empty state */}
-      {notifications.length === 0 && (
-        <p className="empty-notifs">No notifications yet 🌱</p>
+      {visibleNotifications.length === 0 && (
+        <div className="empty-notifs">
+          <strong>
+            {notificationFilter === "unread" ? "No unread notifications" : "No notifications yet"}
+          </strong>
+          <span>
+            {notificationFilter === "unread"
+              ? "Notifications you have not opened will appear here."
+              : "New activity will appear here."}
+          </span>
+        </div>
       )}
 
       {/* List */}
      
-      <div className="notif-list-window">
-      {notifications.map(n => (
+      {visibleNotifications.length > 0 && <div className="notif-list-window">
+      {visibleNotifications.map(n => (
   <div
     key={n.id}
-    className={`notif-row ${!n.is_read ? "unread" : ""}`}
+    className={`notif-row ${Number(n.is_read) !== 1 ? "unread" : ""}`}
     role="button"
     tabIndex={0}
-    onClick={async () => {
-      await markRead(n.id);
-
-      const target = resolveNotificationPath(n);
-      if (target) {
-        navigate(target);
-      }
+    onClick={() => openNotification(n)}
+    onKeyDown={(event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      void openNotification(n);
     }}
     
   
@@ -445,14 +473,14 @@ export default function VineNotifications() {
           alt={getActorDisplayName(n)}
           onClick={(e) => {
             e.stopPropagation();
-            openActorProfile(n);
+            void openActorProfile(n);
           }}
         />
       ) : (
         <span
           onClick={(e) => {
             e.stopPropagation();
-            openActorProfile(n);
+            void openActorProfile(n);
           }}
         >
           {getActorDisplayName(n)[0]?.toUpperCase() || "U"}
@@ -466,18 +494,11 @@ export default function VineNotifications() {
         <strong
           className="notif-user"
           onClick={(e) => {
-            e.stopPropagation(); // prevent row click
-            openActorProfile(n);
+            e.stopPropagation();
+            void openActorProfile(n);
           }}
         >
-          <span
-            onClick={(e) => {
-              e.stopPropagation();
-              openActorProfile(n);
-            }}
-          >
-            {getActorDisplayName(n)}
-          </span>
+          <span>{getActorDisplayName(n)}</span>
           {(Number(n.is_verified) === 1 || ["vine guardian","vine_guardian","vine news","vine_news"].includes(getActorUsername(n).toLowerCase())) && (
             <span className={`verified ${["vine guardian","vine_guardian","vine news","vine_news"].includes(getActorUsername(n).toLowerCase()) ? "guardian" : ""}`}>
               <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
@@ -548,9 +569,10 @@ export default function VineNotifications() {
       )}
 
     </div>
+    {Number(n.is_read) !== 1 && <span className="notif-unread-dot" aria-hidden="true" />}
   </div>
 ))}
-      </div>
+      </div>}
 
     </div>
   );

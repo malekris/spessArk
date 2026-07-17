@@ -39,6 +39,22 @@ SET @sql = (
       SELECT 1 FROM information_schema.COLUMNS
       WHERE TABLE_SCHEMA = @db_name
         AND TABLE_NAME = 'vine_conversations'
+        AND COLUMN_NAME = 'group_avatar_url'
+    ),
+    'SELECT 1',
+    'ALTER TABLE vine_conversations ADD COLUMN group_avatar_url TEXT NULL'
+  )
+);
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SET @sql = (
+  SELECT IF(
+    EXISTS(
+      SELECT 1 FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = @db_name
+        AND TABLE_NAME = 'vine_conversations'
         AND COLUMN_NAME = 'group_name'
     ),
     'SELECT 1',

@@ -1,6 +1,14 @@
 .dm-group-sheet { max-height: min(760px, 92dvh); overflow-y: auto; }
 .dm-group-sheet-identity { display: flex; align-items: center; gap: 13px; padding: 4px 0 18px; border-bottom: 1px solid #e5eee9; }
-.dm-group-sheet-avatar { width: 58px; height: 58px; display: grid; place-items: center; flex: 0 0 auto; border: 2px solid #f0a029; border-radius: 50%; background: #fff4d9; color: #7a4800; font-size: 1rem; font-weight: 900; }
+.dm-group-sheet-avatar-wrap { position: relative; width: 62px; height: 62px; flex: 0 0 auto; }
+.dm-group-sheet-avatar { width: 58px; height: 58px; display: grid; place-items: center; box-sizing: border-box; overflow: hidden; border: 2px solid #f0a029; border-radius: 50%; background: #fff4d9; color: #7a4800; object-fit: cover; font-size: 1rem; font-weight: 900; }
+.dm-group-sheet-avatar-wrap img.dm-group-sheet-avatar { display: block; }
+.dm-group-sheet-identity-copy { min-width: 0; flex: 1; }
+.dm-group-avatar-input { display: none; }
+.dm-group-avatar-change { position: absolute; right: 0; bottom: 0; width: 29px; height: 29px; display: grid; place-items: center; border: 2px solid #fff; border-radius: 50%; background: #087f5b; color: #fff; cursor: pointer; box-shadow: 0 4px 12px rgba(7, 92, 67, 0.24); }
+.dm-group-avatar-change:disabled { opacity: 0.55; cursor: default; }
+.dm-group-avatar-remove { margin-top: 5px; border: 0; padding: 0; background: transparent; color: #a2352c; font-size: 0.7rem; font-weight: 800; cursor: pointer; }
+.dm-group-avatar-remove:disabled { opacity: 0.55; cursor: default; }
 .dm-group-sheet-identity h2 { margin: 0; color: #12251e; font-size: 1.1rem; letter-spacing: 0; }
 .dm-group-sheet-identity p { margin: 3px 0 0; color: #697c74; font-size: 0.8rem; }
 .dm-group-rename { display: grid; gap: 7px; padding: 16px 0; border-bottom: 1px solid #e9f0ed; }
@@ -33,7 +41,7 @@
 .dm-group-role { border-radius: 6px; padding: 3px 6px; background: #edf3f0; color: #64736d; font-size: 0.65rem; font-weight: 850; text-transform: capitalize; }
 .dm-group-role.owner { background: #fff0d0; color: #8a5100; }
 .dm-group-role.admin { background: #e1f4ed; color: #087251; }
-.dm-group-role-action { border: 1px solid #c8d9d2; border-radius: 6px; padding: 5px 6px; background: #fff; color: #315347; font-size: 0.66rem; font-weight: 800; cursor: pointer; }
+.dm-group-role-action { border: 1px solid #c8d9d2; border-radius: 6px; padding: 5px 7px; background: #fff; color: #315347; font-size: 0.66rem; font-weight: 800; white-space: nowrap; cursor: pointer; }
 .dm-group-remove { width: 29px; height: 29px; display: grid; place-items: center; flex: 0 0 auto; border: 1px solid #f1c6c2; border-radius: 50%; background: #fff5f4; color: #b42318; cursor: pointer; }
 .dm-group-sheet-error { margin-top: 10px; color: #b42318; font-size: 0.78rem; font-weight: 700; }
 .dm-group-leave { width: 100%; min-height: 40px; margin-top: 16px; border: 1px solid #efb7b1; border-radius: 8px; background: #fff6f5; color: #b42318; font-weight: 850; cursor: pointer; }
@@ -60,3 +68,5 @@
 .theme-dark .dm-group-add-search input { background: transparent; color: #edf7f2; }
 .theme-dark .dm-group-add-results button { color: #dcebe5; }
 .theme-dark .dm-group-add-results button:hover { background: #193128; }
+.theme-dark .dm-group-avatar-change { border-color: #101b17; }
+.theme-dark .dm-group-avatar-remove { color: #fca5a5; }

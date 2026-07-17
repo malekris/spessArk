@@ -8,6 +8,7 @@ export default function GroupDetailsSheet({ open, conversationId, onClose, onCha
   const token = localStorage.getItem("vine_token");
   const currentUser = JSON.parse(localStorage.getItem("vine_user"));
   const onChangedRef = useRef(onChanged);
+  const avatarInputRef = useRef(null);
   const [group, setGroup] = useState(null);
   const [name, setName] = useState("");
   const [query, setQuery] = useState("");
@@ -74,7 +75,7 @@ export default function GroupDetailsSheet({ open, conversationId, onClose, onCha
       const response = await fetch(url, {
         ...options,
         headers: {
-          ...(options?.body ? { "Content-Type": "application/json" } : {}),
+          ...(options?.body && !(options.body instanceof FormData) ? { "Content-Type": "application/json" } : {}),
           Authorization: `Bearer ${token}`,
           ...(options?.headers || {}),
         },
@@ -109,6 +110,38 @@ export default function GroupDetailsSheet({ open, conversationId, onClose, onCha
     );
   };
 
+  const changeGroupAvatar = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!String(file.type || "").startsWith("image/")) {
+      setError("Choose a valid image");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setError("Group photos must be 10 MB or smaller");
+      return;
+    }
+    const body = new FormData();
+    body.append("file", file);
+    await runAction(
+      "avatar",
+      `${API}/api/dms/groups/${conversationId}/avatar`,
+      { method: "POST", body },
+      "Could not update the group photo"
+    );
+  };
+
+  const removeGroupAvatar = async () => {
+    if (!window.confirm("Remove the current group photo?")) return;
+    await runAction(
+      "remove-avatar",
+      `${API}/api/dms/groups/${conversationId}/avatar`,
+      { method: "DELETE" },
+      "Could not remove the group photo"
+    );
+  };
+
   const addPerson = async (person) => {
     const added = await runAction(
       `add-${person.id}`,
@@ -130,6 +163,11 @@ export default function GroupDetailsSheet({ open, conversationId, onClose, onCha
   };
 
   const updateRole = async (member, role) => {
+    const memberName = member.display_name || member.username;
+    const confirmation = role === "admin"
+      ? `Make ${memberName} a group admin? They will be able to add and remove members and change group settings.`
+      : `Remove ${memberName}'s admin role? They will remain in the group as a member.`;
+    if (!window.confirm(confirmation)) return;
     await runAction(
       `role-${member.user_id}`,
       `${API}/api/dms/groups/${conversationId}/members/${member.user_id}/role`,
@@ -152,6 +190,11 @@ export default function GroupDetailsSheet({ open, conversationId, onClose, onCha
 
   if (!open) return null;
 
+  const groupAvatarUrl = group?.group_avatar_url || group?.avatar_url || "";
+  const resolvedGroupAvatar = groupAvatarUrl
+    ? (groupAvatarUrl.startsWith("http") ? groupAvatarUrl : `${API}${groupAvatarUrl}`)
+    : "";
+
   return (
     <div className="dm-profile-sheet-backdrop" onClick={onClose}>
       <section className="dm-profile-sheet dm-group-sheet" onClick={(event) => event.stopPropagation()} aria-label="Group details">
@@ -162,10 +205,42 @@ export default function GroupDetailsSheet({ open, conversationId, onClose, onCha
         </button>
 
         <div className="dm-group-sheet-identity">
-          <div className="dm-group-sheet-avatar">{String(group?.group_name || "G").slice(0, 2).toUpperCase()}</div>
-          <div>
+          <div className="dm-group-sheet-avatar-wrap">
+            {resolvedGroupAvatar ? (
+              <img
+                className="dm-group-sheet-avatar"
+                src={resolvedGroupAvatar}
+                alt=""
+                onError={(event) => { event.currentTarget.src = DEFAULT_AVATAR; }}
+              />
+            ) : (
+              <div className="dm-group-sheet-avatar">{String(group?.group_name || "G").slice(0, 2).toUpperCase()}</div>
+            )}
+            {group?.can_manage && (
+              <button
+                type="button"
+                className="dm-group-avatar-change"
+                onClick={() => avatarInputRef.current?.click()}
+                disabled={Boolean(busyKey)}
+                aria-label="Change group photo"
+                title="Change group photo"
+              >
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" aria-hidden="true">
+                  <path d="M4 8.5h3l1.4-2h7.2l1.4 2h3v10H4v-10Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+                  <circle cx="12" cy="13" r="3" stroke="currentColor" strokeWidth="1.8" />
+                </svg>
+              </button>
+            )}
+            <input ref={avatarInputRef} className="dm-group-avatar-input" type="file" accept="image/*" onChange={changeGroupAvatar} />
+          </div>
+          <div className="dm-group-sheet-identity-copy">
             <h2>{group?.group_name || "Group chat"}</h2>
             <p>{Number(group?.member_count || 0)} members</p>
+            {group?.can_manage && resolvedGroupAvatar && (
+              <button type="button" className="dm-group-avatar-remove" onClick={removeGroupAvatar} disabled={Boolean(busyKey)}>
+                {busyKey === "remove-avatar" ? "Removing..." : "Remove photo"}
+              </button>
+            )}
           </div>
         </div>
 
@@ -235,7 +310,7 @@ export default function GroupDetailsSheet({ open, conversationId, onClose, onCha
                     onClick={() => updateRole(member, member.role === "admin" ? "member" : "admin")}
                     title={member.role === "admin" ? "Remove admin role" : "Make admin"}
                   >
-                    {member.role === "admin" ? "Member" : "Admin"}
+                    {member.role === "admin" ? "Remove admin" : "Make admin"}
                   </button>
                 )}
                 {canRemove && (

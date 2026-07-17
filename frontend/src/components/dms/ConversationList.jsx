@@ -254,7 +254,14 @@ export default function ConversationList() {
           >
             {/* AVATAR */}
             <div className="dm-avatar-shell">
-              {isGroup ? (
+              {isGroup && c.avatar_url ? (
+                <img
+                  src={avatar}
+                  className="dm-avatar dm-group-avatar"
+                  alt=""
+                  onError={(event) => { event.currentTarget.src = DEFAULT_AVATAR; }}
+                />
+              ) : isGroup ? (
                 <div className="dm-avatar-fallback dm-group-avatar" aria-hidden="true">
                   {String(c.group_name || "G").trim().slice(0, 2).toUpperCase()}
                 </div>

@@ -4,6 +4,47 @@ import "./MessageBubbles.css";
 
 const REACTION_SET = ["👍", "❤️", "😂", "🔥", "😮", "😢"];
 
+const getSenderHue = (message) => {
+  const numericId = Number(message?.sender_id || 0);
+  if (numericId) return Math.round((numericId * 137.508) % 360);
+  const seed = String(message?.username || message?.display_name || "group-member");
+  let hash = 0;
+  for (let index = 0; index < seed.length; index += 1) {
+    hash = ((hash << 5) - hash + seed.charCodeAt(index)) | 0;
+  }
+  return Math.abs(hash) % 360;
+};
+
+const getGroupBubbleStyle = (message) => {
+  const hue = getSenderHue(message);
+  return {
+    "--group-bubble-bg": `hsl(${hue} 72% 91%)`,
+    "--group-bubble-border": `hsl(${hue} 52% 72%)`,
+    "--group-bubble-text": `hsl(${hue} 38% 21%)`,
+    "--group-bubble-accent": `hsl(${hue} 70% 31%)`,
+    "--group-bubble-dark-bg": `hsl(${hue} 31% 24%)`,
+    "--group-bubble-dark-border": `hsl(${hue} 43% 43%)`,
+    "--group-bubble-dark-text": `hsl(${hue} 48% 93%)`,
+    "--group-bubble-dark-accent": `hsl(${hue} 68% 74%)`,
+  };
+};
+
+const getSeenByLabel = (seenBy) => {
+  const uniqueMembers = [];
+  const usedIds = new Set();
+  (Array.isArray(seenBy) ? seenBy : []).forEach((member) => {
+    const memberId = Number(member?.user_id || 0);
+    if (!memberId || usedIds.has(memberId)) return;
+    usedIds.add(memberId);
+    uniqueMembers.push(member);
+  });
+  const names = uniqueMembers.map((member) => member.display_name || member.username || "Group member");
+  if (names.length === 1) return `Seen by ${names[0]}`;
+  if (names.length === 2) return `Seen by ${names[0]} and ${names[1]}`;
+  if (names.length > 2) return `Seen by ${names[0]}, ${names[1]} +${names.length - 2}`;
+  return "";
+};
+
 const getMessageDisappearingLabel = (mode) => {
   if (mode === "1h") return "Disappears in 1 hour";
   if (mode === "24h") return "Disappears in 24 hours";
@@ -61,6 +102,8 @@ function MessageBubble({ message, isGroup = false, groupPosition = "single", sho
   const isMine = Number(message.sender_id) === Number(myId);
   const isCallMessage = String(message?.message_type || "").toLowerCase() === "call";
   const isSystemMessage = String(message?.message_type || "").toLowerCase() === "system";
+  const groupBubbleStyle = isGroup ? getGroupBubbleStyle(message) : undefined;
+  const seenByLabel = isGroup && isMine ? getSeenByLabel(message?.seen_by) : "";
   const reactions = message?.reactions || {};
   const [menuOpen, setMenuOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -239,7 +282,10 @@ function MessageBubble({ message, isGroup = false, groupPosition = "single", sho
   }
 
   return (
-    <div className={`msg-row ${isMine ? "mine" : "theirs"} group-${groupPosition}`}>
+    <div
+      className={`msg-row ${isMine ? "mine" : "theirs"} group-${groupPosition} ${isGroup ? "group-chat-message" : ""}`}
+      style={groupBubbleStyle}
+    >
       <div className="msg-content-wrapper">
         <div className="msg-shell">
           {isMine && (
@@ -468,14 +514,14 @@ function MessageBubble({ message, isGroup = false, groupPosition = "single", sho
           <div className="msg-meta">
             <time dateTime={message.created_at}>{formatMessageTime(message.created_at)}</time>
             {isMine && (
-              <span className={`msg-delivery ${Number(message.is_read) === 1 ? "seen" : ""}`}>
+              <span className={`msg-delivery ${seenByLabel || Number(message.is_read) === 1 ? "seen" : ""}`}>
                 <span className="msg-delivery-check" aria-hidden="true">
-                  {String(message.id || "").startsWith("temp-") ? "" : isGroup ? "✓" : Number(message.is_read) === 1 ? "✓✓" : "✓"}
+                  {String(message.id || "").startsWith("temp-") ? "" : isGroup && seenByLabel ? "✓✓" : isGroup ? "✓" : Number(message.is_read) === 1 ? "✓✓" : "✓"}
                 </span>
                 {String(message.id || "").startsWith("temp-")
                   ? "Sending"
                   : isGroup
-                    ? "Sent"
+                    ? seenByLabel || "Sent"
                   : Number(message.is_read) === 1
                     ? "Seen"
                     : "Delivered"}

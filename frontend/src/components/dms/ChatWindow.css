@@ -331,6 +331,8 @@
   letter-spacing: 0;
 }
 
+.dm-chat-group-photo { border-color: #f0a029; }
+
 .dm-chat-group-count { color: #875100; }
 
 .chat-name {

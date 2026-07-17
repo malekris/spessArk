@@ -670,28 +670,6 @@ export default function ChatWindow({
   };
   
   
-  useEffect(() => {
-    if (!socket || !conversationId) return;
-  
-    const handleSeen = ({ conversationId: cid, seenBy }) => {
-      if (String(cid) !== String(conversationId)) return;
-      if (Number(seenBy) === Number(myId)) return;
-  
-      setMessages(prev =>
-        prev.map(m =>
-          m.sender_id === myId ? { ...m, is_read: 1 } : m
-        )
-      );
-    };
-  
-    socket.on("messages_seen", handleSeen);
-  
-    return () => {
-      socket.off("messages_seen", handleSeen);
-    };
-  }, [socket, conversationId, myId]);
-  
-
   /* -----------------------------
      Load chat partner
   ------------------------------ */
@@ -804,9 +782,30 @@ export default function ChatWindow({
       }
     };
   
-    const handleSeen = ({ conversationId: seenId, seenBy }) => {
+    const handleSeen = ({ conversationId: seenId, seenBy, group, lastReadMessageId, seenByUser }) => {
       if (String(seenId) === String(conversationId)) {
         if (Number(seenBy) === Number(myId)) return;
+        if (group || isGroup) {
+          const receiptUser = seenByUser?.user_id
+            ? seenByUser
+            : { user_id: Number(seenBy), display_name: "Group member", username: "" };
+          const readThroughId = Number(lastReadMessageId || 0);
+          if (!readThroughId) return;
+          setMessages((prev) =>
+            prev.map((message) => {
+              if (
+                Number(message.id || 0) > readThroughId ||
+                Number(message.sender_id) !== Number(myId)
+              ) {
+                return message;
+              }
+              const existing = Array.isArray(message.seen_by) ? message.seen_by : [];
+              if (existing.some((member) => Number(member.user_id) === Number(seenBy))) return message;
+              return { ...message, seen_by: [...existing, receiptUser] };
+            })
+          );
+          return;
+        }
         setMessages(prev =>
           prev.map(m =>
             m.sender_id === myId ? { ...m, is_read: 1 } : m
@@ -959,7 +958,7 @@ export default function ChatWindow({
       socket.off("dm_call_end");
       socket.off("dm_call_signal");
     };
-  }, [conversationId, myId]);
+  }, [conversationId, isGroup, myId]);
 
   useEffect(() => {
     return () => {
@@ -1117,7 +1116,18 @@ export default function ChatWindow({
             className="chat-user"
             onClick={() => setProfileSheetOpen(true)}
           >
-            {isGroup ? (
+            {isGroup && (partner.group_avatar_url || partner.avatar_url) ? (
+              <img
+                src={
+                  String(partner.group_avatar_url || partner.avatar_url).startsWith("http")
+                    ? (partner.group_avatar_url || partner.avatar_url)
+                    : `${API}${partner.group_avatar_url || partner.avatar_url}`
+                }
+                alt=""
+                className="chat-avatar dm-chat-group-photo"
+                onError={(event) => { event.currentTarget.src = DEFAULT_AVATAR; }}
+              />
+            ) : isGroup ? (
               <div className="chat-avatar dm-chat-group-avatar" aria-hidden="true">
                 {String(partner.group_name || partner.display_name || "G").slice(0, 2).toUpperCase()}
               </div>
@@ -1482,6 +1492,8 @@ export default function ChatWindow({
             display_name: group.group_name,
             member_count: group.member_count,
             viewer_role: group.viewer_role,
+            group_avatar_url: group.group_avatar_url,
+            avatar_url: group.group_avatar_url,
           }));
         }}
         onLeft={() => {

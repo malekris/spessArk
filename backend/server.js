@@ -36,6 +36,7 @@ import { fileURLToPath } from "url";
 import { extractClientIp, logAuditEvent } from "./utils/auditLogger.js";
 import { getSessionExpiry, resolveRequestedSessionMode } from "./utils/deviceSession.js";
 import { sendTeacherPasswordChangedEmail } from "./utils/email.js";
+import { sendDatabaseDumpFile } from "./utils/databaseDumpDelivery.js";
 import { ensureMarksArchiveTablesReady, archiveOLevelMarks } from "./utils/marksArchive.js";
 import { captureAdminYearSnapshot, queueAdminYearSnapshotRefresh } from "./services/adminYearSnapshotService.js";
 import createTimetableRoutes from "./modules/timetable/timetable.routes.js";
@@ -117,6 +118,7 @@ app.use(cors({
     "x-admin-reauth",
     "X-SPESS-Session-Mode",
   ],
+  exposedHeaders: ["Content-Disposition", "Content-Length"],
 }));
 
 // Explicitly handle preflight requests
@@ -499,8 +501,9 @@ app.get("/api/admin/database-dump", authAdmin, requireAdminReauth, async (req, r
     .replace(/[:]/g, "-")
     .replace(/\.\d{3}Z$/, "")
     .replace("T", "_");
-  const filename = `spess_ark_backup_${dbName}_${timestamp}.sql`;
-  const tmpFilePath = path.join(os.tmpdir(), filename);
+  const filenameDbName = dbName.replace(/[^a-zA-Z0-9_-]/g, "_");
+  const filename = `spess_ark_backup_${filenameDbName}_${timestamp}.sql`;
+  const tmpFilePath = path.join(os.tmpdir(), `${crypto.randomUUID()}-${filename}`);
 
   try {
     await new Promise((resolve, reject) => {
@@ -532,12 +535,26 @@ app.get("/api/admin/database-dump", authAdmin, requireAdminReauth, async (req, r
       const output = fs.createWriteStream(tmpFilePath, { encoding: "utf8" });
       let stderr = "";
       let settled = false;
+      let processClosed = false;
+      let outputFinished = false;
+      let exitCode = null;
 
       const finish = (err) => {
         if (settled) return;
         settled = true;
         if (err) reject(err);
         else resolve();
+      };
+
+      const finishWhenComplete = async () => {
+        if (!processClosed || !outputFinished || settled) return;
+        if (exitCode === 0) {
+          finish();
+          return;
+        }
+
+        await fs.promises.unlink(tmpFilePath).catch(() => {});
+        finish(new Error(stderr.trim() || "Database dump failed."));
       };
 
       dumpProcess.stdout.pipe(output);
@@ -565,16 +582,15 @@ app.get("/api/admin/database-dump", authAdmin, requireAdminReauth, async (req, r
         finish(err);
       });
 
-      dumpProcess.on("close", (code) => {
-        output.end(async () => {
-          if (code === 0) {
-            finish();
-            return;
-          }
+      output.on("finish", () => {
+        outputFinished = true;
+        void finishWhenComplete();
+      });
 
-          await fs.promises.unlink(tmpFilePath).catch(() => {});
-          finish(new Error(stderr.trim() || "Database dump failed."));
-        });
+      dumpProcess.on("close", (code) => {
+        processClosed = true;
+        exitCode = code;
+        void finishWhenComplete();
       });
     }).catch(async (err) => {
       if (!err?.useNodeDumpFallback) throw err;
@@ -592,17 +608,16 @@ app.get("/api/admin/database-dump", authAdmin, requireAdminReauth, async (req, r
       ipAddress: extractClientIp(req),
     });
 
-    res.download(tmpFilePath, filename, async (err) => {
-      await fs.promises.unlink(tmpFilePath).catch(() => {});
-      if (err && !res.headersSent) {
-        console.error("database dump download error:", err);
-        res.status(500).json({ message: "Failed to send database dump." });
-      }
-    });
+    await sendDatabaseDumpFile(res, tmpFilePath, filename);
   } catch (err) {
     await fs.promises.unlink(tmpFilePath).catch(() => {});
     console.error("database dump export error:", err);
-    res.status(500).json({ message: err?.message || "Failed to export database dump." });
+    if (!res.headersSent) {
+      return res.status(500).json({
+        message: err?.message || "Failed to export database dump.",
+      });
+    }
+    res.destroy(err);
   }
 });
 

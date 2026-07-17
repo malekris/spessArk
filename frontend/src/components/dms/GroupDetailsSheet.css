@@ -1,0 +1,62 @@
+.dm-group-sheet { max-height: min(760px, 92dvh); overflow-y: auto; }
+.dm-group-sheet-identity { display: flex; align-items: center; gap: 13px; padding: 4px 0 18px; border-bottom: 1px solid #e5eee9; }
+.dm-group-sheet-avatar { width: 58px; height: 58px; display: grid; place-items: center; flex: 0 0 auto; border: 2px solid #f0a029; border-radius: 50%; background: #fff4d9; color: #7a4800; font-size: 1rem; font-weight: 900; }
+.dm-group-sheet-identity h2 { margin: 0; color: #12251e; font-size: 1.1rem; letter-spacing: 0; }
+.dm-group-sheet-identity p { margin: 3px 0 0; color: #697c74; font-size: 0.8rem; }
+.dm-group-rename { display: grid; gap: 7px; padding: 16px 0; border-bottom: 1px solid #e9f0ed; }
+.dm-group-rename label { color: #4b6359; font-size: 0.76rem; font-weight: 800; }
+.dm-group-rename > div { display: flex; gap: 8px; }
+.dm-group-rename input { min-width: 0; height: 39px; flex: 1; box-sizing: border-box; border: 1px solid #cddbd5; border-radius: 8px; padding: 0 11px; background: #fbfdfc; color: #172820; font: inherit; font-size: 0.86rem; outline: none; }
+.dm-group-rename input:focus { border-color: #12a273; box-shadow: 0 0 0 3px rgba(18, 162, 115, 0.12); }
+.dm-group-rename button, .dm-group-members-head button { border: 1px solid #0a7b58; border-radius: 8px; padding: 0 12px; background: #087f5b; color: #fff; font-size: 0.78rem; font-weight: 800; cursor: pointer; }
+.dm-group-rename button:disabled { opacity: 0.45; }
+.dm-group-members-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 0 10px; }
+.dm-group-members-head > div { display: grid; gap: 2px; }
+.dm-group-members-head strong { color: #172820; font-size: 0.9rem; }
+.dm-group-members-head span { color: #6a7e75; font-size: 0.73rem; text-transform: capitalize; }
+.dm-group-members-head button { min-height: 34px; background: #ffffff; color: #087f5b; }
+.dm-group-add-panel { padding: 10px; margin-bottom: 9px; border: 1px solid #dce9e3; border-radius: 8px; background: #f8fcfa; }
+.dm-group-add-search { height: 38px; display: flex; align-items: center; gap: 7px; padding: 0 10px; border: 1px solid #cfddd7; border-radius: 8px; background: #fff; color: #6d8178; }
+.dm-group-add-search input { min-width: 0; flex: 1; border: 0; outline: 0; font: inherit; font-size: 0.82rem; }
+.dm-group-add-results { max-height: 150px; overflow-y: auto; padding-top: 7px; }
+.dm-group-add-results > span { display: block; padding: 14px; color: #708079; text-align: center; font-size: 0.78rem; }
+.dm-group-add-results button { width: 100%; display: flex; justify-content: space-between; gap: 10px; border: 0; border-radius: 7px; padding: 8px; background: transparent; color: #243b32; cursor: pointer; }
+.dm-group-add-results button:hover { background: #e9f8f2; }
+.dm-group-add-results button strong { color: #087f5b; font-size: 0.77rem; }
+.dm-group-member-list { display: grid; }
+.dm-group-member { min-width: 0; display: flex; align-items: center; gap: 9px; padding: 9px 0; border-bottom: 1px solid #edf2ef; }
+.dm-group-member img { width: 38px; height: 38px; flex: 0 0 auto; border-radius: 50%; object-fit: cover; border: 2px solid #d0e9df; }
+.dm-group-member-name { min-width: 0; flex: 1; display: grid; }
+.dm-group-member-name strong, .dm-group-member-name small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dm-group-member-name strong { color: #20352d; font-size: 0.82rem; }
+.dm-group-member-name small { color: #74847d; font-size: 0.7rem; }
+.dm-group-role { border-radius: 6px; padding: 3px 6px; background: #edf3f0; color: #64736d; font-size: 0.65rem; font-weight: 850; text-transform: capitalize; }
+.dm-group-role.owner { background: #fff0d0; color: #8a5100; }
+.dm-group-role.admin { background: #e1f4ed; color: #087251; }
+.dm-group-role-action { border: 1px solid #c8d9d2; border-radius: 6px; padding: 5px 6px; background: #fff; color: #315347; font-size: 0.66rem; font-weight: 800; cursor: pointer; }
+.dm-group-remove { width: 29px; height: 29px; display: grid; place-items: center; flex: 0 0 auto; border: 1px solid #f1c6c2; border-radius: 50%; background: #fff5f4; color: #b42318; cursor: pointer; }
+.dm-group-sheet-error { margin-top: 10px; color: #b42318; font-size: 0.78rem; font-weight: 700; }
+.dm-group-leave { width: 100%; min-height: 40px; margin-top: 16px; border: 1px solid #efb7b1; border-radius: 8px; background: #fff6f5; color: #b42318; font-weight: 850; cursor: pointer; }
+
+@media (max-width: 520px) {
+  .dm-group-sheet { width: 100%; max-width: none; max-height: 90dvh; border-radius: 8px 8px 0 0; }
+  .dm-group-member { gap: 7px; }
+  .dm-group-role-action { padding: 4px 5px; font-size: 0.62rem; }
+}
+
+.theme-dark .dm-group-sheet-identity,
+.theme-dark .dm-group-rename,
+.theme-dark .dm-group-member { border-color: #2a3c35; }
+.theme-dark .dm-group-sheet-identity h2,
+.theme-dark .dm-group-members-head strong,
+.theme-dark .dm-group-member-name strong { color: #edf7f2; }
+.theme-dark .dm-group-sheet-identity p,
+.theme-dark .dm-group-members-head span,
+.theme-dark .dm-group-member-name small { color: #9fb2aa; }
+.theme-dark .dm-group-rename input,
+.theme-dark .dm-group-add-search,
+.theme-dark .dm-group-role-action { background: #172720; border-color: #345044; color: #e2eee9; }
+.theme-dark .dm-group-add-panel { background: #13221c; border-color: #2e493e; }
+.theme-dark .dm-group-add-search input { background: transparent; color: #edf7f2; }
+.theme-dark .dm-group-add-results button { color: #dcebe5; }
+.theme-dark .dm-group-add-results button:hover { background: #193128; }

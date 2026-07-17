@@ -3,6 +3,7 @@ import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { socket } from "../../socket";
 import MessageBubble from "./MessageBubble";
 import MessageInput from "./MessageInput";
+import GroupDetailsSheet from "./GroupDetailsSheet";
 import "./ChatWindow.css";
 import { createClientRequestId } from "../../utils/requestId";
 
@@ -50,6 +51,21 @@ const isSameDay = (a, b) => {
     da.getMonth() === db.getMonth() &&
     da.getDate() === db.getDate()
   );
+};
+
+const canGroupMessages = (first, second) => {
+  if (!first || !second) return false;
+  if (String(first.message_type || "").toLowerCase() === "call") return false;
+  if (String(second.message_type || "").toLowerCase() === "call") return false;
+  if (String(first.message_type || "").toLowerCase() === "system") return false;
+  if (String(second.message_type || "").toLowerCase() === "system") return false;
+  if (Number(first.sender_id) !== Number(second.sender_id)) return false;
+  if (!isSameDay(first.created_at, second.created_at)) return false;
+
+  const firstTime = new Date(first.created_at).getTime();
+  const secondTime = new Date(second.created_at).getTime();
+  if (Number.isNaN(firstTime) || Number.isNaN(secondTime)) return false;
+  return Math.abs(secondTime - firstTime) <= 5 * 60 * 1000;
 };
 
 const formatDayDivider = (dateString) => {
@@ -185,6 +201,7 @@ export default function ChatWindow({
   const currentUser = JSON.parse(localStorage.getItem("vine_user"));
   const myId = currentUser?.id;
   const partnerUserId = Number(partner?.user_id || partner?.id || receiverId || 0);
+  const isGroup = partner?.conversation_type === "group";
 
   const setCallStatus = (nextState, notice = "") => {
     callStateRef.current = nextState;
@@ -278,7 +295,7 @@ export default function ChatWindow({
       setCallNotice("Send the first message before starting a call.");
       return;
     }
-    if (!partnerUserId || callState !== "idle") return;
+    if (!partnerUserId || isGroup || callState !== "idle") return;
     const callId = `${conversationId}-${myId}-${Date.now()}`;
     callIdRef.current = callId;
     setCallStatus("outgoing", "Calling...");
@@ -797,9 +814,23 @@ export default function ChatWindow({
         );
       }
     };
+    const handleGroupUpdated = async ({ conversation_id }) => {
+      if (String(conversation_id) !== String(conversationId)) return;
+      try {
+        const response = await fetch(`${API}/api/dms/conversations/${conversationId}/presence`, {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        });
+        const data = await response.json().catch(() => null);
+        if (response.ok && data) setPartner((current) => ({ ...(current || {}), ...data }));
+      } catch {
+        // The regular presence refresh will retry.
+      }
+    };
   
     socket.on("dm_received", handleNewMessage);
     socket.on("messages_seen", handleSeen);
+    socket.on("dm_group_updated", handleGroupUpdated);
     socket.on("dm_message_deleted", ({ message_id, conversation_id }) => {
       if (String(conversation_id) !== String(conversationId)) return;
       setMessages((prev) => prev.filter((m) => Number(m.id) !== Number(message_id)));
@@ -840,6 +871,12 @@ export default function ChatWindow({
         disappearing_enabled: Boolean(disappearing_enabled),
         disappear_mode: disappear_mode || "after_read",
       });
+    });
+    socket.on("dm_group_removed", ({ conversation_id }) => {
+      if (String(conversation_id) !== String(conversationId)) return;
+      setProfileSheetOpen(false);
+      if (compact) onClose?.();
+      else navigate("/vine/dms");
     });
     socket.on("user_presence_changed", ({ userId, is_online_now, last_active_at }) => {
       setPartner((prev) => {
@@ -907,12 +944,14 @@ export default function ChatWindow({
     return () => {
       socket.off("dm_received", handleNewMessage);
       socket.off("messages_seen", handleSeen);
+      socket.off("dm_group_updated", handleGroupUpdated);
       socket.off("dm_message_deleted");
       socket.off("dm_messages_disappeared");
       socket.off("dm_typing_start");
       socket.off("dm_typing_stop");
       socket.off("dm_reaction_updated");
       socket.off("dm_settings_updated");
+      socket.off("dm_group_removed");
       socket.off("user_presence_changed");
       socket.off("dm_call_invite");
       socket.off("dm_call_accept");
@@ -1078,20 +1117,26 @@ export default function ChatWindow({
             className="chat-user"
             onClick={() => setProfileSheetOpen(true)}
           >
-            <img
-              src={
-                partner.avatar_url
-                  ? (partner.avatar_url.startsWith("http")
-                      ? partner.avatar_url
-                      : `${API}${partner.avatar_url}`)
-                  : DEFAULT_AVATAR
-              }
-              alt=""
-              className="chat-avatar"
-              onError={(e) => {
-                e.currentTarget.src = DEFAULT_AVATAR;
-              }}
-            />
+            {isGroup ? (
+              <div className="chat-avatar dm-chat-group-avatar" aria-hidden="true">
+                {String(partner.group_name || partner.display_name || "G").slice(0, 2).toUpperCase()}
+              </div>
+            ) : (
+              <img
+                src={
+                  partner.avatar_url
+                    ? (partner.avatar_url.startsWith("http")
+                        ? partner.avatar_url
+                        : `${API}${partner.avatar_url}`)
+                    : DEFAULT_AVATAR
+                }
+                alt=""
+                className="chat-avatar"
+                onError={(e) => {
+                  e.currentTarget.src = DEFAULT_AVATAR;
+                }}
+              />
+            )}
 
             <div className="chat-header-meta">
               <strong
@@ -1102,7 +1147,7 @@ export default function ChatWindow({
                 }}
               >
                 <span>{partner.display_name || partner.username}</span>
-                {(Number(partner.is_verified) === 1 || ["vine guardian","vine_guardian","vine news","vine_news"].includes(String(partner.username || "").toLowerCase())) && (
+                {!isGroup && (Number(partner.is_verified) === 1 || ["vine guardian","vine_guardian","vine news","vine_news"].includes(String(partner.username || "").toLowerCase())) && (
                   <span className={`verified ${["vine guardian","vine_guardian","vine news","vine_news"].includes(String(partner.username || "").toLowerCase()) ? "guardian" : ""}`}>
                     <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
                       <path
@@ -1117,12 +1162,14 @@ export default function ChatWindow({
                 )}
               </strong>
               <div className="chat-status-stack">
-                {getPartnerStatusLabel(partner) && (
+                {isGroup ? (
+                  <div className="chat-lastseen dm-chat-group-count">{Number(partner.member_count || 0)} members</div>
+                ) : getPartnerStatusLabel(partner) ? (
                   <div className={`chat-lastseen ${Number(partner?.is_online_now) === 1 ? "online" : ""}`}>
                     {getPartnerStatusLabel(partner)}
                   </div>
-                )}
-                {chatSettings.disappearing_enabled && (
+                ) : null}
+                {!isGroup && chatSettings.disappearing_enabled && (
                   <div className="chat-vanish-pill">{getDisappearingLabel(chatSettings.disappear_mode)}</div>
                 )}
               </div>
@@ -1132,7 +1179,7 @@ export default function ChatWindow({
           <div style={{ opacity: 0.6 }}>Loading chat…</div>
         )}
 
-        <div className="dm-call-actions">
+        {!isGroup && <div className="dm-call-actions">
           {["outgoing", "connecting", "active"].includes(callState) ? (
             <button
               type="button"
@@ -1167,7 +1214,7 @@ export default function ChatWindow({
               </svg>
             </button>
           )}
-        </div>
+        </div>}
 
         {compact && (onMinimize || onClose) && (
           <div className="dm-chat-window-actions">
@@ -1234,7 +1281,7 @@ export default function ChatWindow({
         <div className="dm-call-toast">{callNotice}</div>
       )}
 
-      {chatSettings.disappearing_enabled && (
+      {!isGroup && chatSettings.disappearing_enabled && (
         <div className="chat-vanish-banner">
           <strong>Vanish mode:</strong> {getDisappearingLabel(chatSettings.disappear_mode)}.
           <span> Messages disappear for both people and screenshots can still be taken.</span>
@@ -1254,7 +1301,17 @@ export default function ChatWindow({
         ) : (
           messages.map((m, i) => {
             const prev = i > 0 ? messages[i - 1] : null;
+            const next = i < messages.length - 1 ? messages[i + 1] : null;
             const showDayDivider = !prev || !isSameDay(prev.created_at, m.created_at);
+            const joinsPrevious = canGroupMessages(prev, m);
+            const joinsNext = canGroupMessages(m, next);
+            const groupPosition = joinsPrevious
+              ? joinsNext
+                ? "middle"
+                : "last"
+              : joinsNext
+                ? "first"
+                : "single";
 
             return (
               <div key={`${m.id}-${m.sender_id}-${i}`}>
@@ -1265,6 +1322,9 @@ export default function ChatWindow({
                 )}
                 <MessageBubble
                   message={m}
+                  isGroup={isGroup}
+                  groupPosition={groupPosition}
+                  showMeta={!joinsNext}
                   onReply={handleReply}
                   onReact={handleReact}
                   onDelete={handleDeleteMessage}
@@ -1283,14 +1343,14 @@ export default function ChatWindow({
           <div
             className="chat-typing-pill chat-typing-pill-footer"
             aria-live="polite"
-            aria-label={`${partner.display_name || partner.username || "Someone"} is typing`}
+            aria-label={`${isGroup ? "Someone" : partner.display_name || partner.username || "Someone"} is typing`}
           >
             <span className="chat-typing-bubble" aria-hidden="true">
               <span className="chat-typing-dot" />
               <span className="chat-typing-dot" />
               <span className="chat-typing-dot" />
             </span>
-            <span className="chat-typing-label">{partner.display_name || partner.username || "Someone"} is typing…</span>
+            <span className="chat-typing-label">{isGroup ? "Someone" : partner.display_name || partner.username || "Someone"} is typing…</span>
           </div>
         )}
         <MessageInput
@@ -1301,7 +1361,7 @@ export default function ChatWindow({
         />
       </div>
 
-      {profileSheetOpen && partner && (
+      {profileSheetOpen && partner && !isGroup && (
         <div className="dm-profile-sheet-backdrop" onClick={() => setProfileSheetOpen(false)}>
           <div className="dm-profile-sheet" onClick={(e) => e.stopPropagation()}>
             <button
@@ -1409,6 +1469,26 @@ export default function ChatWindow({
           </div>
         </div>
       )}
+      <GroupDetailsSheet
+        open={Boolean(profileSheetOpen && partner && isGroup)}
+        conversationId={conversationId}
+        onClose={() => setProfileSheetOpen(false)}
+        onChanged={(group) => {
+          setPartner((current) => ({
+            ...(current || {}),
+            conversation_type: "group",
+            group_name: group.group_name,
+            username: group.group_name,
+            display_name: group.group_name,
+            member_count: group.member_count,
+            viewer_role: group.viewer_role,
+          }));
+        }}
+        onLeft={() => {
+          setProfileSheetOpen(false);
+          navigate("/vine/dms");
+        }}
+      />
     </div>
   );
 }

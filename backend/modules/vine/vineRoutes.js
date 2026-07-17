@@ -1719,6 +1719,14 @@ const ensureVinePerformanceSchema = async () => {
     if (!dbName) return;
     await ensureVinePostSourceSchema();
 
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS vine_notification_views (
+        user_id INT NOT NULL PRIMARY KEY,
+        last_seen_notification_id INT NOT NULL DEFAULT 0,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+
     const indexes = [
       ["vine_posts", "idx_vine_posts_created_id", ["created_at", "id"]],
       ["vine_posts", "idx_vine_posts_user_created", ["user_id", "created_at"]],
@@ -1743,6 +1751,7 @@ const ensureVinePerformanceSchema = async () => {
       ["vine_follow_requests", "idx_vine_follow_requests_requester_target_status", ["requester_id", "target_id", "status"]],
       ["vine_follow_requests", "idx_vine_follow_requests_target_status_created", ["target_id", "status", "created_at"]],
       ["vine_notifications", "idx_vine_notifications_user_read_created", ["user_id", "is_read", "created_at"]],
+      ["vine_notifications", "idx_vine_notifications_user_id", ["user_id", "id"]],
       ["vine_notifications", "idx_vine_notifications_user_created", ["user_id", "created_at"]],
       ["vine_notifications", "idx_vine_notifications_actor", ["actor_id"]],
       ["vine_statuses", "idx_vine_statuses_user_expires_created", ["user_id", "expires_at", "created_at"]],
@@ -3816,7 +3825,36 @@ const purgeUserAccount = async (userId) => {
   await db.query("DELETE FROM vine_follow_requests WHERE requester_id = ? OR target_id = ? OR reviewed_by = ?", [numericUserId, numericUserId, numericUserId]).catch(() => {});
   await db.query("DELETE FROM vine_messages WHERE sender_id = ?", [numericUserId]).catch(() => {});
   await db.query("DELETE FROM vine_conversation_deletes WHERE user_id = ?", [numericUserId]).catch(() => {});
-  await db.query("DELETE FROM vine_conversations WHERE user1_id = ? OR user2_id = ?", [numericUserId, numericUserId]).catch(() => {});
+  await db.query(
+    `
+    UPDATE vine_conversation_members promoted
+    JOIN (
+      SELECT owner_row.conversation_id, MIN(candidate.user_id) AS next_owner_id
+      FROM vine_conversation_members owner_row
+      JOIN vine_conversation_members candidate
+        ON candidate.conversation_id = owner_row.conversation_id
+       AND candidate.user_id != owner_row.user_id
+       AND candidate.status = 'active'
+      WHERE owner_row.user_id = ?
+        AND owner_row.role = 'owner'
+        AND owner_row.status = 'active'
+      GROUP BY owner_row.conversation_id
+    ) next_owner
+      ON next_owner.conversation_id = promoted.conversation_id
+     AND next_owner.next_owner_id = promoted.user_id
+    SET promoted.role = 'owner'
+    `,
+    [numericUserId]
+  ).catch(() => {});
+  await db.query("DELETE FROM vine_conversation_members WHERE user_id = ?", [numericUserId]).catch(() => {});
+  await db.query(
+    `
+    DELETE FROM vine_conversations
+    WHERE COALESCE(conversation_type, 'direct') = 'direct'
+      AND (user1_id = ? OR user2_id = ?)
+    `,
+    [numericUserId, numericUserId]
+  ).catch(() => {});
   await db.query("DELETE FROM vine_user_sessions WHERE user_id = ?", [numericUserId]).catch(() => {});
   await db.query("DELETE FROM vine_login_events WHERE user_id = ?", [numericUserId]).catch(() => {});
   await db.query("DELETE FROM vine_users WHERE id = ?", [numericUserId]).catch(() => {});
@@ -5845,8 +5883,11 @@ router.post("/statuses/:id/reply", requireVineAuth, async (req, res) => {
       `
       SELECT id, user1_id, user2_id
       FROM vine_conversations
-      WHERE (user1_id = ? AND user2_id = ?)
-         OR (user1_id = ? AND user2_id = ?)
+      WHERE COALESCE(conversation_type, 'direct') = 'direct'
+        AND (
+          (user1_id = ? AND user2_id = ?)
+          OR (user1_id = ? AND user2_id = ?)
+        )
       LIMIT 1
       `,
       [senderId, receiverId, receiverId, senderId]

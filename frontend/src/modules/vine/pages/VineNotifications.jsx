@@ -24,7 +24,27 @@ export default function VineNotifications() {
     if (!token) return;
 
     const controller = new AbortController();
-    const loadNotifications = async () => {
+    const acknowledgeNotifications = async (rows) => {
+      const throughId = rows.reduce(
+        (highestId, notification) => Math.max(highestId, Number(notification?.id || 0)),
+        0
+      );
+      if (!throughId) return;
+
+      const res = await fetch(`${API}/api/vine/notifications/seen`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ through_id: throughId }),
+        signal: controller.signal,
+        cache: "no-store",
+      });
+      if (!res.ok) throw new Error("Notification badge acknowledgement failed");
+    };
+
+    const loadNotifications = async ({ acknowledge = false } = {}) => {
       const res = await fetch(`${API}/api/vine/notifications`, {
         headers: { Authorization: `Bearer ${token}` },
         signal: controller.signal,
@@ -35,6 +55,7 @@ export default function VineNotifications() {
       if (controller.signal.aborted) return;
       const rows = Array.isArray(data) ? data : [];
       setNotifications(rows);
+      if (acknowledge) await acknowledgeNotifications(rows);
     };
 
     const handleNotificationRead = ({ id } = {}) => {
@@ -56,7 +77,11 @@ export default function VineNotifications() {
       });
     };
 
-    refreshNotifications();
+    loadNotifications({ acknowledge: true }).catch((err) => {
+      if (err?.name !== "AbortError") {
+        console.error("Failed to load notifications", err);
+      }
+    });
     socket.on("notification", refreshNotifications);
     socket.on("notification_read", handleNotificationRead);
 

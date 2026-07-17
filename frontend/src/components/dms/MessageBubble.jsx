@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import "./MessageBubbles.css"; // Import the new styles
+import "./MessageBubbles.css";
 
 const REACTION_SET = ["👍", "❤️", "😂", "🔥", "😮", "😢"];
 
@@ -15,6 +15,12 @@ const formatCallDuration = (seconds) => {
   const minutes = Math.floor(total / 60);
   const remainingSeconds = total % 60;
   return `${minutes}:${String(remainingSeconds).padStart(2, "0")}`;
+};
+
+const formatMessageTime = (dateString) => {
+  const date = new Date(dateString);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 };
 
 const getCallHistoryCopy = (message, isMine) => {
@@ -49,11 +55,12 @@ const getCallHistoryCopy = (message, isMine) => {
   };
 };
 
-function MessageBubble({ message, onReply, onReact, onDelete }) {
+function MessageBubble({ message, isGroup = false, groupPosition = "single", showMeta = true, onReply, onReact, onDelete }) {
   const currentUser = JSON.parse(localStorage.getItem("vine_user"));
   const myId = currentUser?.id;
   const isMine = Number(message.sender_id) === Number(myId);
   const isCallMessage = String(message?.message_type || "").toLowerCase() === "call";
+  const isSystemMessage = String(message?.message_type || "").toLowerCase() === "system";
   const reactions = message?.reactions || {};
   const [menuOpen, setMenuOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -85,6 +92,7 @@ function MessageBubble({ message, onReply, onReact, onDelete }) {
     mediaItems.length > 0 &&
     (/^\d+\sphotos$/i.test(String(message?.content || "").trim()) ||
       ["attachment", "video", "voice note"].includes(String(message?.content || "").trim().toLowerCase()));
+  const hasVisibleText = !hasAutoMediaLabel && Boolean(String(message?.content || "").trim());
 
   const updatePickerPosition = () => {
     const trigger = actionButtonRef.current;
@@ -194,16 +202,36 @@ function MessageBubble({ message, onReply, onReact, onDelete }) {
     }
   };
 
+  if (isSystemMessage) {
+    return (
+      <div className="dm-group-system-message">
+        <span>{message.content}</span>
+        <time dateTime={message.created_at}>{formatMessageTime(message.created_at)}</time>
+      </div>
+    );
+  }
+
   if (isCallMessage) {
     const callCopy = getCallHistoryCopy(message, isMine);
     const callStatus = String(message?.call_status || "missed").toLowerCase();
     return (
       <div className={`msg-row call-event ${isMine ? "mine" : "theirs"}`}>
         <div className={`dm-call-history-card ${callStatus}`}>
-          <span className="dm-call-history-icon" aria-hidden="true">&#9742;</span>
+          <span className="dm-call-history-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="19" height="19" fill="none">
+              <path
+                d="M8.4 4.8 10 8.4a1.6 1.6 0 0 1-.38 1.82l-1.1 1.1a12.2 12.2 0 0 0 4.16 4.16l1.1-1.1A1.6 1.6 0 0 1 15.6 14l3.6 1.6a1.6 1.6 0 0 1 .94 1.76l-.42 2.08A1.9 1.9 0 0 1 17.86 21C9.65 21 3 14.35 3 6.14A1.9 1.9 0 0 1 4.56 4.28l2.08-.42A1.6 1.6 0 0 1 8.4 4.8Z"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </span>
           <span className="dm-call-history-copy">
             <strong>{callCopy.title}</strong>
             <span>{callCopy.detail}</span>
+            <time dateTime={message.created_at}>{formatMessageTime(message.created_at)}</time>
           </span>
         </div>
       </div>
@@ -211,14 +239,8 @@ function MessageBubble({ message, onReply, onReact, onDelete }) {
   }
 
   return (
-    <div className={`msg-row ${isMine ? "mine" : "theirs"}`}>
+    <div className={`msg-row ${isMine ? "mine" : "theirs"} group-${groupPosition}`}>
       <div className="msg-content-wrapper">
-        {message.reply_to_message && (
-          <div className="dm-reply-preview">
-            <strong>{message.reply_to_message.display_name || message.reply_to_message.username}</strong>
-            <span>{message.reply_to_message.content}</span>
-          </div>
-        )}
         <div className="msg-shell">
           {isMine && (
             <button
@@ -238,7 +260,18 @@ function MessageBubble({ message, onReply, onReact, onDelete }) {
             </button>
           )}
 
-          <div className="msg-bubble">
+          <div className={`msg-bubble ${mediaItems.length ? "has-media" : ""} ${hasVisibleText ? "has-text" : ""}`}>
+            {isGroup && !isMine && ["first", "single"].includes(groupPosition) && (
+              <div className="dm-group-message-sender">
+                {message.display_name || message.username || "Group member"}
+              </div>
+            )}
+            {message.reply_to_message && (
+              <div className="dm-reply-preview">
+                <strong>{message.reply_to_message.display_name || message.reply_to_message.username}</strong>
+                <span>{message.reply_to_message.content}</span>
+              </div>
+            )}
             {imageItems.length > 1 && (
               <div className={`dm-media-grid dm-media-grid-${Math.min(imageItems.length, 4)}`}>
                 {imageItems.slice(0, 4).map((item, index) => (
@@ -267,7 +300,7 @@ function MessageBubble({ message, onReply, onReact, onDelete }) {
             {primaryVoice && (
               <audio className="dm-media-audio" controls src={primaryVoice.media_url} />
             )}
-            {!hasAutoMediaLabel ? message.content : null}
+            {hasVisibleText && <div className="msg-text">{message.content}</div>}
           </div>
 
           {!isMine && (
@@ -431,9 +464,23 @@ function MessageBubble({ message, onReply, onReact, onDelete }) {
           </div>
         )}
 
-        {isMine && String(message.id || "").startsWith("temp-") === false && (
-          <div className="msg-seen">
-            {Number(message.is_read) === 1 ? "Seen" : "Delivered"}
+        {showMeta && (
+          <div className="msg-meta">
+            <time dateTime={message.created_at}>{formatMessageTime(message.created_at)}</time>
+            {isMine && (
+              <span className={`msg-delivery ${Number(message.is_read) === 1 ? "seen" : ""}`}>
+                <span className="msg-delivery-check" aria-hidden="true">
+                  {String(message.id || "").startsWith("temp-") ? "" : isGroup ? "✓" : Number(message.is_read) === 1 ? "✓✓" : "✓"}
+                </span>
+                {String(message.id || "").startsWith("temp-")
+                  ? "Sending"
+                  : isGroup
+                    ? "Sent"
+                  : Number(message.is_read) === 1
+                    ? "Seen"
+                    : "Delivered"}
+              </span>
+            )}
           </div>
         )}
       </div>
@@ -441,6 +488,10 @@ function MessageBubble({ message, onReply, onReact, onDelete }) {
   );
 }
 
-const areMessageBubblePropsEqual = (prevProps, nextProps) => prevProps.message === nextProps.message;
+const areMessageBubblePropsEqual = (prevProps, nextProps) =>
+  prevProps.message === nextProps.message &&
+  prevProps.isGroup === nextProps.isGroup &&
+  prevProps.groupPosition === nextProps.groupPosition &&
+  prevProps.showMeta === nextProps.showMeta;
 
 export default memo(MessageBubble, areMessageBubblePropsEqual);

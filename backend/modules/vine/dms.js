@@ -10,6 +10,8 @@ import { recordPerfQuery, recordPerfRoute } from "./perfStore.js";
 const router = express.Router();
 const DISAPPEARING_MODES = new Set(["after_read", "1h", "24h"]);
 const DM_CALL_STATUSES = new Set(["missed", "declined", "busy", "failed", "completed"]);
+const DM_GROUP_ROLES = new Set(["owner", "admin", "member"]);
+const DM_GROUP_MAX_MEMBERS = 50;
 const USE_R2_UPLOADS = String(process.env.USE_R2_UPLOADS || "").toLowerCase() === "true";
 const R2_ACCOUNT_ID = String(process.env.R2_ACCOUNT_ID || "").trim();
 const R2_BUCKET = String(process.env.R2_BUCKET || "").trim();
@@ -39,6 +41,7 @@ const uploadDmMedia = multer({
 });
 
 let dmSchemaReady = false;
+let dmSchemaPromise = null;
 let dmDbName = null;
 let dmPerformanceReady = false;
 let dmPerformancePromise = null;
@@ -357,8 +360,10 @@ const addColumnIfMissing = async (tableName, columnName, definitionSql) => {
   await db.query(`ALTER TABLE ${tableName} ADD COLUMN ${definitionSql}`);
 };
 
-const ensureDmSchema = async () => {
+export const ensureDmSchema = async () => {
   if (dmSchemaReady) return;
+  if (dmSchemaPromise) return dmSchemaPromise;
+  dmSchemaPromise = (async () => {
   await db.query(`
     CREATE TABLE IF NOT EXISTS vine_message_meta (
       message_id INT PRIMARY KEY,
@@ -409,6 +414,33 @@ const ensureDmSchema = async () => {
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
+  await addColumnIfMissing(
+    "vine_conversations",
+    "conversation_type",
+    "conversation_type VARCHAR(20) NOT NULL DEFAULT 'direct'"
+  );
+  await addColumnIfMissing(
+    "vine_conversations",
+    "group_name",
+    "group_name VARCHAR(100) NULL"
+  );
+  await addColumnIfMissing("vine_conversations", "created_by", "created_by INT NULL");
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_conversation_members (
+      conversation_id INT NOT NULL,
+      user_id INT NOT NULL,
+      role VARCHAR(20) NOT NULL DEFAULT 'member',
+      status VARCHAR(20) NOT NULL DEFAULT 'active',
+      joined_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      removed_at DATETIME NULL,
+      removed_by INT NULL,
+      last_read_message_id INT NULL,
+      last_read_at DATETIME NULL,
+      PRIMARY KEY (conversation_id, user_id),
+      INDEX idx_vine_group_members_user_status (user_id, status, conversation_id),
+      INDEX idx_vine_group_members_conversation_status_role (conversation_id, status, role)
+    )
+  `);
   await addColumnIfMissing("vine_messages", "read_at", "read_at DATETIME NULL");
   await addColumnIfMissing(
     "vine_messages",
@@ -451,6 +483,10 @@ const ensureDmSchema = async () => {
     );
   }
   dmSchemaReady = true;
+  })().finally(() => {
+    dmSchemaPromise = null;
+  });
+  return dmSchemaPromise;
 };
 
 const ensureDmPerformanceSchema = async () => {
@@ -466,6 +502,7 @@ const ensureDmPerformanceSchema = async () => {
       ["vine_conversations", "idx_vine_conversations_user1_user2", ["user1_id", "user2_id"]],
       ["vine_conversations", "idx_vine_conversations_user2_user1", ["user2_id", "user1_id"]],
       ["vine_messages", "idx_vine_messages_conversation_created", ["conversation_id", "created_at"]],
+      ["vine_messages", "idx_vine_messages_conversation_id", ["conversation_id", "id"]],
       ["vine_messages", "idx_vine_messages_conversation_read_sender", ["conversation_id", "is_read", "sender_id"]],
       ["vine_messages", "idx_vine_messages_disappearing_expiry", ["is_disappearing", "disappear_mode", "expires_at"]],
       ["vine_messages", "idx_vine_messages_sender_created", ["sender_id", "created_at"]],
@@ -475,6 +512,9 @@ const ensureDmPerformanceSchema = async () => {
       ["vine_message_media", "idx_vine_message_media_message_sort", ["message_id", "sort_order"]],
       ["vine_message_reactions", "idx_vine_message_reactions_user_message", ["user_id", "message_id"]],
       ["vine_conversation_settings", "idx_vine_conv_settings_updated", ["updated_at"]],
+      ["vine_conversations", "idx_vine_conversations_type", ["conversation_type"]],
+      ["vine_conversation_members", "idx_vine_group_members_user_status", ["user_id", "status", "conversation_id"]],
+      ["vine_conversation_members", "idx_vine_group_members_conversation_status_role", ["conversation_id", "status", "role"]],
     ];
 
     for (const [tableName, indexName, columns] of indexes) {
@@ -704,15 +744,181 @@ const deleteCloudinaryByUrl = async (url, mediaType) => {
 const getConversationForUser = async (conversationId, userId) => {
   const [[row]] = await db.query(
     `
-    SELECT id, user1_id, user2_id
-    FROM vine_conversations
-    WHERE id = ?
-      AND (user1_id = ? OR user2_id = ?)
+    SELECT
+      c.id,
+      c.user1_id,
+      c.user2_id,
+      COALESCE(c.conversation_type, 'direct') AS conversation_type,
+      c.group_name,
+      c.created_by,
+      gm.role AS member_role,
+      gm.last_read_message_id
+    FROM vine_conversations c
+    LEFT JOIN vine_conversation_members gm
+      ON gm.conversation_id = c.id
+      AND gm.user_id = ?
+      AND gm.status = 'active'
+    WHERE c.id = ?
+      AND (
+        (COALESCE(c.conversation_type, 'direct') = 'direct'
+          AND (c.user1_id = ? OR c.user2_id = ?))
+        OR
+        (c.conversation_type = 'group' AND gm.user_id IS NOT NULL)
+      )
     LIMIT 1
     `,
-    [conversationId, userId, userId]
+    [userId, conversationId, userId, userId]
   );
   return row || null;
+};
+
+const normalizeGroupName = (value) =>
+  String(value || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 80);
+
+const getActiveConversationUserIds = async (conversation) => {
+  if (!conversation?.id) return [];
+  if (conversation.conversation_type !== "group") {
+    return [conversation.user1_id, conversation.user2_id]
+      .map((id) => Number(id))
+      .filter(Boolean);
+  }
+  const [rows] = await db.query(
+    `
+    SELECT user_id
+    FROM vine_conversation_members
+    WHERE conversation_id = ? AND status = 'active'
+    `,
+    [conversation.id]
+  );
+  return rows.map((row) => Number(row.user_id)).filter(Boolean);
+};
+
+const emitConversationInboxUpdate = async (conversation) => {
+  const userIds = await getActiveConversationUserIds(conversation);
+  userIds.forEach((userId) => io.to(`user-${userId}`).emit("inbox_updated"));
+  return userIds;
+};
+
+const getGroupDetails = async (conversationId, viewerId) => {
+  const conversation = await getConversationForUser(conversationId, viewerId);
+  if (!conversation || conversation.conversation_type !== "group") return null;
+  const [members] = await db.query(
+    `
+    SELECT
+      gm.user_id,
+      gm.role,
+      gm.joined_at,
+      u.username,
+      u.display_name,
+      u.avatar_url,
+      u.is_verified,
+      u.last_active_at,
+      u.show_last_active
+    FROM vine_conversation_members gm
+    JOIN vine_users u ON u.id = gm.user_id
+    WHERE gm.conversation_id = ? AND gm.status = 'active'
+    ORDER BY FIELD(gm.role, 'owner', 'admin', 'member'), gm.joined_at ASC
+    `,
+    [conversationId]
+  );
+  const onlineIds = new Set(getOnlineUserIds().map((id) => Number(id)));
+  return {
+    conversation_id: Number(conversation.id),
+    conversation_type: "group",
+    group_name: conversation.group_name,
+    created_by: Number(conversation.created_by || 0) || null,
+    viewer_role: conversation.member_role,
+    can_manage: ["owner", "admin"].includes(conversation.member_role),
+    member_count: members.length,
+    members: members.map((member) => ({
+      ...member,
+      user_id: Number(member.user_id),
+      is_online_now: onlineIds.has(Number(member.user_id)) ? 1 : 0,
+    })),
+  };
+};
+
+const ensureGroupManager = async (conversationId, userId) => {
+  const conversation = await getConversationForUser(conversationId, userId);
+  if (!conversation || conversation.conversation_type !== "group") return null;
+  if (!["owner", "admin"].includes(conversation.member_role)) return null;
+  return conversation;
+};
+
+const getEligibleGroupUsers = async (actorId, userIds) => {
+  const ids = Array.from(new Set(userIds.map((id) => Number(id)).filter((id) => id && id !== Number(actorId))));
+  if (!ids.length) return [];
+  const [rows] = await db.query(
+    `
+    SELECT u.id
+    FROM vine_users u
+    WHERE u.id IN (?)
+      AND (
+        EXISTS (
+          SELECT 1 FROM vine_follows f
+          WHERE f.follower_id = ? AND f.following_id = u.id
+        )
+        OR EXISTS (
+          SELECT 1 FROM vine_follows f
+          WHERE f.follower_id = u.id AND f.following_id = ?
+        )
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM vine_blocks b
+        WHERE (b.blocker_id = ? AND b.blocked_id = u.id)
+           OR (b.blocker_id = u.id AND b.blocked_id = ?)
+      )
+    `,
+    [ids, actorId, actorId, actorId, actorId]
+  );
+  return rows.map((row) => Number(row.id));
+};
+
+const hasGroupBlockConflict = async (userIds) => {
+  const ids = Array.from(new Set(userIds.map((id) => Number(id)).filter(Boolean)));
+  if (ids.length < 2) return false;
+  const [[row]] = await db.query(
+    `
+    SELECT 1
+    FROM vine_blocks
+    WHERE blocker_id IN (?) AND blocked_id IN (?)
+    LIMIT 1
+    `,
+    [ids, ids]
+  );
+  return Boolean(row);
+};
+
+const hasGroupBlockConflictBetween = async (firstUserIds, secondUserIds) => {
+  const firstIds = Array.from(new Set(firstUserIds.map((id) => Number(id)).filter(Boolean)));
+  const secondIds = Array.from(new Set(secondUserIds.map((id) => Number(id)).filter(Boolean)));
+  if (!firstIds.length || !secondIds.length) return false;
+  const [[row]] = await db.query(
+    `
+    SELECT 1
+    FROM vine_blocks
+    WHERE (blocker_id IN (?) AND blocked_id IN (?))
+       OR (blocker_id IN (?) AND blocked_id IN (?))
+    LIMIT 1
+    `,
+    [firstIds, secondIds, secondIds, firstIds]
+  );
+  return Boolean(row);
+};
+
+const createGroupSystemMessage = async (connection, conversationId, actorId, content) => {
+  const [result] = await connection.query(
+    `
+    INSERT INTO vine_messages (
+      conversation_id, sender_id, content, is_read, is_disappearing, message_type
+    ) VALUES (?, ?, ?, 1, 0, 'system')
+    `,
+    [conversationId, actorId, String(content || "").slice(0, 500)]
+  );
+  return Number(result.insertId || 0);
 };
 
 const getConversationSettings = async (conversationId) => {
@@ -754,7 +960,7 @@ const removeMessagesPermanently = async (conversationId, messageIds = []) => {
   if (!ids.length) return [];
   const [[conversation]] = await db.query(
     `
-    SELECT user1_id, user2_id
+    SELECT id, user1_id, user2_id, COALESCE(conversation_type, 'direct') AS conversation_type
     FROM vine_conversations
     WHERE id = ?
     LIMIT 1
@@ -807,8 +1013,7 @@ const removeMessagesPermanently = async (conversationId, messageIds = []) => {
     conversation_id: conversationId,
     message_ids: ids,
   });
-  if (conversation?.user1_id) io.to(`user-${conversation.user1_id}`).emit("inbox_updated");
-  if (conversation?.user2_id) io.to(`user-${conversation.user2_id}`).emit("inbox_updated");
+  if (conversation) await emitConversationInboxUpdate(conversation);
   clearDmReadCache("dm-conversations", "dm-unread", "dm-messages", buildDmCacheKey("dm-settings", Number(conversationId || 0)));
 
   return ids;
@@ -861,6 +1066,22 @@ const markConversationReadAndDisappear = async (conversationId, userId) => {
   if (!convo) return null;
 
   const expiredIds = await cleanupExpiredDisappearingMessages(conversationId);
+
+  if (convo.conversation_type === "group") {
+    await db.query(
+      `
+      UPDATE vine_conversation_members
+      SET last_read_message_id = COALESCE(
+            (SELECT MAX(id) FROM vine_messages WHERE conversation_id = ?),
+            last_read_message_id
+          ),
+          last_read_at = NOW()
+      WHERE conversation_id = ? AND user_id = ? AND status = 'active'
+      `,
+      [conversationId, conversationId, userId]
+    );
+    return { ...convo, disappearedIds: expiredIds };
+  }
 
   const [disappearingRows] = await db.query(
     `
@@ -1051,6 +1272,7 @@ const getHydratedMessageById = async (messageId, viewerId) => {
       m.call_status,
       m.call_duration_seconds,
       u.username,
+      u.display_name,
       u.avatar_url,
       u.is_verified
     FROM vine_messages m
@@ -1099,7 +1321,7 @@ export const recordDmCallMessage = async ({
 
   await ensureDmPerformanceSchema();
   const conversation = await getConversationForUser(cid, senderId);
-  if (!conversation) return null;
+  if (!conversation || conversation.conversation_type !== "direct") return null;
   await db.query(
     "DELETE FROM vine_conversation_deletes WHERE conversation_id = ? AND user_id IN (?, ?)",
     [cid, conversation.user1_id, conversation.user2_id]
@@ -1171,11 +1393,374 @@ async function isFollowing(followerId, followingId) {
   );
   return rows.length > 0;
 }
+
+const publishGroupEvent = async (conversation, messageId, actorId) => {
+  const fullMessage = messageId ? await getHydratedMessageById(messageId, actorId) : null;
+  if (fullMessage) {
+    io.to(`conversation-${conversation.id}`).emit("dm_received", fullMessage);
+  }
+  const userIds = await emitConversationInboxUpdate(conversation);
+  userIds.forEach((userId) => {
+    if (fullMessage) io.to(`user-${userId}`).emit("dm_received", fullMessage);
+    io.to(`user-${userId}`).emit("dm_group_updated", {
+      conversation_id: Number(conversation.id),
+    });
+  });
+  clearDmReadCache(
+    "dm-conversations",
+    "dm-unread",
+    buildDmCacheKey("dm-messages", Number(conversation.id))
+  );
+  return fullMessage;
+};
+
+router.get("/group-candidates", authenticate, async (req, res) => {
+  const userId = Number(req.user.id);
+  const q = String(req.query?.q || "").trim().toLowerCase().slice(0, 80);
+  try {
+    await ensureDmPerformanceSchema();
+    const params = [userId, userId, userId, userId, userId];
+    let searchClause = "";
+    if (q) {
+      searchClause = "AND (LOWER(u.username) LIKE ? OR LOWER(COALESCE(u.display_name, '')) LIKE ?)";
+      params.push(`%${q}%`, `%${q}%`);
+    }
+    const [rows] = await db.query(
+      `
+      SELECT u.id, u.username, u.display_name, u.avatar_url, u.is_verified
+      FROM vine_users u
+      WHERE u.id != ?
+        AND (
+          EXISTS (
+            SELECT 1 FROM vine_follows f
+            WHERE f.follower_id = ? AND f.following_id = u.id
+          )
+          OR EXISTS (
+            SELECT 1 FROM vine_follows f
+            WHERE f.follower_id = u.id AND f.following_id = ?
+          )
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM vine_blocks b
+          WHERE (b.blocker_id = ? AND b.blocked_id = u.id)
+             OR (b.blocker_id = u.id AND b.blocked_id = ?)
+        )
+        ${searchClause}
+      ORDER BY COALESCE(NULLIF(u.display_name, ''), u.username) ASC
+      LIMIT 60
+      `,
+      params
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error("Group candidate search error:", err);
+    res.status(500).json({ error: "Failed to load people" });
+  }
+});
+
+router.post("/groups", authenticate, async (req, res) => {
+  const creatorId = Number(req.user.id);
+  const groupName = normalizeGroupName(req.body?.name);
+  const requestedIds = Array.from(
+    new Set((Array.isArray(req.body?.member_ids) ? req.body.member_ids : []).map(Number).filter(Boolean))
+  ).filter((id) => id !== creatorId);
+
+  if (groupName.length < 2) {
+    return res.status(400).json({ error: "Group name must have at least 2 characters" });
+  }
+  if (!requestedIds.length) {
+    return res.status(400).json({ error: "Choose at least one person" });
+  }
+  if (requestedIds.length + 1 > DM_GROUP_MAX_MEMBERS) {
+    return res.status(400).json({ error: `Groups can have up to ${DM_GROUP_MAX_MEMBERS} people` });
+  }
+
+  let connection;
+  try {
+    await ensureDmPerformanceSchema();
+    const eligibleIds = await getEligibleGroupUsers(creatorId, requestedIds);
+    if (eligibleIds.length !== requestedIds.length) {
+      return res.status(400).json({ error: "One or more people cannot be added to this group" });
+    }
+    if (await hasGroupBlockConflict([creatorId, ...eligibleIds])) {
+      return res.status(400).json({ error: "This group cannot be created with the selected people" });
+    }
+
+    connection = await db.getConnection();
+    await connection.beginTransaction();
+    const [created] = await connection.query(
+      `
+      INSERT INTO vine_conversations
+        (user1_id, user2_id, conversation_type, group_name, created_by)
+      VALUES (?, ?, 'group', ?, ?)
+      `,
+      [creatorId, eligibleIds[0], groupName, creatorId]
+    );
+    const conversationId = Number(created.insertId);
+    const values = ["(?, ?, 'owner', 'active', NOW())"];
+    const params = [conversationId, creatorId];
+    eligibleIds.forEach((memberId) => {
+      values.push("(?, ?, 'member', 'active', NOW())");
+      params.push(conversationId, memberId);
+    });
+    await connection.query(
+      `
+      INSERT INTO vine_conversation_members
+        (conversation_id, user_id, role, status, joined_at)
+      VALUES ${values.join(", ")}
+      `,
+      params
+    );
+    const messageId = await createGroupSystemMessage(
+      connection,
+      conversationId,
+      creatorId,
+      `${req.user.display_name || req.user.username || "Someone"} created the group`
+    );
+    await connection.commit();
+    connection.release();
+    connection = null;
+
+    const conversation = await getConversationForUser(conversationId, creatorId);
+    await publishGroupEvent(conversation, messageId, creatorId);
+    const group = await getGroupDetails(conversationId, creatorId);
+    res.status(201).json({ conversationId, group });
+  } catch (err) {
+    if (connection) {
+      await connection.rollback().catch(() => {});
+      connection.release();
+    }
+    console.error("Create DM group error:", err);
+    res.status(500).json({ error: "Failed to create group" });
+  }
+});
+
+router.get("/groups/:id", authenticate, async (req, res) => {
+  try {
+    await ensureDmPerformanceSchema();
+    const group = await getGroupDetails(Number(req.params.id), Number(req.user.id));
+    if (!group) return res.status(404).json({ error: "Group not found" });
+    res.json(group);
+  } catch (err) {
+    console.error("Get DM group error:", err);
+    res.status(500).json({ error: "Failed to load group" });
+  }
+});
+
+router.patch("/groups/:id", authenticate, async (req, res) => {
+  const conversationId = Number(req.params.id);
+  const actorId = Number(req.user.id);
+  const groupName = normalizeGroupName(req.body?.name);
+  if (groupName.length < 2) {
+    return res.status(400).json({ error: "Group name must have at least 2 characters" });
+  }
+  try {
+    await ensureDmPerformanceSchema();
+    const conversation = await ensureGroupManager(conversationId, actorId);
+    if (!conversation) return res.status(403).json({ error: "Only group managers can rename this group" });
+    await db.query("UPDATE vine_conversations SET group_name = ? WHERE id = ?", [groupName, conversationId]);
+    const messageId = await createGroupSystemMessage(db, conversationId, actorId, `Group renamed to ${groupName}`);
+    conversation.group_name = groupName;
+    await publishGroupEvent(conversation, messageId, actorId);
+    res.json(await getGroupDetails(conversationId, actorId));
+  } catch (err) {
+    console.error("Rename DM group error:", err);
+    res.status(500).json({ error: "Failed to rename group" });
+  }
+});
+
+router.post("/groups/:id/members", authenticate, async (req, res) => {
+  const conversationId = Number(req.params.id);
+  const actorId = Number(req.user.id);
+  const requestedIds = Array.from(
+    new Set((Array.isArray(req.body?.member_ids) ? req.body.member_ids : []).map(Number).filter(Boolean))
+  ).filter((id) => id !== actorId);
+  if (!requestedIds.length) return res.status(400).json({ error: "Choose at least one person" });
+  let connection;
+  try {
+    await ensureDmPerformanceSchema();
+    const conversation = await ensureGroupManager(conversationId, actorId);
+    if (!conversation) return res.status(403).json({ error: "Only group managers can add people" });
+    const [[countRow]] = await db.query(
+      "SELECT COUNT(*) AS total FROM vine_conversation_members WHERE conversation_id = ? AND status = 'active'",
+      [conversationId]
+    );
+    const [existingRows] = await db.query(
+      "SELECT user_id FROM vine_conversation_members WHERE conversation_id = ? AND user_id IN (?) AND status = 'active'",
+      [conversationId, requestedIds]
+    );
+    const existingIds = new Set(existingRows.map((row) => Number(row.user_id)));
+    const newIds = requestedIds.filter((id) => !existingIds.has(id));
+    if (!newIds.length) return res.json(await getGroupDetails(conversationId, actorId));
+    if (Number(countRow?.total || 0) + newIds.length > DM_GROUP_MAX_MEMBERS) {
+      return res.status(400).json({ error: `Groups can have up to ${DM_GROUP_MAX_MEMBERS} people` });
+    }
+    const eligibleIds = await getEligibleGroupUsers(actorId, newIds);
+    if (eligibleIds.length !== newIds.length) {
+      return res.status(400).json({ error: "One or more people cannot be added to this group" });
+    }
+    const [activeMemberRows] = await db.query(
+      "SELECT user_id FROM vine_conversation_members WHERE conversation_id = ? AND status = 'active'",
+      [conversationId]
+    );
+    if (await hasGroupBlockConflictBetween(activeMemberRows.map((row) => row.user_id), eligibleIds)) {
+      return res.status(400).json({ error: "One or more people cannot join this group" });
+    }
+    connection = await db.getConnection();
+    await connection.beginTransaction();
+    for (const memberId of eligibleIds) {
+      await connection.query(
+        `
+        INSERT INTO vine_conversation_members
+          (conversation_id, user_id, role, status, joined_at, removed_at, removed_by, last_read_message_id, last_read_at)
+        VALUES (?, ?, 'member', 'active', NOW(), NULL, NULL, NULL, NULL)
+        ON DUPLICATE KEY UPDATE
+          role = 'member', status = 'active', joined_at = NOW(), removed_at = NULL,
+          removed_by = NULL, last_read_message_id = NULL, last_read_at = NULL
+        `,
+        [conversationId, memberId]
+      );
+      await connection.query(
+        "DELETE FROM vine_conversation_deletes WHERE conversation_id = ? AND user_id = ?",
+        [conversationId, memberId]
+      );
+    }
+    const messageId = await createGroupSystemMessage(
+      connection,
+      conversationId,
+      actorId,
+      `${eligibleIds.length} ${eligibleIds.length === 1 ? "person was" : "people were"} added`
+    );
+    await connection.commit();
+    connection.release();
+    connection = null;
+    await publishGroupEvent(conversation, messageId, actorId);
+    res.json(await getGroupDetails(conversationId, actorId));
+  } catch (err) {
+    if (connection) {
+      await connection.rollback().catch(() => {});
+      connection.release();
+    }
+    console.error("Add DM group members error:", err);
+    res.status(500).json({ error: "Failed to add people" });
+  }
+});
+
+router.delete("/groups/:id/members/:userId", authenticate, async (req, res) => {
+  const conversationId = Number(req.params.id);
+  const actorId = Number(req.user.id);
+  const targetId = Number(req.params.userId);
+  if (targetId === actorId) return res.status(400).json({ error: "Use Leave group to remove yourself" });
+  try {
+    await ensureDmPerformanceSchema();
+    const conversation = await ensureGroupManager(conversationId, actorId);
+    if (!conversation) return res.status(403).json({ error: "Only group managers can remove people" });
+    const [[target]] = await db.query(
+      `
+      SELECT gm.role, COALESCE(NULLIF(u.display_name, ''), u.username) AS name
+      FROM vine_conversation_members gm
+      JOIN vine_users u ON u.id = gm.user_id
+      WHERE gm.conversation_id = ? AND gm.user_id = ? AND gm.status = 'active'
+      LIMIT 1
+      `,
+      [conversationId, targetId]
+    );
+    if (!target) return res.status(404).json({ error: "Member not found" });
+    if (target.role === "owner" || (conversation.member_role === "admin" && target.role === "admin")) {
+      return res.status(403).json({ error: "Only the owner can remove this member" });
+    }
+    await db.query(
+      `
+      UPDATE vine_conversation_members
+      SET status = 'removed', removed_at = NOW(), removed_by = ?
+      WHERE conversation_id = ? AND user_id = ?
+      `,
+      [actorId, conversationId, targetId]
+    );
+    io.in(`user-${targetId}`).socketsLeave(`conversation-${conversationId}`);
+    io.to(`user-${targetId}`).emit("inbox_updated");
+    io.to(`user-${targetId}`).emit("dm_group_removed", { conversation_id: conversationId });
+    const messageId = await createGroupSystemMessage(db, conversationId, actorId, `${target.name} was removed`);
+    await publishGroupEvent(conversation, messageId, actorId);
+    res.json(await getGroupDetails(conversationId, actorId));
+  } catch (err) {
+    console.error("Remove DM group member error:", err);
+    res.status(500).json({ error: "Failed to remove member" });
+  }
+});
+
+router.patch("/groups/:id/members/:userId/role", authenticate, async (req, res) => {
+  const conversationId = Number(req.params.id);
+  const actorId = Number(req.user.id);
+  const targetId = Number(req.params.userId);
+  const role = String(req.body?.role || "").trim().toLowerCase();
+  if (!DM_GROUP_ROLES.has(role) || role === "owner") {
+    return res.status(400).json({ error: "Role must be admin or member" });
+  }
+  try {
+    await ensureDmPerformanceSchema();
+    const conversation = await getConversationForUser(conversationId, actorId);
+    if (!conversation || conversation.conversation_type !== "group" || conversation.member_role !== "owner") {
+      return res.status(403).json({ error: "Only the group owner can change roles" });
+    }
+    const [updated] = await db.query(
+      `
+      UPDATE vine_conversation_members
+      SET role = ?
+      WHERE conversation_id = ? AND user_id = ? AND status = 'active' AND role != 'owner'
+      `,
+      [role, conversationId, targetId]
+    );
+    if (!updated.affectedRows) return res.status(404).json({ error: "Member not found" });
+    const messageId = await createGroupSystemMessage(
+      db,
+      conversationId,
+      actorId,
+      role === "admin" ? "A new group admin was added" : "A group admin became a member"
+    );
+    await publishGroupEvent(conversation, messageId, actorId);
+    res.json(await getGroupDetails(conversationId, actorId));
+  } catch (err) {
+    console.error("Update DM group role error:", err);
+    res.status(500).json({ error: "Failed to update role" });
+  }
+});
+
+router.post("/groups/:id/leave", authenticate, async (req, res) => {
+  const conversationId = Number(req.params.id);
+  const userId = Number(req.user.id);
+  try {
+    await ensureDmPerformanceSchema();
+    const conversation = await getConversationForUser(conversationId, userId);
+    if (!conversation || conversation.conversation_type !== "group") {
+      return res.status(404).json({ error: "Group not found" });
+    }
+    if (conversation.member_role === "owner") {
+      return res.status(400).json({ error: "The owner must keep the group or delete it" });
+    }
+    await db.query(
+      `
+      UPDATE vine_conversation_members
+      SET status = 'left', removed_at = NOW(), removed_by = NULL
+      WHERE conversation_id = ? AND user_id = ?
+      `,
+      [conversationId, userId]
+    );
+    io.in(`user-${userId}`).socketsLeave(`conversation-${conversationId}`);
+    io.to(`user-${userId}`).emit("inbox_updated");
+    const messageId = await createGroupSystemMessage(db, conversationId, userId, "A member left the group");
+    await publishGroupEvent(conversation, messageId, userId);
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Leave DM group error:", err);
+    res.status(500).json({ error: "Failed to leave group" });
+  }
+});
 /* =========================
    GET conversations list
 ========================= */
 router.get("/conversations", authenticate, async (req, res) => {
-  const userId = req.user.id;
+  const userId = Number(req.user.id);
   const q = String(req.query?.q || "").trim().toLowerCase();
 
   try {
@@ -1187,7 +1772,7 @@ router.get("/conversations", authenticate, async (req, res) => {
         await cleanupExpiredDisappearingMessages();
         const cacheKey = buildDmCacheKey("dm-conversations", Number(userId), q || "");
         return readThroughDmCache(cacheKey, DM_CACHE_TTLS.conversations, async () => {
-          const qWhere = q
+          const directSearch = q
             ? `
               AND (
                 LOWER(u.username) LIKE ?
@@ -1202,7 +1787,7 @@ router.get("/conversations", authenticate, async (req, res) => {
               )
             `
             : "";
-          const params = [
+          const directParams = [
             userId,
             userId,
             userId,
@@ -1214,9 +1799,9 @@ router.get("/conversations", authenticate, async (req, res) => {
             userId,
             ...(q ? [`%${q}%`, `%${q}%`, `%${q}%`] : []),
           ];
-          const [conversationRows] = await timedDmQuery(
+          const [directRows] = await timedDmQuery(
             perfCtx,
-            "dm-conversations.rows",
+            "dm-conversations.direct",
             `
             SELECT 
               c.id AS conversation_id,
@@ -1228,6 +1813,10 @@ router.get("/conversations", authenticate, async (req, res) => {
               u.last_active_at,
               u.show_last_active,
               u.is_verified,
+              'direct' AS conversation_type,
+              NULL AS group_name,
+              NULL AS member_count,
+              NULL AS viewer_role,
 
               (
                 SELECT content
@@ -1270,7 +1859,8 @@ router.get("/conversations", authenticate, async (req, res) => {
             JOIN vine_users u 
               ON u.id = IF(c.user1_id = ?, c.user2_id, c.user1_id)
 
-            WHERE (c.user1_id = ? OR c.user2_id = ?)
+            WHERE COALESCE(c.conversation_type, 'direct') = 'direct'
+              AND (c.user1_id = ? OR c.user2_id = ?)
               AND EXISTS (
                 SELECT 1
                 FROM vine_messages vm
@@ -1288,13 +1878,110 @@ router.get("/conversations", authenticate, async (req, res) => {
                 WHERE m.muter_id = ?
                   AND m.muted_id = IF(c.user1_id = ?, c.user2_id, c.user1_id)
               )
-              ${qWhere}
+              ${directSearch}
 
             ORDER BY is_pinned DESC, COALESCE(pinned_at, '1970-01-01') DESC, last_message_time DESC
           `,
-            params
+            directParams
           );
-          return conversationRows;
+
+          const groupSearch = q
+            ? `
+              AND (
+                LOWER(COALESCE(c.group_name, '')) LIKE ?
+                OR LOWER(COALESCE((
+                  SELECT content
+                  FROM vine_messages
+                  WHERE conversation_id = c.id
+                  ORDER BY created_at DESC
+                  LIMIT 1
+                ), '')) LIKE ?
+              )
+            `
+            : "";
+          const groupParams = [
+            userId,
+            userId,
+            userId,
+            userId,
+            userId,
+            ...(q ? [`%${q}%`, `%${q}%`] : []),
+          ];
+          const [groupRows] = await timedDmQuery(
+            perfCtx,
+            "dm-conversations.groups",
+            `
+            SELECT
+              c.id AS conversation_id,
+              NULL AS user_id,
+              c.group_name AS username,
+              c.group_name AS display_name,
+              NULL AS avatar_url,
+              NULL AS last_active_at,
+              0 AS show_last_active,
+              0 AS is_verified,
+              'group' AS conversation_type,
+              c.group_name,
+              gm.role AS viewer_role,
+              (
+                SELECT COUNT(*)
+                FROM vine_conversation_members members
+                WHERE members.conversation_id = c.id AND members.status = 'active'
+              ) AS member_count,
+              (
+                SELECT content
+                FROM vine_messages
+                WHERE conversation_id = c.id
+                ORDER BY created_at DESC
+                LIMIT 1
+              ) AS last_message,
+              (
+                SELECT created_at
+                FROM vine_messages
+                WHERE conversation_id = c.id
+                ORDER BY created_at DESC
+                LIMIT 1
+              ) AS last_message_time,
+              (
+                SELECT COUNT(*)
+                FROM vine_messages message_rows
+                WHERE message_rows.conversation_id = c.id
+                  AND message_rows.id > COALESCE(gm.last_read_message_id, 0)
+                  AND message_rows.sender_id != ?
+              ) AS unread_count,
+              EXISTS (
+                SELECT 1 FROM vine_conversation_pins cp
+                WHERE cp.user_id = ? AND cp.conversation_id = c.id
+              ) AS is_pinned,
+              (
+                SELECT cp.pinned_at FROM vine_conversation_pins cp
+                WHERE cp.user_id = ? AND cp.conversation_id = c.id
+                LIMIT 1
+              ) AS pinned_at
+            FROM vine_conversations c
+            JOIN vine_conversation_members gm
+              ON gm.conversation_id = c.id
+              AND gm.user_id = ?
+              AND gm.status = 'active'
+            WHERE c.conversation_type = 'group'
+              AND NOT EXISTS (
+                SELECT 1 FROM vine_conversation_deletes d
+                WHERE d.conversation_id = c.id AND d.user_id = ?
+              )
+              ${groupSearch}
+            `,
+            groupParams
+          );
+
+          return [...directRows, ...groupRows].sort((a, b) => {
+            const pinDiff = Number(b.is_pinned || 0) - Number(a.is_pinned || 0);
+            if (pinDiff) return pinDiff;
+            if (Number(a.is_pinned || 0)) {
+              const pinTime = new Date(b.pinned_at || 0) - new Date(a.pinned_at || 0);
+              if (pinTime) return pinTime;
+            }
+            return new Date(b.last_message_time || 0) - new Date(a.last_message_time || 0);
+          });
         });
       }
     );
@@ -1336,12 +2023,17 @@ router.get("/conversations/:id/messages", authenticate, async (req, res) => {
           "dm-messages.check",
           `
           SELECT 1
-          FROM vine_conversations
-          WHERE id = ?
-            AND (user1_id = ? OR user2_id = ?)
+          FROM vine_conversations c
+          LEFT JOIN vine_conversation_members gm
+            ON gm.conversation_id = c.id AND gm.user_id = ? AND gm.status = 'active'
+          WHERE c.id = ?
+            AND (
+              (COALESCE(c.conversation_type, 'direct') = 'direct' AND (c.user1_id = ? OR c.user2_id = ?))
+              OR (c.conversation_type = 'group' AND gm.user_id IS NOT NULL)
+            )
           LIMIT 1
           `,
-          [conversationId, userId, userId]
+          [userId, conversationId, userId, userId]
         );
 
         if (!check.length) {
@@ -1368,6 +2060,7 @@ router.get("/conversations/:id/messages", authenticate, async (req, res) => {
               m.call_status,
               m.call_duration_seconds,
               u.username,
+              u.display_name,
               u.avatar_url,
               u.is_verified
             FROM vine_messages m
@@ -1449,8 +2142,10 @@ router.post("/start", authenticate, async (req, res) => {
     const [existing] = await db.query(
       `
       SELECT id FROM vine_conversations
-      WHERE (user1_id = ? AND user2_id = ?)
+      WHERE COALESCE(conversation_type, 'direct') = 'direct'
+        AND ((user1_id = ? AND user2_id = ?)
          OR (user1_id = ? AND user2_id = ?)
+        )
       LIMIT 1
       `,
       [senderId, receiverId, receiverId, senderId]
@@ -1502,6 +2197,26 @@ router.get("/conversations/:id/presence", authenticate, async (req, res) => {
   }
 
   try {
+    await ensureDmPerformanceSchema();
+    const conversation = await getConversationForUser(conversationId, userId);
+    if (!conversation) {
+      return res.status(404).json({ error: "Conversation not found" });
+    }
+    if (conversation.conversation_type === "group") {
+      const group = await getGroupDetails(conversationId, userId);
+      return res.json({
+        user_id: null,
+        username: group.group_name,
+        display_name: group.group_name,
+        avatar_url: null,
+        is_verified: 0,
+        is_online_now: 0,
+        conversation_type: "group",
+        group_name: group.group_name,
+        member_count: group.member_count,
+        viewer_role: group.viewer_role,
+      });
+    }
     const result = await runDmPerfRoute(
       "dm-conversation-presence",
       { conversation_id: conversationId, user_id: userId },
@@ -1522,6 +2237,7 @@ router.get("/conversations/:id/presence", authenticate, async (req, res) => {
           JOIN vine_users u
             ON u.id = IF(c.user1_id = ?, c.user2_id, c.user1_id)
           WHERE c.id = ?
+            AND COALESCE(c.conversation_type, 'direct') = 'direct'
             AND (c.user1_id = ? OR c.user2_id = ?)
           LIMIT 1
           `,
@@ -1564,6 +2280,9 @@ router.patch("/conversations/:id/settings", authenticate, async (req, res) => {
     await ensureDmPerformanceSchema();
     const convo = await getConversationForUser(conversationId, userId);
     if (!convo) return res.status(403).json({ error: "Access denied" });
+    if (convo.conversation_type === "group") {
+      return res.status(400).json({ error: "Disappearing messages are not available in groups" });
+    }
 
     const disappearingEnabled = Boolean(req.body?.disappearing_enabled);
     const requestedMode = String(req.body?.disappear_mode || "after_read").trim().toLowerCase();
@@ -1587,8 +2306,7 @@ router.patch("/conversations/:id/settings", authenticate, async (req, res) => {
       conversation_id: conversationId,
       ...settings,
     });
-    io.to(`user-${convo.user1_id}`).emit("inbox_updated");
-    io.to(`user-${convo.user2_id}`).emit("inbox_updated");
+    await emitConversationInboxUpdate(convo);
     clearDmReadCache("dm-conversations", "dm-unread", buildDmCacheKey("dm-settings", conversationId), buildDmCacheKey("dm-messages", conversationId));
 
     res.json({ success: true, conversation_id: conversationId, ...settings });
@@ -1626,26 +2344,19 @@ router.post("/send", authenticate, async (req, res) => {
     let user1_id;
     let user2_id;
     let otherId;
+    let activeConversation = null;
+    let isGroupConversation = false;
 
     let createConversationWithUserId = null;
 
     if (activeConversationId) {
-      // Ensure user belongs to this conversation
-      const [check] = await db.query(
-        `
-        SELECT user1_id, user2_id
-        FROM vine_conversations
-        WHERE id = ? AND (user1_id = ? OR user2_id = ?)
-        `,
-        [activeConversationId, senderId, senderId]
-      );
-
-      if (!check.length) {
+      activeConversation = await getConversationForUser(activeConversationId, senderId);
+      if (!activeConversation) {
         return res.status(403).json({ error: "Not your conversation" });
       }
-
-      ({ user1_id, user2_id } = check[0]);
-      otherId = user1_id === senderId ? user2_id : user1_id;
+      ({ user1_id, user2_id } = activeConversation);
+      isGroupConversation = activeConversation.conversation_type === "group";
+      otherId = isGroupConversation ? null : (Number(user1_id) === Number(senderId) ? user2_id : user1_id);
     } else {
       if (!receiverId || Number(receiverId) === Number(senderId)) {
         return res.status(400).json({ error: "Recipient required" });
@@ -1663,8 +2374,10 @@ router.post("/send", authenticate, async (req, res) => {
         `
         SELECT id, user1_id, user2_id
         FROM vine_conversations
-        WHERE (user1_id = ? AND user2_id = ?)
+        WHERE COALESCE(conversation_type, 'direct') = 'direct'
+          AND ((user1_id = ? AND user2_id = ?)
            OR (user1_id = ? AND user2_id = ?)
+          )
         LIMIT 1
         `,
         [senderId, receiverId, receiverId, senderId]
@@ -1675,37 +2388,45 @@ router.post("/send", authenticate, async (req, res) => {
         user1_id = existing[0].user1_id;
         user2_id = existing[0].user2_id;
         otherId = user1_id === senderId ? user2_id : user1_id;
+        activeConversation = {
+          id: Number(activeConversationId),
+          user1_id,
+          user2_id,
+          conversation_type: "direct",
+        };
       } else {
         otherId = receiverId;
         createConversationWithUserId = receiverId;
       }
     }
 
-    const [muted] = await db.query(
-      `
-      SELECT 1
-      FROM vine_mutes
-      WHERE muter_id = ? AND muted_id = ?
-      LIMIT 1
-      `,
-      [otherId, senderId]
-    );
-    if (muted.length) {
-      return res.status(403).json({ error: "User has muted you" });
-    }
+    if (!isGroupConversation) {
+      const [muted] = await db.query(
+        `
+        SELECT 1
+        FROM vine_mutes
+        WHERE muter_id = ? AND muted_id = ?
+        LIMIT 1
+        `,
+        [otherId, senderId]
+      );
+      if (muted.length) {
+        return res.status(403).json({ error: "User has muted you" });
+      }
 
-    const [blocked] = await db.query(
-      `
-      SELECT 1
-      FROM vine_blocks
-      WHERE (blocker_id = ? AND blocked_id = ?)
-         OR (blocker_id = ? AND blocked_id = ?)
-      LIMIT 1
-      `,
-      [otherId, senderId, senderId, otherId]
-    );
-    if (blocked.length) {
-      return res.status(403).json({ error: "You have been blocked" });
+      const [blocked] = await db.query(
+        `
+        SELECT 1
+        FROM vine_blocks
+        WHERE (blocker_id = ? AND blocked_id = ?)
+           OR (blocker_id = ? AND blocked_id = ?)
+        LIMIT 1
+        `,
+        [otherId, senderId, senderId, otherId]
+      );
+      if (blocked.length) {
+        return res.status(403).json({ error: "You have been blocked" });
+      }
     }
 
     if (!activeConversationId && createConversationWithUserId) {
@@ -1719,6 +2440,12 @@ router.post("/send", authenticate, async (req, res) => {
       activeConversationId = created.insertId;
       user1_id = senderId;
       user2_id = createConversationWithUserId;
+      activeConversation = {
+        id: Number(activeConversationId),
+        user1_id,
+        user2_id,
+        conversation_type: "direct",
+      };
     }
 
     if (clientRequestId) {
@@ -1747,7 +2474,12 @@ router.post("/send", authenticate, async (req, res) => {
       }
     }
 
-    const conversationSettings = await getConversationSettings(activeConversationId);
+    if (!activeConversation) {
+      activeConversation = await getConversationForUser(activeConversationId, senderId);
+    }
+    const conversationSettings = isGroupConversation
+      ? { disappearing_enabled: false, disappear_mode: "after_read" }
+      : await getConversationSettings(activeConversationId);
     const isDisappearing = conversationSettings.disappearing_enabled ? 1 : 0;
     const disappearMode = conversationSettings.disappearing_enabled
       ? conversationSettings.disappear_mode || "after_read"
@@ -1839,9 +2571,17 @@ router.post("/send", authenticate, async (req, res) => {
     // ✅ Send to open chat window
     io.to(`conversation-${activeConversationId}`).emit("dm_received", fullMessage);
 
-    // ✅ Send to both users inbox (conversation list realtime)
-    io.to(`user-${user1_id}`).emit("dm_received", fullMessage);
-    io.to(`user-${user2_id}`).emit("dm_received", fullMessage);
+    const recipientUserIds = await getActiveConversationUserIds(activeConversation);
+    if (recipientUserIds.length) {
+      await db.query(
+        `DELETE FROM vine_conversation_deletes WHERE conversation_id = ? AND user_id IN (?)`,
+        [activeConversationId, recipientUserIds]
+      );
+    }
+    recipientUserIds.forEach((userId) => {
+      io.to(`user-${userId}`).emit("dm_received", fullMessage);
+      io.to(`user-${userId}`).emit("inbox_updated");
+    });
     clearDmReadCache("dm-conversations", "dm-unread", buildDmCacheKey("dm-messages", Number(activeConversationId)));
 
     // Respond normally
@@ -1905,14 +2645,14 @@ router.post("/messages/:id/reaction", authenticate, async (req, res) => {
       `
       SELECT m.id, m.conversation_id
       FROM vine_messages m
-      JOIN vine_conversations c ON c.id = m.conversation_id
       WHERE m.id = ?
-        AND (c.user1_id = ? OR c.user2_id = ?)
       LIMIT 1
       `,
-      [messageId, userId, userId]
+      [messageId]
     );
     if (!messageRow) return res.status(404).json({ error: "Message not found" });
+    const conversation = await getConversationForUser(messageRow.conversation_id, userId);
+    if (!conversation) return res.status(404).json({ error: "Message not found" });
 
     if (!reaction) {
       await db.query(
@@ -1972,9 +2712,7 @@ router.post("/conversations/:id/read", authenticate, async (req, res) => {
       return res.status(403).json({ error: "Access denied" });
     }
 
-    // 🔥 Notify BOTH users to refresh inbox immediately
-    io.to(`user-${convo.user1_id}`).emit("inbox_updated");
-    io.to(`user-${convo.user2_id}`).emit("inbox_updated");
+    await emitConversationInboxUpdate(convo);
 
     // 🔥 Optional: update open chat UI
     io.to(`conversation-${conversationId}`).emit("messages_seen", {
@@ -1999,18 +2737,8 @@ router.delete("/conversations/:id", authenticate, async (req, res) => {
 
   try {
     await ensureDmPerformanceSchema();
-    // Ensure user belongs to this conversation
-    const [check] = await db.query(
-      `
-      SELECT 1 
-      FROM vine_conversations 
-      WHERE id = ? 
-        AND (user1_id = ? OR user2_id = ?)
-      `,
-      [conversationId, userId, userId]
-    );
-
-    if (!check.length) {
+    const conversation = await getConversationForUser(conversationId, userId);
+    if (!conversation) {
       return res.status(403).json({ error: "Not your conversation" });
     }
 
@@ -2042,16 +2770,8 @@ router.post("/conversations/:id/pin", authenticate, async (req, res) => {
   if (!conversationId) return res.status(400).json({ error: "Invalid conversation" });
   try {
     await ensureDmPerformanceSchema();
-    const [[check]] = await db.query(
-      `
-      SELECT id
-      FROM vine_conversations
-      WHERE id = ? AND (user1_id = ? OR user2_id = ?)
-      LIMIT 1
-      `,
-      [conversationId, userId, userId]
-    );
-    if (!check) return res.status(403).json({ error: "Access denied" });
+    const conversation = await getConversationForUser(conversationId, userId);
+    if (!conversation) return res.status(403).json({ error: "Access denied" });
 
     if (pinned) {
       await db.query(
@@ -2096,6 +2816,8 @@ router.delete("/messages/:id", authenticate, async (req, res) => {
     if (Number(row.sender_id) !== userId) {
       return res.status(403).json({ error: "You can only delete your own message" });
     }
+    const conversation = await getConversationForUser(row.conversation_id, userId);
+    if (!conversation) return res.status(403).json({ error: "Access denied" });
 
     await removeMessagesPermanently(row.conversation_id, [messageId]);
     io.to(`user-${userId}`).emit("inbox_updated");
@@ -2126,11 +2848,16 @@ router.get("/conversations/:id/messages", authenticate, async (req, res) => {
           "dm-messages.check",
           `
           SELECT 1
-          FROM vine_conversations
-          WHERE id = ?
-            AND (user1_id = ? OR user2_id = ?)
+          FROM vine_conversations c
+          LEFT JOIN vine_conversation_members gm
+            ON gm.conversation_id = c.id AND gm.user_id = ? AND gm.status = 'active'
+          WHERE c.id = ?
+            AND (
+              (COALESCE(c.conversation_type, 'direct') = 'direct' AND (c.user1_id = ? OR c.user2_id = ?))
+              OR (c.conversation_type = 'group' AND gm.user_id IS NOT NULL)
+            )
           `,
-          [conversationId, userId, userId]
+          [userId, conversationId, userId, userId]
         );
 
         if (!check.length) {
@@ -2157,6 +2884,7 @@ router.get("/conversations/:id/messages", authenticate, async (req, res) => {
               m.call_status,
               m.call_duration_seconds,
               u.username,
+              u.display_name,
               u.avatar_url
             FROM vine_messages m
             JOIN vine_users u ON m.sender_id = u.id
@@ -2201,23 +2929,42 @@ router.get("/unread-total", authenticate, async (req, res) => {
             perfCtx,
             "dm-unread-total.count",
             `
-            SELECT COUNT(*) AS total
-            FROM vine_messages m
-            JOIN vine_conversations c ON c.id = m.conversation_id
-            LEFT JOIN vine_conversation_deletes d
-              ON d.conversation_id = c.id AND d.user_id = ?
-            WHERE m.is_read = 0
-              AND m.sender_id != ?
-              AND (c.user1_id = ? OR c.user2_id = ?)
-              AND d.conversation_id IS NULL
-              AND NOT EXISTS (
-                SELECT 1
-                FROM vine_mutes m2
-                WHERE m2.muter_id = ?
-                  AND m2.muted_id = m.sender_id
-              )
+            SELECT
+              (
+                SELECT COUNT(*)
+                FROM vine_messages m
+                JOIN vine_conversations c ON c.id = m.conversation_id
+                LEFT JOIN vine_conversation_deletes d
+                  ON d.conversation_id = c.id AND d.user_id = ?
+                WHERE COALESCE(c.conversation_type, 'direct') = 'direct'
+                  AND m.is_read = 0
+                  AND m.sender_id != ?
+                  AND (c.user1_id = ? OR c.user2_id = ?)
+                  AND d.conversation_id IS NULL
+                  AND NOT EXISTS (
+                    SELECT 1 FROM vine_mutes muted
+                    WHERE muted.muter_id = ? AND muted.muted_id = m.sender_id
+                  )
+              ) +
+              (
+                SELECT COUNT(*)
+                FROM vine_conversation_members gm
+                JOIN vine_conversations c ON c.id = gm.conversation_id AND c.conversation_type = 'group'
+                JOIN vine_messages m ON m.conversation_id = c.id
+                LEFT JOIN vine_conversation_deletes d
+                  ON d.conversation_id = c.id AND d.user_id = gm.user_id
+                WHERE gm.user_id = ?
+                  AND gm.status = 'active'
+                  AND m.id > COALESCE(gm.last_read_message_id, 0)
+                  AND m.sender_id != ?
+                  AND d.conversation_id IS NULL
+                  AND NOT EXISTS (
+                    SELECT 1 FROM vine_mutes muted
+                    WHERE muted.muter_id = ? AND muted.muted_id = m.sender_id
+                  )
+              ) AS total
           `,
-            [userId, userId, userId, userId, userId]
+            [userId, userId, userId, userId, userId, userId, userId, userId]
           );
           return countRow;
         });

@@ -91,6 +91,25 @@
   font-size: 1.4rem;
 }
 
+.dm-new-group {
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid #0c7a58;
+  border-radius: 8px;
+  padding: 0 13px;
+  background: #087f5b;
+  color: #ffffff;
+  font-size: 0.84rem;
+  font-weight: 850;
+  cursor: pointer;
+  box-shadow: 0 7px 16px rgba(8, 127, 91, 0.18);
+}
+
+.dm-new-group:hover { background: #076d4f; }
+
 .dm-search-row {
   width: 100%;
   max-width: 800px;
@@ -257,6 +276,14 @@
   font-size: 1.4rem;
 }
 
+.dm-group-avatar {
+  border-color: #f0a029;
+  background: #fff4d9;
+  color: #7a4800;
+  font-size: 1rem;
+  letter-spacing: 0;
+}
+
 .dm-avatar-unread-dot {
   position: absolute;
   top: 2px;
@@ -352,6 +379,14 @@
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 100%;
+}
+
+.dm-group-member-count {
+  display: inline-block;
+  margin-right: 8px;
+  color: #9a5a00;
+  font-size: 0.74rem;
+  font-weight: 850;
 }
 
 .dm-unread .dm-preview {
@@ -556,6 +591,15 @@
   .dm-title {
     font-size: 1.2rem;
   }
+
+  .dm-new-group {
+    width: 42px;
+    min-width: 42px;
+    height: 42px;
+    padding: 0;
+  }
+
+  .dm-new-group span { display: none; }
 
   .dm-search-row,
   .dm-summary-strip {

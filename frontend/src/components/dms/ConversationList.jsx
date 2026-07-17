@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 import "./ConversationList.css";
 import { socket } from "../../socket";
 import useWindowedList from "../../hooks/useWindowedList";
+import GroupCreateModal from "./GroupCreateModal";
+import "./GroupCreateModal.css";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const DEFAULT_AVATAR = "/default-avatar.png";
@@ -55,6 +57,7 @@ export default function ConversationList() {
   ---------------------------- */
   const [conversations, setConversations] = useState([]);
   const [search, setSearch] = useState("");
+  const [groupModalOpen, setGroupModalOpen] = useState(false);
   const searchRef = useRef("");
   const listRef = useRef(null);
   const activeRequestRef = useRef(null);
@@ -191,7 +194,14 @@ export default function ConversationList() {
     <span className="dm-list-back-label">Feed</span>
   </button>
 
-  <span className="dm-title">💬 Messages</span>
+  <span className="dm-title">Messages</span>
+  <button className="dm-new-group" type="button" onClick={() => setGroupModalOpen(true)}>
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden="true">
+      <path d="M8.5 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM15.5 11a3.2 3.2 0 1 0 0-6.4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M2.5 20c.4-3.6 2.4-5.4 6-5.4s5.6 1.8 6 5.4M15 14.2c3.8 0 5.8 1.8 6.1 5.4M18.5 9.5v5M16 12h5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+    <span>New group</span>
+  </button>
 </div>
       <div className="dm-search-row">
         <input
@@ -229,6 +239,7 @@ export default function ConversationList() {
       <div className="dm-list-window" ref={listRef}>
       {padTop > 0 && <div style={{ height: `${padTop}px` }} aria-hidden="true" />}
       {visibleConversations.map((c) => {
+        const isGroup = c.conversation_type === "group";
         const avatar = c.avatar_url
           ? (c.avatar_url.startsWith("http") ? c.avatar_url : `${API}${c.avatar_url}`)
           : DEFAULT_AVATAR;
@@ -243,18 +254,24 @@ export default function ConversationList() {
           >
             {/* AVATAR */}
             <div className="dm-avatar-shell">
-              <img
-                src={avatar}
-                className="dm-avatar"
-                alt=""
-                onClick={(e) => {
-                  e.stopPropagation();
-                  navigate(`/vine/profile/${c.username}`);
-                }}
-                onError={(e) => {
-                  e.currentTarget.src = DEFAULT_AVATAR;
-                }}
-              />
+              {isGroup ? (
+                <div className="dm-avatar-fallback dm-group-avatar" aria-hidden="true">
+                  {String(c.group_name || "G").trim().slice(0, 2).toUpperCase()}
+                </div>
+              ) : (
+                <img
+                  src={avatar}
+                  className="dm-avatar"
+                  alt=""
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigate(`/vine/profile/${c.username}`);
+                  }}
+                  onError={(e) => {
+                    e.currentTarget.src = DEFAULT_AVATAR;
+                  }}
+                />
+              )}
               {c.unread_count > 0 ? <span className="dm-avatar-unread-dot" aria-hidden="true" /> : null}
             </div>
 
@@ -262,15 +279,13 @@ export default function ConversationList() {
             <div className="dm-meta">
               <div className="dm-top">
                 <strong className="dm-username">
-                  <span
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      navigate(`/vine/profile/${c.username}`);
-                    }}
-                  >
-                    @{c.username}
+                  <span onClick={!isGroup ? (e) => {
+                    e.stopPropagation();
+                    navigate(`/vine/profile/${c.username}`);
+                  } : undefined}>
+                    {isGroup ? c.group_name : `@${c.username}`}
                   </span>
-                  {(Number(c.is_verified) === 1 || ["vine guardian","vine_guardian","vine news","vine_news"].includes(String(c.username || "").toLowerCase())) && (
+                  {!isGroup && (Number(c.is_verified) === 1 || ["vine guardian","vine_guardian","vine news","vine_news"].includes(String(c.username || "").toLowerCase())) && (
                     <span className={`verified ${["vine guardian","vine_guardian","vine news","vine_news"].includes(String(c.username || "").toLowerCase()) ? "guardian" : ""}`}>
                       <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
                         <path
@@ -325,7 +340,8 @@ export default function ConversationList() {
               </div>
 
               <div className="dm-preview">
-                {c.last_message || "No messages yet 🌱"}
+                {isGroup && <span className="dm-group-member-count">{Number(c.member_count || 0)} members</span>}
+                {c.last_message || "No messages yet"}
               </div>
             </div>
           </div>
@@ -333,6 +349,15 @@ export default function ConversationList() {
       })}
       {padBottom > 0 && <div style={{ height: `${padBottom}px` }} aria-hidden="true" />}
       </div>
+      <GroupCreateModal
+        open={groupModalOpen}
+        onClose={() => setGroupModalOpen(false)}
+        onCreated={(data) => {
+          setGroupModalOpen(false);
+          loadConversations();
+          if (data?.conversationId) navigate(`/vine/dms/${data.conversationId}`);
+        }}
+      />
     </div>
   );
 }

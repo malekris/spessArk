@@ -335,7 +335,7 @@ export default function VineFeed() {
   const [previews, setPreviews] = useState([]);
   const [feeling, setFeeling] = useState("");
   const [isSubmittingPost, setIsSubmittingPost] = useState(false);
-  const [unread, setUnread] = useState(0);           // notifications
+  const [notificationBadgeCount, setNotificationBadgeCount] = useState(0);
   const [unreadDMs, setUnreadDMs] = useState(0);     // DMs
   const [handledDeepLink, setHandledDeepLink] = useState(false);
   const [params, setParams] = useSearchParams();
@@ -1291,6 +1291,7 @@ export default function VineFeed() {
   };
 
   const handleOpenNotifications = () => {
+    setNotificationBadgeCount(0);
     navigate("/vine/notifications");
   };
 
@@ -1300,17 +1301,17 @@ export default function VineFeed() {
     const notificationController = new AbortController();
     const dmController = new AbortController();
 
-    // Fetch bell badge count
-    const fetchUnreadNotifications = async () => {
+    // The bell tracks notifications received since the notification window was opened.
+    const fetchUnseenNotifications = async () => {
       try {
-        const res = await fetch(`${API}/api/vine/notifications/unread-count`, {
+        const res = await fetch(`${API}/api/vine/notifications/unseen-count`, {
           headers: { Authorization: `Bearer ${token}` },
           signal: notificationController.signal,
           cache: "no-store",
         });
         const data = await res.json().catch(() => ({}));
         if (notificationController.signal.aborted) return;
-        setUnread(Number(data.count || 0));
+        setNotificationBadgeCount(Number(data.count || 0));
       } catch (err) {
         if (err?.name === "AbortError") return;
         console.error("Failed to fetch unread notifications");
@@ -1334,18 +1335,20 @@ export default function VineFeed() {
       }
     };
 
-    fetchUnreadNotifications();
+    fetchUnseenNotifications();
     fetchUnreadDMs();
 
     // Socket listeners
-    socket.on("notification", fetchUnreadNotifications);
+    socket.on("notification", fetchUnseenNotifications);
+    socket.on("notifications_seen", fetchUnseenNotifications);
     socket.on("dm_received", fetchUnreadDMs);
     socket.on("messages_seen", fetchUnreadDMs);
 
     return () => {
       notificationController.abort();
       dmController.abort();
-      socket.off("notification", fetchUnreadNotifications);
+      socket.off("notification", fetchUnseenNotifications);
+      socket.off("notifications_seen", fetchUnseenNotifications);
       socket.off("dm_received", fetchUnreadDMs);
       socket.off("messages_seen", fetchUnreadDMs);
     };
@@ -1744,10 +1747,10 @@ export default function VineFeed() {
     {
       key: "alerts",
       label: "Alerts",
-      value: unread,
-      badge: unread > 0 ? "Live" : "Clear",
-      detail: unread === 1 ? "bell update" : "bell updates",
-      action: () => navigate("/vine/notifications"),
+      value: notificationBadgeCount,
+      badge: notificationBadgeCount > 0 ? "Live" : "Clear",
+      detail: notificationBadgeCount === 1 ? "bell update" : "bell updates",
+      action: handleOpenNotifications,
     },
     {
       key: "statuses",
@@ -1902,7 +1905,9 @@ export default function VineFeed() {
 
         <div className="notif-bell" onClick={handleOpenNotifications}>
           🔔
-          {unread > 0 && <span className="notif-badge">{formatBadgeCount(unread)}</span>}
+          {notificationBadgeCount > 0 && (
+            <span className="notif-badge">{formatBadgeCount(notificationBadgeCount)}</span>
+          )}
         </div>
 
         <div className="nav-right">

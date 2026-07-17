@@ -24,6 +24,54 @@ export const markOneVineNotificationRead = async ({ db, notificationId, viewerId
   };
 };
 
+export const getVineUnseenNotificationCount = async ({ db, viewerId }) => {
+  const userId = Number(viewerId);
+  if (!userId) return 0;
+
+  const [[row]] = await db.query(
+    `
+    SELECT COUNT(*) AS total
+    FROM vine_notifications n
+    LEFT JOIN vine_notification_views v ON v.user_id = n.user_id
+    WHERE n.user_id = ?
+      AND n.type <> 'birthday'
+      AND (
+        (v.user_id IS NULL AND n.is_read = 0)
+        OR (v.user_id IS NOT NULL AND n.id > v.last_seen_notification_id)
+      )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM vine_mutes m
+        WHERE m.muter_id = n.user_id AND m.muted_id = n.actor_id
+      )
+    `,
+    [userId]
+  );
+
+  return Number(row?.total || 0);
+};
+
+export const markVineNotificationsSeen = async ({ db, throughId, viewerId }) => {
+  const notificationId = Number(throughId);
+  const userId = Number(viewerId);
+  if (!notificationId || !userId) {
+    return { valid: false, throughId: notificationId, viewerId: userId };
+  }
+
+  await db.query(
+    `
+    INSERT INTO vine_notification_views (user_id, last_seen_notification_id)
+    VALUES (?, ?)
+    ON DUPLICATE KEY UPDATE
+      last_seen_notification_id = GREATEST(last_seen_notification_id, ?),
+      updated_at = CURRENT_TIMESTAMP
+    `,
+    [userId, notificationId, notificationId]
+  );
+
+  return { valid: true, throughId: notificationId, viewerId: userId };
+};
+
 export default function createVineNotificationRouter({
   db,
   authenticate,
@@ -121,31 +169,29 @@ export default function createVineNotificationRouter({
   router.get("/notifications/unseen-count", authenticate, async (req, res) => {
     void cleanupExpiredReadNotifications();
     await ensureVinePerformanceSchema();
-    const sinceRaw = String(req.query.since || "").trim();
-    const since = new Date(sinceRaw);
-    if (!sinceRaw || Number.isNaN(since.getTime())) {
-      return res.json({ count: 0 });
-    }
-
     const viewerId = Number(req.user.id);
-    const [[row]] = await db.query(
-      `
-      SELECT COUNT(*) AS total
-      FROM vine_notifications n
-      WHERE n.user_id = ?
-        AND n.type <> 'birthday'
-        AND n.created_at > ?
-        AND NOT EXISTS (
-          SELECT 1
-          FROM vine_mutes m
-          WHERE m.muter_id = n.user_id AND m.muted_id = n.actor_id
-        )
-      `,
-      [viewerId, since]
-    );
+    const count = await getVineUnseenNotificationCount({ db, viewerId });
 
     res.set("Cache-Control", "no-store");
-    res.json({ count: Number(row?.total || 0) });
+    res.json({ count });
+  });
+
+  router.post("/notifications/seen", authenticate, async (req, res) => {
+    await ensureVinePerformanceSchema();
+    const seenResult = await markVineNotificationsSeen({
+      db,
+      throughId: req.body?.through_id,
+      viewerId: req.user.id,
+    });
+    if (!seenResult.valid) {
+      return res.status(400).json({ message: "Invalid notification position" });
+    }
+
+    clearVineReadCache("notifications-unseen");
+    io?.to(`user-${seenResult.viewerId}`).emit("notifications_seen", {
+      through_id: seenResult.throughId,
+    });
+    return res.json({ success: true, through_id: seenResult.throughId });
   });
 
   router.post("/notifications/:id/read", authenticate, async (req, res) => {

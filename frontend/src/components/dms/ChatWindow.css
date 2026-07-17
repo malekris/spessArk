@@ -4,39 +4,7 @@
   display: flex;
   flex-direction: column;
   height: 100vh;
-  background:
-    radial-gradient(circle at 14% 18%, rgba(52, 211, 153, 0.13), transparent 30%),
-    radial-gradient(circle at 86% 14%, rgba(110, 231, 183, 0.1), transparent 24%),
-    radial-gradient(circle at 82% 76%, rgba(16, 185, 129, 0.09), transparent 30%),
-    linear-gradient(180deg, #f7fff9 0%, #effcf4 48%, #f8fdf9 100%);
-}
-
-.vine-chat-wrapper::before,
-.vine-chat-wrapper::after {
-  content: "";
-  position: absolute;
-  inset: auto;
-  pointer-events: none;
-  z-index: 0;
-  border-radius: 999px;
-  filter: blur(22px);
-  opacity: 0.7;
-}
-
-.vine-chat-wrapper::before {
-  top: 92px;
-  right: 7%;
-  width: 170px;
-  height: 170px;
-  background: radial-gradient(circle, rgba(110, 231, 183, 0.18) 0%, rgba(52, 211, 153, 0.08) 42%, transparent 72%);
-}
-
-.vine-chat-wrapper::after {
-  bottom: 118px;
-  left: 5%;
-  width: 140px;
-  height: 140px;
-  background: radial-gradient(circle, rgba(45, 212, 191, 0.14) 0%, rgba(16, 185, 129, 0.07) 44%, transparent 72%);
+  background: #f2f5f3;
 }
 
 .chat-header {
@@ -110,17 +78,6 @@
 
 .chat-window-compact .chat-footer {
   box-shadow: 0 -8px 18px rgba(16, 185, 129, 0.04);
-}
-
-.chat-header::after {
-  content: "";
-  position: absolute;
-  inset: auto 10% -24px auto;
-  width: 170px;
-  height: 48px;
-  pointer-events: none;
-  background: radial-gradient(circle, rgba(110, 231, 183, 0.18) 0%, transparent 72%);
-  filter: blur(18px);
 }
 
 .dm-chat-back {
@@ -363,6 +320,19 @@
   flex-shrink: 0;
 }
 
+.dm-chat-group-avatar {
+  display: grid;
+  place-items: center;
+  border-color: #f0a029;
+  background: #fff4d9;
+  color: #7a4800;
+  font-size: 0.76rem;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+.dm-chat-group-count { color: #875100; }
+
 .chat-name {
   display: inline-flex;
   align-items: center;
@@ -528,13 +498,10 @@
 .messages-container {
   flex: 1;
   overflow-y: auto;
-  padding: 14px 14px 8px;
+  padding: 18px 18px 10px;
   position: relative;
   z-index: 1;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.18)),
-    radial-gradient(circle at top right, rgba(110, 231, 183, 0.08), transparent 28%),
-    radial-gradient(circle at bottom left, rgba(52, 211, 153, 0.06), transparent 30%);
+  background: #f2f5f3;
 }
 
 .chat-footer {
@@ -566,21 +533,26 @@
 }
 
 .chat-day-divider {
-  display: flex;
-  justify-content: center;
-  margin: 14px 0 10px;
+  display: grid;
+  grid-template-columns: minmax(24px, 1fr) auto minmax(24px, 1fr);
+  align-items: center;
+  gap: 10px;
+  margin: 17px 0 12px;
+}
+
+.chat-day-divider::before,
+.chat-day-divider::after {
+  content: "";
+  height: 1px;
+  background: #d9e2de;
 }
 
 .chat-day-divider span {
   font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  color: #33695d;
-  background: rgba(244, 255, 248, 0.92);
-  border: 1px solid rgba(110, 231, 183, 0.42);
-  border-radius: 999px;
-  padding: 4px 10px;
-  box-shadow: 0 6px 14px rgba(16, 185, 129, 0.08);
+  font-weight: 750;
+  letter-spacing: 0;
+  color: #65766f;
+  padding: 2px 0;
 }
 
 .dm-profile-sheet-backdrop {
@@ -795,22 +767,7 @@
 
 @media (max-width: 768px) {
   .vine-chat-wrapper {
-    background:
-      radial-gradient(circle at 86% 12%, rgba(110, 231, 183, 0.1), transparent 20%),
-      radial-gradient(circle at 12% 84%, rgba(16, 185, 129, 0.07), transparent 24%),
-      linear-gradient(180deg, #f8fffa 0%, #f1fbf5 100%);
-  }
-
-  .vine-chat-wrapper::before {
-    width: 110px;
-    height: 110px;
-    top: 88px;
-    right: 2%;
-    opacity: 0.46;
-  }
-
-  .vine-chat-wrapper::after {
-    display: none;
+    background: #f2f5f3;
   }
 
   .chat-header {
@@ -829,10 +786,8 @@
   }
 
   .messages-container {
-    padding: 12px 10px 8px;
-    background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.14)),
-      radial-gradient(circle at top right, rgba(110, 231, 183, 0.05), transparent 24%);
+    padding: 14px 10px 8px;
+    background: #f2f5f3;
   }
 
   .chat-vanish-banner {
@@ -1033,6 +988,13 @@
 
 .theme-dark .chat-day-divider span {
   color: rgba(255, 255, 255, 0.78);
-  background: rgba(17, 24, 39, 0.9);
-  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.theme-dark .messages-container {
+  background: #0b0f0e;
+}
+
+.theme-dark .chat-day-divider::before,
+.theme-dark .chat-day-divider::after {
+  background: rgba(255, 255, 255, 0.12);
 }

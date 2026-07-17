@@ -30,7 +30,7 @@ import newSignupRoutes from "./routes/newSignup.js";
 import alevelReports from "./modules/alevel/alevelReports.js";
 import vineRoutes from "./modules/vine/vineRoutes.js";
 import vineAuth from "./modules/vine/vineAuth.js";
-import dmRoutes, { recordDmCallMessage } from "./modules/vine/dms.js";
+import dmRoutes, { ensureDmSchema, recordDmCallMessage } from "./modules/vine/dms.js";
 import path from "path";
 import { fileURLToPath } from "url";
 import { extractClientIp, logAuditEvent } from "./utils/auditLogger.js";
@@ -3818,15 +3818,22 @@ const isDmConversationParticipant = async (conversationId, userId) => {
   const uid = Number(userId);
   if (!cid || !uid) return false;
   try {
+    await ensureDmSchema();
     const [[row]] = await db.query(
       `
       SELECT 1
-      FROM vine_conversations
-      WHERE id = ?
-        AND (user1_id = ? OR user2_id = ?)
+      FROM vine_conversations c
+      LEFT JOIN vine_conversation_members gm
+        ON gm.conversation_id = c.id AND gm.user_id = ? AND gm.status = 'active'
+      WHERE c.id = ?
+        AND (
+          (COALESCE(c.conversation_type, 'direct') = 'direct'
+            AND (c.user1_id = ? OR c.user2_id = ?))
+          OR (c.conversation_type = 'group' AND gm.user_id IS NOT NULL)
+        )
       LIMIT 1
       `,
-      [cid, uid, uid]
+      [uid, cid, uid, uid]
     );
     return Boolean(row);
   } catch {
@@ -3838,11 +3845,13 @@ const getDmConversationParticipants = async (conversationId) => {
   const cid = Number(conversationId);
   if (!cid) return null;
   try {
+    await ensureDmSchema();
     const [[row]] = await db.query(
       `
       SELECT user1_id, user2_id
       FROM vine_conversations
       WHERE id = ?
+        AND COALESCE(conversation_type, 'direct') = 'direct'
       LIMIT 1
       `,
       [cid]
@@ -3959,7 +3968,9 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("join_conversation", (conversationId) => {
+  socket.on("join_conversation", async (conversationId) => {
+    const userId = socketToUserId.get(socket.id);
+    if (!(await isDmConversationParticipant(conversationId, userId))) return;
     socket.join(`conversation-${conversationId}`);
     console.log("💬 Joined conversation:", conversationId);
   });
@@ -3968,20 +3979,18 @@ io.on("connection", (socket) => {
     socket.leave(`conversation-${conversationId}`);
   });
 
-  socket.on("send_dm", ({ conversationId, message }) => {
-    io.to(`conversation-${conversationId}`).emit("dm_received", message);
-  });
-
-  socket.on("dm_typing_start", ({ conversationId, userId }) => {
-    if (!conversationId || !userId) return;
+  socket.on("dm_typing_start", ({ conversationId }) => {
+    const userId = socketToUserId.get(socket.id);
+    if (!conversationId || !userId || !socket.rooms.has(`conversation-${conversationId}`)) return;
     socket.to(`conversation-${conversationId}`).emit("dm_typing_start", {
       conversationId,
       userId,
     });
   });
 
-  socket.on("dm_typing_stop", ({ conversationId, userId }) => {
-    if (!conversationId || !userId) return;
+  socket.on("dm_typing_stop", ({ conversationId }) => {
+    const userId = socketToUserId.get(socket.id);
+    if (!conversationId || !userId || !socket.rooms.has(`conversation-${conversationId}`)) return;
     socket.to(`conversation-${conversationId}`).emit("dm_typing_stop", {
       conversationId,
       userId,
@@ -4210,6 +4219,11 @@ io.on("connection", (socket) => {
 
 server.listen(PORT, () => {
   console.log(`✅ Spess Ark backend + WS running on http://localhost:${PORT}`);
+  ensureDmSchema()
+    .then(() => console.log("✅ Vine group DM storage ready"))
+    .catch((err) => {
+      console.error("Vine group DM storage setup failed:", err);
+    });
   ensureTeacherAccountLifecycleColumns(pool).catch((err) => {
     console.error("Teacher account lifecycle setup failed:", err);
   });

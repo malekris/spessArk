@@ -149,7 +149,22 @@
 }
 
 .notif-row.unread {
-  background: #edf9f3;
+  background: #d8f7e7;
+  box-shadow: inset 5px 0 0 #07865f;
+}
+
+.notif-row.unread:hover {
+  background: #c9f1dc;
+}
+
+.notif-row.unread .notif-text {
+  color: #102a22;
+  font-weight: 650;
+}
+
+.notif-row.unread .notif-time {
+  color: #047857;
+  font-weight: 750;
 }
 
 .notif-unread-dot {
@@ -157,7 +172,8 @@
   height: 10px;
   flex: 0 0 10px;
   border-radius: 50%;
-  background: #0f9f6e;
+  background: #047857;
+  box-shadow: 0 0 0 3px rgba(4, 120, 87, 0.16);
 }
 
 /* ───── Avatar Polish (The "Pop" Border) ───── */

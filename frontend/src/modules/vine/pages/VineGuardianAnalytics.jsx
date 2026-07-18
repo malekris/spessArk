@@ -13,6 +13,7 @@ import "./VineGuardianAnalytics.css";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const ANALYTICS_REFRESH_MS = 3 * 60 * 1000;
+const EMPTY_ANALYTICS_ROWS = [];
 const NEWS_WEEKDAY_OPTIONS = [
   { value: 0, label: "Sun" },
   { value: 1, label: "Mon" },
@@ -124,18 +125,8 @@ const getInitials = (value) => {
 };
 
 const createLifecycleAnalyticsState = () => ({
-  summary: null,
-  retention: null,
   logins: null,
-  sessions: null,
-  dropoff: null,
-  loading: {
-    summary: true,
-    retention: true,
-    logins: true,
-    sessions: true,
-    dropoff: true,
-  },
+  loading: { logins: true },
   errors: {},
 });
 
@@ -145,10 +136,8 @@ export default function VineGuardianAnalytics() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [data, setData] = useState(null);
-  const [perfLastFetchedAt, setPerfLastFetchedAt] = useState(null);
   const [activityLastFetchedAt, setActivityLastFetchedAt] = useState(null);
   const [activityFilter, setActivityFilter] = useState("all");
-  const [warningUserIds, setWarningUserIds] = useState({});
   const [newsForm, setNewsForm] = useState({
     allowed_weekdays: [],
     daily_hour: 12,
@@ -217,7 +206,6 @@ export default function VineGuardianAnalytics() {
         const q = new URLSearchParams({ from, to }).toString();
         const [
           overviewResult,
-          perfResult,
           activityResult,
           newsHealthResult,
           newsSettingsResult,
@@ -227,9 +215,6 @@ export default function VineGuardianAnalytics() {
         ] =
           await Promise.allSettled([
           fetch(`${API}/api/vine/analytics/overview?${q}`, {
-            headers: { Authorization: `Bearer ${token}` },
-          }),
-          fetch(`${API}/api/vine/analytics/performance`, {
             headers: { Authorization: `Bearer ${token}` },
           }),
           fetch(`${API}/api/vine/analytics/activity`, {
@@ -264,16 +249,6 @@ export default function VineGuardianAnalytics() {
         if (!overviewRes.ok) {
           setError(overviewBody?.message || "Failed to load analytics");
           return;
-        }
-
-        let perfBody = null;
-        if (perfResult.status === "fulfilled") {
-          const perfRes = perfResult.value;
-          const parsed = await perfRes.json().catch(() => null);
-          if (perfRes.ok) {
-            perfBody = parsed;
-            setPerfLastFetchedAt(new Date().toISOString());
-          }
         }
 
         let activityBody = null;
@@ -333,7 +308,6 @@ export default function VineGuardianAnalytics() {
 
         setData({
           ...overviewBody,
-          performance: perfBody,
           activity: activityBody,
           newsHealth: newsHealthBody,
           newsSettings: newsSettingsBody,
@@ -341,7 +315,7 @@ export default function VineGuardianAnalytics() {
           authThemeSettings: authThemeSettingsBody,
           siteVisualSettings: siteVisualSettingsBody,
         });
-      } catch (err) {
+      } catch {
         setError("Failed to load analytics");
       } finally {
         setLoading(false);
@@ -361,10 +335,7 @@ export default function VineGuardianAnalytics() {
     const refreshAnalyticsPanels = async () => {
       if (document.visibilityState !== "visible") return;
       try {
-        const [perfRes, activityRes, newsHealthRes] = await Promise.allSettled([
-          fetch(`${API}/api/vine/analytics/performance`, {
-            headers: { Authorization: `Bearer ${token}` },
-          }),
+        const [activityRes, newsHealthRes] = await Promise.allSettled([
           fetch(`${API}/api/vine/analytics/activity`, {
             headers: { Authorization: `Bearer ${token}` },
           }),
@@ -374,14 +345,6 @@ export default function VineGuardianAnalytics() {
         ]);
 
         const nextData = {};
-
-        if (perfRes.status === "fulfilled") {
-          const parsed = await perfRes.value.json().catch(() => null);
-          if (perfRes.value.ok && parsed) {
-            nextData.performance = parsed;
-            setPerfLastFetchedAt(new Date().toISOString());
-          }
-        }
 
         if (activityRes.status === "fulfilled") {
           const parsed = await activityRes.value.json().catch(() => null);
@@ -446,69 +409,30 @@ export default function VineGuardianAnalytics() {
     let cancelled = false;
     const query = new URLSearchParams({ from, to }).toString();
 
-    const loadLifecycleAnalytics = async () => {
+    const loadLoginAnalytics = async () => {
       setLifecycleAnalytics(createLifecycleAnalyticsState());
-      const endpoints = {
-        summary: `${API}/api/vine/analytics/adoption-summary`,
-        retention: `${API}/api/vine/analytics/retention`,
-        logins: `${API}/api/vine/analytics/login-frequency?${query}`,
-        sessions: `${API}/api/vine/analytics/session-stats?${query}`,
-        dropoff: `${API}/api/vine/analytics/dropoff?${query}`,
-      };
-
-      const entries = Object.entries(endpoints);
-      const settled = await Promise.allSettled(
-        entries.map(([, url]) =>
-          fetch(url, {
-            headers: { Authorization: `Bearer ${token}` },
-          })
-        )
-      );
+      const response = await fetch(`${API}/api/vine/analytics/login-frequency?${query}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const body = await response.json().catch(() => null);
 
       if (cancelled) return;
-
       const nextState = createLifecycleAnalyticsState();
-      for (let index = 0; index < entries.length; index += 1) {
-        const [key] = entries[index];
-        const result = settled[index];
-        nextState.loading[key] = false;
-
-        if (result.status !== "fulfilled") {
-          nextState.errors[key] = "Request failed";
-          continue;
-        }
-
-        const response = result.value;
-        const body = await response.json().catch(() => null);
-        if (!response.ok) {
-          nextState.errors[key] = body?.message || "Unavailable";
-          continue;
-        }
-
-        nextState[key] = body;
+      nextState.loading.logins = false;
+      if (!response.ok) {
+        nextState.errors.logins = body?.message || "Unavailable";
+      } else {
+        nextState.logins = body;
       }
-
       setLifecycleAnalytics(nextState);
     };
 
-    loadLifecycleAnalytics().catch(() => {
+    loadLoginAnalytics().catch(() => {
       if (cancelled) return;
       setLifecycleAnalytics((prev) => ({
         ...prev,
-        loading: {
-          summary: false,
-          retention: false,
-          logins: false,
-          sessions: false,
-          dropoff: false,
-        },
-        errors: {
-          summary: "Failed to load lifecycle analytics",
-          retention: "Failed to load lifecycle analytics",
-          logins: "Failed to load lifecycle analytics",
-          sessions: "Failed to load lifecycle analytics",
-          dropoff: "Failed to load lifecycle analytics",
-        },
+        loading: { logins: false },
+        errors: { logins: "Failed to load login analytics" },
       }));
     });
 
@@ -825,13 +749,6 @@ export default function VineGuardianAnalytics() {
     }
   };
 
-  const formatMs = (value) => {
-    const numeric = Number(value || 0);
-    if (!Number.isFinite(numeric)) return "0 ms";
-    if (numeric >= 1000) return `${(numeric / 1000).toFixed(2)} s`;
-    return `${numeric.toFixed(1)} ms`;
-  };
-
   const formatAgo = (value) => {
     if (!value) return "—";
     const ts = new Date(value).getTime();
@@ -847,29 +764,6 @@ export default function VineGuardianAnalytics() {
   };
 
   const formatCount = (value) => Number(value || 0).toLocaleString("en-UG");
-
-  const formatPercent = (value) => `${Number(value || 0).toFixed(1)}%`;
-
-  const formatDurationCompact = (value) => {
-    const totalSeconds = Math.max(0, Math.round(Number(value || 0)));
-    if (!totalSeconds) return "0s";
-    const hours = Math.floor(totalSeconds / 3600);
-    const minutes = Math.floor((totalSeconds % 3600) / 60);
-    const seconds = totalSeconds % 60;
-    if (hours > 0) return `${hours}h ${minutes}m`;
-    if (minutes > 0) return `${minutes}m ${seconds}s`;
-    return `${seconds}s`;
-  };
-
-  const formatDateLabel = (value) => {
-    if (!value) return "—";
-    const date = new Date(`${value}T12:00:00Z`);
-    if (Number.isNaN(date.getTime())) return "—";
-    return date.toLocaleDateString("en-UG", {
-      month: "short",
-      day: "numeric",
-    });
-  };
 
   const formatTimeOfDay = (hour, minute) =>
     `${String(Number(hour || 0)).padStart(2, "0")}:${String(Number(minute || 0)).padStart(2, "0")}`;
@@ -1596,50 +1490,7 @@ export default function VineGuardianAnalytics() {
     }
   };
 
-  const warnBurstUser = async (row) => {
-    const userId = Number(row?.user_id || 0);
-    if (!userId) return;
-    try {
-      setWarningUserIds((prev) => ({ ...prev, [userId]: true }));
-      const reason = `Guardian automated watch noticed unusual activity: ${
-        Array.isArray(row?.reasons) && row.reasons.length
-          ? row.reasons.join(", ")
-          : `${row?.total_actions || 0} actions in 15 minutes`
-      }`;
-      const res = await fetch(`${API}/api/vine/moderation/warn`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          user_id: userId,
-          reason,
-        }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        alert(body?.message || "Failed to warn user");
-        return;
-      }
-      alert("Warning sent");
-    } catch {
-      alert("Failed to warn user");
-    } finally {
-      setWarningUserIds((prev) => {
-        const next = { ...prev };
-        delete next[userId];
-        return next;
-      });
-    }
-  };
-
-  const openUserModerationView = (row) => {
-    navigate(`/vine/guardian/moderation?type=users&userId=${row.user_id}&from=${from}&to=${to}`);
-  };
-
   const k = data?.kpis || {};
-  const usage = data?.usageByDay || [];
   const leaderboard = data?.topPostsLeaderboard || { today: [], week: [] };
   const funnel = data?.growthFunnel || {};
   const contentHealth = data?.contentHealth || {};
@@ -1649,22 +1500,12 @@ export default function VineGuardianAnalytics() {
   const creators = data?.creatorInsights || { topCreatorsWeek: [], risingCreators: [] };
   const mostActiveUsers = data?.mostActiveUsers || [];
   const vinePrison = data?.vinePrison || [];
-  const perf = data?.performance || null;
   const activity = data?.activity || null;
-  const lifecycleSummary = lifecycleAnalytics.summary;
-  const lifecycleRetention = lifecycleAnalytics.retention || lifecycleSummary?.retention_snapshot || null;
   const lifecycleLogins = lifecycleAnalytics.logins;
-  const lifecycleSessions = lifecycleAnalytics.sessions;
-  const lifecycleDropoff = lifecycleAnalytics.dropoff;
   const newsHealth = data?.newsHealth || null;
   const newsRuntime = newsHealth?.runtime || {};
   const noticeSettings = data?.noticeSettings || null;
   const authThemeSettings = data?.authThemeSettings || null;
-  const postSourceDebug = data?.postSourceDebug || null;
-  const postSourceCoveragePct =
-    Number(postSourceDebug?.recent_posts || 0) > 0
-      ? (Number(postSourceDebug?.labeled_recent || 0) / Number(postSourceDebug?.recent_posts || 1)) * 100
-      : 0;
   const siteVisualNoticeLabel = SITE_VISUAL_NOTICE_LABELS[siteVisualNotice?.target] || "Visuals";
   const authThemePreviewUrl =
     authThemeCoverPreview ||
@@ -1694,24 +1535,8 @@ export default function VineGuardianAnalytics() {
       siteVisualForm.contact_hero_url || DEFAULT_SITE_VISUAL_FORM.contact_hero_url,
       siteVisualSettings?.updated_at
     );
-  const recentLogins = activity?.recent_logins || [];
-  const recentActions = activity?.recent_actions || [];
-  const perfRuntime = perf?.runtime || {};
-  const perfRoutes = perf?.top_routes || [];
-  const perfQueries = perf?.top_queries || [];
-  const perfRecentRoutes = perf?.recent_routes || [];
-  const perfRecentQueries = perf?.recent_queries || [];
-  const dauTrend = lifecycleSummary?.dau_trend_7d || [];
-  const maxDauTrend = Math.max(1, ...dauTrend.map((point) => Number(point.active_users || 0)));
-  const retentionSnapshotText = lifecycleRetention
-    ? `D1 ${formatPercent(lifecycleRetention?.day1?.retention_pct)} • D7 ${formatPercent(
-        lifecycleRetention?.day7?.retention_pct
-      )}`
-    : "Loading...";
-  const maxVolume = Math.max(
-    1,
-    ...usage.map((d) => d.posts + d.comments + d.likes + d.revines + d.follows + d.dms)
-  );
+  const recentLogins = activity?.recent_logins || EMPTY_ANALYTICS_ROWS;
+  const recentActions = activity?.recent_actions || EMPTY_ANALYTICS_ROWS;
   const filteredRecentActions = useMemo(() => {
     if (activityFilter === "all" || activityFilter === "logins") return recentActions;
     if (activityFilter === "posts") {
@@ -1781,20 +1606,42 @@ export default function VineGuardianAnalytics() {
       )}
 
       <div className="guardian-topbar">
-        <button className="guardian-back-btn" onClick={() => navigate("/vine/feed")}>
-          Back
+        <button
+          type="button"
+          className="guardian-back-btn"
+          aria-label="Back to Vine feed"
+          onClick={() => navigate("/vine/feed")}
+        >
+          <span className="guardian-back-icon" aria-hidden="true">←</span>
+          <span className="guardian-back-label">Vine feed</span>
         </button>
         <div className="guardian-title-wrap">
+          <span className="guardian-title-kicker">Guardian workspace</span>
           <h2>Vine Guardian Analytics</h2>
-          <p>Moderator-only usage metrics</p>
+          <p>Network health, controls and moderation</p>
         </div>
-        <div className="guardian-range">
-          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+        <div className="guardian-range" aria-label="Analytics date range">
+          <label>
+            <span>From</span>
+            <input aria-label="Analytics start date" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+          </label>
+          <span className="guardian-range-divider" aria-hidden="true">→</span>
+          <label>
+            <span>To</span>
+            <input aria-label="Analytics end date" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+          </label>
         </div>
       </div>
 
-      <section className="guardian-kpi-board">
+      <nav className="guardian-jump-nav" aria-label="Guardian analytics sections">
+        <a href="#guardian-overview">Overview</a>
+        <a href="#guardian-controls">Controls</a>
+        <a href="#guardian-activity">Activity</a>
+        <a href="#guardian-insights">Insights</a>
+        <a href="#guardian-moderation">Moderation</a>
+      </nav>
+
+      <section id="guardian-overview" className="guardian-kpi-board">
         <div className="guardian-kpi-board-head">
           <div className="guardian-kpi-heading">
             <span className="guardian-kpi-eyebrow">Vine Pulse</span>
@@ -1807,136 +1654,39 @@ export default function VineGuardianAnalytics() {
           </div>
         </div>
 
-        {postSourceDebug ? (
-          <div className="guardian-debug-strip" title="Pre-prod check for recent post source backfill coverage">
-            <span className="guardian-debug-strip-kicker">Guardian debug</span>
-            <strong>{formatCount(postSourceDebug.backfilled_recent)}</strong>
-            <span>recent posts got a source label from backfill</span>
-            <small>
-              {formatCount(postSourceDebug.labeled_recent)} of {formatCount(postSourceDebug.recent_posts)} labeled in
-              the last {formatCount(postSourceDebug.window_days)} days • {formatPercent(postSourceCoveragePct)} coverage
-              {postSourceDebug.last_backfilled_at ? ` • last pass ${formatAgo(postSourceDebug.last_backfilled_at)}` : ""}
-              {Number(postSourceDebug.untracked_labeled_recent || 0) > 0
-                ? ` • ${formatCount(postSourceDebug.untracked_labeled_recent)} earlier labels not tracked yet`
-                : ""}
-            </small>
-          </div>
-        ) : null}
-
-        <div className="guardian-kpi-grid guardian-kpi-grid-advanced">
-          <div className="guardian-kpi-card guardian-kpi-card-accent">
-            <span className="guardian-kpi-icon" aria-hidden="true">📈</span>
-            <span>DAU</span>
-            <strong>
-              {lifecycleAnalytics.errors.summary
-                ? "Unavailable"
-                : lifecycleAnalytics.loading.summary && !lifecycleSummary
-                ? "Loading..."
-                : formatCount(lifecycleSummary?.dau)}
-            </strong>
-            <small>Unique users active today</small>
-          </div>
-          <div className="guardian-kpi-card guardian-kpi-card-accent">
-            <span className="guardian-kpi-icon" aria-hidden="true">🗓️</span>
-            <span>MAU</span>
-            <strong>
-              {lifecycleAnalytics.errors.summary
-                ? "Unavailable"
-                : lifecycleAnalytics.loading.summary && !lifecycleSummary
-                ? "Loading..."
-                : formatCount(lifecycleSummary?.mau)}
-            </strong>
-            <small>Unique users active in the last 30 days</small>
-          </div>
-          <div className="guardian-kpi-card guardian-kpi-card-accent">
-            <span className="guardian-kpi-icon" aria-hidden="true">🧲</span>
-            <span>Stickiness</span>
-            <strong>
-              {lifecycleAnalytics.errors.summary
-                ? "Unavailable"
-                : lifecycleAnalytics.loading.summary && !lifecycleSummary
-                ? "Loading..."
-                : formatPercent(lifecycleSummary?.stickiness_pct)}
-            </strong>
-            <small>DAU divided by MAU</small>
-          </div>
-          <div className="guardian-kpi-card guardian-kpi-card-accent">
-            <span className="guardian-kpi-icon" aria-hidden="true">⌛</span>
-            <span>Avg Session Time Today</span>
-            <strong>
-              {lifecycleAnalytics.errors.summary
-                ? "Unavailable"
-                : lifecycleAnalytics.loading.summary && !lifecycleSummary
-                ? "Loading..."
-                : formatDurationCompact(lifecycleSummary?.avg_session_seconds_today)}
-            </strong>
-            <small>Based on session start and last activity</small>
-          </div>
-          <div className="guardian-kpi-card guardian-kpi-card-accent">
-            <span className="guardian-kpi-icon" aria-hidden="true">🔁</span>
-            <span>Returning Users</span>
-            <strong>
-              {lifecycleAnalytics.errors.summary
-                ? "Unavailable"
-                : lifecycleAnalytics.loading.summary && !lifecycleSummary
-                ? "Loading..."
-                : formatCount(lifecycleSummary?.returning_users_today)}
-            </strong>
-            <small>Active today after a previous visit</small>
-          </div>
-          <div className="guardian-kpi-card guardian-kpi-card-wide guardian-kpi-card-accent">
-            <span className="guardian-kpi-icon" aria-hidden="true">🪴</span>
-            <span>Retention Snapshot</span>
-            <strong>
-              {lifecycleAnalytics.errors.retention
-                ? "Unavailable"
-                : lifecycleAnalytics.loading.retention && !lifecycleRetention
-                ? "Loading..."
-                : retentionSnapshotText}
-            </strong>
-            <small>
-              {lifecycleRetention
-                ? `${formatDateLabel(lifecycleRetention?.day1?.cohort_day)} cohort for D1, ${formatDateLabel(
-                    lifecycleRetention?.day7?.cohort_day
-                  )} cohort for D7`
-                : "Recent retention windows"}
-            </small>
-          </div>
-        </div>
-
         <div className="guardian-kpi-grid">
           <div className="guardian-kpi-card">
-            <span className="guardian-kpi-icon" aria-hidden="true">👥</span>
+            <span className="guardian-kpi-icon" aria-hidden="true">U</span>
             <span>Total Users</span>
             <strong>{k.totalUsers ?? 0}</strong>
           </div>
           <div className="guardian-kpi-card">
-            <span className="guardian-kpi-icon" aria-hidden="true">🟢</span>
+            <span className="guardian-kpi-icon" aria-hidden="true">●</span>
             <span>Active Users Today</span>
             <strong>{k.activeUsersToday ?? 0}</strong>
           </div>
           <div className="guardian-kpi-card">
-            <span className="guardian-kpi-icon" aria-hidden="true">🔐</span>
+            <span className="guardian-kpi-icon" aria-hidden="true">↗</span>
             <span>Logins Today</span>
             <strong>{k.loginsToday ?? 0}</strong>
           </div>
           <div className="guardian-kpi-card">
-            <span className="guardian-kpi-icon" aria-hidden="true">⏱️</span>
+            <span className="guardian-kpi-icon" aria-hidden="true">H</span>
             <span>Estimated Active Hours Today</span>
             <strong>{k.estimatedActiveHoursToday ?? 0}</strong>
           </div>
           <div className="guardian-kpi-card">
-            <span className="guardian-kpi-icon" aria-hidden="true">🌱</span>
+            <span className="guardian-kpi-icon" aria-hidden="true">+</span>
             <span>Joined This Week</span>
             <strong>{k.joinedThisWeek ?? k.newUsersWeek ?? 0}</strong>
           </div>
           <div className="guardian-kpi-card">
-            <span className="guardian-kpi-icon" aria-hidden="true">📝</span>
+            <span className="guardian-kpi-icon" aria-hidden="true">P</span>
             <span>Posts This Week</span>
             <strong>{k.postsWeek ?? 0}</strong>
           </div>
           <div className="guardian-kpi-card">
-            <span className="guardian-kpi-icon" aria-hidden="true">⚡</span>
+            <span className="guardian-kpi-icon" aria-hidden="true">I</span>
             <span>Total Interactions This Week</span>
             <strong>{k.totalInteractionsWeek ?? 0}</strong>
           </div>
@@ -1949,114 +1699,7 @@ export default function VineGuardianAnalytics() {
         </div>
       </section>
 
-      <div className="guardian-section">
-        <h3>DAU vs MAU</h3>
-        <div className="guardian-actions">
-          <button
-            className="guardian-csv-btn"
-            onClick={() =>
-              exportCsv("dau_mau_summary.csv", [
-                {
-                  dau: lifecycleSummary?.dau ?? 0,
-                  mau: lifecycleSummary?.mau ?? 0,
-                  stickiness_pct: lifecycleSummary?.stickiness_pct ?? 0,
-                  returning_users_today: lifecycleSummary?.returning_users_today ?? 0,
-                },
-              ])
-            }
-          >
-            Export CSV
-          </button>
-        </div>
-        {lifecycleAnalytics.loading.summary && !lifecycleSummary ? (
-          <div className="guardian-empty">Loading DAU and MAU...</div>
-        ) : lifecycleAnalytics.errors.summary ? (
-          <div className="guardian-empty">{lifecycleAnalytics.errors.summary}</div>
-        ) : (
-          <>
-            <div className="guardian-compare-grid guardian-compare-grid-lifecycle">
-              <div className="guardian-compare-card guardian-compare-card-premium">
-                <span className="guardian-stat-label">Today&apos;s DAU</span>
-                <strong>{formatCount(lifecycleSummary?.dau)}</strong>
-                <small>Unique active users today</small>
-              </div>
-              <div className="guardian-compare-card guardian-compare-card-premium">
-                <span className="guardian-stat-label">30-Day MAU</span>
-                <strong>{formatCount(lifecycleSummary?.mau)}</strong>
-                <small>Unique active users in the last 30 days</small>
-              </div>
-              <div className="guardian-compare-card guardian-compare-card-premium">
-                <span className="guardian-stat-label">Stickiness</span>
-                <strong>{formatPercent(lifecycleSummary?.stickiness_pct)}</strong>
-                <small>DAU / MAU</small>
-              </div>
-            </div>
-            <div className="guardian-mini-trend">
-              {(dauTrend || []).length === 0 ? (
-                <div className="guardian-empty">No 7-day trend yet.</div>
-              ) : (
-                (dauTrend || []).map((point) => (
-                  <div key={`dau-trend-${point.day}`} className="guardian-mini-trend-col">
-                    <div className="guardian-mini-trend-track">
-                      <div
-                        className="guardian-mini-trend-bar"
-                        style={{
-                          height: `${Math.max(
-                            12,
-                            Math.round((Number(point.active_users || 0) / maxDauTrend) * 96)
-                          )}px`,
-                        }}
-                      />
-                    </div>
-                    <strong>{formatCount(point.active_users)}</strong>
-                    <span>{String(point.day || "").slice(5)}</span>
-                  </div>
-                ))
-              )}
-            </div>
-          </>
-        )}
-      </div>
-
-      <div className="guardian-section">
-        <h3>Retention Snapshot</h3>
-        {lifecycleAnalytics.loading.retention && !lifecycleRetention ? (
-          <div className="guardian-empty">Loading retention...</div>
-        ) : lifecycleAnalytics.errors.retention ? (
-          <div className="guardian-empty">{lifecycleAnalytics.errors.retention}</div>
-        ) : (
-          <>
-            <div className="guardian-compare-grid guardian-compare-grid-lifecycle">
-              <div className="guardian-compare-card guardian-compare-card-premium">
-                <span className="guardian-stat-label">Day 1 Retention</span>
-                <strong>{formatPercent(lifecycleRetention?.day1?.retention_pct)}</strong>
-                <small>
-                  {formatCount(lifecycleRetention?.day1?.retained_users)} of{" "}
-                  {formatCount(lifecycleRetention?.day1?.cohort_users)} from the {formatDateLabel(
-                    lifecycleRetention?.day1?.cohort_day
-                  )} cohort returned the next day.
-                </small>
-              </div>
-              <div className="guardian-compare-card guardian-compare-card-premium">
-                <span className="guardian-stat-label">Day 7 Retention</span>
-                <strong>{formatPercent(lifecycleRetention?.day7?.retention_pct)}</strong>
-                <small>
-                  {formatCount(lifecycleRetention?.day7?.retained_users)} of{" "}
-                  {formatCount(lifecycleRetention?.day7?.cohort_users)} from the {formatDateLabel(
-                    lifecycleRetention?.day7?.cohort_day
-                  )} cohort came back within seven days.
-                </small>
-              </div>
-            </div>
-            <p className="guardian-panel-note">
-              Day 1 retention checks whether a cohort returned the next day. Day 7 retention checks whether that cohort
-              returned at least once within the next seven days.
-            </p>
-          </>
-        )}
-      </div>
-
-      <div className="guardian-section">
+      <div id="guardian-logins" className="guardian-section guardian-section--analytics">
         <h3>Logins Per User</h3>
         <div className="guardian-actions">
           <button
@@ -2116,114 +1759,7 @@ export default function VineGuardianAnalytics() {
         )}
       </div>
 
-      <div className="guardian-section">
-        <h3>Session Time</h3>
-        <div className="guardian-actions">
-          <button
-            className="guardian-csv-btn"
-            onClick={() => exportCsv("session_stats.csv", lifecycleSessions?.top_users || [])}
-          >
-            Export CSV
-          </button>
-        </div>
-        {lifecycleAnalytics.loading.sessions && !lifecycleSessions ? (
-          <div className="guardian-empty">Loading session time...</div>
-        ) : lifecycleAnalytics.errors.sessions ? (
-          <div className="guardian-empty">{lifecycleAnalytics.errors.sessions}</div>
-        ) : (
-          <>
-            <div className="guardian-compare-grid guardian-compare-grid-lifecycle">
-              <div className="guardian-compare-card guardian-compare-card-premium">
-                <span className="guardian-stat-label">Avg Session Time Today</span>
-                <strong>{formatDurationCompact(lifecycleSessions?.avg_session_seconds_today)}</strong>
-                <small>Approximation from session start to last activity</small>
-              </div>
-              <div className="guardian-compare-card guardian-compare-card-premium">
-                <span className="guardian-stat-label">Longest Average User Session</span>
-                <strong>
-                  {lifecycleSessions?.longest_average_user_session
-                    ? formatDurationCompact(lifecycleSessions.longest_average_user_session.avg_session_seconds)
-                    : "0s"}
-                </strong>
-                <small>
-                  {lifecycleSessions?.longest_average_user_session
-                    ? lifecycleSessions.longest_average_user_session.display_name ||
-                      lifecycleSessions.longest_average_user_session.username
-                    : "No session leader yet"}
-                </small>
-              </div>
-              <div className="guardian-compare-card guardian-compare-card-premium">
-                <span className="guardian-stat-label">Total Sessions Today</span>
-                <strong>{formatCount(lifecycleSessions?.total_sessions_today)}</strong>
-                <small>
-                  Range average: {formatDurationCompact(lifecycleSessions?.avg_session_seconds_range)} across{" "}
-                  {formatCount(lifecycleSessions?.total_sessions_range)} sessions
-                </small>
-              </div>
-            </div>
-            <div className="guardian-table">
-              {(lifecycleSessions?.top_users || []).length === 0 ? (
-                <div className="guardian-empty">No sessions recorded in this range.</div>
-              ) : (
-                (lifecycleSessions?.top_users || []).map((user, index) => (
-                  <button
-                    key={`session-top-${user.user_id}`}
-                    className="guardian-row"
-                    onClick={() => navigate(`/vine/profile/${user.username}`)}
-                  >
-                    <span className="guardian-rank">#{index + 1}</span>
-                    <span className="guardian-row-main">{user.display_name || user.username}</span>
-                    <span className="guardian-row-meta">
-                      Avg {formatDurationCompact(user.avg_session_seconds)} • Total{" "}
-                      {formatDurationCompact(user.total_session_seconds)} • Sessions {formatCount(user.session_count)}
-                    </span>
-                  </button>
-                ))
-              )}
-            </div>
-          </>
-        )}
-      </div>
-
-      <div className="guardian-section">
-        <h3>Drop-Off Funnel</h3>
-        {lifecycleAnalytics.loading.dropoff && !lifecycleDropoff ? (
-          <div className="guardian-empty">Loading funnel analytics...</div>
-        ) : lifecycleAnalytics.errors.dropoff ? (
-          <div className="guardian-empty">{lifecycleAnalytics.errors.dropoff}</div>
-        ) : (
-          <>
-            <div className="guardian-dropoff-grid">
-              {(lifecycleDropoff?.steps || []).map((step, index) => (
-                <div key={step.key} className="guardian-dropoff-card">
-                  <span className="guardian-stat-label">{step.label}</span>
-                  <strong>{formatCount(step.users)}</strong>
-                  {index > 0 ? (
-                    <small>
-                      Conversion {formatPercent(step.conversion_pct_from_previous)} • Drop-off{" "}
-                      {formatPercent(step.dropoff_pct_from_previous)}
-                    </small>
-                  ) : (
-                    <small>Distinct users with a login event in the selected range</small>
-                  )}
-                </div>
-              ))}
-            </div>
-            <p className="guardian-panel-note">
-              Overall conversion from login to engagement:{" "}
-              <strong>{formatPercent(lifecycleDropoff?.overall_conversion_pct)}</strong>
-            </p>
-            {Number(lifecycleDropoff?.feed_tracking_events || 0) === 0 && (
-              <div className="guardian-empty">
-                Feed reach tracking has not recorded any events in this range yet, so the middle funnel step may stay
-                empty until the new tracking starts collecting.
-              </div>
-            )}
-          </>
-        )}
-      </div>
-
-      <div className="guardian-section">
+      <div id="guardian-controls" className="guardian-section guardian-section--control">
         <h3>Vine News Scheduler</h3>
         <div className="guardian-news-grid">
           <div className="guardian-news-card">
@@ -2325,7 +1861,7 @@ export default function VineGuardianAnalytics() {
         </div>
       </div>
 
-      <div className="guardian-section">
+      <div className="guardian-section guardian-section--notice">
         <h3>Login Notice</h3>
         <div className="guardian-news-grid">
           <div className="guardian-news-card guardian-notice-card">
@@ -2398,7 +1934,7 @@ export default function VineGuardianAnalytics() {
         </div>
       </div>
 
-      <div className="guardian-section">
+      <div className="guardian-section guardian-section--theme">
         <h3>Auth Theme</h3>
         <div className="guardian-news-grid">
           <div className="guardian-news-card guardian-auth-theme-card">
@@ -2536,7 +2072,7 @@ export default function VineGuardianAnalytics() {
         </div>
       </div>
 
-      <div className="guardian-section">
+      <div className="guardian-section guardian-section--visuals">
         <h3>Website, Activities, Ark & Boarding Visuals</h3>
         <div className="guardian-news-card guardian-community-control-card">
           <span className="guardian-news-label">Communities Control</span>
@@ -2937,7 +2473,7 @@ export default function VineGuardianAnalytics() {
         </div>
       </div>
 
-      <div className="guardian-section">
+      <div id="guardian-activity" className="guardian-section guardian-section--activity">
         <h3>Network Activity Log</h3>
         <div className="guardian-actions">
           <button
@@ -2980,7 +2516,7 @@ export default function VineGuardianAnalytics() {
           </button>
         </div>
         <div className="guardian-perf-refresh">
-          <span>Recent Vine logins and live action logs across the network. Guardian is excluded from this view.</span>
+          <span>Recent Vine logins and live action logs. Guardian and Vine News are excluded from this view.</span>
           <span>Last update: {formatAgo(activityLastFetchedAt)}</span>
         </div>
         <div className="guardian-filter-row">
@@ -3126,141 +2662,8 @@ export default function VineGuardianAnalytics() {
         </div>
       </div>
 
-      <div className="guardian-section">
-        <h3>Performance Watch</h3>
-        <div className="guardian-actions">
-          <button
-            className="guardian-csv-btn"
-            onClick={() => exportCsv("perf_top_routes.csv", perfRoutes)}
-          >
-            Export Routes CSV
-          </button>
-          <button
-            className="guardian-csv-btn"
-            onClick={() => exportCsv("perf_top_queries.csv", perfQueries)}
-          >
-            Export Queries CSV
-          </button>
-        </div>
-        {!perf && <div className="guardian-empty">Performance samples have not been captured yet.</div>}
-        {perf && (
-          <>
-            <div className="guardian-compare-grid guardian-perf-grid">
-              <div className="guardian-compare-card">
-                Perf Logging: {perf.enabled ? "On" : "Off"}
-              </div>
-              <div className="guardian-compare-card">
-                Uptime: {Math.round(Number(perfRuntime.uptime_seconds || 0) / 60)} min
-              </div>
-              <div className="guardian-compare-card">
-                RSS Memory: {perfRuntime.rss_mb ?? 0} MB
-              </div>
-              <div className="guardian-compare-card">
-                Heap Used: {perfRuntime.heap_used_mb ?? 0} MB
-              </div>
-              <div className="guardian-compare-card">
-                Route Samples: {perfRuntime.route_event_count ?? 0}
-              </div>
-              <div className="guardian-compare-card">
-                Query Samples: {perfRuntime.query_event_count ?? 0}
-              </div>
-            </div>
-
-            <div className="guardian-perf-thresholds">
-              <span>Vine route ≥ {perf?.thresholds?.vine_slow_route_ms ?? 0} ms</span>
-              <span>Vine query ≥ {perf?.thresholds?.vine_slow_query_ms ?? 0} ms</span>
-              <span>DM route ≥ {perf?.thresholds?.dm_slow_route_ms ?? 0} ms</span>
-              <span>DM query ≥ {perf?.thresholds?.dm_slow_query_ms ?? 0} ms</span>
-            </div>
-            <div className="guardian-perf-refresh">
-              <span>Auto-refreshing every 60s while this tab is visible</span>
-              <span>Last update: {formatAgo(perfLastFetchedAt)}</span>
-            </div>
-
-            <div className="guardian-subsection">
-              <h4>Slowest Routes In Memory</h4>
-              <div className="guardian-table">
-                {perfRoutes.length === 0 && <div className="guardian-empty">No slow routes captured yet.</div>}
-                {perfRoutes.map((row) => (
-                  <div key={`${row.scope}-${row.route}`} className="guardian-row guardian-row-perf">
-                    <span className="guardian-row-main guardian-perf-label">
-                      <strong>{row.route}</strong>
-                      <small>{row.scope.toUpperCase()}</small>
-                    </span>
-                    <span className="guardian-row-meta">
-                      Avg {formatMs(row.avg_ms)} • P95 {formatMs(row.p95_ms)} • Max {formatMs(row.max_ms)}
-                    </span>
-                    <span className="guardian-perf-side">
-                      {row.count} hits • last {formatAgo(row.last_seen_at)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="guardian-subsection">
-              <h4>Slowest Queries In Memory</h4>
-              <div className="guardian-table">
-                {perfQueries.length === 0 && <div className="guardian-empty">No slow queries captured yet.</div>}
-                {perfQueries.map((row) => (
-                  <div key={`${row.scope}-${row.route}-${row.label}`} className="guardian-row guardian-row-perf">
-                    <span className="guardian-row-main guardian-perf-label">
-                      <strong>{row.label}</strong>
-                      <small>{row.route}</small>
-                    </span>
-                    <span className="guardian-row-meta">
-                      Avg {formatMs(row.avg_ms)} • P95 {formatMs(row.p95_ms)} • Max {formatMs(row.max_ms)}
-                    </span>
-                    <span className="guardian-perf-side">
-                      {row.count} hits • ~{row.avg_rows} rows
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="guardian-subsection">
-              <h4>Recent Hot Samples</h4>
-              <div className="guardian-perf-split">
-                <div>
-                  <h5>Routes</h5>
-                  <div className="guardian-table">
-                    {perfRecentRoutes.length === 0 && <div className="guardian-empty">No recent route samples.</div>}
-                    {perfRecentRoutes.map((row, idx) => (
-                      <div key={`perf-route-${idx}-${row.route}-${row.at}`} className="guardian-row guardian-row-perf guardian-row-compact">
-                        <span className="guardian-row-main guardian-perf-label">
-                          <strong>{row.route}</strong>
-                          <small>{row.scope.toUpperCase()}</small>
-                        </span>
-                        <span className="guardian-row-meta">{formatMs(row.ms)}</span>
-                        <span className="guardian-perf-side">{formatAgo(row.at)}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <h5>Queries</h5>
-                  <div className="guardian-table">
-                    {perfRecentQueries.length === 0 && <div className="guardian-empty">No recent query samples.</div>}
-                    {perfRecentQueries.map((row, idx) => (
-                      <div key={`perf-query-${idx}-${row.route}-${row.label}-${row.at}`} className="guardian-row guardian-row-perf guardian-row-compact">
-                        <span className="guardian-row-main guardian-perf-label">
-                          <strong>{row.label}</strong>
-                          <small>{row.route}</small>
-                        </span>
-                        <span className="guardian-row-meta">{formatMs(row.ms)}</span>
-                        <span className="guardian-perf-side">{formatAgo(row.at)}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </>
-        )}
-      </div>
-
-      <div className="guardian-section">
+      <div id="guardian-insights" className="guardian-insights-grid">
+      <div className="guardian-section guardian-section--insight">
         <h3>Most Active Users (Range)</h3>
         <div className="guardian-actions">
           <button className="guardian-csv-btn" onClick={() => exportCsv("most_active_users.csv", mostActiveUsers)}>
@@ -3291,68 +2694,7 @@ export default function VineGuardianAnalytics() {
         </div>
       </div>
 
-      <div className="guardian-section">
-        <h3>Today vs Week</h3>
-        <button
-          className="guardian-csv-btn"
-          onClick={() =>
-            exportCsv("today_vs_week.csv", [
-              {
-                likesToday: k.likesToday ?? 0,
-                likesWeek: k.likesWeek ?? 0,
-                commentsToday: k.commentsToday ?? 0,
-                commentsWeek: k.commentsWeek ?? 0,
-                revinesToday: k.revinesToday ?? 0,
-                revinesWeek: k.revinesWeek ?? 0,
-                followsToday: k.followsToday ?? 0,
-                followsWeek: k.followsWeek ?? 0,
-                dmsToday: k.dmsToday ?? 0,
-                dmsWeek: k.dmsWeek ?? 0,
-                activeUsersToday: k.activeUsersToday ?? 0,
-                activeUsersWeek: k.activeUsersWeek ?? 0,
-              },
-            ])
-          }
-        >
-          Export CSV
-        </button>
-        <div className="guardian-compare-grid">
-          <div className="guardian-compare-card">Likes: {k.likesToday ?? 0} / {k.likesWeek ?? 0}</div>
-          <div className="guardian-compare-card">Comments: {k.commentsToday ?? 0} / {k.commentsWeek ?? 0}</div>
-          <div className="guardian-compare-card">Revines: {k.revinesToday ?? 0} / {k.revinesWeek ?? 0}</div>
-          <div className="guardian-compare-card">Follows: {k.followsToday ?? 0} / {k.followsWeek ?? 0}</div>
-          <div className="guardian-compare-card">DMs: {k.dmsToday ?? 0} / {k.dmsWeek ?? 0}</div>
-          <div className="guardian-compare-card">Active Users: {k.activeUsersToday ?? 0} / {k.activeUsersWeek ?? 0}</div>
-        </div>
-      </div>
-
-      <div className="guardian-section">
-        <h3>7-Day Usage Volume</h3>
-        <button
-          className="guardian-csv-btn"
-          onClick={() => exportCsv("usage_by_day.csv", usage)}
-        >
-          Export CSV
-        </button>
-        <div className="guardian-bars">
-          {usage.map((day) => {
-            const total =
-              day.posts + day.comments + day.likes + day.revines + day.follows + day.dms;
-            const height = Math.max(8, Math.round((total / maxVolume) * 140));
-            return (
-              <div className="guardian-bar-col" key={day.day}>
-                <div className="guardian-bar-wrap" title={`Total: ${total}`}>
-                  <div className="guardian-bar" style={{ height }} />
-                </div>
-                <span className="guardian-bar-value">{total}</span>
-                <span className="guardian-bar-day">{day.day.slice(5)}</span>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      <div className="guardian-section">
+      <div className="guardian-section guardian-section--insight">
         <h3>Top Posts Leaderboard (7d)</h3>
         <div className="guardian-actions">
           <button className="guardian-csv-btn" onClick={() => exportCsv("top_posts_week.csv", leaderboard.week)}>
@@ -3383,7 +2725,7 @@ export default function VineGuardianAnalytics() {
         </div>
       </div>
 
-      <div className="guardian-section">
+      <div className="guardian-section guardian-section--insight">
         <h3>Growth Funnel (7d)</h3>
         <button
           className="guardian-csv-btn"
@@ -3410,7 +2752,7 @@ export default function VineGuardianAnalytics() {
         </div>
       </div>
 
-      <div className="guardian-section">
+      <div className="guardian-section guardian-section--insight">
         <h3>Content Health</h3>
         <div className="guardian-actions">
           <button
@@ -3434,7 +2776,7 @@ export default function VineGuardianAnalytics() {
         </div>
       </div>
 
-      <div className="guardian-section">
+      <div className="guardian-section guardian-section--insight">
         <h3>Engagement Quality</h3>
         <div className="guardian-actions">
           <button
@@ -3457,7 +2799,7 @@ export default function VineGuardianAnalytics() {
         </div>
       </div>
 
-      <div className="guardian-section">
+      <div className="guardian-section guardian-section--insight">
         <h3>Network Effects</h3>
         <div className="guardian-actions">
           <button className="guardian-csv-btn" onClick={() => exportCsv("network_effects.csv", [networkEffects])}>
@@ -3478,7 +2820,7 @@ export default function VineGuardianAnalytics() {
         </div>
       </div>
 
-      <div className="guardian-section">
+      <div id="guardian-moderation" className="guardian-section guardian-section--moderation guardian-section--wide">
         <h3>Vine Prison (Active Suspensions)</h3>
         <button className="guardian-csv-btn" onClick={() => exportCsv("vine_prison.csv", vinePrison)}>
           Export CSV
@@ -3488,7 +2830,7 @@ export default function VineGuardianAnalytics() {
           {vinePrison.map((p) => (
             <div
               key={`prison-${p.id}`}
-              className="guardian-row"
+              className="guardian-row guardian-row-moderation"
             >
               <span className="guardian-row-main">
                 {p.display_name || p.username} • {p.sentence_label}
@@ -3515,7 +2857,7 @@ export default function VineGuardianAnalytics() {
         </div>
       </div>
 
-      <div className="guardian-section">
+      <div className="guardian-section guardian-section--alerts">
         <h3>Guardian Alerts</h3>
         <div className="guardian-actions">
           <button className="guardian-csv-btn" onClick={() => exportCsv("guardian_alerts.csv", alerts)}>
@@ -3531,7 +2873,7 @@ export default function VineGuardianAnalytics() {
         <div className="guardian-table">
           {alerts.length === 0 && <div className="guardian-empty">No alerts above threshold.</div>}
           {alerts.map((a) => (
-            <div key={a.key} className={`guardian-row ${a.severity === "high" ? "alert-high" : a.severity === "medium" ? "alert-medium" : ""}`}>
+            <div key={a.key} className={`guardian-row guardian-row-alert ${a.severity === "high" ? "alert-high" : a.severity === "medium" ? "alert-medium" : ""}`}>
               <span className="guardian-row-main">{a.label}</span>
               <span className="guardian-row-meta">
                 {a.current} vs {a.previous} ({a.changePct}%)
@@ -3541,7 +2883,7 @@ export default function VineGuardianAnalytics() {
         </div>
       </div>
 
-      <div className="guardian-section">
+      <div className="guardian-section guardian-section--creators guardian-section--wide">
         <h3>Creator Insights (Global)</h3>
         <div className="guardian-actions">
           <button className="guardian-csv-btn" onClick={() => exportCsv("top_creators_week.csv", creators.topCreatorsWeek || [])}>
@@ -3591,6 +2933,7 @@ export default function VineGuardianAnalytics() {
             ))}
           </div>
         </div>
+      </div>
       </div>
     </div>
   );

@@ -21,7 +21,6 @@ export default function createVineAnalyticsRouter({
   buildGuardianActivitySnapshot,
   runVinePerfRoute,
   getGuardianPerfSnapshot,
-  fetchVinePostSourceDebugStats,
   vinePerfLogsEnabled,
   vinePerfConsoleLogsEnabled,
   vineSlowRouteMs,
@@ -544,28 +543,6 @@ router.get("/analytics/overview", authenticate, async (req, res) => {
       return Number(row?.total || 0);
     };
 
-    const series7d = async (table, col = "created_at", start = rangeStart, end = rangeEnd) => {
-      const exists = await hasTable(dbName, table);
-      if (!exists) return {};
-      const hasCol = await hasColumn(dbName, table, col);
-      if (!hasCol) return {};
-      const [rows] = await db.query(
-        `
-        SELECT DATE(${col}) AS day, COUNT(*) AS total
-        FROM ${table}
-        WHERE ${col} >= ? AND ${col} <= ?
-        GROUP BY DATE(${col})
-        `,
-        [start, end]
-      );
-      const out = {};
-      for (const row of rows) {
-        const d = new Date(row.day).toISOString().slice(0, 10);
-        out[d] = Number(row.total || 0);
-      }
-      return out;
-    };
-
     const [[activeToday]] = await db.query(
       "SELECT COUNT(*) AS total FROM vine_users WHERE DATE(last_active_at) = CURDATE()"
     );
@@ -708,34 +685,6 @@ router.get("/analytics/overview", authenticate, async (req, res) => {
       countToday("vine_messages"),
       countRange("vine_messages", "created_at", rangeStart, rangeEnd),
     ]);
-
-    const [postsSeries, commentsSeries, likesSeries, revinesSeries, followsSeries, dmsSeries] =
-      await Promise.all([
-        series7d("vine_posts"),
-        series7d("vine_comments"),
-        series7d("vine_likes"),
-        series7d("vine_revines"),
-        series7d("vine_follows"),
-        series7d("vine_messages"),
-      ]);
-
-    const activeSeries = await series7d("vine_users", "last_active_at", rangeStart, rangeEnd);
-
-    const usageByDay = [];
-    const daysInRange = Math.max(1, Math.min(31, Math.floor((rangeEnd.getTime() - rangeStart.getTime()) / 86400000) + 1));
-    for (let i = daysInRange - 1; i >= 0; i -= 1) {
-      const day = new Date(rangeEnd.getTime() - i * 86400000).toISOString().slice(0, 10);
-      usageByDay.push({
-        day,
-        posts: postsSeries[day] || 0,
-        comments: commentsSeries[day] || 0,
-        likes: likesSeries[day] || 0,
-        revines: revinesSeries[day] || 0,
-        follows: followsSeries[day] || 0,
-        dms: dmsSeries[day] || 0,
-        activeUsers: activeSeries[day] || 0,
-      });
-    }
 
     const totalInteractionsWeek =
       Number(likesWeek) +
@@ -1047,8 +996,6 @@ router.get("/analytics/overview", authenticate, async (req, res) => {
       });
     }
 
-    const postSourceDebug = await fetchVinePostSourceDebugStats();
-
     return res.json({
       range: {
         from: rangeStart.toISOString(),
@@ -1078,7 +1025,6 @@ router.get("/analytics/overview", authenticate, async (req, res) => {
         dmsWeek: Number(dmsWeek || 0),
         totalInteractionsWeek,
       },
-      usageByDay,
       topPostsLeaderboard: {
         today: topPostsToday,
         week: topPostsWeek,
@@ -1141,7 +1087,6 @@ router.get("/analytics/overview", authenticate, async (req, res) => {
       },
       mostActiveUsers,
       vinePrison,
-      postSourceDebug,
     });
   } catch (err) {
     console.error("Guardian analytics error:", err);

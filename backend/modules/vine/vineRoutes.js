@@ -854,9 +854,10 @@ const normalizeGuardianActivityRows = (rows = []) =>
 const buildGuardianActivitySnapshot = async (perfCtx, dbName, { loginLimit = 12, actionLimit = 28 } = {}) => {
   const safeLoginLimit = Math.max(10, Math.min(120, Number(loginLimit || 60)));
   const safeActionLimit = Math.max(30, Math.min(200, Number(actionLimit || 120)));
-  const cacheKey = buildVineCacheKey("guardian-activity", safeLoginLimit, safeActionLimit);
-  const nonGuardianActorSql =
-    `LOWER(COALESCE(u.username, '')) NOT IN ('vine guardian', 'vine_guardian') AND LOWER(COALESCE(u.badge_type, '')) <> 'guardian'`;
+  const cacheKey = buildVineCacheKey("guardian-activity-v2", safeLoginLimit, safeActionLimit);
+  const visibleActivityActorSql =
+    `LOWER(COALESCE(u.username, '')) NOT IN ('vine guardian', 'vine_guardian', 'vine news', 'vine_news') ` +
+    `AND LOWER(COALESCE(u.badge_type, '')) NOT IN ('guardian', 'news')`;
 
   return readThroughVineCache(cacheKey, VINE_CACHE_TTLS.guardianActivity, async () => {
     const loginTableExists = await hasTable(dbName, "vine_user_sessions");
@@ -884,7 +885,7 @@ const buildGuardianActivitySnapshot = async (perfCtx, dbName, { loginLimit = 12,
         u.role
       FROM vine_user_sessions s
       JOIN vine_users u ON u.id = s.user_id
-      WHERE ${nonGuardianActorSql}
+      WHERE ${visibleActivityActorSql}
       ORDER BY s.created_at DESC
       LIMIT ?
       `,
@@ -940,7 +941,7 @@ const buildGuardianActivitySnapshot = async (perfCtx, dbName, { loginLimit = 12,
         JOIN vine_users u ON u.id = p.user_id
         LEFT JOIN vine_communities c ON c.id = p.community_id
         WHERE p.created_at >= ?
-          AND ${nonGuardianActorSql}
+          AND ${visibleActivityActorSql}
       `);
       actionParams.push(actionSince);
     }
@@ -971,7 +972,7 @@ const buildGuardianActivitySnapshot = async (perfCtx, dbName, { loginLimit = 12,
         LEFT JOIN vine_posts p ON p.id = cm.post_id
         LEFT JOIN vine_communities c ON c.id = p.community_id
         WHERE cm.created_at >= ?
-          AND ${nonGuardianActorSql}
+          AND ${visibleActivityActorSql}
       `);
       actionParams.push(actionSince);
     }
@@ -1002,7 +1003,7 @@ const buildGuardianActivitySnapshot = async (perfCtx, dbName, { loginLimit = 12,
         LEFT JOIN vine_posts p ON p.id = l.post_id
         LEFT JOIN vine_communities c ON c.id = p.community_id
         WHERE l.created_at >= ?
-          AND ${nonGuardianActorSql}
+          AND ${visibleActivityActorSql}
       `);
       actionParams.push(actionSince);
     }
@@ -1033,7 +1034,7 @@ const buildGuardianActivitySnapshot = async (perfCtx, dbName, { loginLimit = 12,
         LEFT JOIN vine_posts p ON p.id = r.post_id
         LEFT JOIN vine_communities c ON c.id = p.community_id
         WHERE r.created_at >= ?
-          AND ${nonGuardianActorSql}
+          AND ${visibleActivityActorSql}
       `);
       actionParams.push(actionSince);
     }
@@ -1063,7 +1064,7 @@ const buildGuardianActivitySnapshot = async (perfCtx, dbName, { loginLimit = 12,
         JOIN vine_users u ON u.id = f.follower_id
         JOIN vine_users target ON target.id = f.following_id
         WHERE f.created_at >= ?
-          AND ${nonGuardianActorSql}
+          AND ${visibleActivityActorSql}
       `);
       actionParams.push(actionSince);
     }
@@ -1098,7 +1099,7 @@ const buildGuardianActivitySnapshot = async (perfCtx, dbName, { loginLimit = 12,
             ELSE vc.user1_id
           END
         WHERE m.created_at >= ?
-          AND ${nonGuardianActorSql}
+          AND ${visibleActivityActorSql}
       `);
       actionParams.push(actionSince);
     }
@@ -1128,7 +1129,7 @@ const buildGuardianActivitySnapshot = async (perfCtx, dbName, { loginLimit = 12,
         JOIN vine_users u ON u.id = m.user_id
         JOIN vine_communities c ON c.id = m.community_id
         WHERE m.joined_at >= ?
-          AND ${nonGuardianActorSql}
+          AND ${visibleActivityActorSql}
       `);
       actionParams.push(actionSince);
     }
@@ -1159,7 +1160,7 @@ const buildGuardianActivitySnapshot = async (perfCtx, dbName, { loginLimit = 12,
         LEFT JOIN vine_community_assignments a ON a.id = s.assignment_id
         LEFT JOIN vine_communities c ON c.id = s.community_id
         WHERE s.submitted_at >= ?
-          AND ${nonGuardianActorSql}
+          AND ${visibleActivityActorSql}
       `);
       actionParams.push(actionSince);
     }
@@ -1197,136 +1198,6 @@ const buildGuardianActivitySnapshot = async (perfCtx, dbName, { loginLimit = 12,
       ),
     }));
     const recentActions = allRecentActions.slice(0, safeActionLimit);
-
-    const burstWindowStart = new Date(Date.now() - 15 * 60 * 1000);
-    const burstMap = new Map();
-    const ensureBurst = (userId) => {
-      const numericUserId = Number(userId || 0);
-      if (!numericUserId) return null;
-      if (!burstMap.has(numericUserId)) {
-        burstMap.set(numericUserId, {
-          user_id: numericUserId,
-          posts_count: 0,
-          comments_count: 0,
-          likes_count: 0,
-          follows_count: 0,
-          dms_count: 0,
-          total_actions: 0,
-          last_activity_at: null,
-        });
-      }
-      return burstMap.get(numericUserId);
-    };
-
-    const collectBurstCounts = async (tableName, actorColumn, dateColumn, countField, label) => {
-      const tableExists = await hasTable(dbName, tableName);
-      if (!tableExists) return;
-      const hasActor = await hasColumn(dbName, tableName, actorColumn);
-      const hasDate = await hasColumn(dbName, tableName, dateColumn);
-      if (!hasActor || !hasDate) return;
-      const [rows] = await timedVineQuery(
-        perfCtx,
-        `guardian-activity.${label}`,
-        `
-        SELECT ${actorColumn} AS actor_id, COUNT(*) AS total, MAX(${dateColumn}) AS last_activity_at
-        FROM ${tableName}
-        WHERE ${dateColumn} >= ?
-        GROUP BY ${actorColumn}
-        `,
-        [burstWindowStart]
-      );
-      for (const row of rows || []) {
-        const entry = ensureBurst(row.actor_id);
-        if (!entry) continue;
-        const total = Number(row.total || 0);
-        entry[countField] = total;
-        entry.total_actions += total;
-        const rowTs = new Date(row.last_activity_at || 0).getTime();
-        const entryTs = new Date(entry.last_activity_at || 0).getTime();
-        if (Number.isFinite(rowTs) && (!Number.isFinite(entryTs) || rowTs > entryTs)) {
-          entry.last_activity_at = row.last_activity_at;
-        }
-      }
-    };
-
-    await Promise.all([
-      collectBurstCounts("vine_posts", "user_id", "created_at", "posts_count", "burst-posts"),
-      collectBurstCounts("vine_comments", "user_id", "created_at", "comments_count", "burst-comments"),
-      collectBurstCounts("vine_likes", "user_id", "created_at", "likes_count", "burst-likes"),
-      collectBurstCounts("vine_follows", "follower_id", "created_at", "follows_count", "burst-follows"),
-      collectBurstCounts("vine_messages", "sender_id", "created_at", "dms_count", "burst-dms"),
-    ]);
-
-    const suspiciousCandidates = [...burstMap.values()].filter((entry) => {
-      if (!entry) return false;
-      return (
-        entry.total_actions >= 15 ||
-        entry.dms_count >= 8 ||
-        entry.follows_count >= 8 ||
-        entry.comments_count >= 10 ||
-        entry.posts_count >= 4 ||
-        entry.likes_count >= 18
-      );
-    });
-
-    let suspiciousBursts = [];
-    if (suspiciousCandidates.length) {
-      const userIds = suspiciousCandidates.map((entry) => Number(entry.user_id)).filter(Boolean);
-      const placeholders = userIds.map(() => "?").join(", ");
-      const [rows] = await timedVineQuery(
-        perfCtx,
-        "guardian-activity.burst-users",
-        `
-        SELECT id, username, display_name, avatar_url, is_verified, badge_type, role
-        FROM vine_users
-        WHERE id IN (${placeholders})
-        `,
-        userIds
-      );
-      const userMap = new Map((rows || []).map((row) => [Number(row.id), row]));
-      suspiciousBursts = suspiciousCandidates
-        .map((entry) => {
-          const user = userMap.get(Number(entry.user_id));
-          if (!user) return null;
-          const reasons = [];
-          if (entry.total_actions >= 15) reasons.push(`${entry.total_actions} actions in 15m`);
-          if (entry.dms_count >= 8) reasons.push(`${entry.dms_count} DMs in 15m`);
-          if (entry.follows_count >= 8) reasons.push(`${entry.follows_count} follows in 15m`);
-          if (entry.comments_count >= 10) reasons.push(`${entry.comments_count} comments/replies in 15m`);
-          if (entry.posts_count >= 4) reasons.push(`${entry.posts_count} posts in 15m`);
-          if (entry.likes_count >= 18) reasons.push(`${entry.likes_count} likes in 15m`);
-          const matchingSession = recentLoginRows.find((sessionRow) => Number(sessionRow.user_id) === Number(entry.user_id));
-          const lastSeenMs = new Date(matchingSession?.last_seen_at || 0).getTime();
-          return {
-            user_id: Number(entry.user_id),
-            username: user.username,
-            display_name: user.display_name || user.username,
-            avatar_url: user.avatar_url || "",
-            is_verified: Number(user.is_verified || 0),
-            badge_type: user.badge_type || null,
-            role: user.role || "user",
-            total_actions: Number(entry.total_actions || 0),
-            posts_count: Number(entry.posts_count || 0),
-            comments_count: Number(entry.comments_count || 0),
-            likes_count: Number(entry.likes_count || 0),
-            follows_count: Number(entry.follows_count || 0),
-            dms_count: Number(entry.dms_count || 0),
-            last_activity_at: entry.last_activity_at || null,
-            reasons,
-            is_online_now:
-              Number.isFinite(lastSeenMs) &&
-              nowMs - lastSeenMs <= GUARDIAN_ACTIVITY_ONLINE_MS,
-            navigate_path: `/vine/profile/${user.username}`,
-          };
-        })
-        .filter(Boolean)
-        .sort(
-          (a, b) =>
-            Number(b.total_actions || 0) - Number(a.total_actions || 0) ||
-            new Date(b.last_activity_at || 0).getTime() - new Date(a.last_activity_at || 0).getTime()
-        )
-        .slice(0, 8);
-    }
 
     const groupedLoginRows = new Map();
     for (const row of recentLoginRows) {
@@ -1398,7 +1269,6 @@ const buildGuardianActivitySnapshot = async (perfCtx, dbName, { loginLimit = 12,
     return {
       recent_logins: recentLogins,
       recent_actions: recentActions,
-      suspicious_bursts: suspiciousBursts,
     };
   });
 };
@@ -1974,63 +1844,6 @@ const ensureVinePostSourceBackfill = async () => {
     });
 
   return vinePostSourceBackfillPromise;
-};
-
-const fetchVinePostSourceDebugStats = async () => {
-  const dbName = await getDbName();
-  if (!dbName) {
-    return {
-      window_days: VINE_POST_SOURCE_BACKFILL_DAYS,
-      recent_posts: 0,
-      labeled_recent: 0,
-      unlabeled_recent: 0,
-      backfilled_recent: 0,
-      live_recent: 0,
-      untracked_labeled_recent: 0,
-      last_backfilled_at: null,
-    };
-  }
-
-  if (!(await hasTable(dbName, "vine_posts"))) {
-    return {
-      window_days: VINE_POST_SOURCE_BACKFILL_DAYS,
-      recent_posts: 0,
-      labeled_recent: 0,
-      unlabeled_recent: 0,
-      backfilled_recent: 0,
-      live_recent: 0,
-      untracked_labeled_recent: 0,
-      last_backfilled_at: null,
-    };
-  }
-
-  const postsSince = new Date(Date.now() - VINE_POST_SOURCE_BACKFILL_DAYS * 24 * 60 * 60 * 1000);
-  const [[row]] = await db.query(
-    `
-    SELECT
-      COUNT(*) AS recent_posts,
-      SUM(CASE WHEN COALESCE(post_source_label, '') <> '' THEN 1 ELSE 0 END) AS labeled_recent,
-      SUM(CASE WHEN COALESCE(post_source_label, '') = '' THEN 1 ELSE 0 END) AS unlabeled_recent,
-      SUM(CASE WHEN post_source_origin = 'backfill' THEN 1 ELSE 0 END) AS backfilled_recent,
-      SUM(CASE WHEN post_source_origin = 'live' THEN 1 ELSE 0 END) AS live_recent,
-      SUM(CASE WHEN COALESCE(post_source_label, '') <> '' AND COALESCE(post_source_origin, '') = '' THEN 1 ELSE 0 END) AS untracked_labeled_recent,
-      MAX(post_source_backfilled_at) AS last_backfilled_at
-    FROM vine_posts
-    WHERE created_at >= ?
-    `,
-    [postsSince]
-  );
-
-  return {
-    window_days: VINE_POST_SOURCE_BACKFILL_DAYS,
-    recent_posts: Number(row?.recent_posts || 0),
-    labeled_recent: Number(row?.labeled_recent || 0),
-    unlabeled_recent: Number(row?.unlabeled_recent || 0),
-    backfilled_recent: Number(row?.backfilled_recent || 0),
-    live_recent: Number(row?.live_recent || 0),
-    untracked_labeled_recent: Number(row?.untracked_labeled_recent || 0),
-    last_backfilled_at: row?.last_backfilled_at || null,
-  };
 };
 
 const ensureVinePostSourceSchema = async () => {
@@ -12414,7 +12227,6 @@ router.use((req, res, next) => {
       buildGuardianActivitySnapshot,
       runVinePerfRoute,
       getGuardianPerfSnapshot,
-      fetchVinePostSourceDebugStats,
       vinePerfLogsEnabled: VINE_PERF_LOGS_ENABLED,
       vinePerfConsoleLogsEnabled: VINE_PERF_CONSOLE_LOGS_ENABLED,
       vineSlowRouteMs: VINE_SLOW_ROUTE_MS,

@@ -21,6 +21,9 @@
   background:
     linear-gradient(rgba(3, 34, 18, 0.28), rgba(3, 34, 18, 0.52)),
     var(--vine-login-cover, url("/newcover.jpeg")) center center / cover no-repeat;
+  align-items: safe center;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .vine-auth-bg-login::before,
@@ -249,6 +252,23 @@
     margin-top: clamp(1rem, 4vh, 3rem);
   }
 }
+
+@media (min-width: 769px) and (max-height: 800px) {
+  .vine-auth-card-login {
+    padding: 28px 30px;
+    margin-top: 0;
+  }
+
+  .vine-auth-card-login .back-home-btn {
+    padding: 12px 20px;
+    margin-bottom: 1rem;
+  }
+
+  .vine-auth-card-login .vine-footer {
+    padding-top: 16px;
+    margin-top: 20px;
+  }
+}
   
   /* ───── The Login Card (Rounded Mint Style) ───── */
   .vine-auth-card {
@@ -277,6 +297,7 @@
     0 10px 30px rgba(27, 94, 58, 0.12),
     inset 0 1px 0 rgba(255, 255, 255, 0.62);
   overflow: hidden;
+  overflow: clip;
 }
 
 .vine-auth-effect-botanical .vine-auth-card-login {
@@ -435,6 +456,96 @@
     flex-direction: column;
     gap: 15px;
   }
+
+.vine-login-alert {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  padding: 14px;
+  color: #6f1d18;
+  text-align: left;
+  background: #fff5f3;
+  border: 1px solid #efb5ae;
+  border-left: 4px solid #b42318;
+  border-radius: 12px;
+  box-shadow: 0 10px 24px rgba(120, 30, 22, 0.1);
+  outline: none;
+  animation: vine-login-alert-in 180ms ease-out;
+}
+
+.vine-login-alert:focus-visible {
+  box-shadow:
+    0 0 0 3px rgba(180, 35, 24, 0.14),
+    0 10px 24px rgba(120, 30, 22, 0.1);
+}
+
+.vine-login-alert-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  color: #ffffff;
+  font-size: 1.05rem;
+  font-weight: 900;
+  line-height: 1;
+  background: #b42318;
+  border-radius: 50%;
+  box-shadow: 0 5px 12px rgba(180, 35, 24, 0.2);
+}
+
+.vine-login-alert-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 1px;
+}
+
+.vine-login-alert-copy strong {
+  color: #57130f;
+  font-size: 0.94rem;
+  font-weight: 850;
+  line-height: 1.25;
+}
+
+.vine-login-alert-copy > span {
+  color: #81332d;
+  font-size: 0.84rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.vine-login-alert-copy a {
+  width: fit-content;
+  margin-top: 3px;
+  color: #8f1f17;
+  font-size: 0.84rem;
+  font-weight: 800;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.vine-form input[aria-invalid="true"] {
+  border-color: #cf665d;
+  background: #fffafa;
+  box-shadow:
+    0 0 0 3px rgba(180, 35, 24, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+@keyframes vine-login-alert-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
   
   .vine-form input {
     background: rgba(255, 255, 255, 0.9);
@@ -625,6 +736,18 @@
     .vine-auth-card-login .vine-btn::after {
       opacity: 0.55;
     }
+
+    .vine-login-alert {
+      grid-template-columns: 32px minmax(0, 1fr);
+      gap: 10px;
+      padding: 12px;
+    }
+
+    .vine-login-alert-icon {
+      width: 32px;
+      height: 32px;
+      font-size: 0.95rem;
+    }
   }
   .back-home-btn {
     display: inline-flex;
@@ -697,6 +820,12 @@
 
   .vine-auth-card-login .vine-btn {
     font-size: 1rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vine-login-alert {
+    animation: none;
   }
 }
   

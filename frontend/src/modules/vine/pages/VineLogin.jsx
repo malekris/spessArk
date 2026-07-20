@@ -1,10 +1,10 @@
-import { useState, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { getRequestedSessionMode } from "../../../utils/deviceSession";
 import { touchVineActivity } from "../utils/vineAuth";
 import VineAuthFlorals from "../components/VineAuthFlorals";
 import { buildVineAuthThemeClasses, shouldRenderVineAuthFlorals, useVineAuthTheme } from "../utils/authTheme";
-import "./VineLogin.css"; // 🔥 Pointing to the new file
+import "./VineLogin.css";
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 
 export default function VineLogin() {
@@ -14,8 +14,10 @@ export default function VineLogin() {
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [loginError, setLoginError] = useState(null);
   const [isDesktop, setIsDesktop] = useState(false);
   const [showDesktopForm, setShowDesktopForm] = useState(false);
+  const loginErrorRef = useRef(null);
   const redirectParam = searchParams.get("redirect") || location.state?.from || "";
   const safeRedirect = typeof redirectParam === "string" && redirectParam.startsWith("/")
     ? redirectParam
@@ -36,11 +38,25 @@ export default function VineLogin() {
     return () => window.removeEventListener("resize", updateViewport);
   }, []);
 
+  useEffect(() => {
+    if (loginError) loginErrorRef.current?.focus({ preventScroll: true });
+  }, [loginError]);
+
+  const clearLoginError = () => {
+    if (loginError) setLoginError(null);
+  };
+
   const handleLogin = async (e) => {
     e.preventDefault();
 
-    if (!identifier || !password) {
-      alert("Please fill in all fields");
+    setLoginError(null);
+
+    if (!identifier.trim() || !password) {
+      setLoginError({
+        kind: "validation",
+        title: "Enter your login details",
+        message: "Add your username and password before signing in.",
+      });
       return;
     }
 
@@ -57,10 +73,29 @@ export default function VineLogin() {
         }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        alert(data.message || "Login failed");
+        if (res.status === 401) {
+          setLoginError({
+            kind: "credentials",
+            title: "We could not sign you in",
+            message: "That username or password does not match. Check your details and try again.",
+            showResetLink: true,
+          });
+        } else if (res.status === 429) {
+          setLoginError({
+            kind: "rate-limit",
+            title: "Too many login attempts",
+            message: "Please wait a moment before trying again.",
+          });
+        } else {
+          setLoginError({
+            kind: "server",
+            title: "Vine could not sign you in",
+            message: data.message || "Something went wrong. Please try again in a moment.",
+          });
+        }
         return;
       }
 
@@ -80,7 +115,11 @@ export default function VineLogin() {
 
     } catch (err) {
       console.error(err);
-      alert("Network error");
+      setLoginError({
+        kind: "network",
+        title: "Vine could not connect",
+        message: "Check your internet connection and try signing in again.",
+      });
     } finally {
       setLoading(false);
     }
@@ -109,28 +148,61 @@ export default function VineLogin() {
           </button>
         ) : (
           <div className={isDesktop ? "login-scroll-unfold" : ""}>
-            <form className="vine-form" onSubmit={handleLogin}>
+            <form className="vine-form" onSubmit={handleLogin} noValidate aria-busy={loading}>
+              {loginError && (
+                <div
+                  ref={loginErrorRef}
+                  className={`vine-login-alert vine-login-alert-${loginError.kind}`}
+                  id="vine-login-error"
+                  role="alert"
+                  aria-live="assertive"
+                  aria-atomic="true"
+                  tabIndex={-1}
+                >
+                  <span className="vine-login-alert-icon" aria-hidden="true">!</span>
+                  <span className="vine-login-alert-copy">
+                    <strong>{loginError.title}</strong>
+                    <span>{loginError.message}</span>
+                    {loginError.showResetLink && (
+                      <Link to="/vine/forgot-password">Reset your password</Link>
+                    )}
+                  </span>
+                </div>
+              )}
+
               <input
                 type="text"
                 placeholder="Username"
                 value={identifier}
+                autoComplete="username"
                 autoCapitalize="none"
                 autoCorrect="off"
                 spellCheck={false}
+                aria-invalid={loginError?.kind === "validation" || loginError?.kind === "credentials"}
+                aria-describedby={loginError ? "vine-login-error" : undefined}
                 onKeyDown={(e) => {
                   if (e.key === " ") e.preventDefault();
                 }}
-                onChange={(e) => setIdentifier(e.target.value.replace(/\s+/g, ""))}
+                onChange={(e) => {
+                  setIdentifier(e.target.value.replace(/\s+/g, ""));
+                  clearLoginError();
+                }}
               />
 
               <input
                 type="password"
                 placeholder="Password"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
+                aria-invalid={loginError?.kind === "validation" || loginError?.kind === "credentials"}
+                aria-describedby={loginError ? "vine-login-error" : undefined}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  clearLoginError();
+                }}
               />
 
-              <button className="vine-btn" disabled={loading}>
+              <button type="submit" className="vine-btn" disabled={loading}>
                 {loading ? "Signing in..." : "Login"}
               </button>
             </form>

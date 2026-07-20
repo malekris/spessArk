@@ -6144,8 +6144,6 @@ router.post("/auth/register", async (req, res) => {
 });
 
 router.post("/auth/login", async (req, res) => {
-    console.log("BODY:", req.body);
-
     try {
       await ensureLifecycleAnalyticsSchema();
       const { identifier, password } = req.body;

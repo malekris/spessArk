@@ -5376,6 +5376,7 @@ router.get("/statuses/rail", requireVineAuth, async (req, res) => {
         COUNT(*) AS status_count,
         SUM(
           CASE
+            WHEN s.user_id = ? THEN 0
             WHEN EXISTS (
               SELECT 1
               FROM vine_status_views sv
@@ -5404,7 +5405,7 @@ router.get("/statuses/rail", requireVineAuth, async (req, res) => {
       ORDER BY (s.user_id = ?) DESC, latest_created_at DESC
       LIMIT 100
       `,
-      [viewerId, viewerId, viewerId, viewerId, viewerId]
+      [viewerId, viewerId, viewerId, viewerId, viewerId, viewerId]
     );
 
     res.json(rows);
@@ -5440,10 +5441,13 @@ router.get("/statuses/user/:userId", requireVineAuth, async (req, res) => {
         s.bg_color,
         s.created_at,
         s.expires_at,
-        EXISTS (
-          SELECT 1 FROM vine_status_views sv
-          WHERE sv.status_id = s.id AND sv.viewer_id = ?
-        ) AS seen_by_viewer,
+        CASE
+          WHEN s.user_id = ? THEN 1
+          ELSE EXISTS (
+            SELECT 1 FROM vine_status_views sv
+            WHERE sv.status_id = s.id AND sv.viewer_id = ?
+          )
+        END AS seen_by_viewer,
         (
           SELECT sr.reaction
           FROM vine_status_reactions sr
@@ -5461,7 +5465,7 @@ router.get("/statuses/user/:userId", requireVineAuth, async (req, res) => {
         AND s.expires_at > NOW()
       ORDER BY s.created_at ASC
       `,
-      [viewerId, viewerId, userId]
+      [viewerId, viewerId, viewerId, userId]
     );
 
     res.json(rows);
@@ -5476,8 +5480,31 @@ router.post("/statuses/:id/view", requireVineAuth, async (req, res) => {
   try {
     await ensureStatusSchema();
     const statusId = Number(req.params.id);
-    const viewerId = req.user.id;
+    const viewerId = Number(req.user.id);
     if (!statusId) return res.status(400).json({ success: false });
+
+    const [[statusRow]] = await db.query(
+      `
+      SELECT user_id
+      FROM vine_statuses
+      WHERE id = ?
+        AND is_deleted = 0
+        AND expires_at > NOW()
+      LIMIT 1
+      `,
+      [statusId]
+    );
+    if (!statusRow) {
+      return res.status(404).json({ success: false, message: "Status not found" });
+    }
+
+    if (Number(statusRow.user_id) === viewerId) {
+      await db.query(
+        "DELETE FROM vine_status_views WHERE status_id = ? AND viewer_id = ?",
+        [statusId, viewerId]
+      );
+      return res.json({ success: true, counted: false });
+    }
 
     await db.query(
       `
@@ -5488,7 +5515,7 @@ router.post("/statuses/:id/view", requireVineAuth, async (req, res) => {
       [statusId, viewerId]
     );
 
-    res.json({ success: true });
+    res.json({ success: true, counted: true });
   } catch (err) {
     console.error("Status view error:", err);
     res.status(500).json({ success: false });
@@ -5568,9 +5595,10 @@ router.get("/statuses/:id/views", requireVineAuth, async (req, res) => {
       FROM vine_status_views sv
       JOIN vine_users u ON u.id = sv.viewer_id
       WHERE sv.status_id = ?
+        AND sv.viewer_id <> ?
       ORDER BY sv.viewed_at DESC
       `,
-      [statusId]
+      [statusId, statusRow.user_id]
     );
 
     res.json(rows);

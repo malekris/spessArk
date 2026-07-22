@@ -44,6 +44,10 @@ const POST_MAX_MEDIA_FILES = 30;
 const STYLED_TEXT_WORD_LIMIT = 22;
 const FEED_MEDIA_UPLOADS_FROZEN = false;
 const STATUS_MEDIA_UPLOADS_FROZEN = false;
+const STATUS_MAX_IMAGE_BYTES = 25 * 1024 * 1024;
+const STATUS_MAX_VIDEO_BYTES = 100 * 1024 * 1024;
+const getStatusDisplayDuration = (status) =>
+  status?.media_type === "video" ? 8000 : status?.media_type === "image" ? 6000 : 4500;
 const STATUS_REACTIONS = [
   { key: "like", emoji: "👍" },
   { key: "love", emoji: "❤️" },
@@ -328,7 +332,6 @@ export default function VineFeed() {
   const [posts, setPosts] = useState([]);
   const [feedLoading, setFeedLoading] = useState(true);
   const [feedLoadingMore, setFeedLoadingMore] = useState(false);
-  const [feedNextCursor, setFeedNextCursor] = useState(null);
   const [feedHasMore, setFeedHasMore] = useState(false);
   const [content, setContent] = useState("");
   const [images, setImages] = useState([]);
@@ -363,6 +366,8 @@ export default function VineFeed() {
   const [statusMediaFile, setStatusMediaFile] = useState(null);
   const [statusMediaPreview, setStatusMediaPreview] = useState("");
   const [statusMediaType, setStatusMediaType] = useState("");
+  const [statusSubmitting, setStatusSubmitting] = useState(false);
+  const [statusComposerError, setStatusComposerError] = useState("");
   const [statusViewerOpen, setStatusViewerOpen] = useState(false);
   const [statusViewerUser, setStatusViewerUser] = useState(null);
   const [statusItems, setStatusItems] = useState([]);
@@ -373,6 +378,8 @@ export default function VineFeed() {
   const [statusViewsLoading, setStatusViewsLoading] = useState(false);
   const [statusReplyText, setStatusReplyText] = useState("");
   const [statusReplySending, setStatusReplySending] = useState(false);
+  const [statusPressPaused, setStatusPressPaused] = useState(false);
+  const [statusReplyFocused, setStatusReplyFocused] = useState(false);
   const [mentionResults, setMentionResults] = useState([]);
   const [mentionAnchor, setMentionAnchor] = useState(null);
   const [gifPickerOpen, setGifPickerOpen] = useState(false);
@@ -396,6 +403,8 @@ export default function VineFeed() {
   const injectedTargetPostRef = useRef("");
   const draftPostRequestIdRef = useRef("");
   const draftPostFingerprintRef = useRef("");
+  const statusPlaybackRef = useRef({ key: "", remainingMs: 0, startedAt: 0 });
+  const statusInteractionActive = statusPressPaused || statusReplyFocused;
 
   const revokePreviewUrls = (items) => {
     for (const item of items || []) {
@@ -576,8 +585,6 @@ export default function VineFeed() {
 
     const params = new URLSearchParams(window.location.search);
     const postId = params.get("post");
-    const commentId = params.get("comment");
-
     if (!postId) return;
 
     let attempts = 0;
@@ -700,7 +707,6 @@ export default function VineFeed() {
       const nextFeedId = res.headers.get("X-Vine-Next-Cursor-Feed") || "";
       const nextCursor = nextTime && nextFeedId ? { time: nextTime, feedId: nextFeedId } : null;
       feedNextCursorRef.current = nextCursor;
-      setFeedNextCursor(nextCursor);
       setFeedHasMore(Boolean(nextCursor));
       setPosts((prev) => {
         if (!append) return rows;
@@ -876,7 +882,6 @@ export default function VineFeed() {
     setFeedLoading(true);
     setFeedLoadingMore(false);
     feedNextCursorRef.current = null;
-    setFeedNextCursor(null);
     setFeedHasMore(false);
     setSuggestionsLoading(true);
     setTrendingLoading(true);
@@ -956,6 +961,7 @@ export default function VineFeed() {
     if (!statusViewerOpen) return;
     const current = statusItems[statusIndex];
     if (!current || Number(current.seen_by_viewer) === 1) return;
+    if (Number(current.user_id) === Number(me?.id || 0)) return;
     const controller = new AbortController();
 
     const markSeen = async () => {
@@ -985,16 +991,36 @@ export default function VineFeed() {
 
     markSeen();
     return () => controller.abort();
-  }, [statusViewerOpen, statusItems, statusIndex, token]);
+  }, [statusViewerOpen, statusItems, statusIndex, token, me?.id]);
 
   useEffect(() => {
-    if (!statusViewerOpen || !statusItems.length) return;
-    if (statusViewsOpen) return;
     const current = statusItems[statusIndex];
-    if (!current) return;
-    const duration =
-      current.media_type === "video" ? 8000 : current.media_type === "image" ? 6000 : 4500;
+    if (!statusViewerOpen || !current) {
+      statusPlaybackRef.current = { key: "", remainingMs: 0, startedAt: 0 };
+      return;
+    }
+
+    const playbackKey = `${current.id}:${statusIndex}`;
+    const duration = getStatusDisplayDuration(current);
+    if (statusPlaybackRef.current.key !== playbackKey) {
+      statusPlaybackRef.current = {
+        key: playbackKey,
+        remainingMs: duration,
+        startedAt: 0,
+      };
+      setStatusProgressTick((tick) => tick + 1);
+    }
+
+    if (statusViewsOpen || statusInteractionActive) return;
+
+    const playback = statusPlaybackRef.current;
+    const remainingMs = Math.max(0, Number(playback.remainingMs ?? duration));
+    const startedAt = Date.now();
+    playback.startedAt = startedAt;
     const timer = setTimeout(() => {
+      if (statusPlaybackRef.current.key !== playbackKey) return;
+      statusPlaybackRef.current.startedAt = 0;
+      statusPlaybackRef.current.remainingMs = 0;
       setStatusIndex((prev) => {
         if (prev >= statusItems.length - 1) {
           setStatusViewerOpen(false);
@@ -1002,14 +1028,36 @@ export default function VineFeed() {
         }
         return prev + 1;
       });
-    }, duration);
-    setStatusProgressTick((k) => k + 1);
-    return () => clearTimeout(timer);
-  }, [statusViewerOpen, statusIndex, statusItems, statusViewsOpen]);
+    }, remainingMs);
+
+    return () => {
+      clearTimeout(timer);
+      const latestPlayback = statusPlaybackRef.current;
+      if (latestPlayback.key === playbackKey && latestPlayback.startedAt === startedAt) {
+        latestPlayback.remainingMs = Math.max(0, remainingMs - (Date.now() - startedAt));
+        latestPlayback.startedAt = 0;
+      }
+    };
+  }, [statusViewerOpen, statusIndex, statusItems, statusViewsOpen, statusInteractionActive]);
 
   useEffect(() => {
     setStatusReplyText("");
+    setStatusPressPaused(false);
+    setStatusReplyFocused(false);
   }, [statusViewerOpen, statusIndex]);
+
+  useEffect(() => {
+    if (!statusPressPaused) return;
+    const releaseStatus = () => setStatusPressPaused(false);
+    window.addEventListener("pointerup", releaseStatus);
+    window.addEventListener("pointercancel", releaseStatus);
+    window.addEventListener("blur", releaseStatus);
+    return () => {
+      window.removeEventListener("pointerup", releaseStatus);
+      window.removeEventListener("pointercancel", releaseStatus);
+      window.removeEventListener("blur", releaseStatus);
+    };
+  }, [statusPressPaused]);
 
   useEffect(() => {
     if (!statusViewerOpen || !statusItems[statusIndex]) return;
@@ -1053,6 +1101,29 @@ export default function VineFeed() {
       if (statusMediaPreview) URL.revokeObjectURL(statusMediaPreview);
     };
   }, [statusMediaPreview]);
+
+  useEffect(() => {
+    if (!statusComposerOpen && !statusViewerOpen && !statusViewsOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const handleStatusEscape = (event) => {
+      if (event.key !== "Escape") return;
+      if (statusViewsOpen) {
+        setStatusViewsOpen(false);
+      } else if (statusComposerOpen) {
+        setStatusComposerOpen(false);
+      } else {
+        setStatusViewerOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleStatusEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleStatusEscape);
+    };
+  }, [statusComposerOpen, statusViewerOpen, statusViewsOpen]);
 
   useEffect(() => {
     const q = mentionAnchor?.query;
@@ -1102,13 +1173,85 @@ export default function VineFeed() {
     alert("Appeal sent to Guardian");
   };
 
-  const submitStatus = async () => {
-    const text = statusText.trim();
-    if (!text) return;
-    if (STATUS_MEDIA_UPLOADS_FROZEN && statusMediaFile) {
-      alert("Status media uploads are temporarily disabled.");
+  const resetStatusComposer = () => {
+    setStatusText("");
+    setStatusBgColor(STATUS_COLORS[0]);
+    setStatusMediaFile(null);
+    setStatusMediaPreview("");
+    setStatusMediaType("");
+    setStatusComposerError("");
+  };
+
+  const openStatusComposer = () => {
+    resetStatusComposer();
+    setStatusComposerOpen(true);
+  };
+
+  const closeStatusComposer = () => {
+    if (statusSubmitting) return;
+    setStatusComposerOpen(false);
+    resetStatusComposer();
+  };
+
+  const removeStatusMedia = () => {
+    setStatusMediaFile(null);
+    setStatusMediaPreview("");
+    setStatusMediaType("");
+    setStatusComposerError("");
+  };
+
+  const handleStatusMediaChange = async (event) => {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    input.value = "";
+    if (!file || STATUS_MEDIA_UPLOADS_FROZEN) return;
+
+    setStatusComposerError("");
+    const isVideo = file.type.startsWith("video/");
+    const isImage = file.type.startsWith("image/") || isHeicLikeFile(file);
+    if (!isImage && !isVideo) {
+      setStatusComposerError("Choose a photo or video file.");
       return;
     }
+    if (isVideo && file.size > STATUS_MAX_VIDEO_BYTES) {
+      setStatusComposerError("That video is too large. Choose one under 100 MB.");
+      return;
+    }
+    if (isImage && file.size > STATUS_MAX_IMAGE_BYTES) {
+      setStatusComposerError("That photo is too large. Choose one under 25 MB.");
+      return;
+    }
+
+    try {
+      let picked = file;
+      if (isHeicLikeFile(file)) {
+        const convertedFile = await convertHeicFileToJpeg(file);
+        if (!convertedFile) {
+          setStatusComposerError("This HEIC photo could not be prepared. Try JPG, PNG, or WebP.");
+          return;
+        }
+        picked = convertedFile;
+      }
+      setStatusMediaFile(picked);
+      setStatusMediaType(picked.type.startsWith("video/") ? "video" : "image");
+      setStatusMediaPreview(URL.createObjectURL(picked));
+    } catch {
+      setStatusComposerError("This media could not be prepared. Please choose another file.");
+    }
+  };
+
+  const submitStatus = async () => {
+    const text = statusText.trim();
+    if (!text && !statusMediaFile) {
+      setStatusComposerError("Add a photo, video, or a few words before sharing.");
+      return;
+    }
+    if (STATUS_MEDIA_UPLOADS_FROZEN && statusMediaFile) {
+      setStatusComposerError("Status media uploads are temporarily unavailable.");
+      return;
+    }
+    setStatusSubmitting(true);
+    setStatusComposerError("");
     try {
       const body = new FormData();
       if (text) body.append("text", text);
@@ -1121,19 +1264,26 @@ export default function VineFeed() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        alert(data.message || "Failed to post status");
+        setStatusComposerError(data.message || "Vine could not share this status. Please try again.");
         return;
       }
-      setStatusText("");
-      setStatusMediaFile(null);
-      if (statusMediaPreview) URL.revokeObjectURL(statusMediaPreview);
-      setStatusMediaPreview("");
-      setStatusMediaType("");
       setStatusComposerOpen(false);
+      resetStatusComposer();
       loadStatusRail();
     } catch {
-      alert("Failed to post status");
+      setStatusComposerError("Vine could not share this status. Check your connection and try again.");
+    } finally {
+      setStatusSubmitting(false);
     }
+  };
+
+  const openStatusProfile = (event) => {
+    event?.stopPropagation();
+    const username = String(statusViewerUser?.username || "").trim();
+    if (!username) return;
+    setStatusViewsOpen(false);
+    setStatusViewerOpen(false);
+    navigate(`/vine/profile/${encodeURIComponent(username)}`);
   };
 
   const openStatusViewer = async (row) => {
@@ -1150,7 +1300,9 @@ export default function VineFeed() {
       setStatusIndex(firstUnseen >= 0 ? firstUnseen : 0);
       setStatusProgressTick((k) => k + 1);
       setStatusViewerOpen(true);
-    } catch {}
+    } catch (err) {
+      console.error("Open status viewer failed", err);
+    }
   };
 
   const deleteCurrentStatus = async () => {
@@ -1705,7 +1857,7 @@ export default function VineFeed() {
   
     // 🔥 clear URL params after scroll
     navigate("/vine/feed", { replace: true });
-  }, [posts, targetPostId]);
+  }, [navigate, posts, targetPostId]);
 
   const composerWordCount = content.trim() ? content.trim().split(/\s+/).filter(Boolean).length : 0;
   const canUseStyledText =
@@ -2140,26 +2292,17 @@ export default function VineFeed() {
             <span className="vine-feed-tab-subtitle">News desk only</span>
           </button>
         </div>
-        <div className="vine-statuses-rail">
+        <div className="vine-statuses-rail" aria-label="Vine statuses">
           <button
             className="status-add-card"
-            onClick={() => {
-              setStatusText("");
-              setStatusBgColor(STATUS_COLORS[0]);
-              setStatusMediaFile(null);
-              if (statusMediaPreview) URL.revokeObjectURL(statusMediaPreview);
-              setStatusMediaPreview("");
-              setStatusMediaType("");
-              setStatusComposerOpen(true);
-            }}
+            onClick={openStatusComposer}
+            aria-label="Create a status"
           >
             <div className="status-card-art status-card-art-add" aria-hidden="true">
               <span className="status-add-plus">+</span>
-              <span className="status-add-kicker">Create</span>
             </div>
             <div className="status-chip-meta">
-              <span className="status-chip-name">My Status</span>
-              <small className="status-chip-time">Share a moment</small>
+              <span className="status-chip-name">Your status</span>
             </div>
           </button>
           {statusRailLoading && statusRail.length === 0
@@ -2190,9 +2333,11 @@ export default function VineFeed() {
                 >
                   <div className="status-card-badges">
                     {Number(row.unseen_count || 0) > 0 && (
-                      <span className="status-unseen-pill">NEW</span>
+                      <span className="status-unseen-pill" aria-label="New status" />
                     )}
-                    <span className="status-count-pill">{Number(row.status_count || 0)}</span>
+                    {Number(row.status_count || 0) > 1 && (
+                      <span className="status-count-pill">{Number(row.status_count || 0)}</span>
+                    )}
                   </div>
                   <img
                     src={avatarSrc}
@@ -2991,96 +3136,144 @@ export default function VineFeed() {
       )}
 
       {statusComposerOpen && (
-        <div className="status-modal-backdrop" onClick={() => setStatusComposerOpen(false)}>
-          <div className="status-modal" onClick={(e) => e.stopPropagation()}>
-            <h3>Create status</h3>
-            <textarea
-              value={statusText}
-              maxLength={500}
-              placeholder="Share a quick text status..."
-              onChange={(e) => setStatusText(e.target.value)}
-            />
-            <label
-              className={`status-media-picker ${STATUS_MEDIA_UPLOADS_FROZEN ? "disabled" : ""}`}
-              onClick={(e) => {
-                if (!STATUS_MEDIA_UPLOADS_FROZEN) return;
-                e.preventDefault();
-                alert("Status media uploads are temporarily disabled.");
-              }}
-            >
-              Add photo/video
-              <input
-                type="file"
-                accept="image/*,video/*,.heic,.heif"
-                disabled={STATUS_MEDIA_UPLOADS_FROZEN}
-                onChange={async (e) => {
-                  if (STATUS_MEDIA_UPLOADS_FROZEN) return;
-                  const file = e.target.files?.[0];
-                  if (!file) return;
-                  let picked = file;
-                  if (isHeicLikeFile(file)) {
-                    const convertedFile = await convertHeicFileToJpeg(file);
-                    if (!convertedFile) {
-                      alert("HEIC image could not be converted on this device. Please use JPG/PNG/WebP.");
-                      return;
-                    }
-                    picked = convertedFile;
-                  }
-                  if (statusMediaPreview) URL.revokeObjectURL(statusMediaPreview);
-                  setStatusMediaFile(picked);
-                  setStatusMediaType(picked.type.startsWith("video/") ? "video" : "image");
-                  setStatusMediaPreview(URL.createObjectURL(picked));
-                }}
-              />
-            </label>
-            {statusMediaPreview && (
-              <div className="status-media-preview-wrap">
-                {statusMediaType === "video" ? (
-                  <div className="status-video-poster" aria-hidden="true">
-                    <span className="status-video-play">▶</span>
-                    <span className="status-video-label">Video ready to post</span>
-                  </div>
-                ) : (
-                  <img src={statusMediaPreview} alt="Status preview" />
-                )}
-                <button
-                  className="status-media-remove"
-                  onClick={() => {
-                    setStatusMediaFile(null);
-                    if (statusMediaPreview) URL.revokeObjectURL(statusMediaPreview);
-                    setStatusMediaPreview("");
-                    setStatusMediaType("");
-                  }}
-                >
-                  Remove media
-                </button>
-              </div>
-            )}
-            <div className="status-color-row">
-              {STATUS_COLORS.map((c) => (
-                <button
-                  key={c}
-                  className={`status-color-dot ${statusBgColor === c ? "active" : ""}`}
-                  style={{ background: c }}
-                  onClick={() => setStatusBgColor(c)}
-                />
-              ))}
-            </div>
-            <div className="status-modal-actions">
+        <div className="status-modal-backdrop" onClick={closeStatusComposer}>
+          <div
+            className="status-modal status-composer"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="status-composer-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <header className="status-composer-header">
               <button
-                onClick={() => {
-                  setStatusComposerOpen(false);
-                  setStatusMediaFile(null);
-                  if (statusMediaPreview) URL.revokeObjectURL(statusMediaPreview);
-                  setStatusMediaPreview("");
-                  setStatusMediaType("");
+                type="button"
+                className="status-composer-close"
+                onClick={closeStatusComposer}
+                aria-label="Close status composer"
+                disabled={statusSubmitting}
+              >
+                ×
+              </button>
+              <div className="status-composer-heading">
+                <span>Vine status</span>
+                <h3 id="status-composer-title">New moment</h3>
+              </div>
+              <button
+                type="button"
+                className="status-share-btn"
+                onClick={submitStatus}
+                disabled={statusSubmitting || (!statusText.trim() && !statusMediaFile)}
+              >
+                {statusSubmitting ? "Sharing..." : "Share"}
+              </button>
+            </header>
+
+            <div className="status-composer-layout">
+              <div
+                className={`status-composer-canvas ${statusMediaPreview ? "has-media" : "text-only"}`}
+                style={{
+                  backgroundColor: statusBgColor,
+                  "--status-canvas-text": getContrastTextColor(statusBgColor),
                 }}
               >
-                Cancel
-              </button>
-              <button className="primary" onClick={submitStatus}>
-                Post status
-              </button>
+                {statusMediaPreview ? (
+                  <>
+                    {statusMediaType === "video" ? (
+                      <video src={statusMediaPreview} controls playsInline muted />
+                    ) : (
+                      <img src={statusMediaPreview} alt="Status preview" />
+                    )}
+                    <button
+                      type="button"
+                      className="status-media-remove"
+                      onClick={removeStatusMedia}
+                      aria-label="Remove selected media"
+                      title="Remove media"
+                    >
+                      ×
+                    </button>
+                    <textarea
+                      className="status-media-caption-input"
+                      value={statusText}
+                      maxLength={500}
+                      placeholder="Add a caption..."
+                      aria-label="Status caption"
+                      onChange={(e) => {
+                        setStatusText(e.target.value);
+                        setStatusComposerError("");
+                      }}
+                    />
+                  </>
+                ) : (
+                  <textarea
+                    className="status-canvas-text-input"
+                    value={statusText}
+                    maxLength={500}
+                    placeholder="What's happening?"
+                    aria-label="Status text"
+                    onChange={(e) => {
+                      setStatusText(e.target.value);
+                      setStatusComposerError("");
+                    }}
+                  />
+                )}
+              </div>
+
+              <aside className="status-composer-controls">
+                <label
+                  className={`status-media-picker ${STATUS_MEDIA_UPLOADS_FROZEN ? "disabled" : ""}`}
+                  onClick={(e) => {
+                    if (!STATUS_MEDIA_UPLOADS_FROZEN) return;
+                    e.preventDefault();
+                    setStatusComposerError("Status media uploads are temporarily unavailable.");
+                  }}
+                >
+                  <span className="status-media-picker-icon" aria-hidden="true">+</span>
+                  <span className="status-media-picker-copy">
+                    <strong>{statusMediaPreview ? "Change media" : "Photo or video"}</strong>
+                    <small>{statusMediaFile?.name || "Choose from this device"}</small>
+                  </span>
+                  <input
+                    type="file"
+                    accept="image/*,video/*,.heic,.heif"
+                    disabled={STATUS_MEDIA_UPLOADS_FROZEN || statusSubmitting}
+                    onChange={handleStatusMediaChange}
+                  />
+                </label>
+
+                {!statusMediaPreview && (
+                  <div className="status-color-control">
+                    <span>Background</span>
+                    <div className="status-color-row" aria-label="Status background color">
+                      {STATUS_COLORS.map((color) => (
+                        <button
+                          type="button"
+                          key={color}
+                          className={`status-color-dot ${statusBgColor === color ? "active" : ""}`}
+                          style={{ backgroundColor: color }}
+                          onClick={() => {
+                            setStatusBgColor(color);
+                            setStatusComposerError("");
+                          }}
+                          aria-label={`Use background ${color}`}
+                          aria-pressed={statusBgColor === color}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="status-composer-meta">
+                  <span>24 hours</span>
+                  <span>{statusText.length}/500</span>
+                </div>
+
+                {statusComposerError && (
+                  <div className="status-composer-error" role="alert">
+                    {statusComposerError}
+                  </div>
+                )}
+              </aside>
             </div>
           </div>
         </div>
@@ -3088,7 +3281,13 @@ export default function VineFeed() {
 
       {statusViewerOpen && statusItems[statusIndex] && (
         <div className="status-viewer-backdrop" onClick={() => setStatusViewerOpen(false)}>
-          <div className={`status-viewer ${statusViewsOpen ? "paused" : ""}`} onClick={(e) => e.stopPropagation()}>
+          <div
+            className={`status-viewer ${statusViewsOpen || statusInteractionActive ? "paused" : ""}`}
+            role="dialog"
+            aria-modal="true"
+            aria-label={`${statusViewerUser?.display_name || statusViewerUser?.username || "Vine"} status`}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="status-progress-row">
               {statusItems.map((_, idx) => {
                 const current = statusItems[statusIndex];
@@ -3116,7 +3315,7 @@ export default function VineFeed() {
               })}
             </div>
             <div className="status-viewer-top">
-              <div className="status-viewer-user">
+              <button type="button" className="status-viewer-user" onClick={openStatusProfile}>
                 <img
                   src={
                     statusViewerUser?.avatar_url
@@ -3130,8 +3329,8 @@ export default function VineFeed() {
                     e.currentTarget.src = DEFAULT_AVATAR;
                   }}
                 />
-                <div>
-                  <div className="status-viewer-title-name">
+                <span className="status-viewer-user-copy">
+                  <span className="status-viewer-title-name">
                     {statusViewerUser?.display_name || statusViewerUser?.username || "Status"}
                     {(Number(statusViewerUser?.is_verified) === 1 ||
                       ["vine guardian", "vine_guardian", "vine news", "vine_news"].includes(
@@ -3157,24 +3356,40 @@ export default function VineFeed() {
                         </svg>
                       </span>
                     )}
-                  </div>
+                  </span>
                   <small>{formatStatusTime(statusItems[statusIndex].created_at)}</small>
-                </div>
-              </div>
+                </span>
+              </button>
               <div className="status-viewer-top-actions">
                 {Number(statusItems[statusIndex]?.user_id) === Number(me?.id || 0) && (
-                  <button className="status-delete-btn" onClick={deleteCurrentStatus}>
+                  <button type="button" className="status-delete-btn" onClick={deleteCurrentStatus}>
                     Delete
                   </button>
                 )}
-                <button className="status-close-btn" onClick={() => setStatusViewerOpen(false)}>
+                <button
+                  type="button"
+                  className="status-close-btn"
+                  onClick={() => setStatusViewerOpen(false)}
+                  aria-label="Close status"
+                >
                   ×
                 </button>
               </div>
             </div>
             <div
-              className="status-viewer-body"
+              className={`status-viewer-body ${statusItems[statusIndex].media_url ? "has-media" : "text-only"}`}
               style={{ background: statusItems[statusIndex].bg_color || STATUS_COLORS[0] }}
+              onPointerDown={(event) => {
+                if (event.pointerType === "mouse" && event.button !== 0) return;
+                setStatusPressPaused(true);
+              }}
+              onPointerUp={() => setStatusPressPaused(false)}
+              onPointerCancel={() => setStatusPressPaused(false)}
+              onPointerLeave={(event) => {
+                if (event.pointerType === "mouse") setStatusPressPaused(false);
+              }}
+              onContextMenu={(event) => event.preventDefault()}
+              aria-label="Hold to pause status"
             >
               {statusItems[statusIndex].media_url ? (
                 <div className="status-viewer-media-wrap">
@@ -3186,7 +3401,7 @@ export default function VineFeed() {
                       playsInline
                     />
                   ) : (
-                    <img src={statusItems[statusIndex].media_url} alt="Status media" />
+                    <img src={statusItems[statusIndex].media_url} alt="Status media" draggable="false" />
                   )}
                   {statusItems[statusIndex].text_content ? (
                     <div className="status-viewer-caption">
@@ -3196,6 +3411,12 @@ export default function VineFeed() {
                 </div>
               ) : (
                 statusItems[statusIndex].text_content
+              )}
+              {statusPressPaused && (
+                <div className="status-hold-indicator" aria-hidden="true">
+                  <span />
+                  <span />
+                </div>
               )}
             </div>
             <div className="status-interact-row">
@@ -3221,6 +3442,8 @@ export default function VineFeed() {
                   <input
                     value={statusReplyText}
                     onChange={(e) => setStatusReplyText(e.target.value)}
+                    onFocus={() => setStatusReplyFocused(true)}
+                    onBlur={() => setStatusReplyFocused(false)}
                     placeholder="Reply to this status..."
                     maxLength={1000}
                   />
@@ -3232,10 +3455,12 @@ export default function VineFeed() {
             </div>
             <div className="status-viewer-actions">
               <button
+                type="button"
                 disabled={statusIndex <= 0}
                 onClick={() => setStatusIndex((i) => Math.max(0, i - 1))}
+                aria-label="Previous status"
               >
-                Prev
+                ←
               </button>
               <div className="status-viewer-mid">
                 <span>
@@ -3247,15 +3472,19 @@ export default function VineFeed() {
                     onClick={() => setStatusViewsOpen(true)}
                     title="Viewers"
                   >
-                    👁 {statusViewsLoading ? "..." : statusViewers.length}
+                    {statusViewsLoading
+                      ? "Loading viewers..."
+                      : `${statusViewers.length} ${statusViewers.length === 1 ? "viewer" : "viewers"}`}
                   </button>
                 )}
               </div>
               <button
+                type="button"
                 disabled={statusIndex >= statusItems.length - 1}
                 onClick={() => setStatusIndex((i) => Math.min(statusItems.length - 1, i + 1))}
+                aria-label="Next status"
               >
-                Next
+                →
               </button>
             </div>
           </div>

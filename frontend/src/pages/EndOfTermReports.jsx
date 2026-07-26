@@ -1374,56 +1374,86 @@ import { recordAdminReportGeneration } from "../utils/adminAuditEvents";
       <h2>{isEndOfYearMode ? "📕 End of Year Reports" : "📘 End of Term Reports"}</h2>
 
       {/* FILTERS */}
-      <div className="filter-grid">
-        <select value={year} onChange={(e) => setYear(e.target.value)}>
-        <option value={currentYear}>{currentYear}</option>
-        <option value={currentYear - 1}>{currentYear - 1}</option>
+      <div className="report-filter-grid">
+        <label className="report-filter-field">
+          <span>Academic Year</span>
+          <span className="report-select-shell">
+            <select value={year} onChange={(e) => setYear(e.target.value)}>
+              <option value={currentYear}>{currentYear}</option>
+              <option value={currentYear - 1}>{currentYear - 1}</option>
+            </select>
+          </span>
+        </label>
 
-        </select>
+        <label className="report-filter-field">
+          <span>Term</span>
+          <span className="report-select-shell">
+            <select value={term} onChange={(e) => setTerm(e.target.value)}>
+              {termOptions.map((t) => (
+                <option key={t.value} value={t.value}>{t.label}</option>
+              ))}
+            </select>
+          </span>
+        </label>
 
-        <select value={term} onChange={(e) => setTerm(e.target.value)}>
-          {termOptions.map((t) => (
-            <option key={t.value} value={t.value}>{t.label}</option>
-          ))}
-        </select>
+        <label className="report-filter-field">
+          <span>Class</span>
+          <span className="report-select-shell">
+            <select value={classLevel} onChange={(e) => setClassLevel(e.target.value)}>
+              <option value="S1">S1</option>
+              <option value="S2">S2</option>
+              <option value="S3">S3</option>
+              <option value="S4">S4</option>
+            </select>
+          </span>
+        </label>
 
-        <select value={classLevel} onChange={(e) => setClassLevel(e.target.value)}>
-          <option value="S1">S1</option>
-          <option value="S2">S2</option>
-          <option value="S3">S3</option>
-          <option value="S4">S4</option>
-        </select>
+        <label className="report-filter-field">
+          <span>Stream</span>
+          <span className="report-select-shell">
+            <select value={stream} onChange={(e) => setStream(e.target.value)}>
+              <option value="North">North</option>
+              <option value="South">South</option>
+            </select>
+          </span>
+        </label>
 
-        <select value={stream} onChange={(e) => setStream(e.target.value)}>
-          <option value="North">North</option>
-          <option value="South">South</option>
-        </select>
-        <select value={studentId} onChange={(e) => setStudentId(e.target.value)}>
-  <option value="">All students (class report)</option>
-  {data
-    .map((r) => ({ id: r.student_id, name: r.student_name }))
-    .filter(
-      (v, i, a) => a.findIndex(x => x.id === v.id) === i
-    )
-    .map((s) => (
-      <option key={s.id} value={s.id}>
-        {s.name}
-      </option>
-    ))}
-</select>
-
+        <label className="report-filter-field report-filter-field-learner">
+          <span>Learner</span>
+          <span className="report-select-shell">
+            <select value={studentId} onChange={(e) => setStudentId(e.target.value)}>
+              <option value="">All students (class report)</option>
+              {data
+                .map((r) => ({ id: r.student_id, name: r.student_name }))
+                .filter(
+                  (v, i, a) => a.findIndex((candidate) => candidate.id === v.id) === i
+                )
+                .map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+            </select>
+          </span>
+        </label>
       </div>
 
       {/* ACTIONS */}
-      <div style={{ marginTop: "1rem" }}>
-        <button onClick={handlePreview} disabled={loading || downloading}>
+      <div className="report-filter-actions">
+        <button
+          type="button"
+          className="report-action-button report-preview-button"
+          onClick={handlePreview}
+          disabled={loading || downloading}
+        >
           {loading ? "Loading…" : "Preview"}
         </button>
 
         <button
+          type="button"
+          className="report-action-button report-download-button"
           onClick={handleDownload}
           disabled={data.length === 0 || downloading}
-          style={{ marginLeft: "1rem" }}
         >
           {downloading ? "Generating PDF…" : "Download PDF"}
         </button>

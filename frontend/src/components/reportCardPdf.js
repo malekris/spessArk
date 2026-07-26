@@ -184,10 +184,11 @@ const abbreviateName = (name = "") => {
   return `${firstInitial}. ${lastName}`;
 };
 
-const formatReportSubject = (subject = "") => {
-  return String(subject).trim() === "Christian Religious Education"
-    ? "CRE"
-    : String(subject || "");
+const formatReportSubject = (subject = "", { abbreviatePhysicalEducation = false } = {}) => {
+  const normalizedSubject = String(subject || "").trim();
+  if (normalizedSubject === "Christian Religious Education") return "CRE";
+  if (abbreviatePhysicalEducation && normalizedSubject === "Physical Education") return "PE";
+  return normalizedSubject;
 };
 
 const normalizeReportStream = (stream = "") =>
@@ -635,7 +636,7 @@ const tableHead = isEndOfYear
 
 const tableData = isEndOfYear
   ? student.subjects.map((s) => [
-      formatReportSubject(s.subject),
+      formatReportSubject(s.subject, { abbreviatePhysicalEducation: true }),
       formatAoiCell(s.AOI1, s.AOI1_status),
       formatAoiCell(s.AOI2, s.AOI2_status),
       formatAoiCell(s.AOI3, s.AOI3_status),
@@ -742,16 +743,12 @@ const subjectsTableEndY = doc.lastAutoTable.finalY;
 // For end-of-year portrait, keep summary/scale/comments below the marks table.
 if (SINGLE_COLUMN_MODE) {
   currentColumn = "left";
-  currentY = subjectsTableEndY + RHYTHM;
+  currentY = subjectsTableEndY + (isEndOfYear ? RHYTHM * 0.6 : RHYTHM);
 } else {
   // 🔁 FORCE SWITCH TO RIGHT COLUMN
   currentColumn = "right";
   currentY = CONTENT_START_Y;
 }
-
-
-// ✅ ALWAYS define afterTableY immediately after subject table
-const afterTableY = doc.lastAutoTable.finalY + RHYTHM;
 
     /* ===========================
        OVERALL AVERAGE
@@ -848,7 +845,7 @@ if (isEndOfYear) {
     },
     theme: "grid",
   });
-  currentY = doc.lastAutoTable.finalY + RHYTHM;
+  currentY = doc.lastAutoTable.finalY + RHYTHM * 0.5;
 } else {
   ensureSpace(18);
 
@@ -896,33 +893,35 @@ if (isEndOfYear) {
  /* ===========================
    GRADING SCALE (COMPACT)
 =========================== */
-ensureSpace(18);
-autoTable(doc, {
-  startY: currentY,
-  margin: { left: getColumnX() },
-  tableWidth: isEndOfYear ? COLUMN_WIDTH : TERM_MARKS_TABLE_WIDTH,
-  body: [[
-    "BASIC: 0.9 - 1.4",
-    "MODERATE: 1.5 - 2.4",
-    "OUTSTANDING: 2.5 - 3.0",
-  ]],
-  styles: buildTableStyles({
-    fontSize: 8.6,
-    fontStyle: "bold",
-    halign: "center",
-    lineHeight: 1.0,
-  }),
-  bodyStyles: buildBodyStyles({
-    fillColor: [252, 252, 252],
-  }),
-  columnStyles: {
-    0: { cellWidth: (isEndOfYear ? COLUMN_WIDTH : TERM_MARKS_TABLE_WIDTH) / 3 },
-    1: { cellWidth: (isEndOfYear ? COLUMN_WIDTH : TERM_MARKS_TABLE_WIDTH) / 3 },
-    2: { cellWidth: (isEndOfYear ? COLUMN_WIDTH : TERM_MARKS_TABLE_WIDTH) / 3 },
-  },
-  theme: "grid",
-});
-currentY = doc.lastAutoTable.finalY + RHYTHM * 0.75;
+if (!isEndOfYear) {
+  ensureSpace(18);
+  autoTable(doc, {
+    startY: currentY,
+    margin: { left: getColumnX() },
+    tableWidth: TERM_MARKS_TABLE_WIDTH,
+    body: [[
+      "BASIC: 0.9 - 1.4",
+      "MODERATE: 1.5 - 2.4",
+      "OUTSTANDING: 2.5 - 3.0",
+    ]],
+    styles: buildTableStyles({
+      fontSize: 8.6,
+      fontStyle: "bold",
+      halign: "center",
+      lineHeight: 1.0,
+    }),
+    bodyStyles: buildBodyStyles({
+      fillColor: [252, 252, 252],
+    }),
+    columnStyles: {
+      0: { cellWidth: TERM_MARKS_TABLE_WIDTH / 3 },
+      1: { cellWidth: TERM_MARKS_TABLE_WIDTH / 3 },
+      2: { cellWidth: TERM_MARKS_TABLE_WIDTH / 3 },
+    },
+    theme: "grid",
+  });
+  currentY = doc.lastAutoTable.finalY + RHYTHM * 0.75;
+}
 
 /* ===========================
    END OF YEAR GRADE BANDS
@@ -959,7 +958,38 @@ if (isEndOfYear) {
     },
     theme: "grid",
   });
-  currentY = doc.lastAutoTable.finalY + RHYTHM * 0.75;
+
+  currentY = doc.lastAutoTable.finalY + RHYTHM * 0.35;
+  ensureSpace(10);
+  autoTable(doc, {
+    startY: currentY,
+    margin: { left: getColumnX() },
+    tableWidth: COLUMN_WIDTH,
+    body: [[
+      "BASIC: 0.9 - 1.4",
+      "MODERATE: 1.5 - 2.4",
+      "OUTSTANDING: 2.5 - 3.0",
+    ]],
+    styles: buildTableStyles({
+      fontSize: 8.2,
+      fontStyle: "bold",
+      halign: "center",
+      lineHeight: 1.0,
+      cellPadding: { top: 1.2, right: 1.5, bottom: 1.2, left: 1.5 },
+    }),
+    bodyStyles: buildBodyStyles({
+      fillColor: [252, 252, 252],
+    }),
+    columnStyles: {
+      0: { cellWidth: COLUMN_WIDTH / 3 },
+      1: { cellWidth: COLUMN_WIDTH / 3 },
+      2: { cellWidth: COLUMN_WIDTH / 3 },
+    },
+    pageBreak: "avoid",
+    rowPageBreak: "avoid",
+    theme: "grid",
+  });
+  currentY = doc.lastAutoTable.finalY + RHYTHM * 0.45;
 }
 
 /* ===========================
@@ -998,7 +1028,8 @@ autoTable(doc, {
   theme: "grid",
 });
 
-currentY = doc.lastAutoTable.finalY + RHYTHM;
+currentY =
+  doc.lastAutoTable.finalY + (isEndOfYear ? RHYTHM * 0.5 : RHYTHM);
 
 /* ===========================
    REQUIREMENTS

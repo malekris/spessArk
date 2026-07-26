@@ -108,8 +108,8 @@ function MiniProgressReports({ onClose }) {
   };
 
   return (
-    <section className="panel">
-      <div className="panel-header">
+    <section className="panel mini-report-panel">
+      <div className="panel-header mini-report-header">
         <div>
           <h2>Mini Reports</h2>
           <p>Generate AOI 1 mini progress slips for parents. Two slips fit on one landscape A4 page.</p>
@@ -119,121 +119,108 @@ function MiniProgressReports({ onClose }) {
         </button>
       </div>
 
-      <div className="admin-section">
-        <div className="filter-grid">
-          <select value={year} onChange={(e) => setYear(e.target.value)}>
-            <option value={currentYear}>{currentYear}</option>
-            <option value={currentYear - 1}>{currentYear - 1}</option>
-          </select>
+      <div className="admin-section mini-report-workspace">
+        <div className="report-filter-grid mini-report-filter-grid">
+          <label className="report-filter-field">
+            <span>Academic Year</span>
+            <span className="report-select-shell">
+              <select value={year} onChange={(e) => setYear(e.target.value)}>
+                <option value={currentYear}>{currentYear}</option>
+                <option value={currentYear - 1}>{currentYear - 1}</option>
+              </select>
+            </span>
+          </label>
 
-          <select value={term} onChange={(e) => setTerm(e.target.value)}>
-            <option value="1">Term 1</option>
-            <option value="2">Term 2</option>
-            <option value="3">Term 3</option>
-          </select>
+          <label className="report-filter-field">
+            <span>Term</span>
+            <span className="report-select-shell">
+              <select value={term} onChange={(e) => setTerm(e.target.value)}>
+                <option value="1">Term 1</option>
+                <option value="2">Term 2</option>
+                <option value="3">Term 3</option>
+              </select>
+            </span>
+          </label>
 
-          <select value={classLevel} onChange={(e) => setClassLevel(e.target.value)}>
-            <option value="S1">S1</option>
-            <option value="S2">S2</option>
-            <option value="S3">S3</option>
-            <option value="S4">S4</option>
-          </select>
+          <label className="report-filter-field">
+            <span>Class</span>
+            <span className="report-select-shell">
+              <select value={classLevel} onChange={(e) => setClassLevel(e.target.value)}>
+                <option value="S1">S1</option>
+                <option value="S2">S2</option>
+                <option value="S3">S3</option>
+                <option value="S4">S4</option>
+              </select>
+            </span>
+          </label>
 
-          <select value={stream} onChange={(e) => setStream(e.target.value)}>
-            <option value="North">North</option>
-            <option value="South">South</option>
-          </select>
+          <label className="report-filter-field">
+            <span>Stream</span>
+            <span className="report-select-shell">
+              <select value={stream} onChange={(e) => setStream(e.target.value)}>
+                <option value="North">North</option>
+                <option value="South">South</option>
+              </select>
+            </span>
+          </label>
 
-          <select value={studentId} onChange={(e) => setStudentId(e.target.value)}>
-            <option value="">All learners (bulk mini reports)</option>
-            {groupedStudents.map((student) => (
-              <option key={student.id} value={student.id}>
-                {student.name}
-              </option>
-            ))}
-          </select>
+          <label className="report-filter-field report-filter-field-learner">
+            <span>Learner</span>
+            <span className="report-select-shell">
+              <select value={studentId} onChange={(e) => setStudentId(e.target.value)}>
+                <option value="">All learners (bulk mini reports)</option>
+                {groupedStudents.map((student) => (
+                  <option key={student.id} value={student.id}>
+                    {student.name}
+                  </option>
+                ))}
+              </select>
+            </span>
+          </label>
         </div>
 
-        <div style={{ marginTop: "1rem", display: "flex", gap: "0.85rem", flexWrap: "wrap" }}>
-          <button onClick={handlePreview} disabled={loading || downloading}>
+        <div className="report-filter-actions mini-report-actions">
+          <button
+            type="button"
+            className="report-action-button mini-report-preview-button"
+            onClick={handlePreview}
+            disabled={loading || downloading}
+          >
             {loading ? "Loading…" : "Preview"}
           </button>
-          <button onClick={handleDownload} disabled={!data.length || downloading}>
+          <button
+            type="button"
+            className="report-action-button mini-report-download-button"
+            onClick={handleDownload}
+            disabled={!data.length || downloading}
+          >
             {downloading ? "Generating PDF…" : "Download PDF"}
           </button>
         </div>
 
         {downloading && (
-          <div
-            style={{
-              marginTop: "1rem",
-              padding: "0.95rem 1rem",
-              borderRadius: "1rem",
-              border: "1px solid rgba(59, 130, 246, 0.28)",
-              background: "rgba(15, 23, 42, 0.82)",
-              display: "grid",
-              gap: "0.7rem",
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                gap: "1rem",
-                color: "#dbeafe",
-                fontSize: "0.92rem",
-              }}
-            >
-              <strong style={{ color: "#93c5fd" }}>Processing Mini Reports</strong>
+          <div className="mini-report-progress">
+            <div className="mini-report-progress-head">
+              <strong>Processing Mini Reports</strong>
               <span>{downloadProgress}%</span>
             </div>
-            <div
-              style={{
-                width: "100%",
-                height: "12px",
-                borderRadius: "999px",
-                background: "rgba(30, 41, 59, 0.92)",
-                overflow: "hidden",
-                border: "1px solid rgba(148, 163, 184, 0.2)",
-              }}
-            >
+            <div className="mini-report-progress-track">
               <div
+                className="mini-report-progress-value"
                 style={{
                   width: `${Math.max(4, downloadProgress)}%`,
-                  height: "100%",
-                  borderRadius: "999px",
-                  background: "linear-gradient(90deg, #38bdf8 0%, #22c55e 100%)",
-                  transition: "width 160ms ease",
                 }}
               />
             </div>
-            <div style={{ color: "#cbd5e1", fontSize: "0.88rem" }}>{downloadStage || "Generating mini reports..."}</div>
+            <div className="mini-report-progress-stage">
+              {downloadStage || "Generating mini reports..."}
+            </div>
           </div>
         )}
 
-        <div
-          style={{
-            marginTop: "1rem",
-            padding: "0.95rem 1rem",
-            borderRadius: "1rem",
-            border: "1px solid rgba(148, 163, 184, 0.28)",
-            background: "rgba(15, 23, 42, 0.72)",
-            display: "grid",
-            gap: "0.6rem",
-          }}
-        >
-          <div
-            style={{
-              fontSize: "0.78rem",
-              textTransform: "uppercase",
-              letterSpacing: "0.14em",
-              color: "#93c5fd",
-            }}
-          >
-            Parent Meeting Snapshot
-          </div>
-          <div style={{ fontSize: "0.9rem", color: "#cbd5e1", lineHeight: 1.6 }}>
+        <div className="mini-report-snapshot">
+          <div className="mini-report-snapshot-label">Parent Meeting Snapshot</div>
+          <div className="mini-report-snapshot-copy">
             This mini report uses <strong>AOI 1 only</strong> and prints <strong>2 learners per landscape A4 page</strong>. It is separate from the main report card flow.
           </div>
         </div>
@@ -241,10 +228,16 @@ function MiniProgressReports({ onClose }) {
         {error && <div className="error-box">{error}</div>}
 
         {data.length > 0 && (
-          <div className="preview-box">
-            <p>✅ {groupedStudents.length} learners ready for mini reports</p>
-            <p>Subjects included: {new Set(data.map((row) => row.subject)).size}</p>
-            <p>Mode: AOI 1 snapshot only</p>
+          <div className="mini-report-ready">
+            <div className="mini-report-ready-head">
+              <strong>Preview Ready</strong>
+              <span>AOI 1</span>
+            </div>
+            <div className="mini-report-ready-stats">
+              <span><strong>{groupedStudents.length}</strong> learners</span>
+              <span><strong>{new Set(data.map((row) => row.subject)).size}</strong> subjects</span>
+              <span>Landscape A4</span>
+            </div>
           </div>
         )}
       </div>

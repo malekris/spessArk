@@ -839,9 +839,26 @@ export default function AdminDashboard() {
     { title: "Assign Subjects", subtitle: "Link teachers to classes", icon: "📘" },
     { title: "Download Marks", subtitle: "View & export assessment scores", icon: "📊" },
     { title: "Manage Teachers", subtitle: "Accounts & permissions", icon: "🧑🏽‍🏫" },
-    { title: "End of Term Reports", subtitle: "Term 1 & Term 2 report cards", icon: "📘", route: "/admin/reports/term" },
-    { title: "Mini Reports", subtitle: "AOI 1 parent progress slips", icon: "🧾" },
-    { title: "End of Year Reports", subtitle: "Term 3 report cards", icon: "📕", route: "/admin/reports/year" },
+    {
+      title: "End of Term Reports",
+      subtitle: "Term 1 & Term 2 report cards",
+      icon: "📘",
+      route: "/admin/reports/term",
+      cardClassName: "admin-card-term-reports",
+    },
+    {
+      title: "Mini Reports",
+      subtitle: "AOI 1 parent progress slips",
+      icon: "🧾",
+      cardClassName: "admin-card-mini-reports",
+    },
+    {
+      title: "End of Year Reports",
+      subtitle: "Term 3 report cards",
+      icon: "📕",
+      route: "/admin/reports/year",
+      cardClassName: "admin-card-year-reports",
+    },
     {
       title: "Learner Promotion",
       subtitle: promotionWindowOpen
@@ -6668,7 +6685,11 @@ export default function AdminDashboard() {
           {cards.map((card) => (
             <article
               key={card.title}
-              className={`admin-card ${card.status === "archived" ? "admin-card-archived" : ""}`}
+              className={[
+                "admin-card",
+                card.cardClassName || "",
+                card.status === "archived" ? "admin-card-archived" : "",
+              ].filter(Boolean).join(" ")}
             >
               <div className={`card-icon ${card.iconClassName || ""}`.trim()}>{card.icon}</div>
               <div className="card-body">

@@ -72,6 +72,12 @@ const toNumberOrNull = (value) => {
 const isMissedStatus = (status) => String(status || "").trim().toLowerCase() === "missed";
 const isMissingStatus = (status) => String(status || "").trim().toLowerCase() === "missing";
 
+const formatAlevelReportStatus = (value) => {
+  if (isMissedStatus(value)) return "X";
+  if (isMissingStatus(value)) return "Not Submitted";
+  return value;
+};
+
 const getAlevelSubjectGroups = (student = {}) => [
   ...(Array.isArray(student.principals)
     ? student.principals.map((subject) => ({ ...subject, subjectType: "Principal" }))
@@ -1759,22 +1765,29 @@ async function generateAlevelPDF(data, meta) {
     : [["Subject", "Paper", "MID", "EOT", "Paper Avg", "Score", "Grade", "Points", "Teacher"]];
 
   const formatPaperScore = (value) => {
-    if (value === null || value === undefined || value === "") return "Missing";
+    if (
+      value === null ||
+      value === undefined ||
+      value === "" ||
+      isMissedStatus(value) ||
+      isMissingStatus(value)
+    ) {
+      return "—";
+    }
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed.toFixed(1).replace(/\.0$/, "") : String(value);
   };
 
   const formatComponentScore = (value, status) => {
-    const normalizedStatus = String(status || "").trim().toLowerCase();
-    if (normalizedStatus === "missed") return "Missed";
-    if (normalizedStatus === "missing") return "Missing";
+    if (isMissedStatus(status) || isMissingStatus(status)) {
+      return formatAlevelReportStatus(status);
+    }
     return formatPaperScore(value);
   };
 
-  const formatAverage = (value, status) => {
-    const normalizedStatus = String(status || "").trim().toLowerCase();
+  const formatAverage = (value) => {
     if (value === null || value === undefined || value === "") {
-      return normalizedStatus === "missed" ? "Missed" : "Missing";
+      return "—";
     }
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed.toFixed(1) : String(value);
@@ -1814,20 +1827,20 @@ async function generateAlevelPDF(data, meta) {
         row.push(formatComponentScore(paperRow.mid, paperRow.mid_status));
         if (!midOnly) {
           row.push(formatComponentScore(paperRow.eot, paperRow.eot_status));
-          row.push(formatAverage(paperRow.avg, paperRow.resultStatus));
+          row.push(formatAverage(paperRow.avg));
         }
-        row.push(paperRow.paperScore || "Missing");
+        row.push(formatPaperScore(paperRow.paperScore));
 
         if (index === 0) {
+          const incompleteSubject =
+            isMissingStatus(subjectGroup.grade) || isMissedStatus(subjectGroup.grade);
           row.push({
-            content: subjectGroup.grade || "—",
+            content: incompleteSubject ? "—" : subjectGroup.grade || "—",
             rowSpan: papers.length,
             styles: { valign: "middle", fontStyle: "bold" },
           });
           row.push({
-            content: ["Missing", "Missed"].includes(subjectGroup.grade)
-              ? subjectGroup.grade
-              : String(subjectGroup.points ?? "—"),
+            content: incompleteSubject ? "—" : String(subjectGroup.points ?? "—"),
             rowSpan: papers.length,
             styles: { valign: "middle", fontStyle: "bold" },
           });

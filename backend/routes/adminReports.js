@@ -886,7 +886,10 @@ router.get("/mini-aoi1", authAdmin, async (req, res) => {
       normalizeStream
     );
 
-    const reportRows = (rows || []).filter(isReportRowForRegisteredSubject);
+    // Marks entry already validates learner registration. Mini reports must not
+    // discard a retained handover mark because older registration text differs
+    // from the current assignment subject label.
+    const reportRows = rows || [];
 
     const processedAll = reportRows.map((row) => {
       const registeredSubjects = parseStoredSubjects(row.registered_subjects);

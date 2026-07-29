@@ -68,24 +68,29 @@ function MiniProgressReports({ onClose }) {
     return Array.from(seen.entries()).map(([id, name]) => ({ id, name }));
   }, [data]);
 
+  const fetchMiniReportRows = async () => {
+    const params = new URLSearchParams({
+      year,
+      term,
+      class_level: classLevel,
+      stream,
+    });
+
+    if (studentId) params.append("student_id", studentId);
+
+    const rows = await adminFetch(`/api/admin/reports/mini-aoi1?${params.toString()}`);
+    return Array.isArray(rows) ? rows : [];
+  };
+
   const handlePreview = async () => {
     setLoading(true);
     setError("");
     setData([]);
 
     try {
-      const params = new URLSearchParams({
-        year,
-        term,
-        class_level: classLevel,
-        stream,
-      });
+      const rows = await fetchMiniReportRows();
 
-      if (studentId) params.append("student_id", studentId);
-
-      const rows = await adminFetch(`/api/admin/reports/mini-aoi1?${params.toString()}`);
-
-      if (!Array.isArray(rows) || rows.length === 0) {
+      if (rows.length === 0) {
         setError(
           studentId
             ? "No AOI 1 mini report data found for the selected learner."
@@ -93,7 +98,7 @@ function MiniProgressReports({ onClose }) {
         );
       }
 
-      setData(Array.isArray(rows) ? rows : []);
+      setData(rows);
     } catch (err) {
       setError(err.message || "Failed to load mini report data.");
     } finally {
@@ -102,11 +107,7 @@ function MiniProgressReports({ onClose }) {
   };
 
   const handleDownload = async () => {
-    const downloadRows = studentId
-      ? data.filter((row) => String(row.student_id) === String(studentId))
-      : data;
-
-    if (!downloadRows.length) {
+    if (!data.length) {
       setError("Preview the AOI 1 mini reports first.");
       return;
     }
@@ -117,6 +118,17 @@ function MiniProgressReports({ onClose }) {
     setDownloadStage("Preparing mini reports...");
 
     try {
+      setDownloadStage("Refreshing current AOI 1 marks...");
+      const downloadRows = await fetchMiniReportRows();
+      if (!downloadRows.length) {
+        throw new Error(
+          studentId
+            ? "No current AOI 1 report data was found for the selected learner."
+            : "No current AOI 1 report data was found for this class and stream."
+        );
+      }
+      setData(downloadRows);
+
       await generateMiniProgressReportPdf(
         downloadRows,
         {

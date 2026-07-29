@@ -307,7 +307,9 @@ export default async function generateMiniProgressReportPdf(rows, meta = {}, opt
     doc.setTextColor(...colors.navy);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(15.2);
-    doc.text("MINI PROGRESS REPORT", pageWidth / 2, 47.6, { align: "center" });
+    doc.text("VISITATION DAY PROGRESS REPORT CARD", pageWidth / 2, 47.6, {
+      align: "center",
+    });
     doc.setTextColor(...colors.emeraldDark);
     doc.setFontSize(8.5);
     doc.text(`AOI 1 SNAPSHOT  |  ${termLabel.toUpperCase()}  |  ${yearLabel}`, pageWidth / 2, 51.5, {

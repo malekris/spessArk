@@ -739,9 +739,14 @@ export default async function generateMiniProgressReportPdf(rows, meta = {}, opt
     doc.setFontSize(7.4);
     doc.text(
       "Report not valid without school stamp.",
-      pageWidth / 2,
+      pageMargin,
       scaleTopY + performanceTableHeight + 4.2,
-      { align: "center" }
+    );
+    doc.setFont("helvetica", "normal");
+    doc.text(
+      `This term ends on: ${formatDateOnly(meta.termEndedOn)}`,
+      pageMargin,
+      scaleTopY + performanceTableHeight + 8.2
     );
 
     doc.setTextColor(...colors.muted);

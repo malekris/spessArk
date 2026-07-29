@@ -1,7 +1,18 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { adminFetch } from "../lib/api";
 import generateMiniProgressReportPdf from "../components/miniProgressReportPdf";
 import { recordAdminReportGeneration } from "../utils/adminAuditEvents";
+import { normalizeSchoolCalendar } from "../utils/schoolCalendar";
+
+const getCalendarTermEndDate = (calendar, term, year) => {
+  const normalized = normalizeSchoolCalendar(calendar || {});
+  if (String(normalized.academicYear || "") !== String(year || "")) return "";
+
+  const termIndex = Number.parseInt(String(term || "").replace(/\D/g, ""), 10);
+  if (![1, 2, 3].includes(termIndex)) return "";
+
+  return normalized.entries.find((entry) => entry.key === `term${termIndex}`)?.to || "";
+};
 
 function MiniProgressReports({ onClose }) {
   const currentYear = new Date().getFullYear();
@@ -16,6 +27,29 @@ function MiniProgressReports({ onClose }) {
   const [downloadStage, setDownloadStage] = useState("");
   const [error, setError] = useState("");
   const [data, setData] = useState([]);
+  const [schoolCalendar, setSchoolCalendar] = useState(null);
+
+  useEffect(() => {
+    let active = true;
+
+    adminFetch("/api/admin/school-calendar")
+      .then((calendar) => {
+        if (active) setSchoolCalendar(calendar);
+      })
+      .catch((err) => {
+        console.error("Failed to load the school calendar for Mini Reports:", err);
+        if (active) setSchoolCalendar(null);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const termEndedOn = useMemo(
+    () => getCalendarTermEndDate(schoolCalendar, term, year),
+    [schoolCalendar, term, year]
+  );
 
   const groupedStudents = useMemo(() => {
     const seen = new Map();
@@ -79,6 +113,7 @@ function MiniProgressReports({ onClose }) {
           term: term === "1" ? "Term 1" : term === "2" ? "Term 2" : "Term 3",
           class_level: classLevel,
           stream,
+          termEndedOn,
         },
         {
           onProgress: ({ percent, stage }) => {

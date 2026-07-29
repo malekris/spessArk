@@ -96,6 +96,15 @@ const normalizeRegisteredSubjectKey = (value) => {
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]/g, "");
+  if (
+    compact === "ict" ||
+    compact.includes("informationcommunicationtechnology") ||
+    compact.includes("informationandcommunicationtechnology") ||
+    compact.includes("informationcommunicationsandtechnology") ||
+    compact.includes("informationandcommunicationstechnology")
+  ) {
+    return "ict";
+  }
   const aliases = {
     cre: "christianreligiouseducation",
     christianreligiouseducation: "christianreligiouseducation",
@@ -562,7 +571,13 @@ router.get("/term", authAdmin, async (req, res) => {
     );
     const [populationRows] = await pool.query(
       `
-      SELECT id, stream
+      SELECT
+        id AS student_id,
+        name AS student_name,
+        dob,
+        class_level,
+        stream,
+        subjects AS registered_subjects
       FROM students
       WHERE class_level = ?
       `,
@@ -852,9 +867,10 @@ router.get("/mini-aoi1", authAdmin, async (req, res) => {
       });
     }
 
-    const [rows] = await pool.query(
+    const [markRows] = await pool.query(
       `
       SELECT
+        m.id AS mark_id,
         s.id AS student_id,
         s.name AS student_name,
         s.dob,
@@ -862,9 +878,11 @@ router.get("/mini-aoi1", authAdmin, async (req, res) => {
         s.stream,
         s.subjects AS registered_subjects,
         ta.subject,
-        GROUP_CONCAT(DISTINCT t.name ORDER BY t.name SEPARATOR ', ') AS teacher_name,
-        MAX(CASE WHEN ${NORMALIZED_AOI_SQL("m.aoi_label")} = 'AOI1' THEN m.score END) AS AOI1,
-        MAX(CASE WHEN ${NORMALIZED_AOI_SQL("m.aoi_label")} = 'AOI1' THEN m.status END) AS AOI1_status
+        COALESCE(t.name, CONCAT('Former teacher #', m.teacher_id)) AS teacher_name,
+        m.score AS AOI1,
+        m.status AS AOI1_status,
+        COALESCE(ta.assignment_status, 'active') AS assignment_status,
+        ta.ended_at
       FROM students s
       JOIN marks m ON m.student_id = s.id
       JOIN teacher_assignments ta ON ta.id = m.assignment_id
@@ -873,12 +891,14 @@ router.get("/mini-aoi1", authAdmin, async (req, res) => {
         AND ${NORMALIZED_TERM_SQL("m.term")} = ?
         AND ${NORMALIZED_AOI_SQL("m.aoi_label")} = 'AOI1'
         AND s.class_level = ?
-      GROUP BY
-        s.id,
-        ta.subject
       ORDER BY
         s.name,
-        ta.subject
+        CASE
+          WHEN COALESCE(ta.assignment_status, 'active') = 'active'
+            AND ta.ended_at IS NULL THEN 0
+          ELSE 1
+        END,
+        m.id DESC
       `,
       [yearParam, normalizedTerm, class_level]
     );
@@ -896,10 +916,71 @@ router.get("/mini-aoi1", authAdmin, async (req, res) => {
       normalizeStream
     );
 
-    // Marks entry already validates learner registration. Mini reports must not
-    // discard a retained handover mark because older registration text differs
-    // from the current assignment subject label.
-    const reportRows = rows || [];
+    // A handover may leave marks under both the old and replacement assignment.
+    // Reconcile those rows by learner + canonical subject, using the same
+    // precedence as the teacher marks loader: active assignment, then newest row.
+    const reportRowsBySubject = new Map();
+    for (const row of markRows || []) {
+      const subjectKey = normalizeRegisteredSubjectKey(row.subject);
+      const key = `${row.student_id}__${subjectKey}`;
+      const existing = reportRowsBySubject.get(key);
+
+      if (!existing) {
+        reportRowsBySubject.set(key, row);
+        continue;
+      }
+
+      // Do not let an empty legacy duplicate hide a real retained score.
+      if (
+        !hasRecordedScore(existing.AOI1) &&
+        !String(existing.AOI1_status || "").trim() &&
+        hasRecordedScore(row.AOI1)
+      ) {
+        reportRowsBySubject.set(key, row);
+      }
+    }
+    const reconciledMarksByStudent = new Map();
+    for (const row of reportRowsBySubject.values()) {
+      const studentKey = Number(row.student_id);
+      if (!reconciledMarksByStudent.has(studentKey)) {
+        reconciledMarksByStudent.set(studentKey, []);
+      }
+      reconciledMarksByStudent.get(studentKey).push(row);
+    }
+
+    // Build the full learner/subject matrix here. The PDF should receive an
+    // explicit pending row only after every assignment lineage has been checked.
+    const reportRows = [];
+    for (const learner of populationRows || []) {
+      const registeredSubjects = parseStoredSubjects(learner.registered_subjects);
+      const includedSubjectKeys = new Set();
+
+      for (const subject of registeredSubjects) {
+        const subjectKey = normalizeRegisteredSubjectKey(subject);
+        if (!subjectKey || includedSubjectKeys.has(subjectKey)) continue;
+        includedSubjectKeys.add(subjectKey);
+
+        const retainedMark = reportRowsBySubject.get(`${learner.student_id}__${subjectKey}`);
+        reportRows.push({
+          ...learner,
+          ...(retainedMark || {}),
+          subject,
+          registered_subjects: learner.registered_subjects,
+          AOI1: retainedMark?.AOI1 ?? null,
+          AOI1_status: retainedMark?.AOI1_status || null,
+          teacher_name: retainedMark?.teacher_name || "",
+        });
+      }
+
+      // Preserve valid marks whose historical assignment label is no longer in
+      // the learner's current registration text.
+      for (const row of reconciledMarksByStudent.get(Number(learner.student_id)) || []) {
+        const subjectKey = normalizeRegisteredSubjectKey(row.subject);
+        if (!subjectKey || includedSubjectKeys.has(subjectKey)) continue;
+        includedSubjectKeys.add(subjectKey);
+        reportRows.push(row);
+      }
+    }
 
     const processedAll = reportRows.map((row) => {
       const registeredSubjects = parseStoredSubjects(row.registered_subjects);

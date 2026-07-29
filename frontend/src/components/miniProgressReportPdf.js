@@ -156,14 +156,18 @@ const normalizeMiniSubjectKey = (value) => {
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]/g, "");
+  if (
+    compact === "ict" ||
+    compact.includes("informationcommunicationtechnology") ||
+    compact.includes("informationandcommunicationtechnology") ||
+    compact.includes("informationcommunicationsandtechnology") ||
+    compact.includes("informationandcommunicationstechnology")
+  ) {
+    return "ict";
+  }
   const aliases = {
     cre: "christianreligiouseducation",
     christianreligiouseducation: "christianreligiouseducation",
-    ict: "ict",
-    informationcommunicationtechnology: "ict",
-    informationandcommunicationtechnology: "ict",
-    informationcommunicationsandtechnology: "ict",
-    informationandcommunicationstechnology: "ict",
   };
   return aliases[compact] || compact;
 };

@@ -192,28 +192,6 @@ const uniqueSubjects = (subjects = []) => {
   });
 };
 
-const drawInlineSegments = (doc, segments, x, y, maxWidth) => {
-  let fontSize = 7.1;
-  const measure = () =>
-    segments.reduce((width, segment) => {
-      doc.setFont("helvetica", segment.bold ? "bold" : "normal");
-      doc.setFontSize(fontSize);
-      return width + doc.getTextWidth(segment.text);
-    }, 0);
-
-  while (fontSize > 5.6 && measure() > maxWidth) {
-    fontSize = Number((fontSize - 0.2).toFixed(1));
-  }
-
-  let currentX = x;
-  segments.forEach((segment) => {
-    doc.setFont("helvetica", segment.bold ? "bold" : "normal");
-    doc.setFontSize(fontSize);
-    doc.text(segment.text, currentX, y);
-    currentX += doc.getTextWidth(segment.text);
-  });
-};
-
 const groupMiniReportRows = (rows = []) => {
   const grouped = new Map();
 
@@ -434,7 +412,7 @@ export default async function generateMiniProgressReportPdf(rows, meta = {}, opt
     doc.setTextColor(...colors.emeraldDark);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(7.5);
-    doc.text("LEARNER", pageMargin + 4, learnerPanelY + 5.4);
+    doc.text("STUDENT NAME", pageMargin + 4, learnerPanelY + 5.4);
 
     doc.setTextColor(...colors.ink);
     doc.setFontSize(15.2);
@@ -467,7 +445,7 @@ export default async function generateMiniProgressReportPdf(rows, meta = {}, opt
       ["YEAR", yearLabel],
       ["AGE", calculateAge(student.dob)],
       ["DATE OF BIRTH", formatDateOnly(student.dob)],
-      ["SUBJECTS", student.registered_subjects_count || student.subjects.length],
+      ["REGISTERED SUBJECTS", student.registered_subjects_count || student.subjects.length],
     ];
     const metaItemWidth = contentWidth / metaItems.length;
     doc.setDrawColor(203, 213, 225);
@@ -506,8 +484,9 @@ export default async function generateMiniProgressReportPdf(rows, meta = {}, opt
       startY: tableStartY,
       margin: { left: pageMargin, right: pageMargin },
       tableWidth: contentWidth,
-      head: [["Subject", "AOI 1", "Remark", "Teacher"]],
-      body: student.subjects.map((subject) => [
+      head: [["#", "Subject", "AOI 1", "Remark", "Teacher"]],
+      body: student.subjects.map((subject, subjectIndex) => [
+        subjectIndex + 1,
         subject.subject || "",
         formatScore(subject.score, subject.status),
         formatMiniRemarkForDisplay(subject),
@@ -538,15 +517,20 @@ export default async function generateMiniProgressReportPdf(rows, meta = {}, opt
         fillColor: colors.soft,
       },
       columnStyles: {
-        0: { cellWidth: contentWidth * 0.3, fontStyle: "bold" },
-        1: {
+        0: {
+          cellWidth: contentWidth * 0.05,
+          halign: "center",
+          fontStyle: "bold",
+        },
+        1: { cellWidth: contentWidth * 0.27, fontStyle: "bold" },
+        2: {
           cellWidth: contentWidth * 0.13,
           halign: "center",
           fontStyle: "bold",
           fontSize: tableFontSize + 0.8,
         },
-        2: { cellWidth: contentWidth * 0.25 },
-        3: { cellWidth: contentWidth * 0.32 },
+        3: { cellWidth: contentWidth * 0.23 },
+        4: { cellWidth: contentWidth * 0.32 },
       },
       pageBreak: "avoid",
       rowPageBreak: "avoid",
@@ -603,8 +587,31 @@ export default async function generateMiniProgressReportPdf(rows, meta = {}, opt
     const neverSubmittedAnomalies = student.anomalySubjects?.neverSubmitted || [];
     const hasNamedAnomalies =
       missedAnomalies.length > 0 || neverSubmittedAnomalies.length > 0;
+    const anomalyParts = [];
+    if (missedAnomalies.length > 0) {
+      anomalyParts.push(
+        `Missed: ${missedAnomalies.map(formatAnomalySubject).join(", ")}`
+      );
+    }
+    if (neverSubmittedAnomalies.length > 0) {
+      anomalyParts.push(
+        `Never Submitted: ${neverSubmittedAnomalies
+          .map(formatAnomalySubject)
+          .join(", ")}`
+      );
+    }
+    const anomalyText = hasNamedAnomalies
+      ? `Subjects causing anomaly - ${anomalyParts.join(" | ")}`
+      : "";
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8.2);
+    const anomalyLines = anomalyText
+      ? doc.splitTextToSize(anomalyText, contentWidth - 12)
+      : [];
     const eligibilityY = summaryY + summaryHeight + 2.5;
-    const eligibilityHeight = hasNamedAnomalies ? 12.5 : 8;
+    const eligibilityHeight = hasNamedAnomalies
+      ? 9.2 + Math.max(1, anomalyLines.length) * 3.6
+      : 8.5;
 
     if (hasPositionNote) {
       doc.setFillColor(...colors.mint);
@@ -623,49 +630,20 @@ export default async function generateMiniProgressReportPdf(rows, meta = {}, opt
       doc.roundedRect(pageMargin, eligibilityY, 2.6, eligibilityHeight, 1.3, 1.3, "F");
       doc.setTextColor(...colors.emeraldDark);
       doc.setFont("helvetica", "italic");
-      doc.setFontSize(7.4);
+      doc.setFontSize(8.4);
       doc.text(
         "Position is unavailable until enough required AOI 1 subject scores have been completed.",
         pageMargin + 6,
-        eligibilityY + 4.3
+        eligibilityY + 4.5
       );
 
       if (hasNamedAnomalies) {
-        const anomalySegments = [
-          { text: "Subjects causing anomaly - ", bold: false },
-        ];
-        if (missedAnomalies.length > 0) {
-          anomalySegments.push(
-            { text: "Missed: ", bold: false },
-            {
-              text: missedAnomalies.map(formatAnomalySubject).join(", "),
-              bold: true,
-            }
-          );
-        }
-        if (neverSubmittedAnomalies.length > 0) {
-          anomalySegments.push(
-            {
-              text:
-                missedAnomalies.length > 0
-                  ? " | Never Submitted: "
-                  : "Never Submitted: ",
-              bold: false,
-            },
-            {
-              text: neverSubmittedAnomalies.map(formatAnomalySubject).join(", "),
-              bold: true,
-            }
-          );
-        }
         doc.setTextColor(...colors.ink);
-        drawInlineSegments(
-          doc,
-          anomalySegments,
-          pageMargin + 6,
-          eligibilityY + 9.2,
-          contentWidth - 12
-        );
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(8.2);
+        doc.text(anomalyLines, pageMargin + 6, eligibilityY + 9.2, {
+          lineHeightFactor: 1.08,
+        });
       }
     }
 

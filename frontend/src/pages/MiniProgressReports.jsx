@@ -2,7 +2,27 @@ import React, { useEffect, useMemo, useState } from "react";
 import { adminFetch } from "../lib/api";
 import generateMiniProgressReportPdf from "../components/miniProgressReportPdf";
 import { recordAdminReportGeneration } from "../utils/adminAuditEvents";
-import { normalizeSchoolCalendar } from "../utils/schoolCalendar";
+import {
+  DEFAULT_SCHOOL_CALENDAR,
+  getSchoolCalendarBadge,
+  normalizeSchoolCalendar,
+} from "../utils/schoolCalendar";
+
+const getCalendarReportPeriod = (calendar, date = new Date()) => {
+  const normalized = normalizeSchoolCalendar(calendar || DEFAULT_SCHOOL_CALENDAR);
+  const badge = getSchoolCalendarBadge(normalized, date);
+  const label = String(badge.termLabel || "").trim().toLowerCase();
+
+  let term = "";
+  if (/\b(term\s*3|iii|3)\b/.test(label)) term = "3";
+  else if (/\b(term\s*2|ii|2)\b/.test(label)) term = "2";
+  else if (/\b(term\s*1|i|1)\b/.test(label)) term = "1";
+
+  return {
+    term: badge.status === "In Session" ? term : "",
+    year: String(normalized.academicYear || date.getFullYear()),
+  };
+};
 
 const getCalendarTermEndDate = (calendar, term, year) => {
   const normalized = normalizeSchoolCalendar(calendar || {});
@@ -16,8 +36,9 @@ const getCalendarTermEndDate = (calendar, term, year) => {
 
 function MiniProgressReports({ onClose }) {
   const currentYear = new Date().getFullYear();
-  const [year, setYear] = useState(String(currentYear));
-  const [term, setTerm] = useState("1");
+  const initialReportPeriod = getCalendarReportPeriod(DEFAULT_SCHOOL_CALENDAR);
+  const [year, setYear] = useState(initialReportPeriod.year || String(currentYear));
+  const [term, setTerm] = useState(initialReportPeriod.term || "1");
   const [classLevel, setClassLevel] = useState("S1");
   const [stream, setStream] = useState("North");
   const [studentId, setStudentId] = useState("");
@@ -34,7 +55,19 @@ function MiniProgressReports({ onClose }) {
 
     adminFetch("/api/admin/school-calendar")
       .then((calendar) => {
-        if (active) setSchoolCalendar(calendar);
+        if (!active) return;
+
+        const normalizedCalendar = normalizeSchoolCalendar(calendar);
+        const calendarPeriod = getCalendarReportPeriod(normalizedCalendar);
+        setSchoolCalendar(normalizedCalendar);
+
+        if (calendarPeriod.term) {
+          setTerm(calendarPeriod.term);
+          setYear(calendarPeriod.year);
+          setStudentId("");
+          setData([]);
+          setError("");
+        }
       })
       .catch((err) => {
         console.error("Failed to load the school calendar for Mini Reports:", err);

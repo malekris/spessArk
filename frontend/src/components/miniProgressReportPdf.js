@@ -589,40 +589,36 @@ export default async function generateMiniProgressReportPdf(rows, meta = {}, opt
       });
     });
 
-    const commentY = summaryY + summaryHeight + 5;
     const hasPositionNote = student.position_status !== "ELIGIBLE";
-    const commentHeight = 28;
-    doc.setFillColor(...colors.soft);
-    doc.setDrawColor(203, 213, 225);
-    doc.setLineWidth(0.3);
-    doc.roundedRect(pageMargin, commentY, contentWidth, commentHeight, 1.8, 1.8, "FD");
-    doc.setFillColor(...colors.emerald);
-    doc.roundedRect(pageMargin, commentY, 3, commentHeight, 1.5, 1.5, "F");
-
-    doc.setTextColor(...colors.emeraldDark);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(8);
-    doc.text("CLASS TEACHER COMMENT", pageMargin + 7, commentY + 6);
-    doc.setTextColor(...colors.ink);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10.5);
-    const commentLines = doc
-      .splitTextToSize(student.comment, contentWidth - 14)
-      .slice(0, hasPositionNote ? 2 : 3);
-    doc.text(commentLines, pageMargin + 7, commentY + 12, { lineHeightFactor: 1.25 });
+    const missedAnomalies = student.anomalySubjects?.missed || [];
+    const neverSubmittedAnomalies = student.anomalySubjects?.neverSubmitted || [];
+    const hasNamedAnomalies =
+      missedAnomalies.length > 0 || neverSubmittedAnomalies.length > 0;
+    const eligibilityY = summaryY + summaryHeight + 4;
+    const eligibilityHeight = hasNamedAnomalies ? 14 : 9;
 
     if (hasPositionNote) {
-      const missedAnomalies = student.anomalySubjects?.missed || [];
-      const neverSubmittedAnomalies = student.anomalySubjects?.neverSubmitted || [];
-      const hasNamedAnomalies =
-        missedAnomalies.length > 0 || neverSubmittedAnomalies.length > 0;
-      doc.setTextColor(...colors.muted);
+      doc.setFillColor(...colors.mint);
+      doc.setDrawColor(...colors.emerald);
+      doc.setLineWidth(0.3);
+      doc.roundedRect(
+        pageMargin,
+        eligibilityY,
+        contentWidth,
+        eligibilityHeight,
+        1.5,
+        1.5,
+        "FD"
+      );
+      doc.setFillColor(...colors.gold);
+      doc.roundedRect(pageMargin, eligibilityY, 2.6, eligibilityHeight, 1.3, 1.3, "F");
+      doc.setTextColor(...colors.emeraldDark);
       doc.setFont("helvetica", "italic");
       doc.setFontSize(7.4);
       doc.text(
         "Position is unavailable until enough required AOI 1 subject scores have been completed.",
-        pageMargin + 7,
-        commentY + commentHeight - (hasNamedAnomalies ? 8.3 : 4.2)
+        pageMargin + 6,
+        eligibilityY + 5
       );
 
       if (hasNamedAnomalies) {
@@ -657,20 +653,43 @@ export default async function generateMiniProgressReportPdf(rows, meta = {}, opt
         drawInlineSegments(
           doc,
           anomalySegments,
-          pageMargin + 7,
-          commentY + commentHeight - 3.7,
-          contentWidth - 14
+          pageMargin + 6,
+          eligibilityY + 10.2,
+          contentWidth - 12
         );
       }
     }
 
-    const signatureY = commentY + commentHeight + 8;
-    const signatureX = pageMargin + 3;
+    const commentY = hasPositionNote
+      ? eligibilityY + eligibilityHeight + 4
+      : summaryY + summaryHeight + 5;
+    const commentHeight = 29;
+    doc.setFillColor(...colors.soft);
+    doc.setDrawColor(203, 213, 225);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(pageMargin, commentY, contentWidth, commentHeight, 1.8, 1.8, "FD");
+    doc.setFillColor(...colors.emerald);
+    doc.roundedRect(pageMargin, commentY, 3, commentHeight, 1.5, 1.5, "F");
+
+    doc.setTextColor(...colors.emeraldDark);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
+    doc.text("CLASS TEACHER COMMENT", pageMargin + 7, commentY + 6);
+    doc.setTextColor(...colors.ink);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10.5);
+    const commentLines = doc
+      .splitTextToSize(student.comment, contentWidth - 14)
+      .slice(0, hasPositionNote ? 2 : 3);
+    doc.text(commentLines, pageMargin + 7, commentY + 12, { lineHeightFactor: 1.25 });
+
+    const signatureY = commentY + commentHeight - 4;
+    const signatureX = pageMargin + 7;
     doc.setTextColor(...colors.ink);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(9.2);
-    doc.text("Class Teacher:", signatureX, signatureY);
-    const signatureLabelWidth = doc.getTextWidth("Class Teacher:");
+    doc.text("Signature:", signatureX, signatureY);
+    const signatureLabelWidth = doc.getTextWidth("Signature:");
     doc.setFont("helvetica", "normal");
     doc.text(
       "........................................",
@@ -678,7 +697,7 @@ export default async function generateMiniProgressReportPdf(rows, meta = {}, opt
       signatureY
     );
 
-    const scaleTopY = signatureY + 7.5;
+    const scaleTopY = commentY + commentHeight + 6;
     const performanceTableHeight = 9.5;
     const scaleColWidth = contentWidth / 3;
     doc.setDrawColor(...colors.navy);

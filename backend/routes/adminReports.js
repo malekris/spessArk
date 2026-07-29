@@ -889,20 +889,16 @@ router.get("/mini-aoi1", authAdmin, async (req, res) => {
 
     const reportRows = (rows || []).filter(isReportRowForRegisteredSubject);
 
-    const processedAll = reportRows.map((row) => ({
-      ...row,
-      AOI1: hasRecordedScore(row.AOI1) ? Number(row.AOI1) : null,
-      remark: formatMiniRemark(row.AOI1, row.AOI1_status),
-      registered_subjects_count: (() => {
-        if (Array.isArray(row.registered_subjects)) return row.registered_subjects.length;
-        try {
-          const parsed = JSON.parse(row.registered_subjects || "[]");
-          return Array.isArray(parsed) ? parsed.length : 0;
-        } catch {
-          return 0;
-        }
-      })(),
-    }));
+    const processedAll = reportRows.map((row) => {
+      const registeredSubjects = parseStoredSubjects(row.registered_subjects);
+      return {
+        ...row,
+        AOI1: hasRecordedScore(row.AOI1) ? Number(row.AOI1) : null,
+        remark: formatMiniRemark(row.AOI1, row.AOI1_status),
+        registered_subjects_list: registeredSubjects,
+        registered_subjects_count: registeredSubjects.length,
+      };
+    });
 
     const isMiniSubjectComplete = (row) =>
       hasRecordedScore(row.AOI1) && !isMissedStatus(row.AOI1_status);

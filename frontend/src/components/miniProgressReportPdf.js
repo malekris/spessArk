@@ -29,11 +29,26 @@ const formatScore = (score, status) => {
   return Number.isFinite(numeric) ? numeric.toFixed(1) : String(score);
 };
 
+const formatMiniRemarkForDisplay = (subject) => {
+  if (String(subject?.status || "").trim().toLowerCase() === "missed") {
+    return "MISSED";
+  }
+  if (
+    subject?.score === null ||
+    subject?.score === undefined ||
+    subject?.score === "" ||
+    !Number.isFinite(Number(subject.score))
+  ) {
+    return "NEVER SUBMITTED";
+  }
+  return subject?.remark || "";
+};
+
 const COMMENT_BANKS = {
   incompleteLoad: [
-    "Some AOI 1 assessments are missing. Please see the subject teachers about the missing work.",
-    "This AOI 1 record is incomplete. Kindly follow up with the subject teachers for the missing assessments.",
-    "Not all AOI 1 assessments are on record yet. Please contact the subject teachers about the missing assessments.",
+    "Some AOI 1 scores were never submitted. Please follow up with the responsible subject teachers.",
+    "This AOI 1 record is incomplete because some subject scores were never submitted.",
+    "Not all AOI 1 scores were submitted. Please contact the responsible subject teachers.",
   ],
   low: [
     "Basic performance shown. More guided practice is needed.",
@@ -66,9 +81,9 @@ const COMMENT_BANKS = {
     "Several AOI 1 assessments were missed. Please follow up on the missed work.",
   ],
   pending: [
-    "AOI 1 is awaiting a submitted score.",
-    "The available AOI 1 score is still pending submission.",
-    "This slip is awaiting an AOI 1 score from the class record.",
+    "The AOI 1 score was never submitted by the responsible subject teacher.",
+    "No AOI 1 score was submitted for this subject.",
+    "This report is awaiting an AOI 1 score that was never submitted.",
   ],
 };
 
@@ -136,6 +151,60 @@ const truncateToWidth = (doc, text, maxWidth) => {
   return trimmed ? `${trimmed}...` : "";
 };
 
+const normalizeMiniSubjectKey = (value) => {
+  const compact = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+  const aliases = {
+    cre: "christianreligiouseducation",
+    christianreligiouseducation: "christianreligiouseducation",
+  };
+  return aliases[compact] || compact;
+};
+
+const formatAnomalySubject = (value) => {
+  const subject = String(value || "").trim();
+  const aliases = {
+    christianreligiouseducation: "CRE",
+    physicaleducation: "PE",
+    entrepreneurship: "ENT",
+  };
+  return aliases[normalizeMiniSubjectKey(subject)] || subject;
+};
+
+const uniqueSubjects = (subjects = []) => {
+  const seen = new Set();
+  return subjects.filter((subject) => {
+    const key = normalizeMiniSubjectKey(subject);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
+const drawInlineSegments = (doc, segments, x, y, maxWidth) => {
+  let fontSize = 7.1;
+  const measure = () =>
+    segments.reduce((width, segment) => {
+      doc.setFont("helvetica", segment.bold ? "bold" : "normal");
+      doc.setFontSize(fontSize);
+      return width + doc.getTextWidth(segment.text);
+    }, 0);
+
+  while (fontSize > 5.6 && measure() > maxWidth) {
+    fontSize = Number((fontSize - 0.2).toFixed(1));
+  }
+
+  let currentX = x;
+  segments.forEach((segment) => {
+    doc.setFont("helvetica", segment.bold ? "bold" : "normal");
+    doc.setFontSize(fontSize);
+    doc.text(segment.text, currentX, y);
+    currentX += doc.getTextWidth(segment.text);
+  });
+};
+
 const groupMiniReportRows = (rows = []) => {
   const grouped = new Map();
 
@@ -148,6 +217,9 @@ const groupMiniReportRows = (rows = []) => {
         dob: row.dob,
         class_level: row.class_level,
         stream: row.stream,
+        registered_subjects: Array.isArray(row.registered_subjects_list)
+          ? row.registered_subjects_list
+          : [],
         registered_subjects_count: Number(row.registered_subjects_count || 0),
         class_position: row.class_position ?? null,
         class_total: Number(row.class_total || 0),
@@ -181,6 +253,28 @@ const groupMiniReportRows = (rows = []) => {
         scored.length > 0
           ? Number((scored.reduce((sum, value) => sum + value, 0) / scored.length).toFixed(2))
           : null;
+      const presentSubjectKeys = new Set(
+        student.subjects.map((subject) => normalizeMiniSubjectKey(subject.subject))
+      );
+      const missingSubjects = student.registered_subjects.filter(
+        (subject) => !presentSubjectKeys.has(normalizeMiniSubjectKey(subject))
+      );
+      const missedSubjects = student.subjects
+        .filter(
+          (subject) => String(subject.status || "").trim().toLowerCase() === "missed"
+        )
+        .map((subject) => subject.subject);
+      const pendingSubjects = student.subjects
+        .filter((subject) => {
+          if (String(subject.status || "").trim().toLowerCase() === "missed") return false;
+          return (
+            subject.score === null ||
+            subject.score === undefined ||
+            subject.score === "" ||
+            !Number.isFinite(Number(subject.score))
+          );
+        })
+        .map((subject) => subject.subject);
 
       return {
         ...student,
@@ -188,6 +282,10 @@ const groupMiniReportRows = (rows = []) => {
         registered_subjects_count:
           Number(student.registered_subjects_count || 0) || student.subjects.length,
         average,
+        anomalySubjects: {
+          missed: uniqueSubjects(missedSubjects),
+          neverSubmitted: uniqueSubjects([...missingSubjects, ...pendingSubjects]),
+        },
         comment: buildComment({
           average,
           studentId: student.student_id,
@@ -403,12 +501,7 @@ export default async function generateMiniProgressReportPdf(rows, meta = {}, opt
       body: student.subjects.map((subject) => [
         subject.subject || "",
         formatScore(subject.score, subject.status),
-        subject.remark ||
-          (String(subject.status || "").trim().toLowerCase() === "missed"
-            ? "Missed"
-            : subject.score === null || subject.score === undefined || subject.score === ""
-              ? "Not Submitted"
-              : ""),
+        formatMiniRemarkForDisplay(subject),
         subject.teacher_name || "",
       ]),
       theme: "grid",
@@ -519,14 +612,56 @@ export default async function generateMiniProgressReportPdf(rows, meta = {}, opt
     doc.text(commentLines, pageMargin + 7, commentY + 12, { lineHeightFactor: 1.25 });
 
     if (hasPositionNote) {
+      const missedAnomalies = student.anomalySubjects?.missed || [];
+      const neverSubmittedAnomalies = student.anomalySubjects?.neverSubmitted || [];
+      const hasNamedAnomalies =
+        missedAnomalies.length > 0 || neverSubmittedAnomalies.length > 0;
       doc.setTextColor(...colors.muted);
       doc.setFont("helvetica", "italic");
       doc.setFontSize(7.4);
       doc.text(
         "Position is unavailable until enough required AOI 1 subject scores have been completed.",
         pageMargin + 7,
-        commentY + commentHeight - 4.2
+        commentY + commentHeight - (hasNamedAnomalies ? 8.3 : 4.2)
       );
+
+      if (hasNamedAnomalies) {
+        const anomalySegments = [
+          { text: "Subjects causing anomaly - ", bold: false },
+        ];
+        if (missedAnomalies.length > 0) {
+          anomalySegments.push(
+            { text: "Missed: ", bold: false },
+            {
+              text: missedAnomalies.map(formatAnomalySubject).join(", "),
+              bold: true,
+            }
+          );
+        }
+        if (neverSubmittedAnomalies.length > 0) {
+          anomalySegments.push(
+            {
+              text:
+                missedAnomalies.length > 0
+                  ? " | Never Submitted: "
+                  : "Never Submitted: ",
+              bold: false,
+            },
+            {
+              text: neverSubmittedAnomalies.map(formatAnomalySubject).join(", "),
+              bold: true,
+            }
+          );
+        }
+        doc.setTextColor(...colors.ink);
+        drawInlineSegments(
+          doc,
+          anomalySegments,
+          pageMargin + 7,
+          commentY + commentHeight - 3.7,
+          contentWidth - 14
+        );
+      }
     }
 
     const signatureY = commentY + commentHeight + 8;

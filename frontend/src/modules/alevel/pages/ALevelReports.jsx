@@ -1751,8 +1751,9 @@ export default function AlevelReport() {
 /* =============================
    PDF GENERATOR (same file)
 ============================= */
-async function generateAlevelPDF(data, meta) {
-  const { jsPDF, autoTable } = await loadPdfTools();
+export async function generateAlevelPDF(data, meta, options = {}) {
+  const { jsPDF, autoTable } = options.pdfTools || (await loadPdfTools());
+  const badgeImage = options.badgeImage || badge;
   const doc = new jsPDF("p", "mm", "a4");
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -1854,8 +1855,278 @@ async function generateAlevelPDF(data, meta) {
     return rows;
   };
 
+  const renderMidParentReport = (student) => {
+    const { learner, principals, subsidiaries, totals, comments } = student;
+    const margin = 14;
+    const contentWidth = pageWidth - margin * 2;
+    const colors = {
+      navy: [11, 30, 48],
+      emerald: [13, 126, 99],
+      emeraldDark: [8, 82, 68],
+      tint: [226, 239, 235],
+      mint: [239, 248, 245],
+      soft: [247, 249, 251],
+      gold: [190, 145, 62],
+      ink: [17, 24, 39],
+      muted: [71, 85, 105],
+      line: [30, 41, 59],
+    };
+    const principalRows = buildSubjectRows(principals);
+    const subsidiaryRows = buildSubjectRows(subsidiaries);
+    const totalPaperRows = principalRows.length + subsidiaryRows.length;
+    const tableFontSize = totalPaperRows >= 12 ? 6.5 : totalPaperRows >= 9 ? 7 : 7.4;
+    const tableCellPadding = totalPaperRows >= 12 ? 1 : 1.25;
+
+    const drawSectionLabel = (label, y, detail = "") => {
+      doc.setTextColor(...colors.navy);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(9.5);
+      doc.text(label, margin, y);
+      if (detail) {
+        doc.setTextColor(...colors.muted);
+        doc.setFont("helvetica", "italic");
+        doc.setFontSize(7.5);
+        doc.text(detail, pageWidth - margin, y, { align: "right" });
+      }
+    };
+
+    const drawResultsTable = (rows, startY) => {
+      autoTable(doc, {
+        startY,
+        margin: { left: margin, right: margin },
+        tableWidth: contentWidth,
+        head: subjectTableHead,
+        body: rows,
+        theme: "grid",
+        styles: {
+          font: "helvetica",
+          fontSize: tableFontSize,
+          cellPadding: tableCellPadding,
+          minCellHeight: 5.5,
+          lineColor: colors.line,
+          lineWidth: 0.22,
+          textColor: colors.ink,
+          valign: "middle",
+          overflow: "ellipsize",
+        },
+        headStyles: {
+          fillColor: colors.tint,
+          textColor: colors.navy,
+          fontStyle: "bold",
+          fontSize: 6.8,
+          lineColor: colors.emeraldDark,
+          lineWidth: 0.35,
+          minCellHeight: 7,
+          halign: "center",
+        },
+        alternateRowStyles: { fillColor: colors.soft },
+        columnStyles: {
+          0: { cellWidth: 31, fontStyle: "bold" },
+          1: { cellWidth: 16, halign: "center" },
+          2: { cellWidth: 20, halign: "center", fontStyle: "bold" },
+          3: { cellWidth: 20, halign: "center" },
+          4: { cellWidth: 20, halign: "center", fontStyle: "bold" },
+          5: { cellWidth: 14, halign: "center", fontStyle: "bold" },
+          6: { cellWidth: 61 },
+        },
+        pageBreak: "avoid",
+        rowPageBreak: "avoid",
+      });
+      return doc.lastAutoTable?.finalY || startY;
+    };
+
+    doc.setDrawColor(...colors.navy);
+    doc.setLineWidth(0.4);
+    doc.roundedRect(9, 8, pageWidth - 18, pageHeight - 16, 2.4, 2.4);
+    doc.setFillColor(...colors.gold);
+    doc.roundedRect(9, 8, pageWidth - 18, 2.4, 1.2, 1.2, "F");
+    doc.addImage(badgeImage, "PNG", margin + 2, 14, 17, 17);
+
+    doc.setTextColor(...colors.navy);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(14.5);
+    doc.text("ST. PHILLIP'S EQUATORIAL SECONDARY SCHOOL", pageWidth / 2, 19.5, {
+      align: "center",
+    });
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.6);
+    doc.text("P.O. BOX 53, Kayabwe, Mpigi", pageWidth / 2, 24.7, { align: "center" });
+    doc.text(
+      "stphillipsequatorial@gmail.com  |  www.stphillipsequatorial.com",
+      pageWidth / 2,
+      29.1,
+      { align: "center" }
+    );
+    doc.text("Tel: 0700651402, 0772571671, 0762001883, 0787301685", pageWidth / 2, 33.5, {
+      align: "center",
+    });
+
+    doc.setDrawColor(...colors.gold);
+    doc.setLineWidth(0.5);
+    doc.line(margin, 37, pageWidth - margin, 37);
+    doc.setFillColor(...colors.tint);
+    doc.setDrawColor(...colors.emerald);
+    doc.roundedRect(margin, 40.3, contentWidth, 13.7, 1.8, 1.8, "FD");
+    doc.setFillColor(...colors.gold);
+    doc.roundedRect(margin, 40.3, 3.2, 13.7, 1.6, 1.6, "F");
+    doc.setTextColor(...colors.navy);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(14.4);
+    doc.text("A-LEVEL MID-TERM PARENT REPORT", pageWidth / 2, 47.5, { align: "center" });
+    doc.setTextColor(...colors.emeraldDark);
+    doc.setFontSize(8);
+    doc.text(`${String(meta.term || "").toUpperCase()}  |  ${meta.year}  |  MID ASSESSMENT`, pageWidth / 2, 51.5, {
+      align: "center",
+    });
+
+    const identityY = 58;
+    doc.setFillColor(...colors.soft);
+    doc.setDrawColor(...colors.emerald);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(margin, identityY, contentWidth, 26, 1.8, 1.8, "FD");
+    doc.setTextColor(...colors.emeraldDark);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7);
+    doc.text("LEARNER", margin + 4, identityY + 5);
+    doc.setTextColor(...colors.ink);
+    doc.setFontSize(13.5);
+    const learnerName = doc.splitTextToSize(String(learner.name || "Unnamed learner").toUpperCase(), 93)[0];
+    doc.text(learnerName, margin + 4, identityY + 12.5);
+
+    const identityFields = [
+      ["CLASS", learner.class],
+      ["STREAM", learner.stream],
+      ["HOUSE", learner.house],
+      ["AGE", learner.age],
+    ];
+    const fieldStartX = margin + 102;
+    const fieldWidth = (contentWidth - 106) / 2;
+    identityFields.forEach(([label, value], fieldIndex) => {
+      const column = fieldIndex % 2;
+      const row = Math.floor(fieldIndex / 2);
+      const x = fieldStartX + column * fieldWidth;
+      const y = identityY + 5 + row * 10.5;
+      doc.setTextColor(...colors.muted);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(6.5);
+      doc.text(label, x, y);
+      doc.setTextColor(...colors.navy);
+      doc.setFontSize(9.2);
+      doc.text(String(value || "—"), x, y + 4.4);
+    });
+    doc.setDrawColor(203, 213, 225);
+    doc.line(margin + 99, identityY + 3, margin + 99, identityY + 23);
+
+    drawSectionLabel("PRINCIPAL SUBJECT RESULTS", 91, "MID marks and paper performance");
+    let cursorY = drawResultsTable(principalRows, 94) + 3;
+
+    doc.setFillColor(...colors.mint);
+    doc.setDrawColor(...colors.emerald);
+    doc.roundedRect(margin, cursorY, contentWidth, 8, 1.4, 1.4, "FD");
+    doc.setTextColor(...colors.emeraldDark);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8.5);
+    doc.text("TOTAL PRINCIPAL SUBJECT POINTS", margin + 4, cursorY + 5.2);
+    doc.setTextColor(...colors.navy);
+    doc.setFontSize(11);
+    doc.text(String(totals.principal ?? "—"), pageWidth - margin - 4, cursorY + 5.4, {
+      align: "right",
+    });
+
+    cursorY += 14;
+    drawSectionLabel("SUBSIDIARY SUBJECT RESULTS", cursorY, "MID assessment");
+    cursorY = drawResultsTable(subsidiaryRows, cursorY + 3) + 4;
+
+    const summaryGap = 4;
+    const summaryWidth = (contentWidth - summaryGap) / 2;
+    [
+      ["SUBSIDIARY POINTS", totals.subsidiary],
+      ["TOTAL A-LEVEL POINTS", totals.overall],
+    ].forEach(([label, value], summaryIndex) => {
+      const x = margin + summaryIndex * (summaryWidth + summaryGap);
+      doc.setFillColor(...(summaryIndex === 1 ? colors.tint : colors.soft));
+      doc.setDrawColor(...colors.emerald);
+      doc.roundedRect(x, cursorY, summaryWidth, 18, 1.8, 1.8, "FD");
+      doc.setTextColor(...colors.emeraldDark);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(7.2);
+      doc.text(label, x + summaryWidth / 2, cursorY + 5.5, { align: "center" });
+      doc.setTextColor(...colors.navy);
+      doc.setFontSize(14.5);
+      doc.text(String(value ?? "—"), x + summaryWidth / 2, cursorY + 14, { align: "center" });
+    });
+
+    const commentY = cursorY + 23;
+    doc.setFillColor(...colors.soft);
+    doc.setDrawColor(203, 213, 225);
+    doc.roundedRect(margin, commentY, contentWidth, 23, 1.8, 1.8, "FD");
+    doc.setFillColor(...colors.emerald);
+    doc.roundedRect(margin, commentY, 3, 23, 1.4, 1.4, "F");
+    doc.setTextColor(...colors.emeraldDark);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.5);
+    doc.text("CLASS TEACHER COMMENT", margin + 7, commentY + 5.5);
+    doc.setTextColor(...colors.ink);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.7);
+    const commentLines = doc.splitTextToSize(String(comments.classTeacher || "Keep working steadily."), contentWidth - 14);
+    doc.text(commentLines.slice(0, 2), margin + 7, commentY + 11);
+    doc.setFontSize(8);
+    doc.text("Class Teacher: ........................................................", margin + 7, commentY + 20);
+
+    const referenceY = commentY + 27;
+    autoTable(doc, {
+      startY: referenceY,
+      margin: { left: margin, right: margin },
+      tableWidth: contentWidth,
+      head: [["PAPER GRADING", "D1", "D2", "C3", "C4", "C5", "C6", "P7", "P8", "F9"]],
+      body: [["SCORE", "85-100", "80-84", "75-79", "70-74", "65-69", "60-64", "50-59", "40-49", "0-39"]],
+      theme: "grid",
+      styles: {
+        fontSize: 6.4,
+        halign: "center",
+        cellPadding: 0.8,
+        lineColor: colors.line,
+        lineWidth: 0.2,
+        textColor: colors.ink,
+      },
+      headStyles: {
+        fillColor: colors.tint,
+        textColor: colors.navy,
+        fontStyle: "bold",
+      },
+      pageBreak: "avoid",
+    });
+
+    const footerY = pageHeight - 13;
+    doc.setTextColor(...colors.muted);
+    doc.setFont("helvetica", "italic");
+    doc.setFontSize(7.5);
+    doc.text(
+      "MID marks only. Report not valid without school stamp.",
+      pageWidth / 2,
+      Math.min((doc.lastAutoTable?.finalY || referenceY) + 5, footerY - 3),
+      { align: "center" }
+    );
+    doc.setDrawColor(...colors.gold);
+    doc.line(margin, footerY - 1, pageWidth - margin, footerY - 1);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(6.7);
+    doc.text(
+      `Generated from SPESS ARK • ${new Date().toLocaleString("en-GB")}`,
+      pageWidth / 2,
+      footerY + 3,
+      { align: "center" }
+    );
+  };
+
   data.forEach((student, index) => {
     if (index > 0) doc.addPage();
+
+    if (midOnly) {
+      renderMidParentReport(student);
+      return;
+    }
 
     const { learner, principals, subsidiaries, totals, comments } = student;
 
@@ -2130,7 +2401,11 @@ if (midOnly) {
     .replace(/\s+/g, "_")
     .replace(/[^a-zA-Z0-9_.-]/g, "");
   const title = `A-Level ${midOnly ? "MID Parent Report" : "Report"} - ${meta.cls || "Class"} ${meta.stream || ""} - ${meta.term || ""} ${meta.year || ""}`.trim();
+  if (options.openPreview === false) {
+    return doc;
+  }
   openNamedPdfPreview(doc, filename, title);
+  return doc;
 }
 
 function openNamedPdfPreview(doc, filename, title) {

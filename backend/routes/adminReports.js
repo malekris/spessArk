@@ -890,7 +890,7 @@ router.get("/mini-aoi1", authAdmin, async (req, res) => {
       WHERE m.year = ?
         AND ${NORMALIZED_TERM_SQL("m.term")} = ?
         AND ${NORMALIZED_AOI_SQL("m.aoi_label")} = 'AOI1'
-        AND s.class_level = ?
+        AND UPPER(TRIM(ta.class_level)) = UPPER(TRIM(?))
       ORDER BY
         s.name,
         CASE
@@ -945,17 +945,8 @@ router.get("/mini-aoi1", authAdmin, async (req, res) => {
         reportRowsBySubject.set(key, row);
       }
     }
-    const reconciledMarksByStudent = new Map();
-    for (const row of reportRowsBySubject.values()) {
-      const studentKey = Number(row.student_id);
-      if (!reconciledMarksByStudent.has(studentKey)) {
-        reconciledMarksByStudent.set(studentKey, []);
-      }
-      reconciledMarksByStudent.get(studentKey).push(row);
-    }
-
-    // Build the full learner/subject matrix here. The PDF should receive an
-    // explicit pending row only after every assignment lineage has been checked.
+    // Keep the report table intentionally simple: registered subjects appear
+    // only when a score exists or the learner was explicitly marked as missed.
     const reportRows = [];
     for (const learner of populationRows || []) {
       const registeredSubjects = parseStoredSubjects(learner.registered_subjects);
@@ -967,24 +958,22 @@ router.get("/mini-aoi1", authAdmin, async (req, res) => {
         includedSubjectKeys.add(subjectKey);
 
         const retainedMark = reportRowsBySubject.get(`${learner.student_id}__${subjectKey}`);
+        if (
+          !retainedMark ||
+          (!hasRecordedScore(retainedMark.AOI1) && !isMissedStatus(retainedMark.AOI1_status))
+        ) {
+          continue;
+        }
+
         reportRows.push({
           ...learner,
-          ...(retainedMark || {}),
+          ...retainedMark,
           subject,
           registered_subjects: learner.registered_subjects,
-          AOI1: retainedMark?.AOI1 ?? null,
-          AOI1_status: retainedMark?.AOI1_status || null,
-          teacher_name: retainedMark?.teacher_name || "",
+          AOI1: retainedMark.AOI1 ?? null,
+          AOI1_status: retainedMark.AOI1_status || null,
+          teacher_name: retainedMark.teacher_name || "",
         });
-      }
-
-      // Preserve valid marks whose historical assignment label is no longer in
-      // the learner's current registration text.
-      for (const row of reconciledMarksByStudent.get(Number(learner.student_id)) || []) {
-        const subjectKey = normalizeRegisteredSubjectKey(row.subject);
-        if (!subjectKey || includedSubjectKeys.has(subjectKey)) continue;
-        includedSubjectKeys.add(subjectKey);
-        reportRows.push(row);
       }
     }
 

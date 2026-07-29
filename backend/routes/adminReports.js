@@ -855,6 +855,12 @@ router.get("/year", authAdmin, async (req, res) => {
 */
 router.get("/mini-aoi1", authAdmin, async (req, res) => {
   try {
+    res.set({
+      "Cache-Control": "private, no-store, no-cache, must-revalidate",
+      Pragma: "no-cache",
+      Expires: "0",
+    });
+
     const { year, term, class_level, stream, student_id } = req.query;
     const yearParam = year || new Date().getFullYear();
     const normalizedTerm = normalizeTermLabel(term);

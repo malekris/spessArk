@@ -107,6 +107,7 @@ function MiniProgressReports({ onClose }) {
       term,
       class_level: classLevel,
       stream,
+      refresh: String(Date.now()),
     });
 
     if (studentId) params.append("student_id", studentId);

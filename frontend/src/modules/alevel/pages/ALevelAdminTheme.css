@@ -50,16 +50,22 @@
 }
 
 .alevel-shell-main {
+  display: flex;
+  flex-direction: column;
   width: 100%;
   min-width: 0;
   min-height: 100vh;
   overflow-x: hidden;
 }
 
-.alevel-shell-topbar {
-  position: sticky;
-  top: 0;
+.alevel-admin-root.alevel-shell-root .alevel-shell-topbar {
+  position: sticky !important;
+  top: 0 !important;
+  left: auto !important;
+  right: auto !important;
+  flex: 0 0 auto;
   z-index: 25;
+  width: 100%;
   padding: 1rem 2rem;
   background: var(--alevel-topbar-bg);
   border-bottom: 1px solid var(--alevel-topbar-border);
@@ -103,10 +109,14 @@
 }
 
 .alevel-shell-content {
+  flex: 1 1 auto;
   padding-top: 1.6rem;
 }
 
 .alevel-module-nav-shell {
+  position: relative;
+  flex: 0 0 auto;
+  z-index: 1;
   padding: 1rem clamp(1rem, 3vw, 3rem);
   border-bottom: 1px solid var(--alevel-topbar-border);
   background: var(--alevel-topbar-bg);

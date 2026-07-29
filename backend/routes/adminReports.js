@@ -905,7 +905,13 @@ router.get("/mini-aoi1", authAdmin, async (req, res) => {
 
     const [populationRows] = await pool.query(
       `
-      SELECT id, stream
+      SELECT
+        id AS student_id,
+        name AS student_name,
+        dob,
+        class_level,
+        stream,
+        subjects AS registered_subjects
       FROM students
       WHERE class_level = ?
       `,

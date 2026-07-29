@@ -112,7 +112,7 @@ function MiniProgressReports({ onClose }) {
       <div className="panel-header mini-report-header">
         <div>
           <h2>Mini Reports</h2>
-          <p>Generate AOI 1 mini progress slips for parents. Two slips fit on one landscape A4 page.</p>
+          <p>Generate full-page AOI 1 progress reports for parent meetings. Each learner receives one portrait A4 page.</p>
         </div>
         <button className="panel-close" type="button" onClick={() => onClose?.()}>
           ✕ Close
@@ -221,7 +221,7 @@ function MiniProgressReports({ onClose }) {
         <div className="mini-report-snapshot">
           <div className="mini-report-snapshot-label">Parent Meeting Snapshot</div>
           <div className="mini-report-snapshot-copy">
-            This mini report uses <strong>AOI 1 only</strong> and prints <strong>2 learners per landscape A4 page</strong>. It is separate from the main report card flow.
+            This report uses <strong>AOI 1 only</strong> and gives <strong>each learner a full portrait A4 page</strong>. It remains separate from the main report card flow.
           </div>
         </div>
 
@@ -236,7 +236,7 @@ function MiniProgressReports({ onClose }) {
             <div className="mini-report-ready-stats">
               <span><strong>{groupedStudents.length}</strong> learners</span>
               <span><strong>{new Set(data.map((row) => row.subject)).size}</strong> subjects</span>
-              <span>Landscape A4</span>
+              <span>Portrait A4</span>
             </div>
           </div>
         )}

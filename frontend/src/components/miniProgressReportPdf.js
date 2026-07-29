@@ -2,9 +2,9 @@ import badge from "../assets/badge.png";
 import { loadPdfTools } from "../utils/loadPdfTools";
 
 const calculateAge = (dob) => {
-  if (!dob) return "—";
+  if (!dob) return "-";
   const birthDate = new Date(dob);
-  if (Number.isNaN(birthDate.getTime())) return "—";
+  if (Number.isNaN(birthDate.getTime())) return "-";
 
   const today = new Date();
   let age = today.getFullYear() - birthDate.getFullYear();
@@ -16,7 +16,7 @@ const calculateAge = (dob) => {
 };
 
 const formatDateOnly = (value) => {
-  if (!value) return "—";
+  if (!value) return "-";
   const date = new Date(`${String(value).slice(0, 10)}T00:00:00`);
   if (Number.isNaN(date.getTime())) return String(value);
   return date.toLocaleDateString("en-GB");
@@ -136,14 +136,6 @@ const truncateToWidth = (doc, text, maxWidth) => {
   return trimmed ? `${trimmed}...` : "";
 };
 
-const drawLabelValue = (doc, label, value, x, y) => {
-  doc.setFont("helvetica", "bold");
-  doc.text(`${label}:`, x, y);
-  const labelWidth = doc.getTextWidth(`${label}:`);
-  doc.setFont("helvetica", "normal");
-  doc.text(String(value || "—"), x + labelWidth + 1.4, y);
-};
-
 const groupMiniReportRows = (rows = []) => {
   const grouped = new Map();
 
@@ -230,24 +222,35 @@ export default async function generateMiniProgressReportPdf(rows, meta = {}, opt
     return;
   }
 
-  const { jsPDF, autoTable } = await loadPdfTools();
-  const badgeImage = await loadBadgeImage();
-  const doc = new jsPDF("l", "mm", "a4");
+  const { jsPDF, autoTable } = options.pdfTools || (await loadPdfTools());
+  const badgeImage =
+    options.badgeImage === undefined ? await loadBadgeImage() : options.badgeImage;
+  const doc = new jsPDF("p", "mm", "a4");
   const onProgress = typeof options.onProgress === "function" ? options.onProgress : null;
 
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
-  const marginX = 8;
-  const topMargin = 10;
-  const gutter = 8;
-  const slotHeight = pageHeight - topMargin * 2;
-  const slotWidth = (pageWidth - marginX * 2 - gutter) / 2;
+  const pageMargin = 14;
+  const contentWidth = pageWidth - pageMargin * 2;
+  const colors = {
+    navy: [11, 30, 48],
+    emerald: [13, 126, 99],
+    emeraldDark: [8, 82, 68],
+    mint: [235, 248, 244],
+    gold: [190, 145, 62],
+    ink: [17, 24, 39],
+    muted: [71, 85, 105],
+    line: [30, 41, 59],
+    soft: [247, 249, 251],
+    reportTint: [226, 239, 235],
+    white: [255, 255, 255],
+  };
 
   const generatedAt = new Date().toLocaleString("en-GB");
   const termLabel = meta.term || "Term 1";
   const yearLabel = meta.year || new Date().getFullYear();
-  const streamLabel = meta.stream || "—";
-  const classLabel = meta.class_level || "—";
+  const streamLabel = meta.stream || "-";
+  const classLabel = meta.class_level || "-";
 
   if (onProgress) {
     onProgress({ completed: 0, total: grouped.length, percent: 5, stage: "Preparing mini reports..." });
@@ -256,116 +259,190 @@ export default async function generateMiniProgressReportPdf(rows, meta = {}, opt
 
   for (let index = 0; index < grouped.length; index += 1) {
     const student = grouped[index];
-    const slotIndex = index % 2;
-    if (index > 0 && slotIndex === 0) {
-      doc.addPage();
-    }
+    if (index > 0) doc.addPage();
 
-    const slotX = marginX + slotIndex * (slotWidth + gutter);
-    const slotY = topMargin;
-    const innerX = slotX + 4;
-    const innerWidth = slotWidth - 8;
-
-    doc.setDrawColor(0);
-    doc.setLineWidth(0.45);
-    doc.roundedRect(slotX, slotY, slotWidth, slotHeight, 4, 4);
-
-    const headerHeight = 19;
-    doc.setFillColor(240, 240, 240);
-    doc.roundedRect(slotX, slotY, slotWidth, headerHeight, 4, 4, "F");
-    doc.setDrawColor(0);
-    doc.line(slotX, slotY + headerHeight, slotX + slotWidth, slotY + headerHeight);
+    doc.setDrawColor(...colors.navy);
+    doc.setLineWidth(0.4);
+    doc.roundedRect(9, 8, pageWidth - 18, pageHeight - 16, 2.4, 2.4);
+    doc.setFillColor(...colors.gold);
+    doc.roundedRect(9, 8, pageWidth - 18, 2.4, 1.2, 1.2, "F");
 
     if (badgeImage) {
-      doc.addImage(badgeImage, "PNG", innerX, slotY + 2.3, 9, 9);
+      doc.addImage(badgeImage, "PNG", pageMargin + 2, 14, 17, 17);
     }
 
-    doc.setTextColor(0);
+    doc.setTextColor(...colors.navy);
     doc.setFont("helvetica", "bold");
+    doc.setFontSize(15);
+    doc.text("ST. PHILLIP'S EQUATORIAL SECONDARY SCHOOL", pageWidth / 2, 19.7, {
+      align: "center",
+    });
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9.2);
+    doc.text("P.O. BOX 53, Kayabwe, Mpigi", pageWidth / 2, 25.1, { align: "center" });
     doc.setFontSize(8.8);
-    doc.text("ST PHILLIP'S EQUATORIAL SECONDARY SCHOOL", badgeImage ? innerX + 12 : innerX, slotY + 6.2);
-
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(6.5);
     doc.text(
-      "www.stphillipsequatorial.com • info@stphillipsequatorial.com",
-      badgeImage ? innerX + 12 : innerX,
-      slotY + 10.4
+      "stphillipsequatorial@gmail.com  |  www.stphillipsequatorial.com",
+      pageWidth / 2,
+      29.6,
+      { align: "center" }
+    );
+    doc.text(
+      "Tel: 0700651402, 0772571671, 0762001883, 0787301685",
+      pageWidth / 2,
+      34,
+      { align: "center" }
     );
 
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(8.1);
-    doc.text("MINI PROGRESS REPORT • AOI 1", badgeImage ? innerX + 12 : innerX, slotY + 14.8);
+    doc.setDrawColor(...colors.gold);
+    doc.setLineWidth(0.5);
+    doc.line(pageMargin, 37.2, pageWidth - pageMargin, 37.2);
 
+    doc.setFillColor(...colors.reportTint);
+    doc.setDrawColor(...colors.emerald);
+    doc.roundedRect(pageMargin, 40.5, contentWidth, 13.5, 1.8, 1.8, "FD");
+    doc.setFillColor(...colors.gold);
+    doc.roundedRect(pageMargin, 40.5, 3.2, 13.5, 1.6, 1.6, "F");
+    doc.setTextColor(...colors.navy);
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(9.3);
-    const studentName = doc.splitTextToSize(student.student_name || "", innerWidth);
-    doc.text(studentName, innerX, slotY + 25.5);
-    const nameBlockHeight = Math.max(studentName.length, 1) * 4.2;
-    const infoCol2 = innerX + innerWidth * 0.32;
-    const infoCol3 = innerX + innerWidth * 0.64;
-    const infoRow1Y = slotY + 27 + nameBlockHeight;
-    const infoRow2Y = infoRow1Y + 6;
-    const infoRow3Y = infoRow2Y + 6;
+    doc.setFontSize(15.2);
+    doc.text("MINI PROGRESS REPORT", pageWidth / 2, 47.6, { align: "center" });
+    doc.setTextColor(...colors.emeraldDark);
+    doc.setFontSize(8.5);
+    doc.text(`AOI 1 SNAPSHOT  |  ${termLabel.toUpperCase()}  |  ${yearLabel}`, pageWidth / 2, 51.5, {
+      align: "center",
+    });
 
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(7.8);
-    drawLabelValue(doc, "Class", classLabel, innerX, infoRow1Y);
-    drawLabelValue(doc, "Stream", streamLabel, infoCol2, infoRow1Y);
-    drawLabelValue(
+    const learnerPanelY = 58;
+    const learnerPanelHeight = 30;
+    const learnerNameWidth = 108;
+    doc.setFillColor(...colors.soft);
+    doc.setDrawColor(...colors.emerald);
+    doc.setLineWidth(0.35);
+    doc.roundedRect(pageMargin, learnerPanelY, contentWidth, learnerPanelHeight, 1.8, 1.8, "FD");
+
+    doc.setTextColor(...colors.emeraldDark);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.5);
+    doc.text("LEARNER", pageMargin + 4, learnerPanelY + 5.4);
+
+    doc.setTextColor(...colors.ink);
+    doc.setFontSize(15.2);
+    const learnerName = truncateToWidth(
       doc,
-      "Subjects Registered",
-      student.registered_subjects_count || 0,
-      infoCol3,
-      infoRow1Y
+      String(student.student_name || "Unnamed learner").toUpperCase(),
+      learnerNameWidth
     );
-    drawLabelValue(doc, "Term", termLabel, innerX, infoRow2Y);
-    drawLabelValue(doc, "Year", yearLabel, infoCol2, infoRow2Y);
-    drawLabelValue(doc, "DOB", formatDateOnly(student.dob), infoCol3, infoRow2Y);
-    drawLabelValue(doc, "Age", calculateAge(student.dob), innerX, infoRow3Y);
-    drawLabelValue(doc, "Generated", generatedAt, infoCol2, infoRow3Y);
+    doc.text(learnerName, pageMargin + 4, learnerPanelY + 13.2);
 
+    const identityRightX = pageMargin + learnerNameWidth + 10;
+    const identityMetricWidth = (contentWidth - learnerNameWidth - 14) / 2;
+    [
+      ["CLASS", student.class_level || classLabel],
+      ["STREAM", student.stream || streamLabel],
+    ].forEach(([label, value], metricIndex) => {
+      const metricX = identityRightX + metricIndex * identityMetricWidth;
+      doc.setTextColor(...colors.emeraldDark);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(7.3);
+      doc.text(label, metricX, learnerPanelY + 5.4);
+      doc.setTextColor(...colors.navy);
+      doc.setFontSize(13);
+      doc.text(String(value || "-"), metricX, learnerPanelY + 13.2);
+    });
+
+    const metaY = learnerPanelY + 18;
+    const metaItems = [
+      ["TERM", termLabel],
+      ["YEAR", yearLabel],
+      ["AGE", calculateAge(student.dob)],
+      ["DATE OF BIRTH", formatDateOnly(student.dob)],
+      ["SUBJECTS", student.registered_subjects_count || student.subjects.length],
+    ];
+    const metaItemWidth = contentWidth / metaItems.length;
+    doc.setDrawColor(203, 213, 225);
+    doc.setLineWidth(0.25);
+    doc.line(pageMargin, metaY, pageWidth - pageMargin, metaY);
+    metaItems.forEach(([label, value], metaIndex) => {
+      const itemX = pageMargin + metaIndex * metaItemWidth;
+      if (metaIndex > 0) {
+        doc.line(itemX, metaY + 2, itemX, learnerPanelY + learnerPanelHeight - 2);
+      }
+      doc.setTextColor(...colors.muted);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(6.8);
+      doc.text(label, itemX + 3, metaY + 4.4);
+      doc.setTextColor(...colors.ink);
+      doc.setFontSize(9.6);
+      doc.text(String(value || "-"), itemX + 3, metaY + 9.6);
+    });
+
+    doc.setTextColor(...colors.navy);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10.7);
+    doc.text("AOI 1 ASSESSMENT RESULTS", pageMargin, 94);
+    doc.setTextColor(...colors.muted);
     doc.setFont("helvetica", "italic");
-    doc.setFontSize(7.2);
-    doc.text("AOI 1 snapshot based on submitted scores only.", innerX, infoRow3Y + 6);
+    doc.setFontSize(8.2);
+    doc.text("Snapshot based on submitted scores", pageWidth - pageMargin, 94, {
+      align: "right",
+    });
 
-    const tableStartY = infoRow3Y + 9;
+    const subjectCount = student.subjects.length;
+    const tableFontSize = subjectCount >= 11 ? 9.7 : subjectCount >= 9 ? 10.3 : 10.8;
+    const rowMinHeight = subjectCount >= 11 ? 7.25 : subjectCount >= 9 ? 8.2 : 9.1;
+    const tableStartY = 97;
     autoTable(doc, {
       startY: tableStartY,
-      margin: { left: innerX, right: innerX },
-      tableWidth: innerWidth,
+      margin: { left: pageMargin, right: pageMargin },
+      tableWidth: contentWidth,
       head: [["Subject", "AOI 1", "Remark", "Teacher"]],
       body: student.subjects.map((subject) => [
         subject.subject || "",
         formatScore(subject.score, subject.status),
-        subject.remark || "",
+        subject.remark ||
+          (String(subject.status || "").trim().toLowerCase() === "missed"
+            ? "Missed"
+            : subject.score === null || subject.score === undefined || subject.score === ""
+              ? "Not Submitted"
+              : ""),
         subject.teacher_name || "",
       ]),
       theme: "grid",
       styles: {
         font: "helvetica",
-        fontSize: 6.8,
-        textColor: [0, 0, 0],
-        lineColor: [0, 0, 0],
-        lineWidth: 0.25,
-        cellPadding: 0.8,
-        overflow: "linebreak",
+        fontSize: tableFontSize,
+        textColor: colors.ink,
+        lineColor: colors.line,
+        lineWidth: 0.3,
+        cellPadding: { top: 1.6, right: 2.2, bottom: 1.6, left: 2.2 },
+        minCellHeight: rowMinHeight,
+        overflow: "ellipsize",
+        valign: "middle",
       },
       headStyles: {
-        fillColor: [238, 238, 238],
-        textColor: [0, 0, 0],
+        fillColor: colors.reportTint,
+        textColor: colors.navy,
         fontStyle: "bold",
-        lineColor: [0, 0, 0],
-        lineWidth: 0.35,
+        fontSize: 9.8,
+        lineColor: colors.emeraldDark,
+        lineWidth: 0.4,
+        minCellHeight: 8.5,
       },
       alternateRowStyles: {
-        fillColor: [250, 250, 250],
+        fillColor: colors.soft,
       },
       columnStyles: {
-        0: { cellWidth: innerWidth * 0.32 },
-        1: { cellWidth: innerWidth * 0.11, halign: "center" },
-        2: { cellWidth: innerWidth * 0.19 },
-        3: { cellWidth: innerWidth * 0.38 },
+        0: { cellWidth: contentWidth * 0.3, fontStyle: "bold" },
+        1: {
+          cellWidth: contentWidth * 0.13,
+          halign: "center",
+          fontStyle: "bold",
+          fontSize: tableFontSize + 0.8,
+        },
+        2: { cellWidth: contentWidth * 0.25 },
+        3: { cellWidth: contentWidth * 0.32 },
       },
       pageBreak: "avoid",
       rowPageBreak: "avoid",
@@ -381,80 +458,146 @@ export default async function generateMiniProgressReportPdf(rows, meta = {}, opt
         ? `${student.stream_position} / ${student.stream_total || 0}`
         : "INELIGIBLE";
 
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(7.9);
-    const commentLines = doc.splitTextToSize(`Comment: ${student.comment}`, innerWidth);
-    doc.setFont("helvetica", "italic");
-    doc.setFontSize(7.1);
-    const noteLines =
-      student.position_status !== "ELIGIBLE"
-        ? doc.splitTextToSize(
-            "NOTE: INELIGIBLE means the learner did not have enough completed AOI 1 scores in all required subjects to be ranked.",
-            innerWidth
-          )
-        : [];
+    const summaryY = Math.max(finalTableY + 5, 190);
+    const summaryHeight = 24;
+    const summaryGap = 4;
+    const summaryCardWidth = (contentWidth - summaryGap * 2) / 3;
+    const summaryMetrics = [
+      {
+        label: "AOI 1 AVERAGE",
+        value:
+          student.average === null || student.average === undefined
+            ? "-"
+            : student.average.toFixed(2),
+        primary: true,
+      },
+      { label: "CLASS POSITION", value: classPositionLabel },
+      { label: "STREAM POSITION", value: streamPositionLabel },
+    ];
 
-    const performanceTableHeight = 10;
-    const footerBlockHeight = 39 + commentLines.length * 3.8 + performanceTableHeight + noteLines.length * 3.3;
-    const footerTopY = Math.min(finalTableY + 3, slotY + slotHeight - footerBlockHeight);
-    const averageY = footerTopY + 5.5;
-    const classPositionY = averageY + 5.3;
-    const streamPositionY = classPositionY + 5.3;
-    const commentY = streamPositionY + 5.3;
-    const signatureY = commentY + commentLines.length * 3.8 + 5.2;
-    const scaleTopY = signatureY + 3.4;
-    const scaleHeaderY = scaleTopY + 3.4;
-    const scaleRangeY = scaleTopY + 8.1;
-    const noteY = scaleTopY + performanceTableHeight + 4.5;
+    summaryMetrics.forEach((metric, metricIndex) => {
+      const metricX = pageMargin + metricIndex * (summaryCardWidth + summaryGap);
+      doc.setFillColor(...(metric.primary ? colors.reportTint : colors.mint));
+      doc.setDrawColor(...colors.emerald);
+      doc.setLineWidth(0.35);
+      doc.roundedRect(metricX, summaryY, summaryCardWidth, summaryHeight, 1.8, 1.8, "FD");
+      doc.setTextColor(...colors.emeraldDark);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(7.4);
+      doc.text(metric.label, metricX + summaryCardWidth / 2, summaryY + 6, {
+        align: "center",
+      });
+      doc.setTextColor(...colors.navy);
+      doc.setFontSize(String(metric.value).length > 10 ? 11.5 : 16);
+      doc.text(String(metric.value), metricX + summaryCardWidth / 2, summaryY + 16.7, {
+        align: "center",
+      });
+    });
 
-    doc.setFillColor(255, 255, 255);
-    doc.rect(innerX - 0.5, footerTopY - 2, innerWidth + 1, footerBlockHeight, "F");
-    doc.setDrawColor(0);
-    doc.setLineWidth(0.2);
-    doc.line(innerX, footerTopY, innerX + innerWidth, footerTopY);
+    const commentY = summaryY + summaryHeight + 5;
+    const hasPositionNote = student.position_status !== "ELIGIBLE";
+    const commentHeight = 28;
+    doc.setFillColor(...colors.soft);
+    doc.setDrawColor(203, 213, 225);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(pageMargin, commentY, contentWidth, commentHeight, 1.8, 1.8, "FD");
+    doc.setFillColor(...colors.emerald);
+    doc.roundedRect(pageMargin, commentY, 3, commentHeight, 1.5, 1.5, "F");
 
+    doc.setTextColor(...colors.emeraldDark);
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(8.1);
-    doc.text(
-      `AOI 1 Average: ${
-        student.average === null || student.average === undefined ? "—" : student.average.toFixed(2)
-      }`,
-      innerX,
-      averageY
-    );
-    doc.text(`Class Position: ${classPositionLabel}`, innerX, classPositionY);
-    doc.text(`Stream Position: ${streamPositionLabel}`, innerX, streamPositionY);
-
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(7.9);
-    doc.text(commentLines, innerX, commentY);
-
-    doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
-    doc.text("Signature: ____________________", innerX, signatureY);
-
-    const scaleColWidth = innerWidth / 3;
-    doc.setDrawColor(0);
-    doc.setLineWidth(0.2);
-    doc.rect(innerX, scaleTopY, innerWidth, performanceTableHeight);
-    doc.line(innerX + scaleColWidth, scaleTopY, innerX + scaleColWidth, scaleTopY + performanceTableHeight);
-    doc.line(innerX + scaleColWidth * 2, scaleTopY, innerX + scaleColWidth * 2, scaleTopY + performanceTableHeight);
-    doc.line(innerX, scaleTopY + performanceTableHeight / 2, innerX + innerWidth, scaleTopY + performanceTableHeight / 2);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(7.1);
-    doc.text("BASIC", innerX + scaleColWidth / 2, scaleHeaderY, { align: "center" });
-    doc.text("MODERATE", innerX + scaleColWidth * 1.5, scaleHeaderY, { align: "center" });
-    doc.text("OUTSTANDING", innerX + scaleColWidth * 2.5, scaleHeaderY, { align: "center" });
+    doc.text("CLASS TEACHER COMMENT", pageMargin + 7, commentY + 6);
+    doc.setTextColor(...colors.ink);
     doc.setFont("helvetica", "normal");
-    doc.text("0.9 - 1.4", innerX + scaleColWidth / 2, scaleRangeY, { align: "center" });
-    doc.text("1.5 - 2.4", innerX + scaleColWidth * 1.5, scaleRangeY, { align: "center" });
-    doc.text("2.5 - 3.0", innerX + scaleColWidth * 2.5, scaleRangeY, { align: "center" });
+    doc.setFontSize(10.5);
+    const commentLines = doc
+      .splitTextToSize(student.comment, contentWidth - 14)
+      .slice(0, hasPositionNote ? 2 : 3);
+    doc.text(commentLines, pageMargin + 7, commentY + 12, { lineHeightFactor: 1.25 });
 
-    if (noteLines.length > 0) {
+    if (hasPositionNote) {
+      doc.setTextColor(...colors.muted);
       doc.setFont("helvetica", "italic");
-      doc.setFontSize(7.1);
-      doc.text(noteLines, innerX, noteY);
+      doc.setFontSize(7.4);
+      doc.text(
+        "Position is unavailable until enough required AOI 1 subject scores have been completed.",
+        pageMargin + 7,
+        commentY + commentHeight - 4.2
+      );
     }
+
+    const signatureY = commentY + commentHeight + 8;
+    const signatureX = pageMargin + 3;
+    doc.setTextColor(...colors.ink);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9.2);
+    doc.text("Class Teacher:", signatureX, signatureY);
+    const signatureLabelWidth = doc.getTextWidth("Class Teacher:");
+    doc.setFont("helvetica", "normal");
+    doc.text(
+      "........................................",
+      signatureX + signatureLabelWidth + 2,
+      signatureY
+    );
+
+    const scaleTopY = signatureY + 7.5;
+    const performanceTableHeight = 9.5;
+    const scaleColWidth = contentWidth / 3;
+    doc.setDrawColor(...colors.navy);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(
+      pageMargin,
+      scaleTopY,
+      contentWidth,
+      performanceTableHeight,
+      1.5,
+      1.5
+    );
+    doc.line(
+      pageMargin + scaleColWidth,
+      scaleTopY,
+      pageMargin + scaleColWidth,
+      scaleTopY + performanceTableHeight
+    );
+    doc.line(
+      pageMargin + scaleColWidth * 2,
+      scaleTopY,
+      pageMargin + scaleColWidth * 2,
+      scaleTopY + performanceTableHeight
+    );
+    [
+      "BASIC  0.9 - 1.4",
+      "MODERATE  1.5 - 2.4",
+      "OUTSTANDING  2.5 - 3.0",
+    ].forEach((label, scaleIndex) => {
+      const centerX = pageMargin + scaleColWidth * scaleIndex + scaleColWidth / 2;
+      doc.setTextColor(...colors.navy);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8.4);
+      doc.text(label, centerX, scaleTopY + 6.2, { align: "center" });
+    });
+
+    doc.setTextColor(...colors.muted);
+    doc.setFont("helvetica", "italic");
+    doc.setFontSize(7.4);
+    doc.text(
+      "Report not valid without school stamp.",
+      pageWidth / 2,
+      scaleTopY + performanceTableHeight + 4.2,
+      { align: "center" }
+    );
+
+    doc.setTextColor(...colors.muted);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.2);
+    doc.text(
+      `Generated ${generatedAt}  |  Confidential learner progress document  |  Page ${index + 1} of ${grouped.length}`,
+      pageWidth / 2,
+      pageHeight - 4.2,
+      { align: "center" }
+    );
+
     if (onProgress) {
       const completed = index + 1;
       const percent = Math.min(96, Math.round((completed / grouped.length) * 100));
@@ -462,11 +605,13 @@ export default async function generateMiniProgressReportPdf(rows, meta = {}, opt
         completed,
         total: grouped.length,
         percent,
-        stage: `Generating slip ${completed} of ${grouped.length}`,
+        stage: `Generating report ${completed} of ${grouped.length}`,
       });
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
   }
+
+  if (options.openPdf === false) return doc;
 
   const blob = doc.output("blob");
   const url = URL.createObjectURL(blob);
@@ -475,4 +620,5 @@ export default async function generateMiniProgressReportPdf(rows, meta = {}, opt
   }
   window.open(url, "_blank");
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  return doc;
 }

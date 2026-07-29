@@ -2,25 +2,6 @@ import { useMemo, useState, useEffect } from "react";
 import { loadPdfTools } from "../utils/loadPdfTools";
 import { adminFetch } from "../lib/api";
 
-const OFFICIAL_SUBJECTS = [
-  "ICT",
-  "Physical Education",
-  "Luganda",
-  "Christian Religious Education",
-  "IRE",
-  "Agriculture",
-  "Art",
-  "Literature",
-  "Entrepreneurship",
-  "Kiswahili",
-  "English",
-  "Mathematics",
-  "Physics",
-  "Biology",
-  "Chemistry",
-  "History",
-  "Geography",
-];
 const TERMS = [1, 2, 3];
 const DEFAULT_COMPONENT_OPTIONS = [
   { value: "AOI1", label: "AOI 1" },
@@ -40,7 +21,6 @@ const normalizeTermNumber = (value) => {
 export default function AssessmentSubmissionTracker({
   marksSets = [],
   refreshMarks,
-  officialSubjects = OFFICIAL_SUBJECTS,
   assignmentsEndpoint = "/api/admin/assignments",
   seedGroups = [],
   title = "Assessment Submission Tracker",
@@ -58,6 +38,9 @@ export default function AssessmentSubmissionTracker({
     componentOptions[0]?.value || DEFAULT_COMPONENT_OPTIONS[0].value
   );
   const [expectedByGroup, setExpectedByGroup] = useState({});
+  const [assignmentsLoading, setAssignmentsLoading] = useState(true);
+  const [assignmentsError, setAssignmentsError] = useState("");
+  const [assignmentRefreshKey, setAssignmentRefreshKey] = useState(0);
   const selectedComponentLabel =
     componentOptions.find((option) => option.value === selectedComponent)?.label ||
     componentOptions[0]?.label ||
@@ -79,10 +62,15 @@ export default function AssessmentSubmissionTracker({
 
   useEffect(() => {
     const loadExpectedSubjects = async () => {
+      setAssignmentsLoading(true);
+      setAssignmentsError("");
       try {
         const rows = await adminFetch(assignmentsEndpoint);
         const map = {};
         (Array.isArray(rows) ? rows : []).forEach((r) => {
+          const assignmentStatus = String(r.assignment_status || "active").trim().toLowerCase();
+          if (assignmentStatus !== "active" || r.ended_at) return;
+
           const stream = r.stream || "";
           const classLevel = r.class_level || "A-Level";
           const slotDisplay =
@@ -105,11 +93,21 @@ export default function AssessmentSubmissionTracker({
       } catch (err) {
         console.error("TRACKER expected subjects load failed:", err);
         setExpectedByGroup({});
+        setAssignmentsError(
+          "Assignments could not be loaded. Submission compliance is unavailable until ownership is verified."
+        );
+      } finally {
+        setAssignmentsLoading(false);
       }
     };
 
     loadExpectedSubjects();
-  }, []);
+  }, [assignmentRefreshKey, assignmentsEndpoint]);
+
+  const handleRefresh = async () => {
+    await Promise.resolve(refreshMarks?.());
+    setAssignmentRefreshKey((value) => value + 1);
+  };
   // Filter marks by selected term
   const filtered = useMemo(() => {
     return marksSets.filter((m) => {
@@ -137,19 +135,11 @@ export default function AssessmentSubmissionTracker({
       if (slotId) return `assignment:${slotId}`;
       return `${row?.class_level || "A-Level"}||${row?.stream || ""}||${buildSlotDisplay(row)}`;
     };
-    const toExpectedMap = (items = []) => {
-      const expected = new Map();
-      items.forEach((subject) => {
-        const display = String(subject || "").trim();
-        if (!display) return;
-        expected.set(display, {
-          key: display,
-          display,
-          teacher: "—",
-        });
-      });
-      return expected;
-    };
+    const normalizeSlotDisplay = (value) =>
+      String(value || "")
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, " ");
     const sortByDisplay = (a, b) => String(a.display || "").localeCompare(String(b.display || ""));
 
     // Seed fixed groups (useful for A-Level streams even before marks are submitted)
@@ -163,7 +153,8 @@ export default function AssessmentSubmissionTracker({
           class_level: classLevel,
           stream,
           items: new Map(),
-          expectedItems: toExpectedMap(officialSubjects),
+          expectedItems: new Map(),
+          orphanedItems: new Map(),
         };
       }
     });
@@ -176,6 +167,7 @@ export default function AssessmentSubmissionTracker({
         stream,
         items: new Map(),
         expectedItems: expectedItems instanceof Map ? expectedItems : new Map(),
+        orphanedItems: new Map(),
       };
     });
 
@@ -193,29 +185,40 @@ export default function AssessmentSubmissionTracker({
           expectedItems:
             expectedByGroup[key] instanceof Map
               ? expectedByGroup[key]
-              : toExpectedMap(officialSubjects),
+              : new Map(),
+          orphanedItems: new Map(),
         };
       }
 
       const slotKey = buildSlotKey(m);
       const slotDisplay = buildSlotDisplay(m);
-      const existing = map[key].items.get(slotKey) || {
-        key: slotKey,
-        display: slotDisplay,
-        teacher: m.teacher_name || "—",
-        components: new Set(),
-      };
-      if (m.teacher_name) existing.teacher = m.teacher_name;
-      if (normalizedAoi) existing.components.add(normalizedAoi);
-      map[key].items.set(slotKey, existing);
+      const activeAssignment =
+        map[key].expectedItems.get(slotKey) ||
+        Array.from(map[key].expectedItems.values()).find(
+          (assignment) =>
+            normalizeSlotDisplay(assignment.display) === normalizeSlotDisplay(slotDisplay)
+        );
 
-      if (!map[key].expectedItems.has(slotKey)) {
-        map[key].expectedItems.set(slotKey, {
+      if (!activeAssignment) {
+        const orphaned = map[key].orphanedItems.get(slotKey) || {
           key: slotKey,
           display: slotDisplay,
           teacher: m.teacher_name || "—",
-        });
+          reason: "No matching active assignment",
+        };
+        map[key].orphanedItems.set(slotKey, orphaned);
+        return;
       }
+
+      const verifiedSlotKey = activeAssignment.key;
+      const existing = map[key].items.get(verifiedSlotKey) || {
+        key: verifiedSlotKey,
+        display: activeAssignment.display,
+        teacher: activeAssignment.teacher,
+        components: new Set(),
+      };
+      if (normalizedAoi) existing.components.add(normalizedAoi);
+      map[key].items.set(verifiedSlotKey, existing);
     });
 
     return Object.values(map).map((group) => {
@@ -224,16 +227,17 @@ export default function AssessmentSubmissionTracker({
       const expectedItems =
         group.expectedItems && group.expectedItems.size
           ? Array.from(group.expectedItems.values()).sort(sortByDisplay)
-          : Array.from(toExpectedMap(officialSubjects).values()).sort(sortByDisplay);
+          : [];
       const missingItems = expectedItems.filter((item) => !submittedKeys.has(item.key));
       return {
         ...group,
         submittedItems,
         missingItems,
+        orphanedItems: Array.from(group.orphanedItems?.values?.() || []).sort(sortByDisplay),
         expectedTotal: expectedItems.length,
       };
     });
-  }, [filtered, expectedByGroup, officialSubjects, seedGroups, selectedComponent]);
+  }, [filtered, expectedByGroup, seedGroups, selectedComponent]);
   // PDF 
   const handleDownloadTrackerPdf = async () => {
     const { jsPDF } = await loadPdfTools();
@@ -267,8 +271,8 @@ export default function AssessmentSubmissionTracker({
     // ===== BODY =====
     grouped.forEach((group) => {
       const submittedCount = group.submittedItems.length;
-      const expectedTotal = Math.max(1, group.expectedTotal || officialSubjects.length);
-      const percent = Math.round((submittedCount / expectedTotal) * 100);
+      const expectedTotal = group.expectedTotal;
+      const percent = expectedTotal > 0 ? Math.round((submittedCount / expectedTotal) * 100) : 0;
       const missing = group.missingItems.length;
   
       // Page break
@@ -314,6 +318,26 @@ export default function AssessmentSubmissionTracker({
             y = 20;
           }
           doc.text(`• ${item.display}${item.teacher && item.teacher !== "—" ? ` — ${item.teacher}` : ""}`, 18, y);
+          y += 5;
+        });
+      }
+
+      if (group.orphanedItems.length > 0) {
+        y += 2;
+        doc.setFont("helvetica", "bold");
+        doc.text("Data warnings (not counted as submitted):", 14, y);
+        y += 5;
+        doc.setFont("helvetica", "normal");
+        group.orphanedItems.forEach((item) => {
+          if (y > pageH - 20) {
+            doc.addPage();
+            y = 20;
+          }
+          doc.text(
+            `• ${item.display} — ${item.teacher || "Unknown teacher"} — ${item.reason}`,
+            18,
+            y
+          );
           y += 5;
         });
       }
@@ -389,12 +413,29 @@ export default function AssessmentSubmissionTracker({
     >
       📄 Export PDF
     </button>
+    <button
+      type="button"
+      className="ghost-btn"
+      onClick={handleRefresh}
+      disabled={assignmentsLoading}
+    >
+      {assignmentsLoading ? "Checking assignments..." : "Refresh"}
+    </button>
   </div>
 </div>
 
+      {assignmentsError && (
+        <div className="panel-alert panel-alert-error" role="alert">
+          {assignmentsError}
+        </div>
+      )}
 
       {/* CONTENT */}
-      {grouped.length === 0 ? (
+      {assignmentsLoading ? (
+        <div className="panel-card">
+          <p className="muted-text">Verifying active assignments before calculating submissions...</p>
+        </div>
+      ) : grouped.length === 0 ? (
         <div className="panel-card">
           <p className="muted-text">
             No submissions recorded for {selectedComponentLabel} in Term {selectedTerm} yet.
@@ -404,8 +445,9 @@ export default function AssessmentSubmissionTracker({
         <div style={{ display: "grid", gap: "1rem" }}>
           {grouped.map(group => {
             const submittedCount = group.submittedItems.length;
-            const expectedTotal = Math.max(1, group.expectedTotal || officialSubjects.length);
-            const percent = Math.round((submittedCount / expectedTotal) * 100);
+            const expectedTotal = group.expectedTotal;
+            const percent =
+              expectedTotal > 0 ? Math.round((submittedCount / expectedTotal) * 100) : 0;
 
             const missingCount = group.missingItems.length;
 
@@ -457,13 +499,17 @@ export default function AssessmentSubmissionTracker({
                 {/* Submitted */}
                 <details>
                   <summary>✅ Submitted {trackedUnitLabel} for {selectedComponentLabel}</summary>
-                  <ul>
-                    {group.submittedItems.map((item) => (
-                      <li key={item.key}>
-                        {item.display} — 👨‍🏫 {item?.teacher || "—"} — {selectedComponentLabel} recorded
-                      </li>
-                    ))}
-                  </ul>
+                  {group.submittedItems.length === 0 ? (
+                    <p className="muted-text">No verified submissions.</p>
+                  ) : (
+                    <ul>
+                      {group.submittedItems.map((item) => (
+                        <li key={item.key}>
+                          {item.display} — 👨‍🏫 {item?.teacher || "—"} — {selectedComponentLabel} recorded
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </details>
 
                 {/* Missing */}
@@ -482,6 +528,24 @@ export default function AssessmentSubmissionTracker({
                     </ul>
                   )}
                 </details>
+
+                {group.orphanedItems.length > 0 && (
+                  <details open>
+                    <summary>
+                      Data warnings: marks without an active assignment ({group.orphanedItems.length})
+                    </summary>
+                    <p className="muted-text">
+                      These records are not counted as submitted. Create or restore the correct assignment, then verify the marks before using reports.
+                    </p>
+                    <ul>
+                      {group.orphanedItems.map((item) => (
+                        <li key={item.key}>
+                          {item.display} — stored teacher: {item.teacher || "Unknown"} — {item.reason}
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
               </div>
             );
           })}

@@ -553,9 +553,9 @@ export default async function generateMiniProgressReportPdf(rows, meta = {}, opt
         ? `${student.stream_position} / ${student.stream_total || 0}`
         : "INELIGIBLE";
 
-    const summaryY = Math.max(finalTableY + 5, 190);
-    const summaryHeight = 24;
-    const summaryGap = 4;
+    const summaryY = Math.max(finalTableY + 4, 184);
+    const summaryHeight = 18;
+    const summaryGap = 3.2;
     const summaryCardWidth = (contentWidth - summaryGap * 2) / 3;
     const summaryMetrics = [
       {
@@ -575,16 +575,16 @@ export default async function generateMiniProgressReportPdf(rows, meta = {}, opt
       doc.setFillColor(...(metric.primary ? colors.reportTint : colors.mint));
       doc.setDrawColor(...colors.emerald);
       doc.setLineWidth(0.35);
-      doc.roundedRect(metricX, summaryY, summaryCardWidth, summaryHeight, 1.8, 1.8, "FD");
+      doc.roundedRect(metricX, summaryY, summaryCardWidth, summaryHeight, 1.6, 1.6, "FD");
       doc.setTextColor(...colors.emeraldDark);
       doc.setFont("helvetica", "bold");
       doc.setFontSize(7.4);
-      doc.text(metric.label, metricX + summaryCardWidth / 2, summaryY + 6, {
+      doc.text(metric.label, metricX + summaryCardWidth / 2, summaryY + 4.8, {
         align: "center",
       });
       doc.setTextColor(...colors.navy);
       doc.setFontSize(String(metric.value).length > 10 ? 11.5 : 16);
-      doc.text(String(metric.value), metricX + summaryCardWidth / 2, summaryY + 16.7, {
+      doc.text(String(metric.value), metricX + summaryCardWidth / 2, summaryY + 13.4, {
         align: "center",
       });
     });
@@ -594,8 +594,8 @@ export default async function generateMiniProgressReportPdf(rows, meta = {}, opt
     const neverSubmittedAnomalies = student.anomalySubjects?.neverSubmitted || [];
     const hasNamedAnomalies =
       missedAnomalies.length > 0 || neverSubmittedAnomalies.length > 0;
-    const eligibilityY = summaryY + summaryHeight + 4;
-    const eligibilityHeight = hasNamedAnomalies ? 14 : 9;
+    const eligibilityY = summaryY + summaryHeight + 2.5;
+    const eligibilityHeight = hasNamedAnomalies ? 12.5 : 8;
 
     if (hasPositionNote) {
       doc.setFillColor(...colors.mint);
@@ -618,7 +618,7 @@ export default async function generateMiniProgressReportPdf(rows, meta = {}, opt
       doc.text(
         "Position is unavailable until enough required AOI 1 subject scores have been completed.",
         pageMargin + 6,
-        eligibilityY + 5
+        eligibilityY + 4.3
       );
 
       if (hasNamedAnomalies) {
@@ -654,16 +654,16 @@ export default async function generateMiniProgressReportPdf(rows, meta = {}, opt
           doc,
           anomalySegments,
           pageMargin + 6,
-          eligibilityY + 10.2,
+          eligibilityY + 9.2,
           contentWidth - 12
         );
       }
     }
 
     const commentY = hasPositionNote
-      ? eligibilityY + eligibilityHeight + 4
-      : summaryY + summaryHeight + 5;
-    const commentHeight = 29;
+      ? eligibilityY + eligibilityHeight + 2.5
+      : summaryY + summaryHeight + 3;
+    const commentHeight = 22;
     doc.setFillColor(...colors.soft);
     doc.setDrawColor(203, 213, 225);
     doc.setLineWidth(0.3);
@@ -674,16 +674,16 @@ export default async function generateMiniProgressReportPdf(rows, meta = {}, opt
     doc.setTextColor(...colors.emeraldDark);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(8);
-    doc.text("CLASS TEACHER COMMENT", pageMargin + 7, commentY + 6);
+    doc.text("CLASS TEACHER COMMENT", pageMargin + 7, commentY + 4.8);
     doc.setTextColor(...colors.ink);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(10.5);
     const commentLines = doc
       .splitTextToSize(student.comment, contentWidth - 14)
-      .slice(0, hasPositionNote ? 2 : 3);
-    doc.text(commentLines, pageMargin + 7, commentY + 12, { lineHeightFactor: 1.25 });
+      .slice(0, 2);
+    doc.text(commentLines, pageMargin + 7, commentY + 9.5, { lineHeightFactor: 1.08 });
 
-    const signatureY = commentY + commentHeight - 4;
+    const signatureY = commentY + commentHeight - 3.2;
     const signatureX = pageMargin + 7;
     doc.setTextColor(...colors.ink);
     doc.setFont("helvetica", "bold");
@@ -697,8 +697,8 @@ export default async function generateMiniProgressReportPdf(rows, meta = {}, opt
       signatureY
     );
 
-    const scaleTopY = commentY + commentHeight + 6;
-    const performanceTableHeight = 9.5;
+    const scaleTopY = commentY + commentHeight + 3.5;
+    const performanceTableHeight = 8.5;
     const scaleColWidth = contentWidth / 3;
     doc.setDrawColor(...colors.navy);
     doc.setLineWidth(0.3);
@@ -731,7 +731,7 @@ export default async function generateMiniProgressReportPdf(rows, meta = {}, opt
       doc.setTextColor(...colors.navy);
       doc.setFont("helvetica", "bold");
       doc.setFontSize(8.4);
-      doc.text(label, centerX, scaleTopY + 6.2, { align: "center" });
+      doc.text(label, centerX, scaleTopY + 5.6, { align: "center" });
     });
 
     doc.setTextColor(...colors.muted);

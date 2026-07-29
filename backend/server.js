@@ -3081,6 +3081,47 @@ app.get("/api/admin/marks-archive", authAdmin, async (req, res) => {
       [limit]
     );
 
+    const [retainedOLevelRows] = await pool.query(
+      `
+        SELECT
+          'O-Level' AS level_name,
+          m.assignment_id,
+          ta.class_level,
+          ta.stream,
+          ta.subject,
+          m.term,
+          m.year,
+          CAST(m.aoi_label AS CHAR) AS component_key,
+          CAST(m.aoi_label AS CHAR) AS component_label,
+          COALESCE(ta.ended_at, MAX(m.updated_at), MAX(m.created_at)) AS deleted_at,
+          NULL AS deleted_at_key,
+          'system' AS deleted_by_role,
+          COALESCE(ta.ended_reason, 'Assignment ended; marks retained') AS delete_reason,
+          'RETAINED_LIVE_MARKS' AS source_action,
+          COUNT(*) AS archived_rows,
+          NULL AS restored_at,
+          1 AS assignment_exists,
+          'live_retained' AS record_source
+        FROM marks m
+        JOIN teacher_assignments ta ON ta.id = m.assignment_id
+        WHERE COALESCE(ta.assignment_status, 'active') <> 'active'
+           OR ta.ended_at IS NOT NULL
+        GROUP BY
+          m.assignment_id,
+          ta.class_level,
+          ta.stream,
+          ta.subject,
+          m.term,
+          m.year,
+          m.aoi_label,
+          ta.ended_at,
+          ta.ended_reason
+        ORDER BY deleted_at DESC
+        LIMIT ?
+      `,
+      [limit]
+    );
+
     const [aLevelRows] = await pool.query(
       `
         SELECT
@@ -3126,9 +3167,13 @@ app.get("/api/admin/marks-archive", authAdmin, async (req, res) => {
       [limit]
     );
 
-    const rows = [...oLevelRows, ...aLevelRows]
+    const rows = [
+      ...oLevelRows.map((row) => ({ ...row, record_source: "archive" })),
+      ...aLevelRows.map((row) => ({ ...row, record_source: "archive" })),
+      ...retainedOLevelRows,
+    ]
       .sort((a, b) => new Date(b.deleted_at).getTime() - new Date(a.deleted_at).getTime())
-      .slice(0, limit * 2)
+      .slice(0, limit * 3)
       .map((row) => ({
         ...row,
         archived_rows: Number(row.archived_rows || 0),

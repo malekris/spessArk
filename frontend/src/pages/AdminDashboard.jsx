@@ -1933,6 +1933,7 @@ export default function AdminDashboard() {
       row?.year ?? "",
       row?.component_key || "",
       row?.deleted_at_key || "",
+      row?.record_source || "archive",
     ].join("__");
   const getAoiDeleteKey = (row) =>
     [
@@ -1946,7 +1947,7 @@ export default function AdminDashboard() {
     setLoadingMarksArchive(true);
     setMarksArchiveError("");
     try {
-      const data = await adminFetch("/api/admin/marks-archive?limit=40");
+      const data = await adminFetch("/api/admin/marks-archive?limit=100");
       setMarksArchiveSets(Array.isArray(data?.rows) ? data.rows : []);
     } catch (err) {
       console.error("Error loading deleted marks archive:", err);
@@ -4506,7 +4507,7 @@ export default function AdminDashboard() {
               <div>
                 <h3>Deleted Marks Recovery</h3>
                 <p className="muted-text" style={{ margin: "0.2rem 0 0" }}>
-                  Restore archived O-Level and A-Level marks when something was cleared by mistake.
+                  Find archived deletions and marks still retained under ended assignments. Retained-live rows are already safe in the database.
                 </p>
               </div>
               <button className="ghost-btn" onClick={fetchMarksArchiveSets} disabled={loadingMarksArchive}>
@@ -4551,7 +4552,8 @@ export default function AdminDashboard() {
                       const archiveKey = getMarksArchiveSetKey(row);
                       const isRestoring = restoringArchiveKey === archiveKey;
                       const isRestored = Boolean(row.restored_at);
-                      const canRestore = row.assignment_exists && !isRestored;
+                      const isRetainedLive = row.record_source === "live_retained";
+                      const canRestore = row.assignment_exists && !isRestored && !isRetainedLive;
 
                       return (
                         <tr key={archiveKey}>
@@ -4570,7 +4572,9 @@ export default function AdminDashboard() {
                             <small className="muted-text">{row.delete_reason || row.source_action || "Archived delete"}</small>
                           </td>
                           <td>
-                            {!row.assignment_exists ? (
+                            {isRetainedLive ? (
+                              <span className="muted-text">Retained live</span>
+                            ) : !row.assignment_exists ? (
                               <span className="muted-text">Assignment missing</span>
                             ) : isRestored ? (
                               <span className="muted-text">Restored</span>
@@ -4579,14 +4583,18 @@ export default function AdminDashboard() {
                             )}
                           </td>
                           <td>
-                            <button
-                              type="button"
-                              className="ghost-btn"
-                              onClick={() => handleRestoreArchiveSet(row)}
-                              disabled={!canRestore || isRestoring}
-                            >
-                              {isRestoring ? "Restoring…" : "Restore"}
-                            </button>
+                            {isRetainedLive ? (
+                              <span className="muted-text">Already in database</span>
+                            ) : (
+                              <button
+                                type="button"
+                                className="ghost-btn"
+                                onClick={() => handleRestoreArchiveSet(row)}
+                                disabled={!canRestore || isRestoring}
+                              >
+                                {isRestoring ? "Restoring…" : "Restore"}
+                              </button>
+                            )}
                           </td>
                         </tr>
                       );

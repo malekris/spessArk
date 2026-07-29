@@ -57,6 +57,16 @@ const NORMALIZED_TERM_SQL = (columnName) => `
   END
 `;
 
+const NORMALIZED_AOI_SQL = (columnName) => `
+  CASE
+    WHEN UPPER(REPLACE(REPLACE(REPLACE(TRIM(CAST(${columnName} AS CHAR)), ' ', ''), '-', ''), '_', '')) = 'AOI1' THEN 'AOI1'
+    WHEN UPPER(REPLACE(REPLACE(REPLACE(TRIM(CAST(${columnName} AS CHAR)), ' ', ''), '-', ''), '_', '')) = 'AOI2' THEN 'AOI2'
+    WHEN UPPER(REPLACE(REPLACE(REPLACE(TRIM(CAST(${columnName} AS CHAR)), ' ', ''), '-', ''), '_', '')) = 'AOI3' THEN 'AOI3'
+    WHEN UPPER(REPLACE(REPLACE(REPLACE(TRIM(CAST(${columnName} AS CHAR)), ' ', ''), '-', ''), '_', '')) IN ('80', 'EXAM80') THEN 'EXAM80'
+    ELSE UPPER(TRIM(CAST(${columnName} AS CHAR)))
+  END
+`;
+
 const O_LEVEL_COMPONENTS_BY_TERM = {
   "Term 1": ["AOI 1", "AOI 2", "AOI 3"],
   "Term 2": ["AOI 1", "AOI 2", "AOI 3"],
@@ -853,15 +863,15 @@ router.get("/mini-aoi1", authAdmin, async (req, res) => {
         s.subjects AS registered_subjects,
         ta.subject,
         GROUP_CONCAT(DISTINCT t.name ORDER BY t.name SEPARATOR ', ') AS teacher_name,
-        MAX(CASE WHEN m.aoi_label = 'AOI1' THEN m.score END) AS AOI1,
-        MAX(CASE WHEN m.aoi_label = 'AOI1' THEN m.status END) AS AOI1_status
+        MAX(CASE WHEN ${NORMALIZED_AOI_SQL("m.aoi_label")} = 'AOI1' THEN m.score END) AS AOI1,
+        MAX(CASE WHEN ${NORMALIZED_AOI_SQL("m.aoi_label")} = 'AOI1' THEN m.status END) AS AOI1_status
       FROM students s
       JOIN marks m ON m.student_id = s.id
       JOIN teacher_assignments ta ON ta.id = m.assignment_id
       LEFT JOIN teachers t ON t.id = m.teacher_id
       WHERE m.year = ?
-        AND m.term = ?
-        AND m.aoi_label = 'AOI1'
+        AND ${NORMALIZED_TERM_SQL("m.term")} = ?
+        AND ${NORMALIZED_AOI_SQL("m.aoi_label")} = 'AOI1'
         AND s.class_level = ?
       GROUP BY
         s.id,

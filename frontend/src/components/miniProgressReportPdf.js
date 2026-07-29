@@ -159,6 +159,11 @@ const normalizeMiniSubjectKey = (value) => {
   const aliases = {
     cre: "christianreligiouseducation",
     christianreligiouseducation: "christianreligiouseducation",
+    ict: "ict",
+    informationcommunicationtechnology: "ict",
+    informationandcommunicationtechnology: "ict",
+    informationcommunicationsandtechnology: "ict",
+    informationandcommunicationstechnology: "ict",
   };
   return aliases[compact] || compact;
 };

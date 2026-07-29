@@ -878,6 +878,7 @@ router.get("/mini-aoi1", authAdmin, async (req, res) => {
         s.stream,
         s.subjects AS registered_subjects,
         ta.subject,
+        ta.stream AS assignment_stream,
         COALESCE(t.name, CONCAT('Former teacher #', m.teacher_id)) AS teacher_name,
         m.score AS AOI1,
         m.status AS AOI1_status,
@@ -939,43 +940,23 @@ router.get("/mini-aoi1", authAdmin, async (req, res) => {
       // Do not let an empty legacy duplicate hide a real retained score.
       if (
         !hasRecordedScore(existing.AOI1) &&
-        !String(existing.AOI1_status || "").trim() &&
+        !isMissedStatus(existing.AOI1_status) &&
         hasRecordedScore(row.AOI1)
       ) {
         reportRowsBySubject.set(key, row);
       }
     }
-    // Keep the report table intentionally simple: registered subjects appear
-    // only when a score exists or the learner was explicitly marked as missed.
-    const reportRows = [];
-    for (const learner of populationRows || []) {
-      const registeredSubjects = parseStoredSubjects(learner.registered_subjects);
-      const includedSubjectKeys = new Set();
-
-      for (const subject of registeredSubjects) {
-        const subjectKey = normalizeRegisteredSubjectKey(subject);
-        if (!subjectKey || includedSubjectKeys.has(subjectKey)) continue;
-        includedSubjectKeys.add(subjectKey);
-
-        const retainedMark = reportRowsBySubject.get(`${learner.student_id}__${subjectKey}`);
-        if (
-          !retainedMark ||
-          (!hasRecordedScore(retainedMark.AOI1) && !isMissedStatus(retainedMark.AOI1_status))
-        ) {
-          continue;
-        }
-
-        reportRows.push({
-          ...learner,
-          ...retainedMark,
-          subject,
-          registered_subjects: learner.registered_subjects,
-          AOI1: retainedMark.AOI1 ?? null,
-          AOI1_status: retainedMark.AOI1_status || null,
-          teacher_name: retainedMark.teacher_name || "",
-        });
-      }
-    }
+    // Marks are validated against learner registration when saved. Consume the
+    // reconciled submitted rows directly, matching Download Marks, and omit only
+    // genuinely empty rows from the report table.
+    const reportRows = Array.from(reportRowsBySubject.values())
+      .filter(
+        (row) => hasRecordedScore(row.AOI1) || isMissedStatus(row.AOI1_status)
+      )
+      .map((row) => ({
+        ...row,
+        stream: row.assignment_stream || row.stream,
+      }));
 
     const processedAll = reportRows.map((row) => {
       const registeredSubjects = parseStoredSubjects(row.registered_subjects);

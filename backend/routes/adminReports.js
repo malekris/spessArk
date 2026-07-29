@@ -615,12 +615,11 @@ router.get("/term", authAdmin, async (req, res) => {
 
     // Preserve existing API behavior: return selected stream,
     // or selected student if student_id is provided.
-    const filtered = withPositions.filter((row) => {
-      if (student_id) {
-        return String(row.student_id) === String(student_id);
-      }
-      return normalizeStream(row.stream) === wantedStream;
-    });
+    const filtered = withPositions.filter(
+      (row) =>
+        normalizeStream(row.stream) === wantedStream &&
+        (!student_id || String(row.student_id) === String(student_id))
+    );
 
     res.json(filtered);
   } catch (err) {
@@ -930,12 +929,11 @@ router.get("/mini-aoi1", authAdmin, async (req, res) => {
       };
     });
 
-    const processed = withPositions.filter((row) => {
-      if (student_id) {
-        return String(row.student_id) === String(student_id);
-      }
-      return normalizeStream(row.stream) === wantedStream;
-    });
+    const processed = withPositions.filter(
+      (row) =>
+        normalizeStream(row.stream) === wantedStream &&
+        (!student_id || String(row.student_id) === String(student_id))
+    );
 
     res.json(processed);
   } catch (err) {

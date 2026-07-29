@@ -9,6 +9,11 @@ const DEFAULT_COMPONENT_OPTIONS = [
   { value: "AOI3", label: "AOI 3" },
 ];
 const keyOf = (cls, stream) => `${cls}||${stream}`;
+const normalizeSlotDisplay = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
 
 const normalizeTermNumber = (value) => {
   const compact = String(value || "").trim().toLowerCase().replace(/[\s_-]+/g, "");
@@ -65,12 +70,11 @@ export default function AssessmentSubmissionTracker({
       setAssignmentsLoading(true);
       setAssignmentsError("");
       try {
-        const rows = await adminFetch(assignmentsEndpoint);
+        const separator = assignmentsEndpoint.includes("?") ? "&" : "?";
+        const rows = await adminFetch(`${assignmentsEndpoint}${separator}includeInactive=true`);
         const map = {};
         (Array.isArray(rows) ? rows : []).forEach((r) => {
           const assignmentStatus = String(r.assignment_status || "active").trim().toLowerCase();
-          if (assignmentStatus !== "active" || r.ended_at) return;
-
           const stream = r.stream || "";
           const classLevel = r.class_level || "A-Level";
           const slotDisplay =
@@ -82,12 +86,32 @@ export default function AssessmentSubmissionTracker({
           if (!stream || !slotDisplay) return;
           const k = keyOf(classLevel, stream);
           if (!map[k]) map[k] = new Map();
-          const slotKey = slotId ? `assignment:${slotId}` : `${classLevel}||${stream}||${slotDisplay}`;
-          map[k].set(slotKey, {
-            key: slotKey,
-            display: slotDisplay,
-            teacher: r.teacher_name || "—",
-          });
+          const isActive = assignmentStatus === "active" && !r.ended_at;
+          const matchingSlot = Array.from(map[k].values()).find(
+            (assignment) =>
+              normalizeSlotDisplay(assignment.display) === normalizeSlotDisplay(slotDisplay)
+          );
+
+          if (isActive) {
+            if (matchingSlot) map[k].delete(matchingSlot.key);
+            const slotKey = slotId
+              ? `assignment:${slotId}`
+              : `${classLevel}||${stream}||${slotDisplay}`;
+            map[k].set(slotKey, {
+              key: slotKey,
+              display: slotDisplay,
+              teacher: r.teacher_name || "—",
+              isActive: true,
+            });
+          } else if (!matchingSlot) {
+            const slotKey = `unassigned:${normalizeSlotDisplay(slotDisplay)}`;
+            map[k].set(slotKey, {
+              key: slotKey,
+              display: slotDisplay,
+              teacher: "Unassigned",
+              isActive: false,
+            });
+          }
         });
         setExpectedByGroup(map);
       } catch (err) {
@@ -135,11 +159,6 @@ export default function AssessmentSubmissionTracker({
       if (slotId) return `assignment:${slotId}`;
       return `${row?.class_level || "A-Level"}||${row?.stream || ""}||${buildSlotDisplay(row)}`;
     };
-    const normalizeSlotDisplay = (value) =>
-      String(value || "")
-        .trim()
-        .toLowerCase()
-        .replace(/\s+/g, " ");
     const sortByDisplay = (a, b) => String(a.display || "").localeCompare(String(b.display || ""));
 
     // Seed fixed groups (useful for A-Level streams even before marks are submitted)
@@ -196,6 +215,7 @@ export default function AssessmentSubmissionTracker({
         map[key].expectedItems.get(slotKey) ||
         Array.from(map[key].expectedItems.values()).find(
           (assignment) =>
+            assignment.isActive &&
             normalizeSlotDisplay(assignment.display) === normalizeSlotDisplay(slotDisplay)
         );
 
@@ -228,7 +248,14 @@ export default function AssessmentSubmissionTracker({
         group.expectedItems && group.expectedItems.size
           ? Array.from(group.expectedItems.values()).sort(sortByDisplay)
           : [];
-      const missingItems = expectedItems.filter((item) => !submittedKeys.has(item.key));
+      const missingItems = expectedItems
+        .filter((item) => !submittedKeys.has(item.key))
+        .map((item) => ({
+          ...item,
+          reason: item.isActive
+            ? `${selectedComponentLabel} has not been submitted by ${item.teacher || "the assigned teacher"}`
+            : "No active teacher assignment exists for this subject",
+        }));
       return {
         ...group,
         submittedItems,
@@ -237,7 +264,7 @@ export default function AssessmentSubmissionTracker({
         expectedTotal: expectedItems.length,
       };
     });
-  }, [filtered, expectedByGroup, seedGroups, selectedComponent]);
+  }, [filtered, expectedByGroup, seedGroups, selectedComponent, selectedComponentLabel]);
   // PDF 
   const handleDownloadTrackerPdf = async () => {
     const { jsPDF } = await loadPdfTools();
@@ -317,7 +344,11 @@ export default function AssessmentSubmissionTracker({
             doc.addPage();
             y = 20;
           }
-          doc.text(`• ${item.display}${item.teacher && item.teacher !== "—" ? ` — ${item.teacher}` : ""}`, 18, y);
+          doc.text(
+            `• ${item.display}${item.teacher && item.teacher !== "—" ? ` — ${item.teacher}` : ""} — ${item.reason}`,
+            18,
+            y
+          );
           y += 5;
         });
       }
@@ -523,6 +554,7 @@ export default function AssessmentSubmissionTracker({
                         <li key={item.key}>
                           {item.display}
                           {item.teacher && item.teacher !== "—" ? ` — 👨‍🏫 ${item.teacher}` : ""}
+                          {` — ${item.reason}`}
                         </li>
                       ))}
                     </ul>

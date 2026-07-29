@@ -51,6 +51,13 @@ function MiniProgressReports({ onClose }) {
     [schoolCalendar, term, year]
   );
 
+  const updateReportContext = (setter) => (event) => {
+    setter(event.target.value);
+    setStudentId("");
+    setData([]);
+    setError("");
+  };
+
   const groupedStudents = useMemo(() => {
     const seen = new Map();
     data.forEach((row) => {
@@ -95,7 +102,11 @@ function MiniProgressReports({ onClose }) {
   };
 
   const handleDownload = async () => {
-    if (!data.length) {
+    const downloadRows = studentId
+      ? data.filter((row) => String(row.student_id) === String(studentId))
+      : data;
+
+    if (!downloadRows.length) {
       setError("Preview the AOI 1 mini reports first.");
       return;
     }
@@ -107,7 +118,7 @@ function MiniProgressReports({ onClose }) {
 
     try {
       await generateMiniProgressReportPdf(
-        data,
+        downloadRows,
         {
           year,
           term: term === "1" ? "Term 1" : term === "2" ? "Term 2" : "Term 3",
@@ -129,7 +140,7 @@ function MiniProgressReports({ onClose }) {
         term: term === "1" ? "Term 1" : term === "2" ? "Term 2" : "Term 3",
         year,
         studentId: studentId || null,
-        learnerCount: groupedStudents.length,
+        learnerCount: new Set(downloadRows.map((row) => row.student_id)).size,
       });
     } catch (err) {
       setError(err.message || "Failed to generate mini report PDF.");
@@ -159,7 +170,7 @@ function MiniProgressReports({ onClose }) {
           <label className="report-filter-field">
             <span>Academic Year</span>
             <span className="report-select-shell">
-              <select value={year} onChange={(e) => setYear(e.target.value)}>
+              <select value={year} onChange={updateReportContext(setYear)}>
                 <option value={currentYear}>{currentYear}</option>
                 <option value={currentYear - 1}>{currentYear - 1}</option>
               </select>
@@ -169,7 +180,7 @@ function MiniProgressReports({ onClose }) {
           <label className="report-filter-field">
             <span>Term</span>
             <span className="report-select-shell">
-              <select value={term} onChange={(e) => setTerm(e.target.value)}>
+              <select value={term} onChange={updateReportContext(setTerm)}>
                 <option value="1">Term 1</option>
                 <option value="2">Term 2</option>
                 <option value="3">Term 3</option>
@@ -180,7 +191,7 @@ function MiniProgressReports({ onClose }) {
           <label className="report-filter-field">
             <span>Class</span>
             <span className="report-select-shell">
-              <select value={classLevel} onChange={(e) => setClassLevel(e.target.value)}>
+              <select value={classLevel} onChange={updateReportContext(setClassLevel)}>
                 <option value="S1">S1</option>
                 <option value="S2">S2</option>
                 <option value="S3">S3</option>
@@ -192,7 +203,7 @@ function MiniProgressReports({ onClose }) {
           <label className="report-filter-field">
             <span>Stream</span>
             <span className="report-select-shell">
-              <select value={stream} onChange={(e) => setStream(e.target.value)}>
+              <select value={stream} onChange={updateReportContext(setStream)}>
                 <option value="North">North</option>
                 <option value="South">South</option>
               </select>

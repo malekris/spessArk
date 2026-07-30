@@ -929,8 +929,9 @@ router.get("/mini-aoi1", authAdmin, async (req, res) => {
     );
 
     // A handover may leave marks under both the old and replacement assignment.
-    // Reconcile those rows by learner + canonical subject, using the same
-    // precedence as the teacher marks loader: active assignment, then newest row.
+    // Reconcile those rows by learner + canonical subject. A recorded score must
+    // always beat an empty or missed duplicate; otherwise retain query order
+    // precedence (active assignment, then newest row).
     const reportRowsBySubject = new Map();
     for (const row of markRows || []) {
       const subjectKey = normalizeRegisteredSubjectKey(row.subject);
@@ -942,12 +943,8 @@ router.get("/mini-aoi1", authAdmin, async (req, res) => {
         continue;
       }
 
-      // Do not let an empty legacy duplicate hide a real retained score.
-      if (
-        !hasRecordedScore(existing.AOI1) &&
-        !isMissedStatus(existing.AOI1_status) &&
-        hasRecordedScore(row.AOI1)
-      ) {
+      // Do not let an empty or missed handover duplicate hide a retained score.
+      if (!hasRecordedScore(existing.AOI1) && hasRecordedScore(row.AOI1)) {
         reportRowsBySubject.set(key, row);
       }
     }

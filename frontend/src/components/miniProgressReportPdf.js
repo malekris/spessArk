@@ -367,20 +367,28 @@ export default async function generateMiniProgressReportPdf(rows, meta = {}, opt
   const pageMargin = 14;
   const contentWidth = pageWidth - pageMargin * 2;
   const colors = {
-    navy: [11, 30, 48],
-    emerald: [13, 126, 99],
-    emeraldDark: [8, 82, 68],
-    mint: [235, 248, 244],
-    gold: [190, 145, 62],
-    ink: [17, 24, 39],
-    muted: [71, 85, 105],
-    line: [30, 41, 59],
-    soft: [247, 249, 251],
-    reportTint: [226, 239, 235],
+    navy: [0, 0, 0],
+    emerald: [0, 0, 0],
+    emeraldDark: [0, 0, 0],
+    mint: [255, 255, 255],
+    ink: [0, 0, 0],
+    muted: [72, 72, 72],
+    line: [0, 0, 0],
+    soft: [255, 255, 255],
+    reportTint: [255, 255, 255],
     white: [255, 255, 255],
   };
 
-  const generatedAt = new Date().toLocaleString("en-GB");
+  const generatedAt = new Date().toLocaleString("en-GB", {
+    weekday: "long",
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
   const termLabel = meta.term || "Term 1";
   const yearLabel = meta.year || new Date().getFullYear();
   const streamLabel = meta.stream || "-";
@@ -394,12 +402,6 @@ export default async function generateMiniProgressReportPdf(rows, meta = {}, opt
   for (let index = 0; index < grouped.length; index += 1) {
     const student = grouped[index];
     if (index > 0) doc.addPage();
-
-    doc.setDrawColor(...colors.navy);
-    doc.setLineWidth(0.4);
-    doc.roundedRect(9, 8, pageWidth - 18, pageHeight - 16, 2.4, 2.4);
-    doc.setFillColor(...colors.gold);
-    doc.roundedRect(9, 8, pageWidth - 18, 2.4, 1.2, 1.2, "F");
 
     if (badgeImage) {
       doc.addImage(badgeImage, "PNG", pageMargin + 2, 14, 17, 17);
@@ -429,15 +431,13 @@ export default async function generateMiniProgressReportPdf(rows, meta = {}, opt
       { align: "center" }
     );
 
-    doc.setDrawColor(...colors.gold);
+    doc.setDrawColor(...colors.line);
     doc.setLineWidth(0.5);
     doc.line(pageMargin, 37.2, pageWidth - pageMargin, 37.2);
 
     doc.setFillColor(...colors.reportTint);
     doc.setDrawColor(...colors.emerald);
     doc.roundedRect(pageMargin, 40.5, contentWidth, 13.5, 1.8, 1.8, "FD");
-    doc.setFillColor(...colors.gold);
-    doc.roundedRect(pageMargin, 40.5, 3.2, 13.5, 1.6, 1.6, "F");
     doc.setTextColor(...colors.navy);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(15.2);
@@ -497,7 +497,7 @@ export default async function generateMiniProgressReportPdf(rows, meta = {}, opt
       ["REGISTERED SUBJECTS", student.registered_subjects_count || student.subjects.length],
     ];
     const metaItemWidth = contentWidth / metaItems.length;
-    doc.setDrawColor(203, 213, 225);
+    doc.setDrawColor(205, 205, 205);
     doc.setLineWidth(0.25);
     doc.line(pageMargin, metaY, pageWidth - pageMargin, metaY);
     metaItems.forEach(([label, value], metaIndex) => {
@@ -675,8 +675,6 @@ export default async function generateMiniProgressReportPdf(rows, meta = {}, opt
         1.5,
         "FD"
       );
-      doc.setFillColor(...colors.gold);
-      doc.roundedRect(pageMargin, eligibilityY, 2.6, eligibilityHeight, 1.3, 1.3, "F");
       doc.setTextColor(...colors.emeraldDark);
       doc.setFont("helvetica", "italic");
       doc.setFontSize(8.4);
@@ -701,11 +699,9 @@ export default async function generateMiniProgressReportPdf(rows, meta = {}, opt
       : summaryY + summaryHeight + 3;
     const commentHeight = 22;
     doc.setFillColor(...colors.soft);
-    doc.setDrawColor(203, 213, 225);
+    doc.setDrawColor(205, 205, 205);
     doc.setLineWidth(0.3);
     doc.roundedRect(pageMargin, commentY, contentWidth, commentHeight, 1.8, 1.8, "FD");
-    doc.setFillColor(...colors.emerald);
-    doc.roundedRect(pageMargin, commentY, 3, commentHeight, 1.5, 1.5, "F");
 
     doc.setTextColor(...colors.emeraldDark);
     doc.setFont("helvetica", "bold");
@@ -789,7 +785,7 @@ export default async function generateMiniProgressReportPdf(rows, meta = {}, opt
     doc.setFont("helvetica", "normal");
     doc.setFontSize(7.2);
     doc.text(
-      `Generated ${generatedAt}  |  Confidential learner progress document  |  Page ${index + 1} of ${grouped.length}`,
+      `Generated: ${generatedAt}  |  Confidential learner progress document  |  Page ${index + 1} of ${grouped.length}`,
       pageWidth / 2,
       pageHeight - 4.2,
       { align: "center" }

@@ -960,10 +960,14 @@ router.get("/mini-aoi1", authAdmin, async (req, res) => {
 
     const processedAll = reportRows.map((row) => {
       const registeredSubjects = parseStoredSubjects(row.registered_subjects);
+      const normalizedAoiStatus = hasRecordedScore(row.AOI1)
+        ? "Present"
+        : row.AOI1_status;
       return {
         ...row,
         AOI1: hasRecordedScore(row.AOI1) ? Number(row.AOI1) : null,
-        remark: formatMiniRemark(row.AOI1, row.AOI1_status),
+        AOI1_status: normalizedAoiStatus,
+        remark: formatMiniRemark(row.AOI1, normalizedAoiStatus),
         registered_subjects_list: registeredSubjects,
         registered_subjects_count: registeredSubjects.length,
       };

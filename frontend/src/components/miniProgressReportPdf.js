@@ -23,13 +23,23 @@ const formatDateOnly = (value) => {
 };
 
 const formatScore = (score, status) => {
+  if (score !== null && score !== undefined && score !== "") {
+    const numeric = Number(score);
+    if (Number.isFinite(numeric)) return numeric.toFixed(1);
+  }
   if (String(status || "").trim().toLowerCase() === "missed") return "X";
-  if (score === null || score === undefined || score === "") return "";
-  const numeric = Number(score);
-  return Number.isFinite(numeric) ? numeric.toFixed(1) : String(score);
+  return "";
 };
 
 const formatMiniRemarkForDisplay = (subject) => {
+  if (
+    subject?.score !== null &&
+    subject?.score !== undefined &&
+    subject?.score !== "" &&
+    Number.isFinite(Number(subject.score))
+  ) {
+    return subject?.remark || "";
+  }
   if (String(subject?.status || "").trim().toLowerCase() === "missed") {
     return "MISSED";
   }

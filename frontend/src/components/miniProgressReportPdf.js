@@ -787,7 +787,7 @@ export default async function generateMiniProgressReportPdf(rows, meta = {}, opt
     doc.text(
       `Generated: ${generatedAt}  |  Confidential learner progress document  |  Page ${index + 1} of ${grouped.length}`,
       pageWidth / 2,
-      pageHeight - 4.2,
+      pageHeight - 10,
       { align: "center" }
     );
 

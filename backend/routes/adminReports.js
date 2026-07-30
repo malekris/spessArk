@@ -884,7 +884,6 @@ router.get("/mini-aoi1", authAdmin, async (req, res) => {
         s.stream,
         s.subjects AS registered_subjects,
         ta.subject,
-        ta.stream AS assignment_stream,
         COALESCE(t.name, CONCAT('Former teacher #', m.teacher_id)) AS teacher_name,
         m.score AS AOI1,
         m.status AS AOI1_status,
@@ -897,7 +896,7 @@ router.get("/mini-aoi1", authAdmin, async (req, res) => {
       WHERE m.year = ?
         AND ${NORMALIZED_TERM_SQL("m.term")} = ?
         AND ${NORMALIZED_AOI_SQL("m.aoi_label")} = 'AOI1'
-        AND UPPER(TRIM(ta.class_level)) = UPPER(TRIM(?))
+        AND UPPER(TRIM(s.class_level)) = UPPER(TRIM(?))
       ORDER BY
         s.name,
         CASE
@@ -955,14 +954,9 @@ router.get("/mini-aoi1", authAdmin, async (req, res) => {
     // Marks are validated against learner registration when saved. Consume the
     // reconciled submitted rows directly, matching Download Marks, and omit only
     // genuinely empty rows from the report table.
-    const reportRows = Array.from(reportRowsBySubject.values())
-      .filter(
-        (row) => hasRecordedScore(row.AOI1) || isMissedStatus(row.AOI1_status)
-      )
-      .map((row) => ({
-        ...row,
-        stream: row.assignment_stream || row.stream,
-      }));
+    const reportRows = Array.from(reportRowsBySubject.values()).filter(
+      (row) => hasRecordedScore(row.AOI1) || isMissedStatus(row.AOI1_status)
+    );
 
     const processedAll = reportRows.map((row) => {
       const registeredSubjects = parseStoredSubjects(row.registered_subjects);

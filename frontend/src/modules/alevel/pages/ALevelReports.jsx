@@ -1874,18 +1874,21 @@ export async function generateAlevelPDF(data, meta, options = {}) {
     const principalRows = buildSubjectRows(principals);
     const subsidiaryRows = buildSubjectRows(subsidiaries);
     const totalPaperRows = principalRows.length + subsidiaryRows.length;
-    const tableFontSize = totalPaperRows >= 12 ? 6.5 : totalPaperRows >= 9 ? 7 : 7.4;
-    const tableCellPadding = totalPaperRows >= 12 ? 1 : 1.25;
+    const tableFontSize = totalPaperRows >= 12 ? 7.8 : totalPaperRows >= 9 ? 8.4 : 9;
+    const tableHeadFontSize = totalPaperRows >= 12 ? 7.6 : totalPaperRows >= 9 ? 8 : 8.4;
+    const tableCellPadding = totalPaperRows >= 12 ? 1.15 : totalPaperRows >= 9 ? 1.35 : 1.55;
+    const tableMinCellHeight = totalPaperRows >= 12 ? 6.1 : totalPaperRows >= 9 ? 6.5 : 7;
+    const tableHeadMinHeight = totalPaperRows >= 12 ? 7.6 : totalPaperRows >= 9 ? 8 : 8.4;
 
     const drawSectionLabel = (label, y, detail = "") => {
       doc.setTextColor(...colors.navy);
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(9.5);
+      doc.setFontSize(11);
       doc.text(label, margin, y);
       if (detail) {
         doc.setTextColor(...colors.muted);
         doc.setFont("helvetica", "italic");
-        doc.setFontSize(7.5);
+        doc.setFontSize(8.5);
         doc.text(detail, pageWidth - margin, y, { align: "right" });
       }
     };
@@ -1902,7 +1905,7 @@ export async function generateAlevelPDF(data, meta, options = {}) {
           font: "helvetica",
           fontSize: tableFontSize,
           cellPadding: tableCellPadding,
-          minCellHeight: 5.5,
+          minCellHeight: tableMinCellHeight,
           lineColor: colors.line,
           lineWidth: 0.22,
           textColor: colors.ink,
@@ -1913,21 +1916,21 @@ export async function generateAlevelPDF(data, meta, options = {}) {
           fillColor: colors.tint,
           textColor: colors.navy,
           fontStyle: "bold",
-          fontSize: 6.8,
+          fontSize: tableHeadFontSize,
           lineColor: colors.emeraldDark,
           lineWidth: 0.35,
-          minCellHeight: 7,
+          minCellHeight: tableHeadMinHeight,
           halign: "center",
         },
         alternateRowStyles: { fillColor: colors.soft },
         columnStyles: {
           0: { cellWidth: 31, fontStyle: "bold" },
           1: { cellWidth: 16, halign: "center" },
-          2: { cellWidth: 20, halign: "center", fontStyle: "bold" },
+          2: { cellWidth: 19, halign: "center", fontStyle: "bold" },
           3: { cellWidth: 20, halign: "center" },
-          4: { cellWidth: 20, halign: "center", fontStyle: "bold" },
+          4: { cellWidth: 24, halign: "center", fontStyle: "bold" },
           5: { cellWidth: 14, halign: "center", fontStyle: "bold" },
-          6: { cellWidth: 61 },
+          6: { cellWidth: 58 },
         },
         pageBreak: "avoid",
         rowPageBreak: "avoid",
@@ -2025,10 +2028,10 @@ export async function generateAlevelPDF(data, meta, options = {}) {
     doc.roundedRect(margin, cursorY, contentWidth, 8, 1.4, 1.4, "FD");
     doc.setTextColor(...colors.emeraldDark);
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(8.5);
+    doc.setFontSize(9.8);
     doc.text("TOTAL PRINCIPAL SUBJECT POINTS", margin + 4, cursorY + 5.2);
     doc.setTextColor(...colors.navy);
-    doc.setFontSize(11);
+    doc.setFontSize(14);
     doc.text(String(totals.principal ?? "—"), pageWidth - margin - 4, cursorY + 5.4, {
       align: "right",
     });
@@ -2049,10 +2052,10 @@ export async function generateAlevelPDF(data, meta, options = {}) {
       doc.roundedRect(x, cursorY, summaryWidth, 18, 1.8, 1.8, "FD");
       doc.setTextColor(...colors.emeraldDark);
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(7.2);
+      doc.setFontSize(8.8);
       doc.text(label, x + summaryWidth / 2, cursorY + 5.5, { align: "center" });
       doc.setTextColor(...colors.navy);
-      doc.setFontSize(14.5);
+      doc.setFontSize(16);
       doc.text(String(value ?? "—"), x + summaryWidth / 2, cursorY + 14, { align: "center" });
     });
 
@@ -2064,14 +2067,14 @@ export async function generateAlevelPDF(data, meta, options = {}) {
     doc.roundedRect(margin, commentY, 3, 23, 1.4, 1.4, "F");
     doc.setTextColor(...colors.emeraldDark);
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(7.5);
+    doc.setFontSize(9.2);
     doc.text("CLASS TEACHER COMMENT", margin + 7, commentY + 5.5);
     doc.setTextColor(...colors.ink);
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(8.7);
+    doc.setFontSize(10.3);
     const commentLines = doc.splitTextToSize(String(comments.classTeacher || "Keep working steadily."), contentWidth - 14);
     doc.text(commentLines.slice(0, 2), margin + 7, commentY + 11);
-    doc.setFontSize(8);
+    doc.setFontSize(9.1);
     doc.text("Class Teacher: ........................................................", margin + 7, commentY + 20);
 
     const referenceY = commentY + 27;
@@ -2083,9 +2086,9 @@ export async function generateAlevelPDF(data, meta, options = {}) {
       body: [["SCORE", "85-100", "80-84", "75-79", "70-74", "65-69", "60-64", "50-59", "40-49", "0-39"]],
       theme: "grid",
       styles: {
-        fontSize: 6.4,
+        fontSize: 8,
         halign: "center",
-        cellPadding: 0.8,
+        cellPadding: 1,
         lineColor: colors.line,
         lineWidth: 0.2,
         textColor: colors.ink,
@@ -2101,7 +2104,7 @@ export async function generateAlevelPDF(data, meta, options = {}) {
     const footerY = pageHeight - 13;
     doc.setTextColor(...colors.muted);
     doc.setFont("helvetica", "italic");
-    doc.setFontSize(7.5);
+    doc.setFontSize(8.4);
     doc.text(
       "MID marks only. Report not valid without school stamp.",
       pageWidth / 2,
@@ -2111,7 +2114,7 @@ export async function generateAlevelPDF(data, meta, options = {}) {
     doc.setDrawColor(...colors.gold);
     doc.line(margin, footerY - 1, pageWidth - margin, footerY - 1);
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(6.7);
+    doc.setFontSize(7.3);
     doc.text(
       `Generated from SPESS ARK • ${new Date().toLocaleString("en-GB")}`,
       pageWidth / 2,

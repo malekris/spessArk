@@ -1,3 +1,5 @@
+import { ensureAlevelPromotionSchemaReady } from "./alevelPromotionService.js";
+
 const SCHOOL_CALENDAR_ENTRY_DEFINITIONS = [
   { key: "term1", label: "Term I", status: "In Session" },
   { key: "holiday1", label: "Holiday After Term I", status: "Holiday Break" },
@@ -188,6 +190,7 @@ export async function getCurrentAcademicCalendar(executor) {
 
 export async function buildLiveAdminYearSnapshot(executor, academicYearInput = null) {
   await ensureAdminYearSnapshotsReady(executor);
+  await ensureAlevelPromotionSchemaReady(executor);
 
   const academicYear = Number(academicYearInput) || (await getCurrentAcademicYear(executor));
   const calendar = await getCurrentAcademicCalendar(executor);
@@ -233,6 +236,7 @@ export async function buildLiveAdminYearSnapshot(executor, academicYearInput = n
      FROM alevel_learners l
      LEFT JOIN alevel_learner_subjects als ON als.learner_id = l.id
      LEFT JOIN alevel_subjects s ON s.id = als.subject_id
+     WHERE COALESCE(NULLIF(l.status, ''), 'active') = 'active'
      GROUP BY
        l.id,
        l.first_name,

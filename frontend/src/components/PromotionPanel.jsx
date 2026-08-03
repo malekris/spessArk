@@ -26,6 +26,7 @@ export default function PromotionPanel() {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState("");
   const [previewData, setPreviewData] = useState(null);
+  const [subjectSelections, setSubjectSelections] = useState({});
 
   const [executeLoading, setExecuteLoading] = useState(false);
   const [executeResult, setExecuteResult] = useState(null);
@@ -57,6 +58,45 @@ export default function PromotionPanel() {
     [graduatedTotal, graduatedLimit]
   );
 
+  const isS2Transition = form.classLevel === "S2";
+  const promotionLearners = Array.isArray(previewData?.learners) ? previewData.learners : [];
+  const configuredS2Count = isS2Transition
+    ? promotionLearners.filter(
+        (learner) => (subjectSelections[String(learner.id)] || []).length === 2
+      ).length
+    : 0;
+  const s2SelectionsReady =
+    !isS2Transition ||
+    (promotionLearners.length > 0 && configuredS2Count === promotionLearners.length);
+
+  const updatePromotionForm = (field, value) => {
+    setForm((previous) => ({ ...previous, [field]: value }));
+    if (field === "classLevel" || field === "stream" || field === "academicYear") {
+      setPreviewData(null);
+      setExecuteResult(null);
+      setSubjectSelections({});
+      setPreviewError("");
+      setExecuteError("");
+    }
+  };
+
+  const toggleRetainedSubject = (learnerId, subject) => {
+    const key = String(learnerId);
+    const currentSelection = subjectSelections[key] || [];
+    if (!currentSelection.includes(subject) && currentSelection.length >= 2) {
+      setExecuteError("Each S2 learner can retain exactly two optional subjects. Deselect one first.");
+      return;
+    }
+    setExecuteError("");
+    setSubjectSelections((previous) => {
+      const selected = previous[key] || [];
+      if (selected.includes(subject)) {
+        return { ...previous, [key]: selected.filter((item) => item !== subject) };
+      }
+      return { ...previous, [key]: [...selected, subject] };
+    });
+  };
+
   const handlePreview = async () => {
     setPreviewLoading(true);
     setPreviewError("");
@@ -69,6 +109,16 @@ export default function PromotionPanel() {
       });
       const data = await adminFetch(`/api/admin/promotions/preview?${params.toString()}`);
       setPreviewData(data);
+      const initialSelections = {};
+      if (form.classLevel === "S2") {
+        (data?.learners || []).forEach((learner) => {
+          const optionals = Array.isArray(learner.availableOptionalSubjects)
+            ? learner.availableOptionalSubjects
+            : [];
+          initialSelections[String(learner.id)] = optionals.length === 2 ? optionals : [];
+        });
+      }
+      setSubjectSelections(initialSelections);
     } catch (err) {
       console.error("Promotion preview error:", err);
       setPreviewData(null);
@@ -87,6 +137,12 @@ export default function PromotionPanel() {
         stream: form.stream,
         academicYear: form.academicYear.trim(),
         notes: form.notes.trim(),
+        subjectSelections: isS2Transition
+          ? promotionLearners.map((learner) => ({
+              studentId: learner.id,
+              keptSubjects: subjectSelections[String(learner.id)] || [],
+            }))
+          : [],
       };
       const data = await adminFetch("/api/admin/promotions/execute", {
         method: "POST",
@@ -172,64 +228,92 @@ export default function PromotionPanel() {
   }, [tab, graduatedPage, graduatedLimit]);
 
   return (
-    <div className="panel-card">
-      <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.9rem", flexWrap: "wrap" }}>
-        <button type="button" className={tab === "promote" ? "primary-btn" : "ghost-btn"} onClick={() => setTab("promote")}>
+    <div className="panel-card promotion-panel-card">
+      <div className="promotion-tabs" role="tablist" aria-label="Learner promotion views">
+        <button type="button" role="tab" aria-selected={tab === "promote"} className={`promotion-tab ${tab === "promote" ? "is-active" : ""}`} onClick={() => setTab("promote")}>
           Promote
         </button>
-        <button type="button" className={tab === "history" ? "primary-btn" : "ghost-btn"} onClick={() => setTab("history")}>
+        <button type="button" role="tab" aria-selected={tab === "history"} className={`promotion-tab ${tab === "history" ? "is-active" : ""}`} onClick={() => setTab("history")}>
           History
         </button>
-        <button type="button" className={tab === "graduated" ? "primary-btn" : "ghost-btn"} onClick={() => setTab("graduated")}>
+        <button type="button" role="tab" aria-selected={tab === "graduated"} className={`promotion-tab ${tab === "graduated" ? "is-active" : ""}`} onClick={() => setTab("graduated")}>
           Graduated
         </button>
       </div>
 
       {tab === "promote" && (
         <>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: "0.6rem", marginBottom: "0.8rem" }}>
-            <select
-              value={form.classLevel}
-              onChange={(e) => setForm((p) => ({ ...p, classLevel: e.target.value }))}
-            >
-              {CLASS_OPTIONS.map((c) => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
-            <select
-              value={form.stream}
-              onChange={(e) => setForm((p) => ({ ...p, stream: e.target.value }))}
-            >
-              {STREAM_OPTIONS.map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
-            <input
-              type="text"
-              placeholder="Academic year (e.g. 2026)"
-              value={form.academicYear}
-              onChange={(e) => setForm((p) => ({ ...p, academicYear: e.target.value }))}
-            />
-            <input
-              type="text"
-              placeholder="Optional notes"
-              value={form.notes}
-              onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))}
-            />
+          <div className="promotion-control-surface">
+            <div className="promotion-filter-grid">
+              <label className="promotion-field">
+                <span>Current class</span>
+                <select
+                  className="promotion-control promotion-select"
+                  value={form.classLevel}
+                  onChange={(e) => updatePromotionForm("classLevel", e.target.value)}
+                >
+                  {CLASS_OPTIONS.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="promotion-field">
+                <span>Stream</span>
+                <select
+                  className="promotion-control promotion-select"
+                  value={form.stream}
+                  onChange={(e) => updatePromotionForm("stream", e.target.value)}
+                >
+                  {STREAM_OPTIONS.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="promotion-field">
+                <span>Academic year</span>
+                <input
+                  className="promotion-control"
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="e.g. 2026"
+                  value={form.academicYear}
+                  onChange={(e) => updatePromotionForm("academicYear", e.target.value)}
+                />
+              </label>
+              <label className="promotion-field promotion-notes-field">
+                <span>Batch note <small>Optional</small></span>
+                <input
+                  className="promotion-control"
+                  type="text"
+                  placeholder="Add a short note for the audit trail"
+                  value={form.notes}
+                  onChange={(e) => updatePromotionForm("notes", e.target.value)}
+                />
+              </label>
+            </div>
           </div>
 
-          <div style={{ display: "flex", gap: "0.6rem", alignItems: "center", marginBottom: "0.8rem", flexWrap: "wrap" }}>
-            <button type="button" className="ghost-btn" onClick={handlePreview} disabled={previewLoading || executeLoading}>
+          <div className="promotion-action-row">
+            <button type="button" className="ghost-btn promotion-preview-btn" onClick={handlePreview} disabled={previewLoading || executeLoading}>
               {previewLoading ? "Loading Preview…" : "Preview"}
             </button>
             <button
               type="button"
-              className="primary-btn"
+              className="primary-btn promotion-execute-btn"
               onClick={() => {
-                if (!window.confirm("Execute promotion for this class and stream?")) return;
+                const transitionMessage = isS2Transition
+                  ? `Promote ${promotionLearners.length} learners to S3 with the selected nine-subject profiles?`
+                  : "Execute promotion for this class and stream?";
+                if (!window.confirm(transitionMessage)) return;
                 handleExecute();
               }}
-              disabled={executeLoading || previewLoading}
+              disabled={
+                executeLoading ||
+                previewLoading ||
+                !previewData ||
+                promotionLearners.length === 0 ||
+                !s2SelectionsReady
+              }
             >
               {executeLoading ? "Executing…" : "Execute Promotion"}
             </button>
@@ -239,25 +323,41 @@ export default function PromotionPanel() {
           {executeError && <div className="panel-alert panel-alert-error">{executeError}</div>}
 
           {executeResult && (
-            <div style={{ marginBottom: "0.8rem", padding: "0.6rem 0.7rem", borderRadius: "0.7rem", border: "1px solid rgba(34,197,94,0.45)", background: "rgba(34,197,94,0.12)", color: "#bbf7d0", fontSize: "0.82rem" }}>
+            <div className="promotion-result-banner">
               Processed: <strong>{executeResult.processedCount || 0}</strong> | Promoted:{" "}
               <strong>{executeResult.promotedCount || 0}</strong> | Graduated:{" "}
-              <strong>{executeResult.graduatedCount || 0}</strong> | Marks Cleared:{" "}
-              <strong>{executeResult.clearedMarksCount || 0}</strong>
+              <strong>{executeResult.graduatedCount || 0}</strong> | Marks Preserved:{" "}
+              <strong>{executeResult.preservedMarksCount || 0}</strong>
+              {Number(executeResult.subjectProfilesUpdated || 0) > 0 && (
+                <> | S3 Profiles Updated: <strong>{executeResult.subjectProfilesUpdated}</strong></>
+              )}
             </div>
           )}
 
           {previewData && (
             <>
-              <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.7rem" }}>
-                <div className="muted-text">Candidates: <strong>{previewData.totalCandidates || 0}</strong></div>
-                <div className="muted-text">Eligible: <strong>{previewData.eligibleCount || 0}</strong></div>
-                <div className="muted-text">Skipped non-active: <strong>{previewData?.skipped?.nonActive || 0}</strong></div>
-                <div className="muted-text">Skipped already promoted: <strong>{previewData?.skipped?.alreadyPromoted || 0}</strong></div>
+              <div className="promotion-preview-metrics">
+                <div><span>Candidates</span><strong>{previewData.totalCandidates || 0}</strong></div>
+                <div><span>Eligible</span><strong>{previewData.eligibleCount || 0}</strong></div>
+                <div><span>Non-active</span><strong>{previewData?.skipped?.nonActive || 0}</strong></div>
+                <div><span>Already promoted</span><strong>{previewData?.skipped?.alreadyPromoted || 0}</strong></div>
               </div>
+              {isS2Transition && promotionLearners.length > 0 && (
+                <div className="promotion-transition-banner">
+                  <div>
+                    <span className="promotion-transition-eyebrow">S2 to S3 subject transition</span>
+                    <strong>Choose exactly two optional subjects for every learner.</strong>
+                    <p>The seven core subjects remain automatically, producing the required nine-subject S3 profile.</p>
+                  </div>
+                  <div className={s2SelectionsReady ? "is-ready" : ""}>
+                    <strong>{configuredS2Count} / {promotionLearners.length}</strong>
+                    <span>profiles ready</span>
+                  </div>
+                </div>
+              )}
               {Array.isArray(previewData.learners) && previewData.learners.length > 0 ? (
                 <div className="teachers-table-wrapper">
-                  <table className="teachers-table">
+                  <table className={`teachers-table ${isS2Transition ? "promotion-transition-table" : ""}`}>
                     <thead>
                       <tr>
                         <th>Name</th>
@@ -265,20 +365,63 @@ export default function PromotionPanel() {
                         <th>From Stream</th>
                         <th>To Class</th>
                         <th>To Stream</th>
-                        <th>Type</th>
+                        {isS2Transition ? <th>Optional Subjects to Keep</th> : <th>Type</th>}
+                        {isS2Transition && <th>Dropped After Promotion</th>}
                       </tr>
                     </thead>
                     <tbody>
-                      {previewData.learners.map((learner) => (
-                        <tr key={learner.id}>
-                          <td>{learner.name}</td>
-                          <td>{learner.fromClassLevel}</td>
-                          <td>{learner.fromStream}</td>
-                          <td>{learner.toClassLevel}</td>
-                          <td>{learner.toStream}</td>
-                          <td>{learner.promotionType}</td>
-                        </tr>
-                      ))}
+                      {previewData.learners.map((learner) => {
+                        const selection = subjectSelections[String(learner.id)] || [];
+                        const optionalSubjects = learner.availableOptionalSubjects || [];
+                        const droppedSubjects = optionalSubjects.filter(
+                          (subject) => !selection.includes(subject)
+                        );
+                        return (
+                          <tr key={learner.id}>
+                            <td>
+                              <strong>{learner.name}</strong>
+                              {isS2Transition && (
+                                <span className={`promotion-selection-count ${selection.length === 2 ? "is-ready" : ""}`}>
+                                  {selection.length} of 2 retained
+                                </span>
+                              )}
+                            </td>
+                            <td>{learner.fromClassLevel}</td>
+                            <td>{learner.fromStream}</td>
+                            <td>{learner.toClassLevel}</td>
+                            <td>{learner.toStream}</td>
+                            {isS2Transition ? (
+                              <>
+                                <td>
+                                  {optionalSubjects.length > 0 ? (
+                                    <div className="promotion-subject-picker">
+                                      {optionalSubjects.map((subject) => (
+                                        <label key={subject} className={selection.includes(subject) ? "is-selected" : ""}>
+                                          <input
+                                            type="checkbox"
+                                            checked={selection.includes(subject)}
+                                            onChange={() => toggleRetainedSubject(learner.id, subject)}
+                                          />
+                                          <span>{subject}</span>
+                                        </label>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <span className="promotion-selection-warning">No optional subjects registered</span>
+                                  )}
+                                </td>
+                                <td>
+                                  <span className="promotion-dropped-subjects">
+                                    {droppedSubjects.length > 0 ? droppedSubjects.join(", ") : "None"}
+                                  </span>
+                                </td>
+                              </>
+                            ) : (
+                              <td>{learner.promotionType}</td>
+                            )}
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -292,13 +435,18 @@ export default function PromotionPanel() {
 
       {tab === "history" && (
         <>
-          <div style={{ display: "flex", gap: "0.6rem", marginBottom: "0.8rem", flexWrap: "wrap" }}>
-            <input
-              type="text"
-              placeholder="Academic year (optional)"
-              value={historyYear}
-              onChange={(e) => setHistoryYear(e.target.value)}
-            />
+          <div className="promotion-secondary-filters">
+            <label className="promotion-field">
+              <span>Academic year</span>
+              <input
+                className="promotion-control"
+                type="text"
+                inputMode="numeric"
+                placeholder="All years"
+                value={historyYear}
+                onChange={(e) => setHistoryYear(e.target.value)}
+              />
+            </label>
             <button type="button" className="ghost-btn" onClick={() => { setHistoryPage(1); fetchHistory(); }} disabled={historyLoading}>
               {historyLoading ? "Loading…" : "Apply"}
             </button>
@@ -340,7 +488,7 @@ export default function PromotionPanel() {
           )}
           <div style={{ marginTop: "0.7rem", display: "flex", gap: "0.6rem", alignItems: "center", flexWrap: "wrap" }}>
             <div className="muted-text">Page {historyPage} / {historyTotalPages}</div>
-            <select value={historyLimit} onChange={(e) => { setHistoryLimit(Number(e.target.value)); setHistoryPage(1); }}>
+            <select className="promotion-control promotion-select promotion-limit-select" aria-label="Promotion history rows per page" value={historyLimit} onChange={(e) => { setHistoryLimit(Number(e.target.value)); setHistoryPage(1); }}>
               <option value={10}>10</option>
               <option value={25}>25</option>
               <option value={50}>50</option>
@@ -358,19 +506,28 @@ export default function PromotionPanel() {
 
       {tab === "graduated" && (
         <>
-          <div style={{ display: "flex", gap: "0.6rem", marginBottom: "0.8rem", flexWrap: "wrap" }}>
-            <input
-              type="text"
-              placeholder="Search by name or id"
-              value={graduatedSearch}
-              onChange={(e) => setGraduatedSearch(e.target.value)}
-            />
-            <input
-              type="text"
-              placeholder="Academic year (optional)"
-              value={graduatedYear}
-              onChange={(e) => setGraduatedYear(e.target.value)}
-            />
+          <div className="promotion-secondary-filters">
+            <label className="promotion-field">
+              <span>Find learner</span>
+              <input
+                className="promotion-control"
+                type="search"
+                placeholder="Search by name or ID"
+                value={graduatedSearch}
+                onChange={(e) => setGraduatedSearch(e.target.value)}
+              />
+            </label>
+            <label className="promotion-field">
+              <span>Academic year</span>
+              <input
+                className="promotion-control"
+                type="text"
+                inputMode="numeric"
+                placeholder="All years"
+                value={graduatedYear}
+                onChange={(e) => setGraduatedYear(e.target.value)}
+              />
+            </label>
             <button type="button" className="ghost-btn" onClick={() => { setGraduatedPage(1); fetchGraduated(); }} disabled={graduatedLoading}>
               {graduatedLoading ? "Loading…" : "Apply"}
             </button>
@@ -412,7 +569,7 @@ export default function PromotionPanel() {
           )}
           <div style={{ marginTop: "0.7rem", display: "flex", gap: "0.6rem", alignItems: "center", flexWrap: "wrap" }}>
             <div className="muted-text">Page {graduatedPage} / {graduatedTotalPages}</div>
-            <select value={graduatedLimit} onChange={(e) => { setGraduatedLimit(Number(e.target.value)); setGraduatedPage(1); }}>
+            <select className="promotion-control promotion-select promotion-limit-select" aria-label="Graduated learner rows per page" value={graduatedLimit} onChange={(e) => { setGraduatedLimit(Number(e.target.value)); setGraduatedPage(1); }}>
               <option value={10}>10</option>
               <option value={25}>25</option>
               <option value={50}>50</option>

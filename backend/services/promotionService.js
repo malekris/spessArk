@@ -1,4 +1,9 @@
 import { pool } from "../server.js";
+import {
+  getS2TransitionProfile,
+  normalizeStudentSubjects,
+  validateS2SubjectSelection,
+} from "./promotionSubjectRules.js";
 
 const VALID_CLASSES = ["S1", "S2", "S3", "S4"];
 const STATUS_ACTIVE = "active";
@@ -88,6 +93,10 @@ const buildEligibilitySummary = (rows = [], academicYear, target) => {
       continue;
     }
 
+    const currentSubjects = normalizeStudentSubjects(row.subjects);
+    const transitionProfile =
+      rowClass === "S2" ? getS2TransitionProfile(currentSubjects) : null;
+
     eligible.push({
       id: row.id,
       name: row.name,
@@ -100,6 +109,9 @@ const buildEligibilitySummary = (rows = [], academicYear, target) => {
       promotionType: target.promotionType,
       status: rowStatus,
       academicYear,
+      currentSubjects,
+      availableOptionalSubjects: transitionProfile?.optionalSubjects || [],
+      requiresSubjectSelection: rowClass === "S2",
     });
   }
 
@@ -117,6 +129,7 @@ const fetchPromotionCandidates = async (conn, { classLevel, stream, academicYear
       s.dob,
       s.class_level,
       s.stream,
+      s.subjects,
       COALESCE(s.status, 'active') AS status,
       EXISTS(
         SELECT 1
@@ -183,6 +196,7 @@ export async function executePromotions({
   adminUserId,
   ipAddress,
   notes = "",
+  subjectSelections = [],
 }) {
   const normalizedClassLevel = normalizeClassLevel(classLevel);
   const normalizedStream = normalizeStream(stream);
@@ -212,12 +226,58 @@ export async function executePromotions({
 
     const { eligible, skipped } = buildEligibilitySummary(rows, normalizedAcademicYear, target);
 
+    const selectionEntries = Array.isArray(subjectSelections)
+      ? subjectSelections
+      : Object.entries(subjectSelections || {}).map(([studentId, keptSubjects]) => ({
+          studentId,
+          keptSubjects,
+        }));
+    const selectionByLearnerId = new Map(
+      selectionEntries
+        .map((entry) => [Number(entry?.studentId), entry?.keptSubjects])
+        .filter(([studentId]) => Number.isInteger(studentId) && studentId > 0)
+    );
+    const validatedS2Profiles = new Map();
+
+    if (normalizedClassLevel === "S2") {
+      const subjectSelectionErrors = eligible.reduce((errors, learner) => {
+        const validation = validateS2SubjectSelection(
+          learner.currentSubjects,
+          selectionByLearnerId.get(Number(learner.id)) || []
+        );
+
+        if (!validation.valid) {
+          errors.push({
+            studentId: learner.id,
+            studentName: learner.name,
+            message: validation.message,
+            availableOptionalSubjects: validation.optionalSubjects,
+            keptSubjects: validation.keptSubjects,
+          });
+          return errors;
+        }
+
+        validatedS2Profiles.set(Number(learner.id), validation);
+        return errors;
+      }, []);
+
+      if (subjectSelectionErrors.length > 0) {
+        await conn.rollback();
+        return {
+          ok: false,
+          error: "SUBJECT_SELECTION_REQUIRED",
+          message: "Every S2 learner must retain exactly two existing optional subjects before promotion.",
+          errors: subjectSelectionErrors,
+        };
+      }
+    }
+
     const notesWithIp = buildPromotionNotes(notes, ipAddress);
     const historyIds = [];
     const promotedLearnerIds = [];
     let promotedCount = 0;
     let graduatedCount = 0;
-    let clearedMarksCount = 0;
+    let preservedMarksCount = 0;
 
     for (const learner of eligible) {
       try {
@@ -254,18 +314,34 @@ export async function executePromotions({
       const nextStatus =
         learner.promotionType === "GRADUATED" ? STATUS_GRADUATED : STATUS_ACTIVE;
 
-      await conn.query(
-        `
-        UPDATE students
-        SET
-          class_level = ?,
-          stream = ?,
-          status = ?,
-          updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-        `,
-        [learner.toClassLevel, learner.toStream, nextStatus, learner.id]
-      );
+      const s2Profile = validatedS2Profiles.get(Number(learner.id));
+      if (s2Profile) {
+        await conn.query(
+          `UPDATE students
+           SET class_level = ?, stream = ?, status = ?, subjects = ?, updated_at = CURRENT_TIMESTAMP
+           WHERE id = ?`,
+          [
+            learner.toClassLevel,
+            learner.toStream,
+            nextStatus,
+            JSON.stringify(s2Profile.resultingSubjects),
+            learner.id,
+          ]
+        );
+      } else {
+        await conn.query(
+          `
+          UPDATE students
+          SET
+            class_level = ?,
+            stream = ?,
+            status = ?,
+            updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+          `,
+          [learner.toClassLevel, learner.toStream, nextStatus, learner.id]
+        );
+      }
 
       promotedLearnerIds.push(learner.id);
 
@@ -273,18 +349,19 @@ export async function executePromotions({
       else promotedCount += 1;
     }
 
-    // Clear old O-Level marks for learners that have just moved class.
-    // This keeps the new class session clean and prevents stale rows in Download Marks.
+    // Historical marks remain tied to their original assignments and assessment year.
+    // Promotion changes the learner's live class profile only.
     if (promotedLearnerIds.length > 0) {
       const placeholders = promotedLearnerIds.map(() => "?").join(",");
-      const [deleteResult] = await conn.query(
+      const [[marksSummary]] = await conn.query(
         `
-        DELETE FROM marks
+        SELECT COUNT(*) AS total
+        FROM marks
         WHERE student_id IN (${placeholders})
         `,
         promotedLearnerIds
       );
-      clearedMarksCount = Number(deleteResult?.affectedRows || 0);
+      preservedMarksCount = Number(marksSummary?.total || 0);
     }
 
     await conn.commit();
@@ -299,7 +376,9 @@ export async function executePromotions({
       processedCount: promotedCount + graduatedCount,
       promotedCount,
       graduatedCount,
-      clearedMarksCount,
+      clearedMarksCount: 0,
+      preservedMarksCount,
+      subjectProfilesUpdated: validatedS2Profiles.size,
       skipped,
       historyIds,
     };

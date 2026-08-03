@@ -124,7 +124,7 @@
 
 .alevel-module-nav {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 0.75rem;
   width: min(1600px, 100%);
   margin: 0 auto;
@@ -852,6 +852,257 @@
   box-shadow: 0 10px 18px rgba(248, 113, 113, 0.14);
 }
 
+.alevel-promotions-page {
+  width: min(1600px, 100%);
+  margin: 0 auto;
+}
+
+.alevel-promotion-workspace {
+  display: grid;
+  gap: 1rem;
+}
+
+.alevel-promotion-tabs {
+  display: inline-grid;
+  grid-template-columns: repeat(3, minmax(150px, 1fr));
+  justify-self: start;
+  gap: 3px;
+  padding: 4px;
+  border: 1px solid var(--alevel-shell-ghost-border);
+  border-radius: 8px;
+  background: rgba(2, 6, 23, 0.52);
+}
+
+.alevel-promotion-tabs button {
+  min-height: 42px;
+  padding: 0.55rem 0.8rem;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--alevel-shell-muted);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.alevel-promotion-tabs button.is-active {
+  background: #075985;
+  color: #f0f9ff;
+}
+
+.alevel-promotion-command-band {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 0;
+  border-top: 1px solid var(--alevel-shell-ghost-border);
+  border-bottom: 1px solid var(--alevel-shell-ghost-border);
+}
+
+.alevel-promotion-fields {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.8fr) minmax(130px, 0.45fr) minmax(260px, 1.2fr);
+  gap: 0.8rem;
+  flex: 1 1 auto;
+}
+
+.alevel-promotion-fields label {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.alevel-promotion-fields label > span {
+  color: var(--alevel-shell-muted);
+  font-size: 0.68rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.alevel-promotion-fields input,
+.alevel-promotion-fields select,
+.alevel-promotion-list-tools input {
+  width: 100%;
+  min-height: 43px;
+  padding: 0.62rem 0.72rem;
+  border: 1px solid var(--alevel-shell-ghost-border);
+  border-radius: 7px;
+  background: rgba(15, 23, 42, 0.82);
+  color: var(--alevel-shell-body);
+  font: inherit;
+  font-size: 0.82rem;
+}
+
+.alevel-promotion-actions,
+.alevel-promotion-list-tools,
+.alevel-promotion-pagination {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
+.alevel-archive-command {
+  min-height: 42px;
+  padding: 0.58rem 0.9rem;
+  border: 1px solid #a16207;
+  border-radius: 7px;
+  background: #92400e;
+  color: #fffbeb;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.alevel-archive-command:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.alevel-promotion-consequence {
+  display: grid;
+  gap: 0.28rem;
+  padding: 0.85rem 1rem;
+  border-left: 4px solid #38bdf8;
+  background: rgba(8, 47, 73, 0.24);
+}
+
+.alevel-promotion-consequence.is-archive {
+  border-left-color: #d4a63a;
+  background: rgba(120, 53, 15, 0.18);
+}
+
+.alevel-promotion-consequence strong {
+  color: var(--alevel-shell-title);
+  font-size: 0.88rem;
+}
+
+.alevel-promotion-consequence span {
+  color: var(--alevel-shell-muted);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.alevel-promotion-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(140px, 1fr));
+  gap: 0.75rem;
+}
+
+.alevel-promotion-metrics > div {
+  display: grid;
+  gap: 0.28rem;
+  min-height: 76px;
+  padding: 0.8rem;
+  border: 1px solid var(--alevel-shell-ghost-border);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.alevel-promotion-metrics span {
+  color: var(--alevel-shell-muted);
+  font-size: 0.68rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.alevel-promotion-metrics strong {
+  color: var(--alevel-shell-title);
+  font-size: 1.4rem;
+}
+
+.alevel-promotion-table {
+  min-width: 1040px;
+}
+
+.alevel-promotion-table td {
+  vertical-align: top;
+  line-height: 1.45;
+}
+
+.alevel-promotion-table td:nth-child(5) {
+  min-width: 300px;
+}
+
+.alevel-outcome-promote,
+.alevel-outcome-archive {
+  display: inline-flex;
+  min-height: 27px;
+  align-items: center;
+  padding: 0.25rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.67rem;
+  font-weight: 900;
+}
+
+.alevel-outcome-promote {
+  border: 1px solid rgba(52, 211, 153, 0.35);
+  background: rgba(6, 78, 59, 0.24);
+  color: #a7f3d0;
+}
+
+.alevel-outcome-archive {
+  border: 1px solid rgba(212, 166, 58, 0.38);
+  background: rgba(120, 53, 15, 0.22);
+  color: #fde68a;
+}
+
+.alevel-promotion-success {
+  padding: 0.85rem 1rem;
+  border: 1px solid rgba(52, 211, 153, 0.3);
+  border-left: 4px solid #10b981;
+  border-radius: 7px;
+  background: rgba(6, 78, 59, 0.2);
+  color: #d1fae5;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.alevel-promotion-list-tools {
+  padding: 0.85rem 0;
+  border-bottom: 1px solid var(--alevel-shell-ghost-border);
+}
+
+.alevel-promotion-list-tools input {
+  width: min(240px, 100%);
+}
+
+.alevel-promotion-pagination {
+  justify-content: flex-end;
+}
+
+.alevel-promotion-pagination span {
+  margin-right: auto;
+  color: var(--alevel-shell-muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.alevel-admin-root.mode-light .alevel-promotion-tabs,
+.alevel-admin-root.mode-light .alevel-promotion-fields input,
+.alevel-admin-root.mode-light .alevel-promotion-fields select,
+.alevel-admin-root.mode-light .alevel-promotion-list-tools input,
+.alevel-admin-root.mode-light .alevel-promotion-metrics > div {
+  background: rgba(255, 255, 255, 0.94);
+  color: #0f172a;
+  border-color: rgba(148, 163, 184, 0.32);
+}
+
+.alevel-admin-root.mode-light .alevel-promotion-consequence {
+  background: #f0f9ff;
+}
+
+.alevel-admin-root.mode-light .alevel-promotion-consequence.is-archive {
+  background: #fffbeb;
+}
+
+.alevel-admin-root.mode-light .alevel-promotion-success {
+  background: #ecfdf5;
+  color: #065f46;
+}
+
 @media (min-width: 1400px) {
   .alevel-learners-layout {
     grid-template-columns: minmax(350px, 0.66fr) minmax(0, 2.55fr);
@@ -881,6 +1132,15 @@
 
   .alevel-shell-topbar-actions {
     gap: 0.5rem;
+  }
+
+  .alevel-promotion-command-band {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .alevel-promotion-actions {
+    justify-content: flex-end;
   }
 }
 
@@ -949,5 +1209,21 @@
 
   .alevel-table-actions {
     justify-content: flex-start;
+  }
+
+  .alevel-promotion-tabs {
+    width: 100%;
+    grid-template-columns: 1fr;
+  }
+
+  .alevel-promotion-fields,
+  .alevel-promotion-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .alevel-promotion-actions > button,
+  .alevel-promotion-list-tools > input,
+  .alevel-promotion-list-tools > button {
+    width: 100%;
   }
 }

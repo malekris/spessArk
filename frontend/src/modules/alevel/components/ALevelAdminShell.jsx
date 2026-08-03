@@ -26,6 +26,12 @@ const NAV_ITEMS = [
     path: "/ark/admin/alevel/learners",
   },
   {
+    label: "Promotions",
+    shortLabel: "PR",
+    description: "Advance S5 and archive S6 graduates",
+    path: "/ark/admin/alevel/promotions",
+  },
+  {
     label: "Assignments",
     shortLabel: "AS",
     description: "Teacher, paper and stream ownership",
@@ -111,6 +117,7 @@ export default function ALevelAdminShell({
     if (location.pathname.startsWith("/ark/admin/alevel/reports")) return "/ark/admin/alevel/reports";
     if (location.pathname.startsWith("/ark/admin/alevel/downloads")) return "/ark/admin/alevel/downloads";
     if (location.pathname.startsWith("/ark/admin/alevel/assign")) return "/ark/admin/alevel/assign";
+    if (location.pathname.startsWith("/ark/admin/alevel/promotions")) return "/ark/admin/alevel/promotions";
     if (location.pathname.startsWith("/ark/admin/alevel/learners")) return "/ark/admin/alevel/learners";
     return "/ark/admin/alevel";
   }, [location.pathname]);

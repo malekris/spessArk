@@ -26,6 +26,7 @@ const TeacherDashboard = lazy(() => import("./pages/TeacherDashboard"));
 const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
 const ALevelDashboard = lazy(() => import("./modules/alevel/pages/ALevelDashboard"));
 const ALevelLearners = lazy(() => import("./modules/alevel/pages/ALevelLearners"));
+const ALevelPromotions = lazy(() => import("./modules/alevel/pages/ALevelPromotions"));
 const ALevelAssignSubjects = lazy(() => import("./modules/alevel/pages/ALevelAssignSubjects"));
 const ALevelDownloads = lazy(() => import("./modules/alevel/pages/ALevelDownloads"));
 const ALevelReports = lazy(() => import("./modules/alevel/pages/ALevelReports"));
@@ -209,6 +210,7 @@ function App() {
     />
     <Route path="/ark/admin/alevel" element={<ArkLayout><ALevelDashboard /></ArkLayout>} />
     <Route path="/ark/admin/alevel/learners" element={<ArkLayout><ALevelLearners /></ArkLayout>} />
+    <Route path="/ark/admin/alevel/promotions" element={<ArkLayout><ALevelPromotions /></ArkLayout>} />
     <Route path="/ark/admin/alevel/assign" element={<ArkLayout><ALevelAssignSubjects /></ArkLayout>} />
     <Route path="/ark/admin/alevel/downloads" element={<ArkLayout><ALevelDownloads /></ArkLayout>} />
     <Route path="/ark/admin/alevel/reports" element={<ArkLayout><ALevelReports /></ArkLayout>} />

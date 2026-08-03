@@ -3,6 +3,7 @@ import { db } from "../../server.js";
 import express from "express";
 import { extractClientIp, logAuditEvent } from "../../utils/auditLogger.js";
 import { queueAdminYearSnapshotRefresh } from "../../services/adminYearSnapshotService.js";
+import { ensureAlevelPromotionSchemaReady } from "../../services/alevelPromotionService.js";
 
 const router = express.Router();
 const AUDIT_ADMIN_USER_ID = 1;
@@ -66,6 +67,7 @@ async function findDuplicateLearner(conn, { first_name, last_name, gender, dob, 
 // GET /api/alevel/learners
 export async function getLearners(req, res) {
   try {
+    await ensureAlevelPromotionSchemaReady(db);
     const [rows] = await db.query(`
       SELECT 
         l.id,
@@ -75,10 +77,12 @@ export async function getLearners(req, res) {
         l.house,
         l.stream,
         l.combination,
+        COALESCE(NULLIF(l.status, ''), 'active') AS status,
         GROUP_CONCAT(s.name ORDER BY s.name SEPARATOR ', ') AS subjects
       FROM alevel_learners l
       LEFT JOIN alevel_learner_subjects ls ON ls.learner_id = l.id
       LEFT JOIN alevel_subjects s ON s.id = ls.subject_id
+      WHERE COALESCE(NULLIF(l.status, ''), 'active') = 'active'
       GROUP BY 
         l.id,
         l.first_name,
@@ -87,7 +91,8 @@ export async function getLearners(req, res) {
         l.dob,
         l.house,
         l.stream,
-        l.combination
+        l.combination,
+        l.status
       ORDER BY l.id DESC
     `);
 
@@ -119,6 +124,7 @@ export async function createLearner(req, res) {
   const conn = await db.getConnection();
 
   try {
+    await ensureAlevelPromotionSchemaReady(conn);
     await conn.beginTransaction();
 
     const duplicate = await findDuplicateLearner(conn, {
@@ -193,8 +199,9 @@ export async function deleteLearner(req, res) {
   const { id } = req.params;
 
   try {
+    await ensureAlevelPromotionSchemaReady(db);
     const [[learner]] = await db.query(
-      `SELECT id, CONCAT(first_name, ' ', COALESCE(last_name, '')) AS name, stream, combination
+      `SELECT id, CONCAT(first_name, ' ', COALESCE(last_name, '')) AS name, stream, combination, status
        FROM alevel_learners
        WHERE id = ?`,
       [id]
@@ -202,6 +209,12 @@ export async function deleteLearner(req, res) {
 
     if (!learner) {
       return res.status(404).json({ message: "Learner not found" });
+    }
+
+    if (String(learner.status || "active").toLowerCase() === "archived") {
+      return res.status(409).json({
+        message: "Archived graduates cannot be deleted from the live learner register.",
+      });
     }
 
     // 1. Delete marks first (foreign key blocker)
@@ -252,7 +265,23 @@ export async function updateLearner(req, res) {
   const conn = await db.getConnection();
 
   try {
+    await ensureAlevelPromotionSchemaReady(conn);
     await conn.beginTransaction();
+
+    const [[existingLearner]] = await conn.query(
+      "SELECT status FROM alevel_learners WHERE id = ? FOR UPDATE",
+      [id]
+    );
+    if (!existingLearner) {
+      await conn.rollback();
+      return res.status(404).json({ message: "Learner not found" });
+    }
+    if (String(existingLearner.status || "active").toLowerCase() === "archived") {
+      await conn.rollback();
+      return res.status(409).json({
+        message: "Archived graduates are read-only in the live learner register.",
+      });
+    }
 
     const duplicate = await findDuplicateLearner(conn, {
       first_name,

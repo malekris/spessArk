@@ -234,13 +234,6 @@ const getHeatmapCellStyle = (rate, tone = "green") => {
   };
 };
 
-// Promotion window: opens Dec 5 and locks after Jan 30 (inclusive window).
-const isPromotionWindowOpen = (date = new Date()) => {
-  const month = date.getMonth(); // 0-based
-  const day = date.getDate();
-  return (month === 11 && day >= 5) || (month === 0 && day <= 30);
-};
-
 const buildStreamReadinessFromAssignments = (assignments = []) => {
   const compulsoryKeys = new Set(COMPULSORY_SUBJECTS.map((s) => s.toLowerCase()));
   const optionalKeys = new Set(OPTIONAL_SUBJECTS.map((s) => s.toLowerCase()));
@@ -588,7 +581,6 @@ export default function AdminDashboard() {
   /* -------------------- UI state -------------------- */
   const [activeSection, setActiveSection] = useState("");
   const [showEnrollmentChartsModal, setShowEnrollmentChartsModal] = useState(false);
-  const [dashboardClock, setDashboardClock] = useState(() => new Date());
   const [adminSettingsOpen, setAdminSettingsOpen] = useState(false);
   const [adminSettingsMode, setAdminSettingsMode] = useState("password");
   const [adminSettingsForm, setAdminSettingsForm] = useState({
@@ -648,10 +640,6 @@ export default function AdminDashboard() {
     document.title = activeSection ? `${activeSection} | SPESS ARK` : "Admin Dashboard | SPESS ARK";
   }, [activeSection]);
   useEffect(() => {
-    const timerId = window.setInterval(() => setDashboardClock(new Date()), 60_000);
-    return () => window.clearInterval(timerId);
-  }, []);
-  useEffect(() => {
     if (activeSection !== "School Calendar") return undefined;
 
     setSchoolCalendarPreviewClock(new Date());
@@ -659,10 +647,6 @@ export default function AdminDashboard() {
     return () => window.clearInterval(timerId);
   }, [activeSection]);
 
-  const promotionWindowOpen = useMemo(
-    () => isPromotionWindowOpen(dashboardClock),
-    [dashboardClock]
-  );
   const schoolCalendarBadge = useMemo(
     () => getSchoolCalendarBadge(schoolCalendarForm, schoolCalendarPreviewClock),
     [schoolCalendarForm, schoolCalendarPreviewClock]
@@ -698,12 +682,6 @@ export default function AdminDashboard() {
     if (!selectedDashboardYear) return;
     fetchDashboardSnapshot(selectedDashboardYear);
   }, [selectedDashboardYear]);
-  useEffect(() => {
-    if (!promotionWindowOpen && activeSection === "Learner Promotion") {
-      setActiveSection("");
-    }
-  }, [promotionWindowOpen, activeSection]);
-
   /* ---------- Teachers ---------- */
   const [teachers, setTeachers] = useState([]);
   const [teacherForm, setTeacherForm] = useState({ name: "", email: "", subject1: "", subject2: "" });
@@ -809,14 +787,8 @@ export default function AdminDashboard() {
     },
     {
       title: "Learner Promotion",
-      subtitle: promotionWindowOpen
-        ? "Promote classes and graduate S4"
-        : "Promotion window closed for now",
+      subtitle: "Promote classes and graduate S4",
       icon: "⬆️",
-      status: promotionWindowOpen ? "active" : "archived",
-      inactiveMessage: promotionWindowOpen
-        ? ""
-        : "Inactive (opens Dec 5, locks Jan 30)",
     },
     { title: "School Calendar", subtitle: "Manage terms and holiday dates", icon: "🗓️" },
     { title: "Stream Readiness", subtitle: "Compulsory coverage by class and stream", icon: "🧭" },
@@ -5556,45 +5528,19 @@ export default function AdminDashboard() {
       );
     }
     if (activeSection === "Learner Promotion") {
-      if (promotionWindowOpen) {
-        return (
-          <section className="panel">
-            <div className="panel-header">
-              <div>
-                <h2>Learner Promotion</h2>
-                <p>Preview and execute class promotions with full history tracking.</p>
-              </div>
-              <button className="panel-close" onClick={() => setActiveSection("")}>
-                ✕ Close
-              </button>
-            </div>
-
-            <PromotionPanel />
-          </section>
-        );
-      }
-
       return (
         <section className="panel">
           <div className="panel-header">
             <div>
               <h2>Learner Promotion</h2>
-              <p>Module is currently archived and inactive for this period.</p>
+              <p>Preview and execute class promotions with full history tracking.</p>
             </div>
             <button className="panel-close" onClick={() => setActiveSection("")}>
               ✕ Close
             </button>
           </div>
-          <div
-            className="panel-alert"
-            style={{
-              background: "rgba(245, 158, 11, 0.12)",
-              border: "1px solid rgba(245, 158, 11, 0.45)",
-              color: "#fcd34d",
-            }}
-          >
-            Learner Promotion is inactive. It auto-opens on December 5 and auto-locks on January 30.
-          </div>
+
+          <PromotionPanel />
         </section>
       );
     }

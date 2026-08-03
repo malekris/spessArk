@@ -55,6 +55,7 @@ import {
   normalizeStudentLifecycleStatus,
   STUDENT_LIFECYCLE,
 } from "./services/studentLifecycleService.js";
+import { ensureAlevelPromotionSchemaReady } from "./services/alevelPromotionService.js";
 
 
 const app = express();
@@ -4416,6 +4417,9 @@ server.listen(PORT, () => {
   });
   ensureStudentLifecycleColumns(pool).catch((err) => {
     console.error("Student lifecycle setup failed:", err);
+  });
+  ensureAlevelPromotionSchemaReady(pool).catch((err) => {
+    console.error("A-Level promotion lifecycle setup failed:", err);
   });
   ensureTeacherAssignmentLifecycleColumns(pool).catch((err) => {
     console.error("Teacher assignment lifecycle setup failed:", err);

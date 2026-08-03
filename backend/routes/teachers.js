@@ -19,6 +19,7 @@ import { extractClientIp, logAuditEvent } from "../utils/auditLogger.js";
 import { getSessionExpiry, resolveRequestedSessionMode } from "../utils/deviceSession.js";
 import { queueAdminYearSnapshotRefresh } from "../services/adminYearSnapshotService.js";
 import { readMaintenanceSettings } from "../services/maintenanceModeService.js";
+import { ensureAlevelPromotionSchemaReady } from "../services/alevelPromotionService.js";
 
 dotenv.config();
 const router = express.Router();
@@ -822,6 +823,7 @@ router.get("/teachers/alevel-assignments", authTeacher, async (req, res) => {
 // =======================
 router.get("/teachers/alevel-assignments/:id/students", authTeacher, async (req, res) => {
   try {
+    await ensureAlevelPromotionSchemaReady(pool);
     const teacherSubjectId = req.params.id;
     const teacherId = Number(req.teacher.id);
     const teacherEmail = normalizeTeacherEmail(req.teacher.email);
@@ -860,6 +862,7 @@ router.get("/teachers/alevel-assignments/:id/students", authTeacher, async (req,
       JOIN alevel_learners l ON l.id = als.learner_id
       WHERE als.subject_id = ?
         AND l.stream = ?
+        AND COALESCE(NULLIF(l.status, ''), 'active') = 'active'
       ORDER BY l.first_name, l.last_name
     `, [subjectId, ts.stream]);
 

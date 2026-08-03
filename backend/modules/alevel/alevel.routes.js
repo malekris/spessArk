@@ -6,6 +6,7 @@ import { ensureTeacherAccountLifecycleColumns, pool } from "../../server.js";
 import { extractClientIp, logAuditEvent } from "../../utils/auditLogger.js";
 import { ensureMarksArchiveTablesReady, archiveALevelMarks } from "../../utils/marksArchive.js";
 import { queueAdminYearSnapshotRefresh } from "../../services/adminYearSnapshotService.js";
+import { ensureAlevelPromotionSchemaReady } from "../../services/alevelPromotionService.js";
 
 import {
   getLearners,
@@ -13,6 +14,12 @@ import {
   updateLearner,
   deleteLearner,
 } from "./alevel.controller.js";
+import {
+  executeAlevelPromotionsController,
+  getAlevelPromotionHistoryController,
+  getArchivedAlevelLearnersController,
+  previewAlevelPromotionsController,
+} from "./alevelPromotion.controller.js";
 
 const router = express.Router();
 const AUDIT_ADMIN_USER_ID = 1;
@@ -268,6 +275,11 @@ router.get("/learners", getLearners);
 router.post("/learners", createLearner);
 router.put("/learners/:id", updateLearner);
 router.delete("/learners/:id", deleteLearner);
+
+router.get("/admin/promotions/preview", authAdmin, previewAlevelPromotionsController);
+router.post("/admin/promotions/execute", authAdmin, executeAlevelPromotionsController);
+router.get("/admin/promotions/history", authAdmin, getAlevelPromotionHistoryController);
+router.get("/admin/archived-learners", authAdmin, getArchivedAlevelLearnersController);
 
 /* =========================================================
    A-LEVEL ADMIN ENDPOINTS
@@ -738,6 +750,7 @@ router.get("/teachers/alevel-assignments/:id/students", authTeacher, async (req,
   const { id } = req.params;
 
   try {
+    await ensureAlevelPromotionSchemaReady(pool);
     await ensureALevelAssignmentLifecycleColumns(pool);
     const scopedTeacherIds = await getScopedTeacherIds(db, req.teacher);
     if (scopedTeacherIds.length === 0) return res.json([]);
@@ -766,6 +779,7 @@ router.get("/teachers/alevel-assignments/:id/students", authTeacher, async (req,
       JOIN alevel_learners l ON l.id = als.learner_id
       WHERE als.subject_id = ?
         AND l.stream = ?
+        AND COALESCE(NULLIF(l.status, ''), 'active') = 'active'
       ORDER BY l.first_name, l.last_name
     `, [assignment.subject_id, assignment.stream]);
 
@@ -886,6 +900,7 @@ router.post("/teachers/alevel-marks", authTeacher, async (req, res) => {
   try {
     await ensureALevelAssignmentLifecycleColumns(pool);
     await ensureMarksArchiveTablesReady(pool);
+    await ensureAlevelPromotionSchemaReady(pool);
     conn = await db.getConnection();
     await conn.beginTransaction();
     const teacherId = Number(req.teacher?.id);
@@ -996,7 +1011,9 @@ router.post("/teachers/alevel-marks", authTeacher, async (req, res) => {
               am.assignment_id IS NULL
               AND am.subject_id = ?
               AND am.learner_id IN (
-                SELECT id FROM alevel_learners WHERE stream = ?
+                SELECT id FROM alevel_learners
+                WHERE stream = ?
+                  AND COALESCE(NULLIF(status, ''), 'active') = 'active'
               )
             )
           )
@@ -1019,7 +1036,9 @@ router.post("/teachers/alevel-marks", authTeacher, async (req, res) => {
                am.assignment_id IS NULL
                AND am.subject_id = ?
                AND am.learner_id IN (
-                 SELECT id FROM alevel_learners WHERE stream = ?
+                 SELECT id FROM alevel_learners
+                 WHERE stream = ?
+                   AND COALESCE(NULLIF(status, ''), 'active') = 'active'
                )
              )
            )`,
@@ -1109,6 +1128,7 @@ router.post("/teachers/alevel-marks", authTeacher, async (req, res) => {
 // ================================
 router.get("/alevel-analytics/subject", authTeacher, async (req, res) => {
   try {
+    await ensureAlevelPromotionSchemaReady(pool);
     const { assignmentId, examType, term } = req.query;
     const teacherId = req.teacher?.id;
 
@@ -1144,6 +1164,7 @@ router.get("/alevel-analytics/subject", authTeacher, async (req, res) => {
       WHERE am.assignment_id = ?
         AND am.term = ?
         AND l.stream = ?
+        AND COALESCE(NULLIF(l.status, ''), 'active') = 'active'
         ${examFilter}
       GROUP BY ae.name
       ORDER BY FIELD(ae.name, 'MID', 'EOT'), ae.name
@@ -1162,6 +1183,7 @@ router.get("/alevel-analytics/subject", authTeacher, async (req, res) => {
       WHERE am.assignment_id = ?
         AND am.term = ?
         AND l.stream = ?
+        AND COALESCE(NULLIF(l.status, ''), 'active') = 'active'
         ${examFilter}
       `,
       [ts.id, term, ts.stream, ...examParams]
@@ -1175,6 +1197,7 @@ router.get("/alevel-analytics/subject", authTeacher, async (req, res) => {
       JOIN alevel_learners l ON l.id = als.learner_id
       WHERE als.subject_id = ?
         AND l.stream = ?
+        AND COALESCE(NULLIF(l.status, ''), 'active') = 'active'
       `,
       [ts.subject_id, ts.stream]
     );
@@ -1297,6 +1320,7 @@ router.get("/admin/marks-detail", async (req, res) => {
 });
 router.get("/stats", async (req, res) => {
   try {
+    await ensureAlevelPromotionSchemaReady(pool);
     const [learners] = await db.query(`
       SELECT 
         stream,
@@ -1304,6 +1328,7 @@ router.get("/stats", async (req, res) => {
         SUM(gender = 'Female') AS girls,
         COUNT(*) AS total
       FROM alevel_learners
+      WHERE COALESCE(NULLIF(status, ''), 'active') = 'active'
       GROUP BY stream
       ORDER BY stream
     `);
@@ -1325,6 +1350,7 @@ router.get("/stats", async (req, res) => {
 
 const buildAlevelDashboardInsights = async ({ term, year }, executor = db) => {
   await ensureALevelMarksSchemaReady(pool);
+  await ensureAlevelPromotionSchemaReady(pool);
 
   const normalizedTerm = normalizeAlevelTerm(term || "Term 1");
   const normalizedYear =
@@ -1344,6 +1370,7 @@ const buildAlevelDashboardInsights = async ({ term, year }, executor = db) => {
     FROM alevel_learners l
     JOIN alevel_learner_subjects als ON als.learner_id = l.id
     JOIN alevel_subjects s ON s.id = als.subject_id
+    WHERE COALESCE(NULLIF(l.status, ''), 'active') = 'active'
     ORDER BY l.stream ASC, l.first_name ASC, l.last_name ASC, s.name ASC
     `
   );
@@ -1926,6 +1953,7 @@ router.delete("/download/sets/:setId", authAdmin, async (req, res) => {
 
 router.get("/download/score-sheet", authAdmin, async (req, res) => {
   try {
+    await ensureAlevelPromotionSchemaReady(pool);
     const stream = String(req.query.stream || "").trim();
     const term = String(req.query.term || "").trim();
     const year = Number.parseInt(req.query.year, 10);
@@ -1967,6 +1995,7 @@ router.get("/download/score-sheet", authAdmin, async (req, res) => {
         gender
       FROM alevel_learners
       WHERE stream = ?
+        AND COALESCE(NULLIF(status, ''), 'active') = 'active'
       ORDER BY first_name ASC, last_name ASC
       `,
       [stream]

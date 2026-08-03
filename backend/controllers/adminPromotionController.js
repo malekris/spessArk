@@ -44,6 +44,7 @@ export async function executePromotionsController(req, res) {
     const stream = resolveStream(req.body);
     const academicYear = resolveAcademicYear(req.body);
     const notes = String(req.body?.notes || "").trim();
+    const subjectSelections = req.body?.subjectSelections || [];
 
     if (!classLevel || !stream || !academicYear) {
       return res.status(400).json({
@@ -61,9 +62,13 @@ export async function executePromotionsController(req, res) {
       adminUserId,
       ipAddress,
       notes,
+      subjectSelections,
     });
 
-    if (!result.ok && result.error === "INVALID_CLASS_LEVEL") {
+    if (
+      !result.ok &&
+      ["INVALID_CLASS_LEVEL", "SUBJECT_SELECTION_REQUIRED"].includes(result.error)
+    ) {
       return res.status(400).json(result);
     }
 
@@ -74,7 +79,7 @@ export async function executePromotionsController(req, res) {
       entityType: "stream",
       entityId: null,
       description:
-        `Promotion batch ${classLevel} ${stream} ${academicYear}: processed=${result.processedCount}, promoted=${result.promotedCount}, graduated=${result.graduatedCount}, marks_cleared=${result.clearedMarksCount || 0}`,
+        `Promotion batch ${classLevel} ${stream} ${academicYear}: processed=${result.processedCount}, promoted=${result.promotedCount}, graduated=${result.graduatedCount}, marks_preserved=${result.preservedMarksCount || 0}, marks_cleared=0`,
       ipAddress,
     });
 

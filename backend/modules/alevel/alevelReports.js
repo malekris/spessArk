@@ -1,5 +1,6 @@
 import express from "express";
 import { db } from "../../server.js";
+import { ensureAlevelPromotionSchemaReady } from "../../services/alevelPromotionService.js";
 
 const router = express.Router();
 
@@ -409,6 +410,7 @@ function random(arr) {
 --------------------------------*/
 router.post("/preview", async (req, res) => {
   try {
+    await ensureAlevelPromotionSchemaReady(db);
     const { term, class: cls, stream, year } = req.body;
     const assessmentMode = normalizeAssessmentMode(req.body?.assessmentMode);
     const fullStream = `${cls} ${stream}`;
@@ -419,6 +421,7 @@ router.post("/preview", async (req, res) => {
       JOIN alevel_learners l ON l.id = m.learner_id
       JOIN alevel_exams e ON e.id = m.exam_id
       WHERE l.stream = ?
+      AND COALESCE(NULLIF(l.status, ''), 'active') = 'active'
       AND m.term = ?
       AND YEAR(m.created_at) = ?
       AND (? = 'FULL' OR UPPER(e.name) = 'MID')
@@ -430,6 +433,7 @@ router.post("/preview", async (req, res) => {
       JOIN alevel_learners l ON l.id = m.learner_id
       JOIN alevel_exams e ON e.id = m.exam_id
       WHERE l.stream = ?
+      AND COALESCE(NULLIF(l.status, ''), 'active') = 'active'
       AND m.term = ?
       AND YEAR(m.created_at) = ?
       AND (? = 'FULL' OR UPPER(e.name) = 'MID')
@@ -451,12 +455,16 @@ router.post("/preview", async (req, res) => {
 --------------------------------*/
 router.post("/download", async (req, res) => {
     try {
+      await ensureAlevelPromotionSchemaReady(db);
       const { term, class: cls, stream, year } = req.body;
       const assessmentMode = normalizeAssessmentMode(req.body?.assessmentMode);
       const fullStream = `${cls} ${stream}`;
   
       const [learners] = await db.query(
-        "SELECT * FROM alevel_learners WHERE stream = ? ORDER BY first_name",
+        `SELECT * FROM alevel_learners
+         WHERE stream = ?
+           AND COALESCE(NULLIF(status, ''), 'active') = 'active'
+         ORDER BY first_name`,
         [fullStream]
       );
   

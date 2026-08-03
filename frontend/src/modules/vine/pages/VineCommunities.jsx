@@ -344,6 +344,7 @@ export default function VineCommunities() {
   const [libraryItems, setLibraryItems] = useState([]);
   const [libraryTitle, setLibraryTitle] = useState("");
   const [libraryFile, setLibraryFile] = useState(null);
+  const [isUploadingLibraryFile, setIsUploadingLibraryFile] = useState(false);
   const [submissionDrafts, setSubmissionDrafts] = useState({});
   const [submissionFiles, setSubmissionFiles] = useState({});
   const [savedDraftsMap, setSavedDraftsMap] = useState({});
@@ -436,6 +437,14 @@ export default function VineCommunities() {
       kicker: String(options.kicker || "All set"),
       buttonLabel: String(options.buttonLabel || "Okay"),
       tone: options.tone === "warning" ? "warning" : "success",
+      details: Array.isArray(options.details)
+        ? options.details
+            .map((detail) => ({
+              label: String(detail?.label || "").trim(),
+              value: String(detail?.value || "").trim(),
+            }))
+            .filter((detail) => detail.label && detail.value)
+        : [],
     });
   };
 
@@ -2013,18 +2022,22 @@ export default function VineCommunities() {
   };
 
   const uploadLibraryFile = async () => {
-    if (!activeCommunity?.id) return;
+    if (!activeCommunity?.id || isUploadingLibraryFile) return;
     if (!libraryTitle.trim() || !libraryFile) {
       alert("Add a title and choose a document");
       return;
     }
-    if (!getLibraryDocumentMeta(libraryFile, false)) {
+    const documentMeta = getLibraryDocumentMeta(libraryFile, false);
+    if (!documentMeta) {
       alert("Choose a PDF, Word document, or Excel spreadsheet");
       return;
     }
+    const uploadedTitle = libraryTitle.trim();
+    const uploadedFileName = String(libraryFile.name || `Document.${documentMeta.extension}`);
+    setIsUploadingLibraryFile(true);
     try {
       const formData = new FormData();
-      formData.append("title", libraryTitle.trim());
+      formData.append("title", uploadedTitle);
       formData.append("library_file", libraryFile);
       const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/library`, {
         method: "POST",
@@ -2040,8 +2053,23 @@ export default function VineCommunities() {
       setLibraryFile(null);
       if (libraryFileInputRef.current) libraryFileInputRef.current.value = "";
       await loadCommunityDetail(activeCommunity.slug, topicFilter);
+      showCommunitySuccessModal(
+        "Document posted",
+        `“${uploadedTitle}” is now in the community Library and available for learners to view or download.`,
+        {
+          kicker: "Library updated",
+          buttonLabel: "Done",
+          details: [
+            { label: "File name", value: uploadedFileName },
+            { label: "Document type", value: documentMeta.label },
+            { label: "Access", value: "Available to learners" },
+          ],
+        }
+      );
     } catch {
       alert("Failed to upload document");
+    } finally {
+      setIsUploadingLibraryFile(false);
     }
   };
 
@@ -3440,6 +3468,16 @@ export default function VineCommunities() {
                     <div className="community-confirm-kicker">{communitySuccessModal.kicker || "All set"}</div>
                     <h4 id="community-success-title">{communitySuccessModal.title}</h4>
                     <p>{communitySuccessModal.message}</p>
+                    {communitySuccessModal.details?.length ? (
+                      <dl className="community-confirm-details">
+                        {communitySuccessModal.details.map((detail) => (
+                          <div key={`${detail.label}-${detail.value}`}>
+                            <dt>{detail.label}</dt>
+                            <dd>{detail.value}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                    ) : null}
                     <div className="community-confirm-actions">
                       <button
                         type="button"
@@ -4962,8 +5000,9 @@ export default function VineCommunities() {
                               type="button"
                               className="library-upload-submit"
                               onClick={uploadLibraryFile}
+                              disabled={isUploadingLibraryFile}
                             >
-                              Post to library
+                              {isUploadingLibraryFile ? "Posting document..." : "Post to library"}
                             </button>
                           </div>
                         )}

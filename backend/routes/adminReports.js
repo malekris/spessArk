@@ -8,6 +8,12 @@ import {
   readAdminYearSnapshot,
 } from "../services/adminYearSnapshotService.js";
 import { ensureStudentLifecycleColumns } from "../services/studentLifecycleService.js";
+import {
+  filterRowsByCurrentSubjectRegistration,
+  isReportRowForRegisteredSubject,
+  normalizeRegisteredSubjectKey,
+  parseStoredSubjects,
+} from "../services/reportSubjectRegistration.js";
 
 const router = express.Router();
 
@@ -84,53 +90,7 @@ const O_LEVEL_COMPONENTS_BY_TERM = {
   "Term 3": ["/80"],
 };
 
-const parseStoredSubjects = (value) => {
-  if (!value) return [];
-  if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
-  try {
-    const parsed = JSON.parse(value);
-    if (Array.isArray(parsed)) {
-      return parsed.map((item) => String(item).trim()).filter(Boolean);
-    }
-  } catch {
-    // fall through
-  }
-  return String(value)
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-};
-
 const normalizeSubjectKey = (value) => String(value || "").trim().toLowerCase();
-const normalizeRegisteredSubjectKey = (value) => {
-  const compact = String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, "");
-  if (
-    compact === "ict" ||
-    compact.includes("informationcommunicationtechnology") ||
-    compact.includes("informationandcommunicationtechnology") ||
-    compact.includes("informationcommunicationsandtechnology") ||
-    compact.includes("informationandcommunicationstechnology")
-  ) {
-    return "ict";
-  }
-  const aliases = {
-    cre: "christianreligiouseducation",
-    christianreligiouseducation: "christianreligiouseducation",
-  };
-  return aliases[compact] || compact;
-};
-
-const isReportRowForRegisteredSubject = (row) => {
-  const registeredSubjects = parseStoredSubjects(row?.registered_subjects);
-  if (registeredSubjects.length === 0) return true;
-  const reportSubjectKey = normalizeRegisteredSubjectKey(row?.subject);
-  return registeredSubjects.some(
-    (subject) => normalizeRegisteredSubjectKey(subject) === reportSubjectKey
-  );
-};
 
 const normalizePaperLabel = (value = "") => {
   const raw = String(value || "").trim().toLowerCase();
@@ -965,12 +925,13 @@ router.get("/mini-aoi1", authAdmin, async (req, res) => {
         reportRowsBySubject.set(key, row);
       }
     }
-    // Marks are validated against learner registration when saved. Consume the
-    // reconciled submitted rows directly, matching Download Marks, and omit only
-    // genuinely empty rows from the report table.
-    const reportRows = Array.from(reportRowsBySubject.values()).filter(
+    // Handover marks can remain valid after assignments change, but learner
+    // registrations can also be edited later. Reconcile assignment history first,
+    // then admit only subjects on the learner's current registration.
+    const reconciledReportRows = Array.from(reportRowsBySubject.values()).filter(
       (row) => hasRecordedScore(row.AOI1) || isMissedStatus(row.AOI1_status)
     );
+    const reportRows = filterRowsByCurrentSubjectRegistration(reconciledReportRows);
 
     const processedAll = reportRows.map((row) => {
       const registeredSubjects = parseStoredSubjects(row.registered_subjects);

@@ -68,14 +68,6 @@ const O_LEVEL_AOI_OPTIONS = [
   { value: "AOI2", label: "AOI 2" },
   { value: "AOI3", label: "AOI 3" },
 ];
-const O_LEVEL_HEATMAP_OPTIONS = [
-  ...O_LEVEL_AOI_OPTIONS,
-  { value: "EXAM80", label: "/80" },
-];
-const A_LEVEL_HEATMAP_OPTIONS = [
-  { value: "MID", label: "MID" },
-  { value: "EOT", label: "EOT" },
-];
 const A_LEVEL_CLASS_SORT_ORDER = ["S5", "S6"];
 const DEFAULT_MAINTENANCE_STATE = {
   enabled: false,
@@ -204,35 +196,6 @@ const sortClasses = (values = [], preferredOrder = []) => {
     if (aIndex !== bIndex) return aIndex - bIndex;
     return String(a).localeCompare(String(b));
   });
-};
-
-const getHeatmapCellStyle = (rate, tone = "green") => {
-  const safeRate = Math.max(0, Math.min(100, Number(rate || 0)));
-  const palette =
-    tone === "amber"
-      ? {
-          background: "245, 158, 11",
-          border: "251, 191, 36",
-        }
-      : tone === "cyan"
-      ? {
-          background: "14, 165, 233",
-          border: "34, 211, 238",
-        }
-      : {
-          background: "34, 197, 94",
-          border: "74, 222, 128",
-        };
-
-  const backgroundAlpha =
-    safeRate >= 90 ? 0.28 : safeRate >= 70 ? 0.22 : safeRate >= 45 ? 0.16 : safeRate > 0 ? 0.1 : 0.04;
-  const borderAlpha =
-    safeRate >= 90 ? 0.38 : safeRate >= 70 ? 0.3 : safeRate >= 45 ? 0.24 : safeRate > 0 ? 0.18 : 0.1;
-
-  return {
-    background: `rgba(${palette.background}, ${backgroundAlpha})`,
-    borderColor: `rgba(${palette.border}, ${borderAlpha})`,
-  };
 };
 
 const buildStreamReadinessFromAssignments = (assignments = []) => {
@@ -631,7 +594,6 @@ export default function AdminDashboard() {
   const [oLevelAssignmentsOverview, setOLevelAssignmentsOverview] = useState([]);
   const [aLevelAssignmentsOverview, setALevelAssignmentsOverview] = useState([]);
   const [aLevelMarksSets, setALevelMarksSets] = useState([]);
-  const [showMoreInsights, setShowMoreInsights] = useState(false);
   const [reportReadinessSummary, setReportReadinessSummary] = useState(null);
   const [reportReadinessError, setReportReadinessError] = useState("");
   const [readinessPdfLoadingLevel, setReadinessPdfLoadingLevel] = useState("");
@@ -3432,13 +3394,6 @@ export default function AdminDashboard() {
       streams: byClass[cls] || {},
     }));
   }, [dashboardEnrollmentByStreamClassGender]);
-  const dashboardStreamReadiness = useMemo(() => {
-    if (Array.isArray(dashboardSnapshot?.streamReadiness)) {
-      return dashboardSnapshot.streamReadiness;
-    }
-    return buildStreamReadinessFromAssignments(dashboardOLevelAssignmentsOverview);
-  }, [dashboardSnapshot, dashboardOLevelAssignmentsOverview]);
-
   const assessmentCompliance = useMemo(() => {
     if (dashboardSnapshot?.assessmentCompliance) {
       return dashboardSnapshot.assessmentCompliance;
@@ -3521,23 +3476,6 @@ export default function AdminDashboard() {
       aLevelAssignments: aLevelAssignmentsOverview.length,
     };
   }, [oLevelAssignmentsOverview, aLevelAssignmentsOverview]);
-
-  const dashboardTeacherLoadSummary = useMemo(() => {
-    const assignedTeacherIds = new Set(
-      [...dashboardOLevelAssignmentsOverview, ...dashboardALevelAssignmentsOverview]
-        .map((row) => row.teacher_id)
-        .filter((value) => value !== null && value !== undefined && value !== "")
-        .map((value) => String(value))
-    );
-
-    return {
-      assignedTeachers: assignedTeacherIds.size,
-      totalTeachingSlots:
-        dashboardOLevelAssignmentsOverview.length + dashboardALevelAssignmentsOverview.length,
-      oLevelAssignments: dashboardOLevelAssignmentsOverview.length,
-      aLevelAssignments: dashboardALevelAssignmentsOverview.length,
-    };
-  }, [dashboardOLevelAssignmentsOverview, dashboardALevelAssignmentsOverview]);
 
   const portalLearnerSearchRows = useMemo(() => {
     const oLevelRows = dashboardStudents.map((student) => {
@@ -3678,16 +3616,6 @@ export default function AdminDashboard() {
         readyLearners: 0,
         incompleteLearners: dashboardTotalStudents,
         readinessPercent: 0,
-        byClass: CLASS_SORT_ORDER.map((classLevel) => {
-          const totalLearners = dashboardStudents.filter((student) => student.class_level === classLevel).length;
-          return {
-            classLevel,
-            totalLearners,
-            readyLearners: 0,
-            incompleteLearners: totalLearners,
-            readinessPercent: 0,
-          };
-        }),
       },
       aLevel: {
         totalLearners: dashboardALevelLearners.length,
@@ -3720,124 +3648,10 @@ export default function AdminDashboard() {
   }, [
     dashboardALevelLearners.length,
     dashboardSnapshot,
-    dashboardStudents,
     dashboardTotalStudents,
     dashboardViewTerm,
     dashboardViewYear,
     reportReadinessSummary,
-  ]);
-
-  const criticalFollowUp = useMemo(() => {
-    const pendingTeacherSubmissions =
-      Number(assessmentCompliance.oLevelPending || 0) +
-      Number(assessmentCompliance.aLevelPending || 0);
-    const streamsWithoutOptionals = dashboardStreamReadiness.filter(
-      (row) => Number(row.optionalCount || 0) === 0
-    );
-    const lowReadinessClasses = (reportReadinessCard.oLevel.byClass || []).filter(
-      (row) => Number(row.totalLearners || 0) > 0 && Number(row.readinessPercent || 0) < 70
-    );
-    const openIssueCount = [
-      reportReadinessCard.combined.incompleteLearners > 0,
-      pendingTeacherSubmissions > 0,
-      streamsWithoutOptionals.length > 0,
-      lowReadinessClasses.length > 0,
-    ].filter(Boolean).length;
-
-    return {
-      openIssueCount,
-      pendingTeacherSubmissions,
-      streamsWithoutOptionals,
-      lowReadinessClasses,
-    };
-  }, [assessmentCompliance, dashboardStreamReadiness, reportReadinessCard]);
-
-  const teacherSubmissionHeatmap = useMemo(() => {
-    if (dashboardSnapshot?.teacherSubmissionHeatmap) {
-      return dashboardSnapshot.teacherSubmissionHeatmap;
-    }
-    const buildRows = (classLevels, assignments, marksRows, componentOptions) =>
-      classLevels.map((classLevel) => {
-        const expectedAssignments = assignments.filter((row) => row.classLevel === classLevel);
-        const totalAssignments = expectedAssignments.length;
-        const cells = componentOptions.map((component) => {
-          const submitted = new Set(
-            marksRows
-              .filter(
-                (row) =>
-                  row.classLevel === classLevel &&
-                  String(row.aoi_label || "").trim().toUpperCase() === component.value
-              )
-              .map((row) => row.assignment_id)
-          ).size;
-
-          return {
-            ...component,
-            submitted,
-            total: totalAssignments,
-            rate: toPercent(submitted, totalAssignments),
-          };
-        });
-
-        return {
-          classLevel,
-          totalAssignments,
-          cells,
-        };
-      });
-
-    const filteredOLevelMarks = dashboardMarksSets
-      .filter(
-        (row) =>
-          normalizeOperationalTerm(row.term) === dashboardViewTerm &&
-          Number(row.year) === Number(dashboardViewYear)
-      )
-      .map((row) => ({
-        ...row,
-        classLevel: row.class_level,
-      }));
-
-    const filteredALevelMarks = dashboardALevelMarksSets
-      .filter(
-        (row) =>
-          normalizeOperationalTerm(row.term) === dashboardViewTerm &&
-          Number(row.year) === Number(dashboardViewYear)
-      )
-      .map((row) => ({
-        ...row,
-        classLevel: deriveALevelClass(row.stream),
-      }));
-
-    const oLevelAssignments = dashboardOLevelAssignmentsOverview.map((row) => ({
-      ...row,
-      classLevel: row.class_level,
-    }));
-    const aLevelAssignments = dashboardALevelAssignmentsOverview.map((row) => ({
-      ...row,
-      classLevel: deriveALevelClass(row.stream),
-    }));
-
-    const aLevelClasses = sortClasses(
-      [
-        ...A_LEVEL_CLASS_SORT_ORDER,
-        ...aLevelAssignments.map((row) => row.classLevel),
-        ...filteredALevelMarks.map((row) => row.classLevel),
-      ],
-      A_LEVEL_CLASS_SORT_ORDER
-    );
-
-    return {
-      oLevelRows: buildRows(CLASS_SORT_ORDER, oLevelAssignments, filteredOLevelMarks, O_LEVEL_HEATMAP_OPTIONS),
-      aLevelRows: buildRows(aLevelClasses, aLevelAssignments, filteredALevelMarks, A_LEVEL_HEATMAP_OPTIONS),
-    };
-  }, [
-    dashboardALevelAssignmentsOverview,
-    dashboardALevelMarksSets,
-    dashboardMarksSets,
-    dashboardOLevelAssignmentsOverview,
-    dashboardSnapshot,
-    dashboardViewTerm,
-    dashboardViewYear,
   ]);
 
   const s1Students = activeStudents.filter((s) => s.class_level === "S1").length;
@@ -4117,10 +3931,10 @@ export default function AdminDashboard() {
             </div>
           )}
 
-          <div className="panel-grid">
-            <div className="panel-card">
+          <div className="panel-grid add-students-layout">
+            <div className="panel-card learner-entry-card">
               <h3>Add Learner</h3>
-              <form className="teacher-form" onSubmit={handleAddStudent}>
+              <form className="teacher-form learner-entry-form" onSubmit={handleAddStudent}>
                 <div className="form-row">
                   <label htmlFor="sname">Full name</label>
                   <input id="sname" name="name" type="text" value={studentForm.name} onChange={handleStudentInputChange} placeholder="e.g. Kato John" autoComplete="name" />
@@ -4167,12 +3981,12 @@ export default function AdminDashboard() {
                   </select>
                 </div>
 
-                <div className="form-row">
+                <div className="form-row learner-entry-subject-summary">
                   <label>Compulsory subjects (always included)</label>
                   <div className="muted-text">{COMPULSORY_SUBJECTS.join(" • ")}</div>
                 </div>
 
-                <div className="form-row">
+                <div className="form-row learner-entry-optionals">
                   <label>Optional subjects (pick up to 5)</label>
                   <div className="muted-text" style={{ marginBottom: "0.4rem" }}>Total subjects = 7 compulsory + your optionals.</div>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "0.3rem 0.8rem", fontSize: "0.8rem" }}>
@@ -4196,7 +4010,7 @@ export default function AdminDashboard() {
               </form>
             </div>
 
-            <div className="panel-card">
+            <div className="panel-card learner-register-card">
               <div className="panel-card-header">
                 <div>
                   <h3>
@@ -4248,90 +4062,102 @@ export default function AdminDashboard() {
                 </div>
               </div>
 
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "0.6rem", marginBottom: "0.7rem", fontSize: "0.8rem" }}>
-                <select value={classFilter} onChange={(e) => setClassFilter(e.target.value)}>
-                  <option value="">All classes</option>
-                  {classOptions.map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
+              <div className="learner-register-filterbar">
+                <label className="learner-register-filter">
+                  <span>Class</span>
+                  <span className="learner-register-select-shell">
+                    <select value={classFilter} onChange={(e) => setClassFilter(e.target.value)}>
+                      <option value="">All classes</option>
+                      {classOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </span>
+                </label>
 
-                <select value={streamFilter} onChange={(e) => setStreamFilter(e.target.value)}>
-                  <option value="">All streams</option>
-                  <option value="North">North</option>
-                  <option value="South">South</option>
-                </select>
+                <label className="learner-register-filter">
+                  <span>Stream</span>
+                  <span className="learner-register-select-shell">
+                    <select value={streamFilter} onChange={(e) => setStreamFilter(e.target.value)}>
+                      <option value="">All streams</option>
+                      <option value="North">North</option>
+                      <option value="South">South</option>
+                    </select>
+                  </span>
+                </label>
 
-                <select value={subjectFilter} onChange={(e) => setSubjectFilter(e.target.value)}>
-                  <option value="">All subjects</option>
-                  {allSubjectsForFilter.map((s) => <option key={s} value={s}>{s}</option>)}
-                </select>
+                <label className="learner-register-filter learner-register-subject-filter">
+                  <span>Subject</span>
+                  <span className="learner-register-select-shell">
+                    <select value={subjectFilter} onChange={(e) => setSubjectFilter(e.target.value)}>
+                      <option value="">All subjects</option>
+                      {allSubjectsForFilter.map((s) => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </span>
+                </label>
 
-                <button type="button" className="ghost-btn" onClick={() => { setClassFilter(""); setStreamFilter(""); setSubjectFilter(""); setSearchName(""); setStudentStatusFilter("active"); }}>Clear</button>
+                <label className="learner-register-filter learner-register-search">
+                  <span>Learner</span>
+                  <input type="search" value={searchName} onChange={(e) => setSearchName(e.target.value)} placeholder="Search by name" />
+                </label>
 
-                <input type="text" value={searchName} onChange={(e) => setSearchName(e.target.value)} placeholder="Search by name…" style={{ minWidth: "180px", padding: "0.35rem 0.6rem", borderRadius: "999px", border: "1px solid rgba(148,163,184,0.6)", background: "rgba(15,23,42,0.9)", color: "#e5e7eb", outline: "none" }} />
+                <button type="button" className="ghost-btn learner-register-clear" onClick={() => { setClassFilter(""); setStreamFilter(""); setSubjectFilter(""); setSearchName(""); setStudentStatusFilter("active"); }}>Clear Filters</button>
               </div>
 
-              <div style={{ marginBottom: "0.8rem", padding: "0.75rem 0.9rem", borderRadius: "0.9rem", background: "rgba(15,23,42,0.9)", border: "1px solid rgba(148,163,184,0.45)", display: "flex", flexWrap: "wrap", gap: "0.6rem", alignItems: "center", justifyContent: "space-between", fontSize: "0.8rem" }}>
-                <div style={{ minWidth: "180px" }}>
-                  <div style={{ fontSize: "0.78rem", textTransform: "uppercase", letterSpacing: "0.14em", color: "#9ca3af", marginBottom: "0.25rem" }}>Class marksheet PDF</div>
-                  <div className="muted-text">Generate a subject-specific blank marksheet teachers can write scores on.</div>
+              <div className="learner-marksheet-shell">
+                <div className="learner-marksheet-header">
+                  <div>
+                    <span>Class Marksheet</span>
+                    <strong>Blank score register</strong>
+                  </div>
+                  <p>Prepare a subject-specific sheet for handwritten scores.</p>
                 </div>
 
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "0.45rem", alignItems: "center" }}>
-                  <select value={marksheetClass} onChange={(e) => { setMarksheetClass(e.target.value); setMarksheetError(""); }}>
-                    <option value="">Select class</option>
-                    {classOptionsForMarksheet.map((c) => <option key={c} value={c}>{c}</option>)}
-                  </select>
+                <div className="learner-marksheet-controls">
+                  <div className="learner-marksheet-fields">
+                    <label className="learner-register-filter">
+                      <span>Class</span>
+                      <span className="learner-register-select-shell">
+                        <select value={marksheetClass} onChange={(e) => { setMarksheetClass(e.target.value); setMarksheetError(""); }}>
+                          <option value="">Select class</option>
+                          {classOptionsForMarksheet.map((c) => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      </span>
+                    </label>
 
-                  <select value={marksheetStream} onChange={(e) => { setMarksheetStream(e.target.value); setMarksheetError(""); }}>
-                    <option value="">All streams</option>
-                    <option value="North">North</option>
-                    <option value="South">South</option>
-                  </select>
+                    <label className="learner-register-filter">
+                      <span>Stream</span>
+                      <span className="learner-register-select-shell">
+                        <select value={marksheetStream} onChange={(e) => { setMarksheetStream(e.target.value); setMarksheetError(""); }}>
+                          <option value="">All streams</option>
+                          <option value="North">North</option>
+                          <option value="South">South</option>
+                        </select>
+                      </span>
+                    </label>
 
-                  <select value={marksheetSubject} onChange={(e) => { setMarksheetSubject(e.target.value); setMarksheetError(""); }}>
-                    <option value="">All subjects</option>
-                    {allSubjectsForFilter.map((subject) => (
-                      <option key={subject} value={subject}>{subject}</option>
-                    ))}
-                  </select>
+                    <label className="learner-register-filter learner-register-subject-filter">
+                      <span>Subject</span>
+                      <span className="learner-register-select-shell">
+                        <select value={marksheetSubject} onChange={(e) => { setMarksheetSubject(e.target.value); setMarksheetError(""); }}>
+                          <option value="">Select subject</option>
+                          {allSubjectsForFilter.map((subject) => (
+                            <option key={subject} value={subject}>{subject}</option>
+                          ))}
+                        </select>
+                      </span>
+                    </label>
+                  </div>
 
-                  <button
-                    type="button"
-                    onClick={handleDownloadMarksheetCsv}
-                    style={{
-                      whiteSpace: "nowrap",
-                      border: "none",
-                      borderRadius: "999px",
-                      padding: "0.5rem 0.95rem",
-                      background: "linear-gradient(135deg, #ef4444, #b91c1c)",
-                      color: "#fff",
-                      fontWeight: 700,
-                      boxShadow: "0 8px 18px rgba(185,28,28,0.35)",
-                      cursor: "pointer",
-                    }}
-                  >
-                    Download CSV
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleDownloadMarksheetPdf}
-                    style={{
-                      whiteSpace: "nowrap",
-                      border: "none",
-                      borderRadius: "999px",
-                      padding: "0.5rem 0.95rem",
-                      background: "linear-gradient(135deg, #d4a017, #8b5e0a)",
-                      color: "#fff",
-                      fontWeight: 700,
-                      boxShadow: "0 8px 18px rgba(139,94,10,0.35)",
-                      cursor: "pointer",
-                    }}
-                  >
-                    Download PDF
-                  </button>
+                  <div className="learner-marksheet-actions">
+                    <button type="button" className="learner-marksheet-csv" onClick={handleDownloadMarksheetCsv}>
+                      Download CSV
+                    </button>
+                    <button type="button" className="learner-marksheet-pdf" onClick={handleDownloadMarksheetPdf}>
+                      Open PDF
+                    </button>
+                  </div>
                 </div>
 
-                {marksheetError && <div style={{ width: "100%", marginTop: "0.25rem", fontSize: "0.75rem", color: "#fecaca" }}>{marksheetError}</div>}
+                {marksheetError && <div className="learner-marksheet-error">{marksheetError}</div>}
               </div>
 
               {loadingStudents && students.length === 0 ? (
@@ -4393,7 +4219,9 @@ export default function AdminDashboard() {
                 </div>
               )}
 
-              <div className="olevel-classlist-card">
+            </div>
+
+            <div className="olevel-classlist-card">
                 <div className="olevel-classlist-header">
                   <div>
                     <span className="olevel-classlist-eyebrow">Live Class List</span>
@@ -4489,7 +4317,6 @@ export default function AdminDashboard() {
                     </table>
                   </div>
                 )}
-              </div>
             </div>
           </div>
         </section>
@@ -6219,222 +6046,7 @@ export default function AdminDashboard() {
     </article>
   </div>
 
-  <div className="admin-ops-expand-shell">
-    <button
-      type="button"
-      className="admin-ops-expand-trigger"
-      onClick={() => setShowMoreInsights((prev) => !prev)}
-    >
-      <div>
-        <strong>More Insights</strong>
-        <span>Open the next layer of executive dashboard cards without crowding the main view.</span>
-      </div>
-      <span className="admin-ops-expand-meta">
-        {criticalFollowUp.openIssueCount} {dashboardViewMode === "live" ? "live " : ""}follow-up areas • {showMoreInsights ? "Hide" : "Open"}
-      </span>
-    </button>
-
-    {showMoreInsights && (
-      <div className="admin-ops-grid admin-ops-grid-secondary admin-ops-drawer-grid">
-        <article className="admin-ops-card">
-          <div className="admin-ops-card-head">
-            <div>
-              <h3>Critical Follow-Up</h3>
-              <p>Fast action desk for the issues most likely to block reports, submissions, and stream readiness.</p>
-            </div>
-            <span className="admin-ops-badge admin-ops-badge-rose">
-              {criticalFollowUp.openIssueCount} open
-            </span>
-          </div>
-
-          <div className="admin-ops-followup-list">
-            <div className="admin-ops-followup-item">
-              <div>
-                <strong>Learners Not Report-Ready</strong>
-                <span>
-                  O-Level {reportReadinessCard.oLevel.incompleteLearners} • A-Level {reportReadinessCard.aLevel.incompleteLearners}
-                </span>
-              </div>
-              <div className="admin-ops-followup-actions">
-                <span className="admin-ops-followup-count">{reportReadinessCard.combined.incompleteLearners}</span>
-                <button
-                  type="button"
-                  className="ghost-btn"
-                  disabled={readinessPdfLoadingLevel === "oLevel" || reportReadinessCard.oLevel.incompleteLearners === 0}
-                  onClick={() => handleDownloadReadinessDetailsPdf("oLevel")}
-                >
-                  O-Level PDF
-                </button>
-                <button
-                  type="button"
-                  className="ghost-btn"
-                  disabled={readinessPdfLoadingLevel === "aLevel" || reportReadinessCard.aLevel.incompleteLearners === 0}
-                  onClick={() => handleDownloadReadinessDetailsPdf("aLevel")}
-                >
-                  A-Level PDF
-                </button>
-              </div>
-            </div>
-
-            <div className="admin-ops-followup-item">
-              <div>
-                <strong>Teacher Submissions Pending</strong>
-                <span>
-                  {assessmentCompliance.oLevelPending} O-Level assignments • {assessmentCompliance.aLevelPending} A-Level papers
-                </span>
-              </div>
-              <div className="admin-ops-followup-actions">
-                <span className="admin-ops-followup-count">{criticalFollowUp.pendingTeacherSubmissions}</span>
-                <button
-                  type="button"
-                  className="ghost-btn"
-                  disabled={isHistoricalDashboardView}
-                  onClick={() => setActiveSection("Assessment Submission Tracker")}
-                >
-                  {isHistoricalDashboardView ? "Live Only" : "Open Tracker"}
-                </button>
-              </div>
-            </div>
-
-            <div className="admin-ops-followup-item">
-              <div>
-                <strong>Streams Without Optionals</strong>
-                <span>
-                  {criticalFollowUp.streamsWithoutOptionals.length
-                    ? criticalFollowUp.streamsWithoutOptionals
-                        .slice(0, 3)
-                        .map((row) => `${row.class} ${row.stream}`)
-                        .join(", ")
-                    : "All tracked streams have at least one optional subject assigned"}
-                </span>
-              </div>
-              <div className="admin-ops-followup-actions">
-                <span className="admin-ops-followup-count">{criticalFollowUp.streamsWithoutOptionals.length}</span>
-                <button
-                  type="button"
-                  className="ghost-btn"
-                  disabled={isHistoricalDashboardView}
-                  onClick={() => setActiveSection("Stream Readiness")}
-                >
-                  {isHistoricalDashboardView ? "Live Only" : "Open Card"}
-                </button>
-              </div>
-            </div>
-
-            <div className="admin-ops-followup-item">
-              <div>
-                <strong>Classes Below 70% Readiness</strong>
-                <span>
-                  {criticalFollowUp.lowReadinessClasses.length
-                    ? criticalFollowUp.lowReadinessClasses
-                        .map((row) => `${row.classLevel} (${row.readinessPercent}%)`)
-                        .join(", ")
-                    : "All O-Level classes are above the watch threshold"}
-                </span>
-              </div>
-              <div className="admin-ops-followup-actions">
-                <span className="admin-ops-followup-count">{criticalFollowUp.lowReadinessClasses.length}</span>
-              </div>
-            </div>
-          </div>
-        </article>
-
-        <article className="admin-ops-card">
-          <div className="admin-ops-card-head">
-            <div>
-              <h3>Teacher Submission Heatmap</h3>
-              <p>Compact class-by-class view of submission coverage for {dashboardViewTerm} {dashboardViewYear}.</p>
-            </div>
-            <span className="admin-ops-badge admin-ops-badge-green">Heatmap</span>
-          </div>
-
-          <div className="admin-ops-heatmap-stack">
-            <section className="admin-ops-heatmap-panel">
-              <div className="admin-ops-heatmap-panel-head">
-                <strong>O-Level</strong>
-                <span>AOI /80 submission coverage by class</span>
-              </div>
-              <div className="admin-ops-heatmap-table-shell">
-                <table className="admin-ops-heatmap-table">
-                  <thead>
-                    <tr>
-                      <th>Class</th>
-                      {O_LEVEL_HEATMAP_OPTIONS.map((component) => (
-                        <th key={component.value}>{component.label}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {teacherSubmissionHeatmap.oLevelRows.map((row) => (
-                      <tr key={`olevel-${row.classLevel}`}>
-                        <th className="admin-ops-heatmap-class">
-                          <strong>{row.classLevel}</strong>
-                          <span>{row.totalAssignments} slots</span>
-                        </th>
-                        {row.cells.map((cell) => (
-                          <td key={`${row.classLevel}-${cell.value}`}>
-                            <div
-                              className={`admin-ops-heatmap-cell ${cell.total === 0 ? "is-empty" : ""}`}
-                              style={getHeatmapCellStyle(cell.rate, "green")}
-                            >
-                              <strong>{cell.total ? `${cell.rate}%` : "—"}</strong>
-                              <small>{cell.total ? `${cell.submitted}/${cell.total}` : "No slots"}</small>
-                            </div>
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-
-            <section className="admin-ops-heatmap-panel">
-              <div className="admin-ops-heatmap-panel-head">
-                <strong>A-Level</strong>
-                <span>MID and EOT coverage by paper-assignment class</span>
-              </div>
-              <div className="admin-ops-heatmap-table-shell">
-                <table className="admin-ops-heatmap-table">
-                  <thead>
-                    <tr>
-                      <th>Class</th>
-                      {A_LEVEL_HEATMAP_OPTIONS.map((component) => (
-                        <th key={component.value}>{component.label}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {teacherSubmissionHeatmap.aLevelRows.map((row) => (
-                      <tr key={`alevel-${row.classLevel}`}>
-                        <th className="admin-ops-heatmap-class">
-                          <strong>{row.classLevel}</strong>
-                          <span>{row.totalAssignments} papers</span>
-                        </th>
-                        {row.cells.map((cell) => (
-                          <td key={`${row.classLevel}-${cell.value}`}>
-                            <div
-                              className={`admin-ops-heatmap-cell ${cell.total === 0 ? "is-empty" : ""}`}
-                              style={getHeatmapCellStyle(cell.rate, "cyan")}
-                            >
-                              <strong>{cell.total ? `${cell.rate}%` : "—"}</strong>
-                              <small>{cell.total ? `${cell.submitted}/${cell.total}` : "No papers"}</small>
-                            </div>
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          </div>
-
-          <p className="admin-ops-note">
-            Each cell shows submitted teaching slots against expected slots for that class and assessment component.
-          </p>
-        </article>
-
+  <div className="admin-ops-grid admin-ops-grid-secondary admin-ops-insights-grid">
         <article className="admin-ops-card">
           <div className="admin-ops-card-head">
             <div>
@@ -6491,54 +6103,6 @@ export default function AdminDashboard() {
         <article className="admin-ops-card">
           <div className="admin-ops-card-head">
             <div>
-              <h3>Class Readiness Snapshot</h3>
-              <p>O-Level class-by-class view of report readiness for {dashboardViewTerm} {dashboardViewYear}</p>
-            </div>
-            <span className="admin-ops-badge admin-ops-badge-blue">S1–S4</span>
-          </div>
-
-          <div className="admin-ops-class-readiness-list">
-            {(reportReadinessCard.oLevel.byClass || []).map((row) => {
-              const toneClass =
-                row.readinessPercent >= 85
-                  ? "is-strong"
-                  : row.readinessPercent >= 60
-                  ? "is-watch"
-                  : "is-attention";
-              const toneLabel =
-                row.readinessPercent >= 85
-                  ? "Strong"
-                  : row.readinessPercent >= 60
-                  ? "Watch"
-                  : "Needs Attention";
-
-              return (
-                <div key={row.classLevel} className="admin-ops-class-readiness-row">
-                  <div className="admin-ops-class-readiness-top">
-                    <div>
-                      <strong>{row.classLevel}</strong>
-                      <span>
-                        {row.readyLearners} ready • {row.incompleteLearners} incomplete • {row.totalLearners} total
-                      </span>
-                    </div>
-                    <span className={`admin-ops-class-status ${toneClass}`}>{toneLabel}</span>
-                  </div>
-                  <div className="admin-ops-meter admin-ops-meter-class">
-                    <div style={{ width: `${row.readinessPercent}%` }} />
-                  </div>
-                  <div className="admin-ops-class-readiness-foot">
-                    <span>{row.readinessPercent}% ready</span>
-                    <span>{row.incompleteLearners} learners still need completion</span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </article>
-
-        <article className="admin-ops-card">
-          <div className="admin-ops-card-head">
-            <div>
               <h3>School Status</h3>
               <p>Shared live calendar and marks control</p>
             </div>
@@ -6575,73 +6139,6 @@ export default function AdminDashboard() {
               <small>{isHistoricalDashboardView ? "Frozen dashboard view" : "Dashboards follow the calendar"}</small>
             </div>
           </div>
-        </article>
-
-        <article className="admin-ops-card">
-          <div className="admin-ops-card-head">
-            <div>
-              <h3>Ready-To-Print Center</h3>
-              <p>Fast PTA and office print shortcuts</p>
-            </div>
-            <span className="admin-ops-badge admin-ops-badge-gold">Print</span>
-          </div>
-          <div className="admin-ops-action-grid">
-            <button type="button" className="ghost-btn" disabled={isHistoricalDashboardView} onClick={() => setActiveSection("Mini Reports")}>
-              {isHistoricalDashboardView ? "Mini Reports (Live)" : "Mini Reports"}
-            </button>
-            <button type="button" className="ghost-btn" disabled={isHistoricalDashboardView} onClick={() => setActiveSection("Download Marks")}>
-              {isHistoricalDashboardView ? "Download Marks (Live)" : "Download Marks"}
-            </button>
-            <button type="button" className="ghost-btn" disabled={isHistoricalDashboardView} onClick={() => setActiveSection("End of Term Reports")}>
-              {isHistoricalDashboardView ? "Term Reports (Live)" : "Term Reports"}
-            </button>
-            <button type="button" className="ghost-btn" disabled={isHistoricalDashboardView} onClick={() => setActiveSection("End of Year Reports")}>
-              {isHistoricalDashboardView ? "Year Reports (Live)" : "Year Reports"}
-            </button>
-            <button type="button" className="ghost-btn" disabled={isHistoricalDashboardView} onClick={() => setShowEnrollmentChartsModal(true)}>
-              {isHistoricalDashboardView ? "Enrollment PDF (Live)" : "Enrollment PDF"}
-            </button>
-          </div>
-          <p className="admin-ops-note">
-            {isHistoricalDashboardView
-              ? "Historical snapshots are read-only. Printing and management shortcuts stay on the live year to protect archived views."
-              : "Use this as the quick office desk for parent meetings, marksheets and summary exports."}
-          </p>
-        </article>
-
-        <article className="admin-ops-card">
-          <div className="admin-ops-card-head">
-            <div>
-              <h3>Teacher Load Summary</h3>
-              <p>Quick staffing and teaching slot picture</p>
-            </div>
-            <span className="admin-ops-badge admin-ops-badge-purple">Staff</span>
-          </div>
-          <div className="admin-ops-kpi-grid">
-            <div className="admin-ops-kpi">
-              <span>Total Teachers</span>
-              <strong>{dashboardTotalTeachers}</strong>
-              <small>Registered accounts</small>
-            </div>
-            <div className="admin-ops-kpi">
-              <span>Assigned Teachers</span>
-              <strong>{dashboardTeacherLoadSummary.assignedTeachers}</strong>
-              <small>Currently carrying loads</small>
-            </div>
-            <div className="admin-ops-kpi">
-              <span>O-Level Loads</span>
-              <strong>{dashboardTeacherLoadSummary.oLevelAssignments}</strong>
-              <small>Active class assignments</small>
-            </div>
-            <div className="admin-ops-kpi">
-              <span>A-Level Loads</span>
-              <strong>{dashboardTeacherLoadSummary.aLevelAssignments}</strong>
-              <small>Active paper assignments</small>
-            </div>
-          </div>
-          <p className="admin-ops-note">
-            Total teaching slots in the system: <strong>{dashboardTeacherLoadSummary.totalTeachingSlots}</strong>
-          </p>
         </article>
 
         <article className="admin-ops-card admin-ops-card-wide">
@@ -6808,8 +6305,6 @@ export default function AdminDashboard() {
             </div>
           </div>
         </article>
-      </div>
-    )}
   </div>
 </section>
 

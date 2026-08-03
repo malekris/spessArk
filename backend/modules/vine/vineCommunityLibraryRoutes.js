@@ -1,5 +1,35 @@
 import express from "express";
 
+const LIBRARY_DOCUMENT_TYPES = {
+  pdf: { mime: "application/pdf", label: "PDF" },
+  doc: { mime: "application/msword", label: "Word document" },
+  docx: {
+    mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    label: "Word document",
+  },
+  xls: { mime: "application/vnd.ms-excel", label: "Excel spreadsheet" },
+  xlsx: {
+    mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    label: "Excel spreadsheet",
+  },
+};
+
+const getLibraryDocumentType = (file) => {
+  const name = String(file?.originalname || "").trim();
+  const extension = name.toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] || "";
+  const definition = LIBRARY_DOCUMENT_TYPES[extension];
+  return definition ? { ...definition, extension } : null;
+};
+
+const cleanLibraryFileName = (value, fallbackExtension) => {
+  const cleaned = String(value || "")
+    .replace(/[\x00-\x1f\x7f]/g, "")
+    .replace(/[\\/]+/g, "_")
+    .trim()
+    .slice(0, 255);
+  return cleaned || `community-resource.${fallbackExtension}`;
+};
+
 export default function createVineCommunityLibraryRouter({
   db,
   authenticate,
@@ -42,6 +72,9 @@ export default function createVineCommunityLibraryRouter({
             l.uploader_id,
             l.title,
             l.pdf_url,
+            l.pdf_url AS file_url,
+            l.file_name,
+            l.file_mime,
             l.created_at,
             u.username AS uploader_username,
             u.display_name AS uploader_display_name
@@ -147,51 +180,71 @@ export default function createVineCommunityLibraryRouter({
     }
   });
 
-  router.post("/communities/:id/library", authenticate, uploadPostCloudinary.single("library_pdf"), async (req, res) => {
-    try {
-      await ensureCommunitySchema();
-      const userId = Number(req.user.id);
-      const communityId = Number(req.params.id);
-      const title = String(req.body?.title || "").trim();
-      if (!communityId || !title) {
-        return res.status(400).json({ message: "title is required" });
-      }
-      if (!req.file || !isPdfFile(req.file)) {
-        return res.status(400).json({ message: "PDF file is required" });
-      }
+  router.post(
+    "/communities/:id/library",
+    authenticate,
+    uploadPostCloudinary.fields([
+      { name: "library_file", maxCount: 1 },
+      { name: "library_pdf", maxCount: 1 },
+    ]),
+    async (req, res) => {
+      try {
+        await ensureCommunitySchema();
+        const userId = Number(req.user.id);
+        const communityId = Number(req.params.id);
+        const title = String(req.body?.title || "").trim();
+        const file = req.files?.library_file?.[0] || req.files?.library_pdf?.[0] || null;
+        const documentType = getLibraryDocumentType(file);
+        if (!communityId || !title) {
+          return res.status(400).json({ message: "title is required" });
+        }
+        if (!file || !documentType || (documentType.extension === "pdf" && !isPdfFile(file))) {
+          return res.status(400).json({
+            message: "Choose a PDF, Word document, or Excel spreadsheet",
+          });
+        }
 
-      const role = String(await getCommunityRole(communityId, userId) || "").toLowerCase();
-      if (role !== "owner") {
-        return res.status(403).json({ message: "Only community owner can upload library PDFs" });
+        const role = String(await getCommunityRole(communityId, userId) || "").toLowerCase();
+        if (role !== "owner") {
+          return res.status(403).json({ message: "Only community owner can upload library documents" });
+        }
+
+        const fileName = cleanLibraryFileName(file.originalname, documentType.extension);
+        const downloadFileName = fileName
+          .replace(/[^\x20-\x7e]/g, "_")
+          .replace(/["\\]/g, "_");
+        const uploaded = await uploadBufferToCloudinary(file.buffer, {
+          folder: "vine/community-library",
+          resource_type: "raw",
+          public_id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+          format: documentType.extension,
+          content_type: documentType.mime,
+          ...(documentType.extension === "pdf"
+            ? {}
+            : { content_disposition: `attachment; filename="${downloadFileName}"` }),
+        });
+        const fileUrl = uploaded.secure_url || uploaded.url || null;
+        if (!fileUrl) {
+          return res.status(500).json({ message: "Upload failed" });
+        }
+
+        await db.query(
+          `
+          INSERT INTO vine_community_library
+            (community_id, uploader_id, title, pdf_url, file_name, file_mime, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, NOW())
+          `,
+          [communityId, userId, title.slice(0, 180), fileUrl, fileName, documentType.mime]
+        );
+
+        clearVineReadCache("community-library");
+        res.json({ success: true });
+      } catch (err) {
+        console.error("Upload community library document error:", err);
+        res.status(500).json({ message: "Failed to upload document" });
       }
-
-      const uploaded = await uploadBufferToCloudinary(req.file.buffer, {
-        folder: "vine/community-library",
-        resource_type: "raw",
-        public_id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
-        format: "pdf",
-        content_type: req.file.mimetype || "application/pdf",
-      });
-      const pdfUrl = uploaded.secure_url || uploaded.url || null;
-      if (!pdfUrl) {
-        return res.status(500).json({ message: "Upload failed" });
-      }
-
-      await db.query(
-        `
-        INSERT INTO vine_community_library (community_id, uploader_id, title, pdf_url, created_at)
-        VALUES (?, ?, ?, ?, NOW())
-        `,
-        [communityId, userId, title.slice(0, 180), pdfUrl]
-      );
-
-      clearVineReadCache("community-library");
-      res.json({ success: true });
-    } catch (err) {
-      console.error("Upload community library PDF error:", err);
-      res.status(500).json({ message: "Failed to upload PDF" });
     }
-  });
+  );
 
   router.post("/communities/:id/library/videos", authenticate, uploadPostCloudinary.single("library_video"), async (req, res) => {
     try {
@@ -246,7 +299,7 @@ export default function createVineCommunityLibraryRouter({
 
       const role = String(await getCommunityRole(communityId, userId) || "").toLowerCase();
       if (role !== "owner") {
-        return res.status(403).json({ message: "Only community owner can remove library PDFs" });
+        return res.status(403).json({ message: "Only community owner can remove library documents" });
       }
 
       const [[item]] = await db.query(
@@ -265,8 +318,8 @@ export default function createVineCommunityLibraryRouter({
       clearVineReadCache("community-library");
       res.json({ success: true });
     } catch (err) {
-      console.error("Delete community library PDF error:", err);
-      res.status(500).json({ message: "Failed to delete PDF" });
+      console.error("Delete community library document error:", err);
+      res.status(500).json({ message: "Failed to delete document" });
     }
   });
 

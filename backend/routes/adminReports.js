@@ -133,26 +133,11 @@ const deriveALevelClass = (stream = "") => {
   return firstToken || "A-Level";
 };
 
-const sortClassLevels = (classLevels = [], preferredOrder = []) => {
-  const preferred = new Map(preferredOrder.map((value, index) => [value, index]));
-  return Array.from(new Set(classLevels.filter(Boolean))).sort((a, b) => {
-    const aRank = preferred.has(a) ? preferred.get(a) : Number.MAX_SAFE_INTEGER;
-    const bRank = preferred.has(b) ? preferred.get(b) : Number.MAX_SAFE_INTEGER;
-    if (aRank !== bRank) return aRank - bRank;
-    return String(a).localeCompare(String(b), undefined, { numeric: true });
-  });
-};
-
-const O_LEVEL_HEATMAP_OPTIONS = [
+const O_LEVEL_ASSESSMENT_OPTIONS = [
   { value: "AOI1", label: "AOI 1" },
   { value: "AOI2", label: "AOI 2" },
   { value: "AOI3", label: "AOI 3" },
   { value: "EXAM80", label: "/80" },
-];
-
-const A_LEVEL_HEATMAP_OPTIONS = [
-  { value: "MID", label: "MID" },
-  { value: "EOT", label: "EOT" },
 ];
 
 const buildDashboardAssessmentCompliance = ({
@@ -177,7 +162,7 @@ const buildDashboardAssessmentCompliance = ({
   const aLevelExpectedComponents = aLevelTotal * 2;
 
   const oLevelAoiCounts = Object.fromEntries(
-    O_LEVEL_HEATMAP_OPTIONS.map(({ value }) => [
+    O_LEVEL_ASSESSMENT_OPTIONS.map(({ value }) => [
       value,
       new Set(
         filteredOLevelRows
@@ -188,7 +173,7 @@ const buildDashboardAssessmentCompliance = ({
   );
 
   const oLevelAoiRates = Object.fromEntries(
-    O_LEVEL_HEATMAP_OPTIONS.map(({ value }) => [value, toPercent(oLevelAoiCounts[value], oLevelTotal)])
+    O_LEVEL_ASSESSMENT_OPTIONS.map(({ value }) => [value, toPercent(oLevelAoiCounts[value], oLevelTotal)])
   );
 
   const aLevelSubmittedComponents = new Set(
@@ -208,65 +193,6 @@ const buildDashboardAssessmentCompliance = ({
     oLevelTotal,
     aLevelTotal,
     aLevelExpectedComponents,
-  };
-};
-
-const buildTeacherSubmissionHeatmap = ({
-  oLevelAssignments = [],
-  aLevelAssignments = [],
-  marksSets = [],
-  aLevelMarksSets = [],
-  term,
-  year,
-}) => {
-  const buildRows = (classLevels, assignments, marksRows, componentOptions) =>
-    classLevels.map((classLevel) => {
-      const expectedAssignments = assignments.filter((row) => row.classLevel === classLevel);
-      const totalAssignments = expectedAssignments.length;
-      const cells = componentOptions.map((component) => {
-        const submitted = new Set(
-          marksRows
-            .filter(
-              (row) =>
-                row.classLevel === classLevel && normalizeAoiKey(row.aoi_label) === component.value
-            )
-            .map((row) => row.assignment_id)
-        ).size;
-
-        return {
-          ...component,
-          submitted,
-          total: totalAssignments,
-          rate: toPercent(submitted, totalAssignments),
-        };
-      });
-
-      return { classLevel, totalAssignments, cells };
-    });
-
-  const filteredOLevelMarks = marksSets
-    .filter((row) => normalizeTermLabel(row.term) === normalizeTermLabel(term) && Number(row.year) === Number(year))
-    .map((row) => ({ ...row, classLevel: row.class_level }));
-
-  const filteredALevelMarks = aLevelMarksSets
-    .filter((row) => normalizeTermLabel(row.term) === normalizeTermLabel(term) && Number(row.year) === Number(year))
-    .map((row) => ({ ...row, classLevel: deriveALevelClass(row.stream) }));
-
-  const oLevelAssignmentRows = oLevelAssignments.map((row) => ({ ...row, classLevel: row.class_level }));
-  const aLevelAssignmentRows = aLevelAssignments.map((row) => ({ ...row, classLevel: deriveALevelClass(row.stream) }));
-  const aLevelClassLevels = sortClassLevels(
-    [
-      "S5",
-      "S6",
-      ...aLevelAssignmentRows.map((row) => row.classLevel),
-      ...filteredALevelMarks.map((row) => row.classLevel),
-    ],
-    ["S5", "S6"]
-  );
-
-  return {
-    oLevelRows: buildRows(["S1", "S2", "S3", "S4"], oLevelAssignmentRows, filteredOLevelMarks, O_LEVEL_HEATMAP_OPTIONS),
-    aLevelRows: buildRows(aLevelClassLevels, aLevelAssignmentRows, filteredALevelMarks, A_LEVEL_HEATMAP_OPTIONS),
   };
 };
 
@@ -308,19 +234,6 @@ const buildReportReadinessSummaryFromSources = async ({
   const readyStudentIds = new Set((oLevelReadyRows || []).map((row) => Number(row.student_id)));
   const readyALevelIds = new Set((aLevelReadyRows || []).map((row) => Number(row.learner_id)));
 
-  const oLevelByClass = ["S1", "S2", "S3", "S4"].map((classLevel) => {
-    const classStudents = activeStudents.filter((student) => student.class_level === classLevel);
-    const readyLearners = classStudents.filter((student) => readyStudentIds.has(Number(student.id))).length;
-    const totalLearners = classStudents.length;
-    return {
-      classLevel,
-      totalLearners,
-      readyLearners,
-      incompleteLearners: Math.max(0, totalLearners - readyLearners),
-      readinessPercent: toPercent(readyLearners, totalLearners),
-    };
-  });
-
   const oLevelReady = activeStudents.filter((student) => readyStudentIds.has(Number(student.id))).length;
   const aLevelReady = aLevelLearners.filter((learner) => readyALevelIds.has(Number(learner.id))).length;
   const oLevelTotal = activeStudents.length;
@@ -334,7 +247,6 @@ const buildReportReadinessSummaryFromSources = async ({
       readyLearners: oLevelReady,
       incompleteLearners: Math.max(0, oLevelTotal - oLevelReady),
       readinessPercent: toPercent(oLevelReady, oLevelTotal),
-      byClass: oLevelByClass,
     },
     aLevel: {
       totalLearners: aLevelTotal,
@@ -1087,7 +999,7 @@ router.get("/dashboard-snapshot", authAdmin, async (req, res) => {
         FROM alevel_marks am
         JOIN alevel_teacher_subjects ats ON ats.id = am.assignment_id
         JOIN alevel_subjects s ON s.id = ats.subject_id
-        JOIN alevel_exam_types et ON et.id = am.exam_id
+        JOIN alevel_exams et ON et.id = am.exam_id
         LEFT JOIN teachers t ON t.id = ats.teacher_id
         WHERE YEAR(am.created_at) = ?
         GROUP BY
@@ -1124,15 +1036,6 @@ router.get("/dashboard-snapshot", authAdmin, async (req, res) => {
       year,
     });
 
-    const teacherSubmissionHeatmap = buildTeacherSubmissionHeatmap({
-      oLevelAssignments: snapshotSource.oLevelAssignments || [],
-      aLevelAssignments: snapshotSource.aLevelAssignments || [],
-      marksSets,
-      aLevelMarksSets,
-      term,
-      year,
-    });
-
     res.json({
       academicYear: year,
       currentAcademicYear,
@@ -1148,7 +1051,6 @@ router.get("/dashboard-snapshot", authAdmin, async (req, res) => {
       aLevelMarksSets,
       reportReadinessSummary,
       assessmentCompliance,
-      teacherSubmissionHeatmap,
     });
   } catch (err) {
     console.error("Admin dashboard snapshot error:", err);

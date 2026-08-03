@@ -4239,26 +4239,116 @@
 }
 
 .library-upload-row {
-  display: grid;
-  grid-template-columns: 1.2fr 1fr auto;
-  gap: 8px;
-  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  margin-bottom: 18px;
+  padding: 16px;
+  border: 1px solid rgba(110, 231, 183, 0.74);
+  border-radius: 14px;
+  background: rgba(236, 253, 245, 0.64);
 }
 
-.library-upload-row input[type="text"] {
+.library-upload-row > * {
+  min-width: 0;
+}
+
+.library-upload-field,
+.library-file-picker {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 7px;
+  width: 100%;
+  min-width: 0;
+  color: #064e3b;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.library-upload-field input[type="text"] {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: 46px;
   border: 1px solid #a7f3d0;
-  border-radius: 10px;
-  padding: 8px 10px;
+  border-radius: 9px;
+  padding: 10px 12px;
+  background: #ffffff;
+  color: #102a20;
 }
 
-.library-upload-row button {
-  border: 1px solid #166534;
-  background: #166534;
-  color: #fff;
-  border-radius: 999px;
-  padding: 8px 14px;
-  font-weight: 700;
+.library-file-picker {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 72px;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px solid #34d399;
+  border-radius: 9px;
+  padding: 11px 13px;
+  background: #d1fae5;
+  color: #065f46;
   cursor: pointer;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.74);
+}
+
+.library-file-picker:hover {
+  border-color: #059669;
+  background: #a7f3d0;
+  box-shadow: 0 8px 18px rgba(5, 150, 105, 0.14);
+}
+
+.library-file-picker strong {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  color: #065f46;
+  font-size: 0.9rem;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.library-file-picker input[type="file"] {
+  display: none;
+}
+
+.community-library-panel .library-upload-row .library-upload-submit {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  border: 1px solid #065f46;
+  background-color: #047857;
+  background-image: linear-gradient(135deg, #047857, #059669);
+  color: #ffffff;
+  border-radius: 9px;
+  padding: 9px 18px;
+  font-weight: 800;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: 0 10px 20px rgba(4, 120, 87, 0.24);
+}
+
+.community-library-panel .library-upload-row .library-upload-submit:hover {
+  border-color: #064e3b;
+  background: linear-gradient(135deg, #065f46, #047857);
+  box-shadow: 0 12px 24px rgba(4, 120, 87, 0.3);
+  transform: translateY(-1px);
+}
+
+.community-library-panel .library-upload-row .library-upload-submit:focus-visible,
+.community-library-panel .library-upload-row .library-file-picker:focus-within {
+  outline: 3px solid rgba(16, 185, 129, 0.34);
+  outline-offset: 2px;
 }
 
 .community-library-panel {
@@ -4386,6 +4476,49 @@
   overflow: hidden;
 }
 
+.library-thumb-word {
+  background:
+    radial-gradient(circle at 14% 12%, rgba(255, 255, 255, 0.35), transparent 32%),
+    linear-gradient(145deg, #1d4ed8, #0f766e);
+}
+
+.library-thumb-sheet {
+  background:
+    radial-gradient(circle at 14% 12%, rgba(255, 255, 255, 0.34), transparent 32%),
+    linear-gradient(145deg, #166534, #10b981);
+}
+
+.library-file-mark {
+  position: relative;
+  width: 68px;
+  height: 82px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  color: #0f3d2e;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.78);
+  border-radius: 8px;
+  box-shadow: 0 14px 28px rgba(2, 6, 23, 0.22);
+}
+
+.library-file-mark::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 18px;
+  height: 18px;
+  background: rgba(15, 118, 110, 0.16);
+  border-bottom-left-radius: 6px;
+}
+
+.library-file-mark span {
+  font-size: 0.76rem;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
 .library-thumb-preview {
   width: 100%;
   height: 100%;
@@ -4420,6 +4553,27 @@
 .library-meta small {
   color: #64748b;
   font-size: 0.75rem;
+}
+
+.library-file-name {
+  overflow: hidden;
+  color: #49645b;
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.library-card-action {
+  justify-self: start;
+  color: #047857;
+  font-size: 0.76rem;
+  font-weight: 850;
+}
+
+.library-card:focus-visible {
+  outline: 3px solid rgba(16, 185, 129, 0.42);
+  outline-offset: 2px;
 }
 
 .library-remove-btn {
@@ -6046,7 +6200,7 @@
   }
 
   .library-upload-row {
-    grid-template-columns: 1fr;
+    padding: 12px;
   }
 
   .community-library-hero,

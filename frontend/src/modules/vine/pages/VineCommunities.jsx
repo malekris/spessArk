@@ -10,6 +10,25 @@ import { useSiteVisuals } from "../../../utils/siteVisuals";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const POST_MAX_LENGTH = 5000;
+const LIBRARY_DOCUMENT_ACCEPT = [
+  ".pdf",
+  ".doc",
+  ".docx",
+  ".xls",
+  ".xlsx",
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+].join(",");
+const LIBRARY_DOCUMENT_TYPES = {
+  pdf: { extension: "pdf", label: "PDF", tone: "pdf", action: "Open PDF" },
+  doc: { extension: "doc", label: "DOC", tone: "word", action: "Download" },
+  docx: { extension: "docx", label: "DOCX", tone: "word", action: "Download" },
+  xls: { extension: "xls", label: "XLS", tone: "sheet", action: "Download" },
+  xlsx: { extension: "xlsx", label: "XLSX", tone: "sheet", action: "Download" },
+};
 const COMMUNITY_MEMORY_WALL_TAG = "memorywall";
 const MEMORY_WALL_MAX_FILES = 30;
 const MEMORY_WALL_PROMPTS = ["Holiday check-in", "Photo drop", "Term memory"];
@@ -194,6 +213,47 @@ const toCommunityMediaUrl = (value) => {
   if (!raw) return "";
   if (raw.startsWith("http") || raw.startsWith("blob:") || raw.startsWith("data:")) return raw;
   return `${API}${raw}`;
+};
+
+const getLibraryDocumentMeta = (source, fallbackToPdf = true) => {
+  const name = String(
+    source?.file_name || source?.name || source?.file_url || source?.pdf_url || ""
+  )
+    .split(/[?#]/)[0]
+    .toLowerCase();
+  const extension = name.match(/\.([a-z0-9]+)$/)?.[1] || "";
+  if (LIBRARY_DOCUMENT_TYPES[extension]) return LIBRARY_DOCUMENT_TYPES[extension];
+
+  const mime = String(source?.file_mime || source?.type || "").toLowerCase();
+  if (mime === "application/pdf") return LIBRARY_DOCUMENT_TYPES.pdf;
+  if (mime === "application/msword") return LIBRARY_DOCUMENT_TYPES.doc;
+  if (mime.includes("wordprocessingml")) return LIBRARY_DOCUMENT_TYPES.docx;
+  if (mime === "application/vnd.ms-excel") return LIBRARY_DOCUMENT_TYPES.xls;
+  if (mime.includes("spreadsheetml")) return LIBRARY_DOCUMENT_TYPES.xlsx;
+  return fallbackToPdf ? LIBRARY_DOCUMENT_TYPES.pdf : null;
+};
+
+const openLibraryDocument = (item) => {
+  const rawUrl = String(item?.file_url || item?.pdf_url || "").trim();
+  if (!rawUrl) return;
+  const url = toCommunityMediaUrl(rawUrl);
+  const documentMeta = getLibraryDocumentMeta(item);
+  if (documentMeta.extension === "pdf") {
+    window.open(url, "_blank", "noopener,noreferrer");
+    return;
+  }
+
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = String(
+    item?.file_name || `${item?.title || "community-resource"}.${documentMeta.extension}`
+  );
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  link.style.display = "none";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
 };
 
 const isAssignmentImageAttachment = (assignment) => {
@@ -1952,16 +2012,20 @@ export default function VineCommunities() {
     }
   };
 
-  const uploadLibraryPdf = async () => {
+  const uploadLibraryFile = async () => {
     if (!activeCommunity?.id) return;
     if (!libraryTitle.trim() || !libraryFile) {
-      alert("Add title and pick a PDF");
+      alert("Add a title and choose a document");
+      return;
+    }
+    if (!getLibraryDocumentMeta(libraryFile, false)) {
+      alert("Choose a PDF, Word document, or Excel spreadsheet");
       return;
     }
     try {
       const formData = new FormData();
       formData.append("title", libraryTitle.trim());
-      formData.append("library_pdf", libraryFile);
+      formData.append("library_file", libraryFile);
       const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/library`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
@@ -1969,7 +2033,7 @@ export default function VineCommunities() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        alert(data.message || "Failed to upload PDF");
+        alert(data.message || "Failed to upload document");
         return;
       }
       setLibraryTitle("");
@@ -1977,13 +2041,13 @@ export default function VineCommunities() {
       if (libraryFileInputRef.current) libraryFileInputRef.current.value = "";
       await loadCommunityDetail(activeCommunity.slug, topicFilter);
     } catch {
-      alert("Failed to upload PDF");
+      alert("Failed to upload document");
     }
   };
 
   const deleteLibraryItem = async (itemId) => {
     if (!activeCommunity?.id || !itemId) return;
-    const ok = window.confirm("Remove this PDF from library?");
+    const ok = window.confirm("Remove this document from the library?");
     if (!ok) return;
     try {
       const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/library/${itemId}`, {
@@ -1991,12 +2055,12 @@ export default function VineCommunities() {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) {
-        alert("Failed to remove PDF");
+        alert("Failed to remove document");
         return;
       }
       await loadCommunityDetail(activeCommunity.slug, topicFilter);
     } catch {
-      alert("Failed to remove PDF");
+      alert("Failed to remove document");
     }
   };
 
@@ -4856,93 +4920,118 @@ export default function VineCommunities() {
                     <div className="community-library-hero">
                       <div>
                         <strong>Study shelf</strong>
-                        <p>Keep handouts, revision PDFs, and clean reference material in one polished learning corner.</p>
+                        <p>Keep PDFs, Word documents, spreadsheets, and reference material together for learners.</p>
                       </div>
                       <div className="community-library-hero-stats">
-                        <span>{libraryItems.length} PDFs</span>
+                        <span>{libraryItems.length} {libraryItems.length === 1 ? "file" : "files"}</span>
                       </div>
                     </div>
                     <div className="library-stack">
                       <div className="library-section">
                         <div className="library-section-head">
                           <div>
-                            <strong>PDF shelf</strong>
-                            <p>Past papers, handouts, and reference material members can open quickly.</p>
+                            <strong>Document shelf</strong>
+                            <p>Past papers, handouts, Word files, and spreadsheets ready to open or download.</p>
                           </div>
                         </div>
                         {isCommunityOwner && (
                           <div className="library-upload-row">
-                            <input
-                              type="text"
-                              placeholder="PDF title"
-                              value={libraryTitle}
-                              maxLength={180}
-                              onChange={(e) => setLibraryTitle(e.target.value)}
-                            />
-                            <label className="assignment-file-picker">
-                              <span>{libraryFile ? libraryFile.name : "Choose PDF"}</span>
+                            <label className="library-upload-field">
+                              <span>Resource title</span>
+                              <input
+                                type="text"
+                                placeholder="Name this resource"
+                                value={libraryTitle}
+                                maxLength={180}
+                                onChange={(e) => setLibraryTitle(e.target.value)}
+                              />
+                            </label>
+                            <label className="library-file-picker">
+                              <span>Document file</span>
+                              <strong>
+                                {libraryFile ? libraryFile.name : "Choose PDF, Word, or Excel file"}
+                              </strong>
                               <input
                                 ref={libraryFileInputRef}
                                 type="file"
-                                accept=".pdf,application/pdf"
+                                accept={LIBRARY_DOCUMENT_ACCEPT}
                                 onChange={(e) => setLibraryFile(e.target.files?.[0] || null)}
                               />
                             </label>
-                            <button type="button" onClick={uploadLibraryPdf}>
-                              Upload PDF
+                            <button
+                              type="button"
+                              className="library-upload-submit"
+                              onClick={uploadLibraryFile}
+                            >
+                              Post to library
                             </button>
                           </div>
                         )}
                         <div className="library-grid">
                           {libraryItems.length === 0 ? (
-                            <div className="community-empty">No PDFs in library yet.</div>
+                            <div className="community-empty">No documents in the library yet.</div>
                           ) : (
-                            libraryItems.map((item) => (
-                              <div
-                                key={`library-${item.id}`}
-                                className="library-card"
-                                role="button"
-                                tabIndex={0}
-                                onClick={() => window.open(item.pdf_url, "_blank", "noopener,noreferrer")}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter" || e.key === " ") {
-                                    e.preventDefault();
-                                    window.open(item.pdf_url, "_blank", "noopener,noreferrer");
-                                  }
-                                }}
-                              >
-                                <div className="library-thumb">
-                                  <object
-                                    data={`${item.pdf_url}#page=1&view=FitH`}
-                                    type="application/pdf"
-                                    className="library-thumb-preview"
-                                    aria-label={item.title}
-                                  >
-                                    <span>PDF</span>
-                                  </object>
-                                  <div className="library-thumb-overlay">PDF</div>
+                            libraryItems.map((item) => {
+                              const documentMeta = getLibraryDocumentMeta(item);
+                              const fileUrl = toCommunityMediaUrl(item.file_url || item.pdf_url);
+                              const isPdf = documentMeta.extension === "pdf";
+                              return (
+                                <div
+                                  key={`library-${item.id}`}
+                                  className="library-card"
+                                  role="button"
+                                  tabIndex={0}
+                                  onClick={() => openLibraryDocument(item)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter" || e.key === " ") {
+                                      e.preventDefault();
+                                      openLibraryDocument(item);
+                                    }
+                                  }}
+                                >
+                                  <div className={`library-thumb library-thumb-${documentMeta.tone}`}>
+                                    {isPdf ? (
+                                      <object
+                                        data={`${fileUrl}#page=1&view=FitH`}
+                                        type="application/pdf"
+                                        className="library-thumb-preview"
+                                        aria-label={item.title}
+                                      >
+                                        <span>PDF</span>
+                                      </object>
+                                    ) : (
+                                      <div className="library-file-mark" aria-hidden="true">
+                                        <span>{documentMeta.label}</span>
+                                      </div>
+                                    )}
+                                    <div className="library-thumb-overlay">{documentMeta.label}</div>
+                                  </div>
+                                  <div className="library-meta">
+                                    <strong>{item.title}</strong>
+                                    {item.file_name && (
+                                      <span className="library-file-name">{item.file_name}</span>
+                                    )}
+                                    <small>
+                                      {item.uploader_display_name || item.uploader_username} •{" "}
+                                      {item.created_at ? new Date(item.created_at).toLocaleDateString() : ""}
+                                    </small>
+                                    <span className="library-card-action">{documentMeta.action}</span>
+                                  </div>
+                                  {isCommunityOwner && (
+                                    <button
+                                      type="button"
+                                      className="library-remove-btn"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        deleteLibraryItem(item.id);
+                                      }}
+                                    >
+                                      Remove
+                                    </button>
+                                  )}
                                 </div>
-                                <div className="library-meta">
-                                  <strong>{item.title}</strong>
-                                  <small>
-                                    {item.uploader_display_name || item.uploader_username} •{" "}
-                                    {item.created_at ? new Date(item.created_at).toLocaleDateString() : ""}
-                                  </small>
-                                </div>
-                                {isCommunityOwner && (
-                                  <button
-                                    type="button"
-                                    className="library-remove-btn"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      deleteLibraryItem(item.id);
-                                    }}
-                                  >
-                                    Remove
-                                  </button>
-                                )}
-                              </div>
-                            ))
+                              );
+                            })
                           )}
                         </div>
                       </div>

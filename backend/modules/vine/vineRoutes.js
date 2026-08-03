@@ -3937,6 +3937,8 @@ const ensureCommunitySchema = async () => {
       uploader_id INT NOT NULL,
       title VARCHAR(180) NOT NULL,
       pdf_url TEXT NOT NULL,
+      file_name VARCHAR(255) NULL,
+      file_mime VARCHAR(120) NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       INDEX idx_library_community_created (community_id, created_at),
       INDEX idx_library_uploader (uploader_id)
@@ -4030,6 +4032,8 @@ const ensureCommunitySchema = async () => {
   await ensureColumnExists(dbName, "vine_community_assignments", "attachment_name", "VARCHAR(255) NULL");
   await ensureColumnExists(dbName, "vine_community_assignments", "attachment_mime", "VARCHAR(120) NULL");
   await ensureColumnExists(dbName, "vine_community_assignments", "assignment_type", "VARCHAR(20) NOT NULL DEFAULT 'theory'");
+  await ensureColumnExists(dbName, "vine_community_library", "file_name", "VARCHAR(255) NULL");
+  await ensureColumnExists(dbName, "vine_community_library", "file_mime", "VARCHAR(120) NULL");
   try {
     await db.query(
       "ALTER TABLE vine_community_assignments MODIFY COLUMN points DECIMAL(8,2) NOT NULL DEFAULT 100.00"
@@ -5256,6 +5260,7 @@ const uploadBufferToR2 = async (buffer, options = {}) => {
       Key: key,
       Body: buffer,
       ContentType: mime,
+      ContentDisposition: options.content_disposition || undefined,
       CacheControl: "public, max-age=31536000, immutable",
     })
   );
@@ -5284,11 +5289,13 @@ const uploadBufferToCloudinary = async (buffer, options = {}) => {
   if (USE_R2_UPLOADS && r2Ready) {
     return uploadBufferToR2(buffer, options);
   }
+  const cloudinaryOptions = { ...options };
+  delete cloudinaryOptions.content_disposition;
   let attempt = 0;
   let lastErr = null;
   while (attempt < 3) {
     try {
-      return await uploadBufferToCloudinaryOnce(buffer, options);
+      return await uploadBufferToCloudinaryOnce(buffer, cloudinaryOptions);
     } catch (err) {
       lastErr = err;
       attempt += 1;

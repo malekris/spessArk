@@ -7,8 +7,19 @@ import {
   listAdminSnapshotYears,
   readAdminYearSnapshot,
 } from "../services/adminYearSnapshotService.js";
+import { ensureStudentLifecycleColumns } from "../services/studentLifecycleService.js";
 
 const router = express.Router();
+
+router.use(async (_req, res, next) => {
+  try {
+    await ensureStudentLifecycleColumns(pool);
+    next();
+  } catch (error) {
+    console.error("Student lifecycle readiness error:", error);
+    res.status(500).json({ message: "Learner register is not ready" });
+  }
+});
 
 const REQUIRED_SUBJECT_LOAD = {
   S1: 12,
@@ -554,6 +565,7 @@ router.get("/term", authAdmin, async (req, res) => {
         m.year = ?
         AND m.term = ?
         AND s.class_level = ?
+        AND COALESCE(NULLIF(s.status, ''), 'active') = 'active'
 
       GROUP BY
         s.id,
@@ -580,6 +592,7 @@ router.get("/term", authAdmin, async (req, res) => {
         subjects AS registered_subjects
       FROM students
       WHERE class_level = ?
+        AND COALESCE(NULLIF(status, ''), 'active') = 'active'
       `,
       [class_level]
     );
@@ -738,6 +751,7 @@ router.get("/year", authAdmin, async (req, res) => {
       LEFT JOIN teachers t ON t.id = m.teacher_id
       WHERE m.year = ?
         AND s.class_level = ?
+        AND COALESCE(NULLIF(s.status, ''), 'active') = 'active'
       GROUP BY s.id, ta.subject
       ORDER BY s.name, ta.subject
       `,
@@ -748,6 +762,7 @@ router.get("/year", authAdmin, async (req, res) => {
       SELECT id, stream
       FROM students
       WHERE class_level = ?
+        AND COALESCE(NULLIF(status, ''), 'active') = 'active'
       `,
       [class_level]
     );
@@ -897,6 +912,7 @@ router.get("/mini-aoi1", authAdmin, async (req, res) => {
         AND ${NORMALIZED_TERM_SQL("m.term")} = ?
         AND ${NORMALIZED_AOI_SQL("m.aoi_label")} = 'AOI1'
         AND UPPER(TRIM(s.class_level)) = UPPER(TRIM(?))
+        AND COALESCE(NULLIF(s.status, ''), 'active') = 'active'
       ORDER BY
         s.name,
         CASE
@@ -920,6 +936,7 @@ router.get("/mini-aoi1", authAdmin, async (req, res) => {
         subjects AS registered_subjects
       FROM students
       WHERE class_level = ?
+        AND COALESCE(NULLIF(status, ''), 'active') = 'active'
       `,
       [class_level]
     );

@@ -9,7 +9,9 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { once } from "node:events";
 import { pipeline } from "node:stream/promises";
+import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import mysql from "mysql2/promise";
+import { getDatabaseBackupPolicy } from "../services/databaseBackupService.js";
 
 const connectionUrl = String(
   process.env.MYSQL_BACKUP_URL || process.env.MYSQL_DIAGNOSTIC_URL || ""
@@ -53,6 +55,19 @@ const maxAttempts = Math.max(
 const connectionPauseMs = Math.max(
   0,
   Math.min(10_000, Number(process.env.MYSQL_BACKUP_DELAY_MS) || 750)
+);
+const backupPolicy = getDatabaseBackupPolicy();
+const requirePrivateUpload =
+  backupPolicy.backgroundJobEnabled ||
+  ["1", "true", "yes", "on"].includes(
+    String(process.env.MYSQL_BACKUP_REQUIRE_PRIVATE_UPLOAD || "")
+      .trim()
+      .toLowerCase()
+  );
+const deleteLocalAfterPrivateUpload = ["1", "true", "yes", "on"].includes(
+  String(process.env.MYSQL_BACKUP_DELETE_LOCAL_AFTER_UPLOAD || "")
+    .trim()
+    .toLowerCase()
 );
 
 const parsedUrl = new URL(connectionUrl);
@@ -162,6 +177,65 @@ async function runCommand(command, args, options = {}) {
   }
 
   return stdout;
+}
+
+async function uploadArchiveToPrivateStorage({
+  archiveSha256,
+  archiveStats,
+  identity,
+  manifestParts,
+}) {
+  if (!backupPolicy.privateStorage) return null;
+
+  const storage = backupPolicy.privateStorage;
+  const client = new S3Client({
+    region: "auto",
+    endpoint: storage.endpoint,
+    credentials: {
+      accessKeyId: storage.accessKeyId,
+      secretAccessKey: storage.secretAccessKey,
+    },
+  });
+  const archiveKey = `${storage.prefix}/${backupName}.tar.gz`;
+
+  await client.send(
+    new PutObjectCommand({
+      Bucket: storage.bucket,
+      Key: archiveKey,
+      Body: createReadStream(archivePath),
+      ContentLength: archiveStats.size,
+      ContentType: "application/gzip",
+      ContentDisposition: `attachment; filename="${backupName}.tar.gz"`,
+      CacheControl: "no-store",
+      Metadata: {
+        database: credentials.database,
+        sha256: archiveSha256,
+        parts: String(manifestParts.length),
+      },
+    })
+  );
+
+  const latestStatus = {
+    format: "spess-ark-private-backup-status-v1",
+    generated_at: new Date().toISOString(),
+    database: credentials.database,
+    mysql_version: identity.mysql_version,
+    archive_key: archiveKey,
+    archive_bytes: archiveStats.size,
+    archive_sha256: archiveSha256,
+    parts: manifestParts.length,
+  };
+  await client.send(
+    new PutObjectCommand({
+      Bucket: storage.bucket,
+      Key: `${storage.prefix}/latest.json`,
+      Body: Buffer.from(`${JSON.stringify(latestStatus, null, 2)}\n`, "utf8"),
+      ContentType: "application/json; charset=utf-8",
+      CacheControl: "no-store",
+    })
+  );
+
+  return { archiveKey };
 }
 
 async function dumpToFile(args, filePath) {
@@ -293,7 +367,55 @@ async function readDatabaseInventory() {
   throw new Error(`Database inventory failed: ${describeError(lastError)}`);
 }
 
+async function acquireDatabaseBackupLock() {
+  let lastError;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    let connection;
+    try {
+      connection = await mysql.createConnection({
+        uri: connectionUrl,
+        connectTimeout: 20_000,
+      });
+      const [[row]] = await connection.query(
+        "SELECT GET_LOCK('spess_ark_database_backup_v1', 0) AS acquired"
+      );
+      if (Number(row?.acquired) !== 1) {
+        await connection.end().catch(() => {});
+        throw new Error("Another resilient database backup is already running.");
+      }
+      return connection;
+    } catch (error) {
+      lastError = error;
+      await connection?.end().catch(() => {});
+      if (String(error?.message || "").includes("already running")) throw error;
+      if (attempt < maxAttempts) {
+        const waitMs = retryWaitMs(attempt);
+        console.warn(
+          `Backup lock connection unavailable (attempt ${attempt}/${maxAttempts}); retrying in ${Math.round(
+            waitMs / 1000
+          )}s...`
+        );
+        await delay(waitMs);
+      }
+    }
+  }
+
+  throw new Error(`Backup lock failed: ${describeError(lastError)}`);
+}
+
+let backupLockConnection;
+let backupLockHeartbeat;
+let backupLockError;
+let archiveValidated = false;
+
 try {
+  if (requirePrivateUpload && !backupPolicy.privateStorage) {
+    throw new Error(
+      "Private backup upload is required, but dedicated BACKUP_R2_* storage is not configured."
+    );
+  }
+
   await fs.mkdir(backupRoot, { recursive: true });
   if (resolvedResumeDirectory) {
     const stagingStats = await fs.stat(stagingDirectory);
@@ -305,6 +427,14 @@ try {
   } else {
     await fs.mkdir(stagingDirectory, { recursive: false });
   }
+
+  backupLockConnection = await acquireDatabaseBackupLock();
+  backupLockHeartbeat = setInterval(() => {
+    backupLockConnection.query("SELECT 1").catch((error) => {
+      backupLockError = error;
+    });
+  }, 15_000);
+  backupLockHeartbeat.unref();
 
   const { identity, objects } = await readDatabaseInventory();
 
@@ -334,6 +464,9 @@ try {
     )}.sql`;
     const partPath = path.join(stagingDirectory, partName);
     const label = `table ${table.object_name}`;
+    if (backupLockError) {
+      throw new Error(`Backup lock connection was lost: ${describeError(backupLockError)}`);
+    }
     const reused = await isReusablePart(partPath);
 
     if (reused) {
@@ -371,6 +504,9 @@ try {
     )}_view_${safeFilename(view.object_name)}.sql`;
     const partPath = path.join(stagingDirectory, partName);
     const label = `view ${view.object_name}`;
+    if (backupLockError) {
+      throw new Error(`Backup lock connection was lost: ${describeError(backupLockError)}`);
+    }
     const reused = await isReusablePart(partPath);
 
     if (reused) {
@@ -406,6 +542,9 @@ try {
     "0"
   )}_routines_and_events.sql`;
   const metadataPath = path.join(stagingDirectory, metadataName);
+  if (backupLockError) {
+    throw new Error(`Backup lock connection was lost: ${describeError(backupLockError)}`);
+  }
   const reusedMetadata = await isReusablePart(metadataPath);
   if (reusedMetadata) {
     process.stdout.write(
@@ -467,19 +606,67 @@ try {
   await runCommand("tar", ["-tzf", archivePath]);
 
   const archiveStats = await fs.stat(archivePath);
+  const archiveSha256 = await sha256File(archivePath);
+  archiveValidated = true;
+  let privateUpload = null;
+
+  if (backupPolicy.privateStorage) {
+    try {
+      privateUpload = await uploadArchiveToPrivateStorage({
+        archiveSha256,
+        archiveStats,
+        identity,
+        manifestParts,
+      });
+    } catch (error) {
+      if (requirePrivateUpload) throw error;
+      console.warn(
+        `Private backup upload failed; the validated local archive was retained: ${describeError(
+          error
+        )}`
+      );
+    }
+  }
+
   await fs.rm(stagingDirectory, { recursive: true, force: true });
+  const localArchiveRetained = !(privateUpload && deleteLocalAfterPrivateUpload);
+  if (!localArchiveRetained) {
+    await fs.rm(archivePath, { force: true });
+  }
 
   console.log("\nBACKUP COMPLETE AND VALIDATED");
-  console.log(`Archive: ${archivePath}`);
+  console.log(
+    localArchiveRetained
+      ? `Archive: ${archivePath}`
+      : "Local archive: removed after verified private upload"
+  );
   console.log(`Size: ${formatBytes(archiveStats.size)}`);
   console.log(`Parts: ${manifestParts.length}`);
+  console.log(`SHA-256: ${archiveSha256}`);
+  console.log(
+    privateUpload
+      ? `Private archive: ${privateUpload.archiveKey}`
+      : "Private archive: not configured; validated local archive retained"
+  );
   console.log(
     "The final archive was created only after every SQL part passed validation."
   );
 } catch (error) {
   console.error(`\nBACKUP FAILED: ${error?.message || error}`);
-  console.error(
-    `No completed archive was approved. Partial files, if any, remain in:\n${stagingDirectory}`
-  );
+  if (archiveValidated) {
+    console.error(`A validated local archive remains at:\n${archivePath}`);
+  } else {
+    console.error(
+      `No completed archive was approved. Partial files, if any, remain in:\n${stagingDirectory}`
+    );
+  }
   process.exitCode = 1;
+} finally {
+  if (backupLockHeartbeat) clearInterval(backupLockHeartbeat);
+  if (backupLockConnection) {
+    await backupLockConnection
+      .query("SELECT RELEASE_LOCK('spess_ark_database_backup_v1')")
+      .catch(() => {});
+    await backupLockConnection.end().catch(() => {});
+  }
 }

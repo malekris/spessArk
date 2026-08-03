@@ -812,6 +812,31 @@
   pointer-events: none;
 }
 
+@media (min-width: 769px) {
+  .header-top-row {
+    margin-top: -76px;
+  }
+
+  .avatar-wrapper {
+    flex: 0 0 152px;
+    min-width: 152px;
+  }
+
+  .avatar-circle {
+    width: 152px;
+    height: 152px;
+    border: 4px solid #10b981;
+    border-radius: 50%;
+    box-shadow:
+      0 0 0 4px rgba(16, 185, 129, 0.16),
+      0 14px 28px rgba(5, 46, 22, 0.18);
+  }
+
+  .avatar-camera-overlay {
+    border-radius: 50%;
+  }
+}
+
 /* Desktop hover */
 @media (hover: hover) {
   .avatar-circle:hover .avatar-camera-overlay {
@@ -1419,6 +1444,14 @@
   border-color: #10b981;
 }
 
+.vine-profile-posts > .vine-post.vine-post-profile,
+.vine-profile-posts > .vine-post.vine-post-profile:hover {
+  border-color: rgba(6, 78, 59, 0.12);
+  border-radius: 24px;
+  box-shadow: 0 8px 24px rgba(5, 46, 22, 0.07);
+  transform: none;
+}
+
 .profile-posts-loading {
   width: min(100%, 520px);
   margin: 0 auto;
@@ -1966,10 +1999,13 @@
     font-size: 0.85rem;
     border-radius: 12px;
   }
-  .vine-profile-tabs            { margin: 20px 10px; padding: 6px; border-radius: 16px; gap: 5px; }
+  .vine-profile-tabs            { width: calc(100% - 20px); margin: 20px 10px; padding: 6px; border-radius: 16px; gap: 5px; }
   .tab                          { padding: 12px 0; font-size: 0.9rem; border-radius: 12px; }
-  .vine-profile-posts           { padding: 10px 15px 80px; gap: 15px; }
-  .vine-profile-posts > div     { border-radius: 20px; }
+  .vine-profile-tab-content     { padding: 0; }
+  .vine-profile-posts           { max-width: none; padding: 10px 10px 80px; gap: 12px; }
+  .vine-profile-posts > div     { border-radius: 16px; }
+  .vine-profile-posts > .vine-post.vine-post-profile,
+  .vine-profile-posts > .vine-post.vine-post-profile:hover { border-radius: 16px; }
   .edit-row                     { flex-direction: column; gap: 12px; }
   .photos-grid                  { grid-template-columns: repeat(3, 1fr); }
 }

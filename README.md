@@ -110,6 +110,38 @@ Hosting:
 
 ---
 
+## Database Backup Operations
+
+Browser-triggered database dumps are disabled by default. They can perform full-table scans inside the live application process and are not the approved production backup path.
+
+Run a manual resilient backup from `backend` with:
+
+```bash
+export MYSQL_BACKUP_URL="mysql://USER:PASSWORD@HOST:PORT/DATABASE"
+npm run backup:mysql
+unset MYSQL_BACKUP_URL
+```
+
+The worker dumps each table through an independent connection, validates every SQL part, retries transient proxy failures, resumes an existing parts directory when `MYSQL_BACKUP_RESUME_DIR` is supplied, and creates the final archive only after all parts pass validation. A MySQL named lock prevents two resilient backup workers from running concurrently.
+
+Production scheduled backups must use a dedicated private R2 bucket, separate from Vine's public media storage:
+
+```text
+BACKUP_R2_ACCOUNT_ID
+BACKUP_R2_BUCKET
+BACKUP_R2_ACCESS_KEY_ID
+BACKUP_R2_SECRET_ACCESS_KEY
+BACKUP_R2_PREFIX=spess-ark/database-backups
+DATABASE_BACKUP_JOB_ENABLED=true
+MYSQL_BACKUP_REQUIRE_PRIVATE_UPLOAD=true
+MYSQL_BACKUP_DELETE_LOCAL_AFTER_UPLOAD=true
+MYSQL_BACKUP_DIR=/tmp/spess-ark-backups
+```
+
+Configure the scheduler as a separate worker whose command is `npm run backup:mysql`. The worker uploads the validated archive and `latest.json` status object privately. The Admin Dashboard reads that status but cannot start or download a database dump.
+
+---
+
 ## Database Design
 
 The platform utilizes a relational database architecture with normalized entities including:

@@ -46,6 +46,15 @@ import {
   readMaintenanceSettings,
   updateMaintenanceSettings,
 } from "./services/maintenanceModeService.js";
+import {
+  getDatabaseBackupPolicy,
+  getDatabaseBackupStatus,
+} from "./services/databaseBackupService.js";
+import {
+  ensureStudentLifecycleColumns,
+  normalizeStudentLifecycleStatus,
+  STUDENT_LIFECYCLE,
+} from "./services/studentLifecycleService.js";
 
 
 const app = express();
@@ -483,7 +492,29 @@ async function createNodeDatabaseDumpFile(tmpFilePath, { dbName }) {
   }
 }
 
-app.get("/api/admin/database-dump", authAdmin, requireAdminReauth, async (req, res) => {
+app.get("/api/admin/database-backup/status", authAdmin, async (_req, res) => {
+  const status = await getDatabaseBackupStatus();
+  res.json(status);
+});
+
+const requireLegacyDatabaseDumpEnabled = (_req, res, next) => {
+  const policy = getDatabaseBackupPolicy();
+  if (!policy.dashboardDownloadEnabled) {
+    return res.status(503).json({
+      code: "DATABASE_DUMP_DISABLED",
+      message:
+        "Browser database dumps are disabled to protect production memory. Use the resilient backup worker.",
+    });
+  }
+  next();
+};
+
+app.get(
+  "/api/admin/database-dump",
+  authAdmin,
+  requireLegacyDatabaseDumpEnabled,
+  requireAdminReauth,
+  async (req, res) => {
   const dbHost = String(poolConfig.host || "").trim();
   const dbUser = String(poolConfig.user || "").trim();
   const dbName = String(poolConfig.database || "").trim();
@@ -619,7 +650,8 @@ app.get("/api/admin/database-dump", authAdmin, requireAdminReauth, async (req, r
     }
     res.destroy(err);
   }
-});
+  }
+);
 
 
 /* =======================
@@ -927,6 +959,7 @@ async function ensureALevelTeacherSubjectLifecycleColumns(connection = pool) {
 }
 
 async function getRegisteredStudentIdsForSubject(connection, studentIds, subject, year = null) {
+  await ensureStudentLifecycleColumns(connection);
   const normalizedIds = Array.from(
     new Set((studentIds || []).map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0))
   );
@@ -962,6 +995,7 @@ async function getRegisteredStudentIdsForSubject(connection, studentIds, subject
     SELECT id AS student_id
     FROM students
     WHERE id IN (${placeholders})
+      AND COALESCE(NULLIF(status, ''), 'active') = 'active'
       AND subjects IS NOT NULL
       AND JSON_CONTAINS(subjects, JSON_QUOTE(?))
     `,
@@ -1258,6 +1292,7 @@ app.post("/api/teachers/login", async (req, res) => {
         const assignmentId = Number(req.params.assignmentId);
         if (!assignmentId) return res.status(400).json({ message: "Invalid assignment id" });
         await ensureTeacherAssignmentLifecycleColumns(pool);
+        await ensureStudentLifecycleColumns(pool);
   
         // 1) Load assignment including subject
         const [[assignment]] = await pool.query(
@@ -1285,6 +1320,7 @@ app.post("/api/teachers/login", async (req, res) => {
                AND LOWER(TRIM(sr.subject)) = LOWER(TRIM(?))
               WHERE s.class_level = ?
                 AND s.stream = ?
+                AND COALESCE(NULLIF(s.status, ''), 'active') = 'active'
                 AND (
                   (s.subjects IS NOT NULL AND JSON_CONTAINS(s.subjects, JSON_QUOTE(?)))
                   OR sr.student_id IS NOT NULL
@@ -1296,6 +1332,7 @@ app.post("/api/teachers/login", async (req, res) => {
               FROM students
               WHERE class_level = ?
                 AND stream = ?
+                AND COALESCE(NULLIF(status, ''), 'active') = 'active'
                 AND subjects IS NOT NULL
                 AND JSON_CONTAINS(subjects, JSON_QUOTE(?))
               ORDER BY name
@@ -1324,6 +1361,7 @@ app.get(
   async (req, res) => {
     const assignmentId = Number(req.params.assignmentId);
     await ensureTeacherAssignmentLifecycleColumns(pool);
+    await ensureStudentLifecycleColumns(pool);
 
     const [[assignment]] = await pool.query(
       `SELECT class_level, stream
@@ -1342,6 +1380,7 @@ app.get(
       `SELECT id, name, gender
        FROM students
        WHERE class_level = ? AND stream = ?
+         AND COALESCE(NULLIF(status, ''), 'active') = 'active'
        ORDER BY name`,
       [assignment.class_level, assignment.stream]
     );
@@ -1479,8 +1518,12 @@ app.get("/api/admin/marks-sets", authAdmin, async (req, res) => {
 
 app.get("/api/students", async (req, res) => {
   try {
+    await ensureStudentLifecycleColumns(pool);
     const [rows] = await pool.query(
-      "SELECT * FROM students ORDER BY created_at DESC"
+      `SELECT *
+       FROM students
+       WHERE COALESCE(NULLIF(status, ''), 'active') = 'active'
+       ORDER BY created_at DESC`
     );
     res.json(rows);
   } catch (err) {
@@ -1488,6 +1531,94 @@ app.get("/api/students", async (req, res) => {
     res.status(500).json({ message: "Failed to load students" });
   }
 });
+
+app.get("/api/admin/students", authAdmin, async (_req, res) => {
+  try {
+    await ensureStudentLifecycleColumns(pool);
+    const [rows] = await pool.query(
+      `SELECT *
+       FROM students
+       WHERE COALESCE(NULLIF(status, ''), 'active') IN ('active', 'inactive')
+       ORDER BY
+         CASE WHEN COALESCE(NULLIF(status, ''), 'active') = 'active' THEN 0 ELSE 1 END,
+         name ASC`
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error("Admin students error:", err);
+    res.status(500).json({ message: "Failed to load learner register" });
+  }
+});
+
+app.patch("/api/admin/students/:id/status", authAdmin, async (req, res) => {
+  try {
+    await ensureStudentLifecycleColumns(pool);
+
+    const studentId = Number(req.params.id);
+    const nextStatus = normalizeStudentLifecycleStatus(req.body?.status);
+    if (!Number.isInteger(studentId) || studentId <= 0) {
+      return res.status(400).json({ message: "Invalid learner id" });
+    }
+    if (!nextStatus) {
+      return res.status(400).json({ message: "Learner status must be active or paused" });
+    }
+
+    const [[student]] = await pool.query(
+      `SELECT id, name, class_level, stream,
+              COALESCE(NULLIF(status, ''), 'active') AS status
+       FROM students
+       WHERE id = ?
+       LIMIT 1`,
+      [studentId]
+    );
+    if (!student) {
+      return res.status(404).json({ message: "Learner not found" });
+    }
+    if (![STUDENT_LIFECYCLE.ACTIVE, STUDENT_LIFECYCLE.PAUSED].includes(student.status)) {
+      return res.status(409).json({
+        message: "This learner is managed by the promotion archive and cannot be paused here",
+      });
+    }
+
+    if (student.status !== nextStatus) {
+      await pool.query("UPDATE students SET status = ? WHERE id = ?", [nextStatus, studentId]);
+    }
+
+    const [[updatedStudent]] = await pool.query("SELECT * FROM students WHERE id = ?", [studentId]);
+    try {
+      updatedStudent.subjects = Array.isArray(updatedStudent.subjects)
+        ? updatedStudent.subjects
+        : updatedStudent.subjects
+          ? JSON.parse(updatedStudent.subjects)
+          : [];
+    } catch {
+      updatedStudent.subjects = [];
+    }
+    const paused = nextStatus === STUDENT_LIFECYCLE.PAUSED;
+
+    queueAdminYearSnapshotRefresh(pool, paused ? "student-pause" : "student-restore");
+    await logAuditEvent({
+      userId: Number(req.admin?.id) || 1,
+      userRole: "admin",
+      action: paused ? "PAUSE_LEARNER" : "RESTORE_LEARNER",
+      entityType: "student",
+      entityId: studentId,
+      description: `${paused ? "Paused" : "Restored"} ${student.name} (${student.class_level} ${student.stream}); academic records retained`,
+      ipAddress: extractClientIp(req),
+    });
+
+    return res.json({
+      ...updatedStudent,
+      message: paused
+        ? "Learner paused. Academic records were retained."
+        : "Learner restored to active school lists.",
+    });
+  } catch (err) {
+    console.error("Update learner status error:", err);
+    return res.status(500).json({ message: "Failed to update learner status" });
+  }
+});
+
       // DELETE /api/students/:id  (admin only)
       app.delete("/api/admin/students/:id", authAdmin, requireAdminReauth, async (req, res) => {
         try {
@@ -1750,8 +1881,12 @@ app.delete("/api/admin/teachers/:id", authAdmin, requireAdminReauth, async (req,
 // ===============================
 app.get("/api/students", async (req, res) => {
   try {
+    await ensureStudentLifecycleColumns(pool);
     const [rows] = await pool.query(
-      `SELECT * FROM students ORDER BY created_at DESC`
+      `SELECT *
+       FROM students
+       WHERE COALESCE(NULLIF(status, ''), 'active') = 'active'
+       ORDER BY created_at DESC`
     );
     res.json(rows);
   } catch (err) {
@@ -1762,6 +1897,7 @@ app.get("/api/students", async (req, res) => {
 
 app.post("/api/students", async (req, res) => {
   try {
+    await ensureStudentLifecycleColumns(pool);
     const { name, gender, dob, class_level, stream, subjects } = req.body;
 
     if (!name || !class_level || !stream) {
@@ -2217,6 +2353,7 @@ app.get("/api/admin/marks-detail", authAdmin, async (req, res) => {
 // ===============================
 app.get("/api/admin/score-sheet", authAdmin, async (req, res) => {
   try {
+    await ensureStudentLifecycleColumns(pool);
     const classLevel = String(req.query.class_level || "").trim();
     const stream = String(req.query.stream || "").trim();
     const term = String(req.query.term || "").trim();
@@ -2254,6 +2391,7 @@ app.get("/api/admin/score-sheet", authAdmin, async (req, res) => {
       FROM students
       WHERE class_level = ?
         AND stream = ?
+        AND COALESCE(NULLIF(status, ''), 'active') = 'active'
       ORDER BY name
       `,
       [classLevel, stream]
@@ -2656,6 +2794,7 @@ app.get(
       const assignmentId = Number(req.params.assignmentId);
       if (!assignmentId) return res.status(400).json({ message: "Invalid assignment id" });
       await ensureTeacherAssignmentLifecycleColumns(pool);
+      await ensureStudentLifecycleColumns(pool);
 
       const [[assignment]] = await pool.query(
         `SELECT class_level, stream, subject
@@ -2680,6 +2819,7 @@ app.get(
         FROM students s
         WHERE s.class_level = ?
           AND s.stream = ?
+          AND COALESCE(NULLIF(s.status, ''), 'active') = 'active'
           AND JSON_CONTAINS(s.subjects, JSON_QUOTE(?))
         ORDER BY s.name
         `,
@@ -3699,6 +3839,7 @@ app.get("/api/teachers/analytics/subject", authTeacher, async (req, res) => {
     }
 
     await ensureTeacherAssignmentLifecycleColumns(pool);
+    await ensureStudentLifecycleColumns(pool);
 
     // 1️⃣ Validate assignment belongs to teacher
     const [[assignment]] = await pool.query(
@@ -3723,6 +3864,7 @@ app.get("/api/teachers/analytics/subject", authTeacher, async (req, res) => {
       FROM students
       WHERE class_level = ?
         AND stream = ?
+        AND COALESCE(NULLIF(status, ''), 'active') = 'active'
         AND JSON_CONTAINS(subjects, JSON_QUOTE(?))
       `,
       [assignment.class_level, assignment.stream, assignment.subject]
@@ -4271,6 +4413,9 @@ server.listen(PORT, () => {
     });
   ensureTeacherAccountLifecycleColumns(pool).catch((err) => {
     console.error("Teacher account lifecycle setup failed:", err);
+  });
+  ensureStudentLifecycleColumns(pool).catch((err) => {
+    console.error("Student lifecycle setup failed:", err);
   });
   ensureTeacherAssignmentLifecycleColumns(pool).catch((err) => {
     console.error("Teacher assignment lifecycle setup failed:", err);

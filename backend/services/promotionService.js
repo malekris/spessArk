@@ -127,6 +127,7 @@ const fetchPromotionCandidates = async (conn, { classLevel, stream, academicYear
     FROM students s
     WHERE s.class_level = ?
       AND s.stream = ?
+      AND COALESCE(NULLIF(s.status, ''), 'active') = 'active'
     ORDER BY s.name ASC
     ${lockClause}
     `,

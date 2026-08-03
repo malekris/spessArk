@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useMemo, useRef } from "react";
 import "./AdminDashboard.css";
 import AssignSubjectsPanel from "../components/AssignSubjectsPanel";
-import { plainFetch, adminFetch, getAdminHeaders } from "../lib/api";
+import { plainFetch, adminFetch } from "../lib/api";
 import EditStudentModal from "../components/EditStudentModal";
 import EndOfTermReports from "./EndOfTermReports";
 import MiniProgressReports from "./MiniProgressReports";
@@ -83,6 +83,17 @@ const DEFAULT_MAINTENANCE_STATE = {
     "Teacher access is temporarily paused while the system is being updated. Please try again shortly.",
   eta: "",
 };
+const DEFAULT_DATABASE_BACKUP_STATUS = {
+  state: "checking",
+  message: "Checking protected backup readiness.",
+  dashboardDownloadEnabled: false,
+  approvedMethod: "resilient-cli",
+  protectedStorageConfigured: false,
+  backgroundJobRequested: false,
+  backgroundJobEnabled: false,
+  lastBackup: null,
+  statusError: "",
+};
 
 const formatDateTime = (value) => {
   if (!value) return "—";
@@ -122,6 +133,7 @@ const calculateLearnerAge = (value, referenceDate = new Date()) => {
 const formatRegisterState = (value) => {
   const raw = String(value || "active").trim().toLowerCase();
   if (!raw || raw === "active") return "In Register";
+  if (raw === "inactive" || raw === "paused") return "Paused";
 
   return raw
     .split(/[\s_-]+/)
@@ -130,29 +142,8 @@ const formatRegisterState = (value) => {
     .join(" ");
 };
 
-const buildBackupFallbackFilename = () =>
-  `spess_ark_backup_${new Date()
-    .toISOString()
-    .replace(/[:]/g, "-")
-    .replace(/\.\d{3}Z$/, "")
-    .replace("T", "_")}.sql`;
-
-const extractDownloadFilename = (contentDisposition, fallbackName) => {
-  const header = String(contentDisposition || "").trim();
-  if (!header) return fallbackName;
-
-  const utf8Match = header.match(/filename\*\s*=\s*UTF-8''([^;]+)/i);
-  if (utf8Match?.[1]) {
-    try {
-      return decodeURIComponent(utf8Match[1].trim().replace(/^["']|["']$/g, ""));
-    } catch {
-      // fall through to plain filename
-    }
-  }
-
-  const plainMatch = header.match(/filename\s*=\s*("?)([^";]+)\1/i);
-  return plainMatch?.[2]?.trim() || fallbackName;
-};
+const isActiveStudent = (student) =>
+  String(student?.status || "active").trim().toLowerCase() === "active";
 
 const normalizeOperationalTerm = (value) => {
   const raw = String(value || "").trim().toLowerCase();
@@ -442,70 +433,22 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleDownloadDatabaseDump = async () => {
-    if (databaseDumpLoading) return;
-
-    setDatabaseDumpError("");
-    setDatabaseDumpNotice("");
-    setDatabaseDumpLoading(true);
+  const loadDatabaseBackupStatus = async () => {
+    setDatabaseBackupStatusLoading(true);
+    setDatabaseBackupStatusError("");
 
     try {
-      const response = await fetch(`${API_BASE}/api/admin/database-dump`, {
-        method: "GET",
-        headers: getAdminHeaders(),
+      const status = await adminFetch("/api/admin/database-backup/status");
+      setDatabaseBackupStatus({
+        ...DEFAULT_DATABASE_BACKUP_STATUS,
+        ...(status || {}),
       });
-
-      if (!response.ok) {
-        const responseType = String(response.headers.get("content-type") || "").toLowerCase();
-        const isJson = responseType.includes("application/json");
-        const errorPayload = isJson
-          ? await response.json().catch(() => null)
-          : await response.text().catch(() => "");
-
-        if (response.status === 401) {
-          forceAdminLogout("/ark", { reason: "session-expired" });
-          return;
-        }
-
-        if (response.status === 403 && errorPayload?.code === "ADMIN_REAUTH_REQUIRED") {
-          await requestAdminReauth({
-            title: "Confirm Admin Password",
-            description:
-              "Please confirm your admin password before downloading a protected full database dump.",
-            onApproved: () => handleDownloadDatabaseDump(),
-          });
-          return;
-        }
-
-        throw new Error(
-          errorPayload?.message ||
-            (typeof errorPayload === "string" && errorPayload) ||
-            `Failed to export database dump (${response.status}).`
-        );
-      }
-
-      const blob = await response.blob();
-      const filename = extractDownloadFilename(
-        response.headers.get("content-disposition"),
-        buildBackupFallbackFilename()
-      );
-      const downloadUrl = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = downloadUrl;
-      anchor.download = filename;
-      anchor.rel = "noopener";
-      document.body.appendChild(anchor);
-      anchor.click();
-      document.body.removeChild(anchor);
-      window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 60_000);
-
-      setDatabaseDumpNotice(
-        "Database dump downloaded successfully. The backup file has been handed to your browser for saving on this machine."
-      );
     } catch (err) {
-      setDatabaseDumpError(err.message || "Failed to export database dump.");
+      setDatabaseBackupStatusError(
+        err.message || "Failed to read database backup status."
+      );
     } finally {
-      setDatabaseDumpLoading(false);
+      setDatabaseBackupStatusLoading(false);
     }
   };
 
@@ -639,6 +582,7 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     loadMaintenanceSettings();
+    loadDatabaseBackupStatus();
   }, []);
 
   /* -------------------- UI state -------------------- */
@@ -676,9 +620,11 @@ export default function AdminDashboard() {
   const [portalLearnerSearchQuery, setPortalLearnerSearchQuery] = useState("");
   const [portalLearnerSearchLevel, setPortalLearnerSearchLevel] = useState("all");
   const [selectedPortalLearnerKey, setSelectedPortalLearnerKey] = useState("");
-  const [databaseDumpLoading, setDatabaseDumpLoading] = useState(false);
-  const [databaseDumpError, setDatabaseDumpError] = useState("");
-  const [databaseDumpNotice, setDatabaseDumpNotice] = useState("");
+  const [databaseBackupStatus, setDatabaseBackupStatus] = useState(
+    DEFAULT_DATABASE_BACKUP_STATUS
+  );
+  const [databaseBackupStatusLoading, setDatabaseBackupStatusLoading] = useState(false);
+  const [databaseBackupStatusError, setDatabaseBackupStatusError] = useState("");
   const [maintenanceSettings, setMaintenanceSettings] = useState(DEFAULT_MAINTENANCE_STATE);
   const [maintenanceDraft, setMaintenanceDraft] = useState(DEFAULT_MAINTENANCE_STATE);
   const [maintenanceLoading, setMaintenanceLoading] = useState(false);
@@ -778,6 +724,7 @@ export default function AdminDashboard() {
   const [deletingStudentId, setDeletingStudentId] = useState(null);
   const [pendingStudentDelete, setPendingStudentDelete] = useState(null);
   const [editingStudent, setEditingStudent] = useState(null);
+  const [studentLifecycleNotice, setStudentLifecycleNotice] = useState("");
   const savingStudentRef = useRef(false);
   const detailSectionRef = useRef(null);
   const [showStudentSaveConfirm, setShowStudentSaveConfirm] = useState(false);
@@ -788,6 +735,7 @@ export default function AdminDashboard() {
   const [streamFilter, setStreamFilter] = useState("");
   const [subjectFilter, setSubjectFilter] = useState("");
   const [searchName, setSearchName] = useState("");
+  const [studentStatusFilter, setStudentStatusFilter] = useState("active");
 
   const [marksSets, setMarksSets] = useState([]);
   const [marksDetail, setMarksDetail] = useState([]);
@@ -1447,7 +1395,7 @@ export default function AdminDashboard() {
   };
 
   const handleDownloadEnrollmentSummaryPdf = async () => {
-    let latestStudents = students;
+    let latestStudents = activeStudents;
     let latestALevelLearners = aLevelLearners;
 
     try {
@@ -1807,12 +1755,120 @@ export default function AdminDashboard() {
     preview.document.close();
   };
 
+  const handlePreviewPausedLearnersPdf = async () => {
+    if (pausedStudents.length === 0) {
+      setStudentError("There are no paused learners to include in this report.");
+      return;
+    }
+
+    const preview = window.open("", "_blank");
+    if (!preview) {
+      setStudentError("Allow pop-ups to preview the paused learners PDF.");
+      return;
+    }
+
+    try {
+      setStudentError("");
+      preview.document.write("<!doctype html><title>Preparing paused learners report...</title><p style='font-family:Arial;padding:24px'>Preparing report...</p>");
+
+      const { jsPDF, autoTable } = await loadPdfTools();
+      const doc = new jsPDF("p", "mm", "a4");
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const generatedAt = new Date();
+      const orderedLearners = [...pausedStudents].sort((a, b) => {
+        const classDifference = CLASS_SORT_ORDER.indexOf(a.class_level) - CLASS_SORT_ORDER.indexOf(b.class_level);
+        if (classDifference !== 0) return classDifference;
+        const streamDifference = STREAM_SORT_ORDER.indexOf(a.stream) - STREAM_SORT_ORDER.indexOf(b.stream);
+        if (streamDifference !== 0) return streamDifference;
+        return String(a.name || "").localeCompare(String(b.name || ""));
+      });
+
+      doc.setFillColor(241, 245, 249);
+      doc.rect(0, 0, pageWidth, 31, "F");
+      doc.setDrawColor(154, 107, 24);
+      doc.setLineWidth(1.2);
+      doc.line(12, 31, pageWidth - 12, 31);
+      doc.setTextColor(15, 23, 42);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(16);
+      doc.text("ST PHILLIPS EQUATORIAL SECONDARY SCHOOL", 12, 14);
+      doc.setFontSize(12);
+      doc.text("PAUSED LEARNERS REGISTER", 12, 23);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8.5);
+      doc.setTextColor(71, 85, 105);
+      doc.text(`${orderedLearners.length} paused ${orderedLearners.length === 1 ? "learner" : "learners"} | Academic records retained`, pageWidth - 12, 23, { align: "right" });
+
+      autoTable(doc, {
+        startY: 38,
+        head: [["#", "Student Name", "Gender", "Class", "Stream", "Paused On", "Subjects"]],
+        body: orderedLearners.map((learner, index) => [
+          index + 1,
+          learner.name || "-",
+          learner.gender || "-",
+          learner.class_level || "-",
+          learner.stream || "-",
+          learner.updated_at ? formatDateOnly(learner.updated_at) : "Not recorded",
+          Array.isArray(learner.subjects) ? learner.subjects.length : 0,
+        ]),
+        theme: "grid",
+        margin: { top: 38, right: 12, bottom: 18, left: 12 },
+        styles: {
+          font: "helvetica",
+          fontSize: 8.5,
+          textColor: [15, 23, 42],
+          lineColor: [148, 163, 184],
+          lineWidth: 0.2,
+          cellPadding: 2.5,
+          overflow: "linebreak",
+        },
+        headStyles: {
+          fillColor: [226, 232, 240],
+          textColor: [15, 23, 42],
+          fontStyle: "bold",
+          lineColor: [100, 116, 139],
+        },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        columnStyles: {
+          0: { cellWidth: 10, halign: "center" },
+          1: { cellWidth: 53 },
+          2: { cellWidth: 20 },
+          3: { cellWidth: 16, halign: "center" },
+          4: { cellWidth: 22 },
+          5: { cellWidth: 30 },
+          6: { cellWidth: 18, halign: "center" },
+        },
+      });
+
+      const pageCount = doc.internal.getNumberOfPages();
+      for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+        doc.setPage(pageNumber);
+        doc.setDrawColor(203, 213, 225);
+        doc.setLineWidth(0.2);
+        doc.line(12, pageHeight - 13, pageWidth - 12, pageHeight - 13);
+        doc.setFont("helvetica", "italic");
+        doc.setFontSize(7.5);
+        doc.setTextColor(100, 116, 139);
+        doc.text(`Generated ${generatedAt.toLocaleString()} | Confidential learner register`, 12, pageHeight - 8);
+        doc.text(`Page ${pageNumber} of ${pageCount}`, pageWidth - 12, pageHeight - 8, { align: "right" });
+      }
+
+      const blobUrl = URL.createObjectURL(doc.output("blob"));
+      preview.location.replace(blobUrl);
+      window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+    } catch (error) {
+      preview.close();
+      setStudentError(error?.message || "Could not prepare the paused learners PDF.");
+    }
+  };
+
   /* ---------- Students ---------- */
   const fetchStudents = async () => {
     setLoadingStudents(true);
     setStudentError("");
     try {
-      const data = await plainFetch("/api/students");
+      const data = await adminFetch("/api/admin/students");
       if (!Array.isArray(data)) throw new Error("Invalid response");
       const normalized = data.map((s) => ({
         ...s,
@@ -1825,6 +1881,7 @@ export default function AdminDashboard() {
                 return [];
               }
             })(),
+        status: String(s.status || "active").trim().toLowerCase() || "active",
       }));
       setStudents(normalized);
     } catch (err) {
@@ -1863,6 +1920,7 @@ export default function AdminDashboard() {
         class_level: created.class_level ?? class_level,
         stream: created.stream ?? stream,
         subjects: Array.isArray(created.subjects) ? created.subjects : subjects,
+        status: "active",
         created_at: created.created_at ?? null,
       };
       setStudents((p) => [studentToAdd, ...p]);
@@ -2979,8 +3037,10 @@ export default function AdminDashboard() {
 
   /* ------------------ Derived values / filters ------------------ */
   const allSubjectsForFilter = [...COMPULSORY_SUBJECTS, ...OPTIONAL_SUBJECTS];
+  const activeStudents = useMemo(() => students.filter(isActiveStudent), [students]);
+  const pausedStudents = useMemo(() => students.filter((student) => !isActiveStudent(student)), [students]);
   const filteredMarksheetStudents = useMemo(() => {
-    return students
+    return activeStudents
       .filter((s) => {
         if (s.class_level !== marksheetClass) return false;
         if (marksheetStream && s.stream !== marksheetStream) return false;
@@ -2991,11 +3051,11 @@ export default function AdminDashboard() {
         return true;
       })
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [students, marksheetClass, marksheetStream, marksheetSubject]);
+  }, [activeStudents, marksheetClass, marksheetStream, marksheetSubject]);
 
   const classListSubjectOptions = useMemo(() => {
     const subjects = new Set();
-    students.forEach((student) => {
+    activeStudents.forEach((student) => {
       if (classListClass && student.class_level !== classListClass) return;
       if (classListStream && student.stream !== classListStream) return;
 
@@ -3006,7 +3066,7 @@ export default function AdminDashboard() {
     });
 
     return Array.from(subjects).sort((a, b) => a.localeCompare(b));
-  }, [students, classListClass, classListStream]);
+  }, [activeStudents, classListClass, classListStream]);
 
   useEffect(() => {
     if (classListSubject && !classListSubjectOptions.includes(classListSubject)) {
@@ -3017,7 +3077,7 @@ export default function AdminDashboard() {
   const classListStudents = useMemo(() => {
     if (!classListClass || !classListStream) return [];
 
-    return students
+    return activeStudents
       .filter((student) => {
         if (student.class_level !== classListClass) return false;
         if (student.stream !== classListStream) return false;
@@ -3028,7 +3088,7 @@ export default function AdminDashboard() {
         return true;
       })
       .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
-  }, [students, classListClass, classListStream, classListSubject]);
+  }, [activeStudents, classListClass, classListStream, classListSubject]);
 
   const potentialDuplicateLearner = useMemo(() => {
     const name = String(studentForm.name || "").trim().toLowerCase();
@@ -3050,6 +3110,9 @@ export default function AdminDashboard() {
   }, [students, studentForm.name, studentForm.class_level, studentForm.stream, studentForm.dob]);
 
   const filteredStudents = students.filter((s) => {
+    const active = isActiveStudent(s);
+    if (studentStatusFilter === "active" && !active) return false;
+    if (studentStatusFilter === "paused" && active) return false;
     if (classFilter && s.class_level !== classFilter) return false;
     if (streamFilter && s.stream !== streamFilter) return false;
     if (subjectFilter) {
@@ -3064,8 +3127,8 @@ export default function AdminDashboard() {
   });
     /* ---------- Enrollment breakdown by stream / class / gender ---------- */
   const enrollmentByStreamClassGender = React.useMemo(
-    () => buildEnrollmentByStreamClassGenderMap(students),
-    [students]
+    () => buildEnrollmentByStreamClassGenderMap(activeStudents),
+    [activeStudents]
   );
   const enrollmentByClassWithOrderedStreams = React.useMemo(() => {
     const byClass = {};
@@ -3300,12 +3363,12 @@ export default function AdminDashboard() {
     return selectedAoi && typeof selectedAoi === "object" ? selectedAoi : null;
   }, [selectedAoi, selectedGroup]);
   
-  const classOptions = Array.from(new Set(students.map((s) => s.class_level))).filter(Boolean);
+  const classOptions = Array.from(new Set(activeStudents.map((s) => s.class_level))).filter(Boolean);
   const classOptionsForMarksheet = classOptions.length > 0 ? classOptions : ["S1", "S2", "S3", "S4"];
   const scoreSheetClassOptions = classOptionsForMarksheet;
   const scoreSheetStreamOptions = useMemo(() => {
     const selectedClass = String(scoreSheetFilters.class_level || "").trim();
-    const fromStudents = students
+    const fromStudents = activeStudents
       .filter((s) => !selectedClass || s.class_level === selectedClass)
       .map((s) => s.stream);
     const fromMarks = marksSets
@@ -3319,7 +3382,7 @@ export default function AdminDashboard() {
       const bv = order[b] ?? 99;
       return av !== bv ? av - bv : String(a).localeCompare(String(b));
     });
-  }, [students, marksSets, scoreSheetFilters.class_level]);
+  }, [activeStudents, marksSets, scoreSheetFilters.class_level]);
   useEffect(() => {
     if (!scoreSheetStreamOptions.includes(scoreSheetFilters.stream)) {
       setScoreSheetFilters((prev) => ({
@@ -3335,7 +3398,13 @@ export default function AdminDashboard() {
   const dashboardViewCapturedAt = dashboardSnapshot?.capturedAt || null;
   const isHistoricalDashboardView = Number(dashboardViewYear) !== Number(dashboardOperationalYear);
 
-  const dashboardStudents = Array.isArray(dashboardSnapshot?.students) ? dashboardSnapshot.students : students;
+  const dashboardStudentsSource = Array.isArray(dashboardSnapshot?.students)
+    ? dashboardSnapshot.students
+    : students;
+  const dashboardStudents = useMemo(
+    () => dashboardStudentsSource.filter(isActiveStudent),
+    [dashboardStudentsSource]
+  );
   const dashboardTeachers = Array.isArray(dashboardSnapshot?.teachers) ? dashboardSnapshot.teachers : teachers;
   const dashboardALevelLearners = Array.isArray(dashboardSnapshot?.aLevelLearners)
     ? dashboardSnapshot.aLevelLearners
@@ -3353,9 +3422,9 @@ export default function AdminDashboard() {
     ? dashboardSnapshot.aLevelMarksSets
     : aLevelMarksSets;
 
-  const totalStudents = students.length;
-  const totalBoys = students.filter((s) => s.gender === "Male").length;
-  const totalGirls = students.filter((s) => s.gender === "Female").length;
+  const totalStudents = activeStudents.length;
+  const totalBoys = activeStudents.filter((s) => s.gender === "Male").length;
+  const totalGirls = activeStudents.filter((s) => s.gender === "Female").length;
   const totalTeachers = teachers.length;
 
   const dashboardTotalStudents = dashboardStudents.length;
@@ -3792,10 +3861,10 @@ export default function AdminDashboard() {
     dashboardViewYear,
   ]);
 
-  const s1Students = students.filter((s) => s.class_level === "S1").length;
-  const s2Students = students.filter((s) => s.class_level === "S2").length;
-  const s3Students = students.filter((s) => s.class_level === "S3").length;
-  const s4Students = students.filter((s) => s.class_level === "S4").length;
+  const s1Students = activeStudents.filter((s) => s.class_level === "S1").length;
+  const s2Students = activeStudents.filter((s) => s.class_level === "S2").length;
+  const s3Students = activeStudents.filter((s) => s.class_level === "S3").length;
+  const s4Students = activeStudents.filter((s) => s.class_level === "S4").length;
 
   /* ------------------ renderSectionContent ------------------ */
   const renderSectionContent = () => {
@@ -4041,6 +4110,17 @@ export default function AdminDashboard() {
           </div>
 
           {studentError && <div className="panel-alert panel-alert-error">{studentError}</div>}
+          {studentLifecycleNotice && (
+            <div className="learner-lifecycle-notice" role="status" aria-live="polite">
+              <div>
+                <strong>{studentLifecycleNotice}</strong>
+                <span>Marks, subjects and learner history remain safely stored.</span>
+              </div>
+              <button type="button" onClick={() => setStudentLifecycleNotice("")} aria-label="Dismiss learner status confirmation">
+                Close
+              </button>
+            </div>
+          )}
 
           <div className="panel-grid">
             <div className="panel-card">
@@ -4123,8 +4203,54 @@ export default function AdminDashboard() {
 
             <div className="panel-card">
               <div className="panel-card-header">
-                <h3>Learners</h3>
+                <div>
+                  <h3>
+                    {studentStatusFilter === "paused"
+                      ? "Paused Learners"
+                      : studentStatusFilter === "all"
+                        ? "Complete Learner Register"
+                        : "Active Learners"}
+                  </h3>
+                  {studentStatusFilter === "paused" && (
+                    <p className="muted-text">Temporarily inactive learners waiting to be restored.</p>
+                  )}
+                </div>
                 <button type="button" className="ghost-btn" onClick={fetchStudents} disabled={loadingStudents}>{loadingStudents ? "Refreshing…" : "Refresh"}</button>
+              </div>
+
+              <div className="learner-roster-status-bar" aria-label="Learner register status filter">
+                <div>
+                  <strong>School Register</strong>
+                  <span>Paused learners retain all academic records.</span>
+                </div>
+                <div className="learner-roster-tools">
+                  <div className="learner-roster-segments">
+                    {[
+                      { value: "active", label: "Active", count: activeStudents.length },
+                      { value: "paused", label: "Paused", count: pausedStudents.length },
+                      { value: "all", label: "All", count: students.length },
+                    ].map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        className={studentStatusFilter === option.value ? "is-active" : ""}
+                        onClick={() => setStudentStatusFilter(option.value)}
+                      >
+                        {option.label} <span>{option.count}</span>
+                      </button>
+                    ))}
+                  </div>
+                  {studentStatusFilter === "paused" && (
+                    <button
+                      type="button"
+                      className="learner-paused-pdf-btn"
+                      onClick={handlePreviewPausedLearnersPdf}
+                      disabled={pausedStudents.length === 0}
+                    >
+                      Preview PDF
+                    </button>
+                  )}
+                </div>
               </div>
 
               <div style={{ display: "flex", flexWrap: "wrap", gap: "0.6rem", marginBottom: "0.7rem", fontSize: "0.8rem" }}>
@@ -4144,7 +4270,7 @@ export default function AdminDashboard() {
                   {allSubjectsForFilter.map((s) => <option key={s} value={s}>{s}</option>)}
                 </select>
 
-                <button type="button" className="ghost-btn" onClick={() => { setClassFilter(""); setStreamFilter(""); setSubjectFilter(""); setSearchName(""); }}>Clear</button>
+                <button type="button" className="ghost-btn" onClick={() => { setClassFilter(""); setStreamFilter(""); setSubjectFilter(""); setSearchName(""); setStudentStatusFilter("active"); }}>Clear</button>
 
                 <input type="text" value={searchName} onChange={(e) => setSearchName(e.target.value)} placeholder="Search by name…" style={{ minWidth: "180px", padding: "0.35rem 0.6rem", borderRadius: "999px", border: "1px solid rgba(148,163,184,0.6)", background: "rgba(15,23,42,0.9)", color: "#e5e7eb", outline: "none" }} />
               </div>
@@ -4226,6 +4352,7 @@ export default function AdminDashboard() {
                         <th>Gender</th>
                         <th>Class</th>
                         <th>Stream</th>
+                        <th>Status</th>
                         <th>Subjects</th>
                         <th>Added</th>
                         <th/>
@@ -4233,11 +4360,16 @@ export default function AdminDashboard() {
                     </thead>
                     <tbody>
                     {filteredStudents.map((s) => (
-  <tr key={s.id}>
+  <tr key={s.id} className={isActiveStudent(s) ? "" : "learner-row-paused"}>
     <td>{s.name}</td>
     <td>{s.gender}</td>
     <td>{s.class_level}</td>
     <td>{s.stream}</td>
+    <td>
+      <span className={`learner-status-badge ${isActiveStudent(s) ? "is-active" : "is-paused"}`}>
+        {isActiveStudent(s) ? "Active" : "Paused"}
+      </span>
+    </td>
     <td>{Array.isArray(s.subjects) ? s.subjects.join(", ") : ""}</td>
     <td>{s.created_at ? formatDateTime(s.created_at) : "—"}</td>
     <td className="teachers-actions">
@@ -5068,7 +5200,7 @@ export default function AdminDashboard() {
             </button>
           </div>
     
-          <EnrollmentInsightsPanel students={students} />
+          <EnrollmentInsightsPanel students={activeStudents} />
         </section>
       );
     }
@@ -5905,63 +6037,87 @@ export default function AdminDashboard() {
     <article className="admin-ops-card admin-ops-card-utility">
       <div className="admin-ops-card-head">
         <div>
-          <h3>System Utility</h3>
-          <p>Protected admin tools for exporting a full SQL backup to this machine whenever you need one.</p>
+          <h3>Backup Safety</h3>
+          <p>Production database protection without browser-triggered full-table scans.</p>
         </div>
-        <span className="admin-ops-badge admin-ops-badge-gold">Backup</span>
+        <span
+          className={`admin-ops-badge ${
+            databaseBackupStatus.dashboardDownloadEnabled
+              ? "admin-ops-badge-rose"
+              : databaseBackupStatus.backgroundJobEnabled
+                ? "admin-ops-badge-green"
+                : "admin-ops-badge-gold"
+          }`}
+        >
+          {databaseBackupStatusLoading
+            ? "Checking"
+            : databaseBackupStatus.dashboardDownloadEnabled
+              ? "Legacy On"
+              : databaseBackupStatus.backgroundJobEnabled
+                ? "Scheduled"
+                : "Protected"}
+        </span>
       </div>
 
       <div className="admin-ops-utility-hero">
-        <div className="admin-ops-utility-icon" aria-hidden="true">🛡️</div>
+        <div
+          className="admin-ops-utility-icon admin-ops-utility-icon-database"
+          aria-hidden="true"
+        >
+          DB
+        </div>
         <div className="admin-ops-utility-copy">
-          <strong>Backup Vault</strong>
-          <span>Generate a protected full SQL dump and hand it straight to your browser for local saving.</span>
+          <strong>Browser Dump Offline</strong>
+          <span>{databaseBackupStatus.message}</span>
         </div>
       </div>
 
       <div className="admin-ops-kpi-grid admin-ops-utility-kpis">
         <div className="admin-ops-kpi admin-ops-utility-kpi">
-          <span>Format</span>
-          <strong>SQL Dump</strong>
-          <small>Full database export file</small>
+          <span>Dashboard Trigger</span>
+          <strong>
+            {databaseBackupStatus.dashboardDownloadEnabled ? "Enabled" : "Disabled"}
+          </strong>
+          <small>No full scans from the browser</small>
         </div>
         <div className="admin-ops-kpi admin-ops-utility-kpi">
-          <span>Protection</span>
-          <strong>Re-Auth</strong>
-          <small>Admin password confirmation required</small>
+          <span>Approved Method</span>
+          <strong>Resilient CLI</strong>
+          <small>Validated, resumable SQL archive</small>
         </div>
         <div className="admin-ops-kpi admin-ops-utility-kpi">
-          <span>Delivery</span>
-          <strong>Local Save</strong>
-          <small>Browser download to this machine</small>
+          <span>Private Storage</span>
+          <strong>
+            {databaseBackupStatus.protectedStorageConfigured ? "Ready" : "Pending"}
+          </strong>
+          <small>Separate from public Vine media</small>
         </div>
       </div>
 
-      <div className="admin-ops-action-grid admin-ops-utility-actions">
-        <button
-          type="button"
-          className="primary-btn"
-          onClick={handleDownloadDatabaseDump}
-          disabled={databaseDumpLoading}
-        >
-          {databaseDumpLoading ? "Preparing Backup…" : "Download Database Dump"}
-        </button>
+      <div className="admin-ops-utility-status" role="status" aria-live="polite">
+        <span className="admin-ops-utility-status-dot" aria-hidden="true" />
+        <div>
+          <strong>
+            {databaseBackupStatus.backgroundJobEnabled
+              ? "Scheduled backup worker active"
+              : "Manual resilient backup mode"}
+          </strong>
+          <span>
+            {databaseBackupStatus.lastBackup?.generatedAt
+              ? `Last protected archive: ${formatDateTime(databaseBackupStatus.lastBackup.generatedAt)}`
+              : "No private scheduled archive has reported yet."}
+          </span>
+        </div>
       </div>
 
-      {databaseDumpError && (
+      {(databaseBackupStatusError || databaseBackupStatus.statusError) && (
         <div className="panel-alert panel-alert-error" style={{ margin: 0 }}>
-          {databaseDumpError}
-        </div>
-      )}
-
-      {databaseDumpNotice && (
-        <div className="panel-alert panel-alert-success" style={{ margin: 0 }}>
-          {databaseDumpNotice}
+          {databaseBackupStatusError || databaseBackupStatus.statusError}
         </div>
       )}
 
       <p className="admin-ops-note admin-ops-utility-note">
-        The dump is generated on the server and handed to your browser as a download. Database credentials stay on the backend.
+        Database archives cannot be generated or downloaded from this dashboard. Backup credentials and archives remain outside the browser.
       </p>
     </article>
 
@@ -6730,7 +6886,21 @@ export default function AdminDashboard() {
           student={editingStudent}
           onClose={() => setEditingStudent(null)}
           onSaved={(updatedStudent) => {
-            setStudents((prev) => prev.map((s) => (s.id === updatedStudent.id ? updatedStudent : s)));
+            setStudents((prev) => prev.map((s) => (Number(s.id) === Number(updatedStudent.id) ? updatedStudent : s)));
+            setEditingStudent(null);
+          }}
+          onLifecycleChanged={(updatedStudent, { paused }) => {
+            setStudents((prev) =>
+              prev.map((student) =>
+                Number(student.id) === Number(updatedStudent.id) ? updatedStudent : student
+              )
+            );
+            setStudentStatusFilter(paused ? "paused" : "active");
+            setStudentLifecycleNotice(
+              paused
+                ? `${updatedStudent.name} has been paused and moved to the Paused Learners list.`
+                : `${updatedStudent.name} has been restored to the active school register.`
+            );
             setEditingStudent(null);
           }}
         />

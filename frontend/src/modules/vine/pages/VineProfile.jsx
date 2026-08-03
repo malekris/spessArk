@@ -2091,6 +2091,7 @@ export default function VineProfile() {
                     key={post.feed_id || `post-${post.id}`}
                     post={post}
                     mediaLayout="collage"
+                    displayContext="profile"
                     isMe={isMe}
                     onDeletePost={handleDeletePost}
                     onTogglePin={handleTogglePinnedLocally}
@@ -2137,6 +2138,7 @@ export default function VineProfile() {
                   key={post.feed_id || `like-${post.id}`}
                   post={post}
                   mediaLayout="collage"
+                  displayContext="profile"
                   currentUserId={currentUserId}
                   onDeletePost={handleDeletePost}
                 />

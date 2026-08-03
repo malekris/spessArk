@@ -31,7 +31,7 @@ const formatDateForInput = (value) => {
   return raw.length >= 10 ? raw.slice(0, 10) : raw;
 };
 
-function EditStudentModal({ student, onClose, onSaved }) {
+function EditStudentModal({ student, onClose, onSaved, onLifecycleChanged }) {
   const [form, setForm] = useState({
     name: "",
     gender: "",
@@ -45,6 +45,8 @@ function EditStudentModal({ student, onClose, onSaved }) {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [savedLearner, setSavedLearner] = useState(null);
+  const [changingLifecycle, setChangingLifecycle] = useState(false);
+  const [pendingLifecycleStatus, setPendingLifecycleStatus] = useState("");
 
   // synchronous submission lock to avoid race conditions
   const submittingRef = useRef(false);
@@ -62,6 +64,8 @@ function EditStudentModal({ student, onClose, onSaved }) {
     setError("");
     setSuccess("");
     setSavedLearner(null);
+    setChangingLifecycle(false);
+    setPendingLifecycleStatus("");
     // reset any previous submitting lock (safe)
     submittingRef.current = false;
     setSaving(false);
@@ -152,13 +156,65 @@ function EditStudentModal({ student, onClose, onSaved }) {
     }
   };
 
+  const handleLifecycleChange = async () => {
+    if (!student?.id || !pendingLifecycleStatus || changingLifecycle) return;
+
+    setChangingLifecycle(true);
+    setError("");
+    setSuccess("");
+
+    try {
+      const updated = await adminFetch(`/api/admin/students/${student.id}/status`, {
+        method: "PATCH",
+        body: { status: pendingLifecycleStatus },
+      });
+      const normalized = {
+        ...updated,
+        subjects: Array.isArray(updated?.subjects)
+          ? updated.subjects
+          : (() => {
+              try {
+                return JSON.parse(updated?.subjects || "[]");
+              } catch {
+                return [];
+              }
+            })(),
+      };
+      const paused = pendingLifecycleStatus === "inactive";
+
+      setSavedLearner(normalized);
+      setSuccess(
+        paused
+          ? "Learner paused. Marks and history remain safely stored."
+          : "Learner restored to the active school register."
+      );
+      setPendingLifecycleStatus("");
+      setChangingLifecycle(false);
+
+      setTimeout(() => {
+        if (onLifecycleChanged) {
+          onLifecycleChanged(normalized, { paused });
+        } else {
+          onSaved && onSaved(normalized);
+        }
+        onClose && onClose();
+      }, 1400);
+    } catch (err) {
+      setError(err?.message || "Failed to update learner status");
+      setChangingLifecycle(false);
+    }
+  };
+
   if (!student) return null;
+
+  const learnerIsActive = String(student.status || "active").trim().toLowerCase() === "active";
+  const requestedPause = pendingLifecycleStatus === "inactive";
 
   return (
     <div
       className="modal-backdrop"
       onClick={() => {
-        if (saving) return;
+        if (saving || changingLifecycle || pendingLifecycleStatus) return;
         onClose && onClose();
       }}
     >
@@ -176,7 +232,7 @@ function EditStudentModal({ student, onClose, onSaved }) {
             type="button"
             className="ghost-btn learner-edit-close"
             onClick={() => {
-              if (saving) return;
+              if (saving || changingLifecycle) return;
               onClose && onClose();
             }}
           >
@@ -263,6 +319,31 @@ function EditStudentModal({ student, onClose, onSaved }) {
               </div>
             </div>
 
+            <section className={`learner-lifecycle-shell ${learnerIsActive ? "is-active" : "is-paused"}`}>
+              <div className="learner-lifecycle-summary">
+                <div>
+                  <span className="learner-lifecycle-label">School Register Status</span>
+                  <strong>{learnerIsActive ? "Active learner" : "Paused learner"}</strong>
+                </div>
+                <span className="learner-lifecycle-state">
+                  {learnerIsActive ? "Included" : "Paused"}
+                </span>
+              </div>
+              <p>
+                {learnerIsActive
+                  ? "Pause this learner if they have left temporarily. Their marks, subjects and history will remain untouched."
+                  : "Restore this learner when they return. Their saved information will immediately rejoin active school lists."}
+              </p>
+              <button
+                type="button"
+                className={learnerIsActive ? "learner-pause-btn" : "learner-restore-btn"}
+                onClick={() => setPendingLifecycleStatus(learnerIsActive ? "inactive" : "active")}
+                disabled={saving || changingLifecycle}
+              >
+                {learnerIsActive ? "Pause Learner" : "Restore Learner"}
+              </button>
+            </section>
+
             <div className="learner-edit-actions">
               <button type="submit" className="primary-btn" disabled={saving}>
                 {saving ? "Saving…" : "Save Changes"}
@@ -272,7 +353,7 @@ function EditStudentModal({ student, onClose, onSaved }) {
                 className="ghost-btn"
                 onClick={() => {
                   // Prevent closing while saving
-                  if (saving) return;
+                  if (saving || changingLifecycle) return;
                   onClose && onClose();
                 }}
               >
@@ -281,6 +362,44 @@ function EditStudentModal({ student, onClose, onSaved }) {
             </div>
           </fieldset>
         </form>
+
+        {pendingLifecycleStatus && (
+          <div className="learner-lifecycle-confirm" role="dialog" aria-modal="true" aria-labelledby="learner-lifecycle-title">
+            <div className="learner-lifecycle-confirm-panel">
+              <span className="learner-edit-kicker">Confirm Register Change</span>
+              <h3 id="learner-lifecycle-title">
+                {requestedPause ? `Pause ${student.name}?` : `Restore ${student.name}?`}
+              </h3>
+              <p>
+                {requestedPause
+                  ? "They will leave active learner counts, teacher registers, class lists and newly generated report cards. No marks or personal information will be deleted."
+                  : "They will return to active learner counts, teacher registers, class lists and report-card generation with their existing academic history intact."}
+              </p>
+              <div className="learner-lifecycle-confirm-actions">
+                <button
+                  type="button"
+                  className="ghost-btn"
+                  onClick={() => setPendingLifecycleStatus("")}
+                  disabled={changingLifecycle}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className={requestedPause ? "learner-pause-btn" : "learner-restore-btn"}
+                  onClick={handleLifecycleChange}
+                  disabled={changingLifecycle}
+                >
+                  {changingLifecycle
+                    ? "Updating…"
+                    : requestedPause
+                      ? "Confirm Pause"
+                      : "Confirm Restore"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

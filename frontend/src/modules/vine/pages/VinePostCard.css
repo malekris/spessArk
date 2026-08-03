@@ -2763,6 +2763,350 @@
   white-space: nowrap;
 }
 
+/* Profile posts use feed-style cards with an open timeline inside each thread. */
+.vine-post.vine-post-profile {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 18px 20px;
+  overflow: visible;
+  background: #ffffff;
+  border: 1px solid rgba(6, 78, 59, 0.12);
+  border-radius: 24px;
+  box-shadow: 0 8px 24px rgba(5, 46, 22, 0.07);
+}
+
+.vine-post.vine-post-profile:hover {
+  border-color: rgba(16, 185, 129, 0.46);
+  box-shadow: 0 12px 30px rgba(5, 46, 22, 0.1);
+  transform: none;
+}
+
+.vine-post-profile .vine-comments-area {
+  margin: 16px -20px -18px;
+  padding: 0 20px;
+  background: #ffffff;
+  border: 0;
+  border-top: 1px solid rgba(148, 163, 184, 0.32);
+  border-radius: 0 0 23px 23px;
+  box-shadow: none;
+}
+
+.vine-post-profile .thread-controls-top {
+  display: none !important;
+}
+
+.vine-post-profile .comment-input-row {
+  margin: 0;
+  padding: 16px 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.26);
+}
+
+.vine-post-profile .comment-composer-shell,
+.vine-post-profile .comment-composer-shell:focus-within {
+  background: transparent;
+  border: 1px solid rgba(148, 163, 184, 0.48);
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+.vine-post-profile .comment-composer-shell::before,
+.vine-post-profile .comment-composer-shell::after {
+  content: none;
+}
+
+.vine-post-profile .vine-comment-node {
+  margin-top: 0;
+  padding: 16px 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.24);
+}
+
+.vine-post-profile .vine-thread-list > .vine-comment-node:last-child {
+  border-bottom: 0;
+}
+
+.vine-post-profile .comment-shell {
+  column-gap: var(--comment-gap);
+}
+
+.vine-post-profile .comment-avatar {
+  border: 1px solid rgba(148, 163, 184, 0.36);
+  box-shadow: none;
+}
+
+.vine-post-profile .comment-bubble,
+.vine-post-profile .vine-comment-node.is-nested-comment .comment-bubble {
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.vine-post-profile .comment-meta-text {
+  gap: 5px;
+}
+
+.vine-post-profile .comment-meta strong {
+  font-size: 0.94rem;
+}
+
+.vine-post-profile .comment-meta .time {
+  font-size: 0.82rem;
+}
+
+.vine-post-profile .comment-text {
+  margin-top: 5px;
+  font-size: 0.98rem;
+  line-height: 1.52;
+}
+
+.vine-post-profile .comment-actions {
+  gap: clamp(13px, 3vw, 24px);
+  margin-top: 9px;
+  padding-left: 0;
+}
+
+.vine-post-profile .comment-actions .mini-btn {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.8rem;
+}
+
+.vine-post-profile .toggle-replies-btn {
+  min-height: 30px;
+  margin: 6px 0 0;
+  color: #0f766e;
+  font-size: 0.8rem;
+  font-weight: 750;
+}
+
+.vine-post-profile .is-compact-tree-node > .comment-shell .comment-content-column {
+  position: relative;
+}
+
+.vine-post-profile .is-compact-tree-node > .comment-shell .toggle-replies-rail {
+  position: absolute;
+  z-index: 3;
+  left: calc(0px - var(--comment-avatar-center) - var(--comment-gap) - 9px);
+  bottom: -18px;
+  width: 18px;
+  min-height: 18px;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  justify-content: center;
+  color: #476474;
+  background: #ffffff;
+  border: 1px solid rgba(71, 100, 116, 0.76);
+  border-radius: 50%;
+  font-size: 0;
+  line-height: 1;
+  text-decoration: none;
+}
+
+.vine-post-profile .is-compact-tree-node > .comment-shell .toggle-replies-rail::before {
+  content: "\2212";
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.vine-post-profile .is-compact-tree-node > .comment-shell .toggle-replies-rail[aria-expanded="false"]::before {
+  content: "+";
+}
+
+.vine-post-profile .is-compact-tree-node > .comment-shell .toggle-replies-rail:hover {
+  color: #0f766e;
+  background: #ecfdf5;
+  border-color: #0f766e;
+  text-decoration: none;
+}
+
+.vine-post-profile .is-compact-tree-node > .nested-replies,
+.vine-post-profile .is-compact-tree-node > .nested-replies[class*="depth-"] {
+  --profile-thread-step: 28px;
+  position: relative;
+  margin: 10px 0 0;
+  padding-left: var(--profile-thread-step);
+  gap: 0;
+  overflow: visible;
+  border-left: 0;
+}
+
+.vine-post-profile .is-compact-tree-node > .nested-replies::before {
+  content: "";
+  position: absolute;
+  top: -10px;
+  bottom: 10px;
+  left: 16px;
+  width: 1px;
+  background: rgba(15, 118, 110, 0.28);
+  pointer-events: none;
+}
+
+.vine-post-profile .is-compact-tree-node > .nested-replies > .vine-comment-node {
+  --comment-avatar-size: 32px;
+  --comment-gap: 9px;
+  margin: 0;
+  padding: 10px 0 7px;
+  border-bottom: 0;
+}
+
+.vine-post-profile .is-compact-tree-node > .nested-replies > .vine-comment-node::before {
+  content: "";
+  position: absolute;
+  top: 26px;
+  left: -12px;
+  width: 12px;
+  height: 1px;
+  background: rgba(15, 118, 110, 0.28);
+  pointer-events: none;
+}
+
+.vine-post-profile .is-compact-tree-node > .nested-replies > .vine-comment-node::after {
+  content: none;
+}
+
+.vine-post-profile .is-compact-tree-node > .comment-shell > .comment-avatar-rail.has-open-thread::after {
+  left: 16px;
+  top: var(--comment-avatar-size);
+  width: 1px;
+  height: calc(100% - var(--comment-avatar-size) + 10px);
+  background: rgba(15, 118, 110, 0.28);
+}
+
+.vine-post-profile .nested-replies .comment-text {
+  margin-top: 4px;
+  font-size: 0.94rem;
+}
+
+.vine-post-profile .nested-replies .comment-actions {
+  margin-top: 5px;
+  gap: clamp(11px, 2.5vw, 20px);
+}
+
+.vine-post-profile .nested-replies .comment-actions .mini-btn {
+  min-height: 24px;
+  font-size: 0.77rem;
+}
+
+.vine-post-profile .close-thread-btn,
+.vine-post-profile .close-thread-btn.bottom,
+.vine-post-profile .close-thread-btn:hover,
+.vine-post-profile .close-thread-btn.bottom:hover {
+  min-height: 40px;
+  margin: 8px 0 10px;
+  padding: 6px 0;
+  color: #0f766e;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  font-size: 0.84rem;
+  font-weight: 750;
+}
+
+.theme-dark .vine-post.vine-post-profile,
+.theme-dark .vine-post-profile .vine-comments-area {
+  background: #09111f;
+  border-color: rgba(148, 163, 184, 0.24);
+}
+
+.theme-dark .vine-post-profile .comment-bubble,
+.theme-dark .vine-post-profile .vine-comment-node.is-nested-comment .comment-bubble,
+.theme-dark .vine-post-profile .comment-composer-shell {
+  background: transparent;
+  box-shadow: none;
+}
+
+.theme-dark .vine-post-profile .is-compact-tree-node > .comment-shell .toggle-replies-rail {
+  color: #b8c7d4;
+  background: #09111f;
+  border-color: rgba(184, 199, 212, 0.76);
+}
+
+.theme-dark .vine-post-profile .is-compact-tree-node > .comment-shell .toggle-replies-rail:hover {
+  color: #5eead4;
+  background: #0f2c2a;
+  border-color: #5eead4;
+}
+
+@media (max-width: 768px) {
+  .vine-post.vine-post-profile {
+    max-width: none;
+    margin: 0;
+    padding: 15px 12px;
+    border-radius: 16px;
+    box-shadow: 0 5px 18px rgba(5, 46, 22, 0.08);
+  }
+
+  .vine-post-profile .vine-comments-area {
+    margin: 14px -12px -15px;
+    padding: 0 12px;
+    border-radius: 0 0 15px 15px;
+  }
+
+  .vine-post-profile .comment-input-row {
+    padding-block: 15px;
+  }
+
+  .vine-post-profile .vine-comment-node {
+    --comment-avatar-size: 36px;
+    --comment-gap: 10px;
+    padding: 13px 0;
+  }
+
+  .vine-post-profile .comment-text {
+    font-size: 0.96rem;
+    line-height: 1.52;
+  }
+
+  .vine-post-profile .comment-actions {
+    gap: clamp(11px, 4vw, 20px);
+  }
+
+  .vine-post-profile .is-compact-tree-node > .nested-replies,
+  .vine-post-profile .is-compact-tree-node > .nested-replies[class*="depth-"] {
+    --profile-thread-step: 21px;
+    padding-left: var(--profile-thread-step);
+  }
+
+  .vine-post-profile .is-compact-tree-node > .nested-replies::before {
+    left: 15px;
+  }
+
+  .vine-post-profile .is-compact-tree-node > .nested-replies > .vine-comment-node {
+    --comment-avatar-size: 30px;
+    --comment-gap: 8px;
+    padding: 9px 0 6px;
+  }
+
+  .vine-post-profile .is-compact-tree-node > .nested-replies > .vine-comment-node::before {
+    top: 24px;
+    left: -6px;
+    width: 6px;
+  }
+
+  .vine-post-profile .is-compact-tree-node > .comment-shell > .comment-avatar-rail.has-open-thread::after {
+    left: 15px;
+  }
+
+  .vine-post-profile .comment-avatar,
+  .vine-post-profile .comment-avatar-stack {
+    width: var(--comment-avatar-size);
+    height: var(--comment-avatar-size);
+  }
+
+  .vine-post-profile .nested-replies .comment-actions {
+    gap: 8px;
+  }
+
+  .vine-post-profile .nested-replies .comment-actions .mini-btn {
+    font-size: 0.72rem;
+  }
+}
+
 .post-poll-total-votes {
   margin-top: 4px;
   color: #64748b;

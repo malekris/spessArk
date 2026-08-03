@@ -268,6 +268,7 @@ function VinePostCard({
   isMe,
   communityInteractionLocked = false,
   mediaLayout = "carousel",
+  displayContext = "feed",
 }) {
 
   const navigate = useNavigate();
@@ -1000,7 +1001,10 @@ function VinePostCard({
 
   // ── Render ──────────────────────────────────────
   return (
-    <div className="vine-post light-green-theme" id={`post-${post.id}`}>
+    <div
+      className={`vine-post light-green-theme ${displayContext === "profile" ? "vine-post-profile" : ""}`.trim()}
+      id={`post-${post.id}`}
+    >
       <GifPickerModal
         open={gifPickerCommentOpen}
         token={token}
@@ -1514,6 +1518,7 @@ function VinePostCard({
     isModerator={isModerator}
     token={token}
     onReport={openCommentReport}
+    threadLayout={displayContext === "profile" ? "compact-tree" : "nested"}
   />
 ))}
 
@@ -1805,6 +1810,7 @@ function Comment({
   isModerator,
   token,
   onReport,
+  threadLayout = "nested",
 }) {
 
   const navigate = useNavigate();
@@ -1835,6 +1841,8 @@ function Comment({
   const isNested = depth > 0;
   const hasReplies = (comment.replies?.length || 0) > 0;
   const descendantCount = totalDescendants(comment);
+  const isCompactTree = threadLayout === "compact-tree";
+  const showChildReplies = hasReplies && (isCompactTree ? showReplies : depth > 0 || showReplies);
   const targetExistsInReplies = Boolean(targetCommentId) && (comment.replies || []).some((reply) =>
     commentContainsTarget(reply, targetCommentId)
   );
@@ -1963,9 +1971,38 @@ function Comment({
     handleCommentReaction("like");
   };
 
+  const nestedRepliesTree = showChildReplies ? (
+    <div className={`nested-replies depth-${depth + 1}`}>
+      {comment.replies.map((reply) => (
+        <Comment
+          key={reply.id}
+          comment={reply}
+          depth={depth + 1}
+          targetCommentId={targetCommentId}
+          commentLikes={commentLikes}
+          commentUserLiked={commentUserLiked}
+          commentUserReaction={commentUserReaction}
+          setCommentLikes={setCommentLikes}
+          setCommentUserLiked={setCommentUserLiked}
+          setCommentUserReaction={setCommentUserReaction}
+          onReply={onReply}
+          onDelete={onDelete}
+          canReply={canReply}
+          isPostOwner={isPostOwner}
+          currentUserId={currentUserId}
+          currentUserAvatar={currentUserAvatar}
+          isModerator={isModerator}
+          token={token}
+          onReport={onReport}
+          threadLayout={threadLayout}
+        />
+      ))}
+    </div>
+  ) : null;
+
   return (
     <div
-      className={`vine-comment-node ${isTargetComment ? "target-comment-node" : ""} ${isNested ? "is-nested-comment" : ""} ${showReplies && hasReplies ? "is-thread-open" : ""}`}
+      className={`vine-comment-node ${isTargetComment ? "target-comment-node" : ""} ${isNested ? "is-nested-comment" : ""} ${showReplies && hasReplies ? "is-thread-open" : ""} ${isCompactTree ? "is-compact-tree-node" : ""}`}
       id={`comment-${comment.id}`}
     >
       <GifPickerModal
@@ -2151,9 +2188,12 @@ function Comment({
 
               {hasReplies && (
                 <>
-                  {depth === 0 && (
+                  {(depth === 0 || isCompactTree) && (
                     <button
-                      className="toggle-replies-btn"
+                      className={`toggle-replies-btn ${isCompactTree ? "toggle-replies-rail" : ""}`}
+                      aria-expanded={showReplies}
+                      aria-label={showReplies ? `Hide ${descendantCount} replies` : `View ${descendantCount} replies`}
+                      title={showReplies ? "Hide replies" : "View replies"}
                       onClick={(e) => {
                         e.stopPropagation();
                         setShowReplies((prev) => !prev);
@@ -2162,40 +2202,14 @@ function Comment({
                       {showReplies ? `Hide replies (${descendantCount})` : `View replies (${descendantCount})`}
                     </button>
                   )}
-
-                  {(depth > 0 || showReplies) && (
-                    <div className={`nested-replies depth-${depth + 1}`}>
-                      {comment.replies.map((r) => (
-                        <Comment
-                          key={r.id}
-                          comment={r}
-                          depth={depth + 1}
-                          targetCommentId={targetCommentId}
-                          commentLikes={commentLikes}
-                          commentUserLiked={commentUserLiked}
-                          commentUserReaction={commentUserReaction}
-                          setCommentLikes={setCommentLikes}
-                          setCommentUserLiked={setCommentUserLiked}
-                          setCommentUserReaction={setCommentUserReaction}
-                          onReply={onReply}
-                          onDelete={onDelete}
-                          canReply={canReply}
-                          isPostOwner={isPostOwner}
-                          currentUserId={currentUserId}
-                          currentUserAvatar={currentUserAvatar}
-                          isModerator={isModerator}
-                          token={token}
-                          onReport={onReport}
-                        />
-                      ))}
-                    </div>
-                  )}
+                  {!isCompactTree && nestedRepliesTree}
                 </>
               )}
             </div>
           </div>
         </div>
       </div>
+      {isCompactTree && nestedRepliesTree}
       {showCommentReactionPicker && typeof document !== "undefined" &&
         createPortal(
           <div

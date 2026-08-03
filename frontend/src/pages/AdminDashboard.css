@@ -1838,6 +1838,51 @@
     0 14px 32px rgba(225, 29, 72, 0.28);
 }
 
+.admin-card-emis-registration {
+  border-color: rgba(212, 169, 55, 0.42);
+  background: #10221d;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 246, 207, 0.06),
+    0 18px 42px rgba(2, 6, 23, 0.76);
+}
+
+.admin-card-emis-registration:hover {
+  border-color: rgba(240, 197, 92, 0.7);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 246, 207, 0.1),
+    0 26px 54px rgba(15, 74, 57, 0.3),
+    0 20px 46px rgba(2, 6, 23, 0.78);
+}
+
+.admin-grid > .admin-card-emis-registration .card-icon {
+  background: #e6bd55;
+  color: #1c2b20;
+  box-shadow:
+    0 0 22px rgba(230, 189, 85, 0.2),
+    0 10px 24px rgba(5, 82, 61, 0.24);
+}
+
+.admin-card-emis-registration .card-body h2 {
+  color: #fff4cf;
+}
+
+.admin-card-emis-registration .card-body p {
+  color: #b8cbbb;
+}
+
+.admin-card-emis-registration .card-button {
+  background: #e6bd55;
+  color: #17251c;
+  box-shadow: 0 9px 22px rgba(230, 189, 85, 0.16);
+}
+
+.admin-card-emis-registration .card-button:hover,
+.admin-card-emis-registration .card-button:focus-visible {
+  box-shadow:
+    0 0 22px rgba(230, 189, 85, 0.22),
+    0 13px 28px rgba(5, 82, 61, 0.28);
+}
+
 /* decorative overlay */
 .admin-card::before {
   content: "";
@@ -3933,6 +3978,172 @@
   cursor: pointer;
 }
 
+.emis-registration-panel {
+  padding: 0;
+  border-radius: 8px;
+  border-color: rgba(230, 189, 85, 0.28);
+  background: #0d1917;
+  overflow: hidden;
+}
+
+.emis-form-toolbar {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.1rem 1.2rem;
+  border-bottom: 1px solid rgba(230, 189, 85, 0.16);
+  background: #12221e;
+}
+
+.emis-form-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 230px));
+  gap: 0.8rem;
+}
+
+.emis-form-field {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.emis-form-field > span {
+  color: #d9c88f;
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.emis-form-field select {
+  width: 100%;
+  height: 48px;
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 0 2.6rem 0 0.85rem;
+  border: 1px solid rgba(191, 211, 199, 0.28);
+  border-radius: 7px;
+  background-color: #172924;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none'%3E%3Cpath d='m7 10 5 5 5-5' stroke='%23E6BD55' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-position: right 0.85rem center;
+  background-repeat: no-repeat;
+  color: #f8fafc;
+  color-scheme: dark;
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  cursor: pointer;
+  transition: border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+}
+
+.emis-form-field select:hover {
+  border-color: rgba(230, 189, 85, 0.5);
+  background-color: #1a3029;
+}
+
+.emis-form-field select:focus-visible {
+  border-color: #e6bd55;
+  outline: 3px solid rgba(230, 189, 85, 0.16);
+  outline-offset: 2px;
+}
+
+.emis-form-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
+.emis-form-actions .ghost-btn,
+.emis-form-actions .primary-btn {
+  min-height: 44px;
+  margin: 0;
+  padding: 0.62rem 1rem;
+  border-radius: 7px;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+.emis-form-actions .primary-btn {
+  min-width: 160px;
+  border: 1px solid #e6bd55;
+  background: #e6bd55;
+  color: #17251c;
+  box-shadow: 0 9px 22px rgba(230, 189, 85, 0.14);
+}
+
+.emis-form-actions button:disabled {
+  opacity: 0.46;
+  cursor: not-allowed;
+}
+
+.emis-roster-status {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-bottom: 1px solid rgba(191, 211, 199, 0.14);
+  background: rgba(5, 17, 14, 0.42);
+}
+
+.emis-roster-status > div {
+  display: grid;
+  gap: 0.25rem;
+  min-height: 70px;
+  padding: 0.9rem 1.1rem;
+}
+
+.emis-roster-status > div + div {
+  border-left: 1px solid rgba(191, 211, 199, 0.14);
+}
+
+.emis-roster-status span {
+  color: #8ea79b;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.emis-roster-status strong {
+  color: #f8fafc;
+  font-size: 0.94rem;
+}
+
+.emis-registration-panel > .panel-alert {
+  margin: 1rem 1.2rem 0;
+}
+
+.emis-roster-preview {
+  max-height: 58vh;
+  margin: 0;
+  padding: 1rem 1.2rem 1.2rem;
+}
+
+.emis-roster-preview .teachers-table {
+  min-width: 760px;
+}
+
+.emis-roster-preview .teachers-table td:first-child,
+.emis-roster-preview .teachers-table th:first-child {
+  width: 48px;
+  text-align: center;
+}
+
+.emis-roster-preview .teachers-table td:last-child {
+  color: #91a79c;
+  font-size: 0.76rem;
+}
+
+.emis-empty-state {
+  margin: 1rem 1.2rem 1.2rem;
+  padding: 1rem;
+  border: 1px dashed rgba(191, 211, 199, 0.26);
+  border-radius: 7px;
+  color: #b8cbbb;
+  text-align: center;
+}
+
 .promotion-panel-card {
   gap: 0;
   padding: 1.25rem;
@@ -5068,6 +5279,29 @@
   color: #57534e;
 }
 
+.admin-root.mode-light .admin-card-emis-registration {
+  background: linear-gradient(160deg, #fffbeb, #ecfdf5);
+  border-color: rgba(161, 98, 7, 0.24);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.94),
+    0 18px 40px rgba(20, 83, 45, 0.1);
+}
+
+.admin-root.mode-light .admin-card-emis-registration:hover {
+  border-color: rgba(161, 98, 7, 0.42);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.96),
+    0 22px 45px rgba(20, 83, 45, 0.15);
+}
+
+.admin-root.mode-light .admin-card-emis-registration .card-body h2 {
+  color: #365314;
+}
+
+.admin-root.mode-light .admin-card-emis-registration .card-body p {
+  color: #52645a;
+}
+
 .admin-root.mode-light .panel {
   background: radial-gradient(circle at top left, #ffffff, #f8fafc 45%, #eef2ff);
   border: 1px solid rgba(15, 23, 42, 0.15);
@@ -5445,6 +5679,59 @@
   color: #065f46;
 }
 
+.admin-root.mode-light .emis-registration-panel {
+  border-color: rgba(161, 98, 7, 0.2);
+  background: #ffffff;
+}
+
+.admin-root.mode-light .emis-form-toolbar {
+  border-color: rgba(161, 98, 7, 0.14);
+  background: #f8fbf8;
+}
+
+.admin-root.mode-light .emis-form-field > span {
+  color: #536b5e;
+}
+
+.admin-root.mode-light .emis-form-field select {
+  border-color: #c8d4cd;
+  background-color: #ffffff;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none'%3E%3Cpath d='m7 10 5 5 5-5' stroke='%23854D0E' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  color: #17251c;
+  color-scheme: light;
+}
+
+.admin-root.mode-light .emis-form-field select:hover {
+  border-color: #94a89c;
+  background-color: #ffffff;
+}
+
+.admin-root.mode-light .emis-roster-status {
+  border-color: rgba(20, 83, 45, 0.12);
+  background: #f3f8f5;
+}
+
+.admin-root.mode-light .emis-roster-status > div + div {
+  border-color: rgba(20, 83, 45, 0.12);
+}
+
+.admin-root.mode-light .emis-roster-status span {
+  color: #64766c;
+}
+
+.admin-root.mode-light .emis-roster-status strong {
+  color: #17251c;
+}
+
+.admin-root.mode-light .emis-roster-preview .teachers-table td:last-child {
+  color: #64766c;
+}
+
+.admin-root.mode-light .emis-empty-state {
+  border-color: rgba(20, 83, 45, 0.24);
+  color: #52645a;
+}
+
 .admin-root.mode-light .promotion-panel-card {
   background: #ffffff;
   border-color: rgba(14, 116, 144, 0.18);
@@ -5565,6 +5852,21 @@
   color: #065f46;
 }
 
+@media (max-width: 900px) {
+  .emis-form-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .emis-form-controls {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .emis-form-actions {
+    justify-content: flex-start;
+  }
+}
+
 @media (max-width: 1100px) {
   .promotion-filter-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -5601,6 +5903,33 @@
 
   .learner-paused-pdf-btn {
     width: 100%;
+  }
+
+  .emis-form-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .emis-form-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .emis-form-actions .ghost-btn,
+  .emis-form-actions .primary-btn {
+    width: 100%;
+  }
+
+  .emis-roster-status {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .emis-roster-status > div:nth-child(3) {
+    border-top: 1px solid rgba(191, 211, 199, 0.14);
+    border-left: 0;
+  }
+
+  .emis-roster-status > div:nth-child(4) {
+    border-top: 1px solid rgba(191, 211, 199, 0.14);
   }
 
   .promotion-panel-card {

@@ -13,6 +13,7 @@ import EnrollmentCharts from "../components/EnrollmentCharts";
 import AssessmentSubmissionTracker from "../components/AssessmentSubmissionTracker";
 import AuditLogsPanel from "../components/AuditLogsPanel";
 import PromotionPanel from "../components/PromotionPanel";
+import EmisRegistrationPanel from "../components/EmisRegistrationPanel";
 import { loadPdfTools } from "../utils/loadPdfTools";
 import {
   DEFAULT_SCHOOL_CALENDAR,
@@ -765,6 +766,12 @@ export default function AdminDashboard() {
     { title: "Assign Subjects", subtitle: "Link teachers to classes", icon: "📘" },
     { title: "Download Marks", subtitle: "View & export assessment scores", icon: "📊" },
     { title: "Manage Teachers", subtitle: "Accounts & permissions", icon: "🧑🏽‍🏫" },
+    {
+      title: "EMIS Registration Form",
+      subtitle: "Print stream registration sheets",
+      icon: "🗂️",
+      cardClassName: "admin-card-emis-registration",
+    },
     {
       title: "End of Term Reports",
       subtitle: "Term 1 & Term 2 report cards",
@@ -4066,6 +4073,22 @@ export default function AdminDashboard() {
               </div>
             </div>
           )}
+        </section>
+      );
+    }
+
+    if (activeSection === "EMIS Registration Form") {
+      return (
+        <section className="panel emis-registration-section">
+          <div className="panel-header">
+            <div>
+              <h2>EMIS Registration Form</h2>
+              <p>Prepare a handwriting-ready registration form from the current active learner register.</p>
+            </div>
+            <button className="panel-close" type="button" onClick={() => setActiveSection("")}>✕ Close</button>
+          </div>
+
+          <EmisRegistrationPanel />
         </section>
       );
     }

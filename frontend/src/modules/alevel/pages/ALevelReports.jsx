@@ -105,6 +105,15 @@ const splitSubjectList = (value = "") =>
 
 const normalizeAlevelStreamName = (value = "") => String(value || "").replace(/^S[56]\s+/i, "").trim() || "—";
 
+const formatAlevelCombination = (value = "") => {
+  const compact = String(value || "").trim().replace(/\s*\/\s*/g, "/");
+  if (!compact || compact === "—") return "—";
+
+  return compact
+    .replace(/\/(?:sub\s*)?ict\b/i, "/SubICT")
+    .replace(/\/(?:sm|sub\s*math)\b/i, "/SubMath");
+};
+
 const buildAlevelPaperLabel = (subjectGroup = {}, paper = {}) => {
   const subject = subjectGroup.subject || "Subject";
   const paperLabel = String(paper.paper || "").trim();
@@ -1995,6 +2004,14 @@ export async function generateAlevelPDF(data, meta, options = {}) {
     doc.setFontSize(13.5);
     const learnerName = doc.splitTextToSize(String(learner.name || "Unnamed learner").toUpperCase(), 93)[0];
     doc.text(learnerName, margin + 4, identityY + 12.5);
+    doc.setTextColor(...colors.muted);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(6.5);
+    doc.text("SUBJECT COMBINATION", margin + 4, identityY + 18);
+    doc.setTextColor(...colors.navy);
+    doc.setFontSize(9.2);
+    const combination = doc.splitTextToSize(formatAlevelCombination(learner.combination), 91)[0];
+    doc.text(combination, margin + 4, identityY + 22.5);
 
     const identityFields = [
       ["CLASS", learner.class],
@@ -2226,10 +2243,10 @@ doc.setFont("helvetica", "normal");
 doc.text(learner.class, 110 + w + gap, y + 6);
 
 doc.setFont("helvetica", "bold");
-doc.text("Combination:", 110, y + 12);
-w = doc.getTextWidth("Combination:");
+doc.text("Subject Combination:", 110, y + 12);
+w = doc.getTextWidth("Subject Combination:");
 doc.setFont("helvetica", "normal");
-doc.text(learner.combination, 110 + w + gap, y + 12);
+doc.text(formatAlevelCombination(learner.combination), 110 + w + gap, y + 12);
 
 
     autoTable(doc, {

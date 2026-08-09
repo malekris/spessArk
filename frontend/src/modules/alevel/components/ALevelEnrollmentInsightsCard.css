@@ -1,0 +1,287 @@
+.alevel-enrollment-insights {
+  margin: 0 0 2rem;
+  padding: 1.5rem;
+  color: var(--alevel-shell-body);
+  background: rgba(15, 23, 42, 0.64);
+  border: 1px solid var(--alevel-shell-ghost-border);
+  border-radius: 8px;
+  box-shadow: 0 18px 42px rgba(2, 6, 23, 0.24);
+}
+
+.alevel-enrollment-head,
+.alevel-enrollment-actions,
+.alevel-enrollment-filters {
+  display: flex;
+  align-items: center;
+}
+
+.alevel-enrollment-head {
+  justify-content: space-between;
+  gap: 1.25rem;
+}
+
+.alevel-enrollment-kicker {
+  color: var(--alevel-accent);
+  font-size: 0.7rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.alevel-enrollment-head h2 {
+  margin: 0.4rem 0 0.3rem;
+  color: var(--alevel-shell-title);
+  font-size: 1.35rem;
+}
+
+.alevel-enrollment-head p {
+  margin: 0;
+  color: var(--alevel-shell-muted);
+  line-height: 1.5;
+}
+
+.alevel-enrollment-actions {
+  gap: 0.65rem;
+  flex: 0 0 auto;
+}
+
+.alevel-enrollment-actions button,
+.alevel-enrollment-clear {
+  min-height: 42px;
+  padding: 0.68rem 0.9rem;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.alevel-enrollment-secondary,
+.alevel-enrollment-clear {
+  color: var(--alevel-shell-body);
+  background: var(--alevel-shell-ghost-bg);
+  border: 1px solid var(--alevel-shell-ghost-border);
+}
+
+.alevel-enrollment-primary {
+  color: #06131d;
+  background: #38bdf8;
+  border: 1px solid #7dd3fc;
+}
+
+.alevel-enrollment-actions button:disabled,
+.alevel-enrollment-clear:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.alevel-enrollment-metrics {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  margin-top: 1.4rem;
+  border-top: 1px solid var(--alevel-shell-ghost-border);
+  border-bottom: 1px solid var(--alevel-shell-ghost-border);
+}
+
+.alevel-enrollment-metrics > div {
+  min-width: 0;
+  padding: 1rem;
+  border-right: 1px solid var(--alevel-shell-ghost-border);
+}
+
+.alevel-enrollment-metrics > div:last-child {
+  border-right: 0;
+}
+
+.alevel-enrollment-metrics span {
+  display: block;
+  min-height: 2.2em;
+  color: var(--alevel-shell-muted);
+  font-size: 0.68rem;
+  font-weight: 900;
+  line-height: 1.25;
+  text-transform: uppercase;
+}
+
+.alevel-enrollment-metrics strong {
+  display: block;
+  margin-top: 0.35rem;
+  color: var(--alevel-shell-title);
+  font-size: 1.7rem;
+}
+
+.alevel-enrollment-metrics .is-warning strong {
+  color: #fbbf24;
+}
+
+.alevel-enrollment-filters {
+  gap: 0.75rem;
+  margin-top: 1.2rem;
+  flex-wrap: wrap;
+}
+
+.alevel-enrollment-filters label {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.alevel-enrollment-filters label > span {
+  color: var(--alevel-shell-muted);
+  font-size: 0.66rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.alevel-enrollment-filters select {
+  min-width: 190px;
+  min-height: 44px;
+  padding: 0.7rem 2.5rem 0.7rem 0.8rem;
+  color: var(--alevel-shell-body);
+  background-color: rgba(2, 6, 23, 0.72);
+  border: 1px solid var(--alevel-shell-ghost-border);
+  border-radius: 6px;
+  font: inherit;
+  font-weight: 800;
+  outline: none;
+}
+
+.alevel-enrollment-filters select:focus {
+  border-color: var(--alevel-accent);
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.14);
+}
+
+.alevel-enrollment-filters time {
+  margin-left: auto;
+  color: var(--alevel-shell-muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.alevel-enrollment-table-wrap {
+  max-height: 470px;
+  margin-top: 1rem;
+  overflow: auto;
+  border: 1px solid var(--alevel-shell-ghost-border);
+  border-radius: 6px;
+}
+
+.alevel-enrollment-table {
+  width: 100%;
+  min-width: 820px;
+  border-collapse: collapse;
+  color: var(--alevel-shell-body);
+}
+
+.alevel-enrollment-table th,
+.alevel-enrollment-table td {
+  padding: 0.82rem 0.8rem;
+  border-bottom: 1px solid var(--alevel-shell-ghost-border);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.alevel-enrollment-table th:first-child,
+.alevel-enrollment-table td:first-child,
+.alevel-enrollment-table th:nth-child(2),
+.alevel-enrollment-table td:nth-child(2) {
+  text-align: left;
+}
+
+.alevel-enrollment-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  color: #bae6fd;
+  background: #111d2e;
+  font-size: 0.7rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.alevel-enrollment-table tbody tr:nth-child(even) {
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.alevel-paper-label {
+  display: inline-flex;
+  padding: 0.28rem 0.48rem;
+  color: #bae6fd;
+  background: rgba(56, 189, 248, 0.1);
+  border: 1px solid rgba(56, 189, 248, 0.22);
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.alevel-enrollment-state,
+.alevel-enrollment-empty {
+  padding: 1.2rem;
+  color: var(--alevel-shell-muted);
+  text-align: center;
+}
+
+.alevel-enrollment-state.is-error {
+  display: grid;
+  gap: 0.3rem;
+  margin-top: 1.2rem;
+  color: #fecaca;
+  background: rgba(127, 29, 29, 0.18);
+  border: 1px solid rgba(239, 68, 68, 0.28);
+  border-radius: 6px;
+}
+
+.alevel-admin-root.mode-light .alevel-enrollment-insights {
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 16px 38px rgba(15, 23, 42, 0.1);
+}
+
+.alevel-admin-root.mode-light .alevel-enrollment-filters select {
+  color: #0f172a;
+  background: #ffffff;
+  border-color: rgba(15, 23, 42, 0.16);
+}
+
+.alevel-admin-root.mode-light .alevel-enrollment-table thead th {
+  color: #075985;
+  background: #e8f5fb;
+}
+
+.alevel-admin-root.mode-light .alevel-enrollment-table tbody tr:nth-child(even) {
+  background: rgba(15, 23, 42, 0.025);
+}
+
+@media (max-width: 980px) {
+  .alevel-enrollment-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .alevel-enrollment-metrics > div:nth-child(even) {
+    border-right: 0;
+  }
+}
+
+@media (max-width: 680px) {
+  .alevel-enrollment-insights {
+    padding: 1.1rem;
+  }
+
+  .alevel-enrollment-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .alevel-enrollment-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .alevel-enrollment-filters label,
+  .alevel-enrollment-filters select,
+  .alevel-enrollment-clear {
+    width: 100%;
+  }
+
+  .alevel-enrollment-filters time {
+    width: 100%;
+    margin-left: 0;
+  }
+}

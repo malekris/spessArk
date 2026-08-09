@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import AssessmentSubmissionTracker from "../../../components/AssessmentSubmissionTracker";
 import ALevelAdminShell from "../components/ALevelAdminShell";
+import ALevelEnrollmentInsightsCard from "../components/ALevelEnrollmentInsightsCard";
 import { adminFetch, plainFetch } from "../../../lib/api";
 import badge from "../../../assets/badge.png";
 import { loadPdfTools } from "../../../utils/loadPdfTools";
@@ -795,6 +796,8 @@ export default function ALevelDashboard() {
                   </div>
                 </div>
               )}
+
+              <ALevelEnrollmentInsightsCard />
 
               <div
                 style={{

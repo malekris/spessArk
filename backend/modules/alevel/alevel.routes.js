@@ -63,6 +63,7 @@ const NORMALIZED_ALEVEL_TERM_SQL = (columnName) => `
 const normalizeAlevelComponent = (value = "") =>
   String(value || "").trim().toUpperCase();
 const ALEVEL_MARK_COMPONENTS = ["MID", "EOT"];
+const ALEVEL_STREAM_ORDER = ["S5 Arts", "S5 Sciences", "S6 Arts", "S6 Sciences"];
 
 const resolvePaperLabel = (subjectName = "", requestedPaper = "") => {
   const allowed = getPaperOptionsForSubject(subjectName);
@@ -1345,6 +1346,117 @@ router.get("/stats", async (req, res) => {
   } catch (err) {
     console.error("A-Level stats error:", err);
     res.status(500).json({ message: "Failed to load stats" });
+  }
+});
+
+router.get("/admin/enrollment-insights", authAdmin, async (_req, res) => {
+  try {
+    await ensureAlevelPromotionSchemaReady(pool);
+
+    // Keep enrollment reporting independent of marks and assignments. The
+    // learner-subject register is the authoritative source for candidate load.
+    const [learnerRows] = await db.query(`
+      SELECT id, stream
+      FROM alevel_learners
+      WHERE COALESCE(NULLIF(status, ''), 'active') = 'active'
+      ORDER BY stream, id
+    `);
+    const [registrationRows] = await db.query(`
+      SELECT DISTINCT
+        l.id AS learner_id,
+        l.stream,
+        s.id AS subject_id,
+        s.name AS subject_name
+      FROM alevel_learners l
+      JOIN alevel_learner_subjects als ON als.learner_id = l.id
+      JOIN alevel_subjects s ON s.id = als.subject_id
+      WHERE COALESCE(NULLIF(l.status, ''), 'active') = 'active'
+      ORDER BY s.name, l.stream, l.id
+    `);
+
+    const discoveredStreams = Array.from(
+      new Set((learnerRows || []).map((row) => String(row.stream || "").trim()).filter(Boolean))
+    );
+    const streams = [
+      ...ALEVEL_STREAM_ORDER,
+      ...discoveredStreams.filter((stream) => !ALEVEL_STREAM_ORDER.includes(stream)).sort(),
+    ];
+    const registeredLearnerIds = new Set(
+      (registrationRows || []).map((row) => Number(row.learner_id)).filter(Number.isFinite)
+    );
+    const paperMap = new Map();
+
+    for (const row of registrationRows || []) {
+      const subjectName = String(row.subject_name || "Subject").trim() || "Subject";
+      const stream = String(row.stream || "Unspecified").trim() || "Unspecified";
+
+      for (const paperLabel of getPaperOptionsForSubject(subjectName)) {
+        const key = `${row.subject_id}|${paperLabel}`;
+        if (!paperMap.has(key)) {
+          paperMap.set(key, {
+            subjectId: Number(row.subject_id),
+            subject: subjectName,
+            paperLabel,
+            subjectDisplay: buildSubjectDisplay(subjectName, paperLabel),
+            counts: Object.fromEntries(streams.map((streamName) => [streamName, 0])),
+            total: 0,
+          });
+        }
+
+        const paper = paperMap.get(key);
+        if (!(stream in paper.counts)) paper.counts[stream] = 0;
+        paper.counts[stream] += 1;
+        paper.total += 1;
+      }
+    }
+
+    const papers = Array.from(paperMap.values()).sort((a, b) => {
+      const subjectCompare = a.subject.localeCompare(b.subject);
+      return subjectCompare || a.paperLabel.localeCompare(b.paperLabel);
+    });
+    const streamSummary = streams.map((stream) => {
+      const learners = (learnerRows || []).filter((row) => String(row.stream || "").trim() === stream);
+      const registrations = (registrationRows || []).filter(
+        (row) => String(row.stream || "").trim() === stream
+      );
+      const registeredInStream = new Set(registrations.map((row) => Number(row.learner_id)));
+      const paperRegistrations = registrations.reduce(
+        (sum, row) => sum + getPaperOptionsForSubject(row.subject_name).length,
+        0
+      );
+
+      return {
+        stream,
+        activeLearners: learners.length,
+        registeredLearners: registeredInStream.size,
+        subjectRegistrations: registrations.length,
+        paperRegistrations,
+        unregisteredLearners: Math.max(0, learners.length - registeredInStream.size),
+      };
+    });
+    const paperRegistrationCount = (registrationRows || []).reduce(
+      (sum, row) => sum + getPaperOptionsForSubject(row.subject_name).length,
+      0
+    );
+
+    res.json({
+      generatedAt: new Date().toISOString(),
+      streams,
+      subjects: Array.from(new Set((registrationRows || []).map((row) => row.subject_name))).sort(),
+      summary: {
+        activeLearners: (learnerRows || []).length,
+        registeredLearners: registeredLearnerIds.size,
+        unregisteredLearners: Math.max(0, (learnerRows || []).length - registeredLearnerIds.size),
+        subjectRegistrations: (registrationRows || []).length,
+        paperRegistrations: paperRegistrationCount,
+        subjectsOffered: new Set((registrationRows || []).map((row) => Number(row.subject_id))).size,
+      },
+      streamSummary,
+      papers,
+    });
+  } catch (err) {
+    console.error("A-Level enrollment insights error:", err);
+    res.status(500).json({ message: "Failed to load A-Level enrollment insights" });
   }
 });
 

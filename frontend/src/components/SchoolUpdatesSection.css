@@ -1,0 +1,219 @@
+.school-updates-section {
+  color: #edf4fb;
+  background: #101820;
+  border-top: 1px solid #263442;
+  border-bottom: 1px solid #263442;
+}
+
+.school-updates-inner {
+  width: min(1240px, calc(100% - 3rem));
+  margin: 0 auto;
+  padding: 5.5rem 0 6rem;
+}
+
+.school-updates-heading {
+  max-width: 680px;
+  margin-bottom: 2.5rem;
+}
+
+.school-updates-heading > span,
+.school-update-label {
+  color: #966f18;
+  font-size: 0.75rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.school-updates-heading h2 {
+  margin: 0.55rem 0 0.8rem;
+  font-size: clamp(2.2rem, 5vw, 3.8rem);
+  line-height: 1;
+  letter-spacing: 0;
+  color: #f3f7fb;
+}
+
+.school-updates-heading p {
+  margin: 0;
+  color: #a8b7c6;
+  font-size: 1.05rem;
+  line-height: 1.7;
+}
+
+.school-updates-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(320px, 0.75fr);
+  border: 1px solid #334658;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #13202b;
+  box-shadow: 0 22px 55px rgba(0, 0, 0, 0.28);
+}
+
+.spess-news-story {
+  min-width: 0;
+  padding: 2.25rem;
+  background: #13202b;
+}
+
+.spess-news-story.with-image {
+  display: grid;
+  grid-template-columns: minmax(230px, 0.8fr) minmax(0, 1.2fr);
+  gap: 2rem;
+  align-items: start;
+}
+
+.spess-news-image {
+  aspect-ratio: 3 / 2;
+  margin: 0;
+  overflow: hidden;
+  border-radius: 6px;
+  background: #1f2d39;
+  border: 1px solid #3b4d5c;
+}
+
+.spess-news-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.school-update-label-row,
+.important-dates-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.school-update-label-row time {
+  color: #a5b3c1;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.spess-news-copy h3,
+.important-dates h3 {
+  margin: 0.75rem 0 1rem;
+  color: #f4f7fa;
+  font-size: clamp(1.55rem, 3vw, 2.25rem);
+  line-height: 1.18;
+  letter-spacing: 0;
+}
+
+.spess-news-copy p {
+  margin: 0;
+  color: #bac6d1;
+  font-size: 1rem;
+  line-height: 1.75;
+  white-space: pre-line;
+}
+
+.spess-news-empty {
+  min-height: 240px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.important-dates {
+  padding: 2.25rem;
+  background: #081421;
+  border-left: 1px solid #334658;
+}
+
+.important-dates h3 {
+  margin-bottom: 0;
+  color: #ffffff;
+  font-size: 1.8rem;
+}
+
+.important-dates-year {
+  padding: 0.4rem 0.55rem;
+  color: #f1d487;
+  border: 1px solid #5b4d2e;
+  border-radius: 4px;
+  font-size: 0.76rem;
+  font-weight: 900;
+}
+
+.important-dates-list {
+  margin-top: 1.45rem;
+  border-top: 1px solid #34445a;
+}
+
+.important-date-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1rem;
+  align-items: center;
+  padding: 1.1rem 0;
+  border-bottom: 1px solid #34445a;
+}
+
+.important-date-row div {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.important-date-row strong {
+  color: #f5f7fb;
+  font-size: 0.98rem;
+}
+
+.important-date-row span {
+  color: #91a2b9;
+  font-size: 0.78rem;
+}
+
+.important-date-row time {
+  max-width: 145px;
+  color: #d4deeb;
+  font-size: 0.8rem;
+  font-weight: 800;
+  text-align: right;
+}
+
+.important-date-row.active strong,
+.important-date-row.active time {
+  color: #f1d487;
+}
+
+@media (max-width: 980px) {
+  .school-updates-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .important-dates {
+    border-top: 1px solid #334658;
+    border-left: 0;
+  }
+}
+
+@media (max-width: 680px) {
+  .school-updates-inner {
+    width: min(100% - 2rem, 1240px);
+    padding: 4rem 0;
+  }
+
+  .school-updates-heading {
+    margin-bottom: 1.75rem;
+  }
+
+  .spess-news-story,
+  .important-dates {
+    padding: 1.35rem;
+  }
+
+  .spess-news-story.with-image {
+    grid-template-columns: 1fr;
+    gap: 1.35rem;
+  }
+
+  .important-date-row {
+    align-items: start;
+  }
+
+  .important-date-row time {
+    max-width: 115px;
+  }
+}

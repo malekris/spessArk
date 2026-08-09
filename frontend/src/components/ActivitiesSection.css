@@ -1,56 +1,68 @@
-/* ROOT VARIABLES */
-:root {
-  --amethyst: #a78bfa;
-  --cinematic-black: #0a0c10;
-  --platinum: #f1f5f9;
-  --glass: rgba(30, 41, 59, 0.45);
-}
-
 .activities-section {
-  background: var(--cinematic-black);
-  color: var(--platinum);
   min-height: 100vh;
-  font-family: 'Inter', sans-serif;
+  color: #edf4fb;
+  background: #081421;
 }
 
-/* BANNER */
 .activities-banner {
-  height: 400px;
-  width: 100%;
-  background: linear-gradient(to bottom, rgba(10, 12, 16, 0.1), var(--cinematic-black)),
-              var(--activities-banner-image, url('/newactivities/cov.jpg'));
-  background-size: cover;
-  background-position: center 42%;
+  position: relative;
+  height: 360px;
   display: flex;
   align-items: center;
-  padding: 0 4rem;
+  padding: 0 max(1.5rem, calc((100vw - 1240px) / 2));
+  overflow: hidden;
+  background-color: #0a1725;
+  background-image: var(--activities-banner-image, url('/newactivities/cov.jpg'));
+  background-size: cover;
+  background-position: center 42%;
 }
 
-.activities-banner h1 {
-  font-size: clamp(2rem, 6vw, 4rem);
-  font-weight: 900;
+.activities-banner::before {
+  position: absolute;
+  inset: 0;
+  content: "";
+  background: rgba(5, 15, 25, 0.62);
+}
+
+.activities-banner .banner-content {
+  position: relative;
+  z-index: 1;
+  max-width: 760px;
+}
+
+.activities-banner h2 {
   margin: 0;
-  text-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  color: #ffffff;
+  font-size: clamp(2.4rem, 6vw, 4.4rem);
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: 0;
 }
 
-.activities-banner span {
-  color: var(--amethyst);
+.activities-banner h2 span {
+  color: #f0ce78;
 }
 
-/* GRID */
+.activities-banner p {
+  max-width: 620px;
+  margin: 1rem 0 0;
+  color: #d9e3ee;
+  font-size: 1.05rem;
+  line-height: 1.65;
+}
+
 .activities-container {
-  max-width: 1400px;
-  margin: -50px auto 0;
-  padding: 0 2rem 5rem;
+  width: min(1320px, calc(100% - 3rem));
+  margin: 0 auto;
+  padding: 3rem 0 5.5rem;
 }
 
 .activities-gallery-meta {
   display: flex;
   justify-content: flex-end;
-  margin: 0 0 1rem;
-  color: rgba(241, 245, 249, 0.72);
-  font-size: 0.92rem;
-  letter-spacing: 0.02em;
+  margin-bottom: 1rem;
+  color: #93a5ba;
+  font-size: 0.88rem;
 }
 
 .activities-gallery-meta strong {
@@ -59,67 +71,68 @@
 
 .activities-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 1.5rem;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 1rem;
 }
 
 .activity-card {
   position: relative;
-  aspect-ratio: 16/10;
-  border-radius: 20px;
+  aspect-ratio: 16 / 10;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  background: #161b22;
+  background: #132236;
+  border: 1px solid #2c3f56;
+  border-radius: 6px;
   cursor: pointer;
-  transition: all 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
+  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.activity-badge,
+.lightbox-badge {
+  position: absolute;
+  z-index: 3;
+  padding: 0.38rem 0.55rem;
+  color: #171309;
+  background: #e0b448;
+  border: 1px solid #f2d176;
+  border-radius: 4px;
+  font-size: 0.68rem;
+  font-weight: 900;
+  text-transform: uppercase;
 }
 
 .activity-badge {
-  position: absolute;
-  top: 14px;
-  left: 14px;
-  z-index: 3;
-  padding: 0.42rem 0.8rem;
-  border-radius: 999px;
-  background: rgba(167, 139, 250, 0.92);
-  color: var(--cinematic-black);
-  font-size: 0.72rem;
-  font-weight: 900;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  box-shadow: 0 10px 24px rgba(167, 139, 250, 0.28);
+  top: 12px;
+  left: 12px;
 }
 
 .activity-card img {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  filter: grayscale(20%);
-  transition: all 0.5s ease;
+  transition: transform 240ms ease;
 }
 
 .activity-card:hover {
-  transform: translateY(-8px);
-  border-color: var(--amethyst);
-  box-shadow: 0 20px 40px rgba(167, 139, 250, 0.15);
+  transform: translateY(-3px);
+  border-color: #6b8caf;
+  box-shadow: 0 16px 30px rgba(0, 0, 0, 0.26);
 }
 
 .activity-card:hover img {
-  filter: grayscale(0%);
-  transform: scale(1.05);
+  transform: scale(1.035);
 }
 
 .card-overlay {
   position: absolute;
   inset: 0;
-  background: rgba(167, 139, 250, 0.1);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  display: grid;
+  place-items: center;
+  color: #ffffff;
+  background: rgba(6, 17, 29, 0.48);
   opacity: 0;
+  font-size: 0.75rem;
   font-weight: 900;
-  letter-spacing: 0.2em;
-  transition: opacity 0.3s;
+  transition: opacity 180ms ease;
 }
 
 .activity-card:hover .card-overlay {
@@ -133,51 +146,41 @@
 }
 
 .activities-more-btn {
-  border: 1px solid rgba(167, 139, 250, 0.34);
-  background:
-    radial-gradient(circle at top, rgba(167, 139, 250, 0.18), transparent 54%),
-    linear-gradient(180deg, rgba(20, 27, 38, 0.96), rgba(12, 17, 25, 0.98));
-  color: #f8fafc;
-  padding: 0.95rem 1.65rem;
-  border-radius: 999px;
-  font-size: 0.84rem;
+  min-height: 46px;
+  padding: 0.8rem 1.2rem;
+  color: #eef5fb;
+  background: #14243a;
+  border: 1px solid #506985;
+  border-radius: 6px;
+  font-size: 0.82rem;
   font-weight: 900;
-  letter-spacing: 0.14em;
   text-transform: uppercase;
   cursor: pointer;
-  box-shadow:
-    0 18px 32px rgba(0, 0, 0, 0.26),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
 }
 
 .activities-more-btn:hover {
-  transform: translateY(-2px);
-  border-color: rgba(167, 139, 250, 0.62);
-  box-shadow:
-    0 22px 40px rgba(0, 0, 0, 0.3),
-    0 0 24px rgba(167, 139, 250, 0.18);
+  background: #1d314c;
+  border-color: #7c99b7;
 }
 
-/* LIGHTBOX */
 .lightbox {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.96);
-  backdrop-filter: blur(15px);
   z-index: 9999;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 2rem;
+  background: rgba(0, 0, 0, 0.96);
+  backdrop-filter: blur(12px);
 }
 
 .lightbox-img {
-  max-height: 80vh;
   max-width: 90vw;
-  border-radius: 12px;
-  box-shadow: 0 0 60px rgba(0,0,0,0.8);
-  animation: zoomIn 0.3s ease-out;
+  max-height: 80vh;
+  border-radius: 6px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.72);
+  animation: zoomIn 0.25s ease-out;
 }
 
 .lightbox-controls {
@@ -185,40 +188,38 @@
   top: 2rem;
   right: 2rem;
   display: flex;
-  gap: 1rem;
+  gap: 0.7rem;
 }
 
-.download-btn, .lightbox-close {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: white;
-  backdrop-filter: blur(10px);
-  cursor: pointer;
-  display: flex;
+.download-btn,
+.lightbox-close {
+  min-height: 48px;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s;
-  font-weight: 700;
+  color: #ffffff;
+  background: #142033;
+  border: 1px solid #53657b;
+  border-radius: 6px;
+  font-weight: 800;
+  cursor: pointer;
 }
 
 .download-btn {
-  padding: 0 1.5rem;
-  height: 50px;
-  border-radius: 14px;
-  gap: 10px;
-  font-size: 0.8rem;
+  gap: 0.55rem;
+  padding: 0 1.1rem;
 }
 
 .lightbox-close {
-  width: 50px;
-  height: 50px;
-  border-radius: 14px;
-  font-size: 1.2rem;
+  width: 48px;
+  font-size: 1.1rem;
 }
 
-.download-btn:hover, .lightbox-close:hover {
-  background: var(--amethyst);
-  color: var(--cinematic-black);
+.download-btn:hover,
+.lightbox-close:hover {
+  color: #161209;
+  background: #e0b448;
+  border-color: #f2d176;
 }
 
 .lightbox-counter {
@@ -226,97 +227,84 @@
   bottom: 2rem;
   left: 50%;
   transform: translateX(-50%);
+  color: #a8b5c5;
   font-size: 0.75rem;
-  opacity: 0.5;
-  letter-spacing: 0.2em;
 }
 
 .lightbox-badge {
-  position: absolute;
   top: 2rem;
   left: 2rem;
-  padding: 0.5rem 1rem;
-  border-radius: 999px;
-  background: rgba(167, 139, 250, 0.92);
-  color: var(--cinematic-black);
-  font-size: 0.75rem;
-  font-weight: 900;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  box-shadow: 0 12px 26px rgba(167, 139, 250, 0.24);
 }
 
-/* LONG PRESS HINT */
 .long-press-hint {
   position: absolute;
   top: 15%;
   left: 50%;
-  transform: translateX(-50%);
-  background: var(--amethyst);
-  color: var(--cinematic-black);
-  padding: 10px 24px;
-  border-radius: 50px;
-  font-size: 0.7rem;
-  font-weight: 800;
-  text-transform: uppercase;
   z-index: 10002;
+  transform: translateX(-50%);
+  padding: 0.65rem 0.9rem;
+  color: #171309;
+  background: #e0b448;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 900;
+  text-transform: uppercase;
   animation: hintFade 3s forwards;
 }
 
-/* MOBILE REFINEMENTS */
 @media (max-width: 768px) {
-  .activities-banner { padding: 0 2rem; height: 300px; }
-  .activities-grid { 
-    grid-template-columns: repeat(2, 1fr); 
-    gap: 0.75rem; 
+  .activities-banner {
+    height: 300px;
+    padding: 0 1rem;
   }
-  .activities-container { padding: 0 1rem; }
+
+  .activities-container {
+    width: min(100% - 2rem, 1320px);
+    padding-top: 2rem;
+  }
+
+  .activities-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.7rem;
+  }
+
   .activities-gallery-meta {
     justify-content: flex-start;
-    margin-bottom: 0.9rem;
-    font-size: 0.82rem;
   }
-  
+
   .lightbox-controls {
     top: auto;
-    bottom: 3rem;
     right: 50%;
+    bottom: 2.5rem;
+    width: calc(100% - 2rem);
     transform: translateX(50%);
-    width: 90%;
     justify-content: center;
   }
-  
-  .download-btn { flex: 1; height: 55px; }
-  .lightbox-close { width: 55px; height: 55px; }
-  
-  .long-press-hint { top: 12%; width: 80%; text-align: center; }
-  .activity-badge {
-    top: 10px;
-    left: 10px;
-    padding: 0.34rem 0.68rem;
-    font-size: 0.62rem;
+
+  .download-btn {
+    flex: 1;
   }
+
+  .long-press-hint {
+    top: 12%;
+    width: 80%;
+    text-align: center;
+  }
+
   .lightbox-badge {
     top: 1rem;
     left: 1rem;
-    font-size: 0.66rem;
-    padding: 0.42rem 0.8rem;
-  }
-  .activities-more-btn {
-    width: 100%;
-    max-width: 320px;
-    padding: 1rem 1.2rem;
   }
 }
 
 @keyframes zoomIn {
-  from { opacity: 0; transform: scale(0.95); }
+  from { opacity: 0; transform: scale(0.97); }
   to { opacity: 1; transform: scale(1); }
 }
 
 @keyframes hintFade {
-  0% { opacity: 0; transform: translate(-50%, 10px); }
+  0% { opacity: 0; transform: translate(-50%, 8px); }
   15% { opacity: 1; transform: translate(-50%, 0); }
   85% { opacity: 1; transform: translate(-50%, 0); }
-  100% { opacity: 0; transform: translate(-50%, -10px); }
+  100% { opacity: 0; transform: translate(-50%, -8px); }
 }

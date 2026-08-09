@@ -9,6 +9,7 @@ import {
 } from "../../../utils/siteVisuals";
 import { primeVineAuthThemeCache } from "../utils/authTheme";
 import { convertHeicFileToJpeg, isHeicLikeFile } from "../utils/heic";
+import SpessNewsManager from "../components/SpessNewsManager";
 import "./VineGuardianAnalytics.css";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
@@ -2074,6 +2075,16 @@ export default function VineGuardianAnalytics() {
 
       <div className="guardian-section guardian-section--visuals">
         <h3>Website, Activities, Ark & Boarding Visuals</h3>
+        <SpessNewsManager
+          token={token}
+          settings={siteVisualSettings}
+          onPublished={(settings) => {
+            const nextSettings = primeSiteVisualsCache(settings || {});
+            setData((previous) => (
+              previous ? { ...previous, siteVisualSettings: nextSettings } : previous
+            ));
+          }}
+        />
         <div className="guardian-news-card guardian-community-control-card">
           <span className="guardian-news-label">Communities Control</span>
           <label className="guardian-notice-toggle">

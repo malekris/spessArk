@@ -70,6 +70,15 @@ const r2Client = r2Ready
     })
   : null;
 
+// Guardian-managed website visuals are stored in Cloudflare R2 only. Failing
+// clearly here prevents an accidental fallback to a legacy storage provider.
+const requireR2Storage = (_req, res, next) => {
+  if (!r2Ready || !r2Client) {
+    return res.status(503).json({ message: "Cloudflare R2 storage is not configured." });
+  }
+  next();
+};
+
 const isR2Url = (rawUrl) => {
   const asString = String(rawUrl || "").trim();
   if (!asString) return false;
@@ -268,22 +277,25 @@ const VINE_AUTH_THEME_EFFECT_OPTIONS = new Set([
 ]);
 const VINE_AUTH_THEME_ALIGNMENT_OPTIONS = new Set(["left", "center", "right"]);
 
-const deleteCloudinaryByUrl = async (url) => {
-  if (isR2Url(url) && r2Client && r2Ready) {
-    const key = extractR2KeyFromUrl(url);
-    if (!key) return;
-    try {
-      await r2Client.send(
-        new DeleteObjectCommand({
-          Bucket: R2_BUCKET,
-          Key: key,
-        })
-      );
-    } catch {
-      // ignore r2 delete misses
-    }
-    return;
+const deleteR2ObjectByUrl = async (url) => {
+  if (!isR2Url(url) || !r2Client || !r2Ready) return false;
+  const key = extractR2KeyFromUrl(url);
+  if (!key) return false;
+  try {
+    await r2Client.send(
+      new DeleteObjectCommand({
+        Bucket: R2_BUCKET,
+        Key: key,
+      })
+    );
+  } catch {
+    // A missing object should not prevent its database reference being replaced.
   }
+  return true;
+};
+
+const deleteCloudinaryByUrl = async (url) => {
+  if (await deleteR2ObjectByUrl(url)) return;
 
   const asString = String(url || "");
   const publicId = extractCloudinaryPublicId(asString);
@@ -3245,6 +3257,13 @@ let siteVisualSettingsCache = null;
 let siteVisualSettingsLoadedAt = 0;
 const SITE_VISUAL_SETTINGS_CACHE_MS = 60 * 1000;
 const SITE_VISUALS_TIMEZONE = "Africa/Kampala";
+const SPESS_NEWS_MAX_WORDS = 400;
+
+const countWords = (value) =>
+  String(value || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean).length;
 
 const getSiteVisualsDateStamp = (date = new Date()) =>
   new Intl.DateTimeFormat("en-CA", {
@@ -3253,6 +3272,15 @@ const getSiteVisualsDateStamp = (date = new Date()) =>
     month: "2-digit",
     day: "2-digit",
   }).format(date);
+
+const normalizeSiteVisualDateStamp = (value) => {
+  if (!value) return null;
+  const directMatch = String(value).match(/\b\d{4}-\d{2}-\d{2}\b/);
+  if (directMatch) return directMatch[0];
+
+  const parsed = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : getSiteVisualsDateStamp(parsed);
+};
 
 const normalizeSiteVisualSettings = (value = {}) => {
   const homeHeroUrl = String(
@@ -3316,6 +3344,12 @@ const normalizeSiteVisualSettings = (value = {}) => {
   const createCommunityEnabled = value.create_community_enabled === undefined || value.create_community_enabled === null
     ? true
     : Number(value.create_community_enabled) === 1 || value.create_community_enabled === true;
+  const spessNewsPublished = value.spess_news_published === undefined || value.spess_news_published === null
+    ? false
+    : Number(value.spess_news_published) === 1 || value.spess_news_published === true;
+  const spessNewsPostedOn =
+    normalizeSiteVisualDateStamp(value.spess_news_posted_on) ||
+    (spessNewsPublished ? normalizeSiteVisualDateStamp(value.updated_at) : null);
 
   return {
     home_hero_url: homeHeroUrl || VINE_SITE_VISUAL_DEFAULT_HOME_HERO_URL,
@@ -3338,6 +3372,11 @@ const normalizeSiteVisualSettings = (value = {}) => {
             : [...VINE_SITE_VISUAL_DEFAULT_ACTIVITIES_LATEST_BATCH]),
     activities_latest_day: activitiesLatestDay || null,
     create_community_enabled: createCommunityEnabled,
+    spess_news_heading: String(value.spess_news_heading || "").trim().slice(0, 180),
+    spess_news_body: String(value.spess_news_body || "").trim(),
+    spess_news_posted_on: spessNewsPostedOn,
+    spess_news_image_url: String(value.spess_news_image_url || "").trim(),
+    spess_news_published: spessNewsPublished,
     updated_by: value.updated_by ? Number(value.updated_by) : null,
     updated_at: value.updated_at || null,
   };
@@ -3359,6 +3398,11 @@ const ensureSiteVisualSettingsSchema = async () => {
       activities_latest_batch_json LONGTEXT NULL,
       activities_latest_day VARCHAR(10) NULL,
       create_community_enabled TINYINT NOT NULL DEFAULT 1,
+      spess_news_heading VARCHAR(180) NULL,
+      spess_news_body LONGTEXT NULL,
+      spess_news_posted_on DATE NULL,
+      spess_news_image_url VARCHAR(1000) NULL,
+      spess_news_published TINYINT NOT NULL DEFAULT 0,
       updated_by INT NULL,
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
@@ -3405,6 +3449,16 @@ const ensureSiteVisualSettingsSchema = async () => {
     "create_community_enabled",
     "TINYINT NOT NULL DEFAULT 1"
   );
+  await ensureColumnExists(dbName, "vine_site_visual_settings", "spess_news_heading", "VARCHAR(180) NULL");
+  await ensureColumnExists(dbName, "vine_site_visual_settings", "spess_news_body", "LONGTEXT NULL");
+  await ensureColumnExists(dbName, "vine_site_visual_settings", "spess_news_posted_on", "DATE NULL");
+  await ensureColumnExists(dbName, "vine_site_visual_settings", "spess_news_image_url", "VARCHAR(1000) NULL");
+  await ensureColumnExists(
+    dbName,
+    "vine_site_visual_settings",
+    "spess_news_published",
+    "TINYINT NOT NULL DEFAULT 0"
+  );
   siteVisualSettingsSchemaReady = true;
 };
 
@@ -3423,7 +3477,9 @@ const getCurrentSiteVisualSettings = async ({ force = false } = {}) => {
     SELECT home_hero_url, boarding_login_url, ark_auth_slides_json AS ark_auth_slides,
            activities_banner_url, contact_hero_url, activities_gallery_json AS activities_gallery,
            activities_latest_batch_json AS activities_latest_batch, activities_latest_day,
-           create_community_enabled, updated_by, updated_at
+           create_community_enabled, spess_news_heading, spess_news_body,
+           spess_news_posted_on, spess_news_image_url, spess_news_published,
+           updated_by, updated_at
     FROM vine_site_visual_settings
     WHERE id = 1
     LIMIT 1
@@ -3441,23 +3497,32 @@ const saveSiteVisualSettings = async (payload = {}, updatedBy = null) => {
   const current = await getCurrentSiteVisualSettings({ force: true });
   const merged = normalizeSiteVisualSettings({
     ...current,
-    home_hero_url: payload.home_hero_url,
-    boarding_login_url: payload.boarding_login_url,
-    ark_auth_slides: payload.ark_auth_slides,
-    activities_banner_url: payload.activities_banner_url,
-    contact_hero_url: payload.contact_hero_url,
-    activities_gallery: payload.activities_gallery,
-    activities_latest_batch: payload.activities_latest_batch,
-    activities_latest_day: payload.activities_latest_day,
-    create_community_enabled: payload.create_community_enabled,
+    home_hero_url: payload.home_hero_url === undefined ? current.home_hero_url : payload.home_hero_url,
+    boarding_login_url: payload.boarding_login_url === undefined ? current.boarding_login_url : payload.boarding_login_url,
+    ark_auth_slides: payload.ark_auth_slides === undefined ? current.ark_auth_slides : payload.ark_auth_slides,
+    activities_banner_url: payload.activities_banner_url === undefined ? current.activities_banner_url : payload.activities_banner_url,
+    contact_hero_url: payload.contact_hero_url === undefined ? current.contact_hero_url : payload.contact_hero_url,
+    activities_gallery: payload.activities_gallery === undefined ? current.activities_gallery : payload.activities_gallery,
+    activities_latest_batch: payload.activities_latest_batch === undefined ? current.activities_latest_batch : payload.activities_latest_batch,
+    activities_latest_day: payload.activities_latest_day === undefined ? current.activities_latest_day : payload.activities_latest_day,
+    create_community_enabled: payload.create_community_enabled === undefined ? current.create_community_enabled : payload.create_community_enabled,
+    spess_news_heading: payload.spess_news_heading === undefined ? current.spess_news_heading : payload.spess_news_heading,
+    spess_news_body: payload.spess_news_body === undefined ? current.spess_news_body : payload.spess_news_body,
+    spess_news_posted_on: payload.spess_news_posted_on === undefined ? current.spess_news_posted_on : payload.spess_news_posted_on,
+    spess_news_image_url: payload.spess_news_image_url === undefined ? current.spess_news_image_url : payload.spess_news_image_url,
+    spess_news_published: payload.spess_news_published === undefined ? current.spess_news_published : payload.spess_news_published,
   });
 
   await db.query(
     `
     INSERT INTO vine_site_visual_settings
-      (id, home_hero_url, boarding_login_url, ark_auth_slides_json, activities_banner_url, contact_hero_url, activities_gallery_json, activities_latest_batch_json, activities_latest_day, create_community_enabled, updated_by, updated_at)
+      (id, home_hero_url, boarding_login_url, ark_auth_slides_json, activities_banner_url,
+       contact_hero_url, activities_gallery_json, activities_latest_batch_json,
+       activities_latest_day, create_community_enabled, spess_news_heading,
+       spess_news_body, spess_news_posted_on, spess_news_image_url,
+       spess_news_published, updated_by, updated_at)
     VALUES
-      (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+      (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
     ON DUPLICATE KEY UPDATE
       home_hero_url = VALUES(home_hero_url),
       boarding_login_url = VALUES(boarding_login_url),
@@ -3468,6 +3533,11 @@ const saveSiteVisualSettings = async (payload = {}, updatedBy = null) => {
       activities_latest_batch_json = VALUES(activities_latest_batch_json),
       activities_latest_day = VALUES(activities_latest_day),
       create_community_enabled = VALUES(create_community_enabled),
+      spess_news_heading = VALUES(spess_news_heading),
+      spess_news_body = VALUES(spess_news_body),
+      spess_news_posted_on = VALUES(spess_news_posted_on),
+      spess_news_image_url = VALUES(spess_news_image_url),
+      spess_news_published = VALUES(spess_news_published),
       updated_by = VALUES(updated_by),
       updated_at = NOW()
     `,
@@ -3481,6 +3551,11 @@ const saveSiteVisualSettings = async (payload = {}, updatedBy = null) => {
       JSON.stringify(merged.activities_latest_batch),
       merged.activities_latest_day,
       merged.create_community_enabled ? 1 : 0,
+      merged.spess_news_heading || null,
+      merged.spess_news_body || null,
+      merged.spess_news_posted_on || null,
+      merged.spess_news_image_url || null,
+      merged.spess_news_published ? 1 : 0,
       updatedBy ? Number(updatedBy) : null,
     ]
   );
@@ -3490,7 +3565,9 @@ const saveSiteVisualSettings = async (payload = {}, updatedBy = null) => {
     SELECT home_hero_url, boarding_login_url, ark_auth_slides_json AS ark_auth_slides,
            activities_banner_url, contact_hero_url, activities_gallery_json AS activities_gallery,
            activities_latest_batch_json AS activities_latest_batch, activities_latest_day,
-           create_community_enabled, updated_by, updated_at
+           create_community_enabled, spess_news_heading, spess_news_body,
+           spess_news_posted_on, spess_news_image_url, spess_news_published,
+           updated_by, updated_at
     FROM vine_site_visual_settings
     WHERE id = 1
     LIMIT 1
@@ -5862,6 +5939,15 @@ const buildSiteHeroBuffer = async (buffer) => {
   return { buffer: out, mimetype: "image/jpeg" };
 };
 
+const buildSpessNewsImageBuffer = async (buffer) => {
+  const out = await sharp(buffer)
+    .rotate()
+    .resize(1800, 1200, { fit: "cover", position: sharp.strategy.attention })
+    .jpeg({ quality: 86, mozjpeg: true })
+    .toBuffer();
+  return { buffer: out, mimetype: "image/jpeg" };
+};
+
 const buildSiteAuthSlideBuffer = async (buffer) => {
   const out = await sharp(buffer)
     .rotate()
@@ -7774,6 +7860,7 @@ router.post(
   "/auth-theme/cover",
   managedVisualNoCache,
   authenticate,
+  requireR2Storage,
   uploadBannerMemory.single("cover"),
   async (req, res) => {
     try {
@@ -7788,7 +7875,7 @@ router.post(
       const current = await getCurrentVineAuthTheme({ force: true });
       const normalized = await normalizeImageBuffer(req.file);
       const prepared = await buildAuthThemeCoverBuffer(normalized.buffer);
-      const upload = await uploadBufferToCloudinary(prepared.buffer, {
+      const upload = await uploadBufferToR2(prepared.buffer, {
         folder: "vine/auth-theme",
         public_id: `cover-${Date.now()}-${crypto.randomUUID()}`,
         resource_type: "image",
@@ -7875,6 +7962,7 @@ router.post(
   "/site-visuals/home-hero",
   managedVisualNoCache,
   authenticate,
+  requireR2Storage,
   uploadBannerMemory.single("hero"),
   async (req, res) => {
     try {
@@ -7888,7 +7976,7 @@ router.post(
 
       const normalized = await normalizeImageBuffer(req.file);
       const prepared = await buildSiteHeroBuffer(normalized.buffer);
-      const upload = await uploadBufferToCloudinary(prepared.buffer, {
+      const upload = await uploadBufferToR2(prepared.buffer, {
         folder: "vine/site-visuals",
         public_id: `home-hero-${Date.now()}-${crypto.randomUUID()}`,
         resource_type: "image",
@@ -7907,6 +7995,7 @@ router.post(
   "/site-visuals/boarding-login",
   managedVisualNoCache,
   authenticate,
+  requireR2Storage,
   uploadBannerMemory.single("boarding"),
   async (req, res) => {
     try {
@@ -7920,7 +8009,7 @@ router.post(
 
       const normalized = await normalizeImageBuffer(req.file);
       const prepared = await buildBoardingLoginBuffer(normalized.buffer);
-      const upload = await uploadBufferToCloudinary(prepared.buffer, {
+      const upload = await uploadBufferToR2(prepared.buffer, {
         folder: "vine/site-visuals",
         public_id: `boarding-login-${Date.now()}-${crypto.randomUUID()}`,
         resource_type: "image",
@@ -7939,6 +8028,7 @@ router.post(
   "/site-visuals/activities-banner",
   managedVisualNoCache,
   authenticate,
+  requireR2Storage,
   uploadBannerMemory.single("banner"),
   async (req, res) => {
     try {
@@ -7952,7 +8042,7 @@ router.post(
 
       const normalized = await normalizeImageBuffer(req.file);
       const prepared = await buildSiteHeroBuffer(normalized.buffer);
-      const upload = await uploadBufferToCloudinary(prepared.buffer, {
+      const upload = await uploadBufferToR2(prepared.buffer, {
         folder: "vine/site-visuals",
         public_id: `activities-banner-${Date.now()}-${crypto.randomUUID()}`,
         resource_type: "image",
@@ -7971,6 +8061,7 @@ router.post(
   "/site-visuals/contact-hero",
   managedVisualNoCache,
   authenticate,
+  requireR2Storage,
   uploadBannerMemory.single("contact"),
   async (req, res) => {
     try {
@@ -7984,7 +8075,7 @@ router.post(
 
       const normalized = await normalizeImageBuffer(req.file);
       const prepared = await buildSiteHeroBuffer(normalized.buffer);
-      const upload = await uploadBufferToCloudinary(prepared.buffer, {
+      const upload = await uploadBufferToR2(prepared.buffer, {
         folder: "vine/site-visuals",
         public_id: `contact-hero-${Date.now()}-${crypto.randomUUID()}`,
         resource_type: "image",
@@ -8003,6 +8094,7 @@ router.post(
   "/site-visuals/activities-gallery",
   managedVisualNoCache,
   authenticate,
+  requireR2Storage,
   uploadBannerMemory.array("images", 48),
   async (req, res) => {
     try {
@@ -8019,7 +8111,7 @@ router.post(
       for (const file of files) {
         const normalized = await normalizeImageBuffer(file);
         const prepared = await buildSiteAuthSlideBuffer(normalized.buffer);
-        const upload = await uploadBufferToCloudinary(prepared.buffer, {
+        const upload = await uploadBufferToR2(prepared.buffer, {
           folder: "vine/site-visuals",
           public_id: `activities-gallery-${Date.now()}-${crypto.randomUUID()}`,
           resource_type: "image",
@@ -8040,6 +8132,7 @@ router.post(
   "/site-visuals/ark-auth-slides",
   managedVisualNoCache,
   authenticate,
+  requireR2Storage,
   uploadBannerMemory.array("slides", 12),
   async (req, res) => {
     try {
@@ -8056,7 +8149,7 @@ router.post(
       for (const file of files) {
         const normalized = await normalizeImageBuffer(file);
         const prepared = await buildSiteAuthSlideBuffer(normalized.buffer);
-        const upload = await uploadBufferToCloudinary(prepared.buffer, {
+        const upload = await uploadBufferToR2(prepared.buffer, {
           folder: "vine/site-visuals",
           public_id: `ark-auth-slide-${Date.now()}-${crypto.randomUUID()}`,
           resource_type: "image",
@@ -8072,6 +8165,97 @@ router.post(
     }
   }
 );
+
+router.post(
+  "/site-visuals/spess-news-image",
+  managedVisualNoCache,
+  authenticate,
+  requireR2Storage,
+  uploadBannerMemory.single("image"),
+  async (req, res) => {
+    try {
+      const user = req.user || {};
+      if (!isModeratorAccount(user)) {
+        return res.status(403).json({ message: "Only moderators can upload SPESS News images." });
+      }
+      if (!req.file) {
+        return res.status(400).json({ message: "Please choose a news image." });
+      }
+      const normalized = await normalizeImageBuffer(req.file);
+      const prepared = await buildSpessNewsImageBuffer(normalized.buffer);
+      const upload = await uploadBufferToR2(prepared.buffer, {
+        folder: "vine/site-visuals/spess-news",
+        public_id: `news-${Date.now()}-${crypto.randomUUID()}`,
+        resource_type: "image",
+        format: "jpg",
+      });
+
+      res.json({ success: true, url: upload.url, provider: "cloudflare-r2" });
+    } catch (err) {
+      console.error("SPESS News R2 image upload error:", err);
+      res.status(500).json({ message: "Failed to upload SPESS News image" });
+    }
+  }
+);
+
+router.put("/site-visuals/spess-news", managedVisualNoCache, authenticate, async (req, res) => {
+  try {
+    const user = req.user || {};
+    if (!isModeratorAccount(user)) {
+      return res.status(403).json({ message: "Only moderators can publish SPESS News." });
+    }
+
+    const current = await getCurrentSiteVisualSettings({ force: true });
+    const heading = String(req.body?.heading || "").trim();
+    const body = String(req.body?.body || "").trim();
+    const postedOnInput = String(req.body?.posted_on || "").trim();
+    const postedOn = /^\d{4}-\d{2}-\d{2}$/.test(postedOnInput)
+      ? postedOnInput
+      : current.spess_news_posted_on || getSiteVisualsDateStamp();
+    const imageUrl = req.body?.image_url === undefined
+      ? current.spess_news_image_url
+      : String(req.body?.image_url || "").trim();
+    const published = Number(req.body?.published) === 1 || req.body?.published === true;
+
+    if (heading.length > 180) {
+      return res.status(400).json({ message: "SPESS News headings can be up to 180 characters." });
+    }
+    const wordCount = countWords(body);
+    if (wordCount > SPESS_NEWS_MAX_WORDS) {
+      return res.status(400).json({
+        message: `SPESS News can contain up to ${SPESS_NEWS_MAX_WORDS} words. This draft has ${wordCount}.`,
+      });
+    }
+    if (published && (!heading || !body)) {
+      return res.status(400).json({ message: "Add both a heading and story before publishing SPESS News." });
+    }
+    if (imageUrl && !isR2Url(imageUrl)) {
+      return res.status(400).json({ message: "SPESS News images must be stored in Cloudflare R2." });
+    }
+
+    const settings = await saveSiteVisualSettings(
+      {
+        spess_news_heading: heading,
+        spess_news_body: body,
+        spess_news_posted_on: postedOn,
+        spess_news_image_url: imageUrl,
+        spess_news_published: published,
+      },
+      user.id || null
+    );
+
+    if (current.spess_news_image_url && current.spess_news_image_url !== settings.spess_news_image_url) {
+      await deleteR2ObjectByUrl(current.spess_news_image_url);
+    }
+
+    res.json({ success: true, settings });
+  } catch (err) {
+    console.error("SPESS News settings update error:", err);
+    res.status(err?.statusCode || 500).json({
+      message: err?.message || "Failed to save SPESS News",
+    });
+  }
+});
 
 router.put("/site-visuals/settings", managedVisualNoCache, authenticate, async (req, res) => {
   try {

@@ -40,6 +40,11 @@ export const DEFAULT_SITE_VISUALS = {
   activities_latest_batch: DEFAULT_ACTIVITY_GALLERY_IMAGES.slice(0, 6),
   activities_latest_day: null,
   create_community_enabled: true,
+  spess_news_heading: "",
+  spess_news_body: "",
+  spess_news_posted_on: null,
+  spess_news_image_url: "",
+  spess_news_published: false,
 };
 
 let siteVisualCache = DEFAULT_SITE_VISUALS;
@@ -82,6 +87,12 @@ const normalizeSiteVisuals = (value = {}) => {
       value.create_community_enabled === undefined || value.create_community_enabled === null
         ? true
         : Number(value.create_community_enabled) === 1 || value.create_community_enabled === true,
+    spess_news_heading: String(value.spess_news_heading || "").trim(),
+    spess_news_body: String(value.spess_news_body || "").trim(),
+    spess_news_posted_on: String(value.spess_news_posted_on || "").match(/^\d{4}-\d{2}-\d{2}/)?.[0] || null,
+    spess_news_image_url: String(value.spess_news_image_url || "").trim(),
+    spess_news_published:
+      Number(value.spess_news_published) === 1 || value.spess_news_published === true,
     updated_at: value.updated_at || null,
   };
 };
@@ -96,6 +107,7 @@ const toRenderableSiteVisuals = (value = {}) => {
     ark_auth_slides: (normalized.ark_auth_slides || []).map((item) => withCacheBust(item, version)),
     activities_banner_url: withCacheBust(normalized.activities_banner_url, version),
     contact_hero_url: withCacheBust(normalized.contact_hero_url, version),
+    spess_news_image_url: withCacheBust(normalized.spess_news_image_url, version),
     activities_gallery: (normalized.activities_gallery || []).map((item) => withCacheBust(item, version)),
     activities_latest_batch: (normalized.activities_latest_batch || []).map((item) => withCacheBust(item, version)),
   };

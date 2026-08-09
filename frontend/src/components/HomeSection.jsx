@@ -10,77 +10,62 @@ export default function HomeSection() {
 
   return (
     <section id="home" className="home-section">
-      {/* HERO SECTION */}
       <div className="hero">
-        <div className="hero-media" aria-hidden="true">
-          <img
-            src={heroImage}
-            alt=""
-            className="hero-backdrop-image"
-          />
-          <div className="hero-backdrop-tint" />
-        </div>
-
         <img
           src={heroImage}
-          alt="Students of St. Phillip’s Equatorial Secondary School"
+          alt="Students of St. Phillip's Equatorial Secondary School"
           className="hero-main-image"
           loading="eager"
         />
-
-        <div className="hero-overlay" />
+        <div className="hero-image-shade" aria-hidden="true" />
 
         <div className="hero-content">
-          <h1>St. Phillip’s <span>Equatorial SS</span></h1>
-          <p className="hero-motto">
-            Our motto <span>&ldquo;Work and Live by Faith&rdquo;</span>
+          <span className="hero-eyebrow">Faith. Learning. Service.</span>
+          <h1>St. Phillip&apos;s Equatorial Secondary School</h1>
+          <p className="hero-intro">
+            Building disciplined, confident learners in a community where academic growth and faith move together.
           </p>
-          <div className="hero-divider" />
+          <p className="hero-motto">
+            <span>Our motto</span>
+            <strong>Work and Live by Faith</strong>
+          </p>
+
+          <div className="hero-actions" aria-label="School platforms">
+            <Link to="/ark" className="hero-action hero-action-ark">Open SPESS ARK</Link>
+            <Link to="/vine/enter" className="hero-action hero-action-vine">Enter SPESS Vine</Link>
+          </div>
         </div>
       </div>
 
-      {/* INSTITUTIONAL PROFILE & WELCOME */}
-      <div className="welcome-container">
-        <div className="home-content reveal">
-          {/* Label Header */}
-          <div className="profile-label">
-            <span className="dot"></span>
-            WHO WE ARE
-          </div>
-          
-          <h2 className="welcome-title">Welcome to St. Phillip’s</h2>
+      <div className="welcome-container reveal">
+        <header className="welcome-heading">
+          <span>Who we are</span>
+          <h2>A school community shaped by purpose.</h2>
+        </header>
 
-          <div className="profile-body">
-            <p className="lead-text">
-              St. Phillip’s Equatorial Secondary School was founded in 1994 and stands as a
-              proud centre of learning in the Central Buganda Diocese under the Church of
-              Uganda foundation.
-            </p>
-
-            <div className="profile-details">
-              <p>
-                The school serves a diverse population of learners from all walks of life,
-                creating a welcoming community where discipline, faith, and academic growth
-                go hand in hand.
-              </p>
-              <p>
-                We offer both O-Level and A-Level education, and as a government USE school,
-                we remain committed to making quality education accessible while preparing
-                learners for higher studies, service, and responsible citizenship.
-              </p>
-            </div>
-          </div>
+        <div className="welcome-profile">
+          <p className="welcome-lead">
+            Founded in 1994, St. Phillip&apos;s Equatorial Secondary School is a proud centre of learning in the Central Buganda Diocese under the Church of Uganda foundation.
+          </p>
+          <p>
+            We serve learners from all walks of life through O-Level and A-Level education. As a government USE school, we remain committed to accessible, quality education that prepares young people for higher studies, service, and responsible citizenship.
+          </p>
         </div>
-        <div className="vine-entry">
-        <p className="vine-subtext">
-            Find out what’s happening around St. Phillip’s
-        </p>
 
-          <Link to="/vine/enter" className="vine-btn-landing">
-             🌱 Enter Vine
-            </Link>
-</div>
-
+        <dl className="school-facts" aria-label="School profile">
+          <div>
+            <dt>Established</dt>
+            <dd>1994</dd>
+          </div>
+          <div>
+            <dt>Learning pathway</dt>
+            <dd>O-Level &amp; A-Level</dd>
+          </div>
+          <div>
+            <dt>Foundation</dt>
+            <dd>Church of Uganda</dd>
+          </div>
+        </dl>
       </div>
     </section>
   );

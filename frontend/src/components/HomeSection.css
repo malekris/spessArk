@@ -1,249 +1,298 @@
 .home-section {
-  background: #0a0c10;
+  color: #edf4fb;
+  background: #091522;
   overflow: hidden;
 }
 
-/* HERO COVER */
 .hero {
   position: relative;
-  height: 100vh;
-  width: 100%;
+  height: 84svh;
+  min-height: 540px;
+  max-height: 900px;
   display: flex;
   align-items: center;
-  justify-content: center;
-  text-align: center;
   overflow: hidden;
-}
-
-.hero-media {
-  position: absolute;
-  inset: 0;
-  background-color: #07110d;
-  z-index: 1;
-}
-
-.hero-backdrop-image {
-  position: absolute;
-  inset: -6%;
-  width: 112%;
-  height: 112%;
-  object-fit: cover;
-  object-position: center center;
-  filter: blur(22px) saturate(0.95) brightness(0.58);
-  transform: scale(1.1);
-}
-
-.hero-backdrop-tint {
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(circle at center, rgba(8, 20, 16, 0.12) 0%, rgba(4, 10, 8, 0.52) 100%),
-    linear-gradient(to bottom, rgba(4, 10, 8, 0.4), rgba(4, 10, 8, 0.72));
+  background: #09131f;
 }
 
 .hero-main-image {
   position: absolute;
   inset: 0;
-  z-index: 2;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  object-position: center center;
-  padding: 0;
-  filter: drop-shadow(0 24px 60px rgba(0, 0, 0, 0.36));
+  object-position: center;
 }
 
-.hero-overlay {
+.hero-image-shade {
   position: absolute;
   inset: 0;
-  background:
-    linear-gradient(
-      to bottom,
-      rgba(4, 10, 8, 0.42) 0%,
-      rgba(6, 14, 11, 0.26) 34%,
-      rgba(10, 12, 16, 0.94) 100%
-    );
-  z-index: 3;
+  background: rgba(5, 14, 24, 0.62);
 }
 
-/* HERO TYPOGRAPHY */
 .hero-content {
   position: relative;
-  z-index: 4;
-  padding: 0 2rem;
-  transform: translateY(72px);
+  z-index: 1;
+  width: min(1240px, calc(100% - 3rem));
+  margin: 0 auto;
+  padding-top: 4.5rem;
+  color: #ffffff;
 }
 
-.hero-content h1 {
-  font-size: clamp(2.5rem, 8vw, 5rem);
+.hero-eyebrow {
+  display: inline-block;
+  margin-bottom: 1rem;
+  color: #f0ce78;
+  font-size: 0.78rem;
   font-weight: 900;
-  color: #fff;
-  margin: 0;
-  letter-spacing: -0.03em;
-  text-shadow: 0 10px 30px rgba(0,0,0,0.8);
-}
-
-.hero-content h1 span {
-  color: #ef4444;
-}
-
-.hero-content p {
-  font-size: clamp(0.9rem, 2.5vw, 1.3rem);
-  color: #f1f5f9;
-  opacity: 0.9;
-  margin-top: 1rem;
-  font-weight: 500;
-  letter-spacing: 0.15em;
   text-transform: uppercase;
 }
 
+.hero-content h1 {
+  max-width: 920px;
+  margin: 0;
+  font-size: clamp(3rem, 7.4vw, 6.5rem);
+  font-weight: 900;
+  line-height: 0.94;
+  letter-spacing: 0;
+  text-wrap: balance;
+  text-shadow: 0 5px 28px rgba(0, 0, 0, 0.45);
+}
+
+.hero-intro {
+  max-width: 680px;
+  margin: 1.45rem 0 0;
+  color: #e1e9f2;
+  font-size: clamp(1rem, 2vw, 1.22rem);
+  line-height: 1.65;
+}
+
 .hero-motto {
-  display: inline-flex;
+  display: flex;
   flex-wrap: wrap;
+  gap: 0.5rem 0.85rem;
   align-items: center;
-  justify-content: center;
-  gap: 0.45rem;
+  margin: 1.25rem 0 0;
 }
 
 .hero-motto span {
+  color: #9fb0c4;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.hero-motto strong {
+  color: #f4d98f;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.05rem;
   font-style: italic;
-  font-variant: small-caps;
-  letter-spacing: 0.18em;
   font-weight: 700;
 }
 
-.hero-divider {
-  width: 60px;
-  height: 3px;
-  background: #fbbf24;
-  margin: 2.5rem auto 0;
-  border-radius: 10px;
-  box-shadow: 0 0 15px rgba(251, 191, 36, 0.55);
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  margin-top: 2rem;
 }
 
-/* INSTITUTIONAL PROFILE CARD */
-.welcome-container {
-  max-width: 1100px;
-  margin: -120px auto 100px;
-  position: relative;
-  z-index: 10;
-  padding: 0 1.5rem;
-}
-
-.home-content {
-  background: rgba(30, 41, 59, 0.45);
-  backdrop-filter: blur(25px);
-  -webkit-backdrop-filter: blur(25px);
-  border-radius: 40px;
-  padding: 5rem 3rem;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 30px 60px -12px rgba(0, 0, 0, 0.6);
-}
-
-.profile-label {
+.hero-action {
+  min-height: 48px;
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  justify-content: center;
+  padding: 0.82rem 1.15rem;
+  color: #ffffff;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-size: 0.88rem;
+  font-weight: 900;
+  text-decoration: none;
+  transition: transform 160ms ease, background-color 160ms ease, border-color 160ms ease;
+}
+
+.hero-action:hover {
+  transform: translateY(-2px);
+}
+
+.hero-action-ark {
+  background: #176da5;
+  border-color: #69b5e1;
+}
+
+.hero-action-ark:hover {
+  background: #0f5d91;
+}
+
+.hero-action-vine {
+  background: #157255;
+  border-color: #65c6a4;
+}
+
+.hero-action-vine:hover {
+  background: #0e6147;
+}
+
+.welcome-container {
+  width: min(1240px, calc(100% - 3rem));
+  display: grid;
+  grid-template-columns: minmax(250px, 0.7fr) minmax(0, 1.3fr);
+  gap: 2.5rem 5rem;
+  margin: 0 auto;
+  padding: 5.5rem 0 6rem;
+}
+
+.welcome-heading span {
+  color: #966f18;
   font-size: 0.75rem;
   font-weight: 900;
-  color: #a78bfa;
-  letter-spacing: 0.3em;
-  margin-bottom: 1.5rem;
+  text-transform: uppercase;
 }
 
-.profile-label .dot {
-  width: 8px;
-  height: 8px;
-  background: #a78bfa;
-  border-radius: 50%;
-  box-shadow: 0 0 10px #a78bfa;
+.welcome-heading h2 {
+  margin: 0.65rem 0 0;
+  color: #f3f7fb;
+  font-size: clamp(2.1rem, 4vw, 3.4rem);
+  line-height: 1.05;
+  letter-spacing: 0;
 }
 
-.welcome-title {
-  font-size: clamp(2.2rem, 5vw, 3.5rem);
-  font-weight: 800;
-  margin-bottom: 3rem;
-  color: #fff;
-  line-height: 1.1;
-  text-align: center;
+.welcome-profile {
+  padding-left: 2rem;
+  border-left: 4px solid #c69a35;
 }
 
-.profile-body {
-  max-width: 850px;
-  margin: 0 auto;
-  text-align: left;
-}
-
-.lead-text {
-  font-size: 1.3rem;
-  color: #fff;
-  line-height: 1.6;
-  margin-bottom: 2rem;
-  border-left: 4px solid #a78bfa;
-  padding-left: 1.5rem;
-}
-
-.profile-details p {
-  font-size: 1.1rem;
+.welcome-profile p {
+  margin: 0;
+  color: #aebdcd;
+  font-size: 1rem;
   line-height: 1.8;
-  color: #cbd5e1;
-  margin-bottom: 1.5rem;
 }
 
-/* ANIMATIONS */
-@keyframes kenBurns {
-  from { transform: scale(1); }
-  to { transform: scale(1.15); }
+.welcome-profile .welcome-lead {
+  margin-bottom: 1rem;
+  color: #e0e8f0;
+  font-size: 1.18rem;
+  font-weight: 700;
 }
 
-/* MOBILE FIXES */
-@media (max-width: 768px) {
+.school-facts {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  margin: 1rem 0 0;
+  border-top: 1px solid #2c3d50;
+  border-bottom: 1px solid #2c3d50;
+}
+
+.school-facts div {
+  padding: 1.25rem 1.5rem;
+  border-right: 1px solid #2c3d50;
+}
+
+.school-facts div:first-child {
+  padding-left: 0;
+}
+
+.school-facts div:last-child {
+  border-right: 0;
+}
+
+.school-facts dt {
+  margin-bottom: 0.35rem;
+  color: #8495a8;
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.school-facts dd {
+  margin: 0;
+  color: #f1f5f9;
+  font-size: 1.05rem;
+  font-weight: 900;
+}
+
+@media (max-width: 820px) {
+  .hero-content h1 {
+    max-width: 680px;
+  }
+
+  .welcome-container {
+    grid-template-columns: 1fr;
+    gap: 2rem;
+  }
+
+  .welcome-profile {
+    padding-left: 1.25rem;
+  }
+
+  .school-facts {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 620px) {
   .hero {
-    height: 100vh;
+    height: 86svh;
+    min-height: 520px;
   }
 
   .hero-content {
-    transform: translateY(36px);
+    width: min(100% - 2rem, 1240px);
+    padding-top: 3.5rem;
   }
 
-  .welcome-container { margin-top: -60px; }
-  .home-content { padding: 4rem 1.5rem; }
-  .lead-text { font-size: 1.1rem; }
-}
-/* 🌱 SPESS VINE entry on landing page */
+  .hero-content h1 {
+    font-size: clamp(2.55rem, 13vw, 4.2rem);
+  }
 
-.vine-entry {
-  margin-top: 2rem;
-  text-align: center;
-}
+  .hero-intro {
+    max-width: 95%;
+    font-size: 0.98rem;
+  }
 
-.vine-subtext {
-  color: #94a3b8;
-  font-size: 0.95rem;
-  margin-bottom: 0.6rem;
-}
+  .hero-action {
+    flex: 1 1 150px;
+  }
 
-.vine-btn-landing {
-  display: inline-block;
-  background: #16a34a;
-  color: white;
-  padding: 1rem 2.2rem;
-  border-radius: 999px;
-  font-weight: 700;
-  font-size: 1.05rem;
-  text-decoration: none;
-  transition: all 0.2s ease;
-  box-shadow: 0 4px 15px rgba(22, 163, 74, 0.35);
-}
+  .welcome-container {
+    width: min(100% - 2rem, 1240px);
+    padding: 4rem 0;
+  }
 
-@media (min-width: 769px) {
-  .vine-btn-landing {
-    padding: 1.2rem 3.1rem;
-    font-size: 1.2rem;
+  .school-facts {
+    grid-template-columns: 1fr;
+  }
+
+  .school-facts div,
+  .school-facts div:first-child {
+    padding: 1rem 0;
+    border-right: 0;
+    border-bottom: 1px solid #2c3d50;
+  }
+
+  .school-facts div:last-child {
+    border-bottom: 0;
   }
 }
 
-.vine-btn-landing:hover {
-  background: #15803d;
-  transform: translateY(-1px);
+@media (max-height: 620px) and (min-width: 700px) {
+  .hero {
+    height: 92svh;
+    min-height: 500px;
+  }
+
+  .hero-content h1 {
+    font-size: clamp(2.8rem, 8vw, 4.7rem);
+  }
+
+  .hero-intro {
+    margin-top: 0.9rem;
+  }
+
+  .hero-actions {
+    margin-top: 1.2rem;
+  }
 }

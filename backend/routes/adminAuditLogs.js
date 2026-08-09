@@ -76,7 +76,7 @@ router.post("/report-generation", authAdmin, async (req, res) => {
 });
 
 // GET /api/admin/audit-logs
-// Supports: pagination + filters (userId, action, entityType, dateFrom, dateTo)
+// Supports: pagination + filters (userId, role, action, entityType, dateFrom, dateTo)
 router.get("/", authAdmin, async (req, res) => {
   try {
     const page = clamp(Number(req.query.page || 1), 1, 100000);
@@ -90,6 +90,14 @@ router.get("/", authAdmin, async (req, res) => {
     if (Number.isInteger(userId) && userId > 0) {
       where.push("al.user_id = ?");
       params.push(userId);
+    }
+
+    // Dashboard summaries can ask for administrator activity without changing
+    // the complete audit-log response used by the full Audit Log panel.
+    const role = String(req.query.role || "").trim().toLowerCase();
+    if (["admin", "teacher", "system"].includes(role)) {
+      where.push("al.user_role = ?");
+      params.push(role);
     }
 
     const action = String(req.query.action || "").trim();

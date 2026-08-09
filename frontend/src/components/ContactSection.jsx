@@ -21,7 +21,7 @@ export default function ContactSection() {
         style={{ "--contact-hero-image": `url("${contactHeroUrl}")` }}
       >
         <div className="banner-content">
-          <h1>Get in <span>Touch</span></h1>
+          <h2>Get in <span>Touch</span></h2>
           <p>Official communication channels for St. Phillip’s Equatorial Secondary School.</p>
         </div>
       </div>
@@ -32,7 +32,7 @@ export default function ContactSection() {
           {/* 1. YouTube Card */}
           <div className="contact-card">
             <div className="card-header">
-              <span className="icon">📺</span>
+              <span className="contact-card-index" aria-hidden="true">01</span>
               <h3>Digital Media</h3>
             </div>
             <div className="embed-wrapper">
@@ -49,7 +49,7 @@ export default function ContactSection() {
           {/* 2. Contact Form Card (NEW) */}
           <div className="contact-card form-card">
             <div className="card-header">
-              <span className="icon">✉️</span>
+              <span className="contact-card-index" aria-hidden="true">02</span>
               <h3>Send a Message</h3>
             </div>
             <form onSubmit={handleSubmit} className="contact-form">
@@ -78,7 +78,7 @@ export default function ContactSection() {
           {/* 3. Google Maps Card */}
           <div className="contact-card">
             <div className="card-header">
-              <span className="icon">📍</span>
+              <span className="contact-card-index" aria-hidden="true">03</span>
               <h3>Our Location</h3>
             </div>
             <div className="embed-wrapper">

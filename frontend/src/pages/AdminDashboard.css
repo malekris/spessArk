@@ -318,6 +318,58 @@
   margin-top: 1rem;
 }
 
+.school-stats-pdf-button {
+  width: 100%;
+  min-height: 58px;
+  margin-top: 1.2rem;
+  padding: 0.7rem 1.1rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  border: 1px solid #e8bd45;
+  border-radius: 8px;
+  background: #d9a928;
+  color: #241b05;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 900;
+  letter-spacing: 0;
+  cursor: pointer;
+  box-shadow: 0 10px 24px rgba(217, 169, 40, 0.2);
+  transition: background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.school-stats-pdf-button:hover {
+  border-color: #f2cf69;
+  background: #e8bd45;
+  box-shadow: 0 13px 28px rgba(217, 169, 40, 0.28);
+  transform: translateY(-1px);
+}
+
+.school-stats-pdf-button:focus-visible {
+  outline: 3px solid rgba(250, 204, 21, 0.24);
+  outline-offset: 3px;
+}
+
+.school-stats-pdf-button:active {
+  transform: translateY(0);
+}
+
+.school-stats-pdf-mark {
+  min-width: 35px;
+  height: 30px;
+  padding-inline: 0.35rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(36, 27, 5, 0.34);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.22);
+  font-size: 0.65rem;
+  font-weight: 950;
+}
+
 .admin-ops-card {
   padding: 1rem 1.05rem;
   border-radius: 1.1rem;

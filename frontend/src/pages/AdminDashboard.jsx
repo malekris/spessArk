@@ -9,11 +9,17 @@ import MiniProgressReports from "./MiniProgressReports";
 import { useNavigate } from "react-router-dom";
 import useIdleSessionPrompt from "../hooks/useIdleSessionPrompt";
 import EnrollmentInsightsPanel from "../components/EnrollmentInsightsPanel";
-import EnrollmentCharts from "../components/EnrollmentCharts";
 import AssessmentSubmissionTracker from "../components/AssessmentSubmissionTracker";
 import AuditLogsPanel from "../components/AuditLogsPanel";
 import PromotionPanel from "../components/PromotionPanel";
 import EmisRegistrationPanel from "../components/EmisRegistrationPanel";
+import RegisterHealthCard from "../components/admin-dashboard/RegisterHealthCard";
+import ComingUpCard from "../components/admin-dashboard/ComingUpCard";
+import RecentAdminActivityCard from "../components/admin-dashboard/RecentAdminActivityCard";
+import LatestMarksActivityCard from "../components/admin-dashboard/LatestMarksActivityCard";
+import SystemReadinessCard from "../components/admin-dashboard/SystemReadinessCard";
+import LearnerMovementCard from "../components/admin-dashboard/LearnerMovementCard";
+import "../components/admin-dashboard/AdminDashboardPulseCards.css";
 import { loadPdfTools } from "../utils/loadPdfTools";
 import {
   DEFAULT_SCHOOL_CALENDAR,
@@ -544,7 +550,6 @@ export default function AdminDashboard() {
 
   /* -------------------- UI state -------------------- */
   const [activeSection, setActiveSection] = useState("");
-  const [showEnrollmentChartsModal, setShowEnrollmentChartsModal] = useState(false);
   const [adminSettingsOpen, setAdminSettingsOpen] = useState(false);
   const [adminSettingsMode, setAdminSettingsMode] = useState("password");
   const [adminSettingsForm, setAdminSettingsForm] = useState({
@@ -3066,32 +3071,6 @@ export default function AdminDashboard() {
     }
     return true;
   });
-    /* ---------- Enrollment breakdown by stream / class / gender ---------- */
-  const enrollmentByStreamClassGender = React.useMemo(
-    () => buildEnrollmentByStreamClassGenderMap(activeStudents),
-    [activeStudents]
-  );
-  const enrollmentByClassWithOrderedStreams = React.useMemo(() => {
-    const byClass = {};
-    Object.entries(enrollmentByStreamClassGender).forEach(([stream, classes]) => {
-      Object.entries(classes || {}).forEach(([cls, stats]) => {
-        if (!byClass[cls]) byClass[cls] = {};
-        byClass[cls][stream] = stats;
-      });
-    });
-
-    const classOrder = Object.keys(byClass).sort((a, b) => {
-      const na = Number(String(a).replace(/[^\d]/g, ""));
-      const nb = Number(String(b).replace(/[^\d]/g, ""));
-      if (Number.isNaN(na) || Number.isNaN(nb)) return String(a).localeCompare(String(b));
-      return na - nb;
-    });
-
-    return classOrder.map((cls) => ({
-      cls,
-      streams: byClass[cls] || {},
-    }));
-  }, [enrollmentByStreamClassGender]);
   // derived grouping
   const groupedMarkSets = useMemo(() => {
     const map = {};
@@ -3372,28 +3351,6 @@ export default function AdminDashboard() {
   const dashboardTotalBoys = dashboardStudents.filter((s) => s.gender === "Male").length;
   const dashboardTotalGirls = dashboardStudents.filter((s) => s.gender === "Female").length;
   const dashboardTotalTeachers = dashboardTeachers.length;
-  const dashboardEnrollmentByStreamClassGender = buildEnrollmentByStreamClassGenderMap(dashboardStudents);
-  const dashboardEnrollmentByClassWithOrderedStreams = React.useMemo(() => {
-    const byClass = {};
-    Object.entries(dashboardEnrollmentByStreamClassGender).forEach(([stream, classes]) => {
-      Object.entries(classes || {}).forEach(([cls, stats]) => {
-        if (!byClass[cls]) byClass[cls] = {};
-        byClass[cls][stream] = stats;
-      });
-    });
-
-    const classOrder = Object.keys(byClass).sort((a, b) => {
-      const na = Number(String(a).replace(/[^\d]/g, ""));
-      const nb = Number(String(b).replace(/[^\d]/g, ""));
-      if (Number.isNaN(na) || Number.isNaN(nb)) return String(a).localeCompare(String(b));
-      return na - nb;
-    });
-
-    return classOrder.map((cls) => ({
-      cls,
-      streams: byClass[cls] || {},
-    }));
-  }, [dashboardEnrollmentByStreamClassGender]);
   const assessmentCompliance = useMemo(() => {
     if (dashboardSnapshot?.assessmentCompliance) {
       return dashboardSnapshot.assessmentCompliance;
@@ -5601,152 +5558,56 @@ export default function AdminDashboard() {
     </div>
   </div>
 
-  {/* ================= BIGASS BREAKDOWN CARD ================= */}
-  <div
-    style={{
-      marginTop: "1.6rem",
-      padding: "1.1rem",
-      borderRadius: "1.2rem",
-      background:
-        "linear-gradient(135deg, rgba(15,23,42,0.95), rgba(30,41,59,0.95))",
-      border: "1px solid rgba(148,163,184,0.35)",
-      boxShadow: "0 22px 60px rgba(0,0,0,0.6)",
-    }}
+  <button
+    type="button"
+    className="school-stats-pdf-button"
+    onClick={handleDownloadEnrollmentSummaryPdf}
   >
-    <div
-      style={{
-        fontSize: "0.85rem",
-        textTransform: "uppercase",
-        letterSpacing: "0.18em",
-        color: "#93c5fd",
-        marginBottom: "0.6rem",
-      }}
-    >
-      Enrollment Breakdown by Stream • Class • Gender
-    </div>
+    <span className="school-stats-pdf-mark" aria-hidden="true">PDF</span>
+    <span>School Statistics PDF</span>
+  </button>
 
-    {Object.keys(dashboardEnrollmentByStreamClassGender).length === 0 ? (
-      <p className="muted-text">No enrollment data available.</p>
-    ) : (
-      dashboardEnrollmentByClassWithOrderedStreams.map(({ cls, streams }) => {
-        const north = streams.North || streams.NORTH || { Male: 0, Female: 0, total: 0 };
-        const south = streams.South || streams.SOUTH || { Male: 0, Female: 0, total: 0 };
-        const classCombinedTotal = (north.total || 0) + (south.total || 0);
-        const ordered = [
-          { label: "North", stats: north, isSouth: false },
-          { label: "South", stats: south, isSouth: true },
-        ];
-
-        return (
-          <div key={cls} style={{ marginBottom: "0.85rem" }}>
-            <h3
-              style={{
-                marginBottom: "0.4rem",
-                color: "#e5e7eb",
-                fontSize: "0.98rem",
-              }}
-            >
-              Class {cls}
-            </h3>
-
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                gap: "0.5rem",
-              }}
-            >
-              {ordered.map(({ label, stats, isSouth }) => (
-                <div
-                  key={`${cls}-${label}`}
-                  style={{
-                    padding: "0.7rem 0.8rem",
-                    borderRadius: "0.75rem",
-                    background: "rgba(15,23,42,0.9)",
-                    border: "1px solid rgba(148,163,184,0.25)",
-                  }}
-                >
-                  <div
-                    style={{
-                      fontSize: "0.7rem",
-                      textTransform: "uppercase",
-                      letterSpacing: "0.14em",
-                      color: "#9ca3af",
-                      marginBottom: "0.18rem",
-                    }}
-                  >
-                    Stream {label}
-                  </div>
-
-                  <div style={{ fontSize: "0.82rem", lineHeight: 1.35 }}>
-                    👦 Boys: <strong>{stats.Male || 0}</strong>
-                    <br />
-                    👧 Girls: <strong>{stats.Female || 0}</strong>
-                  </div>
-                  <div
-                    style={{
-                      marginTop: "0.25rem",
-                      fontSize: "0.8rem",
-                      color: "#93c5fd",
-                    }}
-                  >
-                    Total: <strong>{stats.total || 0}</strong>
-                  </div>
-                  {isSouth && (
-                    <div
-                      style={{
-                        marginTop: "0.2rem",
-                        fontSize: "0.8rem",
-                        color: "#fcd34d",
-                      }}
-                    >
-                      Total = <strong>{classCombinedTotal}</strong>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        );
-      })
-    )}
-  </div>
-  <div
-    style={{
-      marginTop: "1.2rem",
-      padding: "1.2rem",
-      borderRadius: "1rem",
-      background: "rgba(15,23,42,0.88)",
-      border: "1px solid rgba(148,163,184,0.35)",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "space-between",
-      gap: "1rem",
-    }}
-  >
-    <div>
-      <div
-        style={{
-          fontSize: "0.85rem",
-          textTransform: "uppercase",
-          letterSpacing: "0.14em",
-          color: "#93c5fd",
-          marginBottom: "0.25rem",
-        }}
-      >
-        Enrollment Breakdown by Stream • Class • Gender
-      </div>
-      <div style={{ fontSize: "0.88rem", color: "#cbd5e1" }}>
-        Charts are now available in a focused modal view.
-      </div>
-    </div>
-    <button
-      type="button"
-      className="primary-btn"
-      onClick={() => setShowEnrollmentChartsModal(true)}
-    >
-      View Charts
-    </button>
+  <div className="admin-pulse-grid">
+    <RegisterHealthCard
+      oLevelLearners={dashboardStudents}
+      aLevelLearners={dashboardALevelLearners}
+      academicYear={dashboardViewYear}
+      onReviewLearners={() => setActiveSection("Add Students")}
+    />
+    <ComingUpCard
+      timelineEntries={schoolCalendarTimelineEntries}
+      calendarBadge={schoolCalendarBadge}
+      academicYear={schoolCalendarForm.academicYear}
+      onOpenCalendar={() => setActiveSection("School Calendar")}
+    />
+    <RecentAdminActivityCard
+      academicYear={dashboardViewYear}
+      onOpenAuditLog={() => setActiveSection("Audit Log")}
+    />
+    <LatestMarksActivityCard
+      oLevelMarks={dashboardMarksSets}
+      aLevelMarks={dashboardALevelMarksSets}
+      term={dashboardViewTerm}
+      academicYear={dashboardViewYear}
+      onOpenMarks={() => setActiveSection("Download Marks")}
+    />
+    <SystemReadinessCard
+      calendarStatus={schoolCalendarBadge.status}
+      learnerCount={dashboardStudents.length + dashboardALevelLearners.length}
+      oLevelAssignmentCount={dashboardOLevelAssignmentsOverview.length}
+      aLevelAssignmentCount={dashboardALevelAssignmentsOverview.length}
+      backupStatus={databaseBackupStatus}
+      backupError={databaseBackupStatusError || databaseBackupStatus.statusError}
+      maintenanceEnabled={maintenanceSettings.enabled}
+      dashboardLoading={dashboardSnapshotLoading}
+      dashboardError={dashboardSnapshotError}
+    />
+    <LearnerMovementCard
+      oLevelLearners={dashboardStudentsSource}
+      aLevelLearners={dashboardALevelLearners}
+      academicYear={dashboardViewYear}
+      onOpenPromotions={() => setActiveSection("Learner Promotion")}
+    />
   </div>
 
   <div className="admin-ops-grid">
@@ -6368,64 +6229,6 @@ export default function AdminDashboard() {
             setEditingStudent(null);
           }}
         />
-      )}
-
-      {showEnrollmentChartsModal && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(2,6,23,0.72)",
-            backdropFilter: "blur(3px)",
-            zIndex: 9999,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: "1.2rem",
-          }}
-          onClick={() => setShowEnrollmentChartsModal(false)}
-        >
-          <div
-            style={{
-              width: "min(1200px, 100%)",
-              maxHeight: "90vh",
-              overflowY: "auto",
-              borderRadius: "1rem",
-              background: "linear-gradient(135deg, rgba(15,23,42,0.98), rgba(30,41,59,0.98))",
-              border: "1px solid rgba(148,163,184,0.35)",
-              boxShadow: "0 28px 70px rgba(2,6,23,0.75)",
-              padding: "1.2rem",
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                marginBottom: "0.8rem",
-              }}
-            >
-              <h3 style={{ margin: 0, color: "#e5e7eb" }}>
-                Enrollment Breakdown by Stream • Class • Gender
-              </h3>
-              <div style={{ display: "flex", gap: "0.5rem" }}>
-                <button type="button" className="ghost-btn" onClick={handleDownloadEnrollmentSummaryPdf}>
-                  PDF
-                </button>
-                <button
-                  type="button"
-                  className="ghost-btn"
-                  onClick={() => setShowEnrollmentChartsModal(false)}
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-
-            <EnrollmentCharts enrollmentData={dashboardEnrollmentByStreamClassGender} />
-          </div>
-        </div>
       )}
 
       {showStudentSaveConfirm && pendingStudentSave && (

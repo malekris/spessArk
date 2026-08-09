@@ -32,8 +32,18 @@ export default function ActivitiesSection() {
     setShowHint(false);
   };
 
-  const showNext = () => setActiveIndex((prev) => (prev + 1) % images.length);
-  const showPrev = () => setActiveIndex((prev) => (prev === 0 ? images.length - 1 : prev - 1));
+  const showNext = () => {
+    setActiveIndex((prev) => (prev + 1) % images.length);
+    setShowHint(true);
+  };
+  const showPrev = () => {
+    setActiveIndex((prev) => (prev === 0 ? images.length - 1 : prev - 1));
+    setShowHint(true);
+  };
+  const openLightbox = (index) => {
+    setActiveIndex(index);
+    setShowHint(true);
+  };
 
   /* ---------------- DOWNLOAD LOGIC ---------------- */
   const handleDownload = (e) => {
@@ -75,35 +85,28 @@ export default function ActivitiesSection() {
   useEffect(() => {
     const handleKey = (e) => {
       if (activeIndex === null) return;
-      if (e.key === "ArrowRight") showNext();
-      if (e.key === "ArrowLeft") showPrev();
-      if (e.key === "Escape") closeLightbox();
+      if (e.key === "ArrowRight") {
+        setActiveIndex((prev) => (prev + 1) % images.length);
+        setShowHint(true);
+      }
+      if (e.key === "ArrowLeft") {
+        setActiveIndex((prev) => (prev === 0 ? images.length - 1 : prev - 1));
+        setShowHint(true);
+      }
+      if (e.key === "Escape") {
+        setActiveIndex(null);
+        setShowHint(false);
+      }
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [activeIndex]);
+  }, [activeIndex, images.length]);
 
   useEffect(() => {
-    if (activeIndex !== null) {
-      setShowHint(true);
-      const timer = setTimeout(() => setShowHint(false), 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [activeIndex]);
-
-  useEffect(() => {
-    if (!images.length) {
-      setVisibleCount(0);
-      return;
-    }
-
-    setVisibleCount((prev) => {
-      const initialVisible = Math.min(INITIAL_VISIBLE_ACTIVITY_IMAGES, images.length);
-      if (!prev) return initialVisible;
-      if (prev > images.length) return images.length;
-      return prev;
-    });
-  }, [images.length]);
+    if (activeIndex === null || !showHint) return undefined;
+    const timer = setTimeout(() => setShowHint(false), 3000);
+    return () => clearTimeout(timer);
+  }, [activeIndex, showHint]);
 
   const handleShowMore = () => {
     setVisibleCount((prev) =>
@@ -119,7 +122,7 @@ export default function ActivitiesSection() {
         style={{ "--activities-banner-image": `url("${activitiesBannerUrl}")` }}
       >
         <div className="banner-content">
-          <h1>Life at <span>St. Phillip's</span></h1>
+          <h2>Life at <span>St. Phillip&apos;s</span></h2>
           <p>Moments of excellence, sportsmanship, and student engagement.</p>
         </div>
       </div>
@@ -135,7 +138,7 @@ export default function ActivitiesSection() {
         )}
         <div className="activities-grid">
           {visibleImages.map((src, i) => (
-            <div key={i} className="activity-card" onClick={() => setActiveIndex(i)}>
+            <div key={i} className="activity-card" onClick={() => openLightbox(i)}>
               {latestImageUrls.has(src) && <div className="activity-badge">Latest</div>}
               <img src={src} alt={`Activity ${i + 1}`} loading="lazy" />
               <div className="card-overlay">VIEW</div>

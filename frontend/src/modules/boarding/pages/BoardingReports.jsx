@@ -41,21 +41,9 @@ const statTileStyle = {
 const BOARDING_COMMENT_BANKS = {
   headTeacher: {
     pending: [
-      "Weekend assessment records for this learner are still coming in. The learner should keep attending all sessions and follow up on pending work.",
-      "This report is waiting for more weekend assessment entries. Continued attendance and timely completion of work are encouraged.",
-      "More weekend assessment evidence is still needed before a fuller picture can be formed. The learner should remain consistent.",
-    ],
-    missed: [
-      "Several weekend assessments were missed. The learner should meet the subject teachers promptly and complete the missed work.",
-      "There are missed weekend assessments on record. Immediate follow-up with the teachers is strongly advised.",
-      "Missed weekend assessments have affected the learner's record. The learner should clear the missed work without delay.",
-      "This report shows missed weekend assessments. Serious follow-up with the teachers is needed so that the learner catches up.",
-    ],
-    incomplete: [
-      "Some subjects are still pending weekend assessment scores. The learner should continue consulting the teachers on the outstanding subjects.",
-      "A number of weekend assessment subjects are still incomplete. The learner should keep following up until the full record is in place.",
-      "This progress report is based on partial weekend assessment evidence. The learner should complete the remaining subject records.",
-      "Not all weekend assessment subjects are on record yet. The learner should remain committed and clear the pending areas.",
+      "The learner is encouraged to remain focused, disciplined, and committed to steady academic improvement.",
+      "The learner should continue applying consistent effort and respond positively to academic guidance.",
+      "Continued focus, regular revision, and a positive attitude toward learning are encouraged.",
     ],
     high: [
       "Outstanding progress has been maintained in the weekend assessments. The learner should keep up the same discipline.",
@@ -84,21 +72,9 @@ const BOARDING_COMMENT_BANKS = {
   },
   dos: {
     pending: [
-      "The academic record for this term is still incomplete. The learner should ensure that all weekend assessment entries are captured.",
-      "More weekend assessment data is still pending. The learner is advised to remain regular and complete every required task.",
-      "This term's weekend assessment record is not yet complete. Continued follow-up on pending subjects is necessary.",
-    ],
-    missed: [
-      "Missed weekend assessments have affected the learner's academic profile. The learner should report to the relevant teachers for guidance.",
-      "There are several missed weekend assessments in this record. The learner should prioritise clearing the missed work.",
-      "The learner's performance record is incomplete because of missed weekend assessments. Immediate academic follow-up is advised.",
-      "The learner has missed important weekend assessments. Prompt consultation with the teachers is required.",
-    ],
-    incomplete: [
-      "This report reflects the subjects captured so far. The learner should ensure that all remaining weekend assessment subjects are completed.",
-      "Some weekend assessment subjects are still awaiting scores. The learner should continue following up on the outstanding work.",
-      "The current report is based on partial subject coverage. The learner should keep working to complete the full record.",
-      "There are still pending weekend assessment subjects on this report. The learner should clear the remaining subjects.",
+      "The learner is encouraged to maintain regular study, respond to guidance, and work steadily toward stronger performance.",
+      "Consistent revision, concentration, and a positive response to academic guidance are encouraged.",
+      "The learner should remain committed to steady academic growth and make good use of every learning opportunity.",
     ],
     high: [
       "The learner is demonstrating strong academic command in the weekend programme. This standard should be maintained.",
@@ -173,33 +149,24 @@ const hasReportableSubjectRecord = (row) => {
   return submittedCount > 0 || missedCount > 0 || statusText === "missed";
 };
 
-const getCommentBand = (report) => {
-  const average = Number(report?.overall_average);
-  const missedCount = Number(report?.missed_assessment_count || 0);
-  const registeredCount = Number(report?.registered_subject_count || 0);
-  const scoredCount = Number(report?.scored_subject_count || 0);
-
-  if (!Number.isFinite(average) || scoredCount === 0) {
+// Leadership comments deliberately reflect submitted performance only. Boarding
+// subject coverage can vary, so missed or incomplete counts must not shape them.
+const getAverageOnlyCommentBand = (report) => {
+  const rawAverage = report?.overall_average;
+  if (rawAverage === null || rawAverage === undefined || rawAverage === "") {
     return "pending";
   }
-  if (missedCount >= 2) {
-    return "missed";
-  }
-  if (registeredCount > 0 && scoredCount < registeredCount) {
-    return "incomplete";
-  }
-  if (average >= 2.5) {
-    return "high";
-  }
-  if (average >= 1.5) {
-    return "mid";
-  }
+
+  const average = Number(rawAverage);
+  if (!Number.isFinite(average)) return "pending";
+  if (average >= 2.5) return "high";
+  if (average >= 1.5) return "mid";
   return "low";
 };
 
 const getRoleComment = (report, role) => {
   const banks = BOARDING_COMMENT_BANKS[role] || BOARDING_COMMENT_BANKS.headTeacher;
-  const band = getCommentBand(report);
+  const band = getAverageOnlyCommentBand(report);
   const options = banks[band] || banks.mid;
   const seed = `${role}-${report?.id || "0"}-${report?.name || ""}-${report?.class_level || ""}-${band}-${report?.overall_average || "na"}`;
   return pickComment(options, seed);

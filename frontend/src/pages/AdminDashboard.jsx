@@ -2817,10 +2817,21 @@ export default function AdminDashboard() {
       return `"${str}"`;
     };
 
+    const formatCsvDob = (value) => {
+      const rawValue = String(value || "").trim();
+      if (!rawValue) return "";
+
+      const isoDate = rawValue.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (!isoDate) return rawValue;
+      return `${isoDate[3]}/${isoDate[2]}/${isoDate[1]}`;
+    };
+
     const rows = list.map((s, idx) => {
       return [
         idx + 1,
+        s.id ?? "",
         s.name || "",
+        formatCsvDob(s.dob),
         s.gender || "",
         s.class_level || "",
         s.stream || "",
@@ -2828,7 +2839,7 @@ export default function AdminDashboard() {
       ];
     });
 
-    const header = ["#", "Name", "Gender", "Class", "Stream", "Score"];
+    const header = ["#", "Learner ID", "Name", "Date of Birth", "Gender", "Class", "Stream", "Score"];
     const csv = [
       header.map(csvEscape).join(","),
       ...rows.map((r) => r.map(csvEscape).join(",")),

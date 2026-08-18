@@ -19,6 +19,7 @@ import RecentAdminActivityCard from "../components/admin-dashboard/RecentAdminAc
 import LatestMarksActivityCard from "../components/admin-dashboard/LatestMarksActivityCard";
 import SystemReadinessCard from "../components/admin-dashboard/SystemReadinessCard";
 import LearnerMovementCard from "../components/admin-dashboard/LearnerMovementCard";
+import OLevelReportReadinessCard from "../components/admin-dashboard/OLevelReportReadinessCard";
 import "../components/admin-dashboard/AdminDashboardPulseCards.css";
 import { loadPdfTools } from "../utils/loadPdfTools";
 import {
@@ -5621,6 +5622,17 @@ export default function AdminDashboard() {
     />
   </div>
 
+  <OLevelReportReadinessCard
+    assignments={dashboardOLevelAssignmentsOverview}
+    marksSets={dashboardMarksSets}
+    term={dashboardViewTerm}
+    academicYear={dashboardViewYear}
+    loading={dashboardSnapshotLoading || loadingMarksSets}
+    error={marksError}
+    onRefresh={() => fetchDashboardSnapshot(dashboardViewYear)}
+    onOpenTracker={() => setActiveSection("Assessment Submission Tracker")}
+  />
+
   <div className="admin-ops-grid">
     <article className="admin-ops-card admin-ops-card-utility">
       <div className="admin-ops-card-head">
@@ -5922,8 +5934,8 @@ export default function AdminDashboard() {
         <article className="admin-ops-card">
           <div className="admin-ops-card-head">
             <div>
-              <h3>Report Readiness</h3>
-              <p>Ready = learner has at least one submitted score this term</p>
+              <h3>Learner Score Coverage</h3>
+              <p>Learners with at least one submitted score this term</p>
             </div>
             <span className="admin-ops-badge admin-ops-badge-rose">{reportReadinessCard.combined.readinessPercent}%</span>
           </div>
@@ -5942,8 +5954,8 @@ export default function AdminDashboard() {
               onClick={() => handleDownloadReadinessDetailsPdf("oLevel")}
             >
               {readinessPdfLoadingLevel === "oLevel"
-                ? "Opening O-Level readiness PDF…"
-                : `${reportReadinessCard.oLevel.incompleteLearners} learners still incomplete • Open PDF`}
+                ? "Opening O-Level coverage PDF…"
+                : `${reportReadinessCard.oLevel.incompleteLearners} learners have no scores • Open PDF`}
             </button>
           </div>
           <div className="admin-ops-meter-block">
@@ -5961,8 +5973,8 @@ export default function AdminDashboard() {
               onClick={() => handleDownloadReadinessDetailsPdf("aLevel")}
             >
               {readinessPdfLoadingLevel === "aLevel"
-                ? "Opening A-Level readiness PDF…"
-                : `${reportReadinessCard.aLevel.incompleteLearners} learners still incomplete • Open PDF`}
+                ? "Opening A-Level coverage PDF…"
+                : `${reportReadinessCard.aLevel.incompleteLearners} learners have no scores • Open PDF`}
             </button>
           </div>
           {reportReadinessError && (

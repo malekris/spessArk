@@ -1,6 +1,7 @@
 // src/pages/TeacherDashboard.jsx
 import React, { useEffect, useState, useCallback } from "react";
 import "./AdminDashboard.css";
+import "./TeacherDashboard.css";
 import badge from "../assets/badge.png";
 import useIdleSessionPrompt from "../hooks/useIdleSessionPrompt";
 import { useNavigate } from "react-router-dom";
@@ -2911,13 +2912,14 @@ useEffect(() => {
                 </div>
               ) : (
                 <div
-                  className="teachers-table-wrapper"
+                  className="teachers-table-wrapper teacher-score-table-shell"
                   style={{ maxWidth: "100%", maxHeight: "62vh", overflowX: "auto", overflowY: "auto", WebkitOverflowScrolling: "touch" }}
                 >
-                  <table className="teachers-table" style={{ minWidth: `${learnersTableMinWidth}px` }}>
+                  <table className="teachers-table teacher-score-table" style={{ minWidth: `${learnersTableMinWidth}px` }}>
                     <thead>
                       <tr>
                         <th
+                          className="teacher-score-learner-heading"
                           style={{
                             ...(isMobileTable
                               ? {
@@ -2926,8 +2928,6 @@ useEffect(() => {
                                   zIndex: 8,
                                   minWidth: "84px",
                                   maxWidth: "84px",
-                                  background: "#0f172a",
-                                  borderRight: "1px solid rgba(148, 163, 184, 0.24)",
                                 }
                               : {
                                   position: "sticky",
@@ -2935,8 +2935,6 @@ useEffect(() => {
                                   zIndex: 8,
                                   minWidth: `${learnerColWidth}px`,
                                   maxWidth: `${learnerColWidth}px`,
-                                  background: "#0f172a",
-                                  borderRight: "1px solid rgba(148, 163, 184, 0.24)",
                                 }),
                           }}
                         >
@@ -2960,41 +2958,19 @@ useEffect(() => {
                         {renderAoiColumns.map((c) => (
                           <th
                             key={c}
+                            className={activeFocusColumn === c ? "is-focused" : ""}
                             onClick={() => setFocusedColumn(c)}
-                            style={{
-                              cursor: "pointer",
-                              background: activeFocusColumn === c
-                                ? "linear-gradient(180deg, rgba(14, 165, 233, 0.26), rgba(56, 189, 248, 0.14))"
-                                : undefined,
-                              color: activeFocusColumn === c ? "#e0f2fe" : undefined,
-                              boxShadow: activeFocusColumn === c
-                                ? "inset 0 0 0 1px rgba(125, 211, 252, 0.3)"
-                                : undefined,
-                              borderBottom: activeFocusColumn === c
-                                ? "2px solid rgba(125, 211, 252, 0.8)"
-                                : undefined,
-                            }}
+                            title={`Focus ${formatColumnLabel(c)} marks`}
                           >
                             {formatColumnLabel(c)}
                           </th>
                         ))}
-                        <th>Avg</th>
+                        <th className="teacher-score-average-heading">Average</th>
                         {hasExam80Column && (
                           <th
+                            className={activeFocusColumn === "EXAM80" ? "is-focused" : ""}
                             onClick={() => setFocusedColumn("EXAM80")}
-                            style={{
-                              cursor: "pointer",
-                              background: activeFocusColumn === "EXAM80"
-                                ? "linear-gradient(180deg, rgba(14, 165, 233, 0.26), rgba(56, 189, 248, 0.14))"
-                                : undefined,
-                              color: activeFocusColumn === "EXAM80" ? "#e0f2fe" : undefined,
-                              boxShadow: activeFocusColumn === "EXAM80"
-                                ? "inset 0 0 0 1px rgba(125, 211, 252, 0.3)"
-                                : undefined,
-                              borderBottom: activeFocusColumn === "EXAM80"
-                                ? "2px solid rgba(125, 211, 252, 0.8)"
-                                : undefined,
-                            }}
+                            title="Focus examination marks"
                           >
                             /80
                           </th>
@@ -3003,14 +2979,14 @@ useEffect(() => {
                     </thead>
                     <tbody>
                       {visibleStudents.length > 0 ? (
-                        visibleStudents.map((s) => {
+                        visibleStudents.map((s, studentIndex) => {
                         const marksForS = studentMarks[s.id] || {};
                         const statusForS = studentStatus[s.id] || {};
-                        const stickyRowBg = "#0f172a";
 
                         return (
-                          <tr key={s.id}>
+                          <tr key={s.id} className="teacher-score-row">
                             <td
+                              className="teacher-score-learner-cell"
                               style={{
                                 ...(isMobileTable
                                   ? {
@@ -3019,8 +2995,6 @@ useEffect(() => {
                                       zIndex: 4,
                                       minWidth: "84px",
                                       maxWidth: "84px",
-                                      background: stickyRowBg,
-                                      borderRight: "1px solid rgba(148, 163, 184, 0.22)",
                                     }
                                   : {
                                       position: "sticky",
@@ -3028,12 +3002,13 @@ useEffect(() => {
                                       zIndex: 4,
                                       minWidth: `${learnerColWidth}px`,
                                       maxWidth: `${learnerColWidth}px`,
-                                      background: stickyRowBg,
-                                      borderRight: "1px solid rgba(148, 163, 184, 0.22)",
                                     }),
                               }}
                             >
-                              {s.name}
+                              <span className="teacher-score-row-number">
+                                {String(studentIndex + 1).padStart(2, "0")}
+                              </span>
+                              <span className="teacher-score-learner-name">{s.name}</span>
                             </td>
                             <td
                               style={{
@@ -3048,7 +3023,7 @@ useEffect(() => {
                                     }),
                               }}
                             >
-                              {s.gender}
+                              <span className="teacher-score-gender">{s.gender || "—"}</span>
                             </td>
 
                             {renderAoiColumns.map((aoi) => {
@@ -3060,30 +3035,24 @@ useEffect(() => {
                               return (
                                 <td
                                   key={aoi}
-                                  style={{
-                                    background: activeFocusColumn === aoi
-                                      ? "linear-gradient(180deg, rgba(56, 189, 248, 0.12), rgba(14, 165, 233, 0.04))"
-                                      : undefined,
-                                    boxShadow: activeFocusColumn === aoi
-                                      ? "inset 0 0 0 1px rgba(125, 211, 252, 0.2)"
-                                      : undefined,
-                                  }}
+                                  className={activeFocusColumn === aoi ? "teacher-score-entry-cell is-focused" : "teacher-score-entry-cell"}
                                 >
-                                  <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", whiteSpace: "nowrap" }}>
-                                    <select
-                                      value={status}
-                                      onFocus={() => setFocusedColumn(aoi)}
-                                      onChange={(e) => setAOIStatus(s.id, aoi, e.target.value)}
-                                      style={{
-                                        width: "70px",
-                                        cursor: "pointer",
-                                      }}
-                                    >
-                                      <option>Present</option>
-                                      <option>Missed</option>
-                                    </select>
+                                  <div className="teacher-score-editor">
+                                    <span className={`teacher-score-status-shell ${status === "Missed" ? "is-missed" : "is-present"}`}>
+                                      <select
+                                        className="teacher-score-status-select"
+                                        value={status}
+                                        aria-label={`${s.name} ${formatColumnLabel(aoi)} attendance status`}
+                                        onFocus={() => setFocusedColumn(aoi)}
+                                        onChange={(e) => setAOIStatus(s.id, aoi, e.target.value)}
+                                      >
+                                        <option>Present</option>
+                                        <option>Missed</option>
+                                      </select>
+                                    </span>
 
                                     <input
+                                      className={`teacher-score-input ${markErrors[errorKey] ? "is-invalid" : ""}`}
                                       type="number"
                                       min={limits.min}
                                       max={limits.max}
@@ -3092,23 +3061,21 @@ useEffect(() => {
                                       value={value === undefined || value === null ? "" : (value === "Missed" ? "" : value)}
                                       onFocus={() => setFocusedColumn(aoi)}
                                       onChange={(e) => setAOIScore(s.id, aoi, e.target.value)}
-                                      style={{
-                                        width: "46px",
-                                        border: markErrors[errorKey] ? "2px solid #dc2626" : undefined,
-                                        backgroundColor: markErrors[errorKey] ? "#fff5f5" : undefined,
-                                        cursor: "text",
-                                      }}
+                                      aria-label={`${s.name} ${formatColumnLabel(aoi)} score`}
+                                      placeholder="Score"
                                     />
                                   </div>
 
                                   {markErrors[errorKey] && (
-                                    <div style={{ color: "#fecaca", fontSize: "0.75rem", marginTop: "0.2rem" }}>{markErrors[errorKey]}</div>
+                                    <div className="teacher-score-error">{markErrors[errorKey]}</div>
                                   )}
                                 </td>
                               );
                             })}
 
-                            <td>{calculateAverage(studentMarks[s.id], averageColumns)}</td>
+                            <td className="teacher-score-average-cell">
+                              <span>{calculateAverage(studentMarks[s.id], averageColumns)}</span>
+                            </td>
                             {hasExam80Column && (() => {
                               const aoi = "EXAM80";
                               const status = statusForS[aoi] ?? "Present";
@@ -3117,30 +3084,24 @@ useEffect(() => {
                               const limits = getScoreConstraints(false, aoi);
                               return (
                                 <td
-                                  style={{
-                                    background: activeFocusColumn === "EXAM80"
-                                      ? "linear-gradient(180deg, rgba(56, 189, 248, 0.12), rgba(14, 165, 233, 0.04))"
-                                      : undefined,
-                                    boxShadow: activeFocusColumn === "EXAM80"
-                                      ? "inset 0 0 0 1px rgba(125, 211, 252, 0.2)"
-                                      : undefined,
-                                  }}
+                                  className={activeFocusColumn === "EXAM80" ? "teacher-score-entry-cell is-focused" : "teacher-score-entry-cell"}
                                 >
-                                  <div style={{ display: "flex", gap: "0.4rem", alignItems: "center", whiteSpace: "nowrap" }}>
-                                    <select
-                                      value={status}
-                                      onFocus={() => setFocusedColumn("EXAM80")}
-                                      onChange={(e) => setAOIStatus(s.id, aoi, e.target.value)}
-                                      style={{
-                                        width: "70px",
-                                        cursor: "pointer",
-                                      }}
-                                    >
-                                      <option>Present</option>
-                                      <option>Missed</option>
-                                    </select>
+                                  <div className="teacher-score-editor">
+                                    <span className={`teacher-score-status-shell ${status === "Missed" ? "is-missed" : "is-present"}`}>
+                                      <select
+                                        className="teacher-score-status-select"
+                                        value={status}
+                                        aria-label={`${s.name} examination attendance status`}
+                                        onFocus={() => setFocusedColumn("EXAM80")}
+                                        onChange={(e) => setAOIStatus(s.id, aoi, e.target.value)}
+                                      >
+                                        <option>Present</option>
+                                        <option>Missed</option>
+                                      </select>
+                                    </span>
 
                                     <input
+                                      className={`teacher-score-input ${markErrors[errorKey] ? "is-invalid" : ""}`}
                                       type="number"
                                       min={limits.min}
                                       max={limits.max}
@@ -3149,17 +3110,13 @@ useEffect(() => {
                                       value={value === undefined || value === null ? "" : (value === "Missed" ? "" : value)}
                                       onFocus={() => setFocusedColumn("EXAM80")}
                                       onChange={(e) => setAOIScore(s.id, aoi, e.target.value)}
-                                      style={{
-                                        width: "46px",
-                                        border: markErrors[errorKey] ? "2px solid #dc2626" : undefined,
-                                        backgroundColor: markErrors[errorKey] ? "#fff5f5" : undefined,
-                                        cursor: "text",
-                                      }}
+                                      aria-label={`${s.name} examination score`}
+                                      placeholder="Score"
                                     />
                                   </div>
 
                                   {markErrors[errorKey] && (
-                                    <div style={{ color: "#fecaca", fontSize: "0.75rem", marginTop: "0.2rem" }}>{markErrors[errorKey]}</div>
+                                    <div className="teacher-score-error">{markErrors[errorKey]}</div>
                                   )}
                                 </td>
                               );

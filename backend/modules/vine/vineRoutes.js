@@ -21,7 +21,9 @@ import createVineCommunityAttendanceRouter from "./vineCommunityAttendanceRoutes
 import createVineCommunitySettingsRouter from "./vineCommunitySettingsRoutes.js";
 import createVineCommunityInsightRouter from "./vineCommunityInsightRoutes.js";
 import createVineCommunityDiscoveryRouter from "./vineCommunityDiscoveryRoutes.js";
+import createVineCommunityEClassRouter from "./vineCommunityEClassRoutes.js";
 import createVineNotificationRouter from "./vineNotificationRoutes.js";
+import { endEClassRuntimeSession } from "./vineEClassSocket.js";
 import { VINE_READ_NOTIFICATION_RETENTION_DAYS, createCleanupExpiredReadNotifications } from "./vineNotificationCleanup.js";
 import { VINE_CACHE_TTLS, buildVineCacheKey, readThroughVineCache, clearVineReadCache } from "./vineCache.js";
 import {
@@ -4049,6 +4051,52 @@ const ensureCommunitySchema = async () => {
     )
   `);
 
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_eclass_sessions (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      community_id INT NOT NULL,
+      host_user_id INT NOT NULL,
+      title VARCHAR(180) NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'live',
+      active_slot TINYINT NULL DEFAULT 1,
+      started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      ended_at DATETIME NULL,
+      ended_by INT NULL,
+      UNIQUE KEY uniq_vine_eclass_live_community (community_id, active_slot),
+      INDEX idx_vine_eclass_community_started (community_id, started_at),
+      INDEX idx_vine_eclass_host (host_user_id, started_at)
+    )
+  `);
+
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_eclass_participants (
+      session_id BIGINT UNSIGNED NOT NULL,
+      community_id INT NOT NULL,
+      user_id INT NOT NULL,
+      joined_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      left_at DATETIME NULL,
+      is_self_muted TINYINT(1) NOT NULL DEFAULT 1,
+      is_muted_by_host TINYINT(1) NOT NULL DEFAULT 0,
+      hand_raised TINYINT(1) NOT NULL DEFAULT 0,
+      PRIMARY KEY (session_id, user_id),
+      INDEX idx_vine_eclass_participants_community (community_id, session_id),
+      INDEX idx_vine_eclass_participants_user (user_id, joined_at)
+    )
+  `);
+
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_eclass_messages (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      session_id BIGINT UNSIGNED NOT NULL,
+      community_id INT NOT NULL,
+      user_id INT NOT NULL,
+      content VARCHAR(1200) NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_vine_eclass_messages_session (session_id, id),
+      INDEX idx_vine_eclass_messages_community (community_id, created_at)
+    )
+  `);
+
   const hasCommunityId = await hasColumn(dbName, "vine_posts", "community_id");
   if (!hasCommunityId) {
     await db.query("ALTER TABLE vine_posts ADD COLUMN community_id INT NULL");
@@ -7117,6 +7165,23 @@ router.use((req, res, next) => {
     });
   }
   return vineCommunityLibraryRouter(req, res, next);
+});
+
+let vineCommunityEClassRouter = null;
+router.use((req, res, next) => {
+  if (!vineCommunityEClassRouter) {
+    vineCommunityEClassRouter = createVineCommunityEClassRouter({
+      db,
+      authenticate,
+      ensureCommunitySchema,
+      getCommunityRole,
+      isCommunityModOrOwner,
+      notifyUsersBulk,
+      io,
+      endEClassRuntimeSession,
+    });
+  }
+  return vineCommunityEClassRouter(req, res, next);
 });
 
 let vineCommunityAssignmentsRouter = null;

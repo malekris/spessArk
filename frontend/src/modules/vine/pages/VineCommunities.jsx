@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { socket } from "../../../socket";
+import VineEClass from "../components/VineEClass";
 import VinePostCard from "./VinePostCard";
 import "./VineCommunities.css";
 import { loadPdfTools } from "../../../utils/loadPdfTools";
@@ -36,6 +38,7 @@ const MEMBER_LOCKED_COMMUNITY_TABS = new Set([
   "announcements",
   "memorywall",
   "attendance",
+  "eclass",
   "members",
   "assignments",
   "library",
@@ -45,6 +48,7 @@ const MEMBER_LOCKED_TAB_LABELS = {
   announcements: "Community Pulse",
   memorywall: "Memory Wall",
   attendance: "Attendance",
+  eclass: "Vine eClass",
   members: "Members",
   assignments: "Assignments",
   library: "Library",
@@ -334,6 +338,7 @@ export default function VineCommunities() {
   const [attendanceRecords, setAttendanceRecords] = useState([]);
   const [mediaPosts, setMediaPosts] = useState([]);
   const [assignments, setAssignments] = useState([]);
+  const [eclassLiveSession, setEClassLiveSession] = useState(null);
   const [assignmentTitle, setAssignmentTitle] = useState("");
   const [assignmentInstructions, setAssignmentInstructions] = useState("");
   const [assignmentType, setAssignmentType] = useState("theory");
@@ -571,6 +576,7 @@ export default function VineCommunities() {
       setPosts([]);
       setMemoryWallPosts([]);
       setLibraryItems([]);
+      setEClassLiveSession(null);
       setCommunityNameDraft("");
       setCommunityDescriptionDraft("");
       return;
@@ -590,6 +596,7 @@ export default function VineCommunities() {
         setEvents([]);
         setMediaPosts([]);
         setLibraryItems([]);
+        setEClassLiveSession(null);
         setLibraryVideos([]);
         setCommunityNameDraft("");
         setCommunityDescriptionDraft("");
@@ -598,7 +605,7 @@ export default function VineCommunities() {
 
       const isMember = Number(cData?.is_member) === 1 || isVineGuardianUser(currentUser);
 
-      const [pRes, mRes, rulesRes, questionsRes, eventsRes, mediaRes, assignmentsRes, libraryRes] = await Promise.all([
+      const [pRes, mRes, rulesRes, questionsRes, eventsRes, mediaRes, assignmentsRes, libraryRes, eclassRes] = await Promise.all([
         isMember
           ? fetch(
               `${API}/api/vine/communities/${encodeURIComponent(communitySlug)}/posts${nextTopic ? `?topic=${encodeURIComponent(nextTopic)}` : ""}`,
@@ -634,6 +641,12 @@ export default function VineCommunities() {
               headers: { Authorization: `Bearer ${token}` },
             })
           : Promise.resolve(null),
+        Number(cData?.is_member) === 1
+          ? fetch(`${API}/api/vine/communities/${cData.id}/eclass/live`, {
+              headers: { Authorization: `Bearer ${token}` },
+              cache: "no-store",
+            })
+          : Promise.resolve(null),
       ]);
       const pData = pRes ? await pRes.json().catch(() => []) : [];
       const mData = mRes ? await mRes.json().catch(() => []) : [];
@@ -643,6 +656,7 @@ export default function VineCommunities() {
       const mediaData = await mediaRes.json().catch(() => []);
       const assignmentsData = assignmentsRes ? await assignmentsRes.json().catch(() => []) : [];
       const libraryData = libraryRes ? await libraryRes.json().catch(() => []) : [];
+      const eclassData = eclassRes ? await eclassRes.json().catch(() => ({})) : {};
       setActiveCommunity(cData);
       setPosts(Array.isArray(pData) ? pData : []);
       setMemoryWallPosts(
@@ -658,6 +672,7 @@ export default function VineCommunities() {
       const safeAssignments = sortCommunityAssignments(assignmentsData);
       setAssignments(safeAssignments);
       setLibraryItems(Array.isArray(libraryData) ? libraryData : []);
+      setEClassLiveSession(eclassRes?.ok ? eclassData.session || null : null);
       const persisted = {};
       for (const a of safeAssignments) {
         if (a.viewer_draft_content && !a.viewer_submission_content) {
@@ -695,6 +710,7 @@ export default function VineCommunities() {
       setMediaPosts([]);
       setAssignments([]);
       setLibraryItems([]);
+      setEClassLiveSession(null);
       setLibraryVideos([]);
       setSavedDraftsMap({});
       setCommunityNameDraft("");
@@ -735,6 +751,7 @@ export default function VineCommunities() {
       "about",
       "members",
       "attendance",
+      "eclass",
       "assignments",
       "library",
       "memorywall",
@@ -747,6 +764,23 @@ export default function VineCommunities() {
       setActiveTab("announcements");
     }
   }, [searchParams]);
+
+  useEffect(() => {
+    const handleEClassStarted = (payload = {}) => {
+      if (Number(payload.community_id || payload.communityId) !== Number(activeCommunity?.id)) return;
+      setEClassLiveSession(payload.session || payload);
+    };
+    const handleEClassEnded = (payload = {}) => {
+      if (Number(payload.sessionId) !== Number(eclassLiveSession?.id)) return;
+      setEClassLiveSession(null);
+    };
+    socket.on("eclass_started", handleEClassStarted);
+    socket.on("eclass_ended", handleEClassEnded);
+    return () => {
+      socket.off("eclass_started", handleEClassStarted);
+      socket.off("eclass_ended", handleEClassEnded);
+    };
+  }, [activeCommunity?.id, eclassLiveSession?.id]);
 
   const createCommunity = async () => {
     const trimmedName = name.trim();
@@ -2633,7 +2667,10 @@ export default function VineCommunities() {
     !(activeCommunity?.id && activeTab === "announcements");
   const activeTabRequiresMembership = MEMBER_LOCKED_COMMUNITY_TABS.has(activeTab);
   const activeTabMembershipLabel = MEMBER_LOCKED_TAB_LABELS[activeTab] || "this community section";
-  const showCommunityMembershipGate = Boolean(activeCommunity?.id) && !isCommunityMember && !isVineGuardian && activeTabRequiresMembership;
+  const showCommunityMembershipGate = Boolean(activeCommunity?.id) &&
+    !isCommunityMember &&
+    activeTabRequiresMembership &&
+    (!isVineGuardian || activeTab === "eclass");
   const communityDescriptionPreview = getCommunityTeaser({
     ...activeCommunity,
     description: communityDescriptionDraft,
@@ -3566,6 +3603,10 @@ export default function VineCommunities() {
                 <button className={getCommunityTabClassName("attendance")} onClick={() => setActiveTab("attendance")}>
                   {renderCommunityTabLabel("attendance", "Attendance")}
                 </button>
+                <button className={getCommunityTabClassName("eclass")} onClick={() => setActiveTab("eclass")}>
+                  {renderCommunityTabLabel("eclass", "Vine eClass")}
+                  {eclassLiveSession ? <span className="eclass-tab-live"><i /> Live</span> : null}
+                </button>
                 <button className={getCommunityTabClassName("members")} onClick={() => setActiveTab("members")}>
                   {renderCommunityTabLabel("members", "Members")}
                 </button>
@@ -3593,6 +3634,7 @@ export default function VineCommunities() {
                   activeTab === "discussion" ? "discussion-only" : ""
                 } ${activeTab === "assignments" ? "assignments-only" : ""} ${
                   activeTab === "attendance" ? "attendance-only" : ""
+                } ${activeTab === "eclass" ? "eclass-only" : ""
                 }`}
               >
                 {showCommunityMembershipGate && (
@@ -4044,6 +4086,17 @@ export default function VineCommunities() {
                         </div>
                       </div>
                     )}
+                  </section>
+                )}
+                {activeTab === "eclass" && !showCommunityMembershipGate && (
+                  <section className="community-settings-panel community-eclass-panel">
+                    <VineEClass
+                      community={activeCommunity}
+                      token={token}
+                      currentUser={currentUser}
+                      initialSession={eclassLiveSession}
+                      onSessionChange={setEClassLiveSession}
+                    />
                   </section>
                 )}
                 {activeTab === "assignments" && !showCommunityMembershipGate && (

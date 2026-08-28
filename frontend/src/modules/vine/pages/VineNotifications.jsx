@@ -165,6 +165,11 @@ export default function VineNotifications() {
     if (notification.type === "community_announcement") {
       return buildFeedTarget(notification) || (meta.community_slug ? `/vine/communities/${meta.community_slug}?tab=announcements` : null);
     }
+    if (notification.type === "community_eclass_started") {
+      if (meta.target_path) return meta.target_path;
+      if (meta.community_slug) return `/vine/communities/${meta.community_slug}?tab=eclass`;
+      return null;
+    }
     if (notification.type === "community_assignment_created" || notification.type === "community_assignment_graded") {
       if (meta.community_slug) return `/vine/communities/${meta.community_slug}?tab=assignments`;
       return null;
@@ -252,6 +257,8 @@ export default function VineNotifications() {
       case "guardian_warning": return "sent you a warning about reported content";
       case "community_announcement":
         return `posted a community announcement${meta.community_name ? ` in "${meta.community_name}"` : ""}`;
+      case "community_eclass_started":
+        return `started Vine eClass${meta.title ? `: "${meta.title}"` : ""}${meta.community_name ? ` in "${meta.community_name}"` : ""}`;
       case "community_assignment_created":
         return `posted a new assignment: "${meta.title || "Untitled assignment"}"`;
       case "community_assignment_submission": {

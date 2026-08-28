@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import "./MessageInput.css";
 import { convertHeicFileToJpeg, isHeicLikeFile } from "../../modules/vine/utils/heic";
 
@@ -51,6 +51,15 @@ const buildPreviewItems = (files, mediaType) => {
   }));
 };
 
+const resizeMessageInput = (element) => {
+  if (!element) return;
+  element.style.height = "auto";
+  const maxHeight = Number.parseFloat(window.getComputedStyle(element).maxHeight) || 132;
+  const nextHeight = Math.min(element.scrollHeight, maxHeight);
+  element.style.height = `${nextHeight}px`;
+  element.style.overflowY = element.scrollHeight > maxHeight ? "auto" : "hidden";
+};
+
 export default function MessageInput({ onSend, replyTarget, onCancelReply, onTyping }) {
   const [text, setText] = useState("");
   const [mediaFiles, setMediaFiles] = useState([]);
@@ -60,6 +69,11 @@ export default function MessageInput({ onSend, replyTarget, onCancelReply, onTyp
   const recorderRef = useRef(null);
   const chunksRef = useRef([]);
   const fileInputRef = useRef(null);
+  const textInputRef = useRef(null);
+
+  useEffect(() => {
+    resizeMessageInput(textInputRef.current);
+  }, [text]);
 
   const syncText = (nextValue) => {
     setText(nextValue);
@@ -260,16 +274,14 @@ export default function MessageInput({ onSend, replyTarget, onCancelReply, onTyp
           {recording ? "⏹️" : "🎤"}
         </button>
 
-        <input
+        <textarea
+          ref={textInputRef}
+          rows={1}
           value={text}
           onChange={(e) => {
             syncText(e.target.value);
+            resizeMessageInput(e.currentTarget);
           }}
-          onInput={(e) => syncText(e.currentTarget.value)}
-          onPaste={(e) => {
-            queueMicrotask(() => syncText(e.currentTarget.value));
-          }}
-          onCompositionEnd={(e) => syncText(e.currentTarget.value)}
           onBlur={() => onTyping?.("")}
           placeholder="Type a message..."
           className="chat-input"

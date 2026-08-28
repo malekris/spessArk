@@ -1112,14 +1112,17 @@ if (onProgress) {
     completed: studentList.length,
     total: studentList.length,
     percent: 100,
-    stage: "Opening PDF...",
+    stage: options.openPreview === false ? "Report PDF ready." : "Opening PDF...",
   });
 }
-openNamedPdfPreview(doc, filename, title);
+if (options.openPreview !== false) {
+  openNamedPdfPreview(doc, filename, title);
+}
 progress?.complete();
 if (progress) {
   setTimeout(() => progress.destroy(), 1200);
 }
+return doc;
   } catch (err) {
     progress?.destroy();
     throw err;

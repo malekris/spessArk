@@ -1626,6 +1626,30 @@
     0 13px 28px rgba(5, 82, 61, 0.28);
 }
 
+.admin-card-spess-parents {
+  border-color: rgba(203, 165, 74, 0.38);
+  background: linear-gradient(145deg, rgba(38, 74, 61, 0.64), rgba(15, 23, 42, 0.94));
+}
+
+.admin-card-spess-parents:hover {
+  border-color: rgba(226, 195, 109, 0.66);
+  box-shadow: 0 18px 40px rgba(6, 35, 27, 0.34);
+}
+
+.admin-grid > .admin-card-spess-parents .card-icon {
+  background: #a87919;
+  color: #ffffff;
+  font-size: 0.78rem;
+  font-weight: 950;
+  letter-spacing: 0.06em;
+}
+
+.admin-card-spess-parents .card-button {
+  border-color: rgba(226, 195, 109, 0.46);
+  background: rgba(168, 121, 25, 0.22);
+  color: #f8e6b4;
+}
+
 /* decorative overlay */
 .admin-card::before {
   content: "";

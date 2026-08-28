@@ -20,6 +20,7 @@ import LatestMarksActivityCard from "../components/admin-dashboard/LatestMarksAc
 import SystemReadinessCard from "../components/admin-dashboard/SystemReadinessCard";
 import LearnerMovementCard from "../components/admin-dashboard/LearnerMovementCard";
 import OLevelReportReadinessCard from "../components/admin-dashboard/OLevelReportReadinessCard";
+import SpessParentsPanel from "../components/SpessParentsPanel";
 import "../components/admin-dashboard/AdminDashboardPulseCards.css";
 import { loadPdfTools } from "../utils/loadPdfTools";
 import {
@@ -773,7 +774,13 @@ export default function AdminDashboard() {
       title: "Assessment Submission Tracker",
       subtitle: "Track missing and submitted subjects",
       icon: "📊",
-    }
+    },
+    {
+      title: "SPESS Parents",
+      subtitle: "Approve parents and release reports",
+      icon: "PR",
+      cardClassName: "admin-card-spess-parents",
+    },
     
   ];
 
@@ -4994,6 +5001,9 @@ export default function AdminDashboard() {
           <EnrollmentInsightsPanel students={activeStudents} />
         </section>
       );
+    }
+    if (activeSection === "SPESS Parents") {
+      return <SpessParentsPanel onClose={() => setActiveSection("")} />;
     }
     if (activeSection === "End of Term Reports") {
       return (

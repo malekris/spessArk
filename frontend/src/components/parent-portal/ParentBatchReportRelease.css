@@ -1,0 +1,142 @@
+.parent-batch-release {
+  display: grid;
+  gap: 0.9rem;
+  padding: 1rem;
+  border: 1px solid rgba(207, 176, 92, 0.24);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.parent-batch-release__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.parent-batch-release__header div { min-width: 0; }
+.parent-batch-release__header span {
+  color: #d8bd6b;
+  font-size: 0.65rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+.parent-batch-release__header h3 {
+  margin: 0.3rem 0 0;
+  color: #f8fafc;
+  font-size: 1.05rem;
+}
+.parent-batch-release__header > strong {
+  flex: 0 0 auto;
+  color: #bae6fd;
+  font-size: 0.72rem;
+}
+
+.parent-batch-release__controls {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+.parent-batch-release__controls label { display: grid; gap: 0.34rem; min-width: 0; }
+.parent-batch-release__controls label > span {
+  color: #94a3b8;
+  font-size: 0.62rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.parent-batch-release__controls select,
+.parent-batch-release__controls input { width: 100%; min-width: 0; }
+
+.parent-batch-release__check,
+.parent-batch-release__release {
+  min-height: 44px;
+  border: 1px solid rgba(56, 189, 248, 0.34);
+  border-radius: 6px;
+  background: rgba(14, 116, 144, 0.18);
+  color: #d7f3ff;
+  font-size: 0.72rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.parent-batch-release__audit { display: grid; gap: 0.75rem; }
+.parent-batch-release__stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 8px;
+}
+.parent-batch-release__stats article {
+  display: grid;
+  gap: 0.28rem;
+  padding: 0.75rem;
+  border-right: 1px solid rgba(148, 163, 184, 0.16);
+  background: rgba(2, 6, 23, 0.22);
+}
+.parent-batch-release__stats article:last-child { border-right: 0; }
+.parent-batch-release__stats span {
+  color: #91a4b8;
+  font-size: 0.58rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+.parent-batch-release__stats strong { color: #f8fafc; font-size: 1.1rem; }
+
+.parent-batch-release__missing {
+  padding: 0.7rem;
+  border: 1px solid rgba(251, 191, 36, 0.2);
+  border-radius: 7px;
+  background: rgba(120, 53, 15, 0.12);
+  color: #fde68a;
+  font-size: 0.7rem;
+}
+.parent-batch-release__missing summary { cursor: pointer; font-weight: 850; }
+.parent-batch-release__missing div { display: flex; flex-wrap: wrap; gap: 0.38rem; margin-top: 0.6rem; }
+.parent-batch-release__missing span {
+  padding: 0.3rem 0.45rem;
+  border: 1px solid rgba(251, 191, 36, 0.18);
+  border-radius: 5px;
+  color: #fef3c7;
+}
+
+.parent-batch-release__release {
+  border-color: rgba(207, 176, 92, 0.44);
+  background: #9a6c15;
+  color: #fff;
+}
+
+.parent-batch-release__progress {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.7rem;
+  border: 1px solid rgba(74, 222, 128, 0.2);
+  border-radius: 7px;
+  background: rgba(20, 83, 45, 0.13);
+}
+.parent-batch-release__progress div { display: flex; justify-content: space-between; gap: 1rem; color: #d1fae5; font-size: 0.7rem; }
+.parent-batch-release__progress progress { width: 100%; height: 10px; accent-color: #22c55e; }
+
+.parent-batch-release__failures {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.7rem;
+  border: 1px solid rgba(248, 113, 113, 0.28);
+  border-radius: 7px;
+  background: rgba(127, 29, 29, 0.16);
+  color: #fecaca;
+  font-size: 0.7rem;
+}
+
+@media (max-width: 900px) {
+  .parent-batch-release__controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 620px) {
+  .parent-batch-release__header { flex-direction: column; }
+  .parent-batch-release__controls { grid-template-columns: 1fr; }
+  .parent-batch-release__stats { grid-template-columns: 1fr 1fr; }
+  .parent-batch-release__stats article:nth-child(2) { border-right: 0; }
+  .parent-batch-release__stats article:nth-child(-n + 2) { border-bottom: 1px solid rgba(148, 163, 184, 0.16); }
+}

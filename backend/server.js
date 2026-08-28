@@ -25,6 +25,7 @@ import authAdmin, {
 import studentRoutes from "./routes/students.js";
 import classesRoutes from "./routes/classes.js";
 import streamReadinessRoutes from "./routes/streamReadiness.js";
+import createParentPortalRoutes from "./routes/parentPortal.js";
 import alevelRoutes from "./modules/alevel/alevel.routes.js";
 import boardingRoutes from "./modules/boarding/boarding.routes.js";
 import newSignupRoutes from "./routes/newSignup.js";
@@ -32,6 +33,7 @@ import alevelReports from "./modules/alevel/alevelReports.js";
 import vineRoutes from "./modules/vine/vineRoutes.js";
 import vineAuth from "./modules/vine/vineAuth.js";
 import dmRoutes, { ensureDmSchema, recordDmCallMessage } from "./modules/vine/dms.js";
+import { registerVineEClassSocketHandlers } from "./modules/vine/vineEClassSocket.js";
 import path from "path";
 import { fileURLToPath } from "url";
 import { extractClientIp, logAuditEvent } from "./utils/auditLogger.js";
@@ -57,6 +59,7 @@ import {
   STUDENT_LIFECYCLE,
 } from "./services/studentLifecycleService.js";
 import { ensureAlevelPromotionSchemaReady } from "./services/alevelPromotionService.js";
+import { ensureParentPortalSchemaReady } from "./services/parentPortalService.js";
 
 
 const app = express();
@@ -699,6 +702,7 @@ export const pool = mysql.createPool(poolConfig);
 export const db = pool;//alias, no behavior change
 
 app.use("/api/admin/timetable", createTimetableRoutes(pool));
+app.use("/api", createParentPortalRoutes(pool));
 
 app.get("/api/system/maintenance", async (_req, res) => {
   try {
@@ -4139,6 +4143,12 @@ const finalizeDmCall = async (callId, status) => {
 io.on("connection", (socket) => {
   console.log("🔌 Socket connected:", socket.id);
 
+  registerVineEClassSocketHandlers({
+    io,
+    socket,
+    db,
+  });
+
   socket.on("register", (userId) => {
     const uid = Number(userId);
     if (!uid) return;
@@ -4423,6 +4433,11 @@ server.listen(PORT, () => {
   ensureAlevelPromotionSchemaReady(pool).catch((err) => {
     console.error("A-Level promotion lifecycle setup failed:", err);
   });
+  ensureParentPortalSchemaReady(pool)
+    .then(() => console.log("✅ SPESS Parents storage ready"))
+    .catch((err) => {
+      console.error("SPESS Parents storage setup failed:", err);
+    });
   ensureTeacherAssignmentLifecycleColumns(pool).catch((err) => {
     console.error("Teacher assignment lifecycle setup failed:", err);
   });

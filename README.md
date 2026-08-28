@@ -142,6 +142,21 @@ Configure the scheduler as a separate worker whose command is `npm run backup:my
 
 ---
 
+## SPESS Parents Private Storage
+
+Parent report cards and circulars use a dedicated private Cloudflare R2 bucket. Do not reuse Vine's public-media bucket.
+
+```text
+PARENT_R2_ACCOUNT_ID
+PARENT_R2_BUCKET
+PARENT_R2_ACCESS_KEY_ID
+PARENT_R2_SECRET_ACCESS_KEY
+```
+
+`PARENT_R2_ENDPOINT` is only required when using a custom S3-compatible endpoint. The Admin Dashboard disables document release until private storage is ready.
+
+---
+
 ## Database Design
 
 The platform utilizes a relational database architecture with normalized entities including:

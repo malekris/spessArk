@@ -134,6 +134,15 @@
   background: #0e6147;
 }
 
+.hero-action-reports {
+  background: #a87919;
+  border-color: #e2c36d;
+}
+
+.hero-action-reports:hover {
+  background: #8f6511;
+}
+
 .welcome-container {
   width: min(1240px, calc(100% - 3rem));
   display: grid;

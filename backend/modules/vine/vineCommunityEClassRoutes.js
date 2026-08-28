@@ -14,7 +14,10 @@ const mapEClassSession = (row) => row
       host_avatar_url: row.host_avatar_url || null,
       host_is_verified: Number(row.host_is_verified || 0),
       participant_count: Number(row.participant_count || 0),
+      live_participant_count: Number(row.live_participant_count ?? row.participant_count ?? 0),
       message_count: Number(row.message_count || 0),
+      community_name: row.community_name || "",
+      community_slug: row.community_slug || "",
     }
   : null;
 
@@ -53,6 +56,43 @@ export default function createVineCommunityEClassRouter({
     );
     return mapEClassSession(row);
   };
+
+  router.get("/eclass/live-for-me", authenticate, async (req, res) => {
+    try {
+      await ensureCommunitySchema();
+      const userId = Number(req.user.id);
+      const [rows] = await db.query(
+        `
+        SELECT
+          s.*,
+          c.name AS community_name,
+          c.slug AS community_slug,
+          u.username AS host_username,
+          u.display_name AS host_display_name,
+          u.avatar_url AS host_avatar_url,
+          u.is_verified AS host_is_verified,
+          (
+            SELECT COUNT(*)
+            FROM vine_eclass_participants p
+            WHERE p.session_id = s.id AND p.left_at IS NULL
+          ) AS live_participant_count
+        FROM vine_eclass_sessions s
+        JOIN vine_community_members cm
+          ON cm.community_id = s.community_id AND cm.user_id = ?
+        JOIN vine_communities c ON c.id = s.community_id
+        JOIN vine_users u ON u.id = s.host_user_id
+        WHERE s.status = 'live' AND s.active_slot = 1
+        ORDER BY s.started_at DESC, s.id DESC
+        LIMIT 12
+        `,
+        [userId]
+      );
+      return res.json(rows.map(mapEClassSession));
+    } catch (err) {
+      console.error("Get member live Vine eClasses error:", err);
+      return res.status(500).json([]);
+    }
+  });
 
   router.get("/communities/:id/eclass/live", authenticate, async (req, res) => {
     try {
@@ -246,6 +286,17 @@ export default function createVineCommunityEClassRouter({
         [sessionId]
       );
       await endEClassRuntimeSession({ io, sessionId, communityId, endedBy: userId });
+      const [memberRows] = await db.query(
+        "SELECT user_id FROM vine_community_members WHERE community_id = ?",
+        [communityId]
+      );
+      for (const member of memberRows) {
+        io.to(`user-${Number(member.user_id)}`).emit("eclass_ended", {
+          sessionId,
+          communityId,
+          endedBy: userId,
+        });
+      }
       return res.json({ success: true, session: await getSession(sessionId, communityId) });
     } catch (err) {
       console.error("End Vine eClass error:", err);

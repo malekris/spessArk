@@ -10,6 +10,7 @@ import { useSearchParams } from "react-router-dom";
 import { convertHeicFileToJpeg, isHeicLikeFile } from "../utils/heic";
 import { createClientRequestId } from "../../../utils/requestId";
 import { getCurrentVinePostSource } from "../utils/postSource";
+import VineEClassFeedRail from "../eclass/VineEClassFeedRail";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const STATUS_COLORS = [
@@ -2292,6 +2293,7 @@ export default function VineFeed() {
             <span className="vine-feed-tab-subtitle">News desk only</span>
           </button>
         </div>
+        {!isNewsTab ? <VineEClassFeedRail token={token} /> : null}
         <div className="vine-statuses-rail" aria-label="Vine statuses">
           <button
             className="status-add-card"

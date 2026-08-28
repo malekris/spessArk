@@ -1,0 +1,242 @@
+.vine-eclass-feed-rail {
+  width: 100%;
+  min-width: 0;
+  margin: 10px 0 12px;
+  padding: 10px;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  border-radius: 8px;
+  background: #f5fff9;
+}
+
+.vine-eclass-feed-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.vine-eclass-feed-head > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #075f46;
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.vine-eclass-feed-head i,
+.vine-eclass-feed-avatar i {
+  display: block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ef4444;
+  box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.12);
+}
+
+.vine-eclass-feed-head small {
+  color: #6b8279;
+  font-size: 0.68rem;
+  font-weight: 750;
+}
+
+.vine-eclass-feed-track {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  scrollbar-width: thin;
+}
+
+.vine-eclass-feed-card {
+  flex: 1 0 min(100%, 520px);
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #b7ead0;
+  border-radius: 8px;
+  background: #fff;
+  scroll-snap-align: start;
+}
+
+.vine-eclass-feed-card.is-listening {
+  border-color: #34d399;
+  background: #ecfdf5;
+}
+
+.vine-eclass-feed-main {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  min-height: 76px;
+  padding: 10px;
+  border: 0;
+  background: transparent;
+  color: #083d2d;
+  text-align: left;
+  cursor: pointer;
+}
+
+.vine-eclass-feed-avatar {
+  position: relative;
+  width: 48px;
+  height: 48px;
+}
+
+.vine-eclass-feed-avatar img {
+  width: 100%;
+  height: 100%;
+  border: 2px solid #10b981;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.vine-eclass-feed-avatar i {
+  position: absolute;
+  right: 1px;
+  bottom: 2px;
+  border: 2px solid #fff;
+  box-sizing: content-box;
+}
+
+.vine-eclass-feed-copy {
+  display: block;
+  min-width: 0;
+}
+
+.vine-eclass-feed-copy small,
+.vine-eclass-feed-copy strong,
+.vine-eclass-feed-copy > span {
+  display: block;
+}
+
+.vine-eclass-feed-copy small {
+  overflow: hidden;
+  color: #07815e;
+  font-size: 0.67rem;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vine-eclass-feed-copy strong {
+  margin-top: 3px;
+  overflow: hidden;
+  color: #073c2c;
+  font-size: 0.9rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vine-eclass-feed-copy > span {
+  margin-top: 3px;
+  overflow: hidden;
+  color: #607a70;
+  font-size: 0.68rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vine-eclass-feed-return {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 0 11px;
+  border-radius: 999px;
+  background: #087f5b;
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 900;
+}
+
+.vine-eclass-feed-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 7px;
+  padding: 0 10px 10px 68px;
+}
+
+.vine-eclass-feed-actions button {
+  min-height: 34px;
+  border: 1px solid #a7f3d0;
+  border-radius: 7px;
+  padding: 0 10px;
+  background: #fff;
+  color: #076447;
+  font-size: 0.68rem;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.vine-eclass-feed-actions button.leave {
+  border-color: #fecaca;
+  color: #b4232f;
+}
+
+@media (max-width: 640px) {
+  .vine-eclass-feed-rail {
+    margin-top: 8px;
+    padding: 8px;
+  }
+
+  .vine-eclass-feed-card {
+    flex-basis: 100%;
+  }
+
+  .vine-eclass-feed-main {
+    grid-template-columns: 44px minmax(0, 1fr) auto;
+    min-height: 72px;
+    padding: 9px 8px;
+  }
+
+  .vine-eclass-feed-avatar {
+    width: 44px;
+    height: 44px;
+  }
+
+  .vine-eclass-feed-copy strong {
+    font-size: 0.84rem;
+  }
+
+  .vine-eclass-feed-return {
+    min-height: 36px;
+    padding: 0 9px;
+  }
+
+  .vine-eclass-feed-actions {
+    padding-right: 8px;
+    padding-bottom: 8px;
+    padding-left: 62px;
+  }
+
+  .vine-eclass-feed-actions button {
+    min-height: 38px;
+  }
+}
+
+@media (max-width: 360px) {
+  .vine-eclass-feed-main {
+    grid-template-columns: 40px minmax(0, 1fr);
+  }
+
+  .vine-eclass-feed-avatar {
+    width: 40px;
+    height: 40px;
+  }
+
+  .vine-eclass-feed-return {
+    grid-column: 2;
+    justify-self: start;
+    min-height: 30px;
+    margin-top: -4px;
+  }
+
+  .vine-eclass-feed-actions {
+    padding-left: 56px;
+  }
+}

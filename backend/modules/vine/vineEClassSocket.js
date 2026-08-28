@@ -177,7 +177,7 @@ export function registerVineEClassSocketHandlers({ io, socket, db }) {
       }
 
       const existingUserIds = getRoomUserIds(sessionId).filter((id) => id !== userId);
-      const defaultMuted = ["owner", "moderator"].includes(String(membership.community_role || "").toLowerCase()) ? 0 : 1;
+      const defaultMuted = 1;
       await db.query(
         `
         INSERT INTO vine_eclass_participants

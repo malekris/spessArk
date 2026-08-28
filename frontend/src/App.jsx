@@ -14,6 +14,7 @@ import VineRegister from "./modules/vine/pages/VineRegister";
 import VineProtectedRoute from "./modules/vine/components/VineProtectedRoute";
 import VineRouteErrorBoundary from "./modules/vine/components/VineRouteErrorBoundary";
 import VineCallLayer from "./components/dms/VineCallLayer";
+import { VineEClassProvider } from "./modules/vine/eclass/VineEClassContext";
 import {
   clearVineAuth,
   getRemainingVineSessionMs,
@@ -236,7 +237,16 @@ function App() {
 <Route path="/vine/verify-email" element={<VineRouteErrorBoundary><VineVerifyEmail /></VineRouteErrorBoundary>} />
 <Route path="/vine/post/:id" element={<VineRouteErrorBoundary><VinePublicPost /></VineRouteErrorBoundary>} />
 <Route path="/vine/u/:username" element={<VineRouteErrorBoundary><VinePublicProfile /></VineRouteErrorBoundary>} />
-<Route element={<VineRouteErrorBoundary><><VineCallLayer /><VineProtectedRoute /></></VineRouteErrorBoundary>}>
+<Route
+  element={
+    <VineRouteErrorBoundary>
+      <VineEClassProvider>
+        <VineCallLayer />
+        <VineProtectedRoute />
+      </VineEClassProvider>
+    </VineRouteErrorBoundary>
+  }
+>
   <Route path="/vine/birthday-required" element={<VineBirthdayRequired />} />
   <Route path="/vine/feed" element={<VineFeed />} />
   <Route path="/vine/profile/:username" element={<VineProfile />} />

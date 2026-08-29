@@ -13,7 +13,8 @@ CREATE TABLE IF NOT EXISTS vine_eclass_sessions (
   PRIMARY KEY (id),
   UNIQUE KEY uniq_vine_eclass_live_community (community_id, active_slot),
   INDEX idx_vine_eclass_community_started (community_id, started_at),
-  INDEX idx_vine_eclass_host (host_user_id, started_at)
+  INDEX idx_vine_eclass_host (host_user_id, started_at),
+  INDEX idx_vine_eclass_live_reaper (status, active_slot, started_at)
 );
 
 CREATE TABLE IF NOT EXISTS vine_eclass_participants (

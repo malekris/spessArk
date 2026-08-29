@@ -33,7 +33,10 @@ import alevelReports from "./modules/alevel/alevelReports.js";
 import vineRoutes from "./modules/vine/vineRoutes.js";
 import vineAuth from "./modules/vine/vineAuth.js";
 import dmRoutes, { ensureDmSchema, recordDmCallMessage } from "./modules/vine/dms.js";
-import { registerVineEClassSocketHandlers } from "./modules/vine/vineEClassSocket.js";
+import {
+  registerVineEClassSocketHandlers,
+  startVineEClassHostReaper,
+} from "./modules/vine/vineEClassSocket.js";
 import path from "path";
 import { fileURLToPath } from "url";
 import { extractClientIp, logAuditEvent } from "./utils/auditLogger.js";
@@ -4419,6 +4422,7 @@ io.on("connection", (socket) => {
 
 server.listen(PORT, () => {
   console.log(`✅ Spess Ark backend + WS running on http://localhost:${PORT}`);
+  startVineEClassHostReaper({ io, db });
   ensureDmSchema()
     .then(() => console.log("✅ Vine group DM storage ready"))
     .catch((err) => {

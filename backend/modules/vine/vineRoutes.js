@@ -4064,7 +4064,8 @@ const ensureCommunitySchema = async () => {
       ended_by INT NULL,
       UNIQUE KEY uniq_vine_eclass_live_community (community_id, active_slot),
       INDEX idx_vine_eclass_community_started (community_id, started_at),
-      INDEX idx_vine_eclass_host (host_user_id, started_at)
+      INDEX idx_vine_eclass_host (host_user_id, started_at),
+      INDEX idx_vine_eclass_live_reaper (status, active_slot, started_at)
     )
   `);
 
@@ -4177,6 +4178,7 @@ const ensureCommunitySchema = async () => {
   await ensureColumnExists(dbName, "vine_community_submissions", "attachment_mime", "VARCHAR(120) NULL");
 
   const communityIndexes = [
+    ["vine_eclass_sessions", "idx_vine_eclass_live_reaper", ["status", "active_slot", "started_at"]],
     ["vine_community_members", "idx_comm_members_community_role_user", ["community_id", "role", "user_id"]],
     ["vine_community_sessions", "idx_comm_sessions_community_start_end", ["community_id", "starts_at", "ends_at"]],
     ["vine_community_attendance", "idx_comm_attendance_session_status", ["session_id", "status"]],

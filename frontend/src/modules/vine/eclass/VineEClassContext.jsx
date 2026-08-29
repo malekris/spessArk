@@ -89,6 +89,8 @@ export function VineEClassProvider({ children }) {
   const [remoteAudioStreams, setRemoteAudioStreams] = useState({});
   const [notice, setNotice] = useState("");
   const [audioBlocked, setAudioBlocked] = useState(false);
+  const [activeSpeakerId, setActiveSpeakerId] = useState(null);
+  const [captionsEnabled, setCaptionsEnabled] = useState(false);
 
   const sessionRef = useRef(null);
   const communityRef = useRef(null);
@@ -98,6 +100,8 @@ export function VineEClassProvider({ children }) {
   const peerConnectionsRef = useRef(new Map());
   const pendingCandidatesRef = useRef(new Map());
   const audioElementsRef = useRef(new Map());
+  const activeSpeakerRef = useRef(null);
+  const lastSpeakerAtRef = useRef(0);
 
   const updateSession = useCallback((nextSession, nextCommunity = communityRef.current) => {
     sessionRef.current = nextSession || null;
@@ -141,6 +145,10 @@ export function VineEClassProvider({ children }) {
     setRemoteAudioStreams({});
     setScreenSharing(false);
     setAudioBlocked(false);
+    setCaptionsEnabled(false);
+    activeSpeakerRef.current = null;
+    lastSpeakerAtRef.current = 0;
+    setActiveSpeakerId(null);
   }, []);
 
   const leaveClass = useCallback(async ({ notifyServer = true, message = "" } = {}) => {
@@ -275,7 +283,10 @@ export function VineEClassProvider({ children }) {
   useEffect(() => {
     const handleEnded = (payload = {}) => {
       if (Number(payload.sessionId) !== Number(sessionRef.current?.id)) return;
-      void leaveClass({ notifyServer: false, message: "This Vine eClass has ended." });
+      const message = payload.reason === "host_absent"
+        ? "This Vine eClass ended because the host did not return within 10 minutes."
+        : "This Vine eClass has ended.";
+      void leaveClass({ notifyServer: false, message });
     };
     const handleParticipantJoined = ({ sessionId, participant } = {}) => {
       if (Number(sessionId) !== Number(sessionRef.current?.id)) return;
@@ -354,6 +365,76 @@ export function VineEClassProvider({ children }) {
       socket.off("eclass_screen_state", handleScreenState);
     };
   }, [handleSignal, leaveClass, mergeParticipant, myId]);
+
+  useEffect(() => {
+    if (!joined) return undefined;
+    const AudioContextConstructor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextConstructor) return undefined;
+
+    const audioContext = new AudioContextConstructor();
+    const analysers = [];
+    const attachStream = (userId, stream) => {
+      if (!stream?.getAudioTracks?.().some((track) => track.readyState === "live")) return;
+      try {
+        const source = audioContext.createMediaStreamSource(stream);
+        const analyser = audioContext.createAnalyser();
+        analyser.fftSize = 512;
+        analyser.smoothingTimeConstant = 0.68;
+        source.connect(analyser);
+        analysers.push({
+          userId: Number(userId),
+          source,
+          analyser,
+          samples: new Uint8Array(analyser.fftSize),
+        });
+      } catch {
+        // One unsupported stream should not disable speaker detection for the room.
+      }
+    };
+
+    attachStream(myId, localAudioRef.current);
+    Object.entries(remoteAudioStreams).forEach(([userId, stream]) => attachStream(userId, stream));
+    void audioContext.resume().catch(() => {});
+
+    const sampleTimer = window.setInterval(() => {
+      if (document.visibilityState === "hidden" || audioContext.state === "closed") return;
+      let strongestUserId = null;
+      let strongestLevel = 0.028;
+      for (const entry of analysers) {
+        entry.analyser.getByteTimeDomainData(entry.samples);
+        let energy = 0;
+        for (const sample of entry.samples) {
+          const normalized = (sample - 128) / 128;
+          energy += normalized * normalized;
+        }
+        const level = Math.sqrt(energy / entry.samples.length);
+        if (level > strongestLevel) {
+          strongestLevel = level;
+          strongestUserId = entry.userId;
+        }
+      }
+
+      if (strongestUserId) {
+        lastSpeakerAtRef.current = Date.now();
+        if (activeSpeakerRef.current !== strongestUserId) {
+          activeSpeakerRef.current = strongestUserId;
+          setActiveSpeakerId(strongestUserId);
+        }
+        return;
+      }
+
+      if (activeSpeakerRef.current && Date.now() - lastSpeakerAtRef.current > 1100) {
+        activeSpeakerRef.current = null;
+        setActiveSpeakerId(null);
+      }
+    }, 240);
+
+    return () => {
+      window.clearInterval(sampleTimer);
+      analysers.forEach(({ source }) => source.disconnect());
+      void audioContext.close().catch(() => {});
+    };
+  }, [joined, myId, remoteAudioStreams]);
 
   useEffect(() => () => {
     if (joinedRef.current && sessionRef.current?.id) {
@@ -537,6 +618,10 @@ export function VineEClassProvider({ children }) {
     setAudioBlocked(!enabled && audioElementsRef.current.size > 0);
   }, []);
 
+  const toggleCaptions = useCallback(() => {
+    setCaptionsEnabled((enabled) => !enabled);
+  }, []);
+
   const sortedParticipants = useMemo(() => [...participants].sort((a, b) => {
     const aRole = ["owner", "moderator"].includes(String(a.community_role || "").toLowerCase()) ? 0 : 1;
     const bRole = ["owner", "moderator"].includes(String(b.community_role || "").toLowerCase()) ? 0 : 1;
@@ -562,6 +647,8 @@ export function VineEClassProvider({ children }) {
     localScreen,
     notice,
     audioBlocked,
+    activeSpeakerId,
+    captionsEnabled,
     myId,
     joinClass,
     leaveClass,
@@ -572,6 +659,7 @@ export function VineEClassProvider({ children }) {
     stopScreenShare,
     sendChat,
     enableAudio,
+    toggleCaptions,
     setNotice,
   }), [
     session,
@@ -588,6 +676,8 @@ export function VineEClassProvider({ children }) {
     localScreen,
     notice,
     audioBlocked,
+    activeSpeakerId,
+    captionsEnabled,
     myId,
     joinClass,
     leaveClass,
@@ -598,6 +688,7 @@ export function VineEClassProvider({ children }) {
     stopScreenShare,
     sendChat,
     enableAudio,
+    toggleCaptions,
   ]);
 
   return (

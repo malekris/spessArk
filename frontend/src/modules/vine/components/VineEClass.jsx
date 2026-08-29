@@ -156,7 +156,9 @@ export default function VineEClass({ community, token, initialSession = null, on
     const handleEnded = (payload = {}) => {
       if (Number(payload.sessionId) !== Number(liveSession?.id) && Number(payload.sessionId) !== Number(room.session?.id)) return;
       updateSession(null);
-      setLocalNotice("This Vine eClass has ended.");
+      setLocalNotice(payload.reason === "host_absent"
+        ? "This Vine eClass ended because the host did not return within 10 minutes."
+        : "This Vine eClass has ended.");
       void loadClass();
     };
     socket.on("eclass_started", handleStarted);
@@ -240,6 +242,43 @@ export default function VineEClass({ community, token, initialSession = null, on
     () => participants.find((participant) => Number(participant.user_id) === Number(displaySession?.host_user_id)),
     [displaySession?.host_user_id, participants]
   );
+  const openMicParticipants = useMemo(
+    () => participants.filter((participant) => (
+      Number(participant.is_self_muted || 0) !== 1 &&
+      Number(participant.is_muted_by_host || 0) !== 1
+    )),
+    [participants]
+  );
+  const activeSpeaker = useMemo(
+    () => openMicParticipants.find((participant) => Number(participant.user_id) === Number(room.activeSpeakerId)),
+    [openMicParticipants, room.activeSpeakerId]
+  );
+  const featuredParticipant = activeSpeaker || hostParticipant;
+  const activeSpeakerName = activeSpeaker
+    ? (Number(activeSpeaker.user_id) === room.myId ? "You" : activeSpeaker.display_name || activeSpeaker.username)
+    : "";
+  let microphoneStatus = "Everyone is muted";
+  if (activeSpeakerName) {
+    microphoneStatus = activeSpeakerName === "You"
+      ? "You are now speaking"
+      : `${activeSpeakerName} is now speaking`;
+  } else if (openMicParticipants.length === 1) {
+    const [participant] = openMicParticipants;
+    const name = Number(participant.user_id) === room.myId
+      ? "Your"
+      : `${participant.display_name || participant.username}${String(participant.display_name || participant.username || "").endsWith("s") ? "'" : "'s"}`;
+    microphoneStatus = `${name} microphone is open`;
+  } else if (openMicParticipants.length === 2) {
+    const names = openMicParticipants.map((participant) => (
+      Number(participant.user_id) === room.myId ? "You" : participant.display_name || participant.username
+    ));
+    microphoneStatus = `${names[0]} and ${names[1]} have open microphones`;
+  } else if (openMicParticipants.length > 2) {
+    const firstName = Number(openMicParticipants[0].user_id) === room.myId
+      ? "You"
+      : openMicParticipants[0].display_name || openMicParticipants[0].username;
+    microphoneStatus = `${firstName} and ${openMicParticipants.length - 1} others have open microphones`;
+  }
 
   const dismissNotice = () => {
     setLocalNotice("");
@@ -272,9 +311,30 @@ export default function VineEClass({ community, token, initialSession = null, on
             <div className={`eclass-stage ${activeScreen ? "is-sharing" : ""}`}>
               <div className="eclass-stage-topline"><div><span className="eclass-stage-live"><i /> LIVE</span><strong>{displaySession.title}</strong></div><span>{formatClassDuration(displaySession.started_at, nowMs)}</span></div>
               {activeScreen ? (
-                <div className="eclass-screen-canvas">{room.localScreen ? <video ref={localScreenVideoRef} autoPlay playsInline muted /> : <video ref={remoteScreenVideoRef} autoPlay playsInline />}<span>{room.localScreen ? "You are presenting" : "Moderator screen"}</span></div>
+                <div className="eclass-screen-canvas">
+                  {room.localScreen ? <video ref={localScreenVideoRef} autoPlay playsInline muted /> : <video ref={remoteScreenVideoRef} autoPlay playsInline />}
+                  <span>{room.localScreen ? "You are presenting" : "Moderator screen"}</span>
+                  {room.captionsEnabled ? (
+                    <div className={`eclass-screen-caption ${activeSpeaker ? "is-speaking" : openMicParticipants.length ? "has-open-mic" : "all-muted"}`} aria-live="polite">
+                      {activeSpeaker ? <span className="eclass-speaker-bars" aria-hidden="true"><i /><i /><i /></span> : <i className="eclass-mic-state-dot" aria-hidden="true" />}
+                      <b>{microphoneStatus}</b>
+                    </div>
+                  ) : null}
+                </div>
               ) : (
-                <div className="eclass-audio-stage"><div className="eclass-audio-rings" aria-hidden="true"><i /><i /><i /></div><img className="eclass-featured-avatar" src={toMediaUrl(hostParticipant?.avatar_url || displaySession.host_avatar_url)} alt="" /><span className="eclass-speaking-label">Class hosted by</span><strong>{hostParticipant?.display_name || displaySession.host_display_name || displaySession.host_username}</strong><p>{participants.length} {participants.length === 1 ? "participant" : "participants"} connected</p></div>
+                <div className="eclass-audio-stage">
+                  <div className={`eclass-audio-rings ${activeSpeaker ? "is-speaking" : ""}`} aria-hidden="true"><i /><i /><i /></div>
+                  <img className={`eclass-featured-avatar ${activeSpeaker ? "is-speaking" : ""}`} src={toMediaUrl(featuredParticipant?.avatar_url || displaySession.host_avatar_url)} alt="" />
+                  <span className="eclass-speaking-label">{activeSpeaker ? "Speaking now" : "Class hosted by"}</span>
+                  <strong>{featuredParticipant?.display_name || featuredParticipant?.username || displaySession.host_display_name || displaySession.host_username}</strong>
+                  <p>{participants.length} {participants.length === 1 ? "participant" : "participants"} connected</p>
+                  {room.captionsEnabled ? (
+                    <div className={`eclass-speaker-status ${activeSpeaker ? "is-speaking" : openMicParticipants.length ? "has-open-mic" : "all-muted"}`} aria-live="polite">
+                      {activeSpeaker ? <span className="eclass-speaker-bars" aria-hidden="true"><i /><i /><i /></span> : <i className="eclass-mic-state-dot" aria-hidden="true" />}
+                      <span>{microphoneStatus}</span>
+                    </div>
+                  ) : null}
+                </div>
               )}
               <div className="eclass-participant-strip">
                 {participants.slice(0, 8).map((participant) => {
@@ -285,10 +345,11 @@ export default function VineEClass({ community, token, initialSession = null, on
               </div>
             </div>
 
-            <div className="eclass-controls" aria-label="Class controls">
+            <div className={`eclass-controls ${canModerate ? "has-moderator-controls" : ""}`} aria-label="Class controls">
               {room.audioBlocked ? <button type="button" className="eclass-audio-control" onClick={room.enableAudio}><span aria-hidden="true">🔊</span>Enable audio</button> : null}
               <button type="button" className={`eclass-mic-control ${room.selfMuted ? "is-off" : "is-on"}`} onClick={room.toggleSelfMute} title={room.selfMuted ? "Unmute microphone" : "Mute microphone"}><span aria-hidden="true">{room.selfMuted ? "🎙️" : "🎤"}</span>{room.selfMuted ? "Unmute" : "Mute"}</button>
               <button type="button" className={`eclass-hand-control ${room.handRaised ? "is-raised" : ""}`} onClick={room.toggleHand}><span aria-hidden="true">✋</span>{room.handRaised ? "Lower hand" : "Raise hand"}</button>
+              <button type="button" className={`eclass-captions-control ${room.captionsEnabled ? "is-on" : ""}`} onClick={room.toggleCaptions} aria-pressed={room.captionsEnabled} title={room.captionsEnabled ? "Turn captions off" : "Turn captions on"}><span aria-hidden="true">CC</span>{room.captionsEnabled ? "CC on" : "Captions"}</button>
               {canModerate ? <button type="button" className={`eclass-share-control ${room.screenSharing ? "is-sharing" : ""}`} onClick={room.screenSharing ? room.stopScreenShare : room.startScreenShare}><span aria-hidden="true">{room.screenSharing ? "⏹️" : "🖥️"}</span>{room.screenSharing ? "Stop sharing" : "Share screen"}</button> : null}
               <button type="button" className="eclass-leave-control" onClick={() => room.leaveClass()}><span aria-hidden="true">🚪</span>Leave</button>
               {canModerate ? <button type="button" className="eclass-end-control" onClick={() => setShowEndConfirm(true)}>End class</button> : null}

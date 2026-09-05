@@ -102,6 +102,18 @@ export default function createVineCommunityEClassRouter({
       if (!communityId) return res.status(400).json({ message: "Invalid community" });
       const role = await getCommunityRole(communityId, userId);
       if (!role) return res.status(403).json({ message: "Community membership required" });
+      const [[community]] = await db.query(
+        "SELECT id, name, slug FROM vine_communities WHERE id = ? LIMIT 1",
+        [communityId]
+      );
+      if (!community) return res.status(404).json({ message: "Community not found" });
+      const communityPayload = {
+        id: Number(community.id),
+        name: community.name,
+        slug: community.slug,
+        viewer_role: role,
+        is_member: 1,
+      };
 
       const [[liveRow]] = await db.query(
         `
@@ -113,7 +125,7 @@ export default function createVineCommunityEClassRouter({
         `,
         [communityId]
       );
-      if (!liveRow?.id) return res.json({ session: null, messages: [] });
+      if (!liveRow?.id) return res.json({ session: null, messages: [], community: communityPayload });
 
       const session = await getSession(liveRow.id, communityId);
       const [messages] = await db.query(
@@ -139,7 +151,7 @@ export default function createVineCommunityEClassRouter({
         `,
         [liveRow.id, communityId]
       );
-      return res.json({ session, messages });
+      return res.json({ session, messages, community: communityPayload });
     } catch (err) {
       console.error("Get live Vine eClass error:", err);
       return res.status(500).json({ message: "Failed to load Vine eClass" });

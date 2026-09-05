@@ -22,6 +22,7 @@ import createVineCommunitySettingsRouter from "./vineCommunitySettingsRoutes.js"
 import createVineCommunityInsightRouter from "./vineCommunityInsightRoutes.js";
 import createVineCommunityDiscoveryRouter from "./vineCommunityDiscoveryRoutes.js";
 import createVineCommunityEClassRouter from "./vineCommunityEClassRoutes.js";
+import createVineAvatarThumbnailRouter from "./vineAvatarThumbnailRoutes.js";
 import createVineNotificationRouter from "./vineNotificationRoutes.js";
 import { endEClassRuntimeSession } from "./vineEClassSocket.js";
 import { VINE_READ_NOTIFICATION_RETENTION_DAYS, createCleanupExpiredReadNotifications } from "./vineNotificationCleanup.js";
@@ -33,6 +34,7 @@ import {
 } from "../../utils/deviceSession.js";
 
 const router = express.Router();
+router.use(createVineAvatarThumbnailRouter());
 const applyManagedVisualNoCache = (res) => {
   res.set({
     "Cache-Control": "no-cache, no-store, must-revalidate",

@@ -1,16 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { socket } from "../../../socket";
 import { useVineEClass } from "../eclass/VineEClassContext";
+import { openVineEClassWindow } from "../eclass/vineEClassWindow";
+import { getVineAvatarThumbnailUrl, useDefaultVineAvatarOnError } from "../utils/vineAvatar";
+import VineEClassParticipants from "./VineEClassParticipants";
 import "./VineEClass.css";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
-const DEFAULT_AVATAR = "/default-avatar.png";
-
-const toMediaUrl = (value) => {
-  const raw = String(value || "").trim();
-  if (!raw) return DEFAULT_AVATAR;
-  return raw.startsWith("http") ? raw : `${API}${raw}`;
-};
 
 const formatClassDuration = (startedAt, nowMs) => {
   const started = new Date(startedAt || 0).getTime();
@@ -54,14 +50,26 @@ const resizeClassComposer = (element) => {
   element.style.overflowY = element.scrollHeight > maxHeight ? "auto" : "hidden";
 };
 
-export default function VineEClass({ community, token, initialSession = null, onSessionChange }) {
+export default function VineEClass({
+  community,
+  token,
+  initialSession = null,
+  initialMessages = null,
+  onSessionChange,
+  autoJoin = false,
+  fullWindow = false,
+}) {
   const room = useVineEClass();
+  const joinRoom = room.joinClass;
+  const roomJoining = room.joining;
   const communityId = Number(community?.id || 0);
   const role = String(community?.viewer_role || "").toLowerCase();
   const canModerate = ["owner", "moderator"].includes(role);
   const [liveSession, setLiveSession] = useState(initialSession);
   const [history, setHistory] = useState([]);
-  const [availableMessages, setAvailableMessages] = useState([]);
+  const [availableMessages, setAvailableMessages] = useState(
+    Array.isArray(initialMessages) ? initialMessages : []
+  );
   const [chatText, setChatText] = useState("");
   const [startTitle, setStartTitle] = useState("");
   const [starting, setStarting] = useState(false);
@@ -95,6 +103,10 @@ export default function VineEClass({ community, token, initialSession = null, on
   useEffect(() => {
     setLiveSession(initialSession || null);
   }, [initialSession]);
+
+  useEffect(() => {
+    if (!isThisRoom) setAvailableMessages(Array.isArray(initialMessages) ? initialMessages : []);
+  }, [initialMessages, isThisRoom]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
@@ -169,19 +181,38 @@ export default function VineEClass({ community, token, initialSession = null, on
     };
   }, [communityId, liveSession?.id, loadClass, room.session?.id, updateSession]);
 
-  const joinClass = async (sessionOverride = null) => {
+  const joinClass = useCallback(async (sessionOverride = null) => {
     const nextSession = sessionOverride || displaySession;
-    if (!nextSession?.id || room.joining) return;
-    const result = await room.joinClass({
+    if (!nextSession?.id || roomJoining) return;
+    const result = await joinRoom({
       session: nextSession,
       community,
       initialMessages: availableMessages,
     });
     if (!result?.ok) setLocalNotice(result?.message || "Could not join Vine eClass");
+    return result;
+  }, [availableMessages, community, displaySession, joinRoom, roomJoining]);
+
+  useEffect(() => {
+    if (!autoJoin || !displaySession?.id || isThisRoom || roomJoining) return;
+    void joinClass(displaySession);
+  }, [autoJoin, displaySession, isThisRoom, joinClass, roomJoining]);
+
+  const openFullClass = (sessionOverride = null) => {
+    const nextSession = sessionOverride || displaySession;
+    if (!nextSession?.id) return null;
+    const opened = openVineEClassWindow(communityId, { handoff: isThisRoom });
+    if (opened && isThisRoom) void room.leaveClass();
+    if (!opened) {
+      void joinClass(nextSession);
+      setLocalNotice("Your browser blocked the new eClass tab, so the class opened here instead.");
+    }
+    return opened;
   };
 
   const startClass = async () => {
     if (!canModerate || starting) return;
+    const classWindow = openVineEClassWindow(communityId, { launching: true });
     setStarting(true);
     setLocalNotice("");
     try {
@@ -198,8 +229,16 @@ export default function VineEClass({ community, token, initialSession = null, on
       setAvailableMessages([]);
       setStartTitle("");
       if (response.status === 409) setLocalNotice("The existing live class has been opened.");
-      await joinClass(session);
+      if (!classWindow) {
+        await joinClass(session);
+        setLocalNotice("Your browser blocked the new eClass tab, so the class opened here instead.");
+      }
     } catch (err) {
+      try {
+        classWindow?.close();
+      } catch {
+        // The launch error remains visible in the community tab.
+      }
       setLocalNotice(err?.message || "Could not start Vine eClass");
     } finally {
       setStarting(false);
@@ -238,10 +277,6 @@ export default function VineEClass({ community, token, initialSession = null, on
     window.requestAnimationFrame(() => chatInputRef.current?.focus());
   };
 
-  const hostParticipant = useMemo(
-    () => participants.find((participant) => Number(participant.user_id) === Number(displaySession?.host_user_id)),
-    [displaySession?.host_user_id, participants]
-  );
   const openMicParticipants = useMemo(
     () => participants.filter((participant) => (
       Number(participant.is_self_muted || 0) !== 1 &&
@@ -253,7 +288,6 @@ export default function VineEClass({ community, token, initialSession = null, on
     () => openMicParticipants.find((participant) => Number(participant.user_id) === Number(room.activeSpeakerId)),
     [openMicParticipants, room.activeSpeakerId]
   );
-  const featuredParticipant = activeSpeaker || hostParticipant;
   const activeSpeakerName = activeSpeaker
     ? (Number(activeSpeaker.user_id) === room.myId ? "You" : activeSpeaker.display_name || activeSpeaker.username)
     : "";
@@ -286,10 +320,13 @@ export default function VineEClass({ community, token, initialSession = null, on
   };
 
   return (
-    <section className="eclass-shell" aria-label="Vine eClass">
+    <section className={`eclass-shell ${fullWindow ? "eclass-full-window" : ""}`} aria-label="Vine eClass">
       <header className="eclass-heading">
         <div><span className="eclass-eyebrow">Live learning on Vine</span><h3>Vine eClass</h3><p>{community?.name || "Community"} live classroom</p></div>
-        {displaySession ? <div className="eclass-live-pill"><i /> Live now</div> : <div className="eclass-offline-pill">No class live</div>}
+        <div className="eclass-heading-actions">
+          {!fullWindow && displaySession ? <button type="button" className="eclass-popout-btn" onClick={() => openFullClass()}><span aria-hidden="true">↗</span> Open full window</button> : null}
+          {displaySession ? <div className="eclass-live-pill"><i /> Live now</div> : <div className="eclass-offline-pill">No class live</div>}
+        </div>
       </header>
 
       {notice ? <div className="eclass-notice" role="status"><span>{notice}</span><button type="button" onClick={dismissNotice} aria-label="Dismiss notice">×</button></div> : null}
@@ -301,8 +338,8 @@ export default function VineEClass({ community, token, initialSession = null, on
         </div>
       ) : !isThisRoom ? (
         <div className="eclass-prejoin">
-          <div className="eclass-prejoin-visual"><div className="eclass-host-avatar-wrap"><img src={toMediaUrl(displaySession.host_avatar_url)} alt="" /><span className="eclass-host-live-dot" /></div><span className="eclass-prejoin-kicker">Live from {community?.name}</span><h4>{displaySession.title}</h4><p>{displaySession.host_display_name || displaySession.host_username} is hosting this community lesson.</p><div className="eclass-prejoin-meta"><span>Live {formatClassDuration(displaySession.started_at, nowMs)}</span><span>Audio class</span><span>Member only</span></div></div>
-          <button type="button" className="eclass-join-btn" onClick={() => joinClass()} disabled={room.joining}>{room.joining ? "Joining securely..." : "Join Vine eClass"}</button>
+          <div className="eclass-prejoin-visual"><div className="eclass-host-avatar-wrap"><img src={getVineAvatarThumbnailUrl(displaySession.host_avatar_url)} onError={useDefaultVineAvatarOnError} alt="" /><span className="eclass-host-live-dot" /></div><span className="eclass-prejoin-kicker">Live from {community?.name}</span><h4>{displaySession.title}</h4><p>{displaySession.host_display_name || displaySession.host_username} is hosting this community lesson.</p><div className="eclass-prejoin-meta"><span>Live {formatClassDuration(displaySession.started_at, nowMs)}</span><span>Audio class</span><span>Member only</span></div></div>
+          <button type="button" className="eclass-join-btn" onClick={() => fullWindow ? joinClass() : openFullClass()} disabled={roomJoining}>{roomJoining ? "Joining securely..." : fullWindow ? "Join Vine eClass" : "Open full eClass"}</button>
           <small>Your microphone starts muted. You can unmute when you are ready to speak.</small>
         </div>
       ) : (
@@ -310,6 +347,12 @@ export default function VineEClass({ community, token, initialSession = null, on
           <div className="eclass-main-column">
             <div className={`eclass-stage ${activeScreen ? "is-sharing" : ""}`}>
               <div className="eclass-stage-topline"><div><span className="eclass-stage-live"><i /> LIVE</span><strong>{displaySession.title}</strong></div><span>{formatClassDuration(displaySession.started_at, nowMs)}</span></div>
+              {room.audioBlocked ? (
+                <button type="button" className="eclass-audio-gate" onClick={room.enableAudio}>
+                  <span aria-hidden="true">🔊</span>
+                  <b>Tap to hear the class</b>
+                </button>
+              ) : null}
               {activeScreen ? (
                 <div className="eclass-screen-canvas">
                   {room.localScreen ? <video ref={localScreenVideoRef} autoPlay playsInline muted /> : <video ref={remoteScreenVideoRef} autoPlay playsInline />}
@@ -321,28 +364,20 @@ export default function VineEClass({ community, token, initialSession = null, on
                     </div>
                   ) : null}
                 </div>
-              ) : (
-                <div className="eclass-audio-stage">
-                  <div className={`eclass-audio-rings ${activeSpeaker ? "is-speaking" : ""}`} aria-hidden="true"><i /><i /><i /></div>
-                  <img className={`eclass-featured-avatar ${activeSpeaker ? "is-speaking" : ""}`} src={toMediaUrl(featuredParticipant?.avatar_url || displaySession.host_avatar_url)} alt="" />
-                  <span className="eclass-speaking-label">{activeSpeaker ? "Speaking now" : "Class hosted by"}</span>
-                  <strong>{featuredParticipant?.display_name || featuredParticipant?.username || displaySession.host_display_name || displaySession.host_username}</strong>
-                  <p>{participants.length} {participants.length === 1 ? "participant" : "participants"} connected</p>
-                  {room.captionsEnabled ? (
-                    <div className={`eclass-speaker-status ${activeSpeaker ? "is-speaking" : openMicParticipants.length ? "has-open-mic" : "all-muted"}`} aria-live="polite">
-                      {activeSpeaker ? <span className="eclass-speaker-bars" aria-hidden="true"><i /><i /><i /></span> : <i className="eclass-mic-state-dot" aria-hidden="true" />}
-                      <span>{microphoneStatus}</span>
-                    </div>
-                  ) : null}
+              ) : null}
+              <VineEClassParticipants
+                participants={participants}
+                hostUserId={displaySession.host_user_id}
+                myId={room.myId}
+                activeSpeakerId={activeSpeaker?.user_id}
+                compact={Boolean(activeScreen)}
+              />
+              {!activeScreen && room.captionsEnabled ? (
+                <div className={`eclass-speaker-status ${activeSpeaker ? "is-speaking" : openMicParticipants.length ? "has-open-mic" : "all-muted"}`} aria-live="polite">
+                  {activeSpeaker ? <span className="eclass-speaker-bars" aria-hidden="true"><i /><i /><i /></span> : <i className="eclass-mic-state-dot" aria-hidden="true" />}
+                  <span>{microphoneStatus}</span>
                 </div>
-              )}
-              <div className="eclass-participant-strip">
-                {participants.slice(0, 8).map((participant) => {
-                  const muted = Number(participant.is_self_muted || 0) === 1 || Number(participant.is_muted_by_host || 0) === 1;
-                  return <div className="eclass-mini-person" key={`mini-${participant.user_id}`}><div><img src={toMediaUrl(participant.avatar_url)} alt="" /><span className={muted ? "is-muted" : "is-open"} title={muted ? "Microphone muted" : "Microphone on"}>{muted ? "×" : "•"}</span></div><small>{Number(participant.user_id) === room.myId ? "You" : participant.display_name || participant.username}</small></div>;
-                })}
-                {participants.length > 8 ? <div className="eclass-more-people">+{participants.length - 8}</div> : null}
-              </div>
+              ) : null}
             </div>
 
             <div className={`eclass-controls ${canModerate ? "has-moderator-controls" : ""}`} aria-label="Class controls">
@@ -389,7 +424,7 @@ export default function VineEClass({ community, token, initialSession = null, on
                         {!mine ? (
                           joinsNext
                             ? <span className="eclass-chat-avatar-spacer" aria-hidden="true" />
-                            : <img src={toMediaUrl(message.avatar_url)} alt="" />
+                            : <img src={getVineAvatarThumbnailUrl(message.avatar_url)} onError={useDefaultVineAvatarOnError} alt="" />
                         ) : null}
                         <div className="eclass-chat-bubble-wrap">
                           {!joinsPrevious ? (
@@ -436,7 +471,7 @@ export default function VineEClass({ community, token, initialSession = null, on
                   const participantRole = String(participant.community_role || "").toLowerCase();
                   const isLearner = participantRole === "member";
                   const muted = Number(participant.is_self_muted || 0) === 1 || Number(participant.is_muted_by_host || 0) === 1;
-                  return <div className="eclass-person-row" key={`person-${participant.user_id}`}><div className="eclass-person-identity"><div className="eclass-person-avatar"><img src={toMediaUrl(participant.avatar_url)} alt="" /><span className={muted ? "is-muted" : "is-open"} title={muted ? "Microphone muted" : "Microphone on"}>{muted ? "×" : "•"}</span></div><div><strong>{Number(participant.user_id) === room.myId ? "You" : participant.display_name || participant.username}</strong><span>{participantRole === "owner" ? "Owner" : participantRole === "moderator" ? "Moderator" : "Learner"}</span></div></div><div className="eclass-person-actions">{Number(participant.hand_raised || 0) === 1 ? <span className="eclass-hand-badge">Hand raised</span> : null}{canModerate && isLearner && Number(participant.user_id) !== room.myId ? <button type="button" onClick={() => room.moderateMute(participant)}>{Number(participant.is_muted_by_host || 0) === 1 ? "Release mic" : "Mute"}</button> : null}</div></div>;
+                  return <div className="eclass-person-row" key={`person-${participant.user_id}`}><div className="eclass-person-identity"><div className="eclass-person-avatar"><img src={getVineAvatarThumbnailUrl(participant.avatar_url)} onError={useDefaultVineAvatarOnError} alt="" /><span className={muted ? "is-muted" : "is-open"} title={muted ? "Microphone muted" : "Microphone on"}>{muted ? "×" : "•"}</span></div><div><strong>{Number(participant.user_id) === room.myId ? "You" : participant.display_name || participant.username}</strong><span>{participantRole === "owner" ? "Owner" : participantRole === "moderator" ? "Moderator" : "Learner"}</span></div></div><div className="eclass-person-actions">{Number(participant.hand_raised || 0) === 1 ? <span className="eclass-hand-badge">Hand raised</span> : null}{canModerate && isLearner && Number(participant.user_id) !== room.myId ? <button type="button" onClick={() => room.moderateMute(participant)}>{Number(participant.is_muted_by_host || 0) === 1 ? "Release mic" : "Mute"}</button> : null}</div></div>;
                 })}
               </div>
             )}

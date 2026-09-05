@@ -7,6 +7,9 @@ let eclassHostReaperStarted = false;
 export const ECLASS_HOST_RETURN_GRACE_MS = 10 * 60 * 1000;
 const ECLASS_HOST_SWEEP_MS = 60 * 1000;
 
+export const getDefaultEClassMutedState = (userId, hostUserId) =>
+  Number(userId) === Number(hostUserId) ? 0 : 1;
+
 const roomName = (sessionId) => `eclass-${Number(sessionId)}`;
 
 const getRoom = (sessionId) => {
@@ -321,7 +324,7 @@ export function registerVineEClassSocketHandlers({ io, socket, db }) {
       }
 
       const existingUserIds = getRoomUserIds(sessionId).filter((id) => id !== userId);
-      const defaultMuted = 1;
+      const defaultMuted = getDefaultEClassMutedState(userId, membership.host_user_id);
       await db.query(
         `
         INSERT INTO vine_eclass_participants

@@ -2,16 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { socket } from "../../../socket";
 import { useVineEClass } from "./VineEClassContext";
+import { openVineEClassWindow } from "./vineEClassWindow";
+import { getVineAvatarThumbnailUrl, useDefaultVineAvatarOnError } from "../utils/vineAvatar";
 import "./VineEClassFeedRail.css";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
-const DEFAULT_AVATAR = "/default-avatar.png";
-
-const avatarUrl = (value) => {
-  const raw = String(value || "").trim();
-  if (!raw) return DEFAULT_AVATAR;
-  return raw.startsWith("http") ? raw : `${API}${raw}`;
-};
 
 export default function VineEClassFeedRail({ token }) {
   const navigate = useNavigate();
@@ -81,7 +76,12 @@ export default function VineEClassFeedRail({ token }) {
 
   if (rows.length === 0) return null;
 
-  const openClass = (entry) => {
+  const openClass = (entry, isActive) => {
+    const opened = openVineEClassWindow(entry.community_id, { handoff: isActive });
+    if (opened) {
+      if (isActive) void room.leaveClass();
+      return;
+    }
     const slug = String(entry.community_slug || "").trim();
     if (slug) navigate(`/vine/communities/${slug}?tab=eclass`);
   };
@@ -100,9 +100,9 @@ export default function VineEClassFeedRail({ token }) {
             : Number(entry.live_participant_count || 0);
           return (
             <article className={`vine-eclass-feed-card ${isActive ? "is-listening" : ""}`} key={`feed-eclass-${entry.id}`}>
-              <button type="button" className="vine-eclass-feed-main" onClick={() => openClass(entry)}>
+              <button type="button" className="vine-eclass-feed-main" onClick={() => openClass(entry, isActive)}>
                 <span className="vine-eclass-feed-avatar">
-                  <img src={avatarUrl(entry.host_avatar_url)} alt="" />
+                  <img src={getVineAvatarThumbnailUrl(entry.host_avatar_url)} onError={useDefaultVineAvatarOnError} alt="" />
                   <i />
                 </span>
                 <span className="vine-eclass-feed-copy">

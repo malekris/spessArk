@@ -56,6 +56,7 @@ const VineGuardianAnalytics = lazy(() => import("./modules/vine/pages/VineGuardi
 const VineGuardianModeration = lazy(() => import("./modules/vine/pages/VineGuardianModeration"));
 const VineHelpCenter = lazy(() => import("./modules/vine/pages/VineHelpCenter"));
 const VineCommunities = lazy(() => import("./modules/vine/pages/VineCommunities"));
+const VineEClassRoom = lazy(() => import("./modules/vine/pages/VineEClassRoom"));
 const VineLegalPage = lazy(() => import("./modules/vine/pages/VineLegalPage"));
 const VinePublicPost = lazy(() => import("./modules/vine/pages/VinePublicPost"));
 const VinePublicProfile = lazy(() => import("./modules/vine/pages/VinePublicProfile"));
@@ -266,6 +267,7 @@ function App() {
   <Route path="/vine/legal/:page" element={<VineLegalPage />} />
   <Route path="/vine/communities" element={<VineCommunities />} />
   <Route path="/vine/communities/:slug" element={<VineCommunities />} />
+  <Route path="/vine/eclass/:communityId" element={<VineEClassRoom />} />
 </Route>
 
 

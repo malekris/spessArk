@@ -1,0 +1,281 @@
+.eclass-gallery {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 430px;
+  color: #ecfdf5;
+}
+
+.eclass-gallery-heading {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 16px;
+  font-size: 0.7rem;
+}
+
+.eclass-gallery-heading strong {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.eclass-gallery-heading strong span {
+  min-width: 24px;
+  border-radius: 5px;
+  padding: 3px 6px;
+  background: #195a43;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.eclass-gallery-heading > span {
+  color: #b6d4c6;
+}
+
+.eclass-gallery-grid {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, max(180px, calc((100% - (var(--gallery-columns) - 1) * 10px) / var(--gallery-columns)))), 1fr));
+  grid-auto-rows: minmax(190px, 1fr);
+  align-content: start;
+  gap: 10px;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 2px 14px 14px;
+  scrollbar-width: thin;
+  scrollbar-color: #498b70 #123d2f;
+}
+
+.eclass-gallery-grid:focus-visible {
+  outline: 2px solid #6ee7b7;
+  outline-offset: -3px;
+}
+
+.eclass-participant-tile {
+  --tile-bg: #e1f3e9;
+  position: relative;
+  display: grid;
+  grid-template-rows: 28px minmax(72px, 1fr) 40px;
+  gap: 8px;
+  min-width: 0;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--tile-bg);
+  color: #113e2d;
+  box-shadow: 0 4px 12px #001c1426;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.eclass-participant-tile.tone-1 { --tile-bg: #e6eff6; }
+.eclass-participant-tile.tone-2 { --tile-bg: #f4e9ec; }
+.eclass-participant-tile.tone-3 { --tile-bg: #f1f2df; }
+
+.eclass-participant-tile.is-speaking {
+  border-color: #34d399;
+  box-shadow: inset 0 0 0 1px #087f5b, 0 0 0 1px #34d399;
+}
+
+.eclass-tile-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  min-width: 0;
+}
+
+.eclass-tile-mic {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 5px;
+  padding: 4px 6px;
+  background: #ffffffa8;
+  color: #465c54;
+  font-size: 0.62rem;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.eclass-tile-mic.is-open {
+  background: #066447;
+  color: #fff;
+}
+
+.eclass-tile-hand {
+  display: grid;
+  place-items: center;
+  flex: 0 0 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #fde68a;
+  font-size: 0.86rem;
+}
+
+.eclass-tile-portrait {
+  position: relative;
+  align-self: center;
+  justify-self: center;
+  width: 80px;
+  height: 80px;
+  overflow: visible;
+}
+
+.eclass-tile-portrait img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  object-fit: cover;
+  box-shadow: 0 5px 14px #08372b26;
+}
+
+.eclass-tile-identity {
+  align-self: end;
+  min-width: 0;
+  text-align: center;
+}
+
+.eclass-tile-identity strong {
+  display: block;
+  overflow: hidden;
+  font-size: 0.8rem;
+  font-weight: 800;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.eclass-tile-identity > span {
+  display: block;
+  margin-top: 2px;
+  color: #50685c;
+  font-size: 0.65rem;
+  line-height: 1.4;
+}
+
+.is-speaking .eclass-tile-identity > span {
+  color: #046443;
+  font-weight: 850;
+}
+
+.eclass-tile-speaking {
+  position: absolute;
+  right: -3px;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 28px;
+  height: 28px;
+  border: 2px solid var(--tile-bg);
+  border-radius: 50%;
+  background: #066447;
+}
+
+.eclass-tile-speaking i {
+  width: 3px;
+  height: 6px;
+  border-radius: 2px;
+  background: #fff;
+  animation: eclassSpeakerBar 0.72s ease-in-out infinite alternate;
+}
+
+.eclass-tile-speaking i:nth-child(2) { height: 14px; animation-delay: 0.15s; }
+.eclass-tile-speaking i:nth-child(3) { height: 10px; animation-delay: 0.3s; }
+
+.eclass-gallery-grid.is-solo {
+  grid-template-columns: minmax(0, 520px);
+  justify-content: center;
+}
+
+.is-solo .eclass-tile-portrait { width: 112px; height: 112px; }
+
+.eclass-gallery-empty {
+  grid-column: 1 / -1;
+  align-self: center;
+  text-align: center;
+  color: #b6d4c6;
+  font-size: 0.8rem;
+}
+
+.eclass-gallery.is-filmstrip {
+  flex: 0 0 auto;
+  height: auto;
+  border-top: 1px solid #ffffff1a;
+}
+
+.is-filmstrip .eclass-gallery-grid {
+  grid-template-columns: none;
+  grid-auto-flow: column;
+  grid-auto-columns: 142px;
+  grid-auto-rows: 156px;
+  justify-content: start;
+  overflow-y: hidden;
+}
+
+.is-filmstrip .eclass-participant-tile {
+  grid-template-rows: 24px 56px 34px;
+  gap: 5px;
+  padding: 8px;
+}
+
+.is-filmstrip .eclass-tile-portrait { width: 56px; height: 56px; }
+
+@media (min-width: 981px) {
+  .eclass-full-window .eclass-gallery:not(.is-filmstrip) {
+    flex: 1 1 auto;
+    height: auto;
+  }
+}
+
+@media (max-width: 640px) {
+  .eclass-gallery { height: 410px; }
+  .eclass-gallery-heading { padding: 10px 12px; }
+  .eclass-gallery-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-auto-rows: minmax(166px, 1fr);
+    gap: 8px;
+    padding: 2px 10px 10px;
+  }
+  .eclass-participant-tile {
+    grid-template-rows: 24px minmax(60px, 1fr) 36px;
+    gap: 6px;
+    padding: 8px;
+  }
+  .eclass-tile-portrait { width: 64px; height: 64px; }
+  .eclass-tile-identity strong { font-size: 0.74rem; }
+  .eclass-tile-mic { font-size: 0.58rem; }
+  .is-filmstrip .eclass-gallery-grid { grid-auto-columns: 130px; }
+}
+
+@media (min-width: 981px) and (max-height: 740px) {
+  .eclass-full-window .is-filmstrip .eclass-gallery-heading { display: none; }
+  .eclass-full-window .is-filmstrip .eclass-gallery-grid {
+    grid-auto-rows: 116px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+  .eclass-full-window .is-filmstrip .eclass-participant-tile {
+    grid-template-rows: 16px 44px 30px;
+    gap: 3px;
+    padding: 5px;
+  }
+  .eclass-full-window .is-filmstrip .eclass-tile-mic { padding: 1px 4px; }
+  .eclass-full-window .is-filmstrip .eclass-tile-portrait { width: 44px; height: 44px; }
+  .eclass-full-window .is-filmstrip .eclass-tile-identity strong { font-size: 0.7rem; }
+  .eclass-full-window .is-filmstrip .eclass-tile-identity > span { font-size: 0.58rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .eclass-tile-speaking i { animation: none; }
+  .eclass-participant-tile { transition: none; }
+}

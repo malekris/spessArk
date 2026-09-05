@@ -156,9 +156,17 @@ app.use("/api/alevel/reports", alevelReports);
 app.use("/api/vine", vineRoutes);
 app.use("/api/vine/auth", vineAuth);
 app.use("/api/vine", vineRoutes);
-app.use("/uploads", express.static("uploads"));
+app.use("/uploads", express.static(path.join(__dirname, "uploads"), {
+  maxAge: "1y",
+  immutable: true,
+  setHeaders(res) {
+    const cacheControl = "public, max-age=31536000, immutable";
+    res.setHeader("Cache-Control", cacheControl);
+    res.setHeader("CDN-Cache-Control", cacheControl);
+    res.setHeader("Cloudflare-CDN-Cache-Control", cacheControl);
+  },
+}));
 app.use("/api/dms", dmRoutes);
-app.use("/uploads", express.static("uploads"));
 
 app.get(/^\/vine(?:\/.*)?$/, (req, res) => {
   const frontendBase = getVineFrontendBase(req);

@@ -191,12 +191,36 @@ export function VineEClassProvider({ children }) {
     }
   }, []);
 
+  const enableAudio = useCallback(async () => {
+    const audioElements = Array.from(audioElementsRef.current.values());
+    if (audioElements.length === 0) {
+      setAudioBlocked(false);
+      return false;
+    }
+    let played = 0;
+    for (const audio of audioElements) {
+      audio.muted = false;
+      audio.volume = 1;
+      try {
+        await audio.play();
+        played += 1;
+      } catch {
+        // A visible tap-to-hear control will retry blocked mobile playback.
+      }
+    }
+    const blocked = played !== audioElements.length;
+    setAudioBlocked(blocked);
+    return played > 0;
+  }, []);
+
   const createPeerConnection = useCallback((remoteUserId) => {
     const uid = Number(remoteUserId);
     const existing = peerConnectionsRef.current.get(uid);
     if (existing && existing.signalingState !== "closed") return existing;
     const pc = new RTCPeerConnection(RTC_CONFIG);
     peerConnectionsRef.current.set(uid, pc);
+    let reconnectTimer = null;
+    let iceRestartAttempts = 0;
 
     localAudioRef.current?.getAudioTracks().forEach((track) => {
       pc.addTrack(track, localAudioRef.current);
@@ -218,9 +242,35 @@ export function VineEClassProvider({ children }) {
         return;
       }
       setRemoteAudioStreams((previous) => ({ ...previous, [uid]: stream }));
+      event.track.onunmute = () => {
+        window.requestAnimationFrame(() => { void enableAudio(); });
+      };
+      window.requestAnimationFrame(() => { void enableAudio(); });
     };
-    const handleConnectionState = () => {
-      if (!["failed", "closed"].includes(pc.connectionState)) return;
+    const clearReconnectTimer = () => {
+      if (!reconnectTimer) return;
+      window.clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    };
+    const restartPeerIce = async () => {
+      reconnectTimer = null;
+      if (!joinedRef.current || pc.signalingState === "closed" || iceRestartAttempts >= 2) return;
+      if (pc.signalingState !== "stable") {
+        reconnectTimer = window.setTimeout(restartPeerIce, 1_000);
+        return;
+      }
+      iceRestartAttempts += 1;
+      try {
+        pc.restartIce?.();
+        const offer = await pc.createOffer({ iceRestart: true });
+        await pc.setLocalDescription(offer);
+        sendSignal(uid, { description: pc.localDescription });
+      } catch (err) {
+        console.warn("Vine eClass audio recovery failed:", err?.message || err);
+      }
+    };
+    const removeFailedPeer = () => {
+      clearReconnectTimer();
       if (peerConnectionsRef.current.get(uid) === pc) peerConnectionsRef.current.delete(uid);
       setRemoteAudioStreams((previous) => {
         const next = { ...previous };
@@ -228,9 +278,33 @@ export function VineEClassProvider({ children }) {
         return next;
       });
     };
+    const handleConnectionState = () => {
+      const connected = pc.connectionState === "connected" || ["connected", "completed"].includes(pc.iceConnectionState);
+      if (connected) {
+        clearReconnectTimer();
+        iceRestartAttempts = 0;
+        window.requestAnimationFrame(() => { void enableAudio(); });
+        return;
+      }
+      if (pc.connectionState === "closed") {
+        removeFailedPeer();
+        return;
+      }
+      const failed = pc.connectionState === "failed" || pc.iceConnectionState === "failed";
+      const disconnected = pc.connectionState === "disconnected" || pc.iceConnectionState === "disconnected";
+      if ((failed || disconnected) && iceRestartAttempts < 2 && !reconnectTimer) {
+        reconnectTimer = window.setTimeout(restartPeerIce, failed ? 0 : 4_000);
+        return;
+      }
+      if (failed && iceRestartAttempts >= 2) {
+        removeFailedPeer();
+        setNotice("An audio connection failed. Leave and rejoin if it does not recover.");
+      }
+    };
     pc.onconnectionstatechange = handleConnectionState;
+    pc.oniceconnectionstatechange = handleConnectionState;
     return pc;
-  }, [sendSignal]);
+  }, [enableAudio, sendSignal]);
 
   const makeOffer = useCallback(async (remoteUserId) => {
     const pc = createPeerConnection(remoteUserId);
@@ -604,20 +678,6 @@ export function VineEClassProvider({ children }) {
     return response;
   }, []);
 
-  const enableAudio = useCallback(async () => {
-    let enabled = false;
-    for (const audio of audioElementsRef.current.values()) {
-      try {
-        audio.muted = false;
-        await audio.play();
-        enabled = true;
-      } catch {
-        // Continue trying the remaining participant streams.
-      }
-    }
-    setAudioBlocked(!enabled && audioElementsRef.current.size > 0);
-  }, []);
-
   const toggleCaptions = useCallback(() => {
     setCaptionsEnabled((enabled) => !enabled);
   }, []);
@@ -707,6 +767,8 @@ export function VineEClassProvider({ children }) {
                 return;
               }
               audioElementsRef.current.set(uid, element);
+              element.muted = false;
+              element.volume = 1;
               if (element.srcObject !== stream) element.srcObject = stream;
               element.play().then(() => setAudioBlocked(false)).catch(() => setAudioBlocked(true));
             }}

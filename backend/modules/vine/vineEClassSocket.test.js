@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   ECLASS_HOST_RETURN_GRACE_MS,
   endEClassForAbsentHost,
+  getDefaultEClassMutedState,
 } from "./vineEClassSocket.js";
 
 const createIoRecorder = () => {
@@ -21,6 +22,11 @@ const createIoRecorder = () => {
     },
   };
 };
+
+test("starts the teacher live while learners still join muted", () => {
+  assert.equal(getDefaultEClassMutedState(7, 7), 0);
+  assert.equal(getDefaultEClassMutedState(12, 7), 1);
+});
 
 test("automatically ends an eClass after the host return window expires", async () => {
   const queries = [];

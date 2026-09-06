@@ -34,6 +34,12 @@ const getClassMessageTime = (value) => {
   return date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 };
 
+const getScreenShareSurfaceLabel = (surface) => ({
+  window: "Application window",
+  browser: "Browser tab",
+  monitor: "Entire screen",
+}[surface] || "Shared screen");
+
 const messagesBelongTogether = (first, second) => {
   if (!first || !second || Number(first.user_id) !== Number(second.user_id)) return false;
   const firstTime = new Date(String(first.created_at || "").replace(" ", "T")).getTime();
@@ -76,10 +82,12 @@ export default function VineEClass({
   const [ending, setEnding] = useState(false);
   const [showEndConfirm, setShowEndConfirm] = useState(false);
   const [panelTab, setPanelTab] = useState("chat");
+  const [shareMenuOpen, setShareMenuOpen] = useState(false);
   const [localNotice, setLocalNotice] = useState("");
   const [nowMs, setNowMs] = useState(Date.now());
   const localScreenVideoRef = useRef(null);
   const remoteScreenVideoRef = useRef(null);
+  const sharePickerRef = useRef(null);
   const chatFeedRef = useRef(null);
   const chatInputRef = useRef(null);
   const chatStickToBottomRef = useRef(true);
@@ -132,6 +140,19 @@ export default function VineEClass({
   useEffect(() => {
     resizeClassComposer(chatInputRef.current);
   }, [chatText]);
+
+  useEffect(() => {
+    if (!shareMenuOpen) return undefined;
+    const closeShareMenu = (event) => {
+      if (!sharePickerRef.current?.contains(event.target)) setShareMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", closeShareMenu);
+    return () => document.removeEventListener("pointerdown", closeShareMenu);
+  }, [shareMenuOpen]);
+
+  useEffect(() => {
+    if (room.screenSharing) setShareMenuOpen(false);
+  }, [room.screenSharing]);
 
   const loadClass = useCallback(async () => {
     if (!communityId || !token) return;
@@ -323,7 +344,7 @@ export default function VineEClass({
   };
 
   return (
-    <section className={`eclass-shell ${fullWindow ? "eclass-full-window" : ""}`} aria-label="Vine eClass">
+    <section className={`eclass-shell ${fullWindow ? "eclass-full-window" : ""} ${activeScreen ? "has-presentation" : ""}`} aria-label="Vine eClass">
       <header className="eclass-heading">
         <div><span className="eclass-eyebrow">Live learning on Vine</span><h3>Vine eClass</h3><p>{community?.name || "Community"} live classroom</p></div>
         <div className="eclass-heading-actions">
@@ -369,7 +390,7 @@ export default function VineEClass({
               {activeScreen ? (
                 <div className="eclass-screen-canvas">
                   {room.localScreen ? <video ref={localScreenVideoRef} autoPlay playsInline muted /> : <video ref={remoteScreenVideoRef} autoPlay playsInline />}
-                  <span>{room.localScreen ? "You are presenting" : "Moderator screen"}</span>
+                  <span>{room.localScreen ? `You are presenting - ${getScreenShareSurfaceLabel(room.screenShareSurface)}` : "Moderator screen"}</span>
                   {room.captionsEnabled ? (
                     <div className={`eclass-screen-caption ${activeSpeaker ? "is-speaking" : openMicParticipants.length ? "has-open-mic" : "all-muted"}`} aria-live="polite">
                       {activeSpeaker ? <span className="eclass-speaker-bars" aria-hidden="true"><i /><i /><i /></span> : <i className="eclass-mic-state-dot" aria-hidden="true" />}
@@ -394,12 +415,50 @@ export default function VineEClass({
               ) : null}
             </div>
 
-            <div className={`eclass-controls ${canModerate ? "has-moderator-controls" : ""}`} aria-label="Class controls">
+            <div className={`eclass-controls ${canModerate ? "has-moderator-controls" : ""} ${shareMenuOpen ? "share-menu-open" : ""}`} aria-label="Class controls">
               {room.audioBlocked ? <button type="button" className="eclass-audio-control" onClick={room.enableAudio}><span aria-hidden="true">🔊</span>Enable audio</button> : null}
               <button type="button" className={`eclass-mic-control ${room.selfMuted ? "is-off" : "is-on"}`} onClick={room.toggleSelfMute} title={room.selfMuted ? "Unmute microphone" : "Mute microphone"}><span aria-hidden="true">{room.selfMuted ? "🎙️" : "🎤"}</span>{room.selfMuted ? "Unmute" : "Mute"}</button>
               <button type="button" className={`eclass-hand-control ${room.handRaised ? "is-raised" : ""}`} onClick={room.toggleHand}><span aria-hidden="true">✋</span>{room.handRaised ? "Lower hand" : "Raise hand"}</button>
               <button type="button" className={`eclass-captions-control ${room.captionsEnabled ? "is-on" : ""}`} onClick={room.toggleCaptions} aria-pressed={room.captionsEnabled} title={room.captionsEnabled ? "Turn captions off" : "Turn captions on"}><span aria-hidden="true">CC</span>{room.captionsEnabled ? "CC on" : "Captions"}</button>
-              {canModerate ? <button type="button" className={`eclass-share-control ${room.screenSharing ? "is-sharing" : ""}`} onClick={room.screenSharing ? room.stopScreenShare : room.startScreenShare}><span aria-hidden="true">{room.screenSharing ? "⏹️" : "🖥️"}</span>{room.screenSharing ? "Stop sharing" : "Share screen"}</button> : null}
+              {canModerate ? (
+                <div className="eclass-share-picker" ref={sharePickerRef}>
+                  <button
+                    type="button"
+                    className={`eclass-share-control ${room.screenSharing ? "is-sharing" : ""}`}
+                    onClick={() => {
+                      if (room.screenSharing) {
+                        void room.stopScreenShare();
+                        return;
+                      }
+                      setShareMenuOpen((open) => !open);
+                    }}
+                    aria-haspopup="menu"
+                    aria-expanded={!room.screenSharing && shareMenuOpen}
+                    title={room.screenSharing ? "Stop sharing" : "Choose an app, tab, or screen to share"}
+                  >
+                    <span aria-hidden="true">{room.screenSharing ? "⏹️" : "🖥️"}</span>
+                    {room.screenSharing ? "Stop sharing" : "Share screen"}
+                  </button>
+                  {!room.screenSharing && shareMenuOpen ? (
+                    <div className="eclass-share-menu" role="menu" aria-label="Choose what to share">
+                      <strong>Choose what to present</strong>
+                      <span className="eclass-share-menu-help">For Word, PowerPoint, Excel, or another open app, choose Application window.</span>
+                      <button type="button" role="menuitem" onClick={() => { setShareMenuOpen(false); void room.startScreenShare("window"); }}>
+                        <span className="eclass-share-menu-icon" aria-hidden="true">🪟</span>
+                        <span><b>Application window</b><small>Share one open app</small></span>
+                      </button>
+                      <button type="button" role="menuitem" onClick={() => { setShareMenuOpen(false); void room.startScreenShare("browser"); }}>
+                        <span className="eclass-share-menu-icon" aria-hidden="true">🌐</span>
+                        <span><b>Browser tab</b><small>Share one tab</small></span>
+                      </button>
+                      <button type="button" role="menuitem" onClick={() => { setShareMenuOpen(false); void room.startScreenShare("monitor"); }}>
+                        <span className="eclass-share-menu-icon" aria-hidden="true">🖥️</span>
+                        <span><b>Entire screen</b><small>Share everything visible</small></span>
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
               <button type="button" className="eclass-leave-control" onClick={() => room.leaveClass()}><span aria-hidden="true">🚪</span>Leave</button>
               {canModerate ? <button type="button" className="eclass-end-control" onClick={() => setShowEndConfirm(true)}>End class</button> : null}
             </div>

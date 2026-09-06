@@ -86,6 +86,7 @@ export function VineEClassProvider({ children }) {
   const [hostMuted, setHostMuted] = useState(false);
   const [handRaised, setHandRaised] = useState(false);
   const [screenSharing, setScreenSharing] = useState(false);
+  const [screenShareSurface, setScreenShareSurface] = useState(null);
   const [remoteScreen, setRemoteScreen] = useState(null);
   const [localScreen, setLocalScreen] = useState(null);
   const [remoteAudioStreams, setRemoteAudioStreams] = useState({});
@@ -154,6 +155,7 @@ export function VineEClassProvider({ children }) {
     audioElementsRef.current.clear();
     blockedAudioRef.current.clear();
     setLocalScreen(null);
+    setScreenShareSurface(null);
     setRemoteScreen(null);
     setRemoteAudioStreams({});
     setScreenSharing(false);
@@ -650,6 +652,7 @@ export function VineEClassProvider({ children }) {
     const tracks = stream.getVideoTracks();
     screenStreamRef.current = null;
     setLocalScreen(null);
+    setScreenShareSurface(null);
     setScreenSharing(false);
     for (const { pc } of peerConnectionsRef.current.values()) {
       for (const sender of pc.getSenders()) {
@@ -662,18 +665,34 @@ export function VineEClassProvider({ children }) {
     }
   }, []);
 
-  const startScreenShare = useCallback(async () => {
+  const startScreenShare = useCallback(async (surface = "window") => {
     if (!joinedRef.current || screenSharing) return;
     if (!navigator.mediaDevices?.getDisplayMedia) {
       setNotice("Screen sharing is not supported on this browser.");
       return;
     }
     try {
-      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+      const requestedSurface = ["window", "browser", "monitor"].includes(surface) ? surface : "window";
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: {
+          // Ask the browser to foreground the app-window picker. The user still
+          // makes the final choice in the browser's privacy-controlled dialog.
+          displaySurface: requestedSurface,
+          cursor: "motion",
+          frameRate: { ideal: 30, max: 30 },
+        },
+        audio: false,
+        preferCurrentTab: requestedSurface === "browser",
+        selfBrowserSurface: "exclude",
+        surfaceSwitching: "include",
+        monitorTypeSurfaces: "include",
+      });
       const [track] = stream.getVideoTracks();
       if (!track) throw new Error("No screen was selected");
+      const actualSurface = track.getSettings?.().displaySurface || requestedSurface;
       screenStreamRef.current = stream;
       setLocalScreen(stream);
+      setScreenShareSurface(actualSurface);
       setScreenSharing(true);
       for (const { pc } of peerConnectionsRef.current.values()) {
         pc.addTrack(track, stream);
@@ -682,7 +701,9 @@ export function VineEClassProvider({ children }) {
       track.onended = () => { void stopScreenShare(); };
     } catch (err) {
       if (String(err?.name || "") !== "NotAllowedError") {
-        setNotice(err?.message || "Screen sharing could not start");
+        setNotice(err?.name === "NotFoundError"
+          ? "No shareable window was found. Open the app you want to present and try again."
+          : err?.message || "Screen sharing could not start");
       }
     }
   }, [screenSharing, stopScreenShare]);
@@ -731,6 +752,7 @@ export function VineEClassProvider({ children }) {
     hostMuted,
     handRaised,
     screenSharing,
+    screenShareSurface,
     remoteScreen,
     localScreen,
     notice,
@@ -764,6 +786,7 @@ export function VineEClassProvider({ children }) {
     hostMuted,
     handRaised,
     screenSharing,
+    screenShareSurface,
     remoteScreen,
     localScreen,
     notice,

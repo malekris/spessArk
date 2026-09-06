@@ -638,10 +638,14 @@
   position: relative;
   display: grid;
   place-items: center;
-  min-height: 376px;
+  min-height: clamp(420px, 58vh, 820px);
   padding: 10px;
   overflow: hidden;
   background: #02140f;
+}
+
+.eclass-stage.is-sharing {
+  min-height: clamp(560px, 72vh, 980px);
 }
 
 .eclass-screen-canvas video {
@@ -798,6 +802,10 @@
   scrollbar-width: thin;
 }
 
+.eclass-controls.share-menu-open {
+  overflow: visible;
+}
+
 .eclass-controls button {
   flex: 0 0 auto;
   display: inline-flex;
@@ -884,6 +892,121 @@
 .eclass-controls .eclass-share-control.is-sharing {
   background: #075985;
   box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.22), 0 10px 20px rgba(7, 89, 133, 0.25);
+}
+
+.eclass-share-picker {
+  position: relative;
+  flex: 0 0 auto;
+  min-width: 72px;
+}
+
+.eclass-share-picker > .eclass-share-control {
+  width: 100%;
+  height: 100%;
+}
+
+.eclass-share-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 10px);
+  z-index: 30;
+  display: grid;
+  gap: 5px;
+  width: min(320px, calc(100vw - 28px));
+  padding: 10px;
+  border: 1px solid #b7e8cf;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.98);
+  color: #123d2f;
+  text-align: left;
+  box-shadow: 0 18px 42px rgba(2, 44, 32, 0.24);
+  backdrop-filter: blur(16px);
+}
+
+.eclass-share-menu > strong {
+  padding: 2px 5px 0;
+  color: #064e3b;
+  font-size: 0.76rem;
+  font-weight: 950;
+}
+
+.eclass-share-menu-help {
+  display: block;
+  padding: 0 5px 5px;
+  color: #647b71;
+  font-size: 0.64rem;
+  line-height: 1.4;
+}
+
+.eclass-controls .eclass-share-menu button {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  flex: initial;
+  flex-direction: row;
+  align-items: center;
+  justify-content: initial;
+  gap: 9px;
+  width: 100%;
+  min-width: 0;
+  min-height: 50px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 6px 8px;
+  background: #f3faf6;
+  color: #123d2f;
+  text-align: left;
+  box-shadow: none;
+}
+
+.eclass-controls .eclass-share-menu button:hover {
+  border-color: #a7f3d0;
+  background: #e7f8ee;
+  box-shadow: none;
+  filter: none;
+  transform: none;
+}
+
+.eclass-controls .eclass-share-menu button > span {
+  width: auto;
+  height: auto;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+.eclass-controls .eclass-share-menu button > .eclass-share-menu-icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: #d1fae5;
+  font-size: 1rem;
+}
+
+.eclass-share-menu button > span:last-child {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.eclass-share-menu button b,
+.eclass-share-menu button small {
+  display: block;
+}
+
+.eclass-share-menu button b {
+  color: #075f46;
+  font-size: 0.7rem;
+  font-weight: 900;
+}
+
+.eclass-share-menu button small {
+  color: #71877d;
+  font-size: 0.62rem;
+  font-weight: 700;
 }
 
 .eclass-controls .eclass-leave-control {
@@ -1476,7 +1599,12 @@
   }
 
   .eclass-full-window .eclass-stage.is-sharing {
-    overflow-y: auto;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .eclass-full-window .eclass-stage.is-sharing .eclass-screen-canvas {
+    min-height: 0;
   }
 
   .eclass-full-window .eclass-side-panel {
@@ -1589,6 +1717,10 @@
     min-height: 300px;
   }
 
+  .eclass-stage.is-sharing {
+    min-height: 520px;
+  }
+
   .eclass-controls {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1599,6 +1731,17 @@
 
   .eclass-controls.has-moderator-controls {
     grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .eclass-controls.has-moderator-controls .eclass-share-picker {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .eclass-controls.has-moderator-controls .eclass-share-menu button {
+    padding-right: 8px;
+    padding-left: 8px;
+    font-size: inherit;
   }
 
   .eclass-controls button {
@@ -1737,6 +1880,10 @@
 
   .eclass-stage {
     min-height: 370px;
+  }
+
+  .eclass-stage.is-sharing {
+    min-height: 460px;
   }
 
   .eclass-audio-stage {

@@ -275,7 +275,7 @@ export const startVineEClassHostReaper = ({ io, db }) => {
   if (typeof sweepTimer.unref === "function") sweepTimer.unref();
 };
 
-export function registerVineEClassSocketHandlers({ io, socket, db }) {
+export function registerVineEClassSocketHandlers({ io, socket, db, getIceConfig = getEClassIceConfig }) {
   socket.data.eclassSessions = socket.data.eclassSessions || new Map();
 
   const acknowledge = (callback, payload) => {
@@ -325,6 +325,14 @@ export function registerVineEClassSocketHandlers({ io, socket, db }) {
         return acknowledge(callback, { ok: false, message: "This live class is for community members only" });
       }
 
+      let rtcConfig;
+      try {
+        rtcConfig = await getIceConfig(userId);
+      } catch {
+        return acknowledge(callback, { ok: false, message: "The audio relay is unavailable. Please try joining again shortly." });
+      }
+      if (socket.connected === false) return;
+
       const existingUserIds = getRoomUserIds(sessionId).filter((id) => id !== userId);
       const defaultMuted = getDefaultEClassMutedState(userId, membership.host_user_id);
       await db.query(
@@ -368,7 +376,7 @@ export function registerVineEClassSocketHandlers({ io, socket, db }) {
         },
         self,
         participants,
-        rtcConfig: getEClassIceConfig(userId),
+        rtcConfig,
       });
     } catch (err) {
       console.error("Join Vine eClass socket error:", err);

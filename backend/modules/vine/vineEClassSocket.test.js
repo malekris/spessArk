@@ -35,6 +35,7 @@ test("ICE configuration is returned only after authenticated live-community admi
   for (const allowed of [false, true]) {
     const handlers = new Map();
     const published = [];
+    let credentialRequests = 0;
     let releaseLeave;
     const socket = {
       id: `ice-config-test-${allowed}`, data: {}, rooms: new Set(),
@@ -57,21 +58,61 @@ test("ICE configuration is returned only after authenticated live-community admi
         throw new Error(`Unexpected test query: ${normalized}`);
       },
     };
-    registerVineEClassSocketHandlers({ io, socket, db });
+    registerVineEClassSocketHandlers({ io, socket, db, getIceConfig: async (userId) => {
+      assert.equal(userId, 12);
+      credentialRequests += 1;
+      return { iceServers: [{ urls: "turns:relay.example:443", username: "temporary", credential: "temporary" }] };
+    } });
     let response;
     await handlers.get("eclass_join")({ sessionId: 9901, token: "invalid" }, (value) => { response = value; });
     assert.equal(response.ok, false);
     assert.equal(response.rtcConfig, undefined);
+    assert.equal(credentialRequests, 0);
     const token = jwt.sign({ id: 12 }, process.env.JWT_SECRET || "vine_secret_key", { expiresIn: "1m" });
     await handlers.get("eclass_join")({ sessionId: 9901, token }, (value) => { response = value; });
     assert.equal(response.ok, allowed);
     assert.equal(Boolean(response.rtcConfig), allowed);
+    assert.equal(credentialRequests, allowed ? 1 : 0);
     if (allowed) {
       const leaving = handlers.get("eclass_leave")({ sessionId: 9901 });
       assert.equal(published.at(-1), "eclass_participant_left", "A leave must be published before slow storage can allow a new join");
       releaseLeave();
       await leaving;
     }
+  }
+});
+
+test("relay outage or disconnect during credential exchange never admits a ghost participant", async () => {
+  const { io } = createIoRecorder();
+  for (const outcome of ["unavailable", "disconnected"]) {
+    const handlers = new Map();
+    const socket = {
+      id: `relay-failure-${outcome}`, connected: true, data: {}, rooms: new Set(),
+      on(event, fn) { handlers.set(event, fn); },
+      join() { assert.fail("Must not join the room"); },
+    };
+    const db = {
+      async query(sql) {
+        const normalized = sql.replace(/\s+/g, " ").trim();
+        if (normalized.startsWith("SELECT id FROM vine_users")) return [[{ id: 12 }]];
+        if (normalized.startsWith("SELECT s.id AS session_id")) return [[{ session_id: 9902, community_id: 99, host_user_id: 7, community_role: "member" }]];
+        assert.fail("No participant writes before relay credentials are ready");
+      },
+    };
+    registerVineEClassSocketHandlers({ io, socket, db, getIceConfig: async () => {
+      if (outcome === "unavailable") throw new Error("Provider body with a secret");
+      socket.connected = false;
+      return { iceServers: [] };
+    } });
+    let response;
+    const token = jwt.sign({ id: 12 }, process.env.JWT_SECRET || "vine_secret_key", { expiresIn: "1m" });
+    await handlers.get("eclass_join")({ sessionId: 9902, token }, (value) => { response = value; });
+    if (outcome === "unavailable") {
+      assert.equal(response.ok, false);
+      assert.equal(response.message, "The audio relay is unavailable. Please try joining again shortly.");
+      assert.equal(response.rtcConfig, undefined);
+    } else assert.equal(response, undefined);
+    assert.equal(socket.data.eclassSessions.size, 0);
   }
 });
 

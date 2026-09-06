@@ -93,6 +93,9 @@ export default function VineEClass({
   const messages = isThisRoom ? room.messages : availableMessages;
   const activeScreen = isThisRoom ? room.localScreen || room.remoteScreen?.stream || null : null;
   const notice = localNotice || (isThisRoom ? room.notice : "");
+  const remoteParticipants = participants.filter((person) => Number(person.user_id) !== room.myId);
+  const connectedAudioCount = remoteParticipants.filter((person) => room.peerAudioStates?.[person.user_id] === "connected").length;
+  const audioFailed = remoteParticipants.some((person) => room.peerAudioStates?.[person.user_id] === "failed");
 
   const updateSession = useCallback((session) => {
     const nextSession = session || null;
@@ -347,6 +350,16 @@ export default function VineEClass({
           <div className="eclass-main-column">
             <div className={`eclass-stage ${activeScreen ? "is-sharing" : ""}`}>
               <div className="eclass-stage-topline"><div><span className="eclass-stage-live"><i /> LIVE</span><strong>{displaySession.title}</strong></div><span>{formatClassDuration(displaySession.started_at, nowMs)}</span></div>
+              <div className={`eclass-connection-status ${audioFailed ? "is-error" : ""}`} role="status">
+                <span>{room.reconnecting ? "Connection lost. Rejoining audio..." : audioFailed
+                  ? "Audio could not connect to everyone."
+                  : remoteParticipants.length ? `Audio connected: ${connectedAudioCount} of ${remoteParticipants.length}`
+                    : "Waiting for others to join audio"}</span>
+                {audioFailed ? <button type="button" onClick={room.retryAudio}>Reconnect audio</button> : null}
+              </div>
+              {canModerate && room.relayConfigured === false ? (
+                <p className="eclass-relay-warning">Audio relay not configured. Learners on some networks may not hear the class.</p>
+              ) : null}
               {room.audioBlocked ? (
                 <button type="button" className="eclass-audio-gate" onClick={room.enableAudio}>
                   <span aria-hidden="true">🔊</span>
@@ -370,6 +383,7 @@ export default function VineEClass({
                 hostUserId={displaySession.host_user_id}
                 myId={room.myId}
                 activeSpeakerId={activeSpeaker?.user_id}
+                peerAudioStates={room.peerAudioStates}
                 compact={Boolean(activeScreen)}
               />
               {!activeScreen && room.captionsEnabled ? (

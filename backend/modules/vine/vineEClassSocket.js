@@ -1,4 +1,5 @@
 import jwt from "jsonwebtoken";
+import { getEClassIceConfig } from "./vineEClassIceConfig.js";
 
 const eclassRooms = new Map();
 const eclassHostReturnTimers = new Map();
@@ -296,10 +297,7 @@ export function registerVineEClassSocketHandlers({ io, socket, db }) {
     socket.leave(roomName(sid));
     const fullyLeft = removeRoomSocket(sid, stored.userId, socket.id);
     if (!fullyLeft) return;
-    await db.query(
-      "UPDATE vine_eclass_participants SET left_at = NOW(), hand_raised = 0 WHERE session_id = ? AND user_id = ?",
-      [sid, stored.userId]
-    ).catch(() => {});
+    // Publish before awaiting storage so a quick rejoin cannot be followed by a stale leave event.
     if (emit) {
       socket.to(roomName(sid)).emit("eclass_participant_left", {
         sessionId: sid,
@@ -309,6 +307,10 @@ export function registerVineEClassSocketHandlers({ io, socket, db }) {
     if (Number(stored.userId) === Number(stored.hostUserId)) {
       scheduleHostReturnDeadline({ io, db, sessionId: sid });
     }
+    await db.query(
+      "UPDATE vine_eclass_participants SET left_at = NOW(), hand_raised = 0 WHERE session_id = ? AND user_id = ?",
+      [sid, stored.userId]
+    ).catch(() => {});
   };
 
   socket.on("eclass_join", async (payload = {}, callback) => {
@@ -366,6 +368,7 @@ export function registerVineEClassSocketHandlers({ io, socket, db }) {
         },
         self,
         participants,
+        rtcConfig: getEClassIceConfig(userId),
       });
     } catch (err) {
       console.error("Join Vine eClass socket error:", err);

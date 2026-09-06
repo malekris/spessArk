@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import jwt from "jsonwebtoken";
 
 import {
   ECLASS_HOST_RETURN_GRACE_MS,
   endEClassForAbsentHost,
   getDefaultEClassMutedState,
+  registerVineEClassSocketHandlers,
 } from "./vineEClassSocket.js";
 
 const createIoRecorder = () => {
@@ -26,6 +28,51 @@ const createIoRecorder = () => {
 test("starts the teacher live while learners still join muted", () => {
   assert.equal(getDefaultEClassMutedState(7, 7), 0);
   assert.equal(getDefaultEClassMutedState(12, 7), 1);
+});
+
+test("ICE configuration is returned only after authenticated live-community admission", async () => {
+  const { io } = createIoRecorder();
+  for (const allowed of [false, true]) {
+    const handlers = new Map();
+    const published = [];
+    let releaseLeave;
+    const socket = {
+      id: `ice-config-test-${allowed}`, data: {}, rooms: new Set(),
+      on(event, fn) { handlers.set(event, fn); },
+      join(room) { this.rooms.add(room); },
+      leave(room) { this.rooms.delete(room); },
+      to() { return { emit(event) { published.push(event); } }; },
+    };
+    const db = {
+      async query(sql) {
+        const normalized = sql.replace(/\s+/g, " ").trim();
+        if (normalized.startsWith("SELECT id FROM vine_users")) return [[{ id: 12 }]];
+        if (normalized.startsWith("SELECT s.id AS session_id")) return [allowed ? [{ session_id: 9901, community_id: 99, host_user_id: 7, community_role: "member" }] : []];
+        if (normalized.startsWith("SELECT u.id AS user_id")) return [[{ user_id: 12, is_self_muted: 1 }]];
+        if (normalized.startsWith("UPDATE vine_eclass_participants SET left_at")) {
+          await new Promise((resolve) => { releaseLeave = resolve; });
+          return [{ affectedRows: 1 }];
+        }
+        if (/^(INSERT INTO|UPDATE) vine_eclass_participants/.test(normalized)) return [{ affectedRows: 1 }];
+        throw new Error(`Unexpected test query: ${normalized}`);
+      },
+    };
+    registerVineEClassSocketHandlers({ io, socket, db });
+    let response;
+    await handlers.get("eclass_join")({ sessionId: 9901, token: "invalid" }, (value) => { response = value; });
+    assert.equal(response.ok, false);
+    assert.equal(response.rtcConfig, undefined);
+    const token = jwt.sign({ id: 12 }, process.env.JWT_SECRET || "vine_secret_key", { expiresIn: "1m" });
+    await handlers.get("eclass_join")({ sessionId: 9901, token }, (value) => { response = value; });
+    assert.equal(response.ok, allowed);
+    assert.equal(Boolean(response.rtcConfig), allowed);
+    if (allowed) {
+      const leaving = handlers.get("eclass_leave")({ sessionId: 9901 });
+      assert.equal(published.at(-1), "eclass_participant_left", "A leave must be published before slow storage can allow a new join");
+      releaseLeave();
+      await leaving;
+    }
+  }
 });
 
 test("automatically ends an eClass after the host return window expires", async () => {

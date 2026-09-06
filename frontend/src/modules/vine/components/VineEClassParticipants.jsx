@@ -7,6 +7,7 @@ export default function VineEClassParticipants({
   hostUserId,
   myId,
   activeSpeakerId,
+  peerAudioStates = {},
   compact = false,
 }) {
   // Mic and raised-hand updates must not shuffle tiles while people are reading.
@@ -40,18 +41,20 @@ export default function VineEClassParticipants({
           const speaking = !muted && userId === Number(activeSpeakerId);
           const raised = Number(participant.hand_raised) === 1;
           const micStatus = mutedByHost ? "Muted by moderator" : muted ? "Mic off" : "Mic on";
+          const audioState = isMe ? null : peerAudioStates[userId];
+          const connectionLabel = audioState === "failed" ? "No audio" : audioState === "connecting" ? "Connecting" : null;
           return (
             <div
               key={userId}
               role="listitem"
               className={`eclass-participant-tile tone-${userId % 4} ${speaking ? "is-speaking" : ""}`}
               data-user-id={userId}
-              aria-label={`${name}${isMe ? " (you)" : ""}${isHost ? ", host" : ""}, ${speaking ? "speaking" : micStatus}${raised ? ", hand raised" : ""}`}
+              aria-label={`${name}${isMe ? " (you)" : ""}${isHost ? ", host" : ""}, ${connectionLabel || (speaking ? "speaking" : micStatus)}${raised ? ", hand raised" : ""}`}
             >
               <div className="eclass-tile-status">
-                <span className={`eclass-tile-mic ${muted ? "is-muted" : "is-open"}`} title={micStatus}>
+                <span className={`eclass-tile-mic ${connectionLabel ? "is-disconnected" : muted ? "is-muted" : "is-open"}`} title={connectionLabel || micStatus}>
                   <span aria-hidden="true">{muted ? "🔇" : "🎙️"}</span>
-                  <span>{muted ? "Mic off" : "Mic on"}</span>
+                  <span>{connectionLabel || (muted ? "Mic off" : "Mic on")}</span>
                 </span>
                 {raised ? <span className="eclass-tile-hand" title="Hand raised" aria-label="Hand raised">✋</span> : null}
               </div>

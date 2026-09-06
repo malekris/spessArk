@@ -355,6 +355,47 @@
   box-shadow: 0 20px 44px rgba(6, 78, 59, 0.18);
 }
 
+.eclass-connection-status {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 16px;
+  color: #d1fae5;
+  font-size: 0.76rem;
+  line-height: 1.4;
+}
+
+.eclass-connection-status.is-error {
+  background: #7f1d1d;
+  color: #fff;
+}
+
+.eclass-connection-status button {
+  flex: 0 0 auto;
+  min-height: 36px;
+  border: 1px solid #fff;
+  border-radius: 6px;
+  background: #fff;
+  color: #7f1d1d;
+  padding: 6px 10px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.eclass-relay-warning {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 8px 16px;
+  background: #fef3c7;
+  color: #713f12;
+  font-size: 0.76rem;
+  line-height: 1.4;
+}
+
 .eclass-audio-gate {
   flex: 0 0 auto;
   align-self: center;

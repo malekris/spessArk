@@ -108,6 +108,11 @@
   color: #fff;
 }
 
+.eclass-tile-mic.is-disconnected {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
 .eclass-tile-hand {
   display: grid;
   place-items: center;

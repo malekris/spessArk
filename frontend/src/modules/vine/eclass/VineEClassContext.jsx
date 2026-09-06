@@ -10,6 +10,8 @@ import {
 } from "react";
 import { socket } from "../../../socket";
 import { getVineToken, getVineUser } from "../utils/vineAuth";
+import { createEClassPeer, hasTurnRelay } from "./vineEClassPeer";
+import VineEClassAudio from "./VineEClassAudio";
 
 const TURN_URLS = String(import.meta.env.VITE_TURN_URLS || "")
   .split(",")
@@ -89,6 +91,9 @@ export function VineEClassProvider({ children }) {
   const [remoteAudioStreams, setRemoteAudioStreams] = useState({});
   const [notice, setNotice] = useState("");
   const [audioBlocked, setAudioBlocked] = useState(false);
+  const [peerAudioStates, setPeerAudioStates] = useState({});
+  const [relayConfigured, setRelayConfigured] = useState(hasTurnRelay(RTC_CONFIG));
+  const [reconnecting, setReconnecting] = useState(false);
   const [activeSpeakerId, setActiveSpeakerId] = useState(null);
   const [captionsEnabled, setCaptionsEnabled] = useState(false);
 
@@ -98,8 +103,14 @@ export function VineEClassProvider({ children }) {
   const localAudioRef = useRef(null);
   const screenStreamRef = useRef(null);
   const peerConnectionsRef = useRef(new Map());
-  const pendingCandidatesRef = useRef(new Map());
   const audioElementsRef = useRef(new Map());
+  const blockedAudioRef = useRef(new Set());
+  const rtcConfigRef = useRef(RTC_CONFIG);
+  const earlySignalsRef = useRef([]);
+  const earlyParticipantsRef = useRef(new Map());
+  const joinAttemptRef = useRef(0);
+  const joiningRef = useRef(false);
+  const restoringRef = useRef(false);
   const activeSpeakerRef = useRef(null);
   const lastSpeakerAtRef = useRef(0);
 
@@ -123,15 +134,16 @@ export function VineEClassProvider({ children }) {
   }, []);
 
   const stopMediaAndPeers = useCallback(() => {
-    for (const pc of peerConnectionsRef.current.values()) {
+    for (const peer of peerConnectionsRef.current.values()) {
       try {
-        pc.close();
+        peer.close();
       } catch {
         // The peer may already be closed during route or network teardown.
       }
     }
     peerConnectionsRef.current.clear();
-    pendingCandidatesRef.current.clear();
+    earlySignalsRef.current = [];
+    earlyParticipantsRef.current.clear();
     localAudioRef.current?.getTracks().forEach((track) => track.stop());
     localAudioRef.current = null;
     screenStreamRef.current?.getTracks().forEach((track) => track.stop());
@@ -140,11 +152,13 @@ export function VineEClassProvider({ children }) {
       audio.srcObject = null;
     }
     audioElementsRef.current.clear();
+    blockedAudioRef.current.clear();
     setLocalScreen(null);
     setRemoteScreen(null);
     setRemoteAudioStreams({});
     setScreenSharing(false);
     setAudioBlocked(false);
+    setPeerAudioStates({});
     setCaptionsEnabled(false);
     activeSpeakerRef.current = null;
     lastSpeakerAtRef.current = 0;
@@ -152,8 +166,13 @@ export function VineEClassProvider({ children }) {
   }, []);
 
   const leaveClass = useCallback(async ({ notifyServer = true, message = "" } = {}) => {
+    joinAttemptRef.current += 1;
+    joiningRef.current = false;
+    restoringRef.current = false;
+    setJoining(false);
+    setReconnecting(false);
     const sessionId = Number(sessionRef.current?.id || 0);
-    if (notifyServer && sessionId && joinedRef.current) {
+    if (notifyServer && sessionId && socket.connected) {
       socket.emit("eclass_leave", { sessionId });
     }
     stopMediaAndPeers();
@@ -170,7 +189,7 @@ export function VineEClassProvider({ children }) {
 
   const sendSignal = useCallback((targetUserId, payload) => {
     const sessionId = Number(sessionRef.current?.id || 0);
-    if (!sessionId || !targetUserId) return;
+    if (!sessionId || !targetUserId || !socket.connected) return;
     socket.emit("eclass_signal", {
       sessionId,
       targetUserId: Number(targetUserId),
@@ -178,181 +197,79 @@ export function VineEClassProvider({ children }) {
     });
   }, []);
 
-  const flushCandidates = useCallback(async (remoteUserId, pc) => {
-    const pending = pendingCandidatesRef.current.get(Number(remoteUserId)) || [];
-    pendingCandidatesRef.current.delete(Number(remoteUserId));
-    for (const candidate of pending) {
-      if (pc.signalingState === "closed") return;
-      try {
-        await pc.addIceCandidate(new RTCIceCandidate(candidate));
-      } catch {
-        // A superseded network path can leave a stale ICE candidate behind.
-      }
-    }
+  const onPlayback = useCallback((userId, blocked) => {
+    const uid = Number(userId);
+    if (blocked) blockedAudioRef.current.add(uid);
+    else blockedAudioRef.current.delete(uid);
+    setAudioBlocked(blockedAudioRef.current.size > 0);
   }, []);
 
-  const enableAudio = useCallback(async () => {
-    const audioElements = Array.from(audioElementsRef.current.values());
-    if (audioElements.length === 0) {
-      setAudioBlocked(false);
-      return false;
+  const registerAudio = useCallback((userId, element) => {
+    const uid = Number(userId);
+    if (element) audioElementsRef.current.set(uid, element);
+    else {
+      audioElementsRef.current.delete(uid);
+      onPlayback(uid, false);
     }
-    let played = 0;
-    for (const audio of audioElements) {
+  }, [onPlayback]);
+
+  const enableAudio = useCallback(async () => {
+    // Start every play() synchronously within the tap's user-activation window.
+    const results = await Promise.all(Array.from(audioElementsRef.current, async ([uid, audio]) => {
       audio.muted = false;
       audio.volume = 1;
       try {
         await audio.play();
-        played += 1;
+        if (audioElementsRef.current.get(uid) === audio) onPlayback(uid, false);
+        return true;
       } catch {
-        // A visible tap-to-hear control will retry blocked mobile playback.
+        if (audioElementsRef.current.get(uid) === audio) onPlayback(uid, true);
+        return false;
       }
-    }
-    const blocked = played !== audioElements.length;
-    setAudioBlocked(blocked);
-    return played > 0;
-  }, []);
+    }));
+    return results.length > 0 && results.every(Boolean);
+  }, [onPlayback]);
 
   const createPeerConnection = useCallback((remoteUserId) => {
     const uid = Number(remoteUserId);
     const existing = peerConnectionsRef.current.get(uid);
-    if (existing && existing.signalingState !== "closed") return existing;
-    const pc = new RTCPeerConnection(RTC_CONFIG);
-    peerConnectionsRef.current.set(uid, pc);
-    let reconnectTimer = null;
-    let iceRestartAttempts = 0;
-
-    localAudioRef.current?.getAudioTracks().forEach((track) => {
-      pc.addTrack(track, localAudioRef.current);
+    if (existing && existing.pc.signalingState !== "closed") return existing;
+    const peer = createEClassPeer({
+      myId, remoteUserId: uid, configuration: rtcConfigRef.current,
+      localStream: localAudioRef.current, screenStream: screenStreamRef.current,
+      sendSignal: (payload) => sendSignal(uid, payload),
+      onState: (state) => setPeerAudioStates((previous) => previous[uid] === state
+        ? previous : { ...previous, [uid]: state }),
+      onError: (error) => {
+        console.warn("Vine eClass audio negotiation:", error?.message || error);
+        setPeerAudioStates((previous) => ({ ...previous, [uid]: "failed" }));
+      },
+      onTrack: ({ track }) => {
+        const stream = new MediaStream([track]);
+        if (track.kind === "video") {
+          setRemoteScreen({ userId: uid, stream });
+          track.onended = () => {
+            setRemoteScreen((current) => current?.stream === stream ? null : current);
+          };
+        } else {
+          setRemoteAudioStreams((previous) => ({ ...previous, [uid]: stream }));
+        }
+      },
     });
-    screenStreamRef.current?.getVideoTracks().forEach((track) => {
-      pc.addTrack(track, screenStreamRef.current);
-    });
-    pc.onicecandidate = (event) => {
-      if (event.candidate) sendSignal(uid, { candidate: event.candidate });
-    };
-    pc.ontrack = (event) => {
-      const stream = event.streams?.[0] || (event.track ? new MediaStream([event.track]) : null);
-      if (!stream) return;
-      if (event.track.kind === "video") {
-        setRemoteScreen({ userId: uid, stream });
-        event.track.onended = () => {
-          setRemoteScreen((current) => Number(current?.userId) === uid ? null : current);
-        };
-        return;
-      }
-      setRemoteAudioStreams((previous) => ({ ...previous, [uid]: stream }));
-      event.track.onunmute = () => {
-        window.requestAnimationFrame(() => { void enableAudio(); });
-      };
-      window.requestAnimationFrame(() => { void enableAudio(); });
-    };
-    const clearReconnectTimer = () => {
-      if (!reconnectTimer) return;
-      window.clearTimeout(reconnectTimer);
-      reconnectTimer = null;
-    };
-    const restartPeerIce = async () => {
-      reconnectTimer = null;
-      if (!joinedRef.current || pc.signalingState === "closed" || iceRestartAttempts >= 2) return;
-      if (pc.signalingState !== "stable") {
-        reconnectTimer = window.setTimeout(restartPeerIce, 1_000);
-        return;
-      }
-      iceRestartAttempts += 1;
-      try {
-        pc.restartIce?.();
-        const offer = await pc.createOffer({ iceRestart: true });
-        await pc.setLocalDescription(offer);
-        sendSignal(uid, { description: pc.localDescription });
-      } catch (err) {
-        console.warn("Vine eClass audio recovery failed:", err?.message || err);
-      }
-    };
-    const removeFailedPeer = () => {
-      clearReconnectTimer();
-      if (peerConnectionsRef.current.get(uid) === pc) peerConnectionsRef.current.delete(uid);
-      setRemoteAudioStreams((previous) => {
-        const next = { ...previous };
-        delete next[uid];
-        return next;
-      });
-    };
-    const handleConnectionState = () => {
-      const connected = pc.connectionState === "connected" || ["connected", "completed"].includes(pc.iceConnectionState);
-      if (connected) {
-        clearReconnectTimer();
-        iceRestartAttempts = 0;
-        window.requestAnimationFrame(() => { void enableAudio(); });
-        return;
-      }
-      if (pc.connectionState === "closed") {
-        removeFailedPeer();
-        return;
-      }
-      const failed = pc.connectionState === "failed" || pc.iceConnectionState === "failed";
-      const disconnected = pc.connectionState === "disconnected" || pc.iceConnectionState === "disconnected";
-      if ((failed || disconnected) && iceRestartAttempts < 2 && !reconnectTimer) {
-        reconnectTimer = window.setTimeout(restartPeerIce, failed ? 0 : 4_000);
-        return;
-      }
-      if (failed && iceRestartAttempts >= 2) {
-        removeFailedPeer();
-        setNotice("An audio connection failed. Leave and rejoin if it does not recover.");
-      }
-    };
-    pc.onconnectionstatechange = handleConnectionState;
-    pc.oniceconnectionstatechange = handleConnectionState;
-    return pc;
-  }, [enableAudio, sendSignal]);
-
-  const makeOffer = useCallback(async (remoteUserId) => {
-    const pc = createPeerConnection(remoteUserId);
-    if (pc.signalingState !== "stable") return;
-    try {
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      sendSignal(remoteUserId, { description: pc.localDescription });
-    } catch (err) {
-      console.warn("Vine eClass negotiation failed:", err?.message || err);
-    }
-  }, [createPeerConnection, sendSignal]);
+    peerConnectionsRef.current.set(uid, peer);
+    return peer;
+  }, [myId, sendSignal]);
 
   const handleSignal = useCallback(async (payload = {}) => {
     if (Number(payload.sessionId) !== Number(sessionRef.current?.id) || Number(payload.targetUserId) !== myId) return;
     const remoteUserId = Number(payload.fromUserId);
-    if (!remoteUserId) return;
-    const pc = createPeerConnection(remoteUserId);
-    try {
-      if (payload.description) {
-        const description = new RTCSessionDescription(payload.description);
-        if (description.type === "offer") {
-          if (pc.signalingState !== "stable") {
-            await pc.setLocalDescription({ type: "rollback" }).catch(() => {});
-          }
-          await pc.setRemoteDescription(description);
-          await flushCandidates(remoteUserId, pc);
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          sendSignal(remoteUserId, { description: pc.localDescription });
-        } else if (description.type === "answer" && pc.signalingState === "have-local-offer") {
-          await pc.setRemoteDescription(description);
-          await flushCandidates(remoteUserId, pc);
-        }
-      }
-      if (payload.candidate) {
-        if (pc.remoteDescription) {
-          await pc.addIceCandidate(new RTCIceCandidate(payload.candidate));
-        } else {
-          const pending = pendingCandidatesRef.current.get(remoteUserId) || [];
-          pending.push(payload.candidate);
-          pendingCandidatesRef.current.set(remoteUserId, pending);
-        }
-      }
-    } catch (err) {
-      console.warn("Vine eClass signal could not be applied:", err?.message || err);
+    if (!remoteUserId || remoteUserId === myId) return;
+    if (!joinedRef.current) {
+      if (earlySignalsRef.current.length < 512) earlySignalsRef.current.push(payload);
+      return;
     }
-  }, [createPeerConnection, flushCandidates, myId, sendSignal]);
+    await createPeerConnection(remoteUserId).receive(payload);
+  }, [createPeerConnection, myId]);
 
   useEffect(() => {
     const handleEnded = (payload = {}) => {
@@ -365,6 +282,9 @@ export function VineEClassProvider({ children }) {
     const handleParticipantJoined = ({ sessionId, participant } = {}) => {
       if (Number(sessionId) !== Number(sessionRef.current?.id)) return;
       mergeParticipant(participant);
+      if (Number(participant?.user_id) === myId || !participant?.user_id) return;
+      if (joinedRef.current) createPeerConnection(participant.user_id);
+      else earlyParticipantsRef.current.set(Number(participant.user_id), participant);
     };
     const handleParticipantLeft = ({ sessionId, userId } = {}) => {
       if (Number(sessionId) !== Number(sessionRef.current?.id)) return;
@@ -373,6 +293,12 @@ export function VineEClassProvider({ children }) {
       const pc = peerConnectionsRef.current.get(uid);
       if (pc) pc.close();
       peerConnectionsRef.current.delete(uid);
+      earlyParticipantsRef.current.delete(uid);
+      setPeerAudioStates((previous) => {
+        const next = { ...previous };
+        delete next[uid];
+        return next;
+      });
       setRemoteAudioStreams((previous) => {
         const next = { ...previous };
         delete next[uid];
@@ -438,7 +364,7 @@ export function VineEClassProvider({ children }) {
       socket.off("eclass_raise_hand", handleRaisedHand);
       socket.off("eclass_screen_state", handleScreenState);
     };
-  }, [handleSignal, leaveClass, mergeParticipant, myId]);
+  }, [createPeerConnection, handleSignal, leaveClass, mergeParticipant, myId]);
 
   useEffect(() => {
     if (!joined) return undefined;
@@ -511,14 +437,95 @@ export function VineEClassProvider({ children }) {
   }, [joined, myId, remoteAudioStreams]);
 
   useEffect(() => () => {
+    joinAttemptRef.current += 1;
     if (joinedRef.current && sessionRef.current?.id) {
       socket.emit("eclass_leave", { sessionId: sessionRef.current.id });
     }
     stopMediaAndPeers();
   }, [stopMediaAndPeers]);
 
+  const finishJoining = useCallback((response) => {
+    rtcConfigRef.current = hasTurnRelay(response.rtcConfig) ? response.rtcConfig : RTC_CONFIG;
+    setRelayConfigured(hasTurnRelay(rtcConfigRef.current));
+    const self = response.self || {};
+    const mutedOnEntry = Number(self.is_self_muted || 0) === 1 || Number(self.is_muted_by_host || 0) === 1;
+    localAudioRef.current?.getAudioTracks().forEach((track) => { track.enabled = !mutedOnEntry; });
+    setSelfMuted(mutedOnEntry);
+    setHostMuted(Number(self.is_muted_by_host || 0) === 1);
+    setHandRaised(Number(self.hand_raised || 0) === 1);
+    const roster = new Map();
+    [self, ...(response.participants || []), ...earlyParticipantsRef.current.values()].forEach((entry) => {
+      if (entry?.user_id) roster.set(Number(entry.user_id), entry);
+    });
+    earlyParticipantsRef.current.clear();
+    setParticipants(Array.from(roster.values()));
+    joinedRef.current = true;
+    setJoined(true);
+    setReconnecting(false);
+    for (const uid of roster.keys()) {
+      if (uid !== myId) createPeerConnection(uid);
+    }
+    const queued = earlySignalsRef.current;
+    earlySignalsRef.current = [];
+    queued.forEach((payload) => { void handleSignal(payload); });
+  }, [createPeerConnection, handleSignal, myId]);
+
+  useEffect(() => {
+    let restoreMuted = true;
+    const onDisconnect = () => {
+      if (!joinedRef.current && !restoringRef.current) return;
+      if (joinedRef.current) restoreMuted = !localAudioRef.current?.getAudioTracks().some((track) => track.enabled);
+      joinAttemptRef.current += 1;
+      joiningRef.current = false;
+      restoringRef.current = false;
+      joinedRef.current = false;
+      setReconnecting(true);
+      for (const peer of peerConnectionsRef.current.values()) peer.close();
+      peerConnectionsRef.current.clear();
+      setPeerAudioStates({});
+      setRemoteAudioStreams({});
+      setRemoteScreen(null);
+    };
+    const onConnect = async () => {
+      const liveSession = sessionRef.current;
+      if (!liveSession?.id || joinedRef.current || joiningRef.current || !localAudioRef.current) return;
+      const attempt = ++joinAttemptRef.current;
+      joiningRef.current = true;
+      restoringRef.current = true;
+      try {
+        const response = await emitWithAck("eclass_join", {
+          sessionId: liveSession.id, token: getVineToken(),
+        });
+        if (attempt !== joinAttemptRef.current) return;
+        if (!response.ok) throw new Error(response.message || "Could not reconnect to the class.");
+        if (restoreMuted) {
+          await emitWithAck("eclass_audio_state", { sessionId: liveSession.id, muted: true });
+          response.self = { ...response.self, is_self_muted: 1 };
+        }
+        if (attempt !== joinAttemptRef.current) return;
+        finishJoining(response);
+        if (screenStreamRef.current) socket.emit("eclass_screen_state", { sessionId: liveSession.id, sharing: true });
+      } catch (error) {
+        if (attempt === joinAttemptRef.current) {
+          void leaveClass({ message: error.message || "Please rejoin the class." });
+        }
+      } finally {
+        if (attempt === joinAttemptRef.current) {
+          joiningRef.current = false;
+          restoringRef.current = false;
+        }
+      }
+    };
+    socket.on("disconnect", onDisconnect);
+    socket.on("connect", onConnect);
+    return () => {
+      socket.off("disconnect", onDisconnect);
+      socket.off("connect", onConnect);
+    };
+  }, [finishJoining, leaveClass]);
+
   const joinClass = useCallback(async ({ session: nextSession, community: nextCommunity, initialMessages = [] }) => {
-    if (!nextSession?.id || !nextCommunity?.id || joining) {
+    if (!nextSession?.id || !nextCommunity?.id || joiningRef.current) {
       return { ok: false, message: "Class details are unavailable" };
     }
     if (joinedRef.current && Number(sessionRef.current?.id) === Number(nextSession.id)) {
@@ -527,10 +534,14 @@ export function VineEClassProvider({ children }) {
     if (joinedRef.current) {
       return { ok: false, message: "Leave your current Vine eClass before joining another." };
     }
+    const attempt = ++joinAttemptRef.current;
+    joiningRef.current = true;
     setJoining(true);
     setNotice("");
+    setParticipants([]);
     try {
       await waitForSocket(myId);
+      if (attempt !== joinAttemptRef.current) return { ok: false };
       if (!navigator.mediaDevices?.getUserMedia) {
         throw new Error("Audio classes are not supported by this browser");
       }
@@ -538,11 +549,22 @@ export function VineEClassProvider({ children }) {
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
         video: false,
       });
+      if (attempt !== joinAttemptRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return { ok: false };
+      }
       stream.getAudioTracks().forEach((track) => {
         track.enabled = false;
         if ("contentHint" in track) track.contentHint = "speech";
       });
       localAudioRef.current = stream;
+      stream.getAudioTracks().forEach((track) => {
+        track.onended = () => {
+          setSelfMuted(true);
+          setNotice("Your microphone stopped. Leave and rejoin to reconnect it.");
+          if (sessionRef.current?.id) socket.emit("eclass_audio_state", { sessionId: sessionRef.current.id, muted: true });
+        };
+      });
       updateSession({
         ...nextSession,
         community_name: nextSession.community_name || nextCommunity.name || "",
@@ -553,34 +575,29 @@ export function VineEClassProvider({ children }) {
         communityId: Number(nextCommunity.id),
         token: getVineToken(),
       });
+      if (attempt !== joinAttemptRef.current) return { ok: false };
       if (!response?.ok) throw new Error(response?.message || "Could not join Vine eClass");
-      const self = response.self || {};
-      const mutedOnEntry = Number(self.is_self_muted || 0) === 1 || Number(self.is_muted_by_host || 0) === 1;
-      stream.getAudioTracks().forEach((track) => {
-        track.enabled = !mutedOnEntry;
-        if ("contentHint" in track) track.contentHint = "speech";
-      });
-      setSelfMuted(mutedOnEntry);
-      setHostMuted(Number(self.is_muted_by_host || 0) === 1);
-      setHandRaised(Number(self.hand_raised || 0) === 1);
-      const existing = Array.isArray(response.participants) ? response.participants : [];
-      setParticipants([self, ...existing].filter((entry) => entry?.user_id));
       setMessages(Array.isArray(initialMessages) ? initialMessages : []);
-      joinedRef.current = true;
-      setJoined(true);
-      for (const participant of existing) await makeOffer(participant.user_id);
+      finishJoining(response);
       return { ok: true };
     } catch (err) {
-      localAudioRef.current?.getTracks().forEach((track) => track.stop());
-      localAudioRef.current = null;
+      if (attempt !== joinAttemptRef.current) return { ok: false };
+      if (sessionRef.current?.id) socket.emit("eclass_leave", { sessionId: sessionRef.current.id });
+      stopMediaAndPeers();
+      joinedRef.current = false;
+      setJoined(false);
+      setParticipants([]);
       updateSession(null, null);
       const message = err?.message || "Could not join Vine eClass";
       setNotice(message);
       return { ok: false, message };
     } finally {
-      setJoining(false);
+      if (attempt === joinAttemptRef.current) {
+        setJoining(false);
+        joiningRef.current = false;
+      }
     }
-  }, [joining, makeOffer, myId, updateSession]);
+  }, [finishJoining, myId, stopMediaAndPeers, updateSession]);
 
   const toggleSelfMute = useCallback(async () => {
     if (!joinedRef.current || !sessionRef.current?.id) return;
@@ -589,6 +606,11 @@ export function VineEClassProvider({ children }) {
       return;
     }
     const nextMuted = !selfMuted;
+    if (!nextMuted && !localAudioRef.current?.getAudioTracks().some((track) => track.readyState === "live")) {
+      setNotice("Your microphone is disconnected. Leave and rejoin to choose it again.");
+      return;
+    }
+    void enableAudio();
     const response = await emitWithAck("eclass_audio_state", {
       sessionId: sessionRef.current.id,
       muted: nextMuted,
@@ -599,7 +621,7 @@ export function VineEClassProvider({ children }) {
     }
     setSelfMuted(nextMuted);
     localAudioRef.current?.getAudioTracks().forEach((track) => { track.enabled = !nextMuted; });
-  }, [hostMuted, selfMuted]);
+  }, [enableAudio, hostMuted, selfMuted]);
 
   const toggleHand = useCallback(async () => {
     if (!joinedRef.current || !sessionRef.current?.id) return;
@@ -629,17 +651,16 @@ export function VineEClassProvider({ children }) {
     screenStreamRef.current = null;
     setLocalScreen(null);
     setScreenSharing(false);
-    for (const [userId, pc] of peerConnectionsRef.current.entries()) {
+    for (const { pc } of peerConnectionsRef.current.values()) {
       for (const sender of pc.getSenders()) {
         if (sender.track && tracks.includes(sender.track)) pc.removeTrack(sender);
       }
-      void makeOffer(userId);
     }
     tracks.forEach((track) => track.stop());
     if (sessionRef.current?.id) {
       socket.emit("eclass_screen_state", { sessionId: sessionRef.current.id, sharing: false });
     }
-  }, [makeOffer]);
+  }, []);
 
   const startScreenShare = useCallback(async () => {
     if (!joinedRef.current || screenSharing) return;
@@ -654,9 +675,8 @@ export function VineEClassProvider({ children }) {
       screenStreamRef.current = stream;
       setLocalScreen(stream);
       setScreenSharing(true);
-      for (const [userId, pc] of peerConnectionsRef.current.entries()) {
+      for (const { pc } of peerConnectionsRef.current.values()) {
         pc.addTrack(track, stream);
-        void makeOffer(userId);
       }
       socket.emit("eclass_screen_state", { sessionId: sessionRef.current.id, sharing: true });
       track.onended = () => { void stopScreenShare(); };
@@ -665,7 +685,15 @@ export function VineEClassProvider({ children }) {
         setNotice(err?.message || "Screen sharing could not start");
       }
     }
-  }, [makeOffer, screenSharing, stopScreenShare]);
+  }, [screenSharing, stopScreenShare]);
+
+  const retryAudio = useCallback(() => {
+    void enableAudio();
+    if (!joinedRef.current || !socket.connected) return;
+    for (const peer of peerConnectionsRef.current.values()) {
+      if (peer.pc.connectionState !== "connected") peer.restart();
+    }
+  }, [enableAudio]);
 
   const sendChat = useCallback(async (contentValue) => {
     const content = String(contentValue || "").trim();
@@ -707,6 +735,10 @@ export function VineEClassProvider({ children }) {
     localScreen,
     notice,
     audioBlocked,
+    peerAudioStates,
+    relayConfigured,
+    reconnecting,
+    retryAudio,
     activeSpeakerId,
     captionsEnabled,
     myId,
@@ -736,6 +768,10 @@ export function VineEClassProvider({ children }) {
     localScreen,
     notice,
     audioBlocked,
+    peerAudioStates,
+    relayConfigured,
+    reconnecting,
+    retryAudio,
     activeSpeakerId,
     captionsEnabled,
     myId,
@@ -756,22 +792,12 @@ export function VineEClassProvider({ children }) {
       {children}
       <div hidden aria-hidden="true">
         {Object.entries(remoteAudioStreams).map(([userId, stream]) => (
-          <audio
+          <VineEClassAudio
             key={`persistent-eclass-audio-${userId}`}
-            autoPlay
-            playsInline
-            ref={(element) => {
-              const uid = Number(userId);
-              if (!element) {
-                audioElementsRef.current.delete(uid);
-                return;
-              }
-              audioElementsRef.current.set(uid, element);
-              element.muted = false;
-              element.volume = 1;
-              if (element.srcObject !== stream) element.srcObject = stream;
-              element.play().then(() => setAudioBlocked(false)).catch(() => setAudioBlocked(true));
-            }}
+            userId={userId}
+            stream={stream}
+            register={registerAudio}
+            onPlayback={onPlayback}
           />
         ))}
       </div>

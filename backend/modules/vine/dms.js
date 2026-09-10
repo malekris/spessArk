@@ -9,6 +9,7 @@ import { recordPerfQuery, recordPerfRoute } from "./perfStore.js";
 import { searchGroupCandidates, getEligibleGroupUsers } from "./groupDirectory.js";
 import { formatGroupMembersAdded } from "./groupSystemMessages.js";
 import { planCommunityGroupMembership } from "./communityGroupChat.js";
+import { canDeleteConversationMessage } from "./groupMessageModeration.js";
 
 const router = express.Router();
 const DISAPPEARING_MODES = new Set(["after_read", "1h", "24h"]);
@@ -4094,7 +4095,7 @@ router.delete("/messages/:id", authenticate, async (req, res) => {
     await ensureDmPerformanceSchema();
     const [[row]] = await db.query(
       `
-      SELECT id, conversation_id, sender_id
+      SELECT id, conversation_id, sender_id, message_type
       FROM vine_messages
       WHERE id = ?
       LIMIT 1
@@ -4102,11 +4103,16 @@ router.delete("/messages/:id", authenticate, async (req, res) => {
       [messageId]
     );
     if (!row) return res.status(404).json({ error: "Message not found" });
-    if (Number(row.sender_id) !== userId) {
-      return res.status(403).json({ error: "You can only delete your own message" });
-    }
     const conversation = await getConversationForUser(row.conversation_id, userId);
     if (!conversation) return res.status(403).json({ error: "Access denied" });
+    if (!canDeleteConversationMessage({
+      conversation,
+      viewerId: userId,
+      senderId: row.sender_id,
+      messageType: row.message_type,
+    })) {
+      return res.status(403).json({ error: "You do not have permission to delete this message" });
+    }
 
     await removeMessagesPermanently(row.conversation_id, [messageId]);
     io.to(`user-${userId}`).emit("inbox_updated");
@@ -4174,7 +4180,8 @@ router.get("/conversations/:id/messages", authenticate, async (req, res) => {
               m.call_duration_seconds,
               u.username,
               u.display_name,
-              u.avatar_url
+              u.avatar_url,
+              u.is_verified
             FROM vine_messages m
             JOIN vine_users u ON m.sender_id = u.id
             WHERE m.conversation_id = ?

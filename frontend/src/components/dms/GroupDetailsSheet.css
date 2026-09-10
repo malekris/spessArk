@@ -330,7 +330,10 @@
 .dm-group-member-name { min-width: 0; display: grid; gap: 1px; }
 .dm-group-member-name strong,
 .dm-group-member-name small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dm-group-member-name strong { color: #193d31; font-size: 0.82rem; }
+.dm-group-member-name strong { min-width: 0; display: flex; align-items: center; gap: 5px; color: #193d31; font-size: 0.82rem; }
+.dm-group-member-name strong > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dm-group-member-verified { width: 14px; height: 14px; flex: 0 0 14px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; color: #fff; background: #1d9bf0; box-shadow: 0 0 5px rgba(29, 155, 240, 0.48); }
+.dm-group-member-verified svg { width: 8px; height: 8px; }
 .dm-group-member-name small { color: #71837c; font-size: 0.65rem; }
 .dm-group-member-name em { color: #07845f; font-size: 0.64rem; font-style: normal; font-weight: 800; }
 .dm-group-role { padding: 4px 7px; border-radius: 10px; color: #657770; background: #edf2f0; font-size: 0.61rem; font-weight: 900; text-transform: capitalize; }

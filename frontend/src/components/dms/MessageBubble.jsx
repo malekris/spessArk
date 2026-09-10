@@ -69,6 +69,14 @@ const MessageOptionsIcon = () => (
   </svg>
 );
 
+const GroupVerifiedMark = () => (
+  <span className="dm-group-verified-mark" aria-label="Verified" title="Verified">
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M20 6 9 17l-5-5" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  </span>
+);
+
 const getCallHistoryCopy = (message, isMine) => {
   const status = String(message?.call_status || "missed").toLowerCase();
   if (status === "completed") {
@@ -101,12 +109,13 @@ const getCallHistoryCopy = (message, isMine) => {
   };
 };
 
-function MessageBubble({ message, isGroup = false, senderStyle, senderRole = "member", groupPosition = "single", showMeta = true, showDeliveryStatus = true, nicknames = {}, onReply, onReact, onDelete }) {
+function MessageBubble({ message, isGroup = false, senderStyle, senderRole = "member", groupPosition = "single", showMeta = true, showDeliveryStatus = true, nicknames = {}, canModerate = false, onReply, onReact, onDelete }) {
   const currentUser = JSON.parse(localStorage.getItem("vine_user"));
   const myId = currentUser?.id;
   const isMine = Number(message.sender_id) === Number(myId);
   const isCallMessage = String(message?.message_type || "").toLowerCase() === "call";
   const isSystemMessage = String(message?.message_type || "").toLowerCase() === "system";
+  const canDeleteMessage = isMine || (isGroup && canModerate);
   const groupBubbleStyle = isGroup ? senderStyle || getGroupSenderStyle(Number(message.sender_id || 0) % 12) : undefined;
   const seenByMembers = useMemo(() => isGroup && isMine ? getUniqueSeenBy(message?.seen_by) : [], [isGroup, isMine, message?.seen_by]);
   const seenByLabel = getSeenByLabel(seenByMembers);
@@ -359,6 +368,7 @@ function MessageBubble({ message, isGroup = false, senderStyle, senderRole = "me
                 ) : (
                   <span>{message.display_name || "Group member"}</span>
                 )}
+                {Number(message.is_verified) === 1 && <GroupVerifiedMark />}
                 {["owner", "admin"].includes(senderRole) && (
                   <small className={`dm-group-sender-role ${senderRole}`}>
                     Admin
@@ -446,7 +456,7 @@ function MessageBubble({ message, isGroup = false, senderStyle, senderRole = "me
               >
                 Reactions
               </button>
-              {isMine && !String(message.id || "").startsWith("temp-") && (
+              {canDeleteMessage && !String(message.id || "").startsWith("temp-") && (
                 <button
                   type="button"
                   className="dm-message-menu-item danger"
@@ -454,9 +464,9 @@ function MessageBubble({ message, isGroup = false, senderStyle, senderRole = "me
                     setMenuOpen(false);
                     onDelete?.(message);
                   }}
-                >
-                  Delete
-                </button>
+              >
+                {isMine ? "Delete" : "Delete for everyone"}
+              </button>
               )}
             </div>,
             document.body
@@ -637,6 +647,7 @@ const areMessageBubblePropsEqual = (prevProps, nextProps) =>
   prevProps.groupPosition === nextProps.groupPosition &&
   prevProps.showMeta === nextProps.showMeta &&
   prevProps.showDeliveryStatus === nextProps.showDeliveryStatus &&
-  prevProps.nicknames === nextProps.nicknames;
+  prevProps.nicknames === nextProps.nicknames &&
+  prevProps.canModerate === nextProps.canModerate;
 
 export default memo(MessageBubble, areMessageBubblePropsEqual);

@@ -1137,7 +1137,8 @@ export default function ChatWindow({
 
   const handleDeleteMessage = useCallback(async (message) => {
     if (!message?.id || String(message.id).startsWith("temp-")) return;
-    if (!window.confirm("Delete this message?")) return;
+    const deletingAnotherGroupMessage = isGroup && Number(message.sender_id) !== Number(myId);
+    if (!window.confirm(deletingAnotherGroupMessage ? "Permanently delete this message for everyone?" : "Delete this message?")) return;
     try {
       const res = await fetch(`${API}/api/dms/messages/${message.id}`, {
         method: "DELETE",
@@ -1146,7 +1147,7 @@ export default function ChatWindow({
       if (!res.ok) return;
       setMessages((prev) => prev.filter((m) => Number(m.id) !== Number(message.id)));
     } catch {}
-  }, [token]);
+  }, [isGroup, myId, token]);
 
   const saveDisappearingSettings = async (nextEnabled, nextMode = chatSettings.disappear_mode) => {
     if (!conversationId || settingsSaving) return;
@@ -1607,6 +1608,7 @@ export default function ChatWindow({
                     String(m.id) === latestUnansweredOwnMessageId
                   }
                   nicknames={isGroup ? undefined : chatSettings.nicknames}
+                  canModerate={isGroup && ["owner", "admin"].includes(partner?.viewer_role)}
                   onReply={handleReply}
                   onReact={handleReact}
                   onDelete={handleDeleteMessage}

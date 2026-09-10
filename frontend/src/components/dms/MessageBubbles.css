@@ -1070,6 +1070,19 @@
   outline: 2px solid currentColor;
   outline-offset: 2px;
 }
+.dm-group-verified-mark {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: #fff;
+  background: #1d9bf0;
+  box-shadow: 0 0 5px rgba(29, 155, 240, 0.48);
+}
+.dm-group-verified-mark svg { width: 8px; height: 8px; }
 .dm-group-sender-role {
   display: inline-flex;
   align-items: center;

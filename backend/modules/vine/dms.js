@@ -6,11 +6,16 @@ import multer from "multer";
 import cloudinary from "../../config/cloudinary.js";
 import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { recordPerfQuery, recordPerfRoute } from "./perfStore.js";
+import { searchGroupCandidates, getEligibleGroupUsers } from "./groupDirectory.js";
+import { formatGroupMembersAdded } from "./groupSystemMessages.js";
+import { planCommunityGroupMembership } from "./communityGroupChat.js";
 
 const router = express.Router();
 const DISAPPEARING_MODES = new Set(["after_read", "1h", "24h"]);
 const DM_CALL_STATUSES = new Set(["missed", "declined", "busy", "failed", "completed"]);
 const DM_GROUP_ROLES = new Set(["owner", "admin", "member"]);
+const DM_CHAT_THEMES = new Set(["vine", "ocean", "berry", "sunset", "graphite"]);
+const DM_QUICK_EMOJIS = new Set(["👍", "❤️", "😂", "🔥", "🌱", "💯"]);
 const DM_GROUP_MAX_MEMBERS = 50;
 const USE_R2_UPLOADS = String(process.env.USE_R2_UPLOADS || "").toLowerCase() === "true";
 const R2_ACCOUNT_ID = String(process.env.R2_ACCOUNT_ID || "").trim();
@@ -258,6 +263,28 @@ const hasDmTable = async (dbName, tableName) => {
   return rows.length > 0;
 };
 
+const ensureDmIntegerColumnNullable = async (dbName, tableName, columnName) => {
+  if (!dbName || !/^[a-zA-Z0-9_]+$/.test(tableName) || !/^[a-zA-Z0-9_]+$/.test(columnName)) {
+    return;
+  }
+  const [[column]] = await db.query(
+    `
+    SELECT COLUMN_TYPE, IS_NULLABLE
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ?
+    LIMIT 1
+    `,
+    [dbName, tableName, columnName]
+  );
+  if (!column || column.IS_NULLABLE === "YES") return;
+
+  const columnType = String(column.COLUMN_TYPE || "").trim();
+  if (!/^(?:tinyint|smallint|mediumint|int|bigint)(?:\(\d+\))?(?: unsigned)?$/i.test(columnType)) {
+    throw new Error(`Cannot safely make ${tableName}.${columnName} nullable`);
+  }
+  await db.query(`ALTER TABLE ${tableName} MODIFY COLUMN ${columnName} ${columnType} NULL`);
+};
+
 const hasDmIndexWithColumns = async (dbName, tableName, columns = []) => {
   const normalizedColumns = columns.map((col) => String(col).trim().toLowerCase());
   if (!normalizedColumns.length) return false;
@@ -410,8 +437,31 @@ export const ensureDmSchema = async () => {
       conversation_id INT PRIMARY KEY,
       disappearing_enabled TINYINT(1) NOT NULL DEFAULT 0,
       disappear_mode VARCHAR(20) NOT NULL DEFAULT 'after_read',
+      theme_color VARCHAR(20) NOT NULL DEFAULT 'vine',
+      quick_emoji VARCHAR(16) NOT NULL DEFAULT '👍',
       updated_by INT NULL,
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await addColumnIfMissing(
+    "vine_conversation_settings",
+    "theme_color",
+    "theme_color VARCHAR(20) NOT NULL DEFAULT 'vine'"
+  );
+  await addColumnIfMissing(
+    "vine_conversation_settings",
+    "quick_emoji",
+    "quick_emoji VARCHAR(16) NOT NULL DEFAULT '👍'"
+  );
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_conversation_nicknames (
+      conversation_id INT NOT NULL,
+      user_id INT NOT NULL,
+      nickname VARCHAR(32) NOT NULL,
+      updated_by INT NULL,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (conversation_id, user_id),
+      INDEX idx_vine_conversation_nicknames_user (user_id, conversation_id)
     )
   `);
   await addColumnIfMissing(
@@ -430,6 +480,22 @@ export const ensureDmSchema = async () => {
     "group_avatar_url TEXT NULL"
   );
   await addColumnIfMissing("vine_conversations", "created_by", "created_by INT NULL");
+  await addColumnIfMissing(
+    "vine_conversations",
+    "group_description",
+    "group_description VARCHAR(300) NULL"
+  );
+  const dbName = await getDmDbName();
+  if (dbName) {
+    await ensureDmIntegerColumnNullable(dbName, "vine_conversations", "user1_id");
+    await ensureDmIntegerColumnNullable(dbName, "vine_conversations", "user2_id");
+  }
+  await db.query(`
+    UPDATE vine_conversations
+    SET user1_id = NULL, user2_id = NULL
+    WHERE conversation_type = 'group'
+      AND (user1_id IS NOT NULL OR user2_id IS NOT NULL)
+  `);
   await db.query(`
     CREATE TABLE IF NOT EXISTS vine_conversation_members (
       conversation_id INT NOT NULL,
@@ -446,6 +512,41 @@ export const ensureDmSchema = async () => {
       INDEX idx_vine_group_members_conversation_status_role (conversation_id, status, role)
     )
   `);
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_message_read_receipts (
+      message_id INT NOT NULL,
+      user_id INT NOT NULL,
+      read_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (message_id, user_id),
+      INDEX idx_vine_message_receipts_user_time (user_id, read_at)
+    )
+  `);
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_community_group_chats (
+      community_id INT NOT NULL PRIMARY KEY,
+      conversation_id INT NOT NULL,
+      created_by INT NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      last_synced_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uniq_vine_community_group_conversation (conversation_id),
+      INDEX idx_vine_community_group_creator (created_by)
+    )
+  `);
+  await addColumnIfMissing(
+    "vine_conversation_members",
+    "notifications_muted",
+    "notifications_muted TINYINT(1) NOT NULL DEFAULT 0"
+  );
+  await addColumnIfMissing(
+    "vine_conversation_members",
+    "theme_color",
+    "theme_color VARCHAR(20) NOT NULL DEFAULT 'vine'"
+  );
+  await addColumnIfMissing(
+    "vine_notifications",
+    "meta_json",
+    "meta_json LONGTEXT NULL"
+  );
   await addColumnIfMissing("vine_messages", "read_at", "read_at DATETIME NULL");
   await addColumnIfMissing(
     "vine_messages",
@@ -472,7 +573,6 @@ export const ensureDmSchema = async () => {
     "call_duration_seconds",
     "call_duration_seconds INT NOT NULL DEFAULT 0"
   );
-  const dbName = await getDmDbName();
   if (dbName) {
     await ensureDmUniqueIndexExists(
       dbName,
@@ -516,6 +616,7 @@ const ensureDmPerformanceSchema = async () => {
       ["vine_message_meta", "idx_vine_message_meta_reply", ["reply_to_id"]],
       ["vine_message_media", "idx_vine_message_media_message_sort", ["message_id", "sort_order"]],
       ["vine_message_reactions", "idx_vine_message_reactions_user_message", ["user_id", "message_id"]],
+      ["vine_message_read_receipts", "idx_vine_message_receipts_user_time", ["user_id", "read_at"]],
       ["vine_conversation_settings", "idx_vine_conv_settings_updated", ["updated_at"]],
       ["vine_conversations", "idx_vine_conversations_type", ["conversation_type"]],
       ["vine_conversation_members", "idx_vine_group_members_user_status", ["user_id", "status", "conversation_id"]],
@@ -756,9 +857,13 @@ const getConversationForUser = async (conversationId, userId) => {
       COALESCE(c.conversation_type, 'direct') AS conversation_type,
       c.group_name,
       c.group_avatar_url,
+      c.group_description,
       c.created_by,
       gm.role AS member_role,
-      gm.last_read_message_id
+      gm.last_read_message_id,
+      gm.last_read_at,
+      gm.notifications_muted,
+      gm.theme_color
     FROM vine_conversations c
     LEFT JOIN vine_conversation_members gm
       ON gm.conversation_id = c.id
@@ -784,6 +889,30 @@ const normalizeGroupName = (value) =>
     .trim()
     .slice(0, 80);
 
+const normalizeGroupDescription = (value) =>
+  String(value || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 300);
+
+const normalizeChatTheme = (value) => {
+  const theme = String(value || "").trim().toLowerCase();
+  return DM_CHAT_THEMES.has(theme) ? theme : "vine";
+};
+
+const normalizeQuickEmoji = (value) => {
+  const emoji = String(value || "").trim();
+  return DM_QUICK_EMOJIS.has(emoji) ? emoji : "👍";
+};
+
+const normalizeChatNickname = (value) =>
+  String(value || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 32);
+
+const normalizeGroupTheme = normalizeChatTheme;
+
 const getActiveConversationUserIds = async (conversation) => {
   if (!conversation?.id) return [];
   if (conversation.conversation_type !== "group") {
@@ -796,6 +925,24 @@ const getActiveConversationUserIds = async (conversation) => {
     SELECT user_id
     FROM vine_conversation_members
     WHERE conversation_id = ? AND status = 'active'
+    `,
+    [conversation.id]
+  );
+  return rows.map((row) => Number(row.user_id)).filter(Boolean);
+};
+
+const getNotificationUserIds = async (conversation) => {
+  if (!conversation?.id) return [];
+  if (conversation.conversation_type !== "group") {
+    return getActiveConversationUserIds(conversation);
+  }
+  const [rows] = await db.query(
+    `
+    SELECT user_id
+    FROM vine_conversation_members
+    WHERE conversation_id = ?
+      AND status = 'active'
+      AND COALESCE(notifications_muted, 0) = 0
     `,
     [conversation.id]
   );
@@ -831,21 +978,51 @@ const getGroupDetails = async (conversationId, viewerId) => {
     [conversationId]
   );
   const onlineIds = new Set(getOnlineUserIds().map((id) => Number(id)));
+  const now = Date.now();
+  const visibleMembers = members.map((member) => {
+    const isViewer = Number(member.user_id) === Number(viewerId);
+    const canShowActivity = isViewer || Number(member.show_last_active) !== 0;
+    const lastActiveAt = canShowActivity ? member.last_active_at : null;
+    const lastActiveTime = lastActiveAt ? new Date(lastActiveAt).getTime() : 0;
+    const isOnlineNow = canShowActivity && onlineIds.has(Number(member.user_id));
+    return {
+      ...member,
+      user_id: Number(member.user_id),
+      last_active_at: lastActiveAt,
+      is_online_now: isOnlineNow ? 1 : 0,
+      is_recently_active:
+        isOnlineNow || (Number.isFinite(lastActiveTime) && lastActiveTime > 0 && now - lastActiveTime <= 15 * 60 * 1000)
+          ? 1
+          : 0,
+    };
+  });
+  const creator = visibleMembers.find(
+    (member) => Number(member.user_id) === Number(conversation.created_by)
+  );
+  const owner = visibleMembers.find((member) => member.role === "owner");
   return {
     conversation_id: Number(conversation.id),
     conversation_type: "group",
     group_name: conversation.group_name,
+    group_description: conversation.group_description || "",
     group_avatar_url: conversation.group_avatar_url || null,
     avatar_url: conversation.group_avatar_url || null,
     created_by: Number(conversation.created_by || 0) || null,
+    created_at: owner?.joined_at || members[0]?.joined_at || null,
+    created_by_user: creator
+      ? {
+          user_id: creator.user_id,
+          username: creator.username,
+          display_name: creator.display_name,
+        }
+      : null,
     viewer_role: conversation.member_role,
     can_manage: ["owner", "admin"].includes(conversation.member_role),
+    notifications_muted: Number(conversation.notifications_muted || 0) === 1,
+    theme_color: normalizeGroupTheme(conversation.theme_color),
     member_count: members.length,
-    members: members.map((member) => ({
-      ...member,
-      user_id: Number(member.user_id),
-      is_online_now: onlineIds.has(Number(member.user_id)) ? 1 : 0,
-    })),
+    recently_active_count: visibleMembers.filter((member) => Number(member.is_recently_active) === 1).length,
+    members: visibleMembers,
   };
 };
 
@@ -854,35 +1031,6 @@ const ensureGroupManager = async (conversationId, userId) => {
   if (!conversation || conversation.conversation_type !== "group") return null;
   if (!["owner", "admin"].includes(conversation.member_role)) return null;
   return conversation;
-};
-
-const getEligibleGroupUsers = async (actorId, userIds) => {
-  const ids = Array.from(new Set(userIds.map((id) => Number(id)).filter((id) => id && id !== Number(actorId))));
-  if (!ids.length) return [];
-  const [rows] = await db.query(
-    `
-    SELECT u.id
-    FROM vine_users u
-    WHERE u.id IN (?)
-      AND (
-        EXISTS (
-          SELECT 1 FROM vine_follows f
-          WHERE f.follower_id = ? AND f.following_id = u.id
-        )
-        OR EXISTS (
-          SELECT 1 FROM vine_follows f
-          WHERE f.follower_id = u.id AND f.following_id = ?
-        )
-      )
-      AND NOT EXISTS (
-        SELECT 1 FROM vine_blocks b
-        WHERE (b.blocker_id = ? AND b.blocked_id = u.id)
-           OR (b.blocker_id = u.id AND b.blocked_id = ?)
-      )
-    `,
-    [ids, actorId, actorId, actorId, actorId]
-  );
-  return rows.map((row) => Number(row.id));
 };
 
 const hasGroupBlockConflict = async (userIds) => {
@@ -935,18 +1083,34 @@ const getConversationSettings = async (conversationId) => {
   return readThroughDmCache(cacheKey, DM_CACHE_TTLS.settings, async () => {
     const [[row]] = await db.query(
       `
-      SELECT disappearing_enabled, disappear_mode, updated_by, updated_at
+      SELECT disappearing_enabled, disappear_mode, theme_color, quick_emoji, updated_by, updated_at
       FROM vine_conversation_settings
       WHERE conversation_id = ?
       LIMIT 1
       `,
       [conversationId]
     );
+    const [nicknameRows] = await db.query(
+      `
+      SELECT user_id, nickname
+      FROM vine_conversation_nicknames
+      WHERE conversation_id = ?
+      `,
+      [conversationId]
+    );
+    const nicknames = Object.fromEntries(
+      nicknameRows
+        .map((nickname) => [String(Number(nickname.user_id)), normalizeChatNickname(nickname.nickname)])
+        .filter(([, nickname]) => Boolean(nickname))
+    );
     return {
       disappearing_enabled: Number(row?.disappearing_enabled || 0) === 1,
       disappear_mode: DISAPPEARING_MODES.has(String(row?.disappear_mode || ""))
         ? row.disappear_mode
         : "after_read",
+      theme_color: normalizeChatTheme(row?.theme_color),
+      quick_emoji: normalizeQuickEmoji(row?.quick_emoji),
+      nicknames,
       updated_by: row?.updated_by || null,
       updated_at: row?.updated_at || null,
     };
@@ -1010,6 +1174,10 @@ const removeMessagesPermanently = async (conversationId, messageIds = []) => {
   );
   await db.query(
     `DELETE FROM vine_message_media WHERE message_id IN (${placeholders})`,
+    ids
+  );
+  await db.query(
+    `DELETE FROM vine_message_read_receipts WHERE message_id IN (${placeholders})`,
     ids
   );
   await db.query(
@@ -1094,15 +1262,32 @@ const markConversationReadAndDisappear = async (conversationId, userId) => {
       [conversationId, userId]
     );
     const lastReadMessageId = Number(latestMessage?.last_read_message_id || 0) || null;
-    await db.query(
-      `
-      UPDATE vine_conversation_members
-      SET last_read_message_id = COALESCE(?, last_read_message_id),
-          last_read_at = NOW()
-      WHERE conversation_id = ? AND user_id = ? AND status = 'active'
-      `,
-      [lastReadMessageId, conversationId, userId]
-    );
+    const previousLastReadMessageId = Number(convo.last_read_message_id || 0);
+    const advancedReadPosition = Boolean(lastReadMessageId && lastReadMessageId > previousLastReadMessageId);
+    const readAt = advancedReadPosition ? new Date() : convo.last_read_at || null;
+    if (advancedReadPosition) {
+      await db.query(
+        `
+        INSERT IGNORE INTO vine_message_read_receipts (message_id, user_id, read_at)
+        SELECT message.id, ?, ?
+        FROM vine_messages message
+        WHERE message.conversation_id = ?
+          AND message.sender_id != ?
+          AND message.id > ?
+          AND message.id <= ?
+        `,
+        [userId, readAt, conversationId, userId, previousLastReadMessageId, lastReadMessageId]
+      );
+      await db.query(
+        `
+        UPDATE vine_conversation_members
+        SET last_read_message_id = ?,
+            last_read_at = ?
+        WHERE conversation_id = ? AND user_id = ? AND status = 'active'
+        `,
+        [lastReadMessageId, readAt, conversationId, userId]
+      );
+    }
     return {
       ...convo,
       lastReadMessageId: lastReadMessageId || Number(convo.last_read_message_id || 0) || null,
@@ -1111,6 +1296,7 @@ const markConversationReadAndDisappear = async (conversationId, userId) => {
         username: latestMessage?.username || "",
         display_name: latestMessage?.display_name || latestMessage?.username || "Group member",
         avatar_url: latestMessage?.avatar_url || null,
+        read_at: readAt,
       },
       disappearedIds: expiredIds,
     };
@@ -1290,6 +1476,7 @@ const attachGroupReadReceipts = async (conversationId, messages, viewerId) => {
     SELECT
       gm.user_id,
       gm.last_read_message_id,
+      gm.last_read_at,
       u.username,
       u.display_name,
       u.avatar_url
@@ -1303,24 +1490,70 @@ const attachGroupReadReceipts = async (conversationId, messages, viewerId) => {
   );
   if (!members.length) return messages.map((message) => ({ ...message, seen_by: [] }));
 
+  const viewerMessageIds = messages
+    .filter((message) => Number(message.sender_id) === Number(viewerId))
+    .map((message) => Number(message.id))
+    .filter(Boolean);
+  const receiptMap = new Map();
+  if (viewerMessageIds.length) {
+    const placeholders = viewerMessageIds.map(() => "?").join(",");
+    const [receiptRows] = await db.query(
+      `
+      SELECT
+        receipt.message_id,
+        receipt.user_id,
+        receipt.read_at,
+        user.username,
+        user.display_name,
+        user.avatar_url
+      FROM vine_message_read_receipts receipt
+      JOIN vine_users user ON user.id = receipt.user_id
+      JOIN vine_conversation_members member
+        ON member.conversation_id = ?
+        AND member.user_id = receipt.user_id
+        AND member.status = 'active'
+      WHERE receipt.message_id IN (${placeholders})
+      ORDER BY receipt.read_at ASC, receipt.user_id ASC
+      `,
+      [conversationId, ...viewerMessageIds]
+    );
+    receiptRows.forEach((receipt) => {
+      const messageId = Number(receipt.message_id);
+      const current = receiptMap.get(messageId) || [];
+      current.push({
+        user_id: Number(receipt.user_id),
+        username: receipt.username,
+        display_name: receipt.display_name || receipt.username,
+        avatar_url: receipt.avatar_url || null,
+        read_at: receipt.read_at || null,
+      });
+      receiptMap.set(messageId, current);
+    });
+  }
+
   return messages.map((message) => {
     if (Number(message.sender_id) !== Number(viewerId)) {
       return { ...message, seen_by: [] };
     }
+    const exactReceipts = receiptMap.get(Number(message.id)) || [];
+    const exactUserIds = new Set(exactReceipts.map((member) => Number(member.user_id)));
+    const legacyReceipts = members
+      .filter(
+        (member) =>
+          Number(member.user_id) !== Number(message.sender_id) &&
+          Number(member.last_read_message_id || 0) >= Number(message.id || 0) &&
+          !exactUserIds.has(Number(member.user_id))
+      )
+      .map((member) => ({
+        user_id: Number(member.user_id),
+        username: member.username,
+        display_name: member.display_name || member.username,
+        avatar_url: member.avatar_url || null,
+        read_at: member.last_read_at || null,
+      }));
     return {
       ...message,
-      seen_by: members
-        .filter(
-          (member) =>
-            Number(member.user_id) !== Number(message.sender_id) &&
-            Number(member.last_read_message_id || 0) >= Number(message.id || 0)
-        )
-        .map((member) => ({
-          user_id: Number(member.user_id),
-          username: member.username,
-          display_name: member.display_name || member.username,
-          avatar_url: member.avatar_url || null,
-        })),
+      seen_by: [...exactReceipts, ...legacyReceipts],
     };
   });
 };
@@ -1475,8 +1708,11 @@ const publishGroupEvent = async (conversation, messageId, actorId) => {
     io.to(`conversation-${conversation.id}`).emit("dm_received", fullMessage);
   }
   const userIds = await emitConversationInboxUpdate(conversation);
+  const notificationUserIds = new Set(await getNotificationUserIds(conversation));
   userIds.forEach((userId) => {
-    if (fullMessage) io.to(`user-${userId}`).emit("dm_received", fullMessage);
+    if (fullMessage && notificationUserIds.has(Number(userId))) {
+      io.to(`user-${userId}`).emit("dm_received", fullMessage);
+    }
     io.to(`user-${userId}`).emit("dm_group_updated", {
       conversation_id: Number(conversation.id),
     });
@@ -1489,44 +1725,470 @@ const publishGroupEvent = async (conversation, messageId, actorId) => {
   return fullMessage;
 };
 
-router.get("/group-candidates", authenticate, async (req, res) => {
-  const userId = Number(req.user.id);
-  const q = String(req.query?.q || "").trim().toLowerCase().slice(0, 80);
-  try {
-    await ensureDmPerformanceSchema();
-    const params = [userId, userId, userId, userId, userId];
-    let searchClause = "";
-    if (q) {
-      searchClause = "AND (LOWER(u.username) LIKE ? OR LOWER(COALESCE(u.display_name, '')) LIKE ?)";
-      params.push(`%${q}%`, `%${q}%`);
-    }
-    const [rows] = await db.query(
+const buildCommunityGroupName = (communityName) =>
+  normalizeGroupName(communityName) || "Community chat";
+
+const buildCommunityGroupDescription = (communityName) =>
+  normalizeGroupDescription(`Official community group chat for ${communityName || "this community"}.`);
+
+const insertCommunityGroupNotifications = async (
+  connection,
+  { recipientIds, actorId, type, meta }
+) => {
+  const recipients = Array.from(
+    new Set((recipientIds || []).map(Number).filter((id) => id > 0 && id !== Number(actorId)))
+  );
+  if (!recipients.length) return [];
+
+  const serializedMeta = JSON.stringify(meta || {});
+  const batchSize = 200;
+  for (let offset = 0; offset < recipients.length; offset += batchSize) {
+    const batch = recipients.slice(offset, offset + batchSize);
+    const placeholders = batch.map(() => "(?, ?, ?, NULL, NULL, ?)").join(", ");
+    const params = batch.flatMap((recipientId) => [
+      recipientId,
+      Number(actorId),
+      type,
+      serializedMeta,
+    ]);
+    await connection.query(
       `
-      SELECT u.id, u.username, u.display_name, u.avatar_url, u.is_verified
-      FROM vine_users u
-      WHERE u.id != ?
-        AND (
-          EXISTS (
-            SELECT 1 FROM vine_follows f
-            WHERE f.follower_id = ? AND f.following_id = u.id
-          )
-          OR EXISTS (
-            SELECT 1 FROM vine_follows f
-            WHERE f.follower_id = u.id AND f.following_id = ?
-          )
-        )
-        AND NOT EXISTS (
-          SELECT 1 FROM vine_blocks b
-          WHERE (b.blocker_id = ? AND b.blocked_id = u.id)
-             OR (b.blocker_id = u.id AND b.blocked_id = ?)
-        )
-        ${searchClause}
-      ORDER BY COALESCE(NULLIF(u.display_name, ''), u.username) ASC
-      LIMIT 60
+      INSERT INTO vine_notifications
+        (user_id, actor_id, type, post_id, comment_id, meta_json)
+      VALUES ${placeholders}
       `,
       params
     );
-    res.json(rows);
+  }
+  return recipients;
+};
+
+const getCommunityGroupChatStatus = async (communityId, ownerId) => {
+  const [[community]] = await db.query(
+    `
+    SELECT c.id, c.name, c.slug, cm.role AS viewer_role
+    FROM vine_communities c
+    LEFT JOIN vine_community_members cm
+      ON cm.community_id = c.id AND cm.user_id = ?
+    WHERE c.id = ?
+    LIMIT 1
+    `,
+    [ownerId, communityId]
+  );
+  if (!community) return { error: "Community not found", status: 404 };
+  if (String(community.viewer_role || "").toLowerCase() !== "owner") {
+    return { error: "Only the community owner can manage its group chat", status: 403 };
+  }
+
+  const [communityMembers] = await db.query(
+    "SELECT user_id FROM vine_community_members WHERE community_id = ?",
+    [communityId]
+  );
+  const [[linkedGroup]] = await db.query(
+    `
+    SELECT
+      link.conversation_id,
+      link.created_at,
+      link.last_synced_at,
+      conversation.group_name,
+      conversation.group_avatar_url
+    FROM vine_community_group_chats link
+    JOIN vine_conversations conversation
+      ON conversation.id = link.conversation_id
+      AND conversation.conversation_type = 'group'
+    WHERE link.community_id = ?
+    LIMIT 1
+    `,
+    [communityId]
+  );
+
+  if (!linkedGroup) {
+    return {
+      enabled: false,
+      community_id: Number(communityId),
+      community_name: community.name,
+      community_member_count: communityMembers.length,
+      group_member_count: 0,
+      pending_member_count: communityMembers.length,
+      stale_member_count: 0,
+    };
+  }
+
+  const [groupMembers] = await db.query(
+    `
+    SELECT user_id
+    FROM vine_conversation_members
+    WHERE conversation_id = ? AND status = 'active'
+    `,
+    [linkedGroup.conversation_id]
+  );
+  const communityIds = new Set(communityMembers.map((row) => Number(row.user_id)));
+  const groupIds = new Set(groupMembers.map((row) => Number(row.user_id)));
+
+  return {
+    enabled: true,
+    community_id: Number(communityId),
+    community_name: community.name,
+    conversation_id: Number(linkedGroup.conversation_id),
+    group_name: linkedGroup.group_name || community.name,
+    group_avatar_url: linkedGroup.group_avatar_url || null,
+    community_member_count: communityIds.size,
+    group_member_count: groupIds.size,
+    pending_member_count: [...communityIds].filter((id) => !groupIds.has(id)).length,
+    stale_member_count: [...groupIds].filter((id) => !communityIds.has(id)).length,
+    created_at: linkedGroup.created_at,
+    last_synced_at: linkedGroup.last_synced_at,
+  };
+};
+
+router.get("/community-groups/:communityId", authenticate, async (req, res) => {
+  const communityId = Number(req.params.communityId);
+  const ownerId = Number(req.user.id);
+  if (!communityId) return res.status(400).json({ error: "Invalid community" });
+
+  try {
+    await ensureDmPerformanceSchema();
+    const status = await getCommunityGroupChatStatus(communityId, ownerId);
+    if (status.error) return res.status(status.status).json({ error: status.error });
+    res.set("Cache-Control", "no-store");
+    return res.json(status);
+  } catch (err) {
+    console.error("Get community group chat status error:", err);
+    return res.status(500).json({ error: "Failed to load the community group chat" });
+  }
+});
+
+router.post("/community-groups/:communityId/sync", authenticate, async (req, res) => {
+  const communityId = Number(req.params.communityId);
+  const ownerId = Number(req.user.id);
+  if (!communityId) return res.status(400).json({ error: "Invalid community" });
+
+  let connection;
+  let conversationId = 0;
+  let created = false;
+  let messageId = null;
+  let addedMembers = [];
+  let removedMemberIds = [];
+  let notificationRecipientIds = [];
+  let notifiedUserIds = [];
+  let community = null;
+  let communityMembers = [];
+
+  try {
+    await ensureDmPerformanceSchema();
+    connection = await db.getConnection();
+    await connection.beginTransaction();
+
+    [[community]] = await connection.query(
+      `
+      SELECT
+        c.id,
+        c.name,
+        c.slug,
+        c.avatar_url,
+        cm.role AS viewer_role
+      FROM vine_communities c
+      LEFT JOIN vine_community_members cm
+        ON cm.community_id = c.id AND cm.user_id = ?
+      WHERE c.id = ?
+      LIMIT 1
+      FOR UPDATE
+      `,
+      [ownerId, communityId]
+    );
+    if (!community) {
+      const error = new Error("Community not found");
+      error.statusCode = 404;
+      throw error;
+    }
+    if (String(community.viewer_role || "").toLowerCase() !== "owner") {
+      const error = new Error("Only the community owner can manage its group chat");
+      error.statusCode = 403;
+      throw error;
+    }
+
+    [communityMembers] = await connection.query(
+      `
+      SELECT
+        members.user_id,
+        members.role,
+        users.username,
+        users.display_name
+      FROM vine_community_members members
+      JOIN vine_users users ON users.id = members.user_id
+      WHERE members.community_id = ?
+      ORDER BY FIELD(members.role, 'owner', 'moderator', 'member'), members.joined_at ASC
+      `,
+      [communityId]
+    );
+    const communityMemberIds = communityMembers.map((row) => Number(row.user_id)).filter(Boolean);
+    if (!communityMemberIds.includes(ownerId)) {
+      const error = new Error("Community owner membership is missing");
+      error.statusCode = 409;
+      throw error;
+    }
+
+    let [[linkedGroup]] = await connection.query(
+      `
+      SELECT link.conversation_id, conversation.id AS live_conversation_id
+      FROM vine_community_group_chats link
+      LEFT JOIN vine_conversations conversation
+        ON conversation.id = link.conversation_id
+        AND conversation.conversation_type = 'group'
+      WHERE link.community_id = ?
+      LIMIT 1
+      FOR UPDATE
+      `,
+      [communityId]
+    );
+    if (linkedGroup && !linkedGroup.live_conversation_id) {
+      await connection.query(
+        "DELETE FROM vine_community_group_chats WHERE community_id = ?",
+        [communityId]
+      );
+      linkedGroup = null;
+    }
+
+    if (!linkedGroup) {
+      created = true;
+      const membershipPlan = planCommunityGroupMembership({
+        communityMembers,
+        ownerId,
+        creating: true,
+      });
+      communityMembers = membershipPlan.members;
+      addedMembers = membershipPlan.membersToAdd;
+      notificationRecipientIds = membershipPlan.notificationRecipientIds;
+      const groupName = buildCommunityGroupName(community.name);
+      const groupDescription = buildCommunityGroupDescription(community.name);
+      const [createdConversation] = await connection.query(
+        `
+        INSERT INTO vine_conversations
+          (user1_id, user2_id, conversation_type, group_name, group_avatar_url, group_description, created_by)
+        VALUES (NULL, NULL, 'group', ?, ?, ?, ?)
+        `,
+        [
+          groupName,
+          community.avatar_url || null,
+          groupDescription,
+          ownerId,
+        ]
+      );
+      conversationId = Number(createdConversation.insertId);
+
+      const memberPlaceholders = addedMembers.map(() => "(?, ?, ?, 'active', NOW())").join(", ");
+      const memberParams = addedMembers.flatMap((member) => [
+        conversationId,
+        Number(member.user_id),
+        member.group_role,
+      ]);
+      await connection.query(
+        `
+        INSERT INTO vine_conversation_members
+          (conversation_id, user_id, role, status, joined_at)
+        VALUES ${memberPlaceholders}
+        `,
+        memberParams
+      );
+      await connection.query(
+        `
+        INSERT INTO vine_community_group_chats
+          (community_id, conversation_id, created_by, created_at, last_synced_at)
+        VALUES (?, ?, ?, NOW(), NOW())
+        `,
+        [communityId, conversationId, ownerId]
+      );
+
+      const owner = communityMembers.find((member) => Number(member.user_id) === ownerId);
+      const ownerName = owner?.display_name || owner?.username || "The community owner";
+      messageId = await createGroupSystemMessage(
+        connection,
+        conversationId,
+        ownerId,
+        `${ownerName} created the official ${community.name} group chat`
+      );
+    } else {
+      conversationId = Number(linkedGroup.conversation_id);
+      await connection.query(
+        `
+        UPDATE vine_conversation_members
+        SET role = CASE
+          WHEN user_id = ? THEN 'owner'
+          WHEN role = 'owner' THEN 'member'
+          ELSE role
+        END
+        WHERE conversation_id = ? AND status = 'active'
+        `,
+        [ownerId, conversationId]
+      );
+      const [activeGroupMembers] = await connection.query(
+        `
+        SELECT group_member.user_id, users.username
+        FROM vine_conversation_members group_member
+        JOIN vine_users users ON users.id = group_member.user_id
+        WHERE group_member.conversation_id = ? AND group_member.status = 'active'
+        `,
+        [conversationId]
+      );
+      const membershipPlan = planCommunityGroupMembership({
+        communityMembers,
+        activeGroupMembers,
+        ownerId,
+      });
+      communityMembers = membershipPlan.members;
+      addedMembers = membershipPlan.membersToAdd;
+      removedMemberIds = membershipPlan.memberIdsToRemove;
+      notificationRecipientIds = membershipPlan.notificationRecipientIds;
+
+      if (addedMembers.length) {
+        const addPlaceholders = addedMembers.map(() => "(?, ?, ?, 'active', NOW())").join(", ");
+        const addParams = addedMembers.flatMap((member) => [
+          conversationId,
+          Number(member.user_id),
+          member.group_role,
+        ]);
+        await connection.query(
+          `
+          INSERT INTO vine_conversation_members
+            (conversation_id, user_id, role, status, joined_at)
+          VALUES ${addPlaceholders}
+          ON DUPLICATE KEY UPDATE
+            role = VALUES(role),
+            status = 'active',
+            joined_at = NOW(),
+            removed_at = NULL,
+            removed_by = NULL,
+            last_read_message_id = NULL,
+            last_read_at = NULL
+          `,
+          addParams
+        );
+        const addedIds = addedMembers.map((member) => Number(member.user_id));
+        await connection.query(
+          `
+          DELETE FROM vine_conversation_deletes
+          WHERE conversation_id = ? AND user_id IN (${addedIds.map(() => "?").join(", ")})
+          `,
+          [conversationId, ...addedIds]
+        );
+        messageId = await createGroupSystemMessage(
+          connection,
+          conversationId,
+          ownerId,
+          formatGroupMembersAdded(addedMembers.map((member) => member.username))
+        );
+      }
+
+      if (removedMemberIds.length) {
+        await connection.query(
+          `
+          UPDATE vine_conversation_members
+          SET status = 'removed', removed_at = NOW(), removed_by = ?
+          WHERE conversation_id = ?
+            AND user_id IN (${removedMemberIds.map(() => "?").join(", ")})
+          `,
+          [ownerId, conversationId, ...removedMemberIds]
+        );
+        const removalMessageId = await createGroupSystemMessage(
+          connection,
+          conversationId,
+          ownerId,
+          `${removedMemberIds.length} ${removedMemberIds.length === 1 ? "person was" : "people were"} removed because they are no longer community members`
+        );
+        messageId = removalMessageId;
+      }
+
+      await connection.query(
+        "UPDATE vine_community_group_chats SET last_synced_at = NOW() WHERE community_id = ?",
+        [communityId]
+      );
+    }
+
+    notifiedUserIds = await insertCommunityGroupNotifications(connection, {
+      recipientIds: notificationRecipientIds,
+      actorId: ownerId,
+      type: created ? "community_group_chat_created" : "community_group_chat_added",
+      meta: {
+        community_id: communityId,
+        community_slug: community.slug,
+        community_name: community.name,
+        conversation_id: conversationId,
+        group_name: buildCommunityGroupName(community.name),
+        target_path: `/vine/dms/${conversationId}`,
+      },
+    });
+
+    await connection.commit();
+    connection.release();
+    connection = null;
+
+    removedMemberIds.forEach((memberId) => {
+      io.in(`user-${memberId}`).socketsLeave(`conversation-${conversationId}`);
+      io.to(`user-${memberId}`).emit("inbox_updated");
+      io.to(`user-${memberId}`).emit("dm_group_removed", {
+        conversation_id: conversationId,
+      });
+    });
+    notifiedUserIds.forEach((userId) => io.to(`user-${userId}`).emit("notification"));
+
+    const conversation = await getConversationForUser(conversationId, ownerId);
+    if (conversation && messageId) {
+      await publishGroupEvent(conversation, messageId, ownerId);
+    } else if (conversation) {
+      await emitConversationInboxUpdate(conversation);
+      const memberIds = await getActiveConversationUserIds(conversation);
+      memberIds.forEach((userId) => {
+        io.to(`user-${userId}`).emit("dm_group_updated", {
+          conversation_id: conversationId,
+        });
+      });
+      clearDmReadCache("dm-conversations", "dm-unread");
+    }
+
+    const group = await getGroupDetails(conversationId, ownerId);
+    return res.status(created ? 201 : 200).json({
+      success: true,
+      enabled: true,
+      created,
+      conversation_id: conversationId,
+      group_name: group?.group_name || buildCommunityGroupName(community.name),
+      community_member_count: communityMembers.length,
+      group_member_count: Number(group?.member_count || communityMembers.length),
+      pending_member_count: 0,
+      stale_member_count: 0,
+      added_count: addedMembers.length,
+      removed_count: removedMemberIds.length,
+      notified_count: notifiedUserIds.length,
+      last_synced_at: new Date().toISOString(),
+    });
+  } catch (err) {
+    if (connection) {
+      await connection.rollback().catch(() => {});
+      connection.release();
+    }
+    console.error("Sync community group chat error:", err);
+    return res
+      .status(Number(err?.statusCode || 500))
+      .json({ error: err?.statusCode ? err.message : "Failed to create or update the community group chat" });
+  }
+});
+
+router.get("/group-candidates", authenticate, async (req, res) => {
+  const userId = Number(req.user.id);
+  try {
+    await ensureDmPerformanceSchema();
+    let excludeIds = [];
+    if (req.query.conversationId) {
+      const conversation = await ensureGroupManager(Number(req.query.conversationId), userId);
+      if (!conversation) return res.status(403).json({ error: "Only group managers can add people" });
+      excludeIds = await getActiveConversationUserIds(conversation);
+    }
+    const paged = req.query.paged === "1";
+    const result = await searchGroupCandidates(db, {
+      actorId: userId, query: req.query.q, excludeIds,
+      offset: req.query.offset, limit: paged ? 30 : 60,
+    });
+    res.json(paged ? result : result.people);
   } catch (err) {
     console.error("Group candidate search error:", err);
     res.status(500).json({ error: "Failed to load people" });
@@ -1553,7 +2215,7 @@ router.post("/groups", authenticate, async (req, res) => {
   let connection;
   try {
     await ensureDmPerformanceSchema();
-    const eligibleIds = await getEligibleGroupUsers(creatorId, requestedIds);
+    const eligibleIds = await getEligibleGroupUsers(db, creatorId, requestedIds);
     if (eligibleIds.length !== requestedIds.length) {
       return res.status(400).json({ error: "One or more people cannot be added to this group" });
     }
@@ -1567,9 +2229,9 @@ router.post("/groups", authenticate, async (req, res) => {
       `
       INSERT INTO vine_conversations
         (user1_id, user2_id, conversation_type, group_name, created_by)
-      VALUES (?, ?, 'group', ?, ?)
+      VALUES (NULL, NULL, 'group', ?, ?)
       `,
-      [creatorId, eligibleIds[0], groupName, creatorId]
+      [groupName, creatorId]
     );
     const conversationId = Number(created.insertId);
     const values = ["(?, ?, 'owner', 'active', NOW())"];
@@ -1622,25 +2284,352 @@ router.get("/groups/:id", authenticate, async (req, res) => {
   }
 });
 
+const getSharedMediaPage = async (conversationId, beforeId, pageSize = 12) => {
+  const beforeClause = beforeId ? "AND m.id < ?" : "";
+  const params = beforeId
+    ? [conversationId, beforeId, pageSize + 1]
+    : [conversationId, pageSize + 1];
+  const [messageRows] = await db.query(
+    `
+    SELECT
+      m.id,
+      m.created_at,
+      m.sender_id,
+      u.username,
+      u.display_name
+    FROM vine_messages m
+    JOIN vine_users u ON u.id = m.sender_id
+    WHERE m.conversation_id = ?
+      ${beforeClause}
+      AND COALESCE(m.message_type, 'text') != 'system'
+      AND (
+        EXISTS (SELECT 1 FROM vine_message_media media WHERE media.message_id = m.id)
+        OR EXISTS (
+          SELECT 1 FROM vine_message_meta meta
+          WHERE meta.message_id = m.id AND meta.media_url IS NOT NULL
+        )
+      )
+    ORDER BY m.id DESC
+    LIMIT ?
+    `,
+    params
+  );
+
+  const hasMore = messageRows.length > pageSize;
+  const pageMessages = messageRows.slice(0, pageSize);
+  if (!pageMessages.length) return { items: [], next_before: null };
+
+  const messageIds = pageMessages.map((message) => Number(message.id));
+  const placeholders = messageIds.map(() => "?").join(",");
+  const [mediaRows] = await db.query(
+    `
+    SELECT message_id, media_url, media_type, sort_order
+    FROM vine_message_media
+    WHERE message_id IN (${placeholders})
+    ORDER BY message_id DESC, sort_order ASC, id ASC
+    `,
+    messageIds
+  );
+  const [legacyRows] = await db.query(
+    `
+    SELECT meta.message_id, meta.media_url, meta.media_type, 0 AS sort_order
+    FROM vine_message_meta meta
+    WHERE meta.message_id IN (${placeholders})
+      AND meta.media_url IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM vine_message_media media WHERE media.message_id = meta.message_id
+      )
+    `,
+    messageIds
+  );
+  const attachmentsByMessage = new Map();
+  [...mediaRows, ...legacyRows].forEach((media) => {
+    const messageId = Number(media.message_id);
+    const current = attachmentsByMessage.get(messageId) || [];
+    current.push(media);
+    attachmentsByMessage.set(messageId, current);
+  });
+  const items = pageMessages.flatMap((message) =>
+    (attachmentsByMessage.get(Number(message.id)) || []).map((media, index) => ({
+      id: `${message.id}-${index}`,
+      message_id: Number(message.id),
+      media_url: media.media_url,
+      media_type: media.media_type,
+      created_at: message.created_at,
+      sender_id: Number(message.sender_id),
+      username: message.username,
+      display_name: message.display_name,
+    }))
+  );
+  return {
+    items,
+    next_before: hasMore ? Number(pageMessages.at(-1)?.id || 0) || null : null,
+  };
+};
+
+router.get("/groups/:id/media", authenticate, async (req, res) => {
+  const conversationId = Number(req.params.id);
+  const viewerId = Number(req.user.id);
+  const beforeId = Math.max(0, Number(req.query.before || 0));
+  const pageSize = 12;
+  try {
+    await ensureDmPerformanceSchema();
+    const conversation = await getConversationForUser(conversationId, viewerId);
+    if (!conversation || conversation.conversation_type !== "group") {
+      return res.status(404).json({ error: "Group not found" });
+    }
+
+    res.json(await getSharedMediaPage(conversationId, beforeId, pageSize));
+  } catch (err) {
+    console.error("Get group shared media error:", err);
+    res.status(500).json({ error: "Failed to load shared media" });
+  }
+});
+
+router.get("/conversations/:id/media", authenticate, async (req, res) => {
+  const conversationId = Number(req.params.id);
+  const viewerId = Number(req.user.id);
+  const beforeId = Math.max(0, Number(req.query.before || 0));
+  try {
+    await ensureDmPerformanceSchema();
+    const conversation = await getConversationForUser(conversationId, viewerId);
+    if (!conversation || conversation.conversation_type !== "direct") {
+      return res.status(404).json({ error: "Chat not found" });
+    }
+    await cleanupExpiredDisappearingMessages(conversationId);
+    res.json(await getSharedMediaPage(conversationId, beforeId));
+  } catch (err) {
+    console.error("Get direct shared media error:", err);
+    res.status(500).json({ error: "Failed to load shared media" });
+  }
+});
+
+router.patch("/groups/:id/preferences", authenticate, async (req, res) => {
+  const conversationId = Number(req.params.id);
+  const userId = Number(req.user.id);
+  try {
+    await ensureDmPerformanceSchema();
+    const conversation = await getConversationForUser(conversationId, userId);
+    if (!conversation || conversation.conversation_type !== "group") {
+      return res.status(404).json({ error: "Group not found" });
+    }
+    const updates = [];
+    const params = [];
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, "notifications_muted")) {
+      updates.push("notifications_muted = ?");
+      params.push(req.body.notifications_muted ? 1 : 0);
+    }
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, "theme_color")) {
+      updates.push("theme_color = ?");
+      params.push(normalizeGroupTheme(req.body.theme_color));
+    }
+    if (!updates.length) {
+      return res.status(400).json({ error: "No group preference supplied" });
+    }
+    params.push(conversationId, userId);
+    await db.query(
+      `UPDATE vine_conversation_members SET ${updates.join(", ")} WHERE conversation_id = ? AND user_id = ? AND status = 'active'`,
+      params
+    );
+    res.json(await getGroupDetails(conversationId, userId));
+  } catch (err) {
+    console.error("Update group preferences error:", err);
+    res.status(500).json({ error: "Failed to update group preferences" });
+  }
+});
+
 router.patch("/groups/:id", authenticate, async (req, res) => {
   const conversationId = Number(req.params.id);
   const actorId = Number(req.user.id);
-  const groupName = normalizeGroupName(req.body?.name);
-  if (groupName.length < 2) {
+  const hasName = Object.prototype.hasOwnProperty.call(req.body || {}, "name");
+  const hasDescription = Object.prototype.hasOwnProperty.call(req.body || {}, "description");
+  const groupName = hasName ? normalizeGroupName(req.body?.name) : "";
+  const groupDescription = hasDescription ? normalizeGroupDescription(req.body?.description) : "";
+  if (!hasName && !hasDescription) {
+    return res.status(400).json({ error: "No group details supplied" });
+  }
+  if (hasName && groupName.length < 2) {
     return res.status(400).json({ error: "Group name must have at least 2 characters" });
   }
   try {
     await ensureDmPerformanceSchema();
     const conversation = await ensureGroupManager(conversationId, actorId);
-    if (!conversation) return res.status(403).json({ error: "Only group managers can rename this group" });
-    await db.query("UPDATE vine_conversations SET group_name = ? WHERE id = ?", [groupName, conversationId]);
-    const messageId = await createGroupSystemMessage(db, conversationId, actorId, `Group renamed to ${groupName}`);
-    conversation.group_name = groupName;
+    if (!conversation) return res.status(403).json({ error: "Only group managers can edit this group" });
+    const updates = [];
+    const params = [];
+    if (hasName) {
+      updates.push("group_name = ?");
+      params.push(groupName);
+      conversation.group_name = groupName;
+    }
+    if (hasDescription) {
+      updates.push("group_description = ?");
+      params.push(groupDescription || null);
+      conversation.group_description = groupDescription;
+    }
+    params.push(conversationId);
+    await db.query(`UPDATE vine_conversations SET ${updates.join(", ")} WHERE id = ?`, params);
+    const messageId = hasName
+      ? await createGroupSystemMessage(db, conversationId, actorId, `Group renamed to ${groupName}`)
+      : null;
     await publishGroupEvent(conversation, messageId, actorId);
     res.json(await getGroupDetails(conversationId, actorId));
   } catch (err) {
-    console.error("Rename DM group error:", err);
-    res.status(500).json({ error: "Failed to rename group" });
+    console.error("Update DM group error:", err);
+    res.status(500).json({ error: "Failed to update group" });
+  }
+});
+
+router.delete("/groups/:id", authenticate, async (req, res) => {
+  const conversationId = Number(req.params.id);
+  const actorId = Number(req.user.id);
+  if (!conversationId) return res.status(400).json({ error: "Invalid group" });
+
+  let connection;
+  let groupAvatarUrl = "";
+  let memberIds = [];
+  let storedMedia = [];
+  try {
+    await ensureDmPerformanceSchema();
+    connection = await db.getConnection();
+    await connection.beginTransaction();
+
+    const [[conversation]] = await connection.query(
+      `
+      SELECT
+        conversation.id,
+        conversation.group_avatar_url,
+        group_member.role AS viewer_role
+      FROM vine_conversations conversation
+      LEFT JOIN vine_conversation_members group_member
+        ON group_member.conversation_id = conversation.id
+        AND group_member.user_id = ?
+        AND group_member.status = 'active'
+      WHERE conversation.id = ?
+        AND conversation.conversation_type = 'group'
+      LIMIT 1
+      FOR UPDATE
+      `,
+      [actorId, conversationId]
+    );
+    if (!conversation) {
+      const error = new Error("Group not found");
+      error.statusCode = 404;
+      throw error;
+    }
+    if (conversation.viewer_role !== "owner") {
+      const error = new Error("Only the group owner can delete this group");
+      error.statusCode = 403;
+      throw error;
+    }
+
+    const [memberRows] = await connection.query(
+      "SELECT user_id FROM vine_conversation_members WHERE conversation_id = ? AND status = 'active'",
+      [conversationId]
+    );
+    memberIds = memberRows.map((member) => Number(member.user_id)).filter(Boolean);
+    groupAvatarUrl = conversation.group_avatar_url || "";
+
+    const [mediaRows] = await connection.query(
+      `
+      SELECT attachment.media_url, attachment.media_type
+      FROM vine_message_media attachment
+      JOIN vine_messages message ON message.id = attachment.message_id
+      WHERE message.conversation_id = ?
+      UNION ALL
+      SELECT meta.media_url, meta.media_type
+      FROM vine_message_meta meta
+      JOIN vine_messages message ON message.id = meta.message_id
+      WHERE message.conversation_id = ? AND meta.media_url IS NOT NULL
+      `,
+      [conversationId, conversationId]
+    );
+    storedMedia = mediaRows.filter((media) => media.media_url);
+
+    await connection.query(
+      `
+      DELETE reaction
+      FROM vine_message_reactions reaction
+      JOIN vine_messages message ON message.id = reaction.message_id
+      WHERE message.conversation_id = ?
+      `,
+      [conversationId]
+    );
+    await connection.query(
+      `
+      DELETE meta
+      FROM vine_message_meta meta
+      JOIN vine_messages message ON message.id = meta.message_id
+      WHERE message.conversation_id = ?
+      `,
+      [conversationId]
+    );
+    await connection.query(
+      `
+      DELETE attachment
+      FROM vine_message_media attachment
+      JOIN vine_messages message ON message.id = attachment.message_id
+      WHERE message.conversation_id = ?
+      `,
+      [conversationId]
+    );
+    await connection.query(
+      `
+      DELETE receipt
+      FROM vine_message_read_receipts receipt
+      JOIN vine_messages message ON message.id = receipt.message_id
+      WHERE message.conversation_id = ?
+      `,
+      [conversationId]
+    );
+    await connection.query("DELETE FROM vine_messages WHERE conversation_id = ?", [conversationId]);
+    await connection.query("DELETE FROM vine_conversation_settings WHERE conversation_id = ?", [conversationId]);
+    await connection.query("DELETE FROM vine_conversation_pins WHERE conversation_id = ?", [conversationId]);
+    await connection.query("DELETE FROM vine_conversation_deletes WHERE conversation_id = ?", [conversationId]);
+    await connection.query("DELETE FROM vine_community_group_chats WHERE conversation_id = ?", [conversationId]);
+    await connection.query("DELETE FROM vine_conversation_members WHERE conversation_id = ?", [conversationId]);
+    await connection.query("DELETE FROM vine_conversations WHERE id = ?", [conversationId]);
+
+    await connection.commit();
+    connection.release();
+    connection = null;
+
+    memberIds.forEach((memberId) => {
+      io.in(`user-${memberId}`).socketsLeave(`conversation-${conversationId}`);
+      io.to(`user-${memberId}`).emit("dm_group_removed", {
+        conversation_id: conversationId,
+        dissolved: true,
+      });
+      io.to(`user-${memberId}`).emit("inbox_updated");
+    });
+    clearDmReadCache(
+      "dm-conversations",
+      "dm-unread",
+      "dm-messages",
+      buildDmCacheKey("dm-settings", conversationId)
+    );
+
+    const filesToDelete = [
+      ...(groupAvatarUrl ? [{ media_url: groupAvatarUrl, media_type: "image" }] : []),
+      ...storedMedia,
+    ];
+    const uniqueFiles = Array.from(
+      new Map(filesToDelete.map((file) => [String(file.media_url), file])).values()
+    );
+    void Promise.allSettled(
+      uniqueFiles.map((file) => deleteCloudinaryByUrl(file.media_url, file.media_type))
+    );
+
+    return res.json({ success: true, dissolved: true, conversation_id: conversationId });
+  } catch (err) {
+    if (connection) {
+      await connection.rollback().catch(() => {});
+      connection.release();
+    }
+    console.error("Delete DM group error:", err);
+    return res
+      .status(Number(err?.statusCode || 500))
+      .json({ error: err?.statusCode ? err.message : "Failed to delete group" });
   }
 });
 
@@ -1754,7 +2743,7 @@ router.post("/groups/:id/members", authenticate, async (req, res) => {
     if (Number(countRow?.total || 0) + newIds.length > DM_GROUP_MAX_MEMBERS) {
       return res.status(400).json({ error: `Groups can have up to ${DM_GROUP_MAX_MEMBERS} people` });
     }
-    const eligibleIds = await getEligibleGroupUsers(actorId, newIds);
+    const eligibleIds = await getEligibleGroupUsers(db, actorId, newIds);
     if (eligibleIds.length !== newIds.length) {
       return res.status(400).json({ error: "One or more people cannot be added to this group" });
     }
@@ -1784,11 +2773,15 @@ router.post("/groups/:id/members", authenticate, async (req, res) => {
         [conversationId, memberId]
       );
     }
+    const [addedPeople] = await connection.query(
+      "SELECT username FROM vine_users WHERE id IN (?) ORDER BY id ASC",
+      [eligibleIds]
+    );
     const messageId = await createGroupSystemMessage(
       connection,
       conversationId,
       actorId,
-      `${eligibleIds.length} ${eligibleIds.length === 1 ? "person was" : "people were"} added`
+      formatGroupMembersAdded(addedPeople.map((person) => person.username))
     );
     await connection.commit();
     connection.release();
@@ -2392,7 +3385,14 @@ router.get("/conversations/:id/presence", authenticate, async (req, res) => {
         group_name: group.group_name,
         group_avatar_url: group.group_avatar_url,
         member_count: group.member_count,
+        member_ids: group.members.map((member) => member.user_id),
+        member_roles: Object.fromEntries(
+          group.members.map((member) => [Number(member.user_id), member.role])
+        ),
         viewer_role: group.viewer_role,
+        group_description: group.group_description,
+        notifications_muted: group.notifications_muted,
+        theme_color: group.theme_color,
       });
     }
     const result = await runDmPerfRoute(
@@ -2453,42 +3453,144 @@ router.patch("/conversations/:id/settings", authenticate, async (req, res) => {
   const conversationId = Number(req.params.id);
   if (!conversationId) return res.status(400).json({ error: "Invalid conversation" });
 
+  let connection;
   try {
     await ensureDmSchema();
     await ensureDmPerformanceSchema();
     const convo = await getConversationForUser(conversationId, userId);
     if (!convo) return res.status(403).json({ error: "Access denied" });
     if (convo.conversation_type === "group") {
-      return res.status(400).json({ error: "Disappearing messages are not available in groups" });
+      return res.status(400).json({ error: "These settings are only available in one-to-one chats" });
     }
 
-    const disappearingEnabled = Boolean(req.body?.disappearing_enabled);
-    const requestedMode = String(req.body?.disappear_mode || "after_read").trim().toLowerCase();
+    const hasDisappearingEnabled = Object.prototype.hasOwnProperty.call(req.body || {}, "disappearing_enabled");
+    const hasDisappearMode = Object.prototype.hasOwnProperty.call(req.body || {}, "disappear_mode");
+    const hasThemeColor = Object.prototype.hasOwnProperty.call(req.body || {}, "theme_color");
+    const hasQuickEmoji = Object.prototype.hasOwnProperty.call(req.body || {}, "quick_emoji");
+    const hasNicknames = Object.prototype.hasOwnProperty.call(req.body || {}, "nicknames");
+    if (!hasDisappearingEnabled && !hasDisappearMode && !hasThemeColor && !hasQuickEmoji && !hasNicknames) {
+      return res.status(400).json({ error: "No chat setting supplied" });
+    }
+
+    const currentSettings = await getConversationSettings(conversationId);
+    const disappearingEnabled = hasDisappearingEnabled
+      ? Boolean(req.body.disappearing_enabled)
+      : currentSettings.disappearing_enabled;
+    const requestedMode = String(
+      hasDisappearMode ? req.body.disappear_mode : currentSettings.disappear_mode
+    ).trim().toLowerCase();
     const disappearMode = DISAPPEARING_MODES.has(requestedMode) ? requestedMode : "after_read";
-    await db.query(
+    const themeColor = hasThemeColor
+      ? normalizeChatTheme(req.body.theme_color)
+      : currentSettings.theme_color;
+    const quickEmoji = hasQuickEmoji
+      ? normalizeQuickEmoji(req.body.quick_emoji)
+      : currentSettings.quick_emoji;
+    const themeChanged = hasThemeColor && themeColor !== currentSettings.theme_color;
+    const quickEmojiChanged = hasQuickEmoji && quickEmoji !== currentSettings.quick_emoji;
+    const participantIds = [Number(convo.user1_id), Number(convo.user2_id)].filter(Boolean);
+    let nicknameEntries = [];
+    if (hasNicknames) {
+      if (!req.body.nicknames || typeof req.body.nicknames !== "object" || Array.isArray(req.body.nicknames)) {
+        return res.status(400).json({ error: "Nicknames must be supplied as a user map" });
+      }
+      nicknameEntries = Object.entries(req.body.nicknames);
+      if (nicknameEntries.length > 2 || nicknameEntries.some(([targetId]) => !participantIds.includes(Number(targetId)))) {
+        return res.status(400).json({ error: "A nickname can only belong to someone in this chat" });
+      }
+      nicknameEntries = nicknameEntries.map(([targetId, nickname]) => [
+        Number(targetId),
+        normalizeChatNickname(nickname),
+      ]);
+    }
+    const nicknamesChanged = nicknameEntries.some(([targetId, nickname]) =>
+      nickname !== String(currentSettings.nicknames?.[String(targetId)] || "")
+    );
+
+    connection = await db.getConnection();
+    await connection.beginTransaction();
+    await connection.query(
       `
       INSERT INTO vine_conversation_settings
-        (conversation_id, disappearing_enabled, disappear_mode, updated_by, updated_at)
-      VALUES (?, ?, ?, ?, NOW())
+        (conversation_id, disappearing_enabled, disappear_mode, theme_color, quick_emoji, updated_by, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, NOW())
       ON DUPLICATE KEY UPDATE
         disappearing_enabled = VALUES(disappearing_enabled),
         disappear_mode = VALUES(disappear_mode),
+        theme_color = VALUES(theme_color),
+        quick_emoji = VALUES(quick_emoji),
         updated_by = VALUES(updated_by),
         updated_at = NOW()
       `,
-      [conversationId, disappearingEnabled ? 1 : 0, disappearMode, userId]
+      [conversationId, disappearingEnabled ? 1 : 0, disappearMode, themeColor, quickEmoji, userId]
     );
 
+    for (const [targetId, nickname] of nicknameEntries) {
+      if (nickname) {
+        await connection.query(
+          `
+          INSERT INTO vine_conversation_nicknames
+            (conversation_id, user_id, nickname, updated_by, updated_at)
+          VALUES (?, ?, ?, ?, NOW())
+          ON DUPLICATE KEY UPDATE
+            nickname = VALUES(nickname),
+            updated_by = VALUES(updated_by),
+            updated_at = NOW()
+          `,
+          [conversationId, targetId, nickname, userId]
+        );
+      } else {
+        await connection.query(
+          "DELETE FROM vine_conversation_nicknames WHERE conversation_id = ? AND user_id = ?",
+          [conversationId, targetId]
+        );
+      }
+    }
+
+    const systemNotices = [];
+    if (themeChanged || quickEmojiChanged || nicknamesChanged) {
+      const [[actor]] = await connection.query(
+        "SELECT username, display_name FROM vine_users WHERE id = ? LIMIT 1",
+        [userId]
+      );
+      const actorName = actor?.display_name || actor?.username || "Someone";
+      if (themeChanged) systemNotices.push(`${actorName} changed the chat theme`);
+      if (quickEmojiChanged) systemNotices.push(`${actorName} changed the quick emoji to ${quickEmoji}`);
+      if (nicknamesChanged) systemNotices.push(`${actorName} updated the chat nicknames`);
+    }
+    const systemMessageIds = [];
+    for (const notice of systemNotices) {
+      systemMessageIds.push(await createGroupSystemMessage(connection, conversationId, userId, notice));
+    }
+    await connection.commit();
+    connection.release();
+    connection = null;
+
+    clearDmReadCache(
+      "dm-conversations",
+      "dm-unread",
+      buildDmCacheKey("dm-settings", conversationId),
+      buildDmCacheKey("dm-messages", conversationId)
+    );
     const settings = await getConversationSettings(conversationId);
     io.to(`conversation-${conversationId}`).emit("dm_settings_updated", {
       conversation_id: conversationId,
       ...settings,
     });
+    for (const systemMessageId of systemMessageIds) {
+      const systemMessage = await getHydratedMessageById(systemMessageId, userId);
+      if (systemMessage) {
+        io.to(`conversation-${conversationId}`).emit("dm_received", systemMessage);
+      }
+    }
     await emitConversationInboxUpdate(convo);
-    clearDmReadCache("dm-conversations", "dm-unread", buildDmCacheKey("dm-settings", conversationId), buildDmCacheKey("dm-messages", conversationId));
 
     res.json({ success: true, conversation_id: conversationId, ...settings });
   } catch (err) {
+    if (connection) {
+      await connection.rollback().catch(() => {});
+      connection.release();
+    }
     console.error("Update conversation settings error:", err);
     res.status(500).json({ error: "Failed to update chat settings" });
   }
@@ -2750,6 +3852,7 @@ router.post("/send", authenticate, async (req, res) => {
     io.to(`conversation-${activeConversationId}`).emit("dm_received", fullMessage);
 
     const recipientUserIds = await getActiveConversationUserIds(activeConversation);
+    const notificationUserIds = new Set(await getNotificationUserIds(activeConversation));
     if (recipientUserIds.length) {
       await db.query(
         `DELETE FROM vine_conversation_deletes WHERE conversation_id = ? AND user_id IN (?)`,
@@ -2757,7 +3860,9 @@ router.post("/send", authenticate, async (req, res) => {
       );
     }
     recipientUserIds.forEach((userId) => {
-      io.to(`user-${userId}`).emit("dm_received", fullMessage);
+      if (notificationUserIds.has(Number(userId))) {
+        io.to(`user-${userId}`).emit("dm_received", fullMessage);
+      }
       io.to(`user-${userId}`).emit("inbox_updated");
     });
     clearDmReadCache("dm-conversations", "dm-unread", buildDmCacheKey("dm-messages", Number(activeConversationId)));

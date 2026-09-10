@@ -186,6 +186,14 @@ export default function VineNotifications() {
       if (meta.community_slug) return `/vine/communities/${meta.community_slug}`;
       return null;
     }
+    if (
+      notification.type === "community_group_chat_created" ||
+      notification.type === "community_group_chat_added"
+    ) {
+      if (meta.target_path) return meta.target_path;
+      if (meta.conversation_id) return `/vine/dms/${meta.conversation_id}`;
+      return "/vine/dms";
+    }
     if (notification.type === "missed_call") {
       if (meta.target_path) return meta.target_path;
       if (meta.conversation_id) return `/vine/dms/${meta.conversation_id}`;
@@ -272,6 +280,10 @@ export default function VineNotifications() {
         return `requested to join ${meta.community_name ? `"${meta.community_name}"` : "your community"}`;
       case "community_join_approved":
         return `approved your join request${meta.community_name ? ` for "${meta.community_name}"` : ""}`;
+      case "community_group_chat_created":
+        return `created the community group chat${meta.community_name ? ` for "${meta.community_name}"` : ""}`;
+      case "community_group_chat_added":
+        return `added you to the community group chat${meta.community_name ? ` for "${meta.community_name}"` : ""}`;
       case "community_assignment_graded": {
         const score = meta.score;
         const points = meta.assignment_points;

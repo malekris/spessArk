@@ -1,35 +1,13 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { Link } from "react-router-dom";
 import "./MessageBubbles.css";
+import { getGroupSenderStyle } from "./groupSenderColors";
+import { getVineAvatarThumbnailUrl, useDefaultVineAvatarOnError } from "../../modules/vine/utils/vineAvatar";
 
 const REACTION_SET = ["👍", "❤️", "😂", "🔥", "😮", "😢"];
 
-const getSenderHue = (message) => {
-  const numericId = Number(message?.sender_id || 0);
-  if (numericId) return Math.round((numericId * 137.508) % 360);
-  const seed = String(message?.username || message?.display_name || "group-member");
-  let hash = 0;
-  for (let index = 0; index < seed.length; index += 1) {
-    hash = ((hash << 5) - hash + seed.charCodeAt(index)) | 0;
-  }
-  return Math.abs(hash) % 360;
-};
-
-const getGroupBubbleStyle = (message) => {
-  const hue = getSenderHue(message);
-  return {
-    "--group-bubble-bg": `hsl(${hue} 72% 91%)`,
-    "--group-bubble-border": `hsl(${hue} 52% 72%)`,
-    "--group-bubble-text": `hsl(${hue} 38% 21%)`,
-    "--group-bubble-accent": `hsl(${hue} 70% 31%)`,
-    "--group-bubble-dark-bg": `hsl(${hue} 31% 24%)`,
-    "--group-bubble-dark-border": `hsl(${hue} 43% 43%)`,
-    "--group-bubble-dark-text": `hsl(${hue} 48% 93%)`,
-    "--group-bubble-dark-accent": `hsl(${hue} 68% 74%)`,
-  };
-};
-
-const getSeenByLabel = (seenBy) => {
+const getUniqueSeenBy = (seenBy) => {
   const uniqueMembers = [];
   const usedIds = new Set();
   (Array.isArray(seenBy) ? seenBy : []).forEach((member) => {
@@ -38,6 +16,11 @@ const getSeenByLabel = (seenBy) => {
     usedIds.add(memberId);
     uniqueMembers.push(member);
   });
+  return uniqueMembers;
+};
+
+const getSeenByLabel = (seenBy) => {
+  const uniqueMembers = getUniqueSeenBy(seenBy);
   const names = uniqueMembers.map((member) => member.display_name || member.username || "Group member");
   if (names.length === 1) return `Seen by ${names[0]}`;
   if (names.length === 2) return `Seen by ${names[0]} and ${names[1]}`;
@@ -63,6 +46,28 @@ const formatMessageTime = (dateString) => {
   if (Number.isNaN(date.getTime())) return "";
   return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 };
+
+const formatReceiptTimestamp = (value) => {
+  if (!value) return "";
+  const date = new Date(String(value).replace(" ", "T"));
+  if (Number.isNaN(date.getTime())) return "";
+  const now = new Date();
+  const isToday =
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate();
+  return date.toLocaleString([], isToday
+    ? { hour: "numeric", minute: "2-digit" }
+    : { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+};
+
+const MessageOptionsIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <circle cx="5" cy="12" r="1.55" fill="currentColor" />
+    <circle cx="12" cy="12" r="1.55" fill="currentColor" />
+    <circle cx="19" cy="12" r="1.55" fill="currentColor" />
+  </svg>
+);
 
 const getCallHistoryCopy = (message, isMine) => {
   const status = String(message?.call_status || "missed").toLowerCase();
@@ -96,19 +101,21 @@ const getCallHistoryCopy = (message, isMine) => {
   };
 };
 
-function MessageBubble({ message, isGroup = false, groupPosition = "single", showMeta = true, onReply, onReact, onDelete }) {
+function MessageBubble({ message, isGroup = false, senderStyle, senderRole = "member", groupPosition = "single", showMeta = true, showDeliveryStatus = true, nicknames = {}, onReply, onReact, onDelete }) {
   const currentUser = JSON.parse(localStorage.getItem("vine_user"));
   const myId = currentUser?.id;
   const isMine = Number(message.sender_id) === Number(myId);
   const isCallMessage = String(message?.message_type || "").toLowerCase() === "call";
   const isSystemMessage = String(message?.message_type || "").toLowerCase() === "system";
-  const groupBubbleStyle = isGroup ? getGroupBubbleStyle(message) : undefined;
-  const seenByLabel = isGroup && isMine ? getSeenByLabel(message?.seen_by) : "";
+  const groupBubbleStyle = isGroup ? senderStyle || getGroupSenderStyle(Number(message.sender_id || 0) % 12) : undefined;
+  const seenByMembers = useMemo(() => isGroup && isMine ? getUniqueSeenBy(message?.seen_by) : [], [isGroup, isMine, message?.seen_by]);
+  const seenByLabel = getSeenByLabel(seenByMembers);
   const reactions = message?.reactions || {};
   const [menuOpen, setMenuOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerIndex, setViewerIndex] = useState(0);
+  const [seenByOpen, setSeenByOpen] = useState(false);
   const actionButtonRef = useRef(null);
   const menuRef = useRef(null);
   const pickerRef = useRef(null);
@@ -136,6 +143,10 @@ function MessageBubble({ message, isGroup = false, groupPosition = "single", sho
     (/^\d+\sphotos$/i.test(String(message?.content || "").trim()) ||
       ["attachment", "video", "voice note"].includes(String(message?.content || "").trim().toLowerCase()));
   const hasVisibleText = !hasAutoMediaLabel && Boolean(String(message?.content || "").trim());
+  const getChatName = (person) => {
+    const personId = String(Number(person?.sender_id || person?.user_id || person?.id || 0));
+    return nicknames[personId] || person?.display_name || person?.username || "Someone";
+  };
 
   const updatePickerPosition = () => {
     const trigger = actionButtonRef.current;
@@ -208,6 +219,19 @@ function MessageBubble({ message, isGroup = false, groupPosition = "single", sho
       window.removeEventListener("scroll", handleMenuReposition, true);
     };
   }, [menuOpen, pickerOpen]);
+
+  useEffect(() => {
+    if (!seenByOpen) return undefined;
+    const closeOnEscape = (event) => {
+      if (event.key === "Escape") setSeenByOpen(false);
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [seenByOpen]);
+
+  useEffect(() => {
+    if (!showDeliveryStatus) setSeenByOpen(false);
+  }, [showDeliveryStatus]);
 
   const selectReaction = (emoji) => {
     onReact?.(message, message.viewer_reaction === emoji ? "" : emoji);
@@ -286,6 +310,22 @@ function MessageBubble({ message, isGroup = false, groupPosition = "single", sho
       className={`msg-row ${isMine ? "mine" : "theirs"} group-${groupPosition} ${isGroup ? "group-chat-message" : ""}`}
       style={groupBubbleStyle}
     >
+      {isGroup && !isMine && (
+        <div className="dm-group-sender-avatar">
+          {["first", "single"].includes(groupPosition) && (message.username ? (
+            <Link
+              className="dm-group-sender-avatar-link"
+              to={`/vine/profile/${encodeURIComponent(message.username)}`}
+              aria-label={`View ${message.display_name || `@${message.username}`}'s profile`}
+              title={`View @${message.username}`}
+            >
+              <img src={getVineAvatarThumbnailUrl(message.avatar_url)} alt="" loading="lazy" onError={useDefaultVineAvatarOnError} />
+            </Link>
+          ) : (
+            <img src={getVineAvatarThumbnailUrl(message.avatar_url)} alt="" loading="lazy" onError={useDefaultVineAvatarOnError} />
+          ))}
+        </div>
+      )}
       <div className="msg-content-wrapper">
         <div className="msg-shell">
           {isMine && (
@@ -300,21 +340,35 @@ function MessageBubble({ message, isGroup = false, groupPosition = "single", sho
                 setMenuOpen((prev) => !prev);
               }}
             >
-              <span />
-              <span />
-              <span />
+              <MessageOptionsIcon />
             </button>
           )}
 
           <div className={`msg-bubble ${mediaItems.length ? "has-media" : ""} ${hasVisibleText ? "has-text" : ""}`}>
             {isGroup && !isMine && ["first", "single"].includes(groupPosition) && (
               <div className="dm-group-message-sender">
-                {message.display_name || message.username || "Group member"}
+                {message.username ? (
+                  <Link
+                    className="dm-group-sender-link"
+                    to={`/vine/profile/${encodeURIComponent(message.username)}`}
+                    aria-label={`View ${message.display_name || `@${message.username}`}'s profile`}
+                    title={`View @${message.username}`}
+                  >
+                    {message.display_name || message.username}
+                  </Link>
+                ) : (
+                  <span>{message.display_name || "Group member"}</span>
+                )}
+                {["owner", "admin"].includes(senderRole) && (
+                  <small className={`dm-group-sender-role ${senderRole}`}>
+                    {senderRole === "owner" ? "Owner" : "Admin"}
+                  </small>
+                )}
               </div>
             )}
             {message.reply_to_message && (
               <div className="dm-reply-preview">
-                <strong>{message.reply_to_message.display_name || message.reply_to_message.username}</strong>
+                <strong>{getChatName(message.reply_to_message)}</strong>
                 <span>{message.reply_to_message.content}</span>
               </div>
             )}
@@ -361,9 +415,7 @@ function MessageBubble({ message, isGroup = false, groupPosition = "single", sho
                 setMenuOpen((prev) => !prev);
               }}
             >
-              <span />
-              <span />
-              <span />
+              <MessageOptionsIcon />
             </button>
           )}
         </div>
@@ -496,6 +548,50 @@ function MessageBubble({ message, isGroup = false, groupPosition = "single", sho
             document.body
           )}
 
+        {showDeliveryStatus && seenByOpen && seenByMembers.length > 0 &&
+          createPortal(
+            <div className="dm-seen-by-backdrop" onClick={() => setSeenByOpen(false)}>
+              <section className="dm-seen-by-modal" role="dialog" aria-modal="true" aria-labelledby={`dm-seen-by-title-${message.id}`} onClick={(event) => event.stopPropagation()}>
+                <header className="dm-seen-by-header">
+                  <div>
+                    <span className="dm-seen-by-icon" aria-hidden="true">✓✓</span>
+                    <span>
+                      <h3 id={`dm-seen-by-title-${message.id}`}>Seen by</h3>
+                      <small>{seenByMembers.length} {seenByMembers.length === 1 ? "person has" : "people have"} seen this message</small>
+                    </span>
+                  </div>
+                  <button type="button" autoFocus onClick={() => setSeenByOpen(false)} aria-label="Close seen by list" title="Close">×</button>
+                </header>
+                <div className="dm-seen-by-delivered">
+                  <span>Delivered</span>
+                  <time dateTime={message.created_at}>{formatReceiptTimestamp(message.created_at)}</time>
+                </div>
+                <div className="dm-seen-by-list">
+                  {seenByMembers.map((member) => {
+                    const readTimestamp = formatReceiptTimestamp(member.read_at);
+                    const content = <>
+                      <img src={getVineAvatarThumbnailUrl(member.avatar_url)} alt="" loading="lazy" onError={useDefaultVineAvatarOnError} />
+                      <span>
+                        <strong>{member.display_name || member.username || "Group member"}</strong>
+                        {member.username && <small>@{member.username}</small>}
+                        <time dateTime={member.read_at || undefined}>{readTimestamp ? `Read at ${readTimestamp}` : "Read"}</time>
+                      </span>
+                      <i aria-hidden="true">✓</i>
+                    </>;
+                    return member.username ? (
+                      <Link key={member.user_id} className="dm-seen-by-person" to={`/vine/profile/${encodeURIComponent(member.username)}`} title={`View @${member.username}`}>
+                        {content}
+                      </Link>
+                    ) : (
+                      <div key={member.user_id} className="dm-seen-by-person">{content}</div>
+                    );
+                  })}
+                </div>
+              </section>
+            </div>,
+            document.body
+          )}
+
         {Object.keys(reactions).length > 0 && (
           <div className="dm-reactions-row">
             {Object.entries(reactions).map(([k, v]) => (
@@ -512,19 +608,18 @@ function MessageBubble({ message, isGroup = false, groupPosition = "single", sho
 
         {showMeta && (
           <div className="msg-meta">
-            <time dateTime={message.created_at}>{formatMessageTime(message.created_at)}</time>
-            {isMine && (
-              <span className={`msg-delivery ${seenByLabel || Number(message.is_read) === 1 ? "seen" : ""}`}>
+            <time dateTime={message.created_at}>{isMine && isGroup && !String(message.id || "").startsWith("temp-") ? `Delivered at ${formatMessageTime(message.created_at)}` : formatMessageTime(message.created_at)}</time>
+            {isMine && showDeliveryStatus && (
+              isGroup && seenByLabel ? <button type="button" className="msg-delivery seen dm-seen-by-trigger" onClick={() => setSeenByOpen(true)} aria-haspopup="dialog" aria-expanded={seenByOpen} title="View everyone who saw this message">
                 <span className="msg-delivery-check" aria-hidden="true">
-                  {String(message.id || "").startsWith("temp-") ? "" : isGroup && seenByLabel ? "✓✓" : isGroup ? "✓" : Number(message.is_read) === 1 ? "✓✓" : "✓"}
+                  ✓✓
                 </span>
-                {String(message.id || "").startsWith("temp-")
-                  ? "Sending"
-                  : isGroup
-                    ? seenByLabel || "Sent"
-                  : Number(message.is_read) === 1
-                    ? "Seen"
-                    : "Delivered"}
+                {seenByLabel}
+              </button> : <span className={`msg-delivery ${Number(message.is_read) === 1 ? "seen" : ""}`}>
+                <span className="msg-delivery-check" aria-hidden="true">
+                  {String(message.id || "").startsWith("temp-") ? "" : isGroup ? "✓" : Number(message.is_read) === 1 ? "✓✓" : "✓"}
+                </span>
+                {String(message.id || "").startsWith("temp-") ? "Sending" : isGroup ? "Sent" : Number(message.is_read) === 1 ? "Seen" : "Delivered"}
               </span>
             )}
           </div>
@@ -537,7 +632,11 @@ function MessageBubble({ message, isGroup = false, groupPosition = "single", sho
 const areMessageBubblePropsEqual = (prevProps, nextProps) =>
   prevProps.message === nextProps.message &&
   prevProps.isGroup === nextProps.isGroup &&
+  prevProps.senderStyle === nextProps.senderStyle &&
+  prevProps.senderRole === nextProps.senderRole &&
   prevProps.groupPosition === nextProps.groupPosition &&
-  prevProps.showMeta === nextProps.showMeta;
+  prevProps.showMeta === nextProps.showMeta &&
+  prevProps.showDeliveryStatus === nextProps.showDeliveryStatus &&
+  prevProps.nicknames === nextProps.nicknames;
 
 export default memo(MessageBubble, areMessageBubblePropsEqual);

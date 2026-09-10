@@ -2,6 +2,7 @@ import express from "express";
 
 export default function createVineCommunitySettingsRouter({
   db,
+  io,
   authenticate,
   authOptional,
   uploadAvatarMemory,
@@ -55,6 +56,50 @@ export default function createVineCommunitySettingsRouter({
     if (String(row.role || "").toLowerCase() === "moderator") return true;
     if (String(row.badge_type || "").toLowerCase() === "guardian") return true;
     return ["vine guardian", "vine_guardian"].includes(String(row.username || "").toLowerCase());
+  };
+
+  const retireLinkedGroupChat = async (communityId, removedBy) => {
+    let linkedGroup;
+    try {
+      [[linkedGroup]] = await db.query(
+        "SELECT conversation_id FROM vine_community_group_chats WHERE community_id = ? LIMIT 1",
+        [communityId]
+      );
+    } catch (err) {
+      if (err?.code === "ER_NO_SUCH_TABLE") return;
+      throw err;
+    }
+    const conversationId = Number(linkedGroup?.conversation_id || 0);
+    if (!conversationId) return;
+
+    const [groupMembers] = await db.query(
+      `
+      SELECT user_id
+      FROM vine_conversation_members
+      WHERE conversation_id = ? AND status = 'active'
+      `,
+      [conversationId]
+    );
+    await db.query(
+      `
+      UPDATE vine_conversation_members
+      SET status = 'removed', removed_at = NOW(), removed_by = ?
+      WHERE conversation_id = ? AND status = 'active'
+      `,
+      [removedBy, conversationId]
+    );
+    await db.query(
+      "DELETE FROM vine_community_group_chats WHERE community_id = ?",
+      [communityId]
+    );
+
+    groupMembers.forEach(({ user_id: memberId }) => {
+      io?.in(`user-${memberId}`).socketsLeave(`conversation-${conversationId}`);
+      io?.to(`user-${memberId}`).emit("dm_group_removed", {
+        conversation_id: conversationId,
+      });
+      io?.to(`user-${memberId}`).emit("inbox_updated");
+    });
   };
 
   router.patch("/communities/:id/settings", authenticate, async (req, res) => {
@@ -228,6 +273,7 @@ export default function createVineCommunitySettingsRouter({
       await db.query("DELETE FROM vine_community_members WHERE community_id = ?", [communityId]);
       await db.query("DELETE FROM vine_scheduled_posts WHERE community_id = ?", [communityId]);
       await db.query("DELETE FROM vine_posts WHERE community_id = ?", [communityId]);
+      await retireLinkedGroupChat(communityId, userId);
       await db.query("DELETE FROM vine_communities WHERE id = ?", [communityId]);
 
       await Promise.allSettled(Array.from(new Set(urlsToDelete)).map((url) => deleteCloudinaryByUrl(url)));

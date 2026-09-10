@@ -37,7 +37,7 @@ const REACTION_EMOJI = {
 };
 
 /**
- * Formats timestamp to relative time (just now, 5m, 2h, 3d, or date)
+ * Formats recent timestamps as relative time and older timestamps with their full date.
  */
 const formatPostDate = (dateString) => {
   if (!dateString) return "";
@@ -56,12 +56,10 @@ const formatPostDate = (dateString) => {
     const hours = Math.floor(diffMs / hourMs);
     return `${hours} ${hours === 1 ? "hour" : "hours"} ago`;
   }
-  const sameYear = parsed.getFullYear() === now.getFullYear();
-
   return parsed.toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
-    ...(sameYear ? {} : { year: "numeric" }),
+    year: "numeric",
   });
 };
 

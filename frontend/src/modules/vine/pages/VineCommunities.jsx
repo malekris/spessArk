@@ -308,6 +308,9 @@ export default function VineCommunities() {
   const [autoWelcomeEnabled, setAutoWelcomeEnabled] = useState(true);
   const [welcomeMessage, setWelcomeMessage] = useState("");
   const [pendingRequests, setPendingRequests] = useState([]);
+  const [communityGroupChat, setCommunityGroupChat] = useState(null);
+  const [communityGroupChatLoading, setCommunityGroupChatLoading] = useState(false);
+  const [communityGroupChatSaving, setCommunityGroupChatSaving] = useState(false);
   const [postText, setPostText] = useState("");
   const [communityFiles, setCommunityFiles] = useState([]);
   const [isSubmittingCommunityPost, setIsSubmittingCommunityPost] = useState(false);
@@ -1012,6 +1015,39 @@ export default function VineCommunities() {
   }, [activeTab, activeCommunity?.id, activeCommunity?.viewer_role]);
 
   useEffect(() => {
+    const communityId = Number(activeCommunity?.id || 0);
+    const isOwner = String(activeCommunity?.viewer_role || "").toLowerCase() === "owner";
+    if (activeTab !== "settings" || !communityId || !isOwner) {
+      setCommunityGroupChat(null);
+      setCommunityGroupChatLoading(false);
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    setCommunityGroupChatLoading(true);
+    fetch(`${API}/api/dms/community-groups/${communityId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: controller.signal,
+      cache: "no-store",
+    })
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "Could not load the community group chat");
+        setCommunityGroupChat(data);
+      })
+      .catch((err) => {
+        if (err?.name !== "AbortError") {
+          setCommunityGroupChat({ error: err.message || "Could not load the community group chat" });
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setCommunityGroupChatLoading(false);
+      });
+
+    return () => controller.abort();
+  }, [activeTab, activeCommunity?.id, activeCommunity?.viewer_role, token]);
+
+  useEffect(() => {
     if (!activeCommunity?.id || !canManageCommunitySettings) {
       setPendingRequests([]);
       return;
@@ -1148,6 +1184,58 @@ export default function VineCommunities() {
         "Something got in the way while saving these community settings.",
         { kicker: "Try again", tone: "warning", buttonLabel: "Close" }
       );
+    }
+  };
+
+  const syncCommunityGroupChat = async () => {
+    const communityId = Number(activeCommunity?.id || 0);
+    if (!communityId || communityGroupChatSaving) return;
+    try {
+      setCommunityGroupChatSaving(true);
+      const res = await fetch(`${API}/api/dms/community-groups/${communityId}/sync`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showCommunitySuccessModal(
+          "The group chat was not changed",
+          data.error || "Something got in the way while preparing this community group chat.",
+          { kicker: "Try again", tone: "warning", buttonLabel: "Close" }
+        );
+        return;
+      }
+
+      setCommunityGroupChat({ ...data, enabled: true });
+      const addedCount = Number(data.added_count || 0);
+      const removedCount = Number(data.removed_count || 0);
+      const notifiedCount = Number(data.notified_count || 0);
+      const noMembershipChanges = !data.created && addedCount === 0 && removedCount === 0;
+      showCommunitySuccessModal(
+        data.created ? "Community group chat created" : "Community group chat updated",
+        data.created
+          ? `${data.group_name || activeCommunity.name} is ready in Vine DMs for the community.`
+          : noMembershipChanges
+            ? "This group chat was already fully up to date with the community member list."
+            : "The group chat now matches the current community member list.",
+        {
+          kicker: data.created ? "Chat ready" : "Members synced",
+          details: [
+            { label: "Members in chat", value: String(data.group_member_count || 0) },
+            { label: "Added now", value: String(addedCount) },
+            { label: "Removed now", value: String(removedCount) },
+            { label: "Notified", value: String(notifiedCount) },
+          ],
+        }
+      );
+    } catch {
+      showCommunitySuccessModal(
+        "The group chat was not changed",
+        "Something got in the way while preparing this community group chat.",
+        { kicker: "Try again", tone: "warning", buttonLabel: "Close" }
+      );
+    } finally {
+      setCommunityGroupChatSaving(false);
     }
   };
 
@@ -5608,6 +5696,80 @@ export default function VineCommunities() {
                           />
                         </label>
                         <button className="save-settings-btn" onClick={saveSettings}>Save Settings</button>
+                        <div
+                          className={`community-group-chat-tool ${communityGroupChat?.enabled ? "is-linked" : ""}`}
+                          aria-live="polite"
+                        >
+                          <div className="community-group-chat-heading">
+                            <span className="community-group-chat-icon" aria-hidden="true">💬</span>
+                            <div>
+                              <h5>Community group chat</h5>
+                              <p>
+                                {communityGroupChatLoading
+                                  ? "Checking the member list..."
+                                  : communityGroupChat?.error
+                                    ? communityGroupChat.error
+                                    : communityGroupChat?.enabled
+                                      ? `${communityGroupChat.group_name || activeCommunity.name} is linked in Vine DMs.`
+                                      : "No Vine DM group is linked to this community yet."}
+                              </p>
+                            </div>
+                            <span className={`community-group-chat-state ${communityGroupChat?.enabled ? "linked" : "optional"}`}>
+                              {communityGroupChat?.enabled ? "Linked" : "Optional"}
+                            </span>
+                          </div>
+
+                          {!communityGroupChatLoading && !communityGroupChat?.error && (
+                            <div className="community-group-chat-metrics">
+                              <span>
+                                <b>{Number(communityGroupChat?.community_member_count || members.length || 0)}</b>
+                                <span>community members</span>
+                              </span>
+                              {communityGroupChat?.enabled && (
+                                <span>
+                                  <b>{Number(communityGroupChat?.group_member_count || 0)}</b>
+                                  <span>in group chat</span>
+                                </span>
+                              )}
+                              {Number(communityGroupChat?.pending_member_count || 0) > 0 && communityGroupChat?.enabled && (
+                                <span className="needs-sync">
+                                  <b>{Number(communityGroupChat.pending_member_count)}</b>
+                                  <span>waiting to be added</span>
+                                </span>
+                              )}
+                              {Number(communityGroupChat?.stale_member_count || 0) > 0 && (
+                                <span className="needs-sync">
+                                  <b>{Number(communityGroupChat.stale_member_count)}</b>
+                                  <span>no longer members</span>
+                                </span>
+                              )}
+                            </div>
+                          )}
+
+                          <div className="community-group-chat-actions">
+                            <button
+                              type="button"
+                              className="community-group-chat-primary"
+                              onClick={syncCommunityGroupChat}
+                              disabled={communityGroupChatLoading || communityGroupChatSaving}
+                            >
+                              <span aria-hidden="true">{communityGroupChat?.enabled ? "↻" : "+"}</span>
+                              {communityGroupChatSaving
+                                ? communityGroupChat?.enabled ? "Updating group chat..." : "Creating group chat..."
+                                : communityGroupChat?.enabled ? "Update group chat" : "Create group chat"}
+                            </button>
+                            {communityGroupChat?.enabled && Number(communityGroupChat?.conversation_id || 0) > 0 && (
+                              <button
+                                type="button"
+                                className="community-group-chat-open"
+                                onClick={() => navigate(`/vine/dms/${communityGroupChat.conversation_id}`)}
+                              >
+                                <span aria-hidden="true">↗</span>
+                                Open chat
+                              </button>
+                            )}
+                          </div>
+                        </div>
                         <div className="community-upload-grid">
                           <div className="community-upload-card">
                             <div className="community-upload-head">

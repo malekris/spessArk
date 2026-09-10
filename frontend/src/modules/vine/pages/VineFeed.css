@@ -1899,6 +1899,11 @@ body:has(.vine-feed-container) {
   gap: 8px;
 }
 
+.vine-desktop-dm-groups-section {
+  padding-bottom: 18px;
+  border-bottom: 1px solid rgba(16, 185, 129, 0.12);
+}
+
 .vine-desktop-dm-person {
   width: 100%;
   border: 1px solid rgba(16, 185, 129, 0.12);
@@ -1926,6 +1931,19 @@ body:has(.vine-feed-container) {
     0 16px 28px rgba(16, 185, 129, 0.1);
 }
 
+.vine-desktop-dm-person.vine-desktop-dm-group {
+  border-color: rgba(217, 119, 6, 0.2);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(255, 251, 235, 0.94));
+}
+
+.vine-desktop-dm-person.vine-desktop-dm-group:hover {
+  border-color: rgba(5, 150, 105, 0.34);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    0 16px 28px rgba(5, 150, 105, 0.11);
+}
+
 .vine-desktop-dm-person.presence-online {
   border-color: rgba(16, 185, 129, 0.22);
 }
@@ -1950,6 +1968,34 @@ body:has(.vine-feed-container) {
   border-radius: 16px;
   object-fit: cover;
   border: 2px solid rgba(16, 185, 129, 0.2);
+}
+
+.vine-desktop-dm-group-avatar-fallback {
+  width: 42px;
+  height: 42px;
+  border-radius: 16px;
+  display: grid;
+  place-items: center;
+  border: 2px solid rgba(217, 119, 6, 0.28);
+  background: linear-gradient(145deg, #fff7d6, #dff8e9);
+  color: #075c42;
+  font-size: 0.82rem;
+  font-weight: 950;
+}
+
+.vine-desktop-dm-group-avatar-mark {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  border: 2px solid #fff;
+  background: #087a5b;
+  color: #fff;
+  box-shadow: 0 5px 12px rgba(6, 95, 70, 0.22);
 }
 
 .vine-desktop-dm-person.presence-recent img {
@@ -1981,6 +2027,43 @@ body:has(.vine-feed-container) {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.vine-desktop-dm-group-details {
+  grid-column: 2;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.vine-desktop-dm-group-label {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 4px 8px;
+  border: 1px solid rgba(5, 150, 105, 0.14);
+  border-radius: 999px;
+  background: rgba(209, 250, 229, 0.82);
+  color: #076348;
+  font-size: 0.68rem;
+  font-weight: 900;
+}
+
+.vine-desktop-dm-group-unread {
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #d9363e;
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 900;
+  box-shadow: 0 7px 14px rgba(190, 24, 93, 0.2);
 }
 
 .vine-desktop-dm-presence-dot {
@@ -3772,6 +3855,27 @@ body:has(.vine-feed-container) {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.04),
     0 14px 28px rgba(2, 6, 23, 0.28);
+}
+
+.theme-dark .vine-desktop-dm-person.vine-desktop-dm-group {
+  background: linear-gradient(145deg, rgba(22, 32, 46, 0.98), rgba(45, 38, 24, 0.96));
+  border-color: rgba(217, 166, 70, 0.24);
+}
+
+.theme-dark .vine-desktop-dm-group-avatar-fallback {
+  border-color: rgba(217, 166, 70, 0.3);
+  background: linear-gradient(145deg, #33473d, #39321f);
+  color: #ecfdf5;
+}
+
+.theme-dark .vine-desktop-dm-group-avatar-mark {
+  border-color: #111827;
+}
+
+.theme-dark .vine-desktop-dm-group-label {
+  border-color: rgba(52, 211, 153, 0.2);
+  background: rgba(6, 95, 70, 0.36);
+  color: #a7f3d0;
 }
 
 .theme-dark .vine-desktop-dm-search-wrap {

@@ -60,7 +60,7 @@ const resizeMessageInput = (element) => {
   element.style.overflowY = element.scrollHeight > maxHeight ? "auto" : "hidden";
 };
 
-export default function MessageInput({ onSend, replyTarget, onCancelReply, onTyping }) {
+export default function MessageInput({ onSend, replyTarget, onCancelReply, onTyping, quickEmoji = "" }) {
   const [text, setText] = useState("");
   const [mediaFiles, setMediaFiles] = useState([]);
   const [mediaType, setMediaType] = useState(null);
@@ -215,6 +215,22 @@ export default function MessageInput({ onSend, replyTarget, onCancelReply, onTyp
     resetMedia();
   };
 
+  const sendQuickEmoji = () => {
+    const emoji = String(quickEmoji || "").trim();
+    if (!emoji) return;
+    onSend({
+      content: emoji,
+      mediaFiles: [],
+      mediaType: null,
+      localPreviews: [],
+      replyToId: replyTarget?.id || null,
+    });
+    syncText("");
+  };
+
+  const hasMessageReady = Boolean(String(text || "").trim() || mediaFiles.length);
+  const showQuickEmoji = Boolean(quickEmoji) && !hasMessageReady;
+
   return (
     <div className="chat-input-wrap">
       {replyTarget && (
@@ -249,8 +265,18 @@ export default function MessageInput({ onSend, replyTarget, onCancelReply, onTyp
       )}
 
       <div className="chat-input-bar">
-        <button type="button" className="chat-icon-btn" onClick={() => fileInputRef.current?.click()} title="Send photo or video">
-          🖼️
+        <button
+          type="button"
+          className="chat-icon-btn"
+          onClick={() => fileInputRef.current?.click()}
+          aria-label="Add photo or video"
+          title="Add photo or video"
+        >
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <rect x="3.5" y="4" width="17" height="16" rx="3" stroke="currentColor" strokeWidth="1.8" />
+            <circle cx="9" cy="9.5" r="1.7" stroke="currentColor" strokeWidth="1.8" />
+            <path d="m5.5 17 4.1-4.1a1.5 1.5 0 0 1 2.12 0l1.6 1.6 1.4-1.4a1.5 1.5 0 0 1 2.12 0L20 16.25" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
         </button>
         <input
           ref={fileInputRef}
@@ -269,9 +295,19 @@ export default function MessageInput({ onSend, replyTarget, onCancelReply, onTyp
           type="button"
           className={`chat-icon-btn ${recording ? "recording" : ""}`}
           onClick={recording ? stopRecording : startRecording}
+          aria-label={recording ? "Stop recording" : "Record voice note"}
           title={recording ? "Stop recording" : "Record voice note"}
         >
-          {recording ? "⏹️" : "🎤"}
+          {recording ? (
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor" />
+            </svg>
+          ) : (
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <rect x="8.25" y="3" width="7.5" height="12" rx="3.75" stroke="currentColor" strokeWidth="1.8" />
+              <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M8.5 21h7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+            </svg>
+          )}
         </button>
 
         <textarea
@@ -293,7 +329,23 @@ export default function MessageInput({ onSend, replyTarget, onCancelReply, onTyp
           }}
         />
 
-        <button type="button" onClick={send} className="chat-send-btn">📤</button>
+        <button
+          type="button"
+          onClick={showQuickEmoji ? sendQuickEmoji : send}
+          className={`chat-send-btn ${showQuickEmoji ? "quick-emoji" : ""}`}
+          disabled={!showQuickEmoji && !hasMessageReady}
+          aria-label={showQuickEmoji ? `Send ${quickEmoji}` : "Send message"}
+          title={showQuickEmoji ? `Send ${quickEmoji}` : "Send message"}
+        >
+          {showQuickEmoji ? (
+            <span className="chat-quick-emoji" aria-hidden="true">{quickEmoji}</span>
+          ) : (
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M4.15 5.1 20 12 4.15 18.9l2.35-6.9-2.35-6.9Z" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M6.5 12H20" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" />
+            </svg>
+          )}
+        </button>
       </div>
     </div>
   );

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import useGroupCandidates from "./useGroupCandidates";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const DEFAULT_AVATAR = "/default-avatar.png";
@@ -7,36 +8,11 @@ export default function GroupCreateModal({ open, onClose, onCreated }) {
   const token = localStorage.getItem("vine_token");
   const [name, setName] = useState("");
   const [query, setQuery] = useState("");
-  const [people, setPeople] = useState([]);
   const [selected, setSelected] = useState([]);
-  const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
-
-  useEffect(() => {
-    if (!open) return;
-    const controller = new AbortController();
-    const timer = window.setTimeout(async () => {
-      setLoading(true);
-      try {
-        const qs = query.trim() ? `?q=${encodeURIComponent(query.trim())}` : "";
-        const response = await fetch(`${API}/api/dms/group-candidates${qs}`, {
-          headers: { Authorization: `Bearer ${token}` },
-          signal: controller.signal,
-        });
-        const data = await response.json().catch(() => []);
-        if (response.ok) setPeople(Array.isArray(data) ? data : []);
-      } catch (requestError) {
-        if (requestError?.name !== "AbortError") setError("Could not load people");
-      } finally {
-        if (!controller.signal.aborted) setLoading(false);
-      }
-    }, 180);
-    return () => {
-      window.clearTimeout(timer);
-      controller.abort();
-    };
-  }, [open, query, token]);
+  const directory = useGroupCandidates({ enabled: open, query, token });
+  const { people, loading } = directory;
 
   useEffect(() => {
     if (open) return;
@@ -128,7 +104,7 @@ export default function GroupCreateModal({ open, onClose, onCreated }) {
               <circle cx="11" cy="11" r="6.5" stroke="currentColor" strokeWidth="2" />
               <path d="m16 16 4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
             </svg>
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search people you follow" />
+            <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search all of Vine" aria-label="Search all of Vine" maxLength={80} />
           </div>
         </label>
 
@@ -159,7 +135,8 @@ export default function GroupCreateModal({ open, onClose, onCreated }) {
           })}
         </div>
 
-        {error && <div className="dm-group-error" role="alert">{error}</div>}
+        {directory.hasMore && <button className="dm-group-load-more" type="button" onClick={directory.loadMore} disabled={loading}>Show more people</button>}
+        {(error || directory.error) && <div className="dm-group-error" role="alert">{error || directory.error}</div>}
         <div className="dm-group-modal-actions">
           <span>{selected.length} selected</span>
           <button type="submit" disabled={creating || name.trim().length < 2 || !selected.length}>

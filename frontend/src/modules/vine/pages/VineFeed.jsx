@@ -59,6 +59,7 @@ const STATUS_REACTIONS = [
 const FEED_REFRESH_FALLBACK_MS = 60 * 1000;
 const STATUS_RAIL_REFRESH_FALLBACK_MS = 60 * 1000;
 const FEED_EVENT_DEBOUNCE_MS = 350;
+const DESKTOP_GROUP_REFRESH_MIN_MS = 30 * 1000;
 const MAX_VISIBLE_BIRTHDAYS = 5;
 const DESKTOP_DM_WINDOW_LIMIT = 3;
 const PRESENCE_RECENT_DAYS = 3;
@@ -231,9 +232,18 @@ const dedupePresenceUsers = (...groups) => {
 const matchesDesktopDmSearch = (user, rawQuery) => {
   const query = String(rawQuery || "").trim().toLowerCase();
   if (!query) return true;
-  return [user?.display_name, user?.username]
+  return [user?.display_name, user?.username, user?.group_name]
     .map((value) => String(value || "").toLowerCase())
     .some((value) => value.includes(query));
+};
+
+const getDesktopGroupInitials = (name) => {
+  const words = String(name || "Group")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!words.length) return "G";
+  return words.slice(0, 2).map((word) => word[0]).join("").toUpperCase();
 };
 
 const FEED_SKELETON_ROWS = [0, 1, 2];
@@ -393,6 +403,7 @@ export default function VineFeed() {
   const [recentlyActiveUsers, setRecentlyActiveUsers] = useState([]);
   const [presenceModalOpen, setPresenceModalOpen] = useState(false);
   const [desktopChatWindows, setDesktopChatWindows] = useState([]);
+  const [desktopGroupChats, setDesktopGroupChats] = useState([]);
   const [desktopDmSearch, setDesktopDmSearch] = useState("");
   const [desktopDmEnabled, setDesktopDmEnabled] = useState(
     typeof window !== "undefined" ? window.innerWidth >= 1180 : false
@@ -1539,6 +1550,70 @@ export default function VineFeed() {
   }, [token]);
 
   useEffect(() => {
+    if (!desktopDmEnabled || !token) {
+      setDesktopGroupChats([]);
+      return undefined;
+    }
+
+    let requestController = null;
+    let refreshTimer = null;
+    let lastRefreshStartedAt = 0;
+
+    const loadDesktopGroupChats = async () => {
+      requestController?.abort();
+      requestController = new AbortController();
+      lastRefreshStartedAt = Date.now();
+      try {
+        const res = await fetch(`${API}/api/dms/conversations`, {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: requestController.signal,
+          cache: "no-store",
+        });
+        const data = await res.json().catch(() => []);
+        if (!res.ok) throw new Error("Could not load group chats");
+        setDesktopGroupChats(
+          (Array.isArray(data) ? data : []).filter(
+            (conversation) => conversation?.conversation_type === "group"
+          )
+        );
+      } catch (err) {
+        if (err?.name !== "AbortError") {
+          console.error("Failed to load desktop group chats", err);
+        }
+      }
+    };
+
+    const scheduleRefresh = () => {
+      if (refreshTimer) return;
+      const elapsed = Date.now() - lastRefreshStartedAt;
+      const delay = Math.max(250, DESKTOP_GROUP_REFRESH_MIN_MS - elapsed);
+      refreshTimer = window.setTimeout(() => {
+        refreshTimer = null;
+        loadDesktopGroupChats();
+      }, delay);
+    };
+
+    const removeDesktopGroup = ({ conversation_id: conversationId } = {}) => {
+      const removedId = Number(conversationId || 0);
+      if (!removedId) return;
+      setDesktopGroupChats((groups) =>
+        groups.filter((group) => Number(group?.conversation_id || 0) !== removedId)
+      );
+    };
+
+    loadDesktopGroupChats();
+    socket.on("dm_group_updated", scheduleRefresh);
+    socket.on("dm_group_removed", removeDesktopGroup);
+
+    return () => {
+      requestController?.abort();
+      window.clearTimeout(refreshTimer);
+      socket.off("dm_group_updated", scheduleRefresh);
+      socket.off("dm_group_removed", removeDesktopGroup);
+    };
+  }, [desktopDmEnabled, token]);
+
+  useEffect(() => {
     if (!desktopDmEnabled || !viewerId) return;
 
     const handleDesktopIncomingDm = (message) => {
@@ -1661,6 +1736,53 @@ export default function VineFeed() {
     },
     [startDmConversation]
   );
+
+  const openDesktopGroupWindow = useCallback((group) => {
+    const conversationId = Number(group?.conversation_id || 0);
+    if (!conversationId) return;
+
+    setDesktopGroupChats((groups) =>
+      groups.map((item) =>
+        Number(item?.conversation_id || 0) === conversationId
+          ? { ...item, unread_count: 0 }
+          : item
+      )
+    );
+
+    const windowKey = `conversation-${conversationId}`;
+    const partner = {
+      ...group,
+      conversation_id: conversationId,
+      conversation_type: "group",
+      username: group.group_name || group.username || "Group",
+      display_name: group.group_name || group.display_name || "Group",
+    };
+
+    setDesktopChatWindows((prev) => {
+      const existingWindow = prev.find(
+        (item) =>
+          item.key === windowKey ||
+          Number(item?.conversationId || 0) === conversationId
+      );
+      const nextWindow = {
+        key: windowKey,
+        conversationId,
+        receiverId: null,
+        minimized: false,
+        incomingCount: 0,
+        partner,
+      };
+      const deduped = prev.filter(
+        (item) =>
+          item.key !== windowKey &&
+          Number(item?.conversationId || 0) !== conversationId
+      );
+      const mergedWindow = existingWindow
+        ? { ...existingWindow, ...nextWindow, minimized: false }
+        : nextWindow;
+      return [...deduped, mergedWindow].slice(-DESKTOP_DM_WINDOW_LIMIT);
+    });
+  }, []);
 
   const closeDesktopDmWindow = useCallback((windowKey) => {
     setDesktopChatWindows((prev) => prev.filter((item) => item.key !== windowKey));
@@ -1877,6 +1999,9 @@ export default function VineFeed() {
     Math.max(0, birthdayVisibleLimit - visibleTodayBirthdays.length)
   );
   const hasMoreBirthdays = totalBirthdayCount > MAX_VISIBLE_BIRTHDAYS;
+  const desktopGroups = desktopGroupChats.filter((group) =>
+    matchesDesktopDmSearch(group, desktopDmSearch)
+  );
   const desktopActiveFollowers = dedupePresenceUsers(activeNowUsers)
     .filter((user) => matchesDesktopDmSearch(user, desktopDmSearch))
     .slice(0, 10);
@@ -2146,7 +2271,7 @@ export default function VineFeed() {
       </nav>
 
       <div className="vine-feed-main-shell">
-        <aside className="vine-desktop-dm-sidebar" aria-label="Followers ready to chat">
+        <aside className="vine-desktop-dm-sidebar" aria-label="Desktop chats">
           <div className="vine-desktop-dm-panel">
             <div className="vine-desktop-dm-head">
               <div>
@@ -2161,10 +2286,76 @@ export default function VineFeed() {
               <input
                 type="text"
                 className="vine-desktop-dm-search"
-                placeholder="Search followers to message"
+                placeholder="Search people or groups"
                 value={desktopDmSearch}
                 onChange={(e) => setDesktopDmSearch(e.target.value)}
               />
+            </div>
+
+            <div className="vine-desktop-dm-section vine-desktop-dm-groups-section">
+              <div className="vine-desktop-dm-section-head">
+                <span>Groups</span>
+                <small>{desktopGroups.length}</small>
+              </div>
+              {desktopGroups.length === 0 ? (
+                <div className="vine-desktop-dm-empty">
+                  {desktopDmSearch.trim() ? "No matching group chats." : "Your group chats will appear here."}
+                </div>
+              ) : (
+                <div className="vine-desktop-dm-list compact">
+                  {desktopGroups.map((group) => {
+                    const groupName = group.group_name || group.display_name || "Group";
+                    const memberCount = Number(group.member_count || 0);
+                    const unreadCount = Number(group.unread_count || 0);
+                    const avatarSrc = group.avatar_url
+                      ? (group.avatar_url.startsWith("http") ? group.avatar_url : `${API}${group.avatar_url}`)
+                      : "";
+                    return (
+                      <button
+                        key={`desktop-group-${group.conversation_id}`}
+                        type="button"
+                        className="vine-desktop-dm-person vine-desktop-dm-group"
+                        onClick={() => openDesktopGroupWindow(group)}
+                        aria-label={`Open group chat ${groupName}`}
+                      >
+                        <div className="vine-desktop-dm-avatar-wrap">
+                          {avatarSrc ? (
+                            <img
+                              src={avatarSrc}
+                              alt=""
+                              onError={(event) => {
+                                event.currentTarget.src = DEFAULT_AVATAR;
+                              }}
+                            />
+                          ) : (
+                            <span className="vine-desktop-dm-group-avatar-fallback" aria-hidden="true">
+                              {getDesktopGroupInitials(groupName)}
+                            </span>
+                          )}
+                          <span className="vine-desktop-dm-group-avatar-mark" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" width="11" height="11" fill="none">
+                              <path d="M8.5 12a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7ZM15.5 11a3 3 0 1 0 0-6" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
+                              <path d="M2.5 20c.4-3.4 2.4-5.1 6-5.1s5.6 1.7 6 5.1M15 14.5c3.7 0 5.7 1.8 6 5.5" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
+                            </svg>
+                          </span>
+                        </div>
+                        <div className="vine-desktop-dm-person-meta">
+                          <strong>{groupName}</strong>
+                          <span>{memberCount} {memberCount === 1 ? "member" : "members"}</span>
+                        </div>
+                        <div className="vine-desktop-dm-group-details">
+                          <span className="vine-desktop-dm-group-label">Group</span>
+                          {unreadCount > 0 && (
+                            <span className="vine-desktop-dm-group-unread" aria-label={`${unreadCount} unread messages`}>
+                              {unreadCount > 99 ? "99+" : unreadCount}
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             <div className="vine-desktop-dm-section">

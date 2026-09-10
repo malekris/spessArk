@@ -3717,6 +3717,16 @@ const purgeUserAccount = async (userId) => {
   await db.query("DELETE FROM vine_mutes WHERE muter_id = ? OR muted_id = ?", [numericUserId, numericUserId]).catch(() => {});
   await db.query("DELETE FROM vine_follows WHERE follower_id = ? OR following_id = ?", [numericUserId, numericUserId]).catch(() => {});
   await db.query("DELETE FROM vine_follow_requests WHERE requester_id = ? OR target_id = ? OR reviewed_by = ?", [numericUserId, numericUserId, numericUserId]).catch(() => {});
+  await db.query(
+    `
+    DELETE receipt
+    FROM vine_message_read_receipts receipt
+    JOIN vine_messages message ON message.id = receipt.message_id
+    WHERE message.sender_id = ?
+    `,
+    [numericUserId]
+  ).catch(() => {});
+  await db.query("DELETE FROM vine_message_read_receipts WHERE user_id = ?", [numericUserId]).catch(() => {});
   await db.query("DELETE FROM vine_messages WHERE sender_id = ?", [numericUserId]).catch(() => {});
   await db.query("DELETE FROM vine_conversation_deletes WHERE user_id = ?", [numericUserId]).catch(() => {});
   await db.query(
@@ -6902,6 +6912,7 @@ router.use((req, res, next) => {
   if (!vineCommunitySettingsRouter) {
     vineCommunitySettingsRouter = createVineCommunitySettingsRouter({
       db,
+      io,
       authenticate,
       authOptional,
       uploadAvatarMemory,

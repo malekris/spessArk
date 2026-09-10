@@ -4,6 +4,7 @@ import "./ConversationList.css";
 import { socket } from "../../socket";
 import useWindowedList from "../../hooks/useWindowedList";
 import GroupCreateModal from "./GroupCreateModal";
+import ConversationActionsMenu from "./ConversationActionsMenu";
 import "./GroupCreateModal.css";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
@@ -328,7 +329,8 @@ export default function ConversationList() {
             String(c.username || "").toLowerCase()
           );
           const displayName = isGroup ? c.group_name : (c.display_name || c.username);
-          const identityLabel = isGroup ? `${Number(c.member_count || 0)} members` : `@${c.username}`;
+          const memberCount = Number(c.member_count || 0);
+          const identityLabel = isGroup ? `${memberCount} ${memberCount === 1 ? "member" : "members"}` : `@${c.username}`;
           const avatar = c.avatar_url
             ? (c.avatar_url.startsWith("http") ? c.avatar_url : `${API}${c.avatar_url}`)
             : DEFAULT_AVATAR;
@@ -338,7 +340,7 @@ export default function ConversationList() {
           return (
             <div
               key={c.conversation_id}
-              className={`dm-item ${unreadCount > 0 ? "dm-unread" : ""}`}
+              className={`dm-item ${unreadCount > 0 ? "dm-unread" : ""} ${isGroup ? "dm-group-conversation" : ""}`}
               role="button"
               tabIndex={0}
               aria-label={`Open conversation with ${displayName}`}
@@ -371,7 +373,7 @@ export default function ConversationList() {
               </div>
 
               <div className="dm-meta">
-                <div className="dm-identity-line">
+                <div className={`dm-identity-line ${isGroup ? "dm-group-identity-line" : ""}`}>
                   <strong className="dm-username">{displayName}</strong>
                   {!isGroup && (Number(c.is_verified) === 1 || isGuardianAccount) && (
                     <span className={`dm-verified-badge ${isGuardianAccount ? "guardian" : ""}`} aria-label="Verified" title="Verified">
@@ -380,7 +382,17 @@ export default function ConversationList() {
                       </svg>
                     </span>
                   )}
-                  <span className="dm-identity-label">{identityLabel}</span>
+                  {isGroup ? (
+                    <span className="dm-group-identity-details">
+                      <span className="dm-identity-label">{identityLabel}</span>
+                      <span className="dm-group-type-badge" title="Group chat">
+                        <svg viewBox="0 0 24 24" width="12" height="12" fill="none" aria-hidden="true">
+                          <path d="M9 12a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7ZM3 20v-1a6 6 0 0 1 12 0v1M16 5a3.5 3.5 0 0 1 0 7m2 3a5 5 0 0 1 3 4v1" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                        Group
+                      </span>
+                    </span>
+                  ) : <span className="dm-identity-label">{identityLabel}</span>}
                   {isPinned && (
                     <span className="dm-pinned-marker" aria-label="Pinned" title="Pinned">
                       <svg viewBox="0 0 24 24" width="13" height="13" fill="none" aria-hidden="true">
@@ -396,33 +408,12 @@ export default function ConversationList() {
                 {timestampLabel && <time className="dm-time" dateTime={c.last_message_time || ""} title={timestampTitle}>{timestampLabel}</time>}
                 <div className="dm-side-actions">
                   {unreadCount > 0 && <span className="dm-badge">{unreadCount > 99 ? "99+" : unreadCount}</span>}
-                  <details className="dm-row-menu" name="dm-conversation-actions" onClick={(event) => event.stopPropagation()}>
-                    <summary aria-label={`Actions for ${displayName}`} title="Conversation actions">
-                      <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
-                        <circle cx="5" cy="12" r="1.7" /><circle cx="12" cy="12" r="1.7" /><circle cx="19" cy="12" r="1.7" />
-                      </svg>
-                    </summary>
-                    <div className="dm-row-menu-popover">
-                      <button type="button" onClick={(event) => {
-                        event.currentTarget.closest("details")?.removeAttribute("open");
-                        togglePinConversation(c.conversation_id, !isPinned);
-                      }}>
-                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" aria-hidden="true">
-                          <path d="m9 4 6 0-.5 4 2.5 2.5v1H7v-1L9.5 8 9 4Zm3 7.5V20" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                        {isPinned ? "Unpin" : "Pin"}
-                      </button>
-                      <button className="danger" type="button" onClick={(event) => {
-                        event.currentTarget.closest("details")?.removeAttribute("open");
-                        deleteConversation(c.conversation_id, displayName);
-                      }}>
-                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" aria-hidden="true">
-                          <path d="M8 8v10m4-10v10m4-10v10M5 5h14M9 5l1-2h4l1 2m2 0-1 16H8L7 5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                        Delete
-                      </button>
-                    </div>
-                  </details>
+                  <ConversationActionsMenu
+                    label={displayName}
+                    isPinned={isPinned}
+                    onPin={() => togglePinConversation(c.conversation_id, !isPinned)}
+                    onDelete={() => deleteConversation(c.conversation_id, displayName)}
+                  />
                 </div>
               </div>
             </div>

@@ -1,9 +1,12 @@
-import { useCallback, useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef, useMemo } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { socket } from "../../socket";
 import MessageBubble from "./MessageBubble";
 import MessageInput from "./MessageInput";
 import GroupDetailsSheet from "./GroupDetailsSheet";
+import DirectSharedMedia from "./DirectSharedMedia";
+import { CHAT_THEMES, normalizeChatTheme } from "./chatThemes";
+import { buildGroupSenderStyles } from "./groupSenderColors";
 import "./ChatWindow.css";
 import { createClientRequestId } from "../../utils/requestId";
 
@@ -14,6 +17,11 @@ const DISAPPEARING_OPTIONS = [
   { value: "1h", label: "1 hour" },
   { value: "24h", label: "24 hours" },
 ];
+const QUICK_EMOJIS = ["👍", "❤️", "😂", "🔥", "🌱", "💯"];
+const DEFAULT_DIRECT_VIEW_PREFERENCES = {
+  alwaysShowTimestamps: false,
+  bubbleDensity: "comfortable",
+};
 const RTC_CONFIG = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
@@ -83,6 +91,39 @@ const getDisappearingLabel = (mode) => {
   if (mode === "1h") return "Disappears in 1 hour";
   if (mode === "24h") return "Disappears in 24 hours";
   return "Disappears after read";
+};
+
+const normalizeQuickEmoji = (value) =>
+  QUICK_EMOJIS.includes(String(value || "").trim()) ? String(value).trim() : "👍";
+
+const normalizeChatNickname = (value) =>
+  String(value || "").replace(/\s+/g, " ").trim().slice(0, 32);
+
+const normalizeChatNicknames = (value) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value)
+      .map(([userId, nickname]) => [String(Number(userId)), normalizeChatNickname(nickname)])
+      .filter(([userId, nickname]) => userId !== "0" && Boolean(nickname))
+  );
+};
+
+const getDirectViewPreferenceKey = (firstUserId, secondUserId) => {
+  const ids = [Number(firstUserId), Number(secondUserId)].filter(Boolean).sort((a, b) => a - b);
+  return ids.length === 2 ? `vine_dm_view_preferences_${ids[0]}_${ids[1]}` : "";
+};
+
+const readDirectViewPreferences = (key) => {
+  if (!key) return DEFAULT_DIRECT_VIEW_PREFERENCES;
+  try {
+    const stored = JSON.parse(localStorage.getItem(key) || "{}");
+    return {
+      alwaysShowTimestamps: Boolean(stored.alwaysShowTimestamps),
+      bubbleDensity: stored.bubbleDensity === "compact" ? "compact" : "comfortable",
+    };
+  } catch {
+    return DEFAULT_DIRECT_VIEW_PREFERENCES;
+  }
 };
 
 const getTempExpiry = (mode) => {
@@ -181,7 +222,12 @@ export default function ChatWindow({
   const [chatSettings, setChatSettings] = useState({
     disappearing_enabled: false,
     disappear_mode: "after_read",
+    theme_color: "vine",
+    quick_emoji: "👍",
+    nicknames: {},
   });
+  const [directViewPreferences, setDirectViewPreferences] = useState(DEFAULT_DIRECT_VIEW_PREFERENCES);
+  const [nicknameDrafts, setNicknameDrafts] = useState({});
   const [callState, setCallState] = useState("idle");
   const [callNotice, setCallNotice] = useState("");
   const [incomingCall, setIncomingCall] = useState(null);
@@ -202,6 +248,31 @@ export default function ChatWindow({
   const myId = currentUser?.id;
   const partnerUserId = Number(partner?.user_id || partner?.id || receiverId || 0);
   const isGroup = partner?.conversation_type === "group";
+  const groupMemberKey = isGroup ? (partner.member_ids || [...new Set(messages.map((message) => Number(message.sender_id)))]).join(",") : "";
+  const senderStyles = useMemo(() => buildGroupSenderStyles(groupMemberKey.split(",")), [groupMemberKey]);
+  const latestMessage = useMemo(() => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      if (String(messages[index]?.message_type || "").toLowerCase() !== "system") {
+        return messages[index];
+      }
+    }
+    return null;
+  }, [messages]);
+  const latestUnansweredOwnMessageId =
+    Number(latestMessage?.sender_id) === Number(myId)
+      ? String(latestMessage.id)
+      : null;
+  const memberRoles = isGroup ? (partner?.member_roles || {}) : {};
+  const groupTheme = normalizeChatTheme(partner?.theme_color);
+  const directTheme = normalizeChatTheme(chatSettings.theme_color);
+  const directViewPreferenceKey = getDirectViewPreferenceKey(myId, partnerUserId);
+  const partnerChatName = !isGroup
+    ? chatSettings.nicknames?.[String(partnerUserId)] || partner?.display_name || partner?.username
+    : partner?.display_name || partner?.username;
+  const nicknameDraftsChanged = !isGroup && [myId, partnerUserId]
+    .map((userId) => String(Number(userId || 0)))
+    .filter((userId) => userId !== "0")
+    .some((userId) => normalizeChatNickname(nicknameDrafts[userId]) !== String(chatSettings.nicknames?.[userId] || ""));
 
   const setCallStatus = (nextState, notice = "") => {
     callStateRef.current = nextState;
@@ -414,7 +485,11 @@ export default function ChatWindow({
       setChatSettings({
         disappearing_enabled: false,
         disappear_mode: "after_read",
+        theme_color: "vine",
+        quick_emoji: "👍",
+        nicknames: {},
       });
+      setNicknameDrafts({});
       return;
     }
 
@@ -425,15 +500,28 @@ export default function ChatWindow({
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) return;
+        const nextNicknames = normalizeChatNicknames(data?.nicknames);
         setChatSettings({
           disappearing_enabled: Boolean(data?.disappearing_enabled),
           disappear_mode: data?.disappear_mode || "after_read",
+          theme_color: normalizeChatTheme(data?.theme_color),
+          quick_emoji: normalizeQuickEmoji(data?.quick_emoji),
+          nicknames: nextNicknames,
         });
+        setNicknameDrafts(nextNicknames);
       } catch {}
     };
 
     loadChatSettings();
   }, [conversationId, token]);
+
+  useEffect(() => {
+    if (isGroup || !directViewPreferenceKey) {
+      setDirectViewPreferences(DEFAULT_DIRECT_VIEW_PREFERENCES);
+      return;
+    }
+    setDirectViewPreferences(readDirectViewPreferences(directViewPreferenceKey));
+  }, [directViewPreferenceKey, isGroup]);
 
   const isNearBottom = () => {
     const el = scrollRef.current;
@@ -706,7 +794,20 @@ export default function ChatWindow({
         const convo = data.find(
           c => String(c.conversation_id) === String(conversationId)
         );
-        if (convo) setPartner(convo);
+        if (convo) {
+          setPartner((current) => ({
+            ...convo,
+            ...(String(current?.conversation_id) === String(conversationId) && current?.member_ids
+              ? {
+                  member_ids: current.member_ids,
+                  member_roles: current.member_roles,
+                  theme_color: current.theme_color,
+                  notifications_muted: current.notifications_muted,
+                  group_description: current.group_description,
+                }
+              : {}),
+          }));
+        }
       } catch (err) {
         console.error("Failed to load partner", err);
       }
@@ -729,10 +830,10 @@ export default function ChatWindow({
         const data = await res.json().catch(() => null);
         if (!res.ok || !data || cancelled) return;
         setPartner((prev) => {
-          if (!prev) return data;
           return {
             ...prev,
             ...data,
+            conversation_id: Number(conversationId),
           };
         });
       } catch {
@@ -864,12 +965,17 @@ export default function ChatWindow({
         )
       );
     });
-    socket.on("dm_settings_updated", ({ conversation_id, disappearing_enabled, disappear_mode }) => {
+    socket.on("dm_settings_updated", ({ conversation_id, disappearing_enabled, disappear_mode, theme_color, quick_emoji, nicknames }) => {
       if (String(conversation_id) !== String(conversationId)) return;
+      const nextNicknames = normalizeChatNicknames(nicknames);
       setChatSettings({
         disappearing_enabled: Boolean(disappearing_enabled),
         disappear_mode: disappear_mode || "after_read",
+        theme_color: normalizeChatTheme(theme_color),
+        quick_emoji: normalizeQuickEmoji(quick_emoji),
+        nicknames: nextNicknames,
       });
+      setNicknameDrafts(nextNicknames);
     });
     socket.on("dm_group_removed", ({ conversation_id }) => {
       if (String(conversation_id) !== String(conversationId)) return;
@@ -995,8 +1101,13 @@ export default function ChatWindow({
   };
 
   const handleReply = useCallback((message) => {
-    setReplyTarget(message);
-  }, []);
+    if (isGroup) {
+      setReplyTarget(message);
+      return;
+    }
+    const nickname = chatSettings.nicknames?.[String(Number(message?.sender_id || 0))];
+    setReplyTarget(nickname ? { ...message, display_name: nickname } : message);
+  }, [chatSettings.nicknames, isGroup]);
 
   const handleReact = useCallback(async (message, reaction) => {
     try {
@@ -1057,10 +1168,15 @@ export default function ChatWindow({
         alert(data.error || "Failed to update chat settings");
         return;
       }
+      const nextNicknames = normalizeChatNicknames(data?.nicknames);
       setChatSettings({
         disappearing_enabled: Boolean(data?.disappearing_enabled),
         disappear_mode: data?.disappear_mode || "after_read",
+        theme_color: normalizeChatTheme(data?.theme_color),
+        quick_emoji: normalizeQuickEmoji(data?.quick_emoji),
+        nicknames: nextNicknames,
       });
+      setNicknameDrafts(nextNicknames);
     } catch {
       alert("Failed to update chat settings");
     } finally {
@@ -1080,12 +1196,133 @@ export default function ChatWindow({
     if (mode === chatSettings.disappear_mode && chatSettings.disappearing_enabled) return;
     await saveDisappearingSettings(true, mode);
   };
+
+  const selectDirectTheme = async (themeColor) => {
+    const nextTheme = normalizeChatTheme(themeColor);
+    if (!conversationId || settingsSaving || nextTheme === directTheme) return;
+    setSettingsSaving(true);
+    try {
+      const res = await fetch(`${API}/api/dms/conversations/${conversationId}/settings`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ theme_color: nextTheme }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.error || "Failed to update chat theme");
+        return;
+      }
+      const nextNicknames = normalizeChatNicknames(data?.nicknames);
+      setChatSettings({
+        disappearing_enabled: Boolean(data?.disappearing_enabled),
+        disappear_mode: data?.disappear_mode || "after_read",
+        theme_color: normalizeChatTheme(data?.theme_color),
+        quick_emoji: normalizeQuickEmoji(data?.quick_emoji),
+        nicknames: nextNicknames,
+      });
+      setNicknameDrafts(nextNicknames);
+    } catch {
+      alert("Failed to update chat theme");
+    } finally {
+      setSettingsSaving(false);
+    }
+  };
+
+  const selectQuickEmoji = async (emoji) => {
+    const nextEmoji = normalizeQuickEmoji(emoji);
+    if (!conversationId || settingsSaving || nextEmoji === chatSettings.quick_emoji) return;
+    setSettingsSaving(true);
+    try {
+      const res = await fetch(`${API}/api/dms/conversations/${conversationId}/settings`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ quick_emoji: nextEmoji }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.error || "Failed to update the quick emoji");
+        return;
+      }
+      const nextNicknames = normalizeChatNicknames(data?.nicknames);
+      setChatSettings({
+        disappearing_enabled: Boolean(data?.disappearing_enabled),
+        disappear_mode: data?.disappear_mode || "after_read",
+        theme_color: normalizeChatTheme(data?.theme_color),
+        quick_emoji: normalizeQuickEmoji(data?.quick_emoji),
+        nicknames: nextNicknames,
+      });
+      setNicknameDrafts(nextNicknames);
+    } catch {
+      alert("Failed to update the quick emoji");
+    } finally {
+      setSettingsSaving(false);
+    }
+  };
+
+  const saveChatNicknames = async () => {
+    if (!conversationId || !partnerUserId || !myId || settingsSaving) return;
+    const nextNicknames = {
+      [String(myId)]: normalizeChatNickname(nicknameDrafts[String(myId)]),
+      [String(partnerUserId)]: normalizeChatNickname(nicknameDrafts[String(partnerUserId)]),
+    };
+    setSettingsSaving(true);
+    try {
+      const res = await fetch(`${API}/api/dms/conversations/${conversationId}/settings`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ nicknames: nextNicknames }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.error || "Failed to update chat nicknames");
+        return;
+      }
+      const savedNicknames = normalizeChatNicknames(data?.nicknames);
+      setChatSettings({
+        disappearing_enabled: Boolean(data?.disappearing_enabled),
+        disappear_mode: data?.disappear_mode || "after_read",
+        theme_color: normalizeChatTheme(data?.theme_color),
+        quick_emoji: normalizeQuickEmoji(data?.quick_emoji),
+        nicknames: savedNicknames,
+      });
+      setNicknameDrafts(savedNicknames);
+    } catch {
+      alert("Failed to update chat nicknames");
+    } finally {
+      setSettingsSaving(false);
+    }
+  };
+
+  const updateDirectViewPreference = (patch) => {
+    const nextPreferences = { ...directViewPreferences, ...patch };
+    setDirectViewPreferences(nextPreferences);
+    if (!directViewPreferenceKey) return;
+    try {
+      localStorage.setItem(directViewPreferenceKey, JSON.stringify(nextPreferences));
+    } catch {
+      // Keep the preference for this session when browser storage is unavailable.
+    }
+  };
   
   /* -----------------------------
      UI
   ------------------------------ */
   return (
-    <div className={`vine-chat-wrapper ${compact ? "chat-window-compact" : ""}`}>
+    <div
+      className={`vine-chat-wrapper ${compact ? "chat-window-compact" : ""} ${isGroup ? "dm-group-chat" : "dm-direct-chat"}`}
+      data-group-theme={isGroup ? groupTheme : undefined}
+      data-chat-theme={!isGroup ? directTheme : undefined}
+      data-bubble-density={!isGroup ? directViewPreferences.bubbleDensity : undefined}
+    >
 
       {/* HEADER */}
       <div className="chat-header">
@@ -1156,7 +1393,7 @@ export default function ChatWindow({
                   setProfileSheetOpen(true);
                 }}
               >
-                <span>{partner.display_name || partner.username}</span>
+                <span>{isGroup ? partner.display_name || partner.username : partnerChatName}</span>
                 {!isGroup && (Number(partner.is_verified) === 1 || ["vine guardian","vine_guardian","vine news","vine_news"].includes(String(partner.username || "").toLowerCase())) && (
                   <span className={`verified ${["vine guardian","vine_guardian","vine news","vine_news"].includes(String(partner.username || "").toLowerCase()) ? "guardian" : ""}`}>
                     <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
@@ -1189,6 +1426,21 @@ export default function ChatWindow({
           <div style={{ opacity: 0.6 }}>Loading chat…</div>
         )}
 
+        {isGroup && (
+          <button
+            type="button"
+            className="dm-group-details-button"
+            onClick={() => setProfileSheetOpen(true)}
+            aria-label="Group settings"
+            title="Group settings"
+          >
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle cx="5" cy="12" r="1.6" fill="currentColor" />
+              <circle cx="12" cy="12" r="1.6" fill="currentColor" />
+              <circle cx="19" cy="12" r="1.6" fill="currentColor" />
+            </svg>
+          </button>
+        )}
         {!isGroup && <div className="dm-call-actions">
           {["outgoing", "connecting", "active"].includes(callState) ? (
             <button
@@ -1224,6 +1476,19 @@ export default function ChatWindow({
               </svg>
             </button>
           )}
+          <button
+            type="button"
+            className="dm-direct-details-button"
+            onClick={() => setProfileSheetOpen(true)}
+            aria-label="Chat settings"
+            title="Chat settings"
+          >
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle cx="5" cy="12" r="1.6" fill="currentColor" />
+              <circle cx="12" cy="12" r="1.6" fill="currentColor" />
+              <circle cx="19" cy="12" r="1.6" fill="currentColor" />
+            </svg>
+          </button>
         </div>}
 
         {compact && (onMinimize || onClose) && (
@@ -1268,7 +1533,7 @@ export default function ChatWindow({
                     ? "Calling..."
                     : "Connecting..."}
             </strong>
-            <span>{callNotice || (partner ? partner.display_name || partner.username : "Vine call")}</span>
+            <span>{callNotice || (partner ? partnerChatName : "Vine call")}</span>
           </div>
           {callState === "incoming" ? (
             <div className="dm-call-banner-actions">
@@ -1333,8 +1598,15 @@ export default function ChatWindow({
                 <MessageBubble
                   message={m}
                   isGroup={isGroup}
+                  senderStyle={senderStyles[m.sender_id]}
+                  senderRole={memberRoles[m.sender_id] || memberRoles[String(m.sender_id)] || "member"}
                   groupPosition={groupPosition}
-                  showMeta={!joinsNext}
+                  showMeta={!joinsNext || (!isGroup && directViewPreferences.alwaysShowTimestamps)}
+                  showDeliveryStatus={
+                    latestUnansweredOwnMessageId !== null &&
+                    String(m.id) === latestUnansweredOwnMessageId
+                  }
+                  nicknames={isGroup ? undefined : chatSettings.nicknames}
                   onReply={handleReply}
                   onReact={handleReact}
                   onDelete={handleDeleteMessage}
@@ -1353,18 +1625,19 @@ export default function ChatWindow({
           <div
             className="chat-typing-pill chat-typing-pill-footer"
             aria-live="polite"
-            aria-label={`${isGroup ? "Someone" : partner.display_name || partner.username || "Someone"} is typing`}
+            aria-label={`${isGroup ? "Someone" : partnerChatName || "Someone"} is typing`}
           >
             <span className="chat-typing-bubble" aria-hidden="true">
               <span className="chat-typing-dot" />
               <span className="chat-typing-dot" />
               <span className="chat-typing-dot" />
             </span>
-            <span className="chat-typing-label">{isGroup ? "Someone" : partner.display_name || partner.username || "Someone"} is typing…</span>
+            <span className="chat-typing-label">{isGroup ? "Someone" : partnerChatName || "Someone"} is typing…</span>
           </div>
         )}
         <MessageInput
           onSend={handleSendMessage}
+          quickEmoji={isGroup ? "" : chatSettings.quick_emoji}
           replyTarget={replyTarget}
           onCancelReply={() => setReplyTarget(null)}
           onTyping={handleTyping}
@@ -1434,6 +1707,135 @@ export default function ChatWindow({
               View full profile
             </button>
 
+            <section className="dm-direct-nickname-setting" aria-labelledby="dm-direct-nickname-title">
+              <div>
+                <div id="dm-direct-nickname-title" className="dm-profile-setting-title">Chat nicknames</div>
+                <div className="dm-profile-setting-copy">
+                  Shared by both of you. Leave a name blank to use the person’s profile name.
+                </div>
+              </div>
+              <div className="dm-direct-nickname-fields">
+                <label>
+                  <span><strong>{currentUser?.display_name || currentUser?.username || "You"}</strong><small>You</small></span>
+                  <input
+                    type="text"
+                    value={nicknameDrafts[String(myId)] || ""}
+                    onChange={(event) => setNicknameDrafts((current) => ({ ...current, [String(myId)]: event.target.value.slice(0, 32) }))}
+                    placeholder="Add your nickname"
+                    maxLength={32}
+                    disabled={!conversationId || settingsSaving}
+                  />
+                </label>
+                <label>
+                  <span><strong>{partner.display_name || partner.username}</strong><small>@{partner.username}</small></span>
+                  <input
+                    type="text"
+                    value={nicknameDrafts[String(partnerUserId)] || ""}
+                    onChange={(event) => setNicknameDrafts((current) => ({ ...current, [String(partnerUserId)]: event.target.value.slice(0, 32) }))}
+                    placeholder={`Nickname for ${partner.display_name || partner.username}`}
+                    maxLength={32}
+                    disabled={!conversationId || settingsSaving}
+                  />
+                </label>
+              </div>
+              <button
+                type="button"
+                className="dm-direct-nickname-save"
+                onClick={saveChatNicknames}
+                disabled={!conversationId || !myId || settingsSaving || !nicknameDraftsChanged}
+              >
+                {settingsSaving ? "Saving…" : "Save nicknames"}
+              </button>
+            </section>
+
+            <section className="dm-direct-theme-setting" aria-labelledby="dm-direct-theme-title">
+              <div>
+                <div id="dm-direct-theme-title" className="dm-profile-setting-title">Chat theme</div>
+                <div className="dm-profile-setting-copy">
+                  Shared by both of you. A note appears in the chat whenever either person changes it.
+                </div>
+              </div>
+              <div className="dm-direct-theme-swatches" role="radiogroup" aria-label="Chat theme">
+                {CHAT_THEMES.map((theme) => (
+                  <button
+                    key={theme.value}
+                    type="button"
+                    className={directTheme === theme.value ? "active" : ""}
+                    onClick={() => selectDirectTheme(theme.value)}
+                    disabled={!conversationId || settingsSaving}
+                    role="radio"
+                    aria-checked={directTheme === theme.value}
+                    aria-label={`${theme.label} theme`}
+                    title={theme.label}
+                  >
+                    <span style={{ backgroundColor: theme.color }} />
+                    <small>{theme.label}</small>
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <section className="dm-direct-quick-emoji-setting" aria-labelledby="dm-direct-quick-emoji-title">
+              <div>
+                <div id="dm-direct-quick-emoji-title" className="dm-profile-setting-title">Quick emoji</div>
+                <div className="dm-profile-setting-copy">
+                  Shared by both of you. Tap it beside the message box to send it instantly.
+                </div>
+              </div>
+              <div className="dm-direct-quick-emojis" role="radiogroup" aria-label="Quick emoji">
+                {QUICK_EMOJIS.map((emoji) => (
+                  <button
+                    key={emoji}
+                    type="button"
+                    className={chatSettings.quick_emoji === emoji ? "active" : ""}
+                    onClick={() => selectQuickEmoji(emoji)}
+                    disabled={!conversationId || settingsSaving}
+                    role="radio"
+                    aria-checked={chatSettings.quick_emoji === emoji}
+                    aria-label={`Use ${emoji} as the quick emoji`}
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <section className="dm-direct-display-setting" aria-labelledby="dm-direct-display-title">
+              <div id="dm-direct-display-title" className="dm-profile-setting-title">Chat display</div>
+              <div className="dm-direct-display-row">
+                <span><strong>Always show timestamps</strong><small>Show the time below every message.</small></span>
+                <button
+                  type="button"
+                  className={`dm-setting-toggle ${directViewPreferences.alwaysShowTimestamps ? "on" : ""}`}
+                  onClick={() => updateDirectViewPreference({ alwaysShowTimestamps: !directViewPreferences.alwaysShowTimestamps })}
+                  role="switch"
+                  aria-checked={directViewPreferences.alwaysShowTimestamps}
+                  aria-label="Always show timestamps"
+                >
+                  <span />
+                </button>
+              </div>
+              <div className="dm-direct-density-row">
+                <span><strong>Message spacing</strong><small>Only changes how this chat looks for you.</small></span>
+                <div className="dm-direct-density-options" role="radiogroup" aria-label="Message spacing">
+                  {["comfortable", "compact"].map((density) => (
+                    <button
+                      key={density}
+                      type="button"
+                      className={directViewPreferences.bubbleDensity === density ? "active" : ""}
+                      onClick={() => updateDirectViewPreference({ bubbleDensity: density })}
+                      role="radio"
+                      aria-checked={directViewPreferences.bubbleDensity === density}
+                    >
+                      {density === "comfortable" ? "Comfortable" : "Compact"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </section>
+
+            <DirectSharedMedia conversationId={conversationId} token={token} nicknames={chatSettings.nicknames} />
+
             <div className="dm-profile-setting-card">
               <div>
                 <div className="dm-profile-setting-title">Disappearing messages</div>
@@ -1493,12 +1895,22 @@ export default function ChatWindow({
             member_count: group.member_count,
             viewer_role: group.viewer_role,
             group_avatar_url: group.group_avatar_url,
+            member_ids: group.members?.map((member) => member.user_id),
+            member_roles: Object.fromEntries((group.members || []).map((member) => [Number(member.user_id), member.role])),
+            group_description: group.group_description,
+            notifications_muted: group.notifications_muted,
+            theme_color: group.theme_color,
             avatar_url: group.group_avatar_url,
           }));
         }}
         onLeft={() => {
           setProfileSheetOpen(false);
           navigate("/vine/dms");
+        }}
+        onDeleted={() => {
+          setProfileSheetOpen(false);
+          if (compact) onClose?.();
+          else navigate("/vine/dms");
         }}
       />
     </div>

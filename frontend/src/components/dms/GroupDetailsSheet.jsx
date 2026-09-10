@@ -27,6 +27,8 @@ const getActivityLabel = (member) => {
   return "";
 };
 
+const getGroupRoleLabel = (role) => ["owner", "admin"].includes(role) ? "Admin" : "Member";
+
 const SearchIcon = () => (
   <svg viewBox="0 0 24 24" width="17" height="17" fill="none" aria-hidden="true">
     <circle cx="11" cy="11" r="6.5" stroke="currentColor" strokeWidth="2" />
@@ -295,7 +297,7 @@ export default function GroupDetailsSheet({
           </div>}
         </section>
 
-        <div className="dm-group-members-head"><div><strong>People</strong><span>{group?.viewer_role ? `You are ${group.viewer_role}` : ""}</span></div>{group?.can_manage && <button type="button" onClick={() => setShowAddPeople((current) => !current)}>{showAddPeople ? "Done" : "Add people"}</button>}</div>
+        <div className="dm-group-members-head"><div><strong>People</strong><span>{group?.viewer_role ? `You are ${getGroupRoleLabel(group.viewer_role)}` : ""}</span></div>{group?.can_manage && <button type="button" onClick={() => setShowAddPeople((current) => !current)}>{showAddPeople ? "Done" : "Add people"}</button>}</div>
 
         {showAddPeople && <div className="dm-group-add-panel"><div className="dm-group-add-search"><SearchIcon /><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search all of Vine" aria-label="Search all of Vine" maxLength={80} /></div><div className="dm-group-add-results">
           {directory.loading && <span role="status">Searching Vine...</span>}{directory.error && <span role="alert">{directory.error}</span>}
@@ -314,7 +316,7 @@ export default function GroupDetailsSheet({
             return <div className="dm-group-member" key={member.user_id}>
               <span className="dm-group-member-avatar"><img src={avatar} alt="" onError={(event) => { event.currentTarget.src = DEFAULT_AVATAR; }} />{Number(member.is_online_now) === 1 && <i aria-label="Active now" />}</span>
               <span className="dm-group-member-name"><strong>{member.display_name || member.username}{isMe ? " (you)" : ""}</strong><small>@{member.username} · Joined {formatDate(member.joined_at)}</small>{activityLabel && <em>{activityLabel}</em>}</span>
-              <span className={`dm-group-role ${member.role}`}>{member.role}</span>
+              <span className={`dm-group-role ${member.role}`}>{getGroupRoleLabel(member.role)}</span>
               {group.viewer_role === "owner" && !isMe && member.role !== "owner" && <button type="button" className="dm-group-role-action" disabled={Boolean(busyKey)} onClick={() => updateRole(member, member.role === "admin" ? "member" : "admin")} title={member.role === "admin" ? "Remove admin role" : "Make admin"}>{member.role === "admin" ? "Remove admin" : "Make admin"}</button>}
               {canRemove && <button type="button" className="dm-group-remove" onClick={() => removeMember(member)} disabled={Boolean(busyKey)} aria-label={`Remove ${member.display_name || member.username}`} title="Remove member"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" aria-hidden="true"><path d="M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg></button>}
             </div>;
@@ -334,7 +336,7 @@ export default function GroupDetailsSheet({
       {showDeleteConfirm && <div className="dm-group-delete-confirm-backdrop" role="presentation" onClick={(event) => { event.stopPropagation(); if (busyKey !== "delete-group") setShowDeleteConfirm(false); }}>
         <div className="dm-group-delete-confirm" role="alertdialog" aria-modal="true" aria-labelledby="dm-group-delete-title" aria-describedby="dm-group-delete-copy" onClick={(event) => event.stopPropagation()}>
           <span className="dm-group-delete-confirm-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="24" height="24" fill="none"><path d="M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13M10 11v5m4-5v5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg></span>
-          <span className="dm-group-delete-confirm-kicker">Owner action</span>
+          <span className="dm-group-delete-confirm-kicker">Admin action</span>
           <h3 id="dm-group-delete-title">Delete {group?.group_name || "this group"}?</h3>
           <p id="dm-group-delete-copy">The group, its messages, and shared media will be permanently removed for everyone. This cannot be undone.</p>
           {error && <div className="dm-group-delete-confirm-error" role="alert">{error}</div>}

@@ -361,7 +361,7 @@ function MessageBubble({ message, isGroup = false, senderStyle, senderRole = "me
                 )}
                 {["owner", "admin"].includes(senderRole) && (
                   <small className={`dm-group-sender-role ${senderRole}`}>
-                    {senderRole === "owner" ? "Owner" : "Admin"}
+                    Admin
                   </small>
                 )}
               </div>

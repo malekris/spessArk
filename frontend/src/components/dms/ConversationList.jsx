@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "./ConversationList.css";
 import { socket } from "../../socket";
-import useWindowedList from "../../hooks/useWindowedList";
 import GroupCreateModal from "./GroupCreateModal";
 import ConversationActionsMenu from "./ConversationActionsMenu";
 import "./GroupCreateModal.css";
@@ -66,7 +65,6 @@ export default function ConversationList() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const searchRef = useRef("");
-  const listRef = useRef(null);
   const activeRequestRef = useRef(null);
   const hasLoadedRef = useRef(false);
   const realtimeRefreshRef = useRef(null);
@@ -81,16 +79,10 @@ export default function ConversationList() {
     if (filter === "pinned") return conversations.filter((item) => Number(item?.is_pinned) === 1);
     return conversations;
   }, [conversations, filter]);
-  const {
-    visibleItems: visibleConversations,
-    padTop,
-    padBottom,
-  } = useWindowedList(filteredConversations, {
-    containerRef: listRef,
-    estimatedItemHeight: 112,
-    overscan: 5,
-    enabled: filteredConversations.length > 24,
-  });
+  // Keep the inbox fully mounted. Conversation rows are lightweight, and native
+  // page scrolling is more reliable here than windowed rendering (which can
+  // hide rows when the active scroll container is not `window`).
+  const visibleConversations = filteredConversations;
   const inboxFilters = [
     { id: "all", label: "All", count: conversations.length },
     { id: "unread", label: "Unread", count: unreadChats },
@@ -319,8 +311,7 @@ export default function ConversationList() {
       )}
 
       {!loading && !loadError && filteredConversations.length > 0 && (
-      <div className="dm-list-window" ref={listRef}>
-        {padTop > 0 && <div style={{ height: `${padTop}px` }} aria-hidden="true" />}
+      <div className="dm-list-window">
         {visibleConversations.map((c) => {
           const isGroup = c.conversation_type === "group";
           const unreadCount = Number(c.unread_count || 0);
@@ -419,7 +410,6 @@ export default function ConversationList() {
             </div>
           );
         })}
-        {padBottom > 0 && <div style={{ height: `${padBottom}px` }} aria-hidden="true" />}
       </div>
       )}
       <GroupCreateModal

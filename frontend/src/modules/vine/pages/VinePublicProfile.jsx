@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import ImageCarousel from "./ImageCarousel";
+import ProfileDelights from "../components/ProfileDelights";
 import { getVineToken, isVineTokenExpired } from "../utils/vineAuth";
 import "./VinePublicPost.css";
 import "./VinePublicProfile.css";
@@ -143,6 +144,14 @@ export default function VinePublicProfile() {
     [loggedIn, token]
   );
   const protectedProfileTarget = `/vine/profile/${encodeURIComponent(username || "")}`;
+  const profileCommunities = Array.isArray(profile?.user?.communities) ? profile.user.communities : [];
+  const viewerId = (() => {
+    try {
+      return Number(JSON.parse(localStorage.getItem("vine_user") || "{}")?.id || 0);
+    } catch {
+      return 0;
+    }
+  })();
 
   const loadProfile = async ({ append = false, offset = 0 } = {}) => {
     const setter = append ? setLoadingMore : setLoading;
@@ -274,6 +283,30 @@ export default function VinePublicProfile() {
                     <span><strong>{formatCompactStat(profile.user.total_like_count || 0)}</strong> likes</span>
                     <span><strong>{profile.user.following_count || 0}</strong> following</span>
                   </div>
+                  {profileCommunities.length > 0 && (
+                    <section className="vine-public-community-memberships" aria-label="Communities joined">
+                      <div className="vine-public-community-memberships-head">
+                        <span>Communities joined</span>
+                        <small>{profileCommunities.length}</small>
+                      </div>
+                      <div className="vine-public-community-membership-list">
+                        {profileCommunities.map((community) => (
+                          <Link
+                            key={community.id || community.slug}
+                            className="vine-public-community-membership"
+                            to={`/vine/communities/${encodeURIComponent(community.slug)}`}
+                          >
+                            {community.avatar_url ? (
+                              <img src={community.avatar_url} alt="" loading="lazy" />
+                            ) : (
+                              <span aria-hidden="true">{String(community.name || "C").trim().charAt(0).toUpperCase()}</span>
+                            )}
+                            <strong>{community.name}</strong>
+                          </Link>
+                        ))}
+                      </div>
+                    </section>
+                  )}
                   {(profile.user.location || profile.user.website) && (
                     <div className="vine-public-profile-extras">
                       {profile.user.location ? <span>{profile.user.location}</span> : null}
@@ -284,6 +317,11 @@ export default function VinePublicProfile() {
                       ) : null}
                     </div>
                   )}
+                  <ProfileDelights
+                    username={profile.user.username}
+                    isMe={Boolean(viewerId && viewerId === Number(profile.user.id))}
+                    hidden={Boolean(profile.blocked || profile.privateLocked)}
+                  />
                 </div>
               </div>
             </section>

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { socket } from "../../../socket";
 import VineEClass from "../components/VineEClass";
+import CommunityQuests from "../components/CommunityQuests";
 import VinePostCard from "./VinePostCard";
 import "./VineCommunities.css";
 import { loadPdfTools } from "../../../utils/loadPdfTools";
@@ -41,6 +42,7 @@ const MEMBER_LOCKED_COMMUNITY_TABS = new Set([
   "eclass",
   "members",
   "assignments",
+  "quests",
   "library",
   "about",
 ]);
@@ -51,6 +53,7 @@ const MEMBER_LOCKED_TAB_LABELS = {
   eclass: "Vine eClass",
   members: "Members",
   assignments: "Assignments",
+  quests: "Community Quests",
   library: "Library",
   about: "About",
 };
@@ -756,6 +759,7 @@ export default function VineCommunities() {
       "attendance",
       "eclass",
       "assignments",
+      "quests",
       "library",
       "memorywall",
       "settings",
@@ -3701,6 +3705,9 @@ export default function VineCommunities() {
                 <button className={getCommunityTabClassName("assignments")} onClick={() => setActiveTab("assignments")}>
                   {renderCommunityTabLabel("assignments", "Assignments")}
                 </button>
+                <button className={getCommunityTabClassName("quests")} onClick={() => setActiveTab("quests")}>
+                  {renderCommunityTabLabel("quests", "Quests 🏆")}
+                </button>
                 <button className={getCommunityTabClassName("library")} onClick={() => setActiveTab("library")}>
                   {renderCommunityTabLabel("library", "Library")}
                 </button>
@@ -3723,6 +3730,7 @@ export default function VineCommunities() {
                 } ${activeTab === "assignments" ? "assignments-only" : ""} ${
                   activeTab === "attendance" ? "attendance-only" : ""
                 } ${activeTab === "eclass" ? "eclass-only" : ""
+                } ${activeTab === "quests" ? "quests-only" : ""
                 }`}
               >
                 {showCommunityMembershipGate && (
@@ -5090,6 +5098,12 @@ export default function VineCommunities() {
                       </div>
                     </div>
                   </section>
+                )}
+                {activeTab === "quests" && !showCommunityMembershipGate && (
+                  <CommunityQuests
+                    communityId={activeCommunity.id}
+                    viewerRole={activeCommunity.viewer_role}
+                  />
                 )}
                 {activeTab === "library" && !showCommunityMembershipGate && (
                   <section className="community-settings-panel community-library-panel">

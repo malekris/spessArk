@@ -10,6 +10,7 @@ import { searchGroupCandidates, getEligibleGroupUsers } from "./groupDirectory.j
 import { formatGroupMembersAdded } from "./groupSystemMessages.js";
 import { planCommunityGroupMembership } from "./communityGroupChat.js";
 import { canDeleteConversationMessage } from "./groupMessageModeration.js";
+import { resolveChatPetStage } from "./vineDelightLogic.js";
 
 const router = express.Router();
 const DISAPPEARING_MODES = new Set(["after_read", "1h", "24h"]);
@@ -463,6 +464,17 @@ export const ensureDmSchema = async () => {
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (conversation_id, user_id),
       INDEX idx_vine_conversation_nicknames_user (user_id, conversation_id)
+    )
+  `);
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_conversation_pets (
+      conversation_id INT PRIMARY KEY,
+      pet_name VARCHAR(20) NOT NULL DEFAULT 'Sprout',
+      adopted_by INT NOT NULL,
+      updated_by INT NOT NULL,
+      adopted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_vine_conversation_pets_updated (updated_at)
     )
   `);
   await addColumnIfMissing(
@@ -1116,6 +1128,36 @@ const getConversationSettings = async (conversationId) => {
       updated_at: row?.updated_at || null,
     };
   });
+};
+
+const getConversationPet = async (conversationId) => {
+  const [[pet]] = await db.query(
+    `
+    SELECT conversation_id, pet_name, adopted_by, adopted_at, updated_by, updated_at
+    FROM vine_conversation_pets
+    WHERE conversation_id = ?
+    LIMIT 1
+    `,
+    [conversationId]
+  );
+  if (!pet) return { adopted: false, pet_name: "Sprout", growth_count: 0, stage: resolveChatPetStage(0) };
+  const [[growth]] = await db.query(
+    `
+    SELECT COUNT(*) AS total
+    FROM vine_messages
+    WHERE conversation_id = ?
+      AND COALESCE(message_type, 'text') != 'system'
+      AND created_at >= ?
+    `,
+    [conversationId, pet.adopted_at]
+  );
+  const growthCount = Number(growth?.total || 0);
+  return {
+    adopted: true,
+    ...pet,
+    growth_count: growthCount,
+    stage: resolveChatPetStage(growthCount),
+  };
 };
 
 const getDisappearingExpiryForMode = (mode) => {
@@ -2585,6 +2627,7 @@ router.delete("/groups/:id", authenticate, async (req, res) => {
     );
     await connection.query("DELETE FROM vine_messages WHERE conversation_id = ?", [conversationId]);
     await connection.query("DELETE FROM vine_conversation_settings WHERE conversation_id = ?", [conversationId]);
+    await connection.query("DELETE FROM vine_conversation_pets WHERE conversation_id = ?", [conversationId]);
     await connection.query("DELETE FROM vine_conversation_pins WHERE conversation_id = ?", [conversationId]);
     await connection.query("DELETE FROM vine_conversation_deletes WHERE conversation_id = ?", [conversationId]);
     await connection.query("DELETE FROM vine_community_group_chats WHERE conversation_id = ?", [conversationId]);
@@ -3360,6 +3403,94 @@ router.get("/conversations/:id/settings", authenticate, async (req, res) => {
   }
 });
 
+router.get("/conversations/:id/pet", authenticate, async (req, res) => {
+  const userId = Number(req.user.id);
+  const conversationId = Number(req.params.id);
+  if (!conversationId) return res.status(400).json({ error: "Invalid conversation" });
+  try {
+    await ensureDmSchema();
+    const conversation = await getConversationForUser(conversationId, userId);
+    if (!conversation) return res.status(403).json({ error: "Access denied" });
+    if (conversation.conversation_type !== "direct") {
+      return res.status(400).json({ error: "Chat pets are only available in one-to-one chats" });
+    }
+    res.json(await getConversationPet(conversationId));
+  } catch (err) {
+    console.error("Get conversation pet error:", err);
+    res.status(500).json({ error: "Failed to load your chat pet" });
+  }
+});
+
+router.patch("/conversations/:id/pet", authenticate, async (req, res) => {
+  const userId = Number(req.user.id);
+  const conversationId = Number(req.params.id);
+  const petName = String(req.body?.pet_name || "").replace(/\s+/g, " ").trim().slice(0, 20);
+  if (!conversationId) return res.status(400).json({ error: "Invalid conversation" });
+  if (!petName) return res.status(400).json({ error: "Give your chat pet a name" });
+
+  let connection;
+  try {
+    await ensureDmSchema();
+    const conversation = await getConversationForUser(conversationId, userId);
+    if (!conversation) return res.status(403).json({ error: "Access denied" });
+    if (conversation.conversation_type !== "direct") {
+      return res.status(400).json({ error: "Chat pets are only available in one-to-one chats" });
+    }
+
+    connection = await db.getConnection();
+    await connection.beginTransaction();
+    const [[currentPet]] = await connection.query(
+      "SELECT pet_name FROM vine_conversation_pets WHERE conversation_id = ? LIMIT 1 FOR UPDATE",
+      [conversationId]
+    );
+    if (currentPet && String(currentPet.pet_name) === petName) {
+      await connection.rollback();
+      connection.release();
+      connection = null;
+      return res.json(await getConversationPet(conversationId));
+    }
+    await connection.query(
+      `
+      INSERT INTO vine_conversation_pets
+        (conversation_id, pet_name, adopted_by, updated_by, adopted_at, updated_at)
+      VALUES (?, ?, ?, ?, NOW(), NOW())
+      ON DUPLICATE KEY UPDATE
+        pet_name = VALUES(pet_name),
+        updated_by = VALUES(updated_by),
+        updated_at = NOW()
+      `,
+      [conversationId, petName, userId, userId]
+    );
+    const [[actor]] = await connection.query(
+      "SELECT username, display_name FROM vine_users WHERE id = ? LIMIT 1",
+      [userId]
+    );
+    const actorName = actor?.display_name || actor?.username || "Someone";
+    const notice = currentPet
+      ? `${actorName} renamed your chat pet to ${petName}`
+      : `${actorName} adopted ${petName}, your shared chat pet`;
+    const systemMessageId = await createGroupSystemMessage(connection, conversationId, userId, notice);
+    await connection.commit();
+    connection.release();
+    connection = null;
+
+    clearDmReadCache("dm-conversations", buildDmCacheKey("dm-messages", conversationId));
+    const pet = await getConversationPet(conversationId);
+    io.to(`conversation-${conversationId}`).emit("dm_pet_updated", { conversation_id: conversationId, ...pet });
+    const systemMessage = await getHydratedMessageById(systemMessageId, userId);
+    if (systemMessage) io.to(`conversation-${conversationId}`).emit("dm_received", systemMessage);
+    await emitConversationInboxUpdate(conversation);
+    res.json(pet);
+  } catch (err) {
+    if (connection) {
+      await connection.rollback().catch(() => {});
+      connection.release();
+    }
+    console.error("Update conversation pet error:", err);
+    res.status(500).json({ error: "Failed to update your chat pet" });
+  }
+});
+
 router.get("/conversations/:id/presence", authenticate, async (req, res) => {
   const userId = Number(req.user.id);
   const conversationId = Number(req.params.id);
@@ -3851,6 +3982,16 @@ router.post("/send", authenticate, async (req, res) => {
 
     // ✅ Send to open chat window
     io.to(`conversation-${activeConversationId}`).emit("dm_received", fullMessage);
+
+    if (!isGroupConversation) {
+      const pet = await getConversationPet(activeConversationId);
+      if (pet.adopted) {
+        io.to(`conversation-${activeConversationId}`).emit("dm_pet_updated", {
+          conversation_id: Number(activeConversationId),
+          ...pet,
+        });
+      }
+    }
 
     const recipientUserIds = await getActiveConversationUserIds(activeConversation);
     const notificationUserIds = new Set(await getNotificationUserIds(activeConversation));

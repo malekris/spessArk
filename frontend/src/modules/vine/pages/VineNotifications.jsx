@@ -150,6 +150,20 @@ export default function VineNotifications() {
     if ((notification.type === "follow" || notification.type === "follow_request_accepted") && actorUsername) {
       return `/vine/profile/${actorUsername}`;
     }
+    if (notification.type === "poke" && actorUsername) {
+      return `/vine/profile/${actorUsername}`;
+    }
+    if (
+      notification.type === "weekly_rewind_shared" ||
+      notification.type === "monthly_rewind_shared" ||
+      notification.type === "yearly_rewind_shared" ||
+      notification.type === "anniversary_shared"
+    ) {
+      return buildPostTarget(notification);
+    }
+    if (notification.type === "guestbook_entry" && actorUsername) {
+      return `/vine/profile/${meta.profile_username || actorUsername}`;
+    }
     if (notification.type === "birthday" && actorUsername) {
       return `/vine/profile/${actorUsername}`;
     }
@@ -176,6 +190,10 @@ export default function VineNotifications() {
     }
     if (notification.type === "community_assignment_submission") {
       if (meta.community_slug) return `/vine/communities/${meta.community_slug}?tab=assignments`;
+      return null;
+    }
+    if (notification.type === "community_quest_created") {
+      if (meta.community_slug) return `/vine/communities/${meta.community_slug}?tab=quests`;
       return null;
     }
     if (notification.type === "community_join_request") {
@@ -256,6 +274,15 @@ export default function VineNotifications() {
       case "mention_comment": return "mentioned you in a comment";
       case "follow_request": return "requested to follow you";
       case "follow_request_accepted": return "accepted your follow request";
+      case "poke": return meta.poked_back ? "poked you back" : "poked you";
+      case "weekly_rewind_shared": return "shared a Vine Weekly Rewind 🎞️";
+      case "monthly_rewind_shared": return "shared a Vine Monthly Rewind 🌙";
+      case "yearly_rewind_shared": return "shared a Vine End-of-Year Rewind ✨";
+      case "anniversary_shared": {
+        const years = Math.max(1, Number(meta.years_on_vine || 1));
+        return `marked ${years} ${years === 1 ? "year" : "years"} on Vine 🎉`;
+      }
+      case "guestbook_entry": return "left a guestbook note for your approval";
       case "missed_call": return "called you. You missed the audio call";
       case "report_post": return "reported a post to Guardian";
       case "report_comment": return "reported a comment to Guardian";
@@ -269,6 +296,8 @@ export default function VineNotifications() {
         return `started Vine eClass${meta.title ? `: "${meta.title}"` : ""}${meta.community_name ? ` in "${meta.community_name}"` : ""}`;
       case "community_assignment_created":
         return `posted a new assignment: "${meta.title || "Untitled assignment"}"`;
+      case "community_quest_created":
+        return `started a community quest${meta.quest_title ? `: "${meta.quest_title}"` : ""}`;
       case "community_assignment_submission": {
         const isPractical = String(meta.assignment_type || "").toLowerCase() === "practical";
         if (isPractical) {

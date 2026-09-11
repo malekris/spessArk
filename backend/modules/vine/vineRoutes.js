@@ -24,9 +24,11 @@ import createVineCommunityDiscoveryRouter from "./vineCommunityDiscoveryRoutes.j
 import createVineCommunityEClassRouter from "./vineCommunityEClassRoutes.js";
 import createVineAvatarThumbnailRouter from "./vineAvatarThumbnailRoutes.js";
 import createVineNotificationRouter from "./vineNotificationRoutes.js";
+import createVineDelightRouter from "./vineDelightRoutes.js";
 import { endEClassRuntimeSession } from "./vineEClassSocket.js";
 import { VINE_READ_NOTIFICATION_RETENTION_DAYS, createCleanupExpiredReadNotifications } from "./vineNotificationCleanup.js";
 import { VINE_CACHE_TTLS, buildVineCacheKey, readThroughVineCache, clearVineReadCache } from "./vineCache.js";
+import { getPokePair, resolvePokeState } from "./profilePokes.js";
 import {
   getSessionExpiry,
   getVineSessionIdleMs,
@@ -2733,6 +2735,29 @@ const notifyUsersBulk = async ({ userIds = [], actorId, type, postId = null, com
   return recipients.length;
 };
 
+let vineDelightRouter = null;
+router.use((req, res, next) => {
+  if (!vineDelightRouter) {
+    vineDelightRouter = createVineDelightRouter({
+      db,
+      authenticate,
+      authOptional,
+      ensureCommunitySchema,
+      ensurePokeSchema,
+      getCommunityRole,
+      isCommunityModOrOwner,
+      isUserBlocked,
+      notifyUser,
+      notifyUsersBulk,
+      uploadBufferToCloudinary,
+      deleteCloudinaryByUrl,
+      emitVineFeedUpdated,
+      clearVineReadCache,
+    });
+  }
+  return vineDelightRouter(req, res, next);
+});
+
 const buildVineAuthUser = (user) => ({
   id: user.id,
   username: user.username,
@@ -3604,6 +3629,24 @@ const ensureFollowRequestSchema = async () => {
   followRequestSchemaReady = true;
 };
 
+let pokeSchemaReady = false;
+const ensurePokeSchema = async () => {
+  if (pokeSchemaReady) return;
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_pokes (
+      user_low_id INT NOT NULL,
+      user_high_id INT NOT NULL,
+      last_poker_id INT NOT NULL,
+      last_poked_id INT NOT NULL,
+      poked_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (user_low_id, user_high_id),
+      INDEX idx_vine_pokes_recipient (last_poked_id, poked_at),
+      INDEX idx_vine_pokes_sender (last_poker_id, poked_at)
+    )
+  `);
+  pokeSchemaReady = true;
+};
+
 const ACCOUNT_DELETE_GRACE_DAYS = 10;
 const ACCOUNT_DELETE_SWEEP_MS = 60 * 60 * 1000;
 
@@ -3717,6 +3760,7 @@ const purgeUserAccount = async (userId) => {
   await db.query("DELETE FROM vine_mutes WHERE muter_id = ? OR muted_id = ?", [numericUserId, numericUserId]).catch(() => {});
   await db.query("DELETE FROM vine_follows WHERE follower_id = ? OR following_id = ?", [numericUserId, numericUserId]).catch(() => {});
   await db.query("DELETE FROM vine_follow_requests WHERE requester_id = ? OR target_id = ? OR reviewed_by = ?", [numericUserId, numericUserId, numericUserId]).catch(() => {});
+  await db.query("DELETE FROM vine_pokes WHERE user_low_id = ? OR user_high_id = ?", [numericUserId, numericUserId]).catch(() => {});
   await db.query(
     `
     DELETE receipt
@@ -6730,6 +6774,7 @@ router.post("/communities", authenticate, async (req, res) => {
       `,
       [created.insertId, userId]
     );
+    clearVineReadCache("profile-header");
 
     const [[community]] = await db.query(
       "SELECT id, name, slug, description, join_policy, post_permission, auto_welcome_enabled, welcome_message, is_private, creator_id, created_at FROM vine_communities WHERE id = ?",
@@ -6812,6 +6857,7 @@ router.post("/communities/:id/join", authenticate, async (req, res) => {
       `,
       [communityId, userId]
     );
+    clearVineReadCache("profile-header");
     if (Number(community.auto_welcome_enabled) === 1) {
       const message = (community.welcome_message || "").trim() || `Welcome to ${community.name}!`;
       await db.query(
@@ -7000,6 +7046,7 @@ router.delete("/communities/:id/members/:memberId", authenticate, async (req, re
       "DELETE FROM vine_community_members WHERE community_id = ? AND user_id = ? LIMIT 1",
       [communityId, memberId]
     );
+    clearVineReadCache("profile-header");
 
     res.json({ success: true });
   } catch (err) {
@@ -7460,6 +7507,7 @@ router.post("/communities/:id/requests/:requestId/approve", authenticate, async 
       `,
       [communityId, requestRow.user_id]
     );
+    clearVineReadCache("profile-header");
 
     await db.query(
       `
@@ -9886,6 +9934,7 @@ const getProfileUserPayload = async (username, viewerId, perfCtx = null) => {
   await ensureVinePerformanceSchema();
   await ensureProfileAboutSchema();
   await ensureFollowRequestSchema();
+  await ensurePokeSchema();
   await ensureCommunitySchema();
   await ensurePostTagSchema();
 
@@ -10049,6 +10098,60 @@ const getProfileUserPayload = async (username, viewerId, perfCtx = null) => {
       [user.id]
     );
     user.learning_badges = summarizeLearnerBadges(badgeRows).badges;
+
+    const [communityRows] = await timedVineQuery(
+      perfCtx,
+      "profile-header.communities",
+      `
+      SELECT
+        c.id,
+        c.name,
+        c.slug,
+        c.avatar_url
+      FROM vine_community_members m
+      JOIN vine_communities c ON c.id = m.community_id
+      WHERE m.user_id = ?
+        AND (
+          COALESCE(c.is_private, 0) = 0
+          OR ? = m.user_id
+          OR EXISTS (
+            SELECT 1
+            FROM vine_community_members viewer_membership
+            WHERE viewer_membership.community_id = c.id
+              AND viewer_membership.user_id = ?
+          )
+        )
+      ORDER BY c.name ASC
+      `,
+      [user.id, safeViewerId, safeViewerId]
+    );
+    user.communities = communityRows.map((community) => ({
+      id: Number(community.id),
+      name: community.name,
+      slug: community.slug,
+      avatar_url: community.avatar_url || null,
+    }));
+    user.community_count = user.communities.length;
+    user.poke_state = null;
+    if (!isSelf && safeViewerId) {
+      const { userLowId, userHighId } = getPokePair(safeViewerId, user.id);
+      const [[poke]] = await timedVineQuery(
+        perfCtx,
+        "profile-header.poke-state",
+        `
+        SELECT last_poker_id, last_poked_id
+        FROM vine_pokes
+        WHERE user_low_id = ? AND user_high_id = ?
+        LIMIT 1
+        `,
+        [userLowId, userHighId]
+      );
+      user.poke_state = resolvePokeState({
+        viewerId: safeViewerId,
+        lastPokerId: poke?.last_poker_id,
+        lastPokedId: poke?.last_poked_id,
+      });
+    }
 
     return {
       user,
@@ -12104,6 +12207,74 @@ router.post("/users/me/cancel-deletion", authenticate, async (req, res) => {
 });
 
 // follow
+router.post("/users/:id/poke", authenticate, async (req, res) => {
+  try {
+    await ensurePokeSchema();
+    const actorId = Number(req.user.id);
+    const targetId = Number(req.params.id);
+    if (!targetId) return res.status(400).json({ message: "Invalid user" });
+    if (targetId === actorId) {
+      return res.status(400).json({ message: "You cannot poke yourself" });
+    }
+
+    const [[targetUser]] = await db.query(
+      "SELECT id FROM vine_users WHERE id = ? LIMIT 1",
+      [targetId]
+    );
+    if (!targetUser) return res.status(404).json({ message: "User not found" });
+
+    const [blockedByTarget, blockingTarget] = await Promise.all([
+      isUserBlocked(targetId, actorId),
+      isUserBlocked(actorId, targetId),
+    ]);
+    if (blockedByTarget || blockingTarget) {
+      return res.status(403).json({ message: "Pokes are unavailable for this profile" });
+    }
+
+    const { userLowId, userHighId } = getPokePair(actorId, targetId);
+    const [created] = await db.query(
+      `
+      INSERT IGNORE INTO vine_pokes
+        (user_low_id, user_high_id, last_poker_id, last_poked_id, poked_at)
+      VALUES (?, ?, ?, ?, NOW())
+      `,
+      [userLowId, userHighId, actorId, targetId]
+    );
+
+    let pokedBack = false;
+    if (Number(created.affectedRows || 0) === 0) {
+      const [updated] = await db.query(
+        `
+        UPDATE vine_pokes
+        SET last_poker_id = ?, last_poked_id = ?, poked_at = NOW()
+        WHERE user_low_id = ?
+          AND user_high_id = ?
+          AND last_poker_id <> ?
+        `,
+        [actorId, targetId, userLowId, userHighId, actorId]
+      );
+      if (Number(updated.affectedRows || 0) === 0) {
+        return res.json({ success: true, poke_state: "poked", already_poked: true });
+      }
+      pokedBack = true;
+    }
+
+    if (!(await isMutedBy(targetId, actorId))) {
+      await notifyUser({
+        userId: targetId,
+        actorId,
+        type: "poke",
+        meta: { poked_back: pokedBack },
+      });
+    }
+    clearVineReadCache("profile-header");
+    return res.json({ success: true, poke_state: "poked", poked_back: pokedBack });
+  } catch (err) {
+    console.error("Poke user error:", err);
+    return res.status(500).json({ message: "Failed to poke user" });
+  }
+});
+
 router.post("/users/:id/follow", authenticate, async (req, res) => {
   try {
     await ensureFollowRequestSchema();

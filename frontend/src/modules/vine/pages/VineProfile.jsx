@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState, useRef } from "react";
-import { useParams, useNavigate, useLocation } from "react-router-dom";
+import { Link, useParams, useNavigate, useLocation } from "react-router-dom";
 import "./VineProfile.css";
 import VinePostCard from "./VinePostCard";
+import ProfileDelights from "../components/ProfileDelights";
 import { convertHeicFileToJpeg, isHeicLikeFile } from "../utils/heic";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
@@ -343,6 +344,8 @@ export default function VineProfile() {
   const [tempTwitterUsername, setTempTwitterUsername] = useState("");
   const [isFollowing, setIsFollowing] = useState(false);
   const [isFollowRequested, setIsFollowRequested] = useState(false);
+  const [pokeState, setPokeState] = useState("available");
+  const [pokeBusy, setPokeBusy] = useState(false);
   const [justUpdated, setJustUpdated] = useState(false);
   const updatedTimerRef = useRef(null);
 
@@ -431,6 +434,7 @@ export default function VineProfile() {
   const displayName = userObj.display_name || resolvedUsername;
   const avatarUrl = userObj.avatar_url;
   const profilePostCount = Number(userObj?.post_count || 0);
+  const profileCommunities = Array.isArray(userObj?.communities) ? userObj.communities : [];
   const isMe = profile && Number(currentUserId) === Number(userObj.id);
   const isModerator =
     Number(currentUser?.is_admin) === 1 ||
@@ -1039,6 +1043,9 @@ export default function VineProfile() {
     if (profile?.user?.follow_request_pending !== undefined) {
       setIsFollowRequested(Boolean(profile.user.follow_request_pending));
     }
+    if (profile?.user?.poke_state) {
+      setPokeState(profile.user.poke_state);
+    }
   }, [profile]);
 
   useEffect(() => {
@@ -1405,6 +1412,28 @@ export default function VineProfile() {
       navigate(`/vine/dms/new/${userObj.id}?${params.toString()}`);
     } catch (err) {
       console.error("Start DM error:", err);
+    }
+  };
+
+  const handlePoke = async () => {
+    if (!userObj?.id || pokeBusy || pokeState === "poked") return;
+    setPokeBusy(true);
+    try {
+      const res = await fetch(`${API}/api/vine/users/${userObj.id}/poke`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || "Could not poke this user");
+        return;
+      }
+      setPokeState(data.poke_state || "poked");
+    } catch (err) {
+      console.error("Poke user error:", err);
+      alert("Could not poke this user");
+    } finally {
+      setPokeBusy(false);
     }
   };
 
@@ -1815,6 +1844,20 @@ export default function VineProfile() {
                                   📧 DM
                                 </button>
                               )}
+
+                              <button
+                                className={`poke-btn ${pokeState === "poked" ? "is-poked" : ""}`}
+                                onClick={handlePoke}
+                                disabled={pokeBusy || pokeState === "poked"}
+                              >
+                                {pokeBusy
+                                  ? "Poking…"
+                                  : pokeState === "poke_back"
+                                    ? "👋 Poke back"
+                                    : pokeState === "poked"
+                                      ? "✓ Poked"
+                                      : "👋 Poke"}
+                              </button>
                             </>
                           )}
 
@@ -2056,6 +2099,37 @@ export default function VineProfile() {
                 <strong>{formatCompactStat(profile?.user?.total_like_count || 0)}</strong> Likes
               </span>
             </div>
+            {profileCommunities.length > 0 && (
+              <section className="profile-community-memberships" aria-label="Communities joined">
+                <div className="profile-community-memberships-head">
+                  <span>Communities joined</span>
+                  <small>{profileCommunities.length}</small>
+                </div>
+                <div className="profile-community-membership-list">
+                  {profileCommunities.map((community) => (
+                    <Link
+                      key={community.id || community.slug}
+                      className="profile-community-membership"
+                      to={`/vine/communities/${encodeURIComponent(community.slug)}`}
+                    >
+                      {community.avatar_url ? (
+                        <img src={community.avatar_url} alt="" loading="lazy" />
+                      ) : (
+                        <span className="profile-community-membership-avatar" aria-hidden="true">
+                          {String(community.name || "C").trim().charAt(0).toUpperCase()}
+                        </span>
+                      )}
+                      <strong>{community.name}</strong>
+                    </Link>
+                  ))}
+                </div>
+              </section>
+            )}
+            <ProfileDelights
+              username={resolvedUsername}
+              isMe={Boolean(isMe)}
+              hidden={Boolean(isBlocked || isPrivateLocked)}
+            />
           </>
         )}
       </div>

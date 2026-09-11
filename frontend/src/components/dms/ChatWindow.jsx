@@ -5,6 +5,7 @@ import MessageBubble from "./MessageBubble";
 import MessageInput from "./MessageInput";
 import GroupDetailsSheet from "./GroupDetailsSheet";
 import DirectSharedMedia from "./DirectSharedMedia";
+import DirectChatPet from "./DirectChatPet";
 import { CHAT_THEMES, normalizeChatTheme } from "./chatThemes";
 import { buildGroupSenderStyles } from "./groupSenderColors";
 import "./ChatWindow.css";
@@ -226,6 +227,7 @@ export default function ChatWindow({
     quick_emoji: "👍",
     nicknames: {},
   });
+  const [chatPet, setChatPet] = useState(null);
   const [directViewPreferences, setDirectViewPreferences] = useState(DEFAULT_DIRECT_VIEW_PREFERENCES);
   const [nicknameDrafts, setNicknameDrafts] = useState({});
   const [callState, setCallState] = useState("idle");
@@ -515,6 +517,27 @@ export default function ChatWindow({
     loadChatSettings();
   }, [conversationId, token]);
 
+  const loadChatPet = useCallback(async () => {
+    if (!conversationId || !token || isGroup) {
+      setChatPet(null);
+      return;
+    }
+    try {
+      const response = await fetch(`${API}/api/dms/conversations/${conversationId}/pet`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+      });
+      const data = await response.json().catch(() => ({}));
+      if (response.ok) setChatPet(data);
+    } catch {
+      // Retried when the chat or settings sheet is opened again.
+    }
+  }, [conversationId, isGroup, token]);
+
+  useEffect(() => {
+    loadChatPet();
+  }, [loadChatPet]);
+
   useEffect(() => {
     if (isGroup || !directViewPreferenceKey) {
       setDirectViewPreferences(DEFAULT_DIRECT_VIEW_PREFERENCES);
@@ -748,6 +771,7 @@ export default function ChatWindow({
       inFlightMessageKeysRef.current.delete(pendingKey);
       inFlightRequestIdsRef.current.delete(pendingKey);
       setReplyTarget(null);
+      if (chatPet?.adopted) loadChatPet();
     } catch (err) {
       console.error("Send message failed:", err);
       setMessages(prev => prev.filter(m => m.id !== tempId));
@@ -977,6 +1001,10 @@ export default function ChatWindow({
       });
       setNicknameDrafts(nextNicknames);
     });
+    socket.on("dm_pet_updated", ({ conversation_id, ...nextPet }) => {
+      if (String(conversation_id) !== String(conversationId)) return;
+      setChatPet(nextPet);
+    });
     socket.on("dm_group_removed", ({ conversation_id }) => {
       if (String(conversation_id) !== String(conversationId)) return;
       setProfileSheetOpen(false);
@@ -1056,6 +1084,7 @@ export default function ChatWindow({
       socket.off("dm_typing_stop");
       socket.off("dm_reaction_updated");
       socket.off("dm_settings_updated");
+      socket.off("dm_pet_updated");
       socket.off("dm_group_removed");
       socket.off("user_presence_changed");
       socket.off("dm_call_invite");
@@ -1420,6 +1449,9 @@ export default function ChatWindow({
                 {!isGroup && chatSettings.disappearing_enabled && (
                   <div className="chat-vanish-pill">{getDisappearingLabel(chatSettings.disappear_mode)}</div>
                 )}
+                {!isGroup && chatPet?.adopted && (
+                  <div className="chat-pet-pill">{chatPet?.stage?.emoji || "🌱"} {chatPet.pet_name}</div>
+                )}
               </div>
             </div>
           </div>
@@ -1708,6 +1740,13 @@ export default function ChatWindow({
             >
               View full profile
             </button>
+
+            <DirectChatPet
+              conversationId={conversationId}
+              token={token}
+              pet={chatPet}
+              onUpdated={setChatPet}
+            />
 
             <section className="dm-direct-nickname-setting" aria-labelledby="dm-direct-nickname-title">
               <div>

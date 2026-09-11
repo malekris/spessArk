@@ -1,0 +1,46 @@
+.community-quests { grid-column: 1 / -1; display: grid; gap: 14px; }
+.community-quests-hero { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 20px; border: 1px solid rgba(16,185,129,.2); border-radius: 24px; background: radial-gradient(circle at 90% 10%, rgba(250,204,21,.2), transparent 28%), linear-gradient(135deg,#064e3b,#047857 65%,#10b981); color: #fff; box-shadow: 0 18px 36px rgba(6,78,59,.16); }
+.community-quests-hero span { color: #a7f3d0; font-size: .7rem; font-weight: 900; letter-spacing: .13em; text-transform: uppercase; }
+.community-quests-hero h4 { margin: 5px 0 4px; color: #fff; font-size: 1.35rem; }
+.community-quests-hero p { max-width: 580px; margin: 0; color: rgba(255,255,255,.78); font-size: .86rem; line-height: 1.45; }
+.community-quests-hero button,.community-quest-launch { border: 0; border-radius: 13px; padding: 10px 14px; background: #fff; color: #065f46; font-weight: 900; cursor: pointer; white-space: nowrap; box-shadow: 0 10px 22px rgba(2,44,34,.18); }
+.community-quest-composer { display: grid; gap: 13px; padding: 17px; border: 1px solid #cfe8dc; border-radius: 22px; background: rgba(255,255,255,.94); box-shadow: 0 12px 28px rgba(6,78,59,.08); }
+.community-quest-composer label { display: grid; gap: 6px; color: #345e50; font-size: .76rem; font-weight: 850; }
+.community-quest-composer input { min-width: 0; height: 42px; padding: 0 12px; border: 1px solid #cce2d8; border-radius: 12px; background: #fbfefc; color: #12372b; font: inherit; outline: 0; }
+.community-quest-composer input:focus { border-color: #10b981; box-shadow: 0 0 0 3px rgba(16,185,129,.12); }
+.community-quest-form-row { display: grid; grid-template-columns: 1.45fr .7fr .9fr; gap: 12px; align-items: end; }
+.community-quest-form-row fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.community-quest-form-row legend { margin-bottom: 6px; color: #345e50; font-size: .76rem; font-weight: 850; }
+.community-quest-emojis { display: flex; gap: 5px; }
+.community-quest-emojis button { width: 38px; height: 38px; border: 1px solid #d7e8e0; border-radius: 11px; background: #f8fcfa; cursor: pointer; }
+.community-quest-emojis button.active { border-color: #059669; background: #d1fae5; box-shadow: inset 0 0 0 1px #059669; }
+.community-quest-launch { justify-self: end; color: #fff; background: linear-gradient(135deg,#047857,#10b981); box-shadow: 0 10px 20px rgba(16,185,129,.18); }
+.community-quest-launch:disabled { opacity: .55; cursor: not-allowed; }
+.community-quest-notice { padding: 11px 13px; border-radius: 13px; background: #ecfdf5; color: #047857; font-size: .8rem; font-weight: 800; }
+.community-quest-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+.community-quest-card { display: grid; gap: 13px; padding: 16px; border: 1px solid #d6e9e0; border-radius: 20px; background: linear-gradient(145deg,#fff,#f7fcf9); box-shadow: 0 10px 24px rgba(6,78,59,.07); }
+.community-quest-card.complete { border-color: rgba(245,158,11,.36); background: radial-gradient(circle at 95% 5%,rgba(250,204,21,.16),transparent 35%),linear-gradient(145deg,#fff,#fffbeb); }
+.community-quest-card-head { display: flex; align-items: center; gap: 11px; min-width: 0; }
+.community-quest-icon { width: 44px; height: 44px; flex: 0 0 44px; display: grid; place-items: center; border-radius: 14px; background: #ecfdf5; font-size: 1.35rem; box-shadow: inset 0 0 0 1px #d1fae5; }
+.community-quest-card-head > div { min-width: 0; display: grid; gap: 3px; }
+.community-quest-card-head strong { color: #073b2c; font-size: .9rem; line-height: 1.3; overflow-wrap: anywhere; }
+.community-quest-card-head small { color: #71847c; font-size: .68rem; }
+.community-quest-remove { margin-left: auto; border: 0; border-radius: 10px; padding: 6px 8px; background: transparent; color: #789088; font-weight: 900; cursor: pointer; }
+.community-quest-progress-copy { display: flex; justify-content: space-between; gap: 10px; color: #3f6256; font-size: .75rem; font-weight: 800; }
+.community-quest-progress-copy strong { color: #047857; }
+.community-quest-progress { height: 9px; overflow: hidden; border-radius: 999px; background: #dcece5; box-shadow: inset 0 1px 2px rgba(6,78,59,.1); }
+.community-quest-progress span { display: block; height: 100%; min-width: 0; border-radius: inherit; background: linear-gradient(90deg,#10b981,#34d399,#facc15); transition: width .35s ease; }
+.community-quest-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.community-quest-card-foot small { color: #71847c; font-size: .69rem; font-weight: 750; }
+.community-quest-card-foot button { border: 1px solid #9ed8c0; border-radius: 11px; padding: 8px 11px; background: #ecfdf5; color: #047857; font-size: .73rem; font-weight: 900; cursor: pointer; }
+.community-quest-card-foot button:disabled { border-color: #d8e5df; background: #f3f6f4; color: #82928c; cursor: not-allowed; }
+.community-quest-empty { display: grid; justify-items: center; gap: 5px; padding: 42px 20px; border: 1px dashed #bfdbce; border-radius: 20px; color: #71847c; text-align: center; background: rgba(255,255,255,.75); }
+.community-quest-empty > span { font-size: 2rem; }
+.community-quest-empty strong { color: #285b49; }
+.community-quest-empty p { margin: 0; font-size: .8rem; }
+.theme-dark .community-quest-composer,.theme-dark .community-quest-card,.theme-dark .community-quest-empty { border-color: #284c3e; background: #10231d; color: #b8ccc4; }
+.theme-dark .community-quest-composer input { border-color: #315247; background: #0c1b16; color: #ecfdf5; }
+.theme-dark .community-quest-card.complete { background: radial-gradient(circle at 95% 5%,rgba(250,204,21,.12),transparent 35%),#171f18; }
+.theme-dark .community-quest-card-head strong { color: #d1fae5; }
+.theme-dark .community-quest-icon { background: #17352b; box-shadow: inset 0 0 0 1px #2c5547; }
+@media(max-width:760px){.community-quests-hero{flex-direction:column}.community-quest-form-row,.community-quest-grid{grid-template-columns:1fr}.community-quest-launch{justify-self:stretch}.community-quest-card-foot{align-items:stretch;flex-direction:column}.community-quest-card-foot button{width:100%}}

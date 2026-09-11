@@ -387,6 +387,10 @@
   grid-template-columns: 1fr;
 }
 
+.community-body-grid.quests-only {
+  grid-template-columns: 1fr;
+}
+
 .community-tabs {
   display: flex;
   gap: 8px;

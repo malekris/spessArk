@@ -61,6 +61,16 @@
 }
 
 .parent-batch-release__audit { display: grid; gap: 0.75rem; }
+.parent-batch-release__storage-warning {
+  padding: 0.72rem 0.8rem;
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  border-radius: 7px;
+  background: rgba(120, 53, 15, 0.18);
+  color: #fde68a;
+  font-size: 0.72rem;
+  font-weight: 750;
+  line-height: 1.45;
+}
 .parent-batch-release__stats {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

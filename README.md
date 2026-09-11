@@ -155,6 +155,8 @@ PARENT_R2_SECRET_ACCESS_KEY
 
 `PARENT_R2_ENDPOINT` is only required when using a custom S3-compatible endpoint. The Admin Dashboard disables document release until private storage is ready.
 
+When the dedicated `PARENT_R2_*` variables are absent, SPESS Parents can reuse the configured private `BACKUP_R2_*` bucket. Parent PDFs remain under the separate `spess-parents/` object prefix and are never stored in Vine's public-media bucket. Dedicated parent storage remains the preferred production configuration.
+
 ---
 
 ## Database Design

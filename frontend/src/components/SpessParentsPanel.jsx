@@ -16,6 +16,16 @@ const TABS = [
   { id: "reports", label: "Release Reports" },
   { id: "circulars", label: "Publish Circulars" },
 ];
+const MATCHING_OPTIONS = {
+  O_LEVEL: {
+    classes: ["S1", "S2", "S3", "S4"],
+    streams: ["North", "South"],
+  },
+  A_LEVEL: {
+    classes: ["S5", "S6"],
+    streams: ["Arts", "Sciences"],
+  },
+};
 const formatDateTime = (value) => {
   if (!value) return "—";
   const parsed = new Date(value);
@@ -75,12 +85,15 @@ export default function SpessParentsPanel({ onClose }) {
   const [selectedParentId, setSelectedParentId] = useState("");
   const [accountFilter, setAccountFilter] = useState("all");
   const [learnerQuery, setLearnerQuery] = useState("");
-  const [learnerLevel, setLearnerLevel] = useState("all");
+  const [learnerLevel, setLearnerLevel] = useState("O_LEVEL");
+  const [learnerClassLevel, setLearnerClassLevel] = useState("S1");
+  const [learnerStream, setLearnerStream] = useState("North");
   const [relationship, setRelationship] = useState("Parent / Guardian");
   const [temporaryPassword, setTemporaryPassword] = useState("");
   const [releasePeriod, setReleasePeriod] = useState(() => getCalendarReleasePeriod(DEFAULT_SCHOOL_CALENDAR));
   const [circularForm, setCircularForm] = useState(defaultCircularForm);
   const [loading, setLoading] = useState(true);
+  const [matchingLoading, setMatchingLoading] = useState(false);
   const [busyKey, setBusyKey] = useState("");
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -89,13 +102,11 @@ export default function SpessParentsPanel({ onClose }) {
     setLoading(true);
     setError("");
     try {
-      const [overviewData, learnerRows, documentRows] = await Promise.all([
+      const [overviewData, documentRows] = await Promise.all([
         adminFetch("/api/admin/parents/overview"),
-        adminFetch("/api/admin/parents/learners"),
         adminFetch("/api/admin/parents/documents"),
       ]);
       setOverview(overviewData || { counts: {}, accounts: [], storageReady: false });
-      setLearners(Array.isArray(learnerRows) ? learnerRows : []);
       setDocuments(Array.isArray(documentRows) ? documentRows : []);
     } catch (err) {
       setError(err.message || "SPESS Parents information could not be loaded.");
@@ -107,6 +118,38 @@ export default function SpessParentsPanel({ onClose }) {
   useEffect(() => {
     loadPanel();
   }, [loadPanel]);
+
+  // Fetch only the selected class and stream. This keeps matching responsive
+  // with the full school register instead of truncating an 800-learner payload.
+  useEffect(() => {
+    if (activeTab !== "matching") return undefined;
+    let active = true;
+    const loadMatchingLearners = async () => {
+      setMatchingLoading(true);
+      setLearners([]);
+      setError("");
+      try {
+        const params = new URLSearchParams({
+          level: learnerLevel,
+          classLevel: learnerClassLevel,
+          stream: learnerStream,
+        });
+        const learnerRows = await adminFetch(`/api/admin/parents/learners?${params.toString()}`);
+        if (active) setLearners(Array.isArray(learnerRows) ? learnerRows : []);
+      } catch (err) {
+        if (active) {
+          setLearners([]);
+          setError(err.message || "Learners could not be loaded for matching.");
+        }
+      } finally {
+        if (active) setMatchingLoading(false);
+      }
+    };
+    loadMatchingLearners();
+    return () => {
+      active = false;
+    };
+  }, [activeTab, learnerClassLevel, learnerLevel, learnerStream]);
 
   useEffect(() => {
     let active = true;
@@ -151,10 +194,16 @@ export default function SpessParentsPanel({ onClose }) {
   const filteredLearners = useMemo(() => {
     const query = learnerQuery.trim().toLowerCase();
     return learners
-      .filter((learner) => learnerLevel === "all" || learner.learner_level === learnerLevel)
-      .filter((learner) => !query || `${learner.learner_name} ${learner.class_level} ${learner.stream}`.toLowerCase().includes(query))
-      .slice(0, 80);
-  }, [learnerLevel, learnerQuery, learners]);
+      .filter((learner) => !query || `${learner.learner_name} ${learner.class_level} ${learner.stream}`.toLowerCase().includes(query));
+  }, [learnerQuery, learners]);
+
+  const changeLearnerLevel = (level) => {
+    const options = MATCHING_OPTIONS[level];
+    setLearnerLevel(level);
+    setLearnerClassLevel(options.classes[0]);
+    setLearnerStream(options.streams[0]);
+    setLearnerQuery("");
+  };
   const runAction = async (key, action) => {
     setBusyKey(key);
     setNotice("");
@@ -218,6 +267,10 @@ export default function SpessParentsPanel({ onClose }) {
   const submitCircularDocument = async (event) => {
     event.preventDefault();
     const form = circularForm;
+    if (!overview.storageReady) {
+      setError("Private Cloudflare R2 storage is not connected. Configure PARENT_R2_* or the private BACKUP_R2_* credentials on Railway.");
+      return;
+    }
     if (!form.file) {
       setError("Choose the approved PDF before releasing it.");
       return;
@@ -359,8 +412,10 @@ export default function SpessParentsPanel({ onClose }) {
           <div className="spess-parents-match-controls">
             <label><span>Parent Account</span><select value={selectedParentId} onChange={(event) => setSelectedParentId(event.target.value)}>{accounts.map((account) => <option key={account.id} value={account.id}>{account.display_name} · {account.status}</option>)}</select></label>
             <label><span>Relationship</span><select value={relationship} onChange={(event) => setRelationship(event.target.value)}><option>Parent / Guardian</option><option>Mother</option><option>Father</option><option>Guardian</option><option>Sponsor</option></select></label>
-            <label><span>Level</span><select value={learnerLevel} onChange={(event) => setLearnerLevel(event.target.value)}><option value="all">O-Level and A-Level</option><option value="O_LEVEL">O-Level</option><option value="A_LEVEL">A-Level</option></select></label>
-            <label className="is-wide"><span>Find Learner</span><input type="search" placeholder="Search name, class or stream" value={learnerQuery} onChange={(event) => setLearnerQuery(event.target.value)} /></label>
+            <label><span>Level</span><select value={learnerLevel} onChange={(event) => changeLearnerLevel(event.target.value)}><option value="O_LEVEL">O-Level</option><option value="A_LEVEL">A-Level</option></select></label>
+            <label><span>Class</span><select value={learnerClassLevel} onChange={(event) => setLearnerClassLevel(event.target.value)}>{MATCHING_OPTIONS[learnerLevel].classes.map((classLevel) => <option key={classLevel}>{classLevel}</option>)}</select></label>
+            <label><span>Stream</span><select value={learnerStream} onChange={(event) => setLearnerStream(event.target.value)}>{MATCHING_OPTIONS[learnerLevel].streams.map((stream) => <option key={stream}>{stream}</option>)}</select></label>
+            <label><span>Find Learner</span><input type="search" placeholder="Search selected class" value={learnerQuery} onChange={(event) => setLearnerQuery(event.target.value)} /></label>
           </div>
 
           {selectedParent && (
@@ -378,7 +433,13 @@ export default function SpessParentsPanel({ onClose }) {
             </div>
           )}
 
-          <div className="spess-parents-learner-results">
+          <div className="spess-parents-learner-result-heading">
+            <strong>{learnerClassLevel} {learnerStream}</strong>
+            <span>{matchingLoading ? "Loading..." : `${filteredLearners.length} learners`}</span>
+          </div>
+
+          <div className="spess-parents-learner-results" aria-busy={matchingLoading}>
+            {matchingLoading && <div className="spess-parents-empty">Loading the selected class list...</div>}
             {filteredLearners.map((learner) => {
               const alreadyLinked = selectedParent?.links?.some((link) => Number(link.active) === 1 && link.learner_level === learner.learner_level && Number(link.learner_id) === Number(learner.id));
               return (
@@ -388,6 +449,7 @@ export default function SpessParentsPanel({ onClose }) {
                 </article>
               );
             })}
+            {!matchingLoading && !filteredLearners.length && <div className="spess-parents-empty">No active learner matches this class, stream, and search.</div>}
           </div>
         </div>
       )}
@@ -409,12 +471,13 @@ export default function SpessParentsPanel({ onClose }) {
         <div className="spess-parents-admin-section spess-parents-release-layout">
           <form className="spess-parents-release-form" onSubmit={submitCircularDocument}>
             <div className="spess-parents-subheading"><strong>Publish a school circular</strong><span>Private PDF delivery</span></div>
+            {!overview.storageReady && <div className="spess-parents-storage-warning" role="alert">Private document storage is not connected. Configure the parent or backup R2 credentials on Railway before publishing.</div>}
             <label><span>Circular Title</span><input value={circularForm.title} onChange={(event) => setCircularForm((current) => ({ ...current, title: event.target.value }))} required /></label>
             <label><span>Summary</span><textarea rows={4} value={circularForm.description} onChange={(event) => setCircularForm((current) => ({ ...current, description: event.target.value }))} required /></label>
             <div className="spess-parents-form-grid"><label><span>Academic Year</span><input type="number" value={circularForm.academicYear} onChange={(event) => setCircularForm((current) => ({ ...current, academicYear: event.target.value }))} required /></label><label><span>Term</span><select value={circularForm.term} onChange={(event) => setCircularForm((current) => ({ ...current, term: event.target.value }))}><option>Term 1</option><option>Term 2</option><option>Term 3</option><option>General</option></select></label></div>
             <label><span>Audience</span><select value={circularForm.audienceScope} onChange={(event) => setCircularForm((current) => ({ ...current, audienceScope: event.target.value }))}><option value="ALL_PARENTS">All Approved Parents</option><option value="O_LEVEL">O-Level Parents</option><option value="A_LEVEL">A-Level Parents</option></select></label>
             <label className="spess-parents-file-field"><span>Circular PDF</span><input type="file" accept="application/pdf,.pdf" onChange={(event) => setCircularForm((current) => ({ ...current, file: event.target.files?.[0] || null }))} required /><strong>{circularForm.file?.name || "No PDF selected"}</strong></label>
-            <button type="submit" disabled={Boolean(busyKey) || !overview.storageReady}>{busyKey === "upload-CIRCULAR" ? "Publishing..." : "Publish Circular"}</button>
+            <button type="submit" disabled={Boolean(busyKey)}>{!overview.storageReady ? "Resolve Private Storage" : busyKey === "upload-CIRCULAR" ? "Publishing..." : "Publish Circular"}</button>
           </form>
           <DocumentRegister documents={recentDocuments.filter((document) => document.document_type === "CIRCULAR")} busyKey={busyKey} onOpen={openAdminDocument} onRevoke={revokeDocument} />
         </div>

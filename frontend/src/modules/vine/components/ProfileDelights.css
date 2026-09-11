@@ -175,7 +175,22 @@
 .profile-guestbook-author { display: flex; align-items: center; gap: 9px; width: 100%; padding: 0; border: 0; background: transparent; text-align: left; cursor: pointer; }
 .profile-guestbook-author img { width: 34px; height: 34px; border-radius: 50%; object-fit: cover; background: #d1fae5; }
 .profile-guestbook-author > span { min-width: 0; display: grid; gap: 1px; }
-.profile-guestbook-author strong { overflow: hidden; color: #064e3b; font-size: 0.78rem; text-overflow: ellipsis; white-space: nowrap; }
+.profile-guestbook-author strong { min-width: 0; display: flex; align-items: center; gap: 5px; color: #064e3b; font-size: 0.78rem; }
+.profile-guestbook-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.profile-guestbook-verified {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 15px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: #fff;
+  background: #1d9bf0;
+  box-shadow: 0 0 6px rgba(29, 155, 240, 0.48);
+}
+.profile-guestbook-verified.guardian { background: #087f5b; box-shadow: 0 0 6px rgba(8, 127, 91, 0.42); }
+.profile-guestbook-verified svg { width: 9px; height: 9px; }
 .profile-guestbook-author small { color: #75877f; font-size: 0.66rem; }
 .profile-guestbook-entry p { margin: 9px 0 0 43px; color: #233d34; font-size: 0.83rem; line-height: 1.45; overflow-wrap: anywhere; }
 .profile-guestbook-actions { display: flex; align-items: center; gap: 7px; margin: 10px 0 0 43px; }

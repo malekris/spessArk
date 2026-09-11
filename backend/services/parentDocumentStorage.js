@@ -6,19 +6,58 @@ import {
   S3Client,
 } from "@aws-sdk/client-s3";
 
-// Learner reports must never share Vine's public-media bucket. A dedicated
-// private bucket also lets its access token be revoked independently.
-const R2_ACCOUNT_ID = String(process.env.PARENT_R2_ACCOUNT_ID || "").trim();
-const R2_BUCKET = String(process.env.PARENT_R2_BUCKET || "").trim();
-const R2_ACCESS_KEY_ID = String(process.env.PARENT_R2_ACCESS_KEY_ID || "").trim();
-const R2_SECRET_ACCESS_KEY = String(process.env.PARENT_R2_SECRET_ACCESS_KEY || "").trim();
-const R2_ENDPOINT = R2_ACCOUNT_ID
-  ? `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`
-  : String(process.env.PARENT_R2_ENDPOINT || "").trim();
+const readEnv = (env, key) => String(env[key] || "").trim();
 
-const r2Ready = Boolean(
-  R2_BUCKET && R2_ACCESS_KEY_ID && R2_SECRET_ACCESS_KEY && R2_ENDPOINT
-);
+/**
+ * Resolve private storage without ever falling back to Vine's public-media
+ * bucket. A dedicated parent bucket remains preferred. Railway deployments
+ * that already have the private backup bucket configured can safely reuse
+ * those credentials because parent documents live under their own prefix and
+ * are only read through authenticated backend routes.
+ */
+export function resolveParentDocumentStorageConfig(env = process.env) {
+  const parent = {
+    accountId: readEnv(env, "PARENT_R2_ACCOUNT_ID"),
+    endpoint: readEnv(env, "PARENT_R2_ENDPOINT"),
+    bucket: readEnv(env, "PARENT_R2_BUCKET"),
+    accessKeyId: readEnv(env, "PARENT_R2_ACCESS_KEY_ID"),
+    secretAccessKey: readEnv(env, "PARENT_R2_SECRET_ACCESS_KEY"),
+    source: "parent",
+  };
+  const backup = {
+    accountId: readEnv(env, "BACKUP_R2_ACCOUNT_ID"),
+    endpoint: readEnv(env, "BACKUP_R2_ENDPOINT"),
+    bucket: readEnv(env, "BACKUP_R2_BUCKET"),
+    accessKeyId: readEnv(env, "BACKUP_R2_ACCESS_KEY_ID"),
+    secretAccessKey: readEnv(env, "BACKUP_R2_SECRET_ACCESS_KEY"),
+    source: "backup",
+  };
+
+  const isComplete = (candidate) =>
+    Boolean(
+      candidate.bucket &&
+      candidate.accessKeyId &&
+      candidate.secretAccessKey &&
+      (candidate.accountId || candidate.endpoint)
+    );
+  const selected = isComplete(parent) ? parent : isComplete(backup) ? backup : parent;
+
+  return {
+    ...selected,
+    endpoint: selected.accountId
+      ? `https://${selected.accountId}.r2.cloudflarestorage.com`
+      : selected.endpoint,
+    ready: isComplete(selected),
+  };
+}
+
+const storageConfig = resolveParentDocumentStorageConfig();
+const R2_BUCKET = storageConfig.bucket;
+const R2_ACCESS_KEY_ID = storageConfig.accessKeyId;
+const R2_SECRET_ACCESS_KEY = storageConfig.secretAccessKey;
+const R2_ENDPOINT = storageConfig.endpoint;
+
+const r2Ready = storageConfig.ready;
 
 const r2Client = r2Ready
   ? new S3Client({

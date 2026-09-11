@@ -80,7 +80,7 @@
 .spess-parents-recovery-box > div span { color: #d8bd6b; font-size: 0.65rem; font-weight: 900; text-transform: uppercase; }
 .spess-parents-recovery-box > div strong { color: #f1f5f9; font-size: 0.8rem; }
 
-.spess-parents-match-controls { display: grid; grid-template-columns: 1.2fr 0.8fr 0.8fr 1.5fr; gap: 0.7rem; }
+.spess-parents-match-controls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.7rem; }
 .spess-parents-match-controls label,
 .spess-parents-release-form label { display: grid; gap: 0.34rem; }
 .spess-parents-match-controls label > span,
@@ -91,6 +91,10 @@
 .spess-parents-linked-chip { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.38rem 0.55rem; border: 1px solid rgba(74, 222, 128, 0.22); border-radius: 6px; color: #d1fae5; font-size: 0.72rem; }
 .spess-parents-linked-chip button { width: 24px; height: 24px; border: 0; border-radius: 50%; background: rgba(248, 113, 113, 0.15); color: #fecaca; font-size: 1rem; cursor: pointer; }
 .spess-parents-empty-inline { color: #94a3b8; font-size: 0.75rem; }
+
+.spess-parents-learner-result-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.spess-parents-learner-result-heading strong { color: #f8fafc; font-size: 0.82rem; }
+.spess-parents-learner-result-heading span { color: #7dd3fc; font-size: 0.66rem; font-weight: 900; text-transform: uppercase; }
 
 .spess-parents-learner-results { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 0.6rem; max-height: 520px; overflow-y: auto; }
 .spess-parents-learner-results article { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.75rem; border: 1px solid rgba(148, 163, 184, 0.16); border-radius: 8px; background: rgba(255, 255, 255, 0.03); }
@@ -105,6 +109,7 @@
 .spess-parents-file-field { padding: 0.7rem; border: 1px dashed rgba(125, 211, 252, 0.3); border-radius: 8px; background: rgba(8, 47, 73, 0.14); }
 .spess-parents-file-field input { min-height: auto; padding: 0; border: 0; background: transparent; }
 .spess-parents-file-field strong { color: #cbd5e1; font-size: 0.7rem; font-weight: 700; }
+.spess-parents-storage-warning { padding: 0.72rem 0.8rem; border: 1px solid rgba(251, 191, 36, 0.3); border-radius: 7px; background: rgba(120, 53, 15, 0.18); color: #fde68a; font-size: 0.72rem; font-weight: 750; line-height: 1.45; }
 .spess-parents-release-form > button { min-height: 44px; border-color: rgba(207, 176, 92, 0.4); background: #9a6c15; color: #ffffff; }
 
 .spess-parents-document-register { display: grid; gap: 0.7rem; }

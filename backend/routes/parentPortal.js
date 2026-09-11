@@ -535,6 +535,8 @@ export default function createParentPortalRoutes(connection) {
     try {
       const query = cleanText(req.query?.query, 100).toLowerCase();
       const requestedLevel = normalizeLearnerLevel(req.query?.level);
+      const classLevel = cleanText(req.query?.classLevel, 20).toUpperCase();
+      const stream = cleanText(req.query?.stream, 40);
       const like = `%${query}%`;
       const rows = [];
 
@@ -544,9 +546,12 @@ export default function createParentPortalRoutes(connection) {
                   COALESCE(NULLIF(status, ''), 'active') AS learner_status
            FROM students
            WHERE (? = '' OR LOWER(CONCAT(name, ' ', class_level, ' ', stream)) LIKE ?)
+             AND COALESCE(NULLIF(status, ''), 'active') = 'active'
+             AND (? = '' OR UPPER(class_level) = ?)
+             AND (? = '' OR LOWER(TRIM(stream)) = LOWER(TRIM(?)))
            ORDER BY class_level, stream, name
-           LIMIT 250`,
-          [query, like]
+           LIMIT 300`,
+          [query, like, classLevel, classLevel, stream, stream]
         );
         rows.push(...oLevel);
       }
@@ -560,9 +565,15 @@ export default function createParentPortalRoutes(connection) {
                   COALESCE(NULLIF(status, ''), 'active') AS learner_status
            FROM alevel_learners
            WHERE (? = '' OR LOWER(CONCAT(first_name, ' ', last_name, ' ', stream)) LIKE ?)
+             AND COALESCE(NULLIF(status, ''), 'active') = 'active'
+             AND (? = '' OR UPPER(SUBSTRING_INDEX(stream, ' ', 1)) = ?)
+             AND (
+               ? = ''
+               OR LOWER(TRIM(SUBSTRING(stream, LENGTH(SUBSTRING_INDEX(stream, ' ', 1)) + 1))) = LOWER(TRIM(?))
+             )
            ORDER BY stream, first_name, last_name
-           LIMIT 250`,
-          [query, like]
+           LIMIT 300`,
+          [query, like, classLevel, classLevel, stream, stream]
         );
         rows.push(...aLevel);
       }

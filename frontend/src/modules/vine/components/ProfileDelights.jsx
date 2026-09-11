@@ -5,6 +5,29 @@ import "./ProfileDelights.css";
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const DEFAULT_AVATAR = "/default-avatar.png";
 
+const hasSpecialVerifiedBadge = (username) =>
+  ["vine guardian", "vine_guardian", "vine news", "vine_news"].includes(
+    String(username || "").trim().toLowerCase()
+  );
+
+const GuestbookVerifiedMark = ({ special = false }) => (
+  <span
+    className={`profile-guestbook-verified${special ? " guardian" : ""}`}
+    aria-label="Verified"
+    title="Verified"
+  >
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path
+        d="M20 6 9 17l-5-5"
+        stroke="currentColor"
+        strokeWidth="3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  </span>
+);
+
 const asAvatarUrl = (url) => {
   const value = String(url || "").trim();
   if (!value) return DEFAULT_AVATAR;
@@ -136,7 +159,7 @@ export default function ProfileDelights({ username, isMe = false, hidden = false
     if (!currentRewind?.stats || sharingType) return;
     const rewindType = currentRewind.rewind_type || "weekly";
     if (currentRewind.shared_post_id) {
-      navigate(`/vine/post/${currentRewind.shared_post_id}`);
+      navigate(`/vine/feed?post=${encodeURIComponent(currentRewind.shared_post_id)}`);
       return;
     }
     setSharingType(rewindType);
@@ -161,7 +184,7 @@ export default function ProfileDelights({ username, isMe = false, hidden = false
         shared_post_id: postId,
         shared_image_url: data.image_url || current?.shared_image_url || null,
       }));
-      navigate(`/vine/post/${postId}`);
+      navigate(`/vine/feed?post=${encodeURIComponent(postId)}`);
     } catch (error) {
       setNotice(error.message || `Could not share your ${currentRewind.title || "Vine Rewind"}`);
     } finally {
@@ -250,7 +273,7 @@ export default function ProfileDelights({ username, isMe = false, hidden = false
                   {sharingType === rewindType
                     ? "Creating artwork…"
                     : currentRewind.shared_post_id
-                    ? "View shared post"
+                    ? "View in feed"
                     : rewindType === "anniversary" ? "Share Anniversary" : "Share Rewind"}
                 </button>
               )}
@@ -312,7 +335,15 @@ export default function ProfileDelights({ username, isMe = false, hidden = false
               <article key={entry.id} className={`profile-guestbook-entry ${entry.status === "pending" ? "pending" : ""}`}>
                 <button type="button" className="profile-guestbook-author" onClick={() => navigate(`/vine/profile/${entry.username}`)}>
                   <img src={asAvatarUrl(entry.avatar_url)} alt="" onError={(event) => { event.currentTarget.src = DEFAULT_AVATAR; }} />
-                  <span><strong>{entry.display_name || entry.username}{Number(entry.is_verified) === 1 ? " ✓" : ""}</strong><small>@{entry.username} · {formatGuestbookDate(entry.created_at)}</small></span>
+                  <span>
+                    <strong>
+                      <span className="profile-guestbook-name">{entry.display_name || entry.username}</span>
+                      {(Number(entry.is_verified) === 1 || hasSpecialVerifiedBadge(entry.username)) && (
+                        <GuestbookVerifiedMark special={hasSpecialVerifiedBadge(entry.username)} />
+                      )}
+                    </strong>
+                    <small>@{entry.username} · {formatGuestbookDate(entry.created_at)}</small>
+                  </span>
                 </button>
                 <p>{entry.message}</p>
                 {entry.status === "pending" && guestbook.is_owner && (

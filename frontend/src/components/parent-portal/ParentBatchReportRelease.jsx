@@ -267,6 +267,10 @@ export default function ParentBatchReportRelease({
 
   const releaseReports = async () => {
     if (!auditIsCurrent || !readyCandidates.length || releasing) return;
+    if (!storageReady) {
+      setError("Private Cloudflare R2 storage is not connected. Configure PARENT_R2_* or the private BACKUP_R2_* credentials on Railway.");
+      return;
+    }
     const replacementNote = alreadyReleasedCount
       ? ` ${alreadyReleasedCount} existing report${alreadyReleasedCount === 1 ? "" : "s"} will be replaced.`
       : "";
@@ -352,6 +356,12 @@ export default function ParentBatchReportRelease({
         {checking ? "Checking linked reports..." : "Check Linked Reports"}
       </button>
 
+      {!storageReady && (
+        <div className="parent-batch-release__storage-warning" role="alert">
+          Private report storage is not connected. Configure the parent or backup R2 credentials on Railway before releasing reports.
+        </div>
+      )}
+
       {auditIsCurrent && (
         <div className="parent-batch-release__audit">
           <div className="parent-batch-release__stats">
@@ -368,8 +378,12 @@ export default function ParentBatchReportRelease({
             </details>
           )}
 
-          <button className="parent-batch-release__release" type="button" onClick={releaseReports} disabled={!storageReady || !readyCandidates.length || releasing}>
-            {releasing ? `Releasing ${progress.completed} of ${progress.total}...` : `Release ${readyCandidates.length} Report Card${readyCandidates.length === 1 ? "" : "s"}`}
+          <button className="parent-batch-release__release" type="button" onClick={releaseReports} disabled={!readyCandidates.length || releasing}>
+            {!storageReady
+              ? "Resolve Private Storage"
+              : releasing
+                ? `Releasing ${progress.completed} of ${progress.total}...`
+                : `Release ${readyCandidates.length} Report Card${readyCandidates.length === 1 ? "" : "s"}`}
           </button>
         </div>
       )}

@@ -150,7 +150,7 @@ export default function VineCallLayer() {
       ringtoneAudioRef.current.pause();
       ringtoneAudioRef.current.currentTime = 0;
     }
-    navigator.vibrate?.(0);
+    if (navigator.userActivation?.hasBeenActive) navigator.vibrate?.(0);
     callRef.current = null;
     activeStartedAtRef.current = null;
     pendingIceCandidatesRef.current = [];
@@ -509,7 +509,7 @@ export default function VineCallLayer() {
     if (callState !== "incoming") {
       audio.pause();
       audio.currentTime = 0;
-      navigator.vibrate?.(0);
+      if (navigator.userActivation?.hasBeenActive) navigator.vibrate?.(0);
       return undefined;
     }
 
@@ -520,12 +520,12 @@ export default function VineCallLayer() {
     audio.play().catch(() => {
       // Mobile browsers can block audio until the first interaction; vibration remains available.
     });
-    navigator.vibrate?.([650, 300, 650, 1100]);
+    if (navigator.userActivation?.hasBeenActive) navigator.vibrate?.([650, 300, 650, 1100]);
 
     return () => {
       audio.pause();
       audio.currentTime = 0;
-      navigator.vibrate?.(0);
+      if (navigator.userActivation?.hasBeenActive) navigator.vibrate?.(0);
     };
   }, [callState]);
 

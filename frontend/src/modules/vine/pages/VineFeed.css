@@ -6166,6 +6166,49 @@ body:has(.vine-feed-container) {
 .trending-type-link > span { background: #ccfbf1; color: #0f766e; }
 .trending-type-text { border-color: rgba(148, 163, 184, 0.52); color: #475569; }
 .trending-type-text > span { background: #f1f5f9; color: #64748b; }
+.trending-type-revine { border-color: rgba(8, 127, 91, 0.42); color: #07684d; background: linear-gradient(135deg, #effbf5, #fff8e5); }
+.trending-type-revine > span { background: linear-gradient(145deg, #0b8f67, #075b47); color: #ffffff; box-shadow: 0 4px 9px rgba(8, 127, 91, 0.16); }
+
+.trending-card-revine {
+  position: relative;
+  overflow: hidden;
+  border-color: rgba(8, 127, 91, 0.28);
+  background:
+    radial-gradient(circle at 100% 0%, rgba(217, 155, 43, 0.15), transparent 38%),
+    linear-gradient(145deg, #f2fbf7, #ffffff);
+  box-shadow: 0 12px 24px rgba(8, 81, 63, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.trending-card-revine::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: linear-gradient(180deg, #d99b2b, #0b8f67);
+}
+
+.trending-card-quote-revine .trending-snippet {
+  padding: 9px 10px;
+  border: 1px solid rgba(8, 127, 91, 0.14);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+  color: #25483c;
+  line-height: 1.42;
+}
+
+.trending-revine-source {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding-top: 7px;
+  border-top: 1px solid rgba(8, 127, 91, 0.11);
+  color: #6a8178;
+  font-size: 0.7rem;
+  font-weight: 750;
+}
+
+.trending-revine-source > span { color: #0b8f67; font-size: 0.88rem; }
+.trending-revine-source strong { min-width: 0; overflow: hidden; color: #075b47; text-overflow: ellipsis; white-space: nowrap; }
 
 .theme-dark .trending-type-badge {
   border-color: rgba(76, 116, 96, 0.66);
@@ -6186,6 +6229,12 @@ body:has(.vine-feed-container) {
 .theme-dark .trending-type-link > span { background: #174d49; color: #99f6e4; }
 .theme-dark .trending-type-text { border-color: rgba(148, 163, 184, 0.52); color: #cbd5e1; }
 .theme-dark .trending-type-text > span { background: #334155; color: #cbd5e1; }
+.theme-dark .trending-type-revine { border-color: rgba(87, 205, 156, 0.48); color: #a7f3d0; background: rgba(19, 55, 43, 0.72); }
+.theme-dark .trending-type-revine > span { background: #196b50; color: #e8fff4; }
+.theme-dark .trending-card-revine { border-color: rgba(87, 205, 156, 0.3); background: linear-gradient(145deg, #153329, #10231e); }
+.theme-dark .trending-card-quote-revine .trending-snippet { border-color: rgba(87, 205, 156, 0.2); background: rgba(4, 19, 14, 0.5); color: #e0f4e9; }
+.theme-dark .trending-revine-source { border-top-color: rgba(145, 220, 190, 0.16); color: #9eb6ac; }
+.theme-dark .trending-revine-source strong { color: #b9eed2; }
 
 /* ── Birthday celebration card refresh ────────────────────────────────────
    Keep Vine green as an accent, not the entire surface. */
@@ -6622,15 +6671,22 @@ body:has(.vine-feed-container) {
     max-width: 100%;
     margin: 0;
     padding: 3px 0 1px;
-    overflow-x: auto;
-    flex-wrap: nowrap;
-    scrollbar-width: none;
+    overflow: visible;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    row-gap: 6px;
   }
-
-  .vine-dm-bar::-webkit-scrollbar { display: none; }
   .discover-btn,
   .messages-btn { min-height: 36px; padding-inline: 11px; border-radius: 11px; font-size: 0.72rem; }
+  .vine-dm-bar .messages-btn,
+  .vine-dm-bar .discover-btn { display: inline-flex; flex: 0 0 auto; width: max-content; min-width: max-content; white-space: nowrap; }
   .vine-dm-bar .dm-search { flex: 0 0 150px; min-height: 36px; padding-inline: 12px; }
+  .vine-dm-bar .dm-search {
+    width: 150px;
+    max-width: 150px;
+    min-width: 0;
+    box-sizing: border-box;
+  }
 }
 
 @media (max-width: 430px) {
@@ -6640,38 +6696,48 @@ body:has(.vine-feed-container) {
   .vine-dm-bar { gap: 6px; }
   .discover-btn,
   .messages-btn { padding-inline: 9px; }
+  .vine-dm-bar .dm-search {
+    flex-basis: 120px;
+    width: 120px;
+    max-width: 120px;
+  }
 }
 
 /* ── Mobile nav fit pass ────────────────────────────────────────────────── */
 @media (max-width: 768px) {
   .vine-nav-top,
-  .vine-nav-row { max-width: 100%; overflow: hidden; }
+  .vine-nav-row { max-width: 100%; }
 
   .vine-nav-row {
-    grid-template-columns: minmax(0, auto) 38px minmax(0, 1fr);
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    overflow-x: auto;
+    scrollbar-width: none;
   }
+
+  .vine-nav-row::-webkit-scrollbar { display: none; }
 
   .vine-nav-top h2 {
-    min-width: 0;
+    flex: 0 0 84px;
     max-width: 84px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
+  .notif-bell { flex: 0 0 38px; }
+
   .nav-right {
-    min-width: 0;
-    max-width: 100%;
-    overflow: hidden;
+    flex: 0 0 auto;
+    min-width: max-content;
+    max-width: none;
     justify-content: flex-end;
     gap: 4px;
   }
 
   .nav-right .nav-btn {
-    min-width: 0;
-    flex: 0 1 auto;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    flex: 0 0 auto;
+    min-width: max-content;
+    overflow: visible;
+    text-overflow: clip;
     white-space: nowrap;
     padding-inline: 8px;
   }
@@ -6682,9 +6748,9 @@ body:has(.vine-feed-container) {
 }
 
 @media (max-width: 430px) {
-  .vine-nav-row { grid-template-columns: 72px 34px minmax(0, 1fr); gap: 5px; }
-  .vine-nav-top h2 { max-width: 72px; font-size: 0.98rem; }
-  .notif-bell { min-width: 34px; min-height: 36px; }
+  .vine-nav-row { gap: 5px; }
+  .vine-nav-top h2 { flex-basis: 72px; max-width: 72px; font-size: 0.98rem; }
+  .notif-bell { flex-basis: 34px; min-width: 34px; min-height: 36px; }
   .nav-right { gap: 3px; }
   .nav-right .nav-btn { min-height: 32px; padding-inline: 7px; font-size: 0.64rem; }
   .nav-right .help-btn { max-width: 106px; }
@@ -7044,4 +7110,190 @@ body:has(.vine-feed-container) {
   .composer-style-label { flex-basis: 100%; }
   .composer-style-swatch.color { width: 24px; height: 24px; flex-basis: 24px; }
   .composer-color-picker { min-height: 28px; }
+}
+
+/* ── Vine News editorial lane ───────────────────────────────────────────── */
+html:has(.vine-news-feed),
+body:has(.vine-news-feed) {
+  background: #edf2f5;
+}
+
+.vine-feed-container.vine-news-feed {
+  background:
+    radial-gradient(circle at 8% 0%, rgba(213, 171, 87, 0.17), transparent 26%),
+    radial-gradient(circle at 96% 18%, rgba(133, 184, 205, 0.2), transparent 30%),
+    linear-gradient(180deg, #f4f7f8 0%, #e7eef0 100%);
+}
+
+.vine-news-mode .vine-feed-switcher {
+  border-color: rgba(128, 160, 174, 0.62);
+  background: linear-gradient(145deg, rgba(248, 251, 252, 0.96), rgba(226, 235, 238, 0.96));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.98), 0 14px 28px rgba(36, 67, 80, 0.1);
+}
+
+.vine-news-mode .vine-feed-tab { color: #5d7380; }
+.vine-news-mode .vine-feed-tab:hover { border-color: rgba(194, 153, 65, 0.52); color: #213f4d; }
+.vine-news-mode .vine-feed-tab.active {
+  border-color: rgba(213, 171, 87, 0.78);
+  background: linear-gradient(145deg, #183b4c, #245e70 62%, #347c83);
+  color: #ffffff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24), 0 9px 20px rgba(21, 58, 74, 0.22);
+}
+
+.vine-news-intro {
+  position: relative;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0 0 16px;
+  padding: 20px 22px 21px;
+  overflow: hidden;
+  border: 1px solid rgba(128, 160, 174, 0.62);
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at 92% -20%, rgba(213, 171, 87, 0.34), transparent 34%),
+    linear-gradient(125deg, #173b4d 0%, #245d6d 62%, #317b7f 100%);
+  color: #ffffff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 18px 34px rgba(31, 66, 79, 0.18);
+}
+
+.vine-news-intro::after {
+  content: "";
+  position: absolute;
+  right: -22px;
+  bottom: -44px;
+  width: 170px;
+  height: 170px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 50%;
+  box-shadow: 0 0 0 18px rgba(255, 255, 255, 0.04), 0 0 0 36px rgba(255, 255, 255, 0.035);
+  pointer-events: none;
+}
+
+.vine-news-intro-topline {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.vine-news-intro-mark {
+  color: #f4d38d;
+  font-size: 0.64rem;
+  font-weight: 900;
+  letter-spacing: 0.18em;
+}
+
+.vine-news-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 9px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #e8f1f3;
+  font-size: 0.65rem;
+  font-weight: 850;
+}
+
+.vine-news-live > span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #f4d38d;
+  box-shadow: 0 0 0 3px rgba(244, 211, 141, 0.18);
+}
+
+.vine-news-intro h1 {
+  position: relative;
+  z-index: 1;
+  max-width: 480px;
+  margin: 14px 0 5px;
+  color: #ffffff;
+  font-size: clamp(1.45rem, 4vw, 2rem);
+  letter-spacing: -0.04em;
+  line-height: 1.1;
+}
+
+.vine-news-intro p {
+  position: relative;
+  z-index: 1;
+  max-width: 560px;
+  margin: 0;
+  color: rgba(235, 245, 247, 0.82);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.vine-news-mode .vine-posts-list { gap: 14px; }
+
+.vine-news-post {
+  border-color: rgba(128, 160, 174, 0.48) !important;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(241, 246, 247, 0.98)) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.98), 0 16px 32px rgba(36, 67, 80, 0.1) !important;
+}
+
+.vine-news-post .post-user-meta::before {
+  content: "NEWS DESK";
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  margin-bottom: 4px;
+  padding: 4px 7px;
+  border: 1px solid rgba(194, 153, 65, 0.42);
+  border-radius: 999px;
+  background: #fff7df;
+  color: #8b671f;
+  font-size: 0.58rem;
+  font-weight: 900;
+  letter-spacing: 0.13em;
+}
+
+.vine-news-post .display-name { color: #173e4e; }
+.vine-news-post .post-classic-source { color: #256c77; }
+.vine-news-post .vine-post-content { color: #203d49; }
+
+.vine-news-post .link-preview {
+  margin: 12px 0 14px;
+  border-color: rgba(128, 160, 174, 0.56);
+  border-radius: 18px;
+  background: #ffffff;
+  box-shadow: 0 10px 24px rgba(36, 67, 80, 0.1);
+}
+
+.vine-news-post .link-preview-img {
+  display: block;
+  width: 100%;
+  height: clamp(170px, 32vw, 260px);
+  max-height: none;
+  object-fit: cover;
+  background: linear-gradient(135deg, #dce9ec, #f4f7f8);
+}
+
+.vine-news-post .link-preview-body { padding: 13px 15px 14px; }
+.vine-news-post .link-preview-title { color: #173e4e; font-size: 1rem; line-height: 1.3; }
+.vine-news-post .link-preview-desc { color: #55717c; font-size: 0.82rem; }
+.vine-news-post .link-preview-domain { color: #8b671f; font-size: 0.66rem; }
+
+.theme-dark .vine-feed-container.vine-news-feed {
+  background: radial-gradient(circle at 8% 0%, rgba(203, 158, 72, 0.12), transparent 26%), linear-gradient(180deg, #101e25 0%, #0d171c 100%);
+}
+
+.theme-dark .vine-news-mode .vine-feed-switcher { border-color: rgba(91, 126, 140, 0.64); background: linear-gradient(145deg, rgba(27, 48, 58, 0.98), rgba(18, 34, 42, 0.98)); }
+.theme-dark .vine-news-mode .vine-feed-tab { color: #a5bac3; }
+.theme-dark .vine-news-mode .vine-feed-tab.active { border-color: rgba(213, 171, 87, 0.58); background: linear-gradient(145deg, #21495d, #286a78 62%, #3d8585); }
+.theme-dark .vine-news-post { border-color: rgba(91, 126, 140, 0.58) !important; background: linear-gradient(145deg, rgba(27, 48, 58, 0.98), rgba(18, 34, 42, 0.98)) !important; }
+.theme-dark .vine-news-post .display-name,
+.theme-dark .vine-news-post .vine-post-content,
+.theme-dark .vine-news-post .link-preview-title { color: #e7f1f3; }
+.theme-dark .vine-news-post .link-preview { border-color: rgba(91, 126, 140, 0.58); background: #142831; }
+.theme-dark .vine-news-post .link-preview-desc { color: #a5bac3; }
+
+@media (max-width: 768px) {
+  .vine-news-intro { padding: 17px 16px 18px; border-radius: 19px; }
+  .vine-news-intro h1 { margin-top: 12px; font-size: 1.45rem; }
+  .vine-news-intro p { font-size: 0.75rem; }
+  .vine-news-post .link-preview-img { height: 190px; }
 }

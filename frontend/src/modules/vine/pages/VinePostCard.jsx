@@ -311,6 +311,8 @@ function VinePostCard({
   communityInteractionLocked = false,
   mediaLayout = "carousel",
   displayContext = "feed",
+  isNewsPost = false,
+  onTogglePin,
 }) {
 
   const navigate = useNavigate();
@@ -335,6 +337,7 @@ function VinePostCard({
   }
 
   const isPostAuthor = Number(current_user_id) === Number(post.user_id);
+  const isPinnedPost = Number(post?.is_pinned) === 1;
   const isModerator =
     Number(currentUser?.is_admin) === 1 ||
     String(currentUser?.role || "").toLowerCase() === "moderator" ||
@@ -355,6 +358,9 @@ function VinePostCard({
   );
   const [revines, setRevines] = useState(post.revines || 0);
   const [userRevined, setUserRevined] = useState(post.user_revined || false);
+  const [showRevineComposer, setShowRevineComposer] = useState(false);
+  const [revineNote, setRevineNote] = useState("");
+  const [revineSubmitting, setRevineSubmitting] = useState(false);
   const [open, setOpen] = useState(false);
   const [comments, setComments] = useState([]);
   const [text, setText] = useState("");
@@ -747,16 +753,25 @@ function VinePostCard({
   
   const pinPost = async () => {
     try {
-      await fetch(`${API}/api/vine/posts/${post.id}/pin`, {
+      const res = await fetch(`${API}/api/vine/posts/${post.id}/pin`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
         },
       });
-
-      window.location.reload(); // simple refresh for now
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data?.message || "Failed to update pinned post");
+        return;
+      }
+      if (typeof onTogglePin === "function") {
+        onTogglePin(post.id, Number(data?.is_pinned) === 1);
+      } else {
+        window.location.reload();
+      }
     } catch (err) {
       console.error("Pin post failed", err);
+      alert("Failed to update pinned post");
     }
   };
   const handleLike = async (reaction = "like") => {
@@ -841,22 +856,41 @@ function VinePostCard({
   };
   
 
-  const handleRevine = async () => {
+  const submitRevine = async (quoteContent = null) => {
     if (isCommunityInteractionLocked) {
       alert("Join this community to comment or revine.");
       return;
     }
-    const res = await fetch(`${API}/api/vine/posts/${post.id}/revine`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      alert(data.message || "Action not allowed");
-      return;
+    setRevineSubmitting(true);
+    try {
+      const hasQuote = quoteContent !== null;
+      const res = await fetch(`${API}/api/vine/posts/${post.id}/revine`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          ...(hasQuote ? { "Content-Type": "application/json" } : {}),
+        },
+        ...(hasQuote ? { body: JSON.stringify({ quote_content: quoteContent }) } : {}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || "Action not allowed");
+        return;
+      }
+      setRevines(data.revines);
+      setUserRevined(data.user_revined);
+      setShowRevineComposer(false);
+      setRevineNote("");
+    } catch (error) {
+      console.error("Revine failed", error);
+      alert("Could not update this revine");
+    } finally {
+      setRevineSubmitting(false);
     }
-    setRevines(data.revines);
-    setUserRevined(data.user_revined);
+  };
+
+  const handleRevine = () => {
+    setShowRevineComposer((previous) => !previous);
   };
  
   const deleteMainPost = async () => {
@@ -1037,16 +1071,27 @@ function VinePostCard({
   postMedia = postMedia.filter(Boolean);
   const pdfUrls = postMedia.filter((u) => /\.pdf(\?|$)/i.test(String(u)));
   const visualMediaUrls = postMedia.filter((u) => !/\.pdf(\?|$)/i.test(String(u)));
-  const carouselMediaPayload = visualMediaUrls.length
+  const linkPreviewImage = linkPreview?.image || (isNewsPost ? visualMediaUrls[0] : null);
+  const carouselMediaPayload = visualMediaUrls.length && !(isNewsPost && linkPreviewImage)
     ? JSON.stringify(visualMediaUrls)
     : null;
+  const isQuotedPost = Number(post.revined_by || 0) > 0;
+  const headerAvatarUrl = isQuotedPost
+    ? (post.reviner_avatar_url || post.avatar_url || DEFAULT_AVATAR)
+    : (post.avatar_url || DEFAULT_AVATAR);
 
   // ── Render ──────────────────────────────────────
   return (
     <div
-      className={`vine-post light-green-theme ${displayContext === "profile" ? "vine-post-profile" : ""}`.trim()}
+      className={`vine-post light-green-theme ${displayContext === "profile" ? "vine-post-profile" : ""} ${isNewsPost ? "vine-news-post" : ""} ${isPinnedPost ? "pinned" : ""} ${Number(post.revined_by) > 0 ? "vine-post-quoted" : ""}`.trim()}
       id={`post-${post.id}`}
     >
+      {displayContext === "profile" && isPinnedPost && (
+        <div className="profile-pinned-strip" role="status" aria-label="Pinned to profile">
+          <span className="profile-pinned-strip-icon" aria-hidden="true">✦</span>
+          <span><strong>Pinned to profile</strong><small>Featured post</small></span>
+        </div>
+      )}
       <GifPickerModal
         open={gifPickerCommentOpen}
         token={token}
@@ -1068,7 +1113,7 @@ function VinePostCard({
   }}
 >
   <img
-    src={post.avatar_url || DEFAULT_AVATAR}
+    src={headerAvatarUrl}
     alt="avatar"
     onError={(e) => {
       e.currentTarget.src = DEFAULT_AVATAR;
@@ -1088,7 +1133,8 @@ function VinePostCard({
           {/* Revine indicator – top of meta */}
           {post.revined_by > 0 && (
             <div className="revine-top">
-              🔁 {post.reviner_username} revined
+              <span className="revine-top-icon" aria-hidden="true">↻</span>
+              <span><strong>{post.reviner_display_name || post.reviner_username || "Someone"}</strong> revined this</span>
             </div>
           )}
           {post.community_name && (
@@ -1150,17 +1196,45 @@ function VinePostCard({
               <button
                 className="pin-btn"
                 onClick={pinPost}
-                title={post.is_pinned ? "Unpin post" : "Pin post"}
+                title={isPinnedPost ? "Unpin post" : "Pin post"}
+                aria-label={isPinnedPost ? "Unpin post" : "Pin post"}
               >
-                📌
+                {isPinnedPost ? "✦" : "📌"}
               </button>
-              {post.is_pinned === 1 && (
-                <span className="pinned-badge">📌 Pinned</span>
+              {isPinnedPost && displayContext !== "profile" && (
+                <span className="pinned-badge">
+                  <span className="pinned-badge-icon" aria-hidden="true">✦</span>
+                  <span>Pinned to profile</span>
+                </span>
               )}
             </div>
           )}
         </div>
       </div>
+
+      {post.revined_by > 0 && String(post.revine_note || "").trim() && (
+        <section className="revine-note-card" aria-label="Revine note">
+          <div className="revine-note-heading">
+            <button
+              type="button"
+              className="revine-note-author"
+              onClick={() => post.reviner_username && navigate(`/vine/profile/${post.reviner_username}`)}
+            >
+              <img
+                src={post.reviner_avatar_url || DEFAULT_AVATAR}
+                alt=""
+                onError={(event) => { event.currentTarget.src = DEFAULT_AVATAR; }}
+              />
+              <span>
+                <strong>{post.reviner_display_name || post.reviner_username || "Someone"}</strong>
+                <small>added a note</small>
+              </span>
+            </button>
+            <span className="revine-note-mark" aria-hidden="true">✦</span>
+          </div>
+          <p>{renderMentions(post.revine_note, navigate)}</p>
+        </section>
+      )}
 
       {/* Post content */}
       <p
@@ -1227,9 +1301,9 @@ function VinePostCard({
           className="link-preview"
           onClick={() => window.open(linkPreview.url, "_blank")}
         >
-          {linkPreview.image && (
+          {linkPreviewImage && (
             <img
-              src={linkPreview.image}
+              src={linkPreviewImage}
               alt={linkPreview.title || "Link preview"}
               className="link-preview-img"
               loading="lazy"
@@ -1444,6 +1518,64 @@ function VinePostCard({
           <span className="post-action-label">Share</span>
         </button>
       </div>
+      {showRevineComposer && !isCommunityInteractionLocked && (
+        <section className="revine-composer" aria-label="Revine options">
+          <div className="revine-composer-head">
+            <div>
+              <span className="revine-composer-kicker">Share it your way</span>
+              <h4>{userRevined ? "Update your revine" : "Add a note to this revine"}</h4>
+              <p>Say what this post made you think, then keep the original attached below.</p>
+            </div>
+            <button
+              type="button"
+              className="revine-composer-close"
+              onClick={() => setShowRevineComposer(false)}
+              aria-label="Close revine options"
+            >
+              ×
+            </button>
+          </div>
+          <textarea
+            value={revineNote}
+            onChange={(event) => setRevineNote(event.target.value.slice(0, 5000))}
+            placeholder="Add your take…"
+            maxLength={5000}
+            rows={3}
+            aria-label="Revine note"
+          />
+          <div className="revine-composer-footer">
+            <span>{revineNote.length}/5000</span>
+            <div className="revine-composer-actions">
+              {userRevined && (
+                <button
+                  type="button"
+                  className="revine-composer-remove"
+                  onClick={() => submitRevine()}
+                  disabled={revineSubmitting}
+                >
+                  Remove revine
+                </button>
+              )}
+              <button
+                type="button"
+                className="revine-composer-quick"
+                onClick={() => submitRevine()}
+                disabled={revineSubmitting || userRevined}
+              >
+                {userRevined ? "Revined" : "Revine only"}
+              </button>
+              <button
+                type="button"
+                className="revine-composer-submit"
+                onClick={() => submitRevine(revineNote.trim())}
+                disabled={revineSubmitting || !revineNote.trim()}
+              >
+                {revineSubmitting ? "Sharing…" : userRevined ? "Update note" : "Quote Revine"}
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
       {canShowLikeCount && Number(postLikes || 0) > 0 && latestLiker && (
         <button className="liked-by-line" onClick={openLikesModal}>
           <span className="liked-by-avatar" aria-hidden="true">
@@ -1848,6 +1980,10 @@ const areVinePostCardPropsEqual = (prevProps, nextProps) => (
   prevProps.post?.likes === nextProps.post?.likes &&
   prevProps.post?.comments === nextProps.post?.comments &&
   prevProps.post?.revines === nextProps.post?.revines &&
+  prevProps.post?.revined_by === nextProps.post?.revined_by &&
+  prevProps.post?.revine_note === nextProps.post?.revine_note &&
+  prevProps.post?.reviner_username === nextProps.post?.reviner_username &&
+  prevProps.post?.reviner_display_name === nextProps.post?.reviner_display_name &&
   prevProps.post?.user_liked === nextProps.post?.user_liked &&
   prevProps.post?.viewer_reaction === nextProps.post?.viewer_reaction &&
   prevProps.post?.user_bookmarked === nextProps.post?.user_bookmarked &&
@@ -1857,7 +1993,9 @@ const areVinePostCardPropsEqual = (prevProps, nextProps) => (
   prevProps.targetCommentId === nextProps.targetCommentId &&
   prevProps.isMe === nextProps.isMe &&
   prevProps.communityInteractionLocked === nextProps.communityInteractionLocked &&
-  prevProps.mediaLayout === nextProps.mediaLayout
+  prevProps.mediaLayout === nextProps.mediaLayout &&
+  prevProps.isNewsPost === nextProps.isNewsPost &&
+  prevProps.onTogglePin === nextProps.onTogglePin
 );
 
 const commentContainsTarget = (node, targetId) => {

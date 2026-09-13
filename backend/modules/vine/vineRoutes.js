@@ -1606,6 +1606,7 @@ const ensureVinePerformanceSchema = async () => {
     const dbName = await getDbName();
     if (!dbName) return;
     await ensureVinePostSourceSchema();
+    await ensureVineRevineQuoteSchema();
 
     await db.query(`
       CREATE TABLE IF NOT EXISTS vine_notification_views (
@@ -1667,6 +1668,16 @@ const ensureVinePerformanceSchema = async () => {
   });
 
   return vinePerformanceSchemaPromise;
+};
+
+let vineRevineQuoteSchemaReady = false;
+const ensureVineRevineQuoteSchema = async () => {
+  if (vineRevineQuoteSchemaReady) return;
+  const dbName = await getDbName();
+  if (!dbName) return;
+  await ensureColumnExists(dbName, "vine_revines", "quote_content", "TEXT NULL");
+  await ensureColumnExists(dbName, "vine_revines", "quote_updated_at", "DATETIME NULL");
+  vineRevineQuoteSchemaReady = true;
 };
 
 let vineRequestDedupSchemaReady = false;
@@ -2271,7 +2282,8 @@ const getFeedPageData = async ({ viewerId, feedTag = "", feedTab = "for-you", cu
           r.id,
           r.post_id,
           r.user_id,
-          r.created_at
+          r.created_at,
+          r.quote_content
         FROM vine_revines r
         WHERE r.user_id IN (${placeholders})
           ${revineCursor.sql}
@@ -2426,6 +2438,7 @@ const getFeedPageData = async ({ viewerId, feedTag = "", feedTab = "for-you", cu
       post_id: Number(postRow.id || 0),
       post_user_id: Number(postRow.user_id || 0),
       revined_by: Number(row.user_id || 0),
+      revine_note: row.quote_content || null,
       sort_time: row.created_at,
     };
     if (!isCandidateBeforeCursor(candidate, cursor)) continue;
@@ -2483,7 +2496,7 @@ const getFeedPageData = async ({ viewerId, feedTag = "", feedTab = "for-you", cu
     [revinerRows] = await timedVineQuery(
       perfCtx,
       "feed.hydrate.reviners",
-      `SELECT id, username FROM vine_users WHERE id IN (${placeholders})`,
+      `SELECT id, username, display_name, avatar_url FROM vine_users WHERE id IN (${placeholders})`,
       revinerIds
     );
   }
@@ -2499,9 +2512,16 @@ const getFeedPageData = async ({ viewerId, feedTag = "", feedTab = "for-you", cu
         sort_time: candidate.sort_time,
         revined_by: candidate.revined_by || null,
         reviner_username: candidate.revined_by ? (revinerMap.get(Number(candidate.revined_by))?.username || null) : null,
+        reviner_display_name: candidate.revined_by ? (revinerMap.get(Number(candidate.revined_by))?.display_name || null) : null,
+        reviner_avatar_url: candidate.revined_by ? (revinerMap.get(Number(candidate.revined_by))?.avatar_url || null) : null,
+        revine_note: candidate.revine_note || null,
       };
     })
     .filter(Boolean);
+
+  if (feedTab === "news") {
+    await backfillNewsLinkPreviews(orderedRows);
+  }
 
   const enrichedItems = await enrichVinePostRows(orderedRows, viewerId, perfCtx);
   return { items: enrichedItems, nextCursor };
@@ -2509,6 +2529,7 @@ const getFeedPageData = async ({ viewerId, feedTag = "", feedTab = "for-you", cu
 
 const getLatestNetworkPostRows = async ({ viewerId, limit }, perfCtx = null) => {
   await ensureVinePostSourceSchema();
+  await ensureVineRevineQuoteSchema();
   const safeViewerId = Number(viewerId || 0);
   const safeLimit = Math.max(1, Math.min(Number(limit || 10) || 10, 20));
   const candidateLimit = Math.max(safeLimit * 8, 80);
@@ -2534,11 +2555,41 @@ const getLatestNetworkPostRows = async ({ viewerId, limit }, perfCtx = null) => 
     [Math.min(candidateLimit, TRENDING_POST_CANDIDATE_LIMIT)]
   );
 
-  if (!Array.isArray(candidateRows) || !candidateRows.length) {
+  const [revineCandidateRows] = await timedVineQuery(
+    perfCtx,
+    "latest-posts.source.revines",
+    `
+    SELECT
+      r.id AS revine_id,
+      r.post_id,
+      r.user_id AS reviner_id,
+      r.quote_content,
+      r.created_at AS revine_created_at,
+      p.id,
+      p.user_id,
+      p.community_id,
+      p.content,
+      p.image_url,
+      p.link_preview,
+      p.post_source_label,
+      p.created_at
+    FROM vine_revines r
+    JOIN vine_posts p ON p.id = r.post_id
+    ORDER BY r.created_at DESC, r.id DESC
+    LIMIT ?
+    `,
+    [Math.min(candidateLimit, TRENDING_POST_CANDIDATE_LIMIT)]
+  );
+
+  if ((!Array.isArray(candidateRows) || !candidateRows.length) &&
+      (!Array.isArray(revineCandidateRows) || !revineCandidateRows.length)) {
     return [];
   }
 
-  const authorIds = [...new Set(candidateRows.map((row) => Number(row.user_id || 0)).filter(Boolean))];
+  const authorIds = [...new Set([
+    ...(candidateRows || []).map((row) => Number(row.user_id || 0)),
+    ...(revineCandidateRows || []).flatMap((row) => [Number(row.user_id || 0), Number(row.reviner_id || 0)]),
+  ].filter(Boolean))];
   let authorRows = [];
   if (authorIds.length) {
     const placeholders = authorIds.map(() => "?").join(", ");
@@ -2563,27 +2614,45 @@ const getLatestNetworkPostRows = async ({ viewerId, limit }, perfCtx = null) => 
   }
 
   const authorMap = new Map((authorRows || []).map((row) => [Number(row.id), row]));
-  const visibleRows = candidateRows.filter((row) => {
-    const authorId = Number(row.user_id || 0);
-    const authorRow = authorMap.get(authorId);
-    if (!authorId || !authorRow) return false;
+  const isAuthorVisible = (authorId, authorRow) => {
+    const safeAuthorId = Number(authorId || 0);
+    if (!safeAuthorId || !authorRow) return false;
     if (isNewsUserRow(authorRow)) return false;
-    if (viewerState.blockedIds.has(authorId) || viewerState.mutedIds.has(authorId)) return false;
+    if (viewerState.blockedIds.has(safeAuthorId) || viewerState.mutedIds.has(safeAuthorId)) return false;
     if (!safeViewerId) return Number(authorRow.is_private || 0) === 0;
-    if (authorId === safeViewerId) return true;
-    if (viewerState.followedIds.has(authorId)) return true;
+    if (safeAuthorId === safeViewerId) return true;
+    if (viewerState.followedIds.has(safeAuthorId)) return true;
     return Number(authorRow.is_private || 0) === 0;
-  });
+  };
+  const visiblePostRows = (candidateRows || []).filter((row) =>
+    isAuthorVisible(row.user_id, authorMap.get(Number(row.user_id || 0)))
+  );
+  const visibleRevineRows = (revineCandidateRows || []).filter((row) =>
+    isAuthorVisible(row.user_id, authorMap.get(Number(row.user_id || 0))) &&
+    isAuthorVisible(row.reviner_id, authorMap.get(Number(row.reviner_id || 0)))
+  );
+  const activities = [
+    ...visiblePostRows.map((row) => ({ ...row, activity_kind: "post", activity_time: row.created_at })),
+    ...visibleRevineRows.map((row) => ({ ...row, activity_kind: "revine", activity_time: row.revine_created_at })),
+  ]
+    .sort((a, b) => {
+      const bTime = new Date(b.activity_time || 0).getTime();
+      const aTime = new Date(a.activity_time || 0).getTime();
+      if (aTime !== bTime) return bTime - aTime;
+      return Number(b.revine_id || b.id || 0) - Number(a.revine_id || a.id || 0);
+    })
+    .slice(0, safeLimit);
 
-  if (!visibleRows.length) {
-    return [];
-  }
+  if (!activities.length) return [];
 
-  const baseRows = visibleRows.map((row) => {
+  const baseRows = activities.map((row) => {
     const authorRow = authorMap.get(Number(row.user_id || 0)) || {};
+    const revinerRow = authorMap.get(Number(row.reviner_id || 0)) || {};
+    const isRevine = row.activity_kind === "revine";
     return {
-      feed_id: `post-${row.id}`,
+      feed_id: isRevine ? `revine-${row.revine_id}` : `post-${row.id}`,
       id: Number(row.id || 0),
+      post_id: Number(row.id || 0),
       user_id: Number(row.user_id || 0),
       community_id: Number(row.community_id || 0),
       content: row.content || "",
@@ -2591,25 +2660,29 @@ const getLatestNetworkPostRows = async ({ viewerId, limit }, perfCtx = null) => 
       link_preview: row.link_preview || null,
       post_source_label: row.post_source_label || null,
       created_at: row.created_at,
-      sort_time: row.created_at,
+      sort_time: row.activity_time,
       username: authorRow.username || "",
       display_name: authorRow.display_name || authorRow.username || "",
       avatar_url: authorRow.avatar_url || "",
       is_verified: Number(authorRow.is_verified || 0),
       badge_type: authorRow.badge_type || null,
       hide_like_counts: Number(authorRow.hide_like_counts || 0),
-      revined_by: null,
-      reviner_username: null,
+      revined_by: isRevine ? Number(row.reviner_id || 0) : null,
+      reviner_username: isRevine ? revinerRow.username || null : null,
+      reviner_display_name: isRevine ? revinerRow.display_name || revinerRow.username || null : null,
+      reviner_avatar_url: isRevine ? revinerRow.avatar_url || null : null,
+      reviner_is_verified: isRevine ? Number(revinerRow.is_verified || 0) : 0,
+      revine_note: isRevine ? row.quote_content || null : null,
     };
   });
 
   const enrichedRows = await enrichVinePostRows(baseRows, safeViewerId, perfCtx);
   return enrichedRows
     .sort((a, b) => {
-      const aTime = new Date(a.created_at || 0).getTime();
-      const bTime = new Date(b.created_at || 0).getTime();
+      const aTime = new Date(a.sort_time || a.created_at || 0).getTime();
+      const bTime = new Date(b.sort_time || b.created_at || 0).getTime();
       if (aTime !== bTime) return bTime - aTime;
-      return Number(b.id || 0) - Number(a.id || 0);
+      return String(b.feed_id || b.id || "").localeCompare(String(a.feed_id || a.id || ""));
     })
     .slice(0, safeLimit)
     .map((row) => ({
@@ -6292,17 +6365,32 @@ const fetchLinkPreview = async (url) => {
 
     const html = (await res.text()).slice(0, 1_000_000);
     const getMeta = (key) => {
-      const re = new RegExp(
-        `<meta[^>]+(?:property|name)=[\"']${key}[\"'][^>]*content=[\"']([^\"']+)[\"'][^>]*>`,
-        "i"
-      );
-      const match = html.match(re);
-      return match ? match[1].trim() : null;
+      const escapedKey = String(key || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const attr = `(?:property|name)\\s*=\\s*[\"']${escapedKey}[\"']`;
+      const content = `content\\s*=\\s*[\"']([^\"']+)[\"']`;
+      const patterns = [
+        new RegExp(`<meta[^>]+${attr}[^>]*${content}[^>]*>`, "i"),
+        new RegExp(`<meta[^>]+${content}[^>]*${attr}[^>]*>`, "i"),
+      ];
+      for (const re of patterns) {
+        const match = html.match(re);
+        if (match?.[1]) {
+          return match[1].trim().replace(/&amp;/gi, "&");
+        }
+      }
+      return null;
     };
     const titleTag = html.match(/<title[^>]*>([^<]+)<\/title>/i);
     const title = getMeta("og:title") || (titleTag ? titleTag[1].trim() : null) || parsed.hostname;
     const description = getMeta("og:description") || getMeta("description");
-    const image = getMeta("og:image");
+    const image =
+      getMeta("og:image") ||
+      getMeta("twitter:image") ||
+      getMeta("twitter:image:src") ||
+      (() => {
+        const match = html.match(/<link[^>]+rel=[\"']image_src[\"'][^>]+href=[\"']([^\"']+)[\"'][^>]*>/i);
+        return match?.[1] ? match[1].trim().replace(/&amp;/gi, "&") : null;
+      })();
     const imageUrl = image ? new URL(image, parsed.href).href : null;
     const siteName = getMeta("og:site_name") || parsed.hostname;
 
@@ -6317,6 +6405,32 @@ const fetchLinkPreview = async (url) => {
   } catch (err) {
     return null;
   }
+};
+
+const backfillNewsLinkPreviews = async (rows = []) => {
+  const candidates = rows
+    .filter((row) => !row?.link_preview && row?.id)
+    .map((row) => ({ row, url: extractFirstUrl(String(row.content || "")) }))
+    .filter((item) => item.url)
+    .slice(0, 8);
+
+  if (!candidates.length) return rows;
+
+  await asyncMapLimit(candidates, 3, async ({ row, url }) => {
+    const preview = await fetchLinkPreview(url);
+    if (!preview) return;
+    row.link_preview = JSON.stringify(preview);
+    try {
+      await db.query("UPDATE vine_posts SET link_preview = ? WHERE id = ? AND (link_preview IS NULL OR link_preview = '')", [
+        JSON.stringify(preview),
+        Number(row.id),
+      ]);
+    } catch (error) {
+      console.warn("Vine News preview backfill skipped:", error?.message || error);
+    }
+  });
+
+  return rows;
 };
 
 router.post("/auth/register", async (req, res) => {
@@ -10212,6 +10326,7 @@ const getProfileFeedRows = async (profileUserId, viewerId, { limit = null, offse
           p.post_source_label,
           p.created_at,
           p.is_pinned,
+          NULL AS revine_note,
           p.created_at AS sort_time,
 
           u.username,
@@ -10221,6 +10336,8 @@ const getProfileFeedRows = async (profileUserId, viewerId, { limit = null, offse
           u.is_verified,
           u.hide_like_counts,
           NULL AS reviner_username,
+          NULL AS reviner_display_name,
+          NULL AS reviner_avatar_url,
           0 AS revined_by
 
         FROM vine_posts p
@@ -10244,6 +10361,7 @@ const getProfileFeedRows = async (profileUserId, viewerId, { limit = null, offse
           p.post_source_label,
           p.created_at,
           0 AS is_pinned,
+          NULL AS revine_note,
           p.created_at AS sort_time,
 
           u.username,
@@ -10253,6 +10371,8 @@ const getProfileFeedRows = async (profileUserId, viewerId, { limit = null, offse
           u.is_verified,
           u.hide_like_counts,
           NULL AS reviner_username,
+          NULL AS reviner_display_name,
+          NULL AS reviner_avatar_url,
           0 AS revined_by
 
         FROM vine_post_tags pt
@@ -10278,6 +10398,7 @@ const getProfileFeedRows = async (profileUserId, viewerId, { limit = null, offse
           p.post_source_label,
           p.created_at,
           p.is_pinned,
+          r.quote_content AS revine_note,
           r.created_at AS sort_time,
 
           u.username,
@@ -10287,6 +10408,8 @@ const getProfileFeedRows = async (profileUserId, viewerId, { limit = null, offse
           u.is_verified,
           u.hide_like_counts,
           ru.username AS reviner_username,
+          ru.display_name AS reviner_display_name,
+          ru.avatar_url AS reviner_avatar_url,
           1 AS revined_by
 
         FROM vine_revines r
@@ -10700,8 +10823,13 @@ router.get("/posts/_legacy-ranked-debug", authOptional, async (req, res) => {
 // 🔁 Toggle revine (single source of truth)
 router.post("/posts/:id/revine", authMiddleware, async (req, res) => {
   try {
+    await ensureVineRevineQuoteSchema();
     const postId = req.params.id;
     const userId = req.user.id;
+    const hasQuoteContent = Object.prototype.hasOwnProperty.call(req.body || {}, "quote_content");
+    const quoteContent = hasQuoteContent
+      ? String(req.body?.quote_content || "").trim().slice(0, 5000)
+      : null;
 
     // Get post owner
     const [[post]] = await db.query(
@@ -10722,19 +10850,26 @@ router.post("/posts/:id/revine", authMiddleware, async (req, res) => {
     const postOwnerId = post.user_id;
 
     const [existing] = await db.query(
-      "SELECT 1 FROM vine_revines WHERE user_id = ? AND post_id = ?",
+      "SELECT quote_content FROM vine_revines WHERE user_id = ? AND post_id = ?",
       [userId, postId]
     );
 
     if (existing.length) {
-      await db.query(
-        "DELETE FROM vine_revines WHERE user_id = ? AND post_id = ?",
-        [userId, postId]
-      );
+      if (hasQuoteContent && quoteContent) {
+        await db.query(
+          "UPDATE vine_revines SET quote_content = ?, quote_updated_at = NOW() WHERE user_id = ? AND post_id = ?",
+          [quoteContent, userId, postId]
+        );
+      } else {
+        await db.query(
+          "DELETE FROM vine_revines WHERE user_id = ? AND post_id = ?",
+          [userId, postId]
+        );
+      }
     } else {
       await db.query(
-        "INSERT INTO vine_revines (user_id, post_id) VALUES (?, ?)",
-        [userId, postId]
+        "INSERT INTO vine_revines (user_id, post_id, quote_content, quote_updated_at) VALUES (?, ?, ?, CASE WHEN ? IS NULL THEN NULL ELSE NOW() END)",
+        [userId, postId, quoteContent, quoteContent]
       );
       // ✅ Create notification only if not revining own post
       if (postOwnerId !== userId) {
@@ -10761,10 +10896,13 @@ router.post("/posts/:id/revine", authMiddleware, async (req, res) => {
     clearVineReadCache();
     res.json({
       revines: count.total,
-      user_revined: !existing.length
+      user_revined: Boolean(!existing.length || (hasQuoteContent && quoteContent)),
+      quote_content: !existing.length || (hasQuoteContent && quoteContent)
+        ? quoteContent
+        : null,
     });
     emitVineFeedUpdated({
-      type: existing.length ? "revine_removed" : "revine_added",
+      type: existing.length && !(hasQuoteContent && quoteContent) ? "revine_removed" : "revine_added",
       postId,
       actorId: userId,
     });

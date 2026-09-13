@@ -64,7 +64,9 @@ export default function ActivitiesSection() {
     // Trigger download after 800ms hold
     pressTimer.current = setTimeout(() => {
       handleDownload();
-      if (window.navigator.vibrate) window.navigator.vibrate(50);
+      if (window.navigator.vibrate && (navigator.userActivation?.hasBeenActive ?? true)) {
+        window.navigator.vibrate(50);
+      }
     }, 800);
   };
 

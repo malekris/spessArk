@@ -820,13 +820,20 @@ export default function VineProfile() {
   }, [viewerPostId]);
 
   const handleTogglePinnedLocally = useCallback((postId, isPinned) => {
-    setProfilePosts((prev) =>
-      prev.map((p) =>
-        p.id === postId
-          ? { ...p, is_pinned: isPinned ? 0 : 1 }
-          : p
-      )
-    );
+    setProfilePosts((prev) => {
+      const next = prev.map((p) => ({
+        ...p,
+        is_pinned: Number(p.id) === Number(postId) ? (isPinned ? 1 : 0) : 0,
+      }));
+      return next.sort((a, b) => {
+        const pinDiff = Number(b.is_pinned || 0) - Number(a.is_pinned || 0);
+        if (pinDiff !== 0) return pinDiff;
+        const bTime = new Date(b.created_at || 0).getTime();
+        const aTime = new Date(a.created_at || 0).getTime();
+        if (bTime !== aTime) return bTime - aTime;
+        return Number(b.id || 0) - Number(a.id || 0);
+      });
+    });
   }, []);
 
   const clearPinnedPost = async () => {
@@ -845,9 +852,15 @@ export default function VineProfile() {
         alert(data?.message || "Failed to remove pinned post");
         return;
       }
-      setProfilePosts((prev) =>
-        prev.map((p) => (p.id === pinned.id ? { ...p, is_pinned: 0 } : p))
-      );
+      setProfilePosts((prev) => {
+        const next = prev.map((p) => (Number(p.id) === Number(pinned.id) ? { ...p, is_pinned: 0 } : p));
+        return next.sort((a, b) => {
+          const bTime = new Date(b.created_at || 0).getTime();
+          const aTime = new Date(a.created_at || 0).getTime();
+          if (bTime !== aTime) return bTime - aTime;
+          return Number(b.id || 0) - Number(a.id || 0);
+        });
+      });
     } catch (err) {
       console.error("Remove pinned post failed", err);
       alert("Failed to remove pinned post");

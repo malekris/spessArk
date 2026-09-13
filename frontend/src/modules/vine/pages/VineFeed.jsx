@@ -93,6 +93,7 @@ const formatCompactCount = (count) =>
   }).format(Number(count || 0));
 
 const TRENDING_POST_TYPES = {
+  revine: { key: "revine", label: "Revine", icon: "↻" },
   poll: { key: "poll", label: "Poll", icon: "◉" },
   video: { key: "video", label: "Video", icon: "▶" },
   audio: { key: "audio", label: "Audio", icon: "♫" },
@@ -125,6 +126,7 @@ const parseLinkPreview = (value) => {
 };
 
 const classifyTrendingPost = (post) => {
+  if (Number(post?.revined_by || 0) > 0) return TRENDING_POST_TYPES.revine;
   if (Number(post?.has_poll || 0) === 1 || post?.has_poll === true) return TRENDING_POST_TYPES.poll;
 
   const mediaUrls = parsePostMediaUrls(post?.image_url);
@@ -2231,7 +2233,7 @@ export default function VineFeed() {
 
   // ── Render ──────────────────────────────────────
   return (
-    <div className="vine-feed-container">
+    <div className={`vine-feed-container ${isNewsTab ? "vine-news-feed" : ""}`.trim()}>
       <GifPickerModal
         open={gifPickerOpen}
         token={token}
@@ -2516,7 +2518,7 @@ export default function VineFeed() {
           </div>
         </aside>
 
-      <div className="vine-content-wrapper">
+      <div className={`vine-content-wrapper ${isNewsTab ? "vine-news-mode" : ""}`.trim()}>
         {targetTag && (
           <div className="hashtag-filter-banner">
             Showing posts for <strong>#{targetTag}</strong>
@@ -2554,7 +2556,18 @@ export default function VineFeed() {
             <span className="vine-feed-tab-subtitle">News desk only</span>
           </button>
         </div>
+        {isNewsTab && (
+          <section className="vine-news-intro" aria-labelledby="vine-news-heading">
+            <div className="vine-news-intro-topline">
+              <span className="vine-news-intro-mark">VINE / NEWS</span>
+              <span className="vine-news-live"><span aria-hidden="true" /> News desk</span>
+            </div>
+            <h1 id="vine-news-heading">The stories shaping the day</h1>
+            <p>Trusted headlines, useful context, and the conversations happening across the world.</p>
+          </section>
+        )}
         {!isNewsTab ? <VineEClassFeedRail token={token} /> : null}
+        {!isNewsTab && (
         <section className="vine-statuses-section" aria-labelledby="vine-statuses-title">
           <div className="vine-statuses-heading">
             <div>
@@ -2630,6 +2643,7 @@ export default function VineFeed() {
             })}
           </div>
         </section>
+        )}
 
         {!isNewsTab && (
         <>
@@ -3147,33 +3161,45 @@ export default function VineFeed() {
               {trendingLoading && trendingPosts.length === 0
                 ? TRENDING_SKELETON_ROWS.map((idx) => <VineTrendingSkeleton key={`trend-skeleton-${idx}`} />)
                 : trendingPosts.map((p) => {
-                const avatarSrc = p.avatar_url
-                  ? (p.avatar_url.startsWith("http") ? p.avatar_url : `${API}${p.avatar_url}`)
+                const isRevine = Number(p.revined_by || 0) > 0;
+                const cardUsername = isRevine ? (p.reviner_username || p.username) : p.username;
+                const cardDisplayName = isRevine
+                  ? (p.reviner_display_name || p.reviner_username || p.display_name || p.username)
+                  : (p.display_name || p.username);
+                const cardAvatarUrl = isRevine ? (p.reviner_avatar_url || p.avatar_url) : p.avatar_url;
+                const avatarSrc = cardAvatarUrl
+                  ? (cardAvatarUrl.startsWith("http") ? cardAvatarUrl : `${API}${cardAvatarUrl}`)
                   : DEFAULT_AVATAR;
                 const postType = classifyTrendingPost(p);
-                const snippetSource = String(p.content || "")
+                const isQuoteRevine = isRevine && Boolean(String(p.revine_note || "").trim());
+                const typeLabel = isQuoteRevine ? "Quote Revine" : postType.label;
+                const snippetSource = String(isQuoteRevine ? p.revine_note : p.content || "")
                   .replace(/^\s*\[\[(?:feeling|postbg):[^\]]+\]\]\s*/i, "")
                   .trim();
                 const snippet =
                   snippetSource.length > 0
                     ? (snippetSource.length > 90 ? `${snippetSource.slice(0, 90)}…` : snippetSource)
-                    : `${postType.label} post`;
+                    : isRevine ? "Shared a post with their Vine circle." : `${postType.label} post`;
                 const statLikes = Number(p.like_count ?? p.likes ?? 0);
                 const statComments = Number(p.comment_count ?? p.comments ?? 0);
+                const statRevines = Number(p.revine_count ?? p.revines ?? 0);
+                const cardVerified = isRevine ? Number(p.reviner_is_verified || 0) === 1 : Number(p.is_verified) === 1;
+                const cardIsGuardian = ["vine guardian","vine_guardian","vine news","vine_news"].includes(String(cardUsername || "").toLowerCase());
+                const trendKey = p.feed_id || `${isRevine ? "revine" : "post"}-${p.id}-${p.sort_time || p.created_at || "unknown"}`;
                 return (
                   <div
-                    key={`trend-${p.id}`}
-                    className={`trending-card trending-card-${postType.key}`}
+                    key={`trend-${trendKey}`}
+                    className={`trending-card trending-card-${postType.key} ${isQuoteRevine ? "trending-card-quote-revine" : ""}`.trim()}
                     onClick={() => navigate(`/vine/feed?post=${p.id}`)}
-                    aria-label={`${postType.label} post by ${p.display_name || p.username}`}
+                    aria-label={`${typeLabel} by ${cardDisplayName}`}
                   >
                     <div className="trending-top">
                           <img
                             src={avatarSrc}
-                            alt={p.username}
+                            alt={cardUsername}
                             onClick={(e) => {
                               e.stopPropagation();
-                              navigate(`/vine/profile/${p.username}`);
+                              navigate(`/vine/profile/${cardUsername}`);
                             }}
                             onError={(e) => {
                               e.currentTarget.src = DEFAULT_AVATAR;
@@ -3184,13 +3210,13 @@ export default function VineFeed() {
                           <span
                             onClick={(e) => {
                               e.stopPropagation();
-                              navigate(`/vine/profile/${p.username}`);
+                              navigate(`/vine/profile/${cardUsername}`);
                             }}
                           >
-                            {p.display_name || p.username}
+                            {cardDisplayName}
                           </span>
-                          {(Number(p.is_verified) === 1 || ["vine guardian","vine_guardian","vine news","vine_news"].includes(String(p.username || "").toLowerCase())) && (
-                            <span className={`verified ${["vine guardian","vine_guardian","vine news","vine_news"].includes(String(p.username || "").toLowerCase()) ? "guardian" : ""}`}>
+                          {(cardVerified || cardIsGuardian) && (
+                            <span className={`verified ${cardIsGuardian ? "guardian" : ""}`}>
                               <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
                                 <path
                                   d="M20 6L9 17l-5-5"
@@ -3203,18 +3229,24 @@ export default function VineFeed() {
                             </span>
                           )}
                         </div>
-                        <div className="trending-handle">@{p.username}</div>
+                        <div className="trending-handle">@{cardUsername}</div>
                       </div>
                     </div>
                     <div className="trending-type-row">
                       <span className={`trending-type-badge trending-type-${postType.key}`}>
                         <span aria-hidden="true">{postType.icon}</span>
-                        {postType.label} post
+                        {typeLabel}{isRevine ? "" : " post"}
                       </span>
                     </div>
                     <div className="trending-snippet">{snippet}</div>
+                    {isRevine && (
+                      <div className="trending-revine-source">
+                        <span aria-hidden="true">↳</span>
+                        Original post by <strong>@{p.username}</strong>
+                      </div>
+                    )}
                     <div className="trending-stats">
-                      ❤️ {statLikes} · 💬 {statComments}
+                      ❤️ {statLikes} · 💬 {statComments} · ↻ {statRevines}
                     </div>
                   </div>
                 );
@@ -3254,6 +3286,7 @@ export default function VineFeed() {
               <VinePostCard
                 post={post}
                 mediaLayout="collage"
+                isNewsPost={isNewsTab}
                 focusComments={String(targetPostId || "") === String(post.id) && Boolean(targetCommentId)}
                 targetCommentId={String(targetPostId || "") === String(post.id) ? targetCommentId : null}
                 communityInteractionLocked={

@@ -2526,6 +2526,373 @@
   }
 }
 
+/* ── Profile pinned post treatment ── */
+.vine-post.vine-post-profile.pinned {
+  position: relative;
+  border-color: rgba(8, 127, 91, 0.32);
+  background:
+    radial-gradient(circle at 100% 0%, rgba(236, 193, 83, 0.14), transparent 30%),
+    linear-gradient(145deg, #ffffff 0%, #fbfffd 62%, #f1fbf6 100%);
+  box-shadow:
+    0 18px 42px rgba(8, 81, 63, 0.12),
+    0 0 0 3px rgba(8, 127, 91, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.96);
+}
+
+.vine-post.vine-post-profile.pinned::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  border-radius: 32px 0 0 32px;
+  background: linear-gradient(180deg, #e2ad3f, #087f5b 55%, #35b98d);
+}
+
+.profile-pinned-strip {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: fit-content;
+  max-width: 100%;
+  margin: -5px 0 14px;
+  padding: 7px 11px 7px 8px;
+  border: 1px solid rgba(217, 155, 43, 0.27);
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(255, 250, 235, 0.98), rgba(239, 251, 245, 0.98));
+  color: #285e4b;
+  box-shadow: 0 8px 18px rgba(142, 102, 29, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.94);
+}
+
+.profile-pinned-strip-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 25px;
+  height: 25px;
+  border-radius: 50%;
+  background: linear-gradient(145deg, #e7b84f, #c9871c);
+  color: #fff;
+  font-size: 0.85rem;
+  box-shadow: 0 5px 10px rgba(171, 116, 16, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.38);
+}
+
+.profile-pinned-strip span:last-child {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.profile-pinned-strip strong {
+  color: #7d5512;
+  font-size: 0.75rem;
+  font-weight: 950;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.profile-pinned-strip small {
+  color: #638177;
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
+.pin-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 31px;
+  height: 31px;
+  padding: 0;
+  border: 1px solid rgba(8, 127, 91, 0.18);
+  border-radius: 50%;
+  background: rgba(240, 250, 246, 0.95);
+  color: #087f5b;
+  font-size: 0.95rem;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  transition: transform 0.18s ease, background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.pin-btn:hover,
+.pin-btn:focus-visible {
+  transform: translateY(-1px) scale(1.04);
+  background: #e0f7ed;
+  color: #07513f;
+  box-shadow: 0 7px 14px rgba(8, 127, 91, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  outline: none;
+}
+
+.vine-post.vine-post-profile.pinned .pin-btn {
+  border-color: rgba(217, 155, 43, 0.3);
+  background: linear-gradient(145deg, #fff6da, #fbe7a8);
+  color: #a86b08;
+}
+
+.pinned-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 27px;
+  padding: 0 10px 0 6px;
+  border: 1px solid rgba(217, 155, 43, 0.3);
+  border-radius: 999px;
+  background: linear-gradient(135deg, #fff8df, #f6e7b2);
+  color: #805814;
+  font-size: 0.74rem;
+  font-weight: 900;
+  letter-spacing: 0.01em;
+  box-shadow: 0 6px 12px rgba(142, 102, 29, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.76);
+}
+
+.pinned-badge-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 19px;
+  height: 19px;
+  border-radius: 50%;
+  background: linear-gradient(145deg, #e7b84f, #c9871c);
+  color: #fff;
+  font-size: 0.68rem;
+}
+
+.theme-dark .vine-post.vine-post-profile.pinned {
+  border-color: rgba(87, 205, 156, 0.38);
+  background: linear-gradient(145deg, #132d25, #10231e);
+}
+
+.theme-dark .profile-pinned-strip {
+  background: linear-gradient(135deg, rgba(83, 61, 20, 0.72), rgba(16, 54, 42, 0.86));
+  border-color: rgba(217, 155, 43, 0.34);
+}
+
+.theme-dark .profile-pinned-strip strong { color: #f5cd73; }
+.theme-dark .profile-pinned-strip small { color: #a9c7bb; }
+.theme-dark .pinned-badge { background: linear-gradient(135deg, #5b451a, #3e3219); border-color: rgba(217, 155, 43, 0.36); color: #f5d886; }
+
+@media (max-width: 640px) {
+  .profile-pinned-strip { margin-top: -2px; margin-bottom: 11px; }
+  .profile-pinned-strip small { display: none; }
+  .pinned-badge { font-size: 0.69rem; }
+  .vine-post.vine-post-profile.pinned::before { border-radius: 16px 0 0 16px; }
+}
+
+/* ── Quote Revine composer + embedded original ── */
+.vine-post-quoted {
+  border-color: rgba(8, 127, 91, 0.18);
+  background: linear-gradient(145deg, #ffffff, #f5fbf8);
+}
+
+.revine-top {
+  gap: 8px;
+  padding: 6px 10px 6px 7px;
+  border-color: rgba(8, 127, 91, 0.22);
+  background: linear-gradient(135deg, #eaf9f2, #fff9e8);
+  color: #276957;
+  font-size: 0.76rem;
+  box-shadow: 0 5px 13px rgba(20, 71, 55, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.revine-top-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 21px;
+  height: 21px;
+  border-radius: 50%;
+  background: linear-gradient(145deg, #0b8f67, #075b47);
+  color: #fff;
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.revine-top strong { color: #07513f; }
+
+.revine-note-card {
+  margin: -2px 0 15px;
+  padding: 13px 14px 14px;
+  border: 1px solid rgba(8, 127, 91, 0.2);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(217, 155, 43, 0.12), transparent 33%),
+    linear-gradient(145deg, #f4fcf8, #ffffff);
+  box-shadow: 0 10px 21px rgba(20, 71, 55, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.revine-note-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.revine-note-author {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.revine-note-author img {
+  width: 31px;
+  height: 31px;
+  border-radius: 11px;
+  object-fit: cover;
+  border: 1px solid rgba(8, 127, 91, 0.25);
+}
+
+.revine-note-author span {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.revine-note-author strong {
+  overflow: hidden;
+  color: #07513f;
+  font-size: 0.8rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.revine-note-author small { color: #6d887e; font-size: 0.72rem; }
+
+.revine-note-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 27px;
+  height: 27px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  background: linear-gradient(145deg, #e7b84f, #c9871c);
+  color: #fff;
+  box-shadow: 0 5px 10px rgba(171, 116, 16, 0.17);
+}
+
+.revine-note-card p {
+  margin: 11px 0 0;
+  color: #203e34;
+  font-size: 1rem;
+  line-height: 1.52;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.revine-composer {
+  margin-top: 12px;
+  padding: 15px;
+  border: 1px solid rgba(8, 127, 91, 0.21);
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(217, 155, 43, 0.14), transparent 32%),
+    linear-gradient(145deg, #f4fcf8, #ffffff);
+  box-shadow: 0 13px 28px rgba(20, 71, 55, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.92);
+}
+
+.revine-composer-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.revine-composer-kicker {
+  display: block;
+  margin-bottom: 3px;
+  color: #087f5b;
+  font-size: 0.68rem;
+  font-weight: 950;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.revine-composer h4 { margin: 0; color: #143b2e; font-size: 1rem; }
+.revine-composer p { margin: 4px 0 0; color: #6b8179; font-size: 0.8rem; line-height: 1.4; }
+
+.revine-composer-close {
+  display: inline-grid;
+  place-items: center;
+  width: 29px;
+  height: 29px;
+  border: 1px solid rgba(29, 91, 72, 0.15);
+  border-radius: 50%;
+  background: #fff;
+  color: #547069;
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.revine-composer textarea {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 86px;
+  resize: vertical;
+  border: 1px solid rgba(8, 127, 91, 0.2);
+  border-radius: 15px;
+  padding: 12px 13px;
+  background: rgba(255, 255, 255, 0.87);
+  color: #173c2f;
+  font: inherit;
+  outline: none;
+}
+
+.revine-composer textarea:focus { border-color: #0b8f67; box-shadow: 0 0 0 3px rgba(8, 127, 91, 0.1); }
+
+.revine-composer-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+  color: #7b9289;
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
+.revine-composer-actions { display: flex; align-items: center; justify-content: flex-end; gap: 7px; flex-wrap: wrap; }
+
+.revine-composer-actions button {
+  min-height: 36px;
+  border-radius: 999px;
+  padding: 0 12px;
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.revine-composer-actions button:disabled { cursor: not-allowed; opacity: 0.48; }
+.revine-composer-quick, .revine-composer-remove { border: 1px solid rgba(29, 91, 72, 0.17); background: #fff; color: #356355; }
+.revine-composer-submit { border: 1px solid #075b47; background: linear-gradient(135deg, #0b8f67, #075b47); color: #fff; box-shadow: 0 8px 16px rgba(8, 127, 91, 0.18); }
+.revine-composer-remove { border-color: rgba(217, 75, 84, 0.22); color: #a53d49; }
+
+.theme-dark .vine-post-quoted { background: linear-gradient(145deg, #142e25, #10231e); border-color: rgba(87, 205, 156, 0.28); }
+.theme-dark .revine-note-card, .theme-dark .revine-composer { background: linear-gradient(145deg, #18392d, #10231e); border-color: rgba(87, 205, 156, 0.25); }
+.theme-dark .revine-note-card p, .theme-dark .revine-composer h4 { color: #e0f4e9; }
+.theme-dark .revine-note-author strong { color: #b9eed2; }
+.theme-dark .revine-note-author small, .theme-dark .revine-composer p { color: #9cb9ac; }
+.theme-dark .revine-composer textarea { background: rgba(7, 22, 17, 0.68); color: #e0f4e9; border-color: rgba(87, 205, 156, 0.26); }
+.theme-dark .revine-composer-quick, .theme-dark .revine-composer-remove, .theme-dark .revine-composer-close { background: rgba(255, 255, 255, 0.06); color: #b9d6c8; border-color: rgba(145, 220, 190, 0.2); }
+
+@media (max-width: 640px) {
+  .revine-note-card { margin-bottom: 12px; padding: 12px; }
+  .revine-note-card p { font-size: 0.94rem; }
+  .revine-composer { padding: 12px; border-radius: 17px; }
+  .revine-composer-footer { align-items: flex-start; flex-direction: column; }
+  .revine-composer-actions { width: 100%; display: grid; grid-template-columns: 1fr 1fr; }
+  .revine-composer-actions button { width: 100%; }
+  .revine-composer-remove { grid-column: 1 / -1; }
+  .revine-composer-submit { grid-column: 1 / -1; }
+}
+
 @media (max-width: 374px) {
   .post-classic-meta { font-size: 0.68rem; }
   .post-classic-time svg,

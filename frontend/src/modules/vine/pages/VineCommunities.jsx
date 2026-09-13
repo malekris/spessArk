@@ -3290,7 +3290,15 @@ export default function VineCommunities() {
           <span className="communities-back-icon">←</span>
           <span className="communities-back-label">Feed</span>
         </button>
-        <h2>{activeCommunity?.name ? activeCommunity.name : "Communities"}</h2>
+        <div className="communities-top-copy">
+          <span className="communities-top-eyebrow">Vine Communities</span>
+          <h2>{activeCommunity?.name ? activeCommunity.name : "Find your people"}</h2>
+          <p>{activeCommunity?.name ? "A living space for your people, ideas, and momentum." : "Explore the circles shaping your Vine experience."}</p>
+        </div>
+        <div className="communities-top-stat" aria-label={`${joinedCommunities.length} communities joined`}>
+          <strong>{joinedCommunities.length}</strong>
+          <span>joined</span>
+        </div>
       </div>
 
       <div className="communities-layout">

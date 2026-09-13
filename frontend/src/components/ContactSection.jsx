@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import "./ContactSection.css";
 import { useSiteVisuals } from "../utils/siteVisuals";
+import VisitorStats from "./VisitorStats";
 
 export default function ContactSection() {
   const siteVisuals = useSiteVisuals();
@@ -96,6 +97,7 @@ export default function ContactSection() {
 
         </div>
       </div>
+      <VisitorStats />
     </section>
   );
 }

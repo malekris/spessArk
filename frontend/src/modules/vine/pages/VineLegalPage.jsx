@@ -71,6 +71,23 @@ const LEGAL_CONTENT = {
       },
     ],
   },
+  copyright: {
+    title: "Copyright & Content",
+    sections: [
+      {
+        heading: "Your work stays yours",
+        body: "You retain ownership of the posts, photos, videos, audio, and other content you create and share on Vine. Only share content you own or have permission to use.",
+      },
+      {
+        heading: "Reporting a concern",
+        body: "If you believe content on Vine uses your copyrighted work without permission, contact the Vine Help Center with the post link, a description of the original work, and a way to reach you so the report can be reviewed.",
+      },
+      {
+        heading: "Vine materials",
+        body: "The Vine name, logo, interface, and original platform artwork belong to Vine or its licensors. Please do not copy, redistribute, or reuse them without permission.",
+      },
+    ],
+  },
 };
 
 export default function VineLegalPage() {

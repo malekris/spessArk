@@ -22,6 +22,7 @@ import {
   getVineUser,
   isVineTokenExpired,
 } from "./modules/vine/utils/vineAuth";
+import useSiteVisitTracking from "./hooks/useSiteVisitTracking";
 
 const TeacherDashboard = lazy(() => import("./pages/TeacherDashboard"));
 const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
@@ -99,6 +100,7 @@ function RouteLoadingScreen() {
 
 function App() {
   const location = useLocation();
+  useSiteVisitTracking(location.pathname);
 
   useEffect(() => {
     const appSurface = location.pathname.startsWith("/vine")

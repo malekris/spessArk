@@ -22,23 +22,43 @@ const STATUS_COLORS = [
   "#1e3a8a",
 ];
 const FEELING_OPTIONS = [
-  { value: "", label: "No feeling" },
-  { value: "happy", label: "Happy" },
-  { value: "sad", label: "Sad" },
-  { value: "excited", label: "Excited" },
-  { value: "grateful", label: "Grateful" },
-  { value: "blessed", label: "Blessed" },
-  { value: "motivated", label: "Motivated" },
-  { value: "tired", label: "Tired" },
+  { value: "", label: "No feeling", emoji: "✦" },
+  { value: "happy", label: "Happy", emoji: "😊" },
+  { value: "excited", label: "Excited", emoji: "✨" },
+  { value: "grateful", label: "Grateful", emoji: "🙏" },
+  { value: "blessed", label: "Blessed", emoji: "💫" },
+  { value: "loved", label: "Loved", emoji: "💚" },
+  { value: "inspired", label: "Inspired", emoji: "🌱" },
+  { value: "motivated", label: "Motivated", emoji: "🔥" },
+  { value: "proud", label: "Proud", emoji: "🏆" },
+  { value: "confident", label: "Confident", emoji: "😎" },
+  { value: "hopeful", label: "Hopeful", emoji: "🌤️" },
+  { value: "curious", label: "Curious", emoji: "🔎" },
+  { value: "playful", label: "Playful", emoji: "🎈" },
+  { value: "peaceful", label: "Peaceful", emoji: "🕊️" },
+  { value: "calm", label: "Calm", emoji: "🌿" },
+  { value: "sad", label: "Sad", emoji: "😔" },
+  { value: "tired", label: "Tired", emoji: "😴" },
+  { value: "anxious", label: "Anxious", emoji: "🌊" },
+  { value: "frustrated", label: "Frustrated", emoji: "😤" },
+  { value: "lonely", label: "Lonely", emoji: "🌙" },
 ];
 const POST_BG_COLORS = [
-  "#14532d",
-  "#0f766e",
-  "#1d4ed8",
-  "#7c3aed",
-  "#b91c1c",
-  "#92400e",
-  "#0f172a",
+  { value: "#14532d", label: "Forest" },
+  { value: "#0f766e", label: "Teal" },
+  { value: "#047857", label: "Emerald" },
+  { value: "#1d4ed8", label: "Blue" },
+  { value: "#0369a1", label: "Ocean" },
+  { value: "#4338ca", label: "Indigo" },
+  { value: "#7c3aed", label: "Violet" },
+  { value: "#a21caf", label: "Plum" },
+  { value: "#be185d", label: "Berry" },
+  { value: "#b91c1c", label: "Crimson" },
+  { value: "#c2410c", label: "Ember" },
+  { value: "#92400e", label: "Cedar" },
+  { value: "#a16207", label: "Ochre" },
+  { value: "#0f172a", label: "Midnight" },
+  { value: "#334155", label: "Slate" },
 ];
 const POST_MAX_LENGTH = 5000;
 const POST_MAX_MEDIA_FILES = 30;
@@ -71,6 +91,65 @@ const formatCompactCount = (count) =>
     notation: "compact",
     maximumFractionDigits: 1,
   }).format(Number(count || 0));
+
+const TRENDING_POST_TYPES = {
+  poll: { key: "poll", label: "Poll", icon: "◉" },
+  video: { key: "video", label: "Video", icon: "▶" },
+  audio: { key: "audio", label: "Audio", icon: "♫" },
+  photo: { key: "photo", label: "Photo", icon: "▧" },
+  gif: { key: "gif", label: "GIF", icon: "✦" },
+  link: { key: "link", label: "Link", icon: "↗" },
+  text: { key: "text", label: "Text", icon: "Aa" },
+};
+
+const parsePostMediaUrls = (value) => {
+  if (!value) return [];
+  if (Array.isArray(value)) return value.map((item) => String(item || "").trim()).filter(Boolean);
+  try {
+    const parsed = JSON.parse(String(value));
+    if (Array.isArray(parsed)) return parsed.map((item) => String(item || "").trim()).filter(Boolean);
+  } catch {
+    // Older rows can contain a single URL instead of a JSON array.
+  }
+  return String(value).trim() ? [String(value).trim()] : [];
+};
+
+const parseLinkPreview = (value) => {
+  if (!value) return null;
+  if (typeof value === "object") return value;
+  try {
+    return JSON.parse(String(value));
+  } catch {
+    return null;
+  }
+};
+
+const classifyTrendingPost = (post) => {
+  if (Number(post?.has_poll || 0) === 1 || post?.has_poll === true) return TRENDING_POST_TYPES.poll;
+
+  const mediaUrls = parsePostMediaUrls(post?.image_url);
+  const mediaText = mediaUrls.join(" ").toLowerCase();
+  const contentText = String(post?.content || "").toLowerCase();
+  const linkPreview = parseLinkPreview(post?.link_preview);
+  const linkText = [linkPreview?.url, linkPreview?.type, linkPreview?.media_type, linkPreview?.content_type]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  const combined = `${mediaText} ${contentText} ${linkText} ${String(post?.media_type || "").toLowerCase()} ${String(post?.content_type || "").toLowerCase()}`;
+
+  if (/(\/video\/upload\/|\.(mp4|mov|webm|m4v|avi|mkv|ogv)(?:\?|$))/.test(combined)) {
+    return TRENDING_POST_TYPES.video;
+  }
+  if (/(\/audio\/upload\/|\.(mp3|wav|m4a|aac|ogg|oga|flac)(?:\?|$))/.test(combined)) {
+    return TRENDING_POST_TYPES.audio;
+  }
+  if (/\.(gif)(?:\?|$)/.test(combined) || /giphy\.com|tenor\.com/.test(combined)) {
+    return TRENDING_POST_TYPES.gif;
+  }
+  if (mediaUrls.length > 0 || post?.image_url) return TRENDING_POST_TYPES.photo;
+  if (post?.link_preview) return TRENDING_POST_TYPES.link;
+  return TRENDING_POST_TYPES.text;
+};
 
 // ────────────────────────────────────────────────
 //  HELPERS
@@ -2203,7 +2282,7 @@ export default function VineFeed() {
           />
 
           <button
-            className="nav-btn logout-btn mobile-only"
+            className="nav-btn logout-btn"
             onClick={() => {
               localStorage.removeItem("vine_token");
               navigate("/vine/login");
@@ -2258,15 +2337,6 @@ export default function VineFeed() {
             readOnly
           />
 
-          <button
-            className="nav-btn logout-btn desktop-only"
-            onClick={() => {
-              localStorage.removeItem("vine_token");
-              navigate("/vine/login");
-            }}
-          >
-            Logout
-          </button>
         </div>
       </nav>
 
@@ -2485,70 +2555,81 @@ export default function VineFeed() {
           </button>
         </div>
         {!isNewsTab ? <VineEClassFeedRail token={token} /> : null}
-        <div className="vine-statuses-rail" aria-label="Vine statuses">
-          <button
-            className="status-add-card"
-            onClick={openStatusComposer}
-            aria-label="Create a status"
-          >
-            <div className="status-card-art status-card-art-add" aria-hidden="true">
-              <span className="status-add-plus">+</span>
+        <section className="vine-statuses-section" aria-labelledby="vine-statuses-title">
+          <div className="vine-statuses-heading">
+            <div>
+              <span className="vine-statuses-kicker">Vine moments</span>
+              <h3 id="vine-statuses-title">Status</h3>
+              <p>Share a little piece of your day.</p>
             </div>
-            <div className="status-chip-meta">
-              <span className="status-chip-name">Your status</span>
-            </div>
-          </button>
-          {statusRailLoading && statusRail.length === 0
-            ? STATUS_SKELETON_ROWS.map((idx) => (
-                <div key={`status-skeleton-${idx}`} className="status-user-chip status-user-chip-skeleton" aria-hidden="true">
-                  <div className="vine-skeleton-block status-chip-skeleton-art" />
-                  <div className="vine-skeleton-block status-chip-skeleton-line" />
-                  <div className="vine-skeleton-block status-chip-skeleton-line short" />
-                </div>
-              ))
-            : statusRail.map((row) => {
-            const avatarSrc = row.avatar_url
-              ? row.avatar_url.startsWith("http")
-                ? row.avatar_url
-                : `${API}${row.avatar_url}`
-              : DEFAULT_AVATAR;
-            return (
-              <button
-                key={`status-user-${row.user_id}`}
-                className={`status-user-chip ${Number(row.unseen_count || 0) > 0 ? "unseen" : ""}`}
-                onClick={() => openStatusViewer(row)}
-              >
-                <div
-                  className="status-card-art"
-                  style={{
-                    backgroundImage: `linear-gradient(180deg, rgba(6, 14, 23, 0.12), rgba(6, 14, 23, 0.54)), url("${avatarSrc}")`,
-                  }}
-                >
-                  <div className="status-card-badges">
-                    {Number(row.unseen_count || 0) > 0 && (
-                      <span className="status-unseen-pill" aria-label="New status" />
-                    )}
-                    {Number(row.status_count || 0) > 1 && (
-                      <span className="status-count-pill">{Number(row.status_count || 0)}</span>
-                    )}
+            <span className="vine-statuses-duration">24 hours</span>
+          </div>
+          <div className="vine-statuses-rail" aria-label="Vine statuses">
+            <button
+              className="status-add-card"
+              onClick={openStatusComposer}
+              aria-label="Create a status"
+            >
+              <div className="status-card-art status-card-art-add" aria-hidden="true">
+                <span className="status-add-plus">+</span>
+              </div>
+              <div className="status-chip-meta">
+                <span className="status-chip-name">Add status</span>
+                <small className="status-chip-time">Your moment</small>
+              </div>
+            </button>
+            {statusRailLoading && statusRail.length === 0
+              ? STATUS_SKELETON_ROWS.map((idx) => (
+                  <div key={`status-skeleton-${idx}`} className="status-user-chip status-user-chip-skeleton" aria-hidden="true">
+                    <div className="vine-skeleton-block status-chip-skeleton-art" />
+                    <div className="vine-skeleton-block status-chip-skeleton-line" />
+                    <div className="vine-skeleton-block status-chip-skeleton-line short" />
                   </div>
-                  <img
-                    src={avatarSrc}
-                    alt={row.username}
-                    className="status-chip-avatar"
-                    onError={(e) => {
-                      e.currentTarget.src = DEFAULT_AVATAR;
+                ))
+              : statusRail.map((row) => {
+              const avatarSrc = row.avatar_url
+                ? row.avatar_url.startsWith("http")
+                  ? row.avatar_url
+                  : `${API}${row.avatar_url}`
+                : DEFAULT_AVATAR;
+              return (
+                <button
+                  key={`status-user-${row.user_id}`}
+                  className={`status-user-chip ${Number(row.unseen_count || 0) > 0 ? "unseen" : ""}`}
+                  onClick={() => openStatusViewer(row)}
+                >
+                  <div
+                    className="status-card-art"
+                    style={{
+                      backgroundImage: `linear-gradient(180deg, rgba(6, 14, 23, 0.12), rgba(6, 14, 23, 0.54)), url("${avatarSrc}")`,
                     }}
-                  />
-                </div>
-                <div className="status-chip-meta">
-                  <span className="status-chip-name">{row.display_name || row.username}</span>
-                  <small className="status-chip-time">{formatStatusTime(row.latest_created_at)}</small>
-                </div>
-              </button>
-            );
-          })}
-        </div>
+                  >
+                    <div className="status-card-badges">
+                      {Number(row.unseen_count || 0) > 0 && (
+                        <span className="status-unseen-pill" aria-label="New status" />
+                      )}
+                      {Number(row.status_count || 0) > 1 && (
+                        <span className="status-count-pill">{Number(row.status_count || 0)}</span>
+                      )}
+                    </div>
+                    <img
+                      src={avatarSrc}
+                      alt={row.username}
+                      className="status-chip-avatar"
+                      onError={(e) => {
+                        e.currentTarget.src = DEFAULT_AVATAR;
+                      }}
+                    />
+                  </div>
+                  <div className="status-chip-meta">
+                    <span className="status-chip-name">{row.display_name || row.username}</span>
+                    <small className="status-chip-time">{formatStatusTime(row.latest_created_at)}</small>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </section>
 
         {!isNewsTab && (
         <>
@@ -2669,14 +2750,28 @@ export default function VineFeed() {
             </button>
             {POST_BG_COLORS.map((c) => (
               <button
-                key={`post-bg-${c}`}
+                key={`post-bg-${c.value}`}
                 type="button"
-                className={`composer-style-swatch color ${postBgColor === c ? "active" : ""}`}
-                style={{ background: c }}
-                onClick={() => setPostBgColor(c)}
-                title={c}
+                className={`composer-style-swatch color ${postBgColor === c.value ? "active" : ""}`}
+                style={{ background: c.value }}
+                onClick={() => setPostBgColor(c.value)}
+                title={c.label}
+                aria-label={`Use ${c.label} background`}
               />
             ))}
+            <label
+              className={`composer-color-picker ${postBgColor && !POST_BG_COLORS.some((c) => c.value === postBgColor) ? "active" : ""}`}
+              title="Choose a custom color"
+            >
+              <span className="composer-color-picker-icon" aria-hidden="true">+</span>
+              <span className="composer-color-picker-label">Custom</span>
+              <input
+                type="color"
+                value={postBgColor || "#14532d"}
+                aria-label="Choose a custom post background color"
+                onChange={(e) => setPostBgColor(e.target.value)}
+              />
+            </label>
             {!canUseStyledText && postBgColor && (
               <span className="composer-style-note">
                 Long or mixed-media post: normal style will be used.
@@ -2688,18 +2783,23 @@ export default function VineFeed() {
             <div className="greeting">
               {getGreeting()}, <span className="name">{myUsername}</span>
               <div className="create-feeling-row">
-                <span>Feeling:</span>
-                <select
-                  value={feeling}
-                  onChange={(e) => setFeeling(e.target.value)}
-                  className="feeling-select"
-                >
-                  {FEELING_OPTIONS.map((opt) => (
-                    <option key={opt.value || "none"} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
+                <span className="feeling-label">Feeling</span>
+                <div className="feeling-select-wrap">
+                  <span className="feeling-select-icon" aria-hidden="true">✦</span>
+                  <select
+                    value={feeling}
+                    onChange={(e) => setFeeling(e.target.value)}
+                    className="feeling-select"
+                    aria-label="Choose how you are feeling"
+                  >
+                    {FEELING_OPTIONS.map((opt) => (
+                      <option key={opt.value || "none"} value={opt.value}>
+                        {opt.emoji} {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="feeling-select-chevron" aria-hidden="true">⌄</span>
+                </div>
               </div>
             </div>
 
@@ -2709,7 +2809,7 @@ export default function VineFeed() {
                 GIF
               </button>
               <button
-                className="gif-insert-btn"
+                className={`gif-insert-btn ${pollOpen ? "is-active" : ""}`}
                 type="button"
                 onClick={() => setPollOpen((prev) => !prev)}
               >
@@ -2798,41 +2898,63 @@ export default function VineFeed() {
           </div>
           {pollOpen && (
             <div className="composer-poll-builder">
-              {pollOptions.map((opt, idx) => (
-                <input
-                  key={`poll-opt-${idx}`}
-                  type="text"
-                  placeholder={`Option ${idx + 1}`}
-                  maxLength={180}
-                  value={opt}
-                  onChange={(e) =>
-                    setPollOptions((prev) => prev.map((v, i) => (i === idx ? e.target.value : v)))
-                  }
-                />
-              ))}
+              <div className="composer-poll-heading">
+                <div>
+                  <span className="composer-poll-kicker">Vine poll</span>
+                  <strong>Give people a choice</strong>
+                  <span className="composer-poll-helper">Add two to four answers to your question.</span>
+                </div>
+                <span className="composer-poll-count" aria-label={`${pollOptions.length} poll options`}>
+                  {pollOptions.length}/4
+                </span>
+              </div>
+
+              <div className="composer-poll-options" role="group" aria-label="Poll options">
+                {pollOptions.map((opt, idx) => (
+                  <div className="composer-poll-input-row" key={`poll-opt-${idx}`}>
+                    <span className="composer-poll-index" aria-hidden="true">{String(idx + 1).padStart(2, "0")}</span>
+                    <input
+                      type="text"
+                      aria-label={`Poll option ${idx + 1}`}
+                      placeholder={`Option ${idx + 1}`}
+                      maxLength={180}
+                      value={opt}
+                      onChange={(e) =>
+                        setPollOptions((prev) => prev.map((v, i) => (i === idx ? e.target.value : v)))
+                      }
+                    />
+                  </div>
+                ))}
+              </div>
+
               <div className="composer-poll-actions">
-                <select
-                  value={pollDurationHours}
-                  onChange={(e) => setPollDurationHours(Number(e.target.value) || 24)}
-                >
-                  <option value={1}>1 hour</option>
-                  <option value={6}>6 hours</option>
-                  <option value={12}>12 hours</option>
-                  <option value={24}>24 hours</option>
-                  <option value={48}>2 days</option>
-                  <option value={72}>3 days</option>
-                  <option value={168}>7 days</option>
-                </select>
-                {pollOptions.length < 4 && (
-                  <button type="button" onClick={() => setPollOptions((prev) => [...prev, ""])}>
-                    + Add option
-                  </button>
-                )}
-                {pollOptions.length > 2 && (
-                  <button type="button" onClick={() => setPollOptions((prev) => prev.slice(0, -1))}>
-                    − Remove option
-                  </button>
-                )}
+                <label className="composer-poll-duration">
+                  <span>Closes in</span>
+                  <select
+                    value={pollDurationHours}
+                    onChange={(e) => setPollDurationHours(Number(e.target.value) || 24)}
+                  >
+                    <option value={1}>1 hour</option>
+                    <option value={6}>6 hours</option>
+                    <option value={12}>12 hours</option>
+                    <option value={24}>24 hours</option>
+                    <option value={48}>2 days</option>
+                    <option value={72}>3 days</option>
+                    <option value={168}>7 days</option>
+                  </select>
+                </label>
+                <div className="composer-poll-action-buttons">
+                  {pollOptions.length < 4 && (
+                    <button type="button" className="composer-poll-add" onClick={() => setPollOptions((prev) => [...prev, ""])}>
+                      <span aria-hidden="true">+</span> Add option
+                    </button>
+                  )}
+                  {pollOptions.length > 2 && (
+                    <button type="button" className="composer-poll-remove" onClick={() => setPollOptions((prev) => prev.slice(0, -1))}>
+                      Remove last
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           )}
@@ -3028,17 +3150,22 @@ export default function VineFeed() {
                 const avatarSrc = p.avatar_url
                   ? (p.avatar_url.startsWith("http") ? p.avatar_url : `${API}${p.avatar_url}`)
                   : DEFAULT_AVATAR;
+                const postType = classifyTrendingPost(p);
+                const snippetSource = String(p.content || "")
+                  .replace(/^\s*\[\[(?:feeling|postbg):[^\]]+\]\]\s*/i, "")
+                  .trim();
                 const snippet =
-                  (p.content || "").trim().length > 0
-                    ? (p.content.length > 90 ? `${p.content.slice(0, 90)}…` : p.content)
-                    : "Photo post";
+                  snippetSource.length > 0
+                    ? (snippetSource.length > 90 ? `${snippetSource.slice(0, 90)}…` : snippetSource)
+                    : `${postType.label} post`;
                 const statLikes = Number(p.like_count ?? p.likes ?? 0);
                 const statComments = Number(p.comment_count ?? p.comments ?? 0);
                 return (
                   <div
                     key={`trend-${p.id}`}
-                    className="trending-card"
+                    className={`trending-card trending-card-${postType.key}`}
                     onClick={() => navigate(`/vine/feed?post=${p.id}`)}
+                    aria-label={`${postType.label} post by ${p.display_name || p.username}`}
                   >
                     <div className="trending-top">
                           <img
@@ -3078,6 +3205,12 @@ export default function VineFeed() {
                         </div>
                         <div className="trending-handle">@{p.username}</div>
                       </div>
+                    </div>
+                    <div className="trending-type-row">
+                      <span className={`trending-type-badge trending-type-${postType.key}`}>
+                        <span aria-hidden="true">{postType.icon}</span>
+                        {postType.label} post
+                      </span>
                     </div>
                     <div className="trending-snippet">{snippet}</div>
                     <div className="trending-stats">

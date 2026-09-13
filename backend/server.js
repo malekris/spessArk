@@ -63,6 +63,8 @@ import {
 } from "./services/studentLifecycleService.js";
 import { ensureAlevelPromotionSchemaReady } from "./services/alevelPromotionService.js";
 import { ensureParentPortalSchemaReady } from "./services/parentPortalService.js";
+import { ensureSiteVisitSchemaReady } from "./services/siteVisitService.js";
+import createPublicSiteVisitRoutes from "./routes/publicSiteVisits.js";
 
 
 const app = express();
@@ -714,6 +716,7 @@ export const db = pool;//alias, no behavior change
 
 app.use("/api/admin/timetable", createTimetableRoutes(pool));
 app.use("/api", createParentPortalRoutes(pool));
+app.use("/api/public", createPublicSiteVisitRoutes(pool));
 
 app.get("/api/system/maintenance", async (_req, res) => {
   try {
@@ -4449,6 +4452,11 @@ server.listen(PORT, () => {
     .then(() => console.log("✅ SPESS Parents storage ready"))
     .catch((err) => {
       console.error("SPESS Parents storage setup failed:", err);
+    });
+  ensureSiteVisitSchemaReady(pool)
+    .then(() => console.log("✅ Public visitor counter ready"))
+    .catch((err) => {
+      console.error("Public visitor counter setup failed:", err);
     });
   ensureTeacherAssignmentLifecycleColumns(pool).catch((err) => {
     console.error("Teacher assignment lifecycle setup failed:", err);

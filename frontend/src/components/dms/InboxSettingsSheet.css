@@ -1,0 +1,465 @@
+.dm-inbox-settings-backdrop {
+  --dm-settings-surface: #ffffff;
+  position: fixed;
+  inset: 0;
+  z-index: 1600;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0;
+  background: rgba(9, 24, 18, 0.42);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: dm-settings-fade-in 0.18s ease-out;
+}
+
+.dm-inbox-settings-sheet {
+  width: 100%;
+  max-height: min(88dvh, 780px);
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  border: 1px solid rgba(207, 224, 216, 0.95);
+  border-bottom: 0;
+  border-radius: 26px 26px 0 0;
+  padding: 9px 16px calc(16px + env(safe-area-inset-bottom));
+  background:
+    radial-gradient(circle at 92% 2%, rgba(16, 185, 129, 0.13), transparent 26%),
+    var(--dm-settings-surface);
+  color: #17352a;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  box-shadow: 0 -18px 54px rgba(12, 42, 31, 0.2);
+  animation: dm-settings-sheet-up 0.24s cubic-bezier(0.2, 0.82, 0.28, 1);
+}
+
+.dm-inbox-settings-handle {
+  width: 42px;
+  height: 4px;
+  flex: 0 0 auto;
+  margin: 0 auto 7px;
+  border-radius: 999px;
+  background: #c9d8d1;
+}
+
+.dm-inbox-settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex: 0 0 auto;
+  padding: 6px 1px 12px;
+  border-bottom: 1px solid #e1ebe6;
+}
+
+.dm-inbox-settings-heading {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.dm-inbox-settings-heading-icon {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 1px solid #bee4d4;
+  border-radius: 13px;
+  background: linear-gradient(145deg, #e9faf3, #d6f3e7);
+  color: #087b58;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.dm-inbox-settings-heading-icon svg,
+.dm-inbox-settings-close svg,
+.dm-inbox-settings-row-icon svg {
+  width: 21px;
+  height: 21px;
+}
+
+.dm-inbox-settings-kicker {
+  display: block;
+  margin-bottom: 2px;
+  color: #0b8a62;
+  font-size: 0.65rem;
+  font-weight: 850;
+  letter-spacing: 0.11em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.dm-inbox-settings-heading h2 {
+  margin: 0;
+  color: #123025;
+  font-size: 1.18rem;
+  font-weight: 850;
+  letter-spacing: -0.015em;
+  line-height: 1.2;
+}
+
+.dm-inbox-settings-close {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 1px solid #d5e2dc;
+  border-radius: 50%;
+  background: rgba(249, 252, 250, 0.92);
+  color: #536a60;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease, transform 0.16s ease;
+}
+
+.dm-inbox-settings-close:hover {
+  border-color: #9cccb9;
+  background: #eef8f3;
+  color: #0a6f51;
+  transform: rotate(4deg);
+}
+
+.dm-inbox-settings-close:focus-visible,
+.dm-inbox-density-options button:focus-visible,
+.dm-inbox-switch:focus-visible,
+.dm-inbox-settings-footer button:focus-visible {
+  outline: 2px solid #0b8b63;
+  outline-offset: 2px;
+}
+
+.dm-inbox-settings-intro {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 14px 2px 13px;
+  color: #667a71;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.dm-inbox-settings-content {
+  min-height: 0;
+  display: grid;
+  gap: 10px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 1px 1px 12px;
+  scrollbar-width: thin;
+  scrollbar-color: #b9cfc5 transparent;
+}
+
+.dm-inbox-settings-card {
+  border: 1px solid #dce8e2;
+  border-radius: 17px;
+  padding: 13px;
+  background: rgba(250, 253, 251, 0.92);
+  box-shadow: 0 7px 22px rgba(24, 58, 45, 0.045);
+}
+
+.dm-inbox-settings-section-heading {
+  display: grid;
+  gap: 2px;
+  margin-bottom: 11px;
+  padding: 0 2px;
+}
+
+.dm-inbox-settings-section-heading > span {
+  color: #0c8c64;
+  font-size: 0.63rem;
+  font-weight: 850;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.dm-inbox-settings-section-heading > strong {
+  color: #203c31;
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.dm-inbox-density-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.dm-inbox-density-options button {
+  min-width: 0;
+  min-height: 66px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid #d5e3dc;
+  border-radius: 13px;
+  padding: 9px 10px;
+  background: #ffffff;
+  color: #607269;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.dm-inbox-density-options button.active {
+  border-color: #62bb98;
+  background: #ecf9f3;
+  color: #087353;
+  box-shadow: inset 0 0 0 1px rgba(11, 139, 99, 0.08);
+}
+
+.dm-inbox-density-options button > span:last-child {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.dm-inbox-density-options button strong {
+  color: #2c473c;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.dm-inbox-density-options button.active strong { color: #086d50; }
+
+.dm-inbox-density-options button small {
+  overflow: hidden;
+  color: #7b8b83;
+  font-size: 0.62rem;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dm-inbox-density-lines {
+  width: 29px;
+  height: 31px;
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  border-radius: 9px;
+  padding: 0 6px;
+  background: #eaf1ed;
+}
+
+.dm-inbox-density-options button.active .dm-inbox-density-lines { background: #d4f0e3; }
+
+.dm-inbox-density-lines i {
+  height: 2px;
+  display: block;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.7;
+}
+
+.dm-inbox-density-options button:first-child .dm-inbox-density-lines { gap: 5px; }
+.dm-inbox-density-options button:last-child .dm-inbox-density-lines { gap: 2px; }
+
+.dm-inbox-settings-list { padding-bottom: 4px; }
+
+.dm-inbox-settings-row {
+  min-height: 68px;
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border-top: 1px solid #e5ece8;
+  padding: 8px 2px;
+}
+
+.dm-inbox-settings-row:first-of-type { border-top: 0; }
+
+.dm-inbox-settings-row-icon {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 11px;
+  background: #edf6f1;
+  color: #208161;
+}
+
+.dm-inbox-settings-row-copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.dm-inbox-settings-row-copy strong {
+  color: #29443a;
+  font-size: 0.79rem;
+  font-weight: 800;
+}
+
+.dm-inbox-settings-row-copy small {
+  color: #71827a;
+  font-size: 0.67rem;
+  line-height: 1.35;
+}
+
+.dm-inbox-switch {
+  width: 46px;
+  height: 27px;
+  position: relative;
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 999px;
+  padding: 0;
+  background: #c9d5cf;
+  cursor: pointer;
+  transition: background 0.18s ease, box-shadow 0.18s ease;
+}
+
+.dm-inbox-switch > span {
+  width: 21px;
+  height: 21px;
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 2px 5px rgba(25, 50, 40, 0.22);
+  transition: transform 0.2s cubic-bezier(0.2, 0.82, 0.28, 1);
+}
+
+.dm-inbox-switch.on {
+  background: #0b986d;
+  box-shadow: inset 0 0 0 1px rgba(0, 95, 65, 0.08);
+}
+
+.dm-inbox-switch.on > span { transform: translateX(19px); }
+
+.dm-inbox-settings-footer {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex: 0 0 auto;
+  border-top: 1px solid #e1eae5;
+  padding: 12px 2px 0;
+}
+
+.dm-inbox-settings-footer button {
+  min-height: 36px;
+  border: 1px solid #cbdcd4;
+  border-radius: 10px;
+  padding: 0 12px;
+  background: #ffffff;
+  color: #32604e;
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.dm-inbox-settings-footer button:hover { border-color: #86bfa8; background: #f0f9f5; }
+
+.dm-inbox-settings-footer span {
+  color: #87968f;
+  font-size: 0.65rem;
+  font-weight: 650;
+}
+
+.theme-dark .dm-inbox-settings-backdrop {
+  --dm-settings-surface: #111b17;
+  background: rgba(0, 0, 0, 0.62);
+}
+
+.theme-dark .dm-inbox-settings-sheet {
+  border-color: #30433a;
+  background:
+    radial-gradient(circle at 92% 2%, rgba(16, 185, 129, 0.13), transparent 27%),
+    var(--dm-settings-surface);
+  color: #e8f5ee;
+  box-shadow: 0 -20px 60px rgba(0, 0, 0, 0.46);
+}
+
+.theme-dark .dm-inbox-settings-handle { background: #455b51; }
+.theme-dark .dm-inbox-settings-header,
+.theme-dark .dm-inbox-settings-footer { border-color: #293b33; }
+.theme-dark .dm-inbox-settings-heading-icon { border-color: #2e604d; background: #17382c; color: #77dfb7; box-shadow: none; }
+.theme-dark .dm-inbox-settings-heading h2 { color: #f0faf5; }
+.theme-dark .dm-inbox-settings-intro,
+.theme-dark .dm-inbox-settings-row-copy small,
+.theme-dark .dm-inbox-settings-footer span { color: #94a69d; }
+.theme-dark .dm-inbox-settings-close,
+.theme-dark .dm-inbox-settings-footer button { border-color: #34483e; background: #19251f; color: #d8ebe1; }
+.theme-dark .dm-inbox-settings-close:hover,
+.theme-dark .dm-inbox-settings-footer button:hover { border-color: #4e7f69; background: #20352b; }
+.theme-dark .dm-inbox-settings-card { border-color: #2a3d34; background: rgba(23, 34, 29, 0.94); box-shadow: none; }
+.theme-dark .dm-inbox-settings-section-heading > strong,
+.theme-dark .dm-inbox-settings-row-copy strong { color: #dcebe4; }
+.theme-dark .dm-inbox-density-options button { border-color: #35473f; background: #1b2822; color: #9cacA4; }
+.theme-dark .dm-inbox-density-options button.active { border-color: #3f8d6e; background: #18372b; color: #86e1bd; }
+.theme-dark .dm-inbox-density-options button strong { color: #d6e7de; }
+.theme-dark .dm-inbox-density-options button.active strong { color: #9aebca; }
+.theme-dark .dm-inbox-density-options button small { color: #91a198; }
+.theme-dark .dm-inbox-density-lines,
+.theme-dark .dm-inbox-settings-row-icon { background: #24362e; color: #82d8b6; }
+.theme-dark .dm-inbox-density-options button.active .dm-inbox-density-lines { background: #24503f; }
+.theme-dark .dm-inbox-settings-row { border-color: #293a33; }
+.theme-dark .dm-inbox-switch { background: #53635b; }
+.theme-dark .dm-inbox-switch.on { background: #19a977; }
+
+@media (min-width: 769px) {
+  .dm-inbox-settings-backdrop {
+    align-items: stretch;
+    justify-content: flex-end;
+    padding: 18px;
+  }
+
+  .dm-inbox-settings-sheet {
+    width: min(440px, calc(100vw - 36px));
+    max-height: none;
+    border-bottom: 1px solid rgba(207, 224, 216, 0.95);
+    border-radius: 24px;
+    padding: 12px 17px 14px;
+    box-shadow: -18px 0 60px rgba(12, 42, 31, 0.22);
+    animation-name: dm-settings-sheet-in;
+  }
+
+  .dm-inbox-settings-handle { display: none; }
+  .dm-inbox-settings-header { padding: 2px 1px 10px; }
+  .dm-inbox-settings-intro { padding: 11px 2px 10px; font-size: 0.76rem; }
+  .dm-inbox-settings-content { gap: 9px; padding-bottom: 10px; }
+  .dm-inbox-settings-card { padding: 11px; }
+  .dm-inbox-settings-section-heading { margin-bottom: 7px; }
+  .dm-inbox-density-options button { min-height: 58px; }
+  .dm-inbox-settings-row { min-height: 58px; padding: 5px 2px; }
+  .dm-inbox-settings-footer { min-height: 42px; padding-top: 9px; }
+}
+
+@media (max-width: 374px) {
+  .dm-inbox-settings-sheet { padding-right: 12px; padding-left: 12px; }
+  .dm-inbox-settings-intro { font-size: 0.75rem; }
+  .dm-inbox-density-options button { gap: 6px; padding: 8px; }
+  .dm-inbox-density-lines { width: 25px; padding: 0 5px; }
+  .dm-inbox-density-options button small { display: none; }
+  .dm-inbox-settings-row { grid-template-columns: 34px minmax(0, 1fr) auto; gap: 8px; }
+  .dm-inbox-settings-row-icon { width: 32px; height: 32px; }
+  .dm-inbox-settings-footer span { display: none; }
+}
+
+@keyframes dm-settings-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes dm-settings-sheet-up {
+  from { opacity: 0.8; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes dm-settings-sheet-in {
+  from { opacity: 0.8; transform: translateX(28px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dm-inbox-settings-backdrop,
+  .dm-inbox-settings-sheet { animation: none; }
+  .dm-inbox-settings-close,
+  .dm-inbox-density-options button,
+  .dm-inbox-switch,
+  .dm-inbox-switch > span { transition: none; }
+}

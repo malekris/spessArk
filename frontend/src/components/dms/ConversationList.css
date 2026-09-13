@@ -30,12 +30,20 @@
 }
 
 .dm-list-back,
+.dm-inbox-settings-trigger,
 .dm-new-group,
 .dm-search-clear,
 .dm-row-menu-trigger,
 .dm-empty button,
 .dm-load-error button {
   font: inherit;
+}
+
+.dm-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex: 0 0 auto;
 }
 
 .dm-list-back {
@@ -57,6 +65,33 @@
   border-color: #86cdb2;
   background: #f0faf5;
   transform: translateX(-1px);
+}
+
+.dm-inbox-settings-trigger {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 1px solid #c9dbd2;
+  border-radius: 13px;
+  background: #ffffff;
+  color: #356052;
+  cursor: pointer;
+  box-shadow: 0 3px 10px rgba(18, 44, 34, 0.055);
+  transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease, transform 0.16s ease;
+}
+
+.dm-inbox-settings-trigger:hover {
+  border-color: #82c5aa;
+  background: #eef9f4;
+  color: #087454;
+  transform: translateY(-1px);
+}
+
+.dm-inbox-settings-trigger:focus-visible {
+  outline: 2px solid #0b9569;
+  outline-offset: 2px;
 }
 
 .dm-title-block {
@@ -457,9 +492,54 @@
   white-space: nowrap;
 }
 
+.dm-preview-private {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #87958e;
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.dm-preview-private svg { flex: 0 0 auto; }
+
 .dm-unread .dm-preview {
   color: #29483c;
   font-weight: 700;
+}
+
+.dm-unread .dm-preview-private { color: #65776e; font-weight: 700; }
+
+.dm-list-compact .dm-list-window { gap: 7px; }
+
+.dm-list-compact .dm-item {
+  min-height: 78px;
+  gap: 13px;
+  padding: 11px 14px 11px 17px;
+  border-radius: 13px;
+}
+
+.dm-list-compact .dm-item:first-of-type,
+.dm-list-compact .dm-item:last-of-type,
+.dm-list-compact .dm-item:only-of-type { border-radius: 13px; }
+
+.dm-list-compact .dm-item.dm-unread::before { top: 14px; bottom: 14px; }
+
+.dm-list-compact .dm-avatar-shell,
+.dm-list-compact .dm-avatar,
+.dm-list-compact .dm-avatar-fallback {
+  width: 48px;
+  height: 48px;
+}
+
+.dm-list-compact .dm-avatar-shell { flex-basis: 48px; }
+.dm-list-compact .dm-avatar-presence { width: 12px; height: 12px; }
+.dm-list-compact .dm-meta { gap: 5px; }
+.dm-list-compact .dm-username { font-size: 0.92rem; }
+.dm-list-compact .dm-preview { font-size: 0.81rem; }
+
+.dm-list-compact .dm-conversation-side {
+  min-height: 48px;
 }
 
 .dm-conversation-side {
@@ -667,12 +747,14 @@
 .theme-dark .dm-title-block > span,
 .theme-dark .dm-list-heading span { color: #91a39a; }
 .theme-dark .dm-list-back,
+.theme-dark .dm-inbox-settings-trigger,
 .theme-dark .dm-search-box,
 .theme-dark .dm-list-window,
 .theme-dark .dm-row-menu-popover,
 .theme-dark .dm-empty button,
 .theme-dark .dm-load-error button { border-color: #34463e; background: #17221d; color: #dcebe4; }
 .theme-dark .dm-search-input { background: transparent; color: #eef8f3; }
+.theme-dark .dm-inbox-settings-trigger:hover { border-color: #4c765f; background: #20342b; color: #8fe4c1; }
 .theme-dark .dm-list-window { border-color: transparent; background: transparent; }
 .theme-dark .dm-filter-tabs { border-color: #314139; background: #111b17; }
 .theme-dark .dm-filter-tabs button { color: #9cafA5; }
@@ -740,6 +822,9 @@
     height: 40px;
     padding: 0;
   }
+
+  .dm-header-actions { gap: 7px; }
+  .dm-inbox-settings-trigger { width: 40px; height: 40px; border-radius: 12px; }
 
   .dm-new-group span { display: none; }
 
@@ -821,6 +906,18 @@
   .dm-group-identity-line .dm-pinned-marker { grid-column: 2; grid-row: 1; }
   .dm-preview { font-size: 0.84rem; }
 
+  .dm-list-compact .dm-list-window { gap: 6px; }
+  .dm-list-compact .dm-item { min-height: 76px; gap: 10px; padding: 10px 11px 10px 14px; }
+  .dm-list-compact .dm-item.dm-group-conversation { gap: 8px; }
+  .dm-list-compact .dm-avatar-shell,
+  .dm-list-compact .dm-avatar,
+  .dm-list-compact .dm-avatar-fallback { width: 46px; height: 46px; }
+  .dm-list-compact .dm-avatar-shell { flex-basis: 46px; }
+  .dm-list-compact .dm-meta { gap: 4px; }
+  .dm-list-compact .dm-username { font-size: 0.88rem; }
+  .dm-list-compact .dm-preview { font-size: 0.78rem; }
+  .dm-list-compact .dm-conversation-side { width: 58px; min-height: 46px; flex-basis: 58px; }
+
   .dm-conversation-side {
     width: 62px;
     min-height: 54px;
@@ -863,6 +960,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .dm-list-back,
+  .dm-inbox-settings-trigger,
   .dm-new-group,
   .dm-item,
   .dm-item-skeleton::after { transition: none; animation: none; }

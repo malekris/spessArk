@@ -36,6 +36,42 @@ const REACTION_EMOJI = {
   care: "🤗",
 };
 
+const PostActionIcon = ({ type, active = false }) => {
+  if (type === "like") {
+    return (
+      <svg viewBox="0 0 24 24" fill={active ? "currentColor" : "none"} aria-hidden="true">
+        <path d="M20.8 5.9a5.3 5.3 0 0 0-7.5 0L12 7.2l-1.3-1.3a5.3 5.3 0 0 0-7.5 7.5L12 22l8.8-8.6a5.3 5.3 0 0 0 0-7.5Z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  if (type === "comment") {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M20 11.5a7.5 7.5 0 0 1-8 7.5 8.8 8.8 0 0 1-3.2-.6L4 20l1.5-4A7.1 7.1 0 0 1 4 11.5 7.5 7.5 0 0 1 12 4a7.5 7.5 0 0 1 8 7.5Z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  if (type === "revine") {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="m17 2.8 3.3 3.3L17 9.4M20 6.1H8.5a4.5 4.5 0 0 0-4.5 4.5v.7M7 21.2l-3.3-3.3L7 14.6M4 17.9h11.5a4.5 4.5 0 0 0 4.5-4.5v-.7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  if (type === "bookmark") {
+    return (
+      <svg viewBox="0 0 24 24" fill={active ? "currentColor" : "none"} aria-hidden="true">
+        <path d="M6.5 4.2A2.2 2.2 0 0 1 8.7 2h6.6a2.2 2.2 0 0 1 2.2 2.2V21L12 17.5 6.5 21V4.2Z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M12 16V3m0 0L7.5 7.5M12 3l4.5 4.5M5 12.5v6A2.5 2.5 0 0 0 7.5 21h9a2.5 2.5 0 0 0 2.5-2.5v-6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+};
+
 /**
  * Formats recent timestamps as relative time and older timestamps with their full date.
  */
@@ -234,8 +270,16 @@ const getContrastTextColor = (hex) => {
   const r = parseInt(clean.slice(0, 2), 16);
   const g = parseInt(clean.slice(2, 4), 16);
   const b = parseInt(clean.slice(4, 6), 16);
-  const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
-  return luminance > 0.62 ? "#0f172a" : "#ffffff";
+  const channel = (value) => {
+    const normalized = value / 255;
+    return normalized <= 0.03928
+      ? normalized / 12.92
+      : ((normalized + 0.055) / 1.055) ** 2.4;
+  };
+  const luminance = 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+  const contrastWithWhite = 1.05 / (luminance + 0.05);
+  const contrastWithInk = (luminance + 0.05) / 0.05;
+  return contrastWithWhite >= contrastWithInk ? "#ffffff" : "#0f172a";
 };
 
 const getMentionAnchor = (value, caret) => {
@@ -1297,14 +1341,28 @@ function VinePostCard({
           className="post-classic-meta"
           title={postSourceLabel ? `Posted from ${postSourceLabel}` : postTimeLabel}
         >
-          {postTimeLabel && <span className="post-classic-time">{postTimeLabel}</span>}
+          {postTimeLabel && (
+            <span className="post-classic-time">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <circle cx="12" cy="12" r="8.5" stroke="currentColor" strokeWidth="1.8" />
+                <path d="M12 7.5V12l3 2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              {postTimeLabel}
+            </span>
+          )}
           {postTimeLabel && postSourceLabel && <span className="post-classic-separator">·</span>}
           {postSourceLabel && (
-            <span className="post-classic-source">Posted from {postSourceLabel}</span>
+            <span className="post-classic-source">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <rect x="4" y="4" width="16" height="13" rx="2.5" stroke="currentColor" strokeWidth="1.8" />
+                <path d="M9 21h6M12 17v4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+              </svg>
+              Posted from {postSourceLabel}
+            </span>
           )}
         </div>
       )}
-      <div className="vine-post-footer">
+      <div className="vine-post-footer" role="group" aria-label="Post actions">
         <div
           className="reaction-action-wrap"
           onPointerDown={(e) => e.stopPropagation()}
@@ -1319,37 +1377,62 @@ function VinePostCard({
             onPointerLeave={cancelReactionPress}
             onContextMenu={(e) => e.preventDefault()}
             onClick={handleLikeButtonClick}
+            aria-label={`${postUserLiked ? "Change or remove reaction" : "React to post"}${canShowLikeCount ? `, ${postLikes} reactions` : ""}`}
+            aria-pressed={postUserLiked}
+            title={postUserLiked ? "Change reaction" : "React"}
           >
-            {postUserLiked ? (REACTION_EMOJI[postUserReaction] || "❤️") : "🤍"}
-            {canShowLikeCount && ` ${postLikes}`}
+            <span className="post-action-icon">
+              {postUserLiked && postUserReaction && postUserReaction !== "like" ? (
+                <span className="post-action-reaction" aria-hidden="true">{REACTION_EMOJI[postUserReaction] || "❤️"}</span>
+              ) : (
+                <PostActionIcon type="like" active={postUserLiked} />
+              )}
+            </span>
+            <span className="post-action-label">React</span>
+            {canShowLikeCount && <span className="post-action-count">{postLikes}</span>}
           </button>
         </div>
         <button
           className="action-btn"
+          aria-label={`${open ? "Close" : "Open"} comments, ${commentCount} comments`}
+          aria-expanded={open}
+          title="Comments"
           onClick={() => {
             setOpen(!open);
           }}
         >
-          💬 {commentCount}
+          <span className="post-action-icon"><PostActionIcon type="comment" /></span>
+          <span className="post-action-label">Comment</span>
+          <span className="post-action-count">{commentCount}</span>
         </button>
 
         <button
           className={`action-btn ${userRevined ? "active-revine" : ""}`}
           disabled={isCommunityInteractionLocked}
           onClick={handleRevine}
+          aria-label={`${userRevined ? "Remove revine" : "Revine post"}, ${revines} revines`}
+          aria-pressed={userRevined}
+          title={isCommunityInteractionLocked ? "Join this community to revine" : "Revine"}
         >
-          🔁 {revines}
+          <span className="post-action-icon"><PostActionIcon type="revine" /></span>
+          <span className="post-action-label">Revine</span>
+          <span className="post-action-count">{revines}</span>
         </button>
 
         <button
           className={`action-btn bookmark-btn ${bookmarked ? "active-bookmark" : ""}`}
           onClick={handleBookmark}
           title={bookmarked ? "Remove bookmark" : "Save post"}
+          aria-label={bookmarked ? "Remove saved post" : "Save post"}
+          aria-pressed={bookmarked}
         >
-          🔖
+          <span className="post-action-icon"><PostActionIcon type="bookmark" active={bookmarked} /></span>
+          <span className="post-action-label">{bookmarked ? "Saved" : "Save"}</span>
         </button>
         <button
           className="action-btn"
+          aria-label="Copy link to post"
+          title="Copy post link"
           onClick={() => {
             navigator.clipboard.writeText(
               `${API}/api/vine/share/${post.id}?preview=${SHARE_PREVIEW_VERSION}`
@@ -1357,45 +1440,48 @@ function VinePostCard({
             alert("Copied! 🌱");
           }}
         >
-          📤
+          <span className="post-action-icon"><PostActionIcon type="share" /></span>
+          <span className="post-action-label">Share</span>
         </button>
       </div>
       {canShowLikeCount && Number(postLikes || 0) > 0 && latestLiker && (
         <button className="liked-by-line" onClick={openLikesModal}>
-          {String(latestLiker.reaction || "like").toLowerCase() === "like" ? "Liked by " : "Reacted by "}
-          <strong className="liked-by-latest">
-            {String(latestLiker.reaction || "like").toLowerCase() !== "like" && (
-              <span className="liked-by-reaction">
-                {REACTION_EMOJI[String(latestLiker.reaction || "like").toLowerCase()] || "❤️"}
-              </span>
-            )}
-            {latestLiker.display_name || latestLiker.username}
-            {(Number(latestLiker.is_verified) === 1 ||
-              ["vine guardian", "vine_guardian", "vine news", "vine_news"].includes(
-                String(latestLiker.username || "").toLowerCase()
-              )) && (
-              <span
-                className={`verified ${
-                  ["vine guardian", "vine_guardian", "vine news", "vine_news"].includes(
-                    String(latestLiker.username || "").toLowerCase()
-                  )
-                    ? "guardian"
-                    : ""
-                }`}
-              >
-                <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
-                  <path
-                    d="M20 6L9 17l-5-5"
-                    stroke="white"
-                    strokeWidth="3"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </span>
-            )}
-          </strong>
-          {Number(postLikes) > 1 ? ` and ${Number(postLikes) - 1} others` : ""}
+          <span className="liked-by-avatar" aria-hidden="true">
+            <img
+              src={latestLiker.avatar_url || DEFAULT_AVATAR}
+              alt=""
+              onError={(event) => { event.currentTarget.src = DEFAULT_AVATAR; }}
+            />
+            <span>{REACTION_EMOJI[String(latestLiker.reaction || "like").toLowerCase()] || "❤️"}</span>
+          </span>
+          <span className="liked-by-copy">
+            {String(latestLiker.reaction || "like").toLowerCase() === "like" ? "Liked by " : "Reacted by "}
+            <strong className="liked-by-latest">
+              {latestLiker.display_name || latestLiker.username}
+              {(Number(latestLiker.is_verified) === 1 ||
+                ["vine guardian", "vine_guardian", "vine news", "vine_news"].includes(
+                  String(latestLiker.username || "").toLowerCase()
+                )) && (
+                <span
+                  className={`verified ${
+                    ["vine guardian", "vine_guardian", "vine news", "vine_news"].includes(
+                      String(latestLiker.username || "").toLowerCase()
+                    )
+                      ? "guardian"
+                      : ""
+                  }`}
+                >
+                  <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
+                    <path d="M20 6L9 17l-5-5" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </span>
+              )}
+            </strong>
+            {Number(postLikes) > 1 ? ` and ${Number(postLikes) - 1} others` : ""}
+          </span>
+          <svg className="liked-by-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="m9 6 6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
         </button>
       )}
 

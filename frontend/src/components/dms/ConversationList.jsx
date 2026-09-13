@@ -4,6 +4,13 @@ import "./ConversationList.css";
 import { socket } from "../../socket";
 import GroupCreateModal from "./GroupCreateModal";
 import ConversationActionsMenu from "./ConversationActionsMenu";
+import InboxSettingsSheet from "./InboxSettingsSheet";
+import {
+  orderInboxConversations,
+  readDmInboxPreferences,
+  resetDmInboxPreferences,
+  saveDmInboxPreferences,
+} from "./dmInboxPreferences";
 import "./GroupCreateModal.css";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
@@ -62,6 +69,8 @@ export default function ConversationList() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
   const [groupModalOpen, setGroupModalOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [inboxPreferences, setInboxPreferences] = useState(readDmInboxPreferences);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const searchRef = useRef("");
@@ -70,6 +79,7 @@ export default function ConversationList() {
   const realtimeRefreshRef = useRef(null);
   const navigate = useNavigate();
   const token = localStorage.getItem("vine_token");
+  const closeInboxSettings = useCallback(() => setSettingsOpen(false), []);
   const unreadChats = conversations.filter((item) => Number(item?.unread_count || 0) > 0).length;
   const pinnedChats = conversations.filter((item) => Number(item?.is_pinned) === 1).length;
   const groupChats = conversations.filter((item) => item?.conversation_type === "group").length;
@@ -82,7 +92,10 @@ export default function ConversationList() {
   // Keep the inbox fully mounted. Conversation rows are lightweight, and native
   // page scrolling is more reliable here than windowed rendering (which can
   // hide rows when the active scroll container is not `window`).
-  const visibleConversations = filteredConversations;
+  const visibleConversations = useMemo(
+    () => orderInboxConversations(filteredConversations, inboxPreferences.prioritizeUnread),
+    [filteredConversations, inboxPreferences.prioritizeUnread]
+  );
   const inboxFilters = [
     { id: "all", label: "All", count: conversations.length },
     { id: "unread", label: "Unread", count: unreadChats },
@@ -140,6 +153,15 @@ export default function ConversationList() {
     } catch (err) {
       console.error("Pin failed", err);
     }
+  };
+
+  const updateInboxPreferences = (changes) => {
+    const nextPreferences = saveDmInboxPreferences({ ...inboxPreferences, ...changes });
+    setInboxPreferences(nextPreferences);
+  };
+
+  const restoreInboxPreferences = () => {
+    setInboxPreferences(resetDmInboxPreferences());
   };
 
   /* ---------------------------
@@ -212,7 +234,7 @@ export default function ConversationList() {
      UI
   ---------------------------- */
   return (
-    <div className="dm-list">
+    <div className={`dm-list ${inboxPreferences.density === "compact" ? "dm-list-compact" : ""}`}>
       <header className="dm-header">
         <button className="dm-list-back" onClick={() => navigate("/vine/feed")} aria-label="Back to feed" title="Back to feed">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true">
@@ -223,13 +245,21 @@ export default function ConversationList() {
           <h1 className="dm-title">Messages</h1>
           <span>{conversations.length} conversations</span>
         </div>
-        <button className="dm-new-group" type="button" onClick={() => setGroupModalOpen(true)} title="Create group">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden="true">
-            <path d="M8.5 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM15.5 11a3.2 3.2 0 1 0 0-6.4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-            <path d="M2.5 20c.4-3.6 2.4-5.4 6-5.4s5.6 1.8 6 5.4M15 14.2c3.8 0 5.8 1.8 6.1 5.4M18.5 9.5v5M16 12h5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-          </svg>
-          <span>New group</span>
-        </button>
+        <div className="dm-header-actions">
+          <button className="dm-inbox-settings-trigger" type="button" onClick={() => setSettingsOpen(true)} aria-label="Open DM settings" title="DM settings">
+            <svg viewBox="0 0 24 24" width="19" height="19" fill="none" aria-hidden="true">
+              <path d="M9.6 3.5h4.8l.7 2.1 2 .8 2-1 2.4 4.1-1.7 1.5.2 2.2 1.5 1.7-2.4 4.1-2.1-1-2 .8-.7 2.2H9.6l-.7-2.2-2-.8-2.1 1-2.4-4.1 1.6-1.7.1-2.2-1.7-1.5 2.4-4.1 2 1 2.1-.8.7-2.1Z" stroke="currentColor" strokeWidth="1.65" strokeLinejoin="round" />
+              <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.7" />
+            </svg>
+          </button>
+          <button className="dm-new-group" type="button" onClick={() => setGroupModalOpen(true)} title="Create group">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden="true">
+              <path d="M8.5 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM15.5 11a3.2 3.2 0 1 0 0-6.4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+              <path d="M2.5 20c.4-3.6 2.4-5.4 6-5.4s5.6 1.8 6 5.4M15 14.2c3.8 0 5.8 1.8 6.1 5.4M18.5 9.5v5M16 12h5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+            </svg>
+            <span>New group</span>
+          </button>
+        </div>
       </header>
 
       <section className="dm-inbox-controls" aria-label="Message filters">
@@ -360,7 +390,7 @@ export default function ConversationList() {
                     onError={(event) => { event.currentTarget.src = DEFAULT_AVATAR; }}
                   />
                 )}
-                {!isGroup && Number(c.is_online_now) === 1 && <span className="dm-avatar-presence" aria-label="Online" title="Online" />}
+                {inboxPreferences.showOnlineIndicators && !isGroup && Number(c.is_online_now) === 1 && <span className="dm-avatar-presence" aria-label="Online" title="Online" />}
               </div>
 
               <div className="dm-meta">
@@ -392,7 +422,16 @@ export default function ConversationList() {
                     </span>
                   )}
                 </div>
-                <p className="dm-preview">{c.last_message || "No messages yet"}</p>
+                {inboxPreferences.showMessagePreviews ? (
+                  <p className="dm-preview">{c.last_message || "No messages yet"}</p>
+                ) : (
+                  <p className="dm-preview dm-preview-private">
+                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" aria-hidden="true">
+                      <path d="M4 4 20 20M9.9 6.7A9.7 9.7 0 0 1 12 6.5c5.4 0 8.5 5.5 8.5 5.5a13.7 13.7 0 0 1-2.2 2.8M14.2 14.4a3 3 0 0 1-4.6-3.8M6.3 8.1A14.4 14.4 0 0 0 3.5 12s3.1 5.5 8.5 5.5c1 0 1.9-.2 2.7-.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                    Preview hidden
+                  </p>
+                )}
               </div>
 
               <div className="dm-conversation-side">
@@ -420,6 +459,13 @@ export default function ConversationList() {
           loadConversations();
           if (data?.conversationId) navigate(`/vine/dms/${data.conversationId}`);
         }}
+      />
+      <InboxSettingsSheet
+        open={settingsOpen}
+        preferences={inboxPreferences}
+        onChange={updateInboxPreferences}
+        onReset={restoreInboxPreferences}
+        onClose={closeInboxSettings}
       />
     </div>
   );

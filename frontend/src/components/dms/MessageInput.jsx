@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import "./MessageInput.css";
 import { convertHeicFileToJpeg, isHeicLikeFile } from "../../modules/vine/utils/heic";
+import { readDmInboxPreferences, subscribeToDmInboxPreferences } from "./dmInboxPreferences";
 
 const VOICE_RECORDER_MIME_CANDIDATES = [
   "audio/webm;codecs=opus",
@@ -62,6 +63,7 @@ const resizeMessageInput = (element) => {
 
 export default function MessageInput({ onSend, replyTarget, onCancelReply, onTyping, quickEmoji = "" }) {
   const [text, setText] = useState("");
+  const [enterToSend, setEnterToSend] = useState(() => readDmInboxPreferences().enterToSend);
   const [mediaFiles, setMediaFiles] = useState([]);
   const [mediaType, setMediaType] = useState(null);
   const [previewItems, setPreviewItems] = useState([]);
@@ -74,6 +76,11 @@ export default function MessageInput({ onSend, replyTarget, onCancelReply, onTyp
   useEffect(() => {
     resizeMessageInput(textInputRef.current);
   }, [text]);
+
+  useEffect(
+    () => subscribeToDmInboxPreferences((preferences) => setEnterToSend(preferences.enterToSend)),
+    []
+  );
 
   const syncText = (nextValue) => {
     setText(nextValue);
@@ -322,7 +329,10 @@ export default function MessageInput({ onSend, replyTarget, onCancelReply, onTyp
           placeholder="Type a message..."
           className="chat-input"
           onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
+            const keyboardSend = enterToSend
+              ? e.key === "Enter" && !e.shiftKey
+              : e.key === "Enter" && (e.metaKey || e.ctrlKey);
+            if (keyboardSend) {
               e.preventDefault();
               send();
             }

@@ -43,9 +43,6 @@ export default function VineSuggestions() {
     }
   };
 
-  // Guard clause for empty state
-  if (users.length === 0) return null;
-
   return (
     <div className="vine-suggestions">
       <div className="suggestions-content">
@@ -70,71 +67,99 @@ export default function VineSuggestions() {
           <span className="suggestions-back-label">Feed</span>
         </button>
 
-        <h3 className="suggestions-title">🌱 New Viners</h3>
+        <div className="suggestions-heading">
+          <div>
+            <span className="suggestions-kicker">Discover</span>
+            <h3 className="suggestions-title">🌱 New Viners</h3>
+            <p className="suggestions-subtitle">Find fresh voices and people you may want to follow.</p>
+          </div>
+          <span className="suggestions-count">{users.length} to explore</span>
+        </div>
         
-        <div className="suggestions-list">
-          {users.map((u) => (
-            <div
-              key={u.id}
-              className="suggestion-row"
-              onClick={() => navigate(`/vine/profile/${u.username}`)}
-            >
-              <div className="user-left">
-                <div className="avatar">
-                  <img
-                    src={
-                      u.avatar_url
-                        ? (u.avatar_url.startsWith("http") ? u.avatar_url : `${API}${u.avatar_url}`)
-                        : DEFAULT_AVATAR
-                    }
-                    alt={u.username}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      navigate(`/vine/profile/${u.username}`);
-                    }}
-                    onError={(e) => {
-                      e.currentTarget.src = DEFAULT_AVATAR;
-                    }}
-                  />
-                </div>
-
-                <div className="user-info">
-                  <strong className="user-name">
-                    <span
+        {users.length > 0 ? (
+          <div className="suggestions-list">
+            {users.map((u) => (
+              <div
+                key={u.id}
+                className="suggestion-row"
+                onClick={() => navigate(`/vine/profile/${u.username}`)}
+              >
+                <div className="user-left">
+                  <div className="avatar">
+                    <img
+                      src={
+                        u.avatar_url
+                          ? (u.avatar_url.startsWith("http") ? u.avatar_url : `${API}${u.avatar_url}`)
+                          : DEFAULT_AVATAR
+                      }
+                      alt={u.username}
                       onClick={(e) => {
                         e.stopPropagation();
                         navigate(`/vine/profile/${u.username}`);
                       }}
-                    >
-                      {u.display_name || u.username}
-                    </span>
-                    {(Number(u.is_verified) === 1 || ["vine guardian","vine_guardian","vine news","vine_news"].includes(String(u.username || "").toLowerCase())) && (
-                      <span className={`verified ${["vine guardian","vine_guardian","vine news","vine_news"].includes(String(u.username || "").toLowerCase()) ? "guardian" : ""}`}>
-                        <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
-                          <path
-                            d="M20 6L9 17l-5-5"
-                            stroke="white"
-                            strokeWidth="3"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </svg>
-                      </span>
-                    )}
-                  </strong>
-                  <span>@{u.username}</span>
-                </div>
-              </div>
+                      onError={(e) => {
+                        e.currentTarget.src = DEFAULT_AVATAR;
+                      }}
+                    />
+                  </div>
 
-              <button
-                className="follow-mini"
-                onClick={(e) => toggleFollow(u, e)}
-              >
-                Follow
-              </button>
-            </div>
-          ))}
-        </div> {/* suggestions-list end */}
+                  <div className="user-info">
+                    <strong className="user-name">
+                      <span
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate(`/vine/profile/${u.username}`);
+                        }}
+                      >
+                        {u.display_name || u.username}
+                      </span>
+                      {(Number(u.is_verified) === 1 || ["vine guardian","vine_guardian","vine news","vine_news"].includes(String(u.username || "").toLowerCase())) && (
+                        <span className={`verified ${["vine guardian","vine_guardian","vine news","vine_news"].includes(String(u.username || "").toLowerCase()) ? "guardian" : ""}`}>
+                          <svg viewBox="0 0 24 24" width="12" height="12" fill="none">
+                            <path
+                              d="M20 6L9 17l-5-5"
+                              stroke="white"
+                              strokeWidth="3"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        </span>
+                      )}
+                    </strong>
+                    <span>@{u.username}</span>
+                  </div>
+                </div>
+
+                <button
+                  className="follow-mini"
+                  onClick={(e) => toggleFollow(u, e)}
+                >
+                  Follow
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="suggestions-empty" role="status">
+            <span className="suggestions-empty-icon" aria-hidden="true">✦</span>
+            <strong>You’re all caught up</strong>
+            <span>We’ll bring fresh Viners here as they join.</span>
+          </div>
+        )} {/* suggestions-list end */}
+
+        <footer className="suggestions-footer">
+          <div className="suggestions-footer-copy">
+            <span className="suggestions-footer-mark" aria-hidden="true">✦</span>
+            <span>© {new Date().getFullYear()} Vine. All rights reserved.</span>
+          </div>
+          <div className="suggestions-footer-links" aria-label="Vine information">
+            <button type="button" onClick={() => navigate("/vine/legal/copyright")}>Copyright</button>
+            <button type="button" onClick={() => navigate("/vine/legal/terms")}>Terms</button>
+            <button type="button" onClick={() => navigate("/vine/legal/privacy")}>Privacy</button>
+            <button type="button" onClick={() => navigate("/vine/help")}>Help</button>
+          </div>
+        </footer>
 
       </div> {/* suggestions-content end */}
     </div> 

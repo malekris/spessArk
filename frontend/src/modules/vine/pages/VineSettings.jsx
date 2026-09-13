@@ -668,6 +668,19 @@ export default function VineSettings() {
       </div>
       <div className="vine-settings-shell">
         <div className="vine-settings-card">
+          <div className="vine-settings-intro">
+            <span className="vine-settings-intro-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none">
+                <path d="M9.6 3.5h4.8l.7 2.1 2 .8 2-1 2.4 4.1-1.7 1.5.2 2.2 1.5 1.7-2.4 4.1-2.1-1-2 .8-.7 2.2H9.6l-.7-2.2-2-.8-2.1 1-2.4-4.1 1.6-1.7.1-2.2-1.7-1.5 2.4-4.1 2 1 2.1-.8.7-2.1Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+                <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.7" />
+              </svg>
+            </span>
+            <div>
+              <span className="vine-settings-intro-kicker">Vine account</span>
+              <h1>Settings &amp; privacy</h1>
+              <p>Shape your experience, protect your account, and choose what you share.</p>
+            </div>
+          </div>
           {deleteRequestedAt && deletionDueAt && (
             <div className="deletion-banner">
               <div className="deletion-title">Account deletion pending</div>

@@ -579,3 +579,429 @@
     align-items: stretch;
   }
 }
+
+/* ── Vine settings visual refresh ── */
+.vine-settings-page {
+  min-height: 100dvh;
+  padding-bottom: 48px;
+  background:
+    radial-gradient(circle at 7% 4%, rgba(16, 185, 129, 0.14), transparent 31%),
+    radial-gradient(circle at 98% 0%, rgba(250, 204, 21, 0.1), transparent 24%),
+    #eef8f3;
+  color: #18382b;
+}
+
+.vine-settings-top {
+  min-height: 70px;
+  box-sizing: border-box;
+  padding: max(12px, env(safe-area-inset-top, 12px)) max(20px, calc((100vw - 1120px) / 2)) 12px;
+  gap: 14px;
+  border-bottom: 1px solid rgba(185, 213, 201, 0.76);
+  background: rgba(249, 253, 251, 0.88);
+  box-shadow: 0 8px 26px rgba(27, 78, 57, 0.07);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.vine-settings-top h2 {
+  display: grid;
+  gap: 2px;
+  color: #123b2a;
+  font-size: 1.14rem;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.vine-settings-top h2::before {
+  content: "ACCOUNT SETTINGS";
+  color: #0b8a62;
+  font-size: 0.58rem;
+  font-weight: 900;
+  letter-spacing: 0.13em;
+  line-height: 1;
+}
+
+.vine-settings-back {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 1px solid #c7ddd2;
+  border-radius: 13px;
+  padding: 0;
+  background: #ffffff;
+  color: #356352;
+  font-size: 0;
+  box-shadow: 0 4px 12px rgba(22, 74, 54, 0.07);
+  transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease, transform 0.16s ease;
+}
+
+.vine-settings-back::before {
+  content: "←";
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+.vine-settings-back:hover,
+.vine-settings-back:focus-visible {
+  border-color: #79b99c;
+  background: #effaf4;
+  color: #087454;
+  transform: translateX(-1px);
+}
+
+.save-chip {
+  border: 1px solid rgba(88, 181, 140, 0.42);
+  padding: 6px 10px;
+  background: #e9f9f0;
+  color: #087454;
+  font-size: 0.68rem;
+  letter-spacing: 0.02em;
+  box-shadow: 0 4px 10px rgba(29, 112, 78, 0.08);
+}
+
+.vine-settings-shell {
+  width: min(1040px, calc(100vw - 36px));
+  margin: 28px auto 0;
+}
+
+.vine-settings-card {
+  border: 1px solid rgba(189, 216, 204, 0.9);
+  border-radius: 28px;
+  padding: 28px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.98),
+    0 20px 52px rgba(25, 79, 57, 0.1);
+}
+
+.vine-settings-intro {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  margin: 0 0 27px;
+  padding: 2px 2px 24px;
+  border-bottom: 1px solid #e0ede6;
+}
+
+.vine-settings-intro-icon {
+  width: 50px;
+  height: 50px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 1px solid #b7e0cc;
+  border-radius: 16px;
+  background: linear-gradient(145deg, #e9faf2, #d8f2e5);
+  color: #087b58;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.94), 0 8px 18px rgba(20, 101, 68, 0.08);
+}
+
+.vine-settings-intro-icon svg { width: 25px; height: 25px; }
+
+.vine-settings-intro-kicker {
+  display: block;
+  margin-bottom: 4px;
+  color: #0b8a62;
+  font-size: 0.61rem;
+  font-weight: 900;
+  letter-spacing: 0.13em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.vine-settings-intro h1 {
+  margin: 0;
+  color: #123b2a;
+  font-size: clamp(1.45rem, 3vw, 2rem);
+  font-weight: 900;
+  letter-spacing: -0.035em;
+  line-height: 1.08;
+}
+
+.vine-settings-intro p {
+  margin: 6px 0 0;
+  color: #6b8176;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.settings-section-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 28px 0 11px;
+  padding: 0 2px 9px;
+  border-bottom: 1px solid #e2eee8;
+  color: #164936;
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.settings-section-title::before {
+  content: "";
+  width: 7px;
+  height: 22px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #20b981, #087454);
+  box-shadow: 0 3px 8px rgba(9, 129, 87, 0.2);
+}
+
+.settings-item {
+  min-height: 54px;
+  box-sizing: border-box;
+  margin: 0 0 9px;
+  padding: 13px 15px;
+  border: 1px solid #dcebe3;
+  border-radius: 16px;
+  background: rgba(251, 254, 252, 0.95);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.94), 0 5px 16px rgba(23, 78, 56, 0.035);
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+}
+
+.settings-item:hover {
+  border-color: #b4d8c5;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.94), 0 8px 20px rgba(23, 78, 56, 0.07);
+}
+
+.settings-item.stack { gap: 11px; }
+
+.settings-item > label,
+.settings-grid label {
+  color: #294d3d;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.settings-item.stack > label {
+  color: #59766a;
+  font-size: 0.65rem;
+  font-weight: 900;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.settings-grid {
+  gap: 8px;
+  margin-bottom: 9px;
+}
+
+.settings-grid label {
+  min-height: 51px;
+  box-sizing: border-box;
+  padding: 12px 13px;
+  border: 1px solid #dcebe3;
+  border-radius: 14px;
+  background: #fbfefc;
+  transition: border-color 0.16s ease, background 0.16s ease;
+}
+
+.settings-grid label:hover {
+  border-color: #b4d8c5;
+  background: #f3fbf6;
+}
+
+.settings-item input[type="checkbox"],
+.settings-grid input[type="checkbox"] {
+  appearance: none;
+  width: 20px;
+  min-width: 20px;
+  height: 20px;
+  margin: 0;
+  border: 1px solid #b6cfc1;
+  border-radius: 7px;
+  background: #ffffff;
+  cursor: pointer;
+  box-shadow: inset 0 1px 2px rgba(20, 75, 54, 0.05);
+  transition: border-color 0.16s ease, background 0.16s ease, box-shadow 0.16s ease;
+}
+
+.settings-item input[type="checkbox"]:checked,
+.settings-grid input[type="checkbox"]:checked {
+  border-color: #0b8c63;
+  background: #0b966b;
+  box-shadow: inset 0 0 0 1px rgba(0, 74, 48, 0.12), 0 3px 8px rgba(11, 140, 99, 0.18);
+}
+
+.settings-item input[type="checkbox"]:checked::after,
+.settings-grid input[type="checkbox"]:checked::after {
+  content: "";
+  width: 9px;
+  height: 5px;
+  display: block;
+  margin: 5px 0 0 4px;
+  border-left: 2px solid #ffffff;
+  border-bottom: 2px solid #ffffff;
+  transform: rotate(-45deg);
+}
+
+.settings-item input[type="checkbox"]:focus-visible,
+.settings-grid input[type="checkbox"]:focus-visible,
+.settings-input:focus-visible,
+.settings-textarea:focus-visible,
+.settings-item select:focus-visible,
+.settings-inline-row input:focus-visible {
+  outline: 2px solid #0a9167;
+  outline-offset: 2px;
+}
+
+.settings-item input[type="checkbox"]:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.settings-item select,
+.settings-input,
+.settings-textarea,
+.settings-inline-row input {
+  border-color: #cfe1d7;
+  border-radius: 13px;
+  background: #fbfefc;
+  color: #173b2c;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92), 0 4px 12px rgba(23, 78, 56, 0.04);
+}
+
+.settings-input,
+.settings-textarea,
+.settings-inline-row input { padding: 11px 13px; }
+.settings-textarea { min-height: 104px; line-height: 1.5; }
+.settings-item select { min-height: 43px; border-width: 1px; }
+.settings-item select:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.settings-primary-btn {
+  min-height: 38px;
+  border: 1px solid #087454;
+  border-radius: 11px;
+  padding: 0 14px;
+  background: linear-gradient(145deg, #0c946a, #056044);
+  color: #ffffff;
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 850;
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 8px 16px rgba(6, 95, 70, 0.16);
+  transition: transform 0.16s ease, box-shadow 0.16s ease, filter 0.16s ease;
+}
+
+.settings-primary-btn:hover,
+.settings-primary-btn:focus-visible {
+  filter: saturate(1.05);
+  transform: translateY(-1px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 11px 20px rgba(6, 95, 70, 0.22);
+}
+
+.settings-primary-btn:disabled { opacity: 0.48; cursor: not-allowed; transform: none; box-shadow: none; }
+.settings-hint { color: #6e8679; font-size: 0.76rem; line-height: 1.45; }
+.settings-inline-row { gap: 8px; margin: 0 0 9px; }
+.settings-birthday-pills { gap: 7px; }
+.settings-birthday-pill { padding: 6px 10px; font-size: 0.72rem; box-shadow: none; }
+.settings-user-list,
+.session-list { gap: 7px; }
+
+.settings-user-row,
+.session-row {
+  border-color: #d9e9e1;
+  border-radius: 14px;
+  background: #fbfefc;
+  padding: 10px 11px;
+}
+
+.settings-user-row:hover,
+.session-row:hover { border-color: #b6d9c6; }
+.settings-user-meta strong,
+.session-device { color: #164936; font-size: 0.81rem; }
+.settings-user-meta small,
+.session-meta { color: #71877c; font-size: 0.71rem; }
+
+.danger-btn {
+  min-height: 37px;
+  border: 1px solid #d6535a;
+  border-radius: 11px;
+  padding: 0 13px;
+  background: linear-gradient(145deg, #e95a61, #bd3342);
+  color: #ffffff;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 850;
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 7px 15px rgba(174, 47, 59, 0.14);
+  transition: transform 0.16s ease, box-shadow 0.16s ease;
+}
+
+.danger-btn:hover,
+.danger-btn:focus-visible { transform: translateY(-1px); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 10px 18px rgba(174, 47, 59, 0.2); }
+.danger-btn.danger-outline { border-color: rgba(195, 63, 75, 0.48); background: #fff6f6; color: #b33142; box-shadow: none; }
+.deletion-banner { margin-bottom: 18px; border-radius: 17px; padding: 15px; }
+
+.theme-dark .vine-settings-page {
+  background: radial-gradient(circle at 7% 4%, rgba(16, 185, 129, 0.08), transparent 31%), #07110d;
+  color: #e1f0e7;
+}
+
+.theme-dark .vine-settings-top { border-color: #263e32; background: rgba(10, 24, 18, 0.9); }
+.theme-dark .vine-settings-top h2,
+.theme-dark .vine-settings-intro h1 { color: #eefaf3; }
+.theme-dark .vine-settings-back { border-color: #385b49; background: #172b21; color: #b4eacf; }
+.theme-dark .vine-settings-back:hover,
+.theme-dark .vine-settings-back:focus-visible { border-color: #5d9679; background: #203b2d; color: #d0f6e2; }
+.theme-dark .vine-settings-card { border-color: #2b493a; background: rgba(12, 27, 20, 0.96); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03), 0 20px 52px rgba(0, 0, 0, 0.26); }
+.theme-dark .vine-settings-intro { border-color: #263e32; }
+.theme-dark .vine-settings-intro-icon { border-color: #376b51; background: #18382a; color: #83dfba; box-shadow: none; }
+.theme-dark .vine-settings-intro p { color: #94ad9f; }
+.theme-dark .settings-section-title { border-color: #263e32; color: #b7ead0; }
+.theme-dark .settings-item,
+.theme-dark .settings-grid label { border-color: #2b4639; background: #10251b; box-shadow: none; }
+.theme-dark .settings-item:hover,
+.theme-dark .settings-grid label:hover { border-color: #416d56; background: #142d21; }
+.theme-dark .settings-item > label,
+.theme-dark .settings-grid label { color: #c3ded0; }
+.theme-dark .settings-item.stack > label { color: #8eae9d; }
+.theme-dark .settings-item select,
+.theme-dark .settings-input,
+.theme-dark .settings-textarea,
+.theme-dark .settings-inline-row input { border-color: #365746; background: #10241b; color: #e2f2e9; box-shadow: none; }
+.theme-dark .settings-hint,
+.theme-dark .settings-user-meta small,
+.theme-dark .session-meta { color: #8fa99a; }
+.theme-dark .settings-user-row,
+.theme-dark .session-row { border-color: #2b4639; background: #10251b; }
+.theme-dark .settings-user-row:hover,
+.theme-dark .session-row:hover { border-color: #416d56; }
+.theme-dark .settings-user-meta strong,
+.theme-dark .session-device { color: #c9ead9; }
+.theme-dark .danger-btn.danger-outline { border-color: rgba(248, 113, 113, 0.42); background: rgba(127, 29, 29, 0.22); color: #fca5a5; }
+
+@media (max-width: 768px) {
+  .vine-settings-page { padding-bottom: 26px; }
+  .vine-settings-top { min-height: 62px; padding-inline: 12px; gap: 10px; }
+  .vine-settings-top h2 { font-size: 1rem; }
+  .vine-settings-top h2::before { font-size: 0.52rem; }
+  .vine-settings-shell { width: calc(100vw - 20px); margin-top: 14px; }
+  .vine-settings-card { border-radius: 22px; padding: 16px 13px; }
+  .vine-settings-intro { align-items: flex-start; gap: 11px; margin-bottom: 21px; padding-bottom: 18px; }
+  .vine-settings-intro-icon { width: 42px; height: 42px; border-radius: 13px; }
+  .vine-settings-intro-icon svg { width: 21px; height: 21px; }
+  .vine-settings-intro h1 { font-size: 1.38rem; }
+  .vine-settings-intro p { font-size: 0.75rem; }
+  .settings-section-title { margin-top: 22px; font-size: 0.72rem; }
+  .settings-item { min-height: 51px; padding: 12px; border-radius: 14px; }
+  .settings-item.stack { gap: 9px; }
+  .settings-grid { gap: 7px; }
+  .settings-grid label { min-height: 47px; padding: 10px 11px; font-size: 0.76rem; }
+  .settings-inline-row { align-items: stretch; }
+  .settings-inline-row > * { flex: 1 1 140px; }
+  .settings-primary-btn,
+  .danger-btn { min-height: 39px; }
+  .settings-user-row { align-items: flex-start; flex-wrap: wrap; }
+  .settings-user-actions { width: 100%; justify-content: flex-end; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vine-settings-back,
+  .settings-item,
+  .settings-primary-btn,
+  .danger-btn { transition: none; }
+}

@@ -449,6 +449,11 @@ export default function VineProfile() {
   const canMessage =
     !isMe;
   const learningBadges = sortLearningBadges(userObj?.learning_badges);
+  const memoriesToday = profilePosts.filter((post) => {
+    const date = new Date(post.created_at || post.sort_time);
+    const now = new Date();
+    return !Number.isNaN(date.getTime()) && date.getMonth() === now.getMonth() && date.getDate() === now.getDate() && date.getFullYear() < now.getFullYear();
+  }).slice(0, 3);
   const aboutFields = [
     { label: "Hobbies", value: userObj?.hobbies },
     { label: "Date of Birth", value: formatProfileBirthday(userObj?.date_of_birth, userObj?.birthday_on_profile_mode) },
@@ -2063,7 +2068,22 @@ export default function VineProfile() {
               </div>
             )}
 
+            {Number(userObj?.community_quest_badges || 0) > 0 && (
+              <div className="profile-learning-badge-block profile-quest-badge-block" aria-label="Community quest badges">
+                <div className="profile-learning-badge-label">Community achievements</div>
+                <div className="profile-learning-badges">
+                  <span className="profile-learning-badge platinum" title="Community quests completed">
+                    <span className="platinum-emblem" aria-hidden="true">✦</span>
+                    <span>Platinum Quest</span>
+                    <strong>×{Number(userObj.community_quest_badges)}</strong>
+                  </span>
+                </div>
+              </div>
+            )}
+
             <p className="bio">{userObj?.bio || "No bio yet 🌱"}</p>
+            {memoriesToday.length > 0 && <aside className="profile-memory-card"><span>ON THIS DAY</span><strong>Moments worth revisiting</strong><small>{memoriesToday.length} memory{memoriesToday.length === 1 ? "" : "ies"} from your Vine history</small></aside>}
+            {Number(userObj?.profile_streak_days || 0) > 0 && <div className="profile-streak-pill" title="Consecutive days active on Vine">🔥 {Number(userObj.profile_streak_days)} day streak</div>}
 
             <div className="profile-extra">
   {userObj?.location && (
@@ -2179,6 +2199,7 @@ export default function VineProfile() {
                     post={post}
                     mediaLayout="collage"
                     displayContext="profile"
+                    isNewsPost={String(post.badge_type || post.original_badge_type || "").toLowerCase() === "news" || String(post.post_source_label || "").toLowerCase() === "vine news"}
                     isMe={isMe}
                     onDeletePost={handleDeletePost}
                     onTogglePin={handleTogglePinnedLocally}

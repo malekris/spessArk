@@ -234,7 +234,7 @@ export default function VinePublicProfile() {
         </button>
       </div>
 
-      <div className="vine-public-wrap vine-public-profile-wrap">
+      <div className={`vine-public-wrap vine-public-profile-wrap profile-theme-${profile?.user?.profile_theme || "forest"}`}>
         {loading ? (
           <div className="vine-public-state">Loading profile…</div>
         ) : error ? (

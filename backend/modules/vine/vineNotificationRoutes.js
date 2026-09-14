@@ -121,7 +121,7 @@ export default function createVineNotificationRouter({
             LEFT JOIN vine_users u ON n.actor_id = u.id
             WHERE n.user_id = ?
               AND n.type <> 'birthday'
-              AND (n.is_read = 0 OR n.created_at >= DATE_SUB(NOW(), INTERVAL ${readNotificationRetentionDays} DAY))
+              /* Keep the complete notification history available in the inbox. */
               AND NOT EXISTS (
                 SELECT 1 FROM vine_mutes m
                 WHERE m.muter_id = n.user_id AND m.muted_id = n.actor_id

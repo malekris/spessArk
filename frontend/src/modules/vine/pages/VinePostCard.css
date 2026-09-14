@@ -3508,6 +3508,23 @@
   line-height: 1;
 }
 
+/* Conversation-first comments: let the thread breathe into the post surface. */
+.vine-post .comment-bubble,
+.vine-post .vine-comment-node.is-nested-comment .comment-bubble {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  border-radius: 14px;
+}
+
+.vine-post .comment-bubble:hover {
+  background: rgba(224, 245, 237, 0.34);
+}
+
+.theme-dark .vine-post .comment-bubble:hover {
+  background: rgba(55, 93, 76, 0.2);
+}
+
 .vine-post-profile .is-compact-tree-node > .comment-shell .toggle-replies-rail[aria-expanded="false"]::before {
   content: "+";
 }
@@ -4451,3 +4468,11 @@
     margin-bottom: 10px;
   }
 }
+.suggested-replies { display:flex; flex-wrap:wrap; gap:8px; margin:10px 0 2px 58px; }
+.suggested-replies button { border:1px solid rgba(16,120,88,.2); border-radius:999px; padding:7px 11px; background:rgba(236,253,245,.72); color:#17634b; font-size:.78rem; font-weight:800; cursor:pointer; }
+.suggested-replies button:hover { background:#d1fae5; border-color:rgba(16,120,88,.4); }
+@media (max-width:560px) { .suggested-replies { margin-left:0; } }
+.vine-post-ribbon { display:inline-flex; align-items:center; gap:6px; margin:12px 20px 0; padding:6px 11px; border-radius:999px; font-size:.7rem; font-weight:900; letter-spacing:.08em; text-transform:uppercase; }
+.vine-post-ribbon.news { color:#0f766e; background:rgba(204,251,241,.72); border:1px solid rgba(13,148,136,.24); }
+.vine-post-ribbon.quote { color:#6b4d13; background:rgba(254,243,199,.82); border:1px solid rgba(202,138,4,.28); }
+.comment-highlight-ribbon { display:inline-flex; align-items:center; gap:6px; margin-bottom:8px; padding:5px 9px; border-radius:999px; background:linear-gradient(135deg,#fffbeb,#fef3c7); border:1px solid rgba(202,138,4,.28); color:#8a6114; font-size:.68rem; font-weight:900; letter-spacing:.08em; text-transform:uppercase; }

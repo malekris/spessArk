@@ -819,6 +819,28 @@ export default function createVineDelightRouter({
     }
   });
 
+  router.get("/communities/:id/quests/leaderboard", authenticate, async (req, res) => {
+    try {
+      await ensureCommunitySchema(); await ensureDelightSchema();
+      const communityId = Number(req.params.id);
+      if (!(await getCommunityRole(communityId, Number(req.user.id)))) return res.status(403).json([]);
+      const [rows] = await db.query(`
+        SELECT u.id, u.username, u.display_name, u.avatar_url,
+               COUNT(DISTINCT qc.quest_id) AS contributions,
+               COUNT(DISTINCT CASE WHEN q.status = 'completed' THEN qc.quest_id END) AS quests_won
+        FROM vine_community_quest_checkins qc
+        JOIN vine_community_quests q ON q.id = qc.quest_id AND q.community_id = ?
+        JOIN vine_users u ON u.id = qc.user_id
+        GROUP BY u.id, u.username, u.display_name, u.avatar_url
+        ORDER BY quests_won DESC, contributions DESC, u.username ASC LIMIT 10`, [communityId]);
+      res.json(rows.map((row) => {
+        const contributions = Number(row.contributions || 0);
+        const level = Math.max(1, Math.floor(contributions / 5) + 1);
+        return { ...row, community_level: level, level_progress: contributions % 5, level_target: 5 };
+      }));
+    } catch (err) { console.error("Community quest leaderboard error:", err); res.status(500).json([]); }
+  });
+
   router.post("/communities/:id/quests", authenticate, async (req, res) => {
     try {
       await ensureCommunitySchema();

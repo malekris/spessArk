@@ -73,6 +73,7 @@ export default function VineSettings() {
 
   const [twoFactorEmail, setTwoFactorEmail] = useState(false);
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem("vine_theme") === "dark");
+  const [profileTheme, setProfileTheme] = useState(() => localStorage.getItem("vine_profile_theme") || "forest");
   const [isVerified, setIsVerified] = useState(false);
   const [verifyEmail, setVerifyEmail] = useState("");
   const [verifyCode, setVerifyCode] = useState("");
@@ -93,6 +94,12 @@ export default function VineSettings() {
     document.documentElement.classList.toggle("theme-dark", darkMode);
     localStorage.setItem("vine_theme", darkMode ? "dark" : "light");
   }, [darkMode]);
+  useEffect(() => {
+    const allowed = ["forest", "ocean", "plum", "sunset"];
+    const next = allowed.includes(profileTheme) ? profileTheme : "forest";
+    document.documentElement.dataset.vineProfileTheme = next;
+    localStorage.setItem("vine_profile_theme", next);
+  }, [profileTheme]);
 
   const applyBirthdayPreferences = (prefs = {}) => {
     const nextBirthday = prefs?.date_of_birth ? String(prefs.date_of_birth).slice(0, 10) : "";
@@ -1045,6 +1052,10 @@ export default function VineSettings() {
           <h3 className="settings-section-title">Core</h3>
           <div className="settings-item">
             <label><input type="checkbox" checked={darkMode} onChange={(e) => setDarkMode(e.target.checked)} />Dark mode</label>
+          </div>
+          <div className="settings-item stack">
+            <label>Profile theme</label>
+            <div className="profile-theme-picker">{[["forest","Forest"],["ocean","Ocean"],["plum","Plum"],["sunset","Sunset"]].map(([value,label]) => <button type="button" key={value} className={`profile-theme-swatch ${value} ${profileTheme === value ? "active" : ""}`} onClick={() => setProfileTheme(value)}>{label}</button>)}</div>
           </div>
           <div className="settings-item stack">
             <label>Change password</label>

@@ -2428,7 +2428,10 @@ const getFeedPageData = async ({ viewerId, feedTag = "", feedTab = "for-you", cu
     const postRow = revinePostMap.get(Number(row.post_id || 0));
     if (!sourceId || !postRow) continue;
     const authorRow = userMap.get(Number(postRow.user_id || 0));
-    if (!isAuthorVisible(postRow.user_id, authorRow)) continue;
+    // A revine is authored by the reviner in followers' feeds. Do not let
+    // the original author's News badge suppress a follower's share.
+    const revinerRow = userMap.get(Number(row.user_id || 0));
+    if (feedTab === "news" ? !isAuthorVisible(postRow.user_id, authorRow) : !isAuthorVisible(row.user_id, revinerRow)) continue;
     if (!matchesTag(postRow)) continue;
     const candidate = {
       kind: "revine",
@@ -2628,8 +2631,11 @@ const getLatestNetworkPostRows = async ({ viewerId, limit }, perfCtx = null) => 
     isAuthorVisible(row.user_id, authorMap.get(Number(row.user_id || 0)))
   );
   const visibleRevineRows = (revineCandidateRows || []).filter((row) =>
-    isAuthorVisible(row.user_id, authorMap.get(Number(row.user_id || 0))) &&
-    isAuthorVisible(row.reviner_id, authorMap.get(Number(row.reviner_id || 0)))
+    // The rail is authored by the reviner; a News-badged original should not
+    // suppress a legitimate share from the visible network.
+    isAuthorVisible(row.reviner_id, authorMap.get(Number(row.reviner_id || 0))) &&
+    !viewerState.blockedIds.has(Number(row.user_id || 0)) &&
+    !viewerState.mutedIds.has(Number(row.user_id || 0))
   );
   const activities = [
     ...visiblePostRows.map((row) => ({ ...row, activity_kind: "post", activity_time: row.created_at })),
@@ -2933,6 +2939,7 @@ const ensureProfileAboutSchema = async () => {
   await addIfMissing("instagram_username", "VARCHAR(100) NULL");
   await addIfMissing("twitter_username", "VARCHAR(100) NULL");
   await addIfMissing("about_privacy", "VARCHAR(20) NOT NULL DEFAULT 'everyone'");
+  await addIfMissing("profile_theme", "VARCHAR(20) NOT NULL DEFAULT 'forest'");
 
   profileAboutSchemaReady = true;
 };
@@ -10072,6 +10079,7 @@ const getProfileUserPayload = async (username, viewerId, perfCtx = null) => {
         u.bio,
         u.avatar_url,
         u.banner_url,
+        u.profile_theme,
         u.location,
         u.website,
         u.hobbies,
@@ -10212,6 +10220,28 @@ const getProfileUserPayload = async (username, viewerId, perfCtx = null) => {
       [user.id]
     );
     user.learning_badges = summarizeLearnerBadges(badgeRows).badges;
+
+    // Platinum community quest badge: every member who contributed to a quest
+    // earns credit once that shared quest reaches completion. Keep this
+    // derived from the check-in ledger so it remains accurate across devices.
+    const [[questBadgeRow]] = await db.query(
+      `SELECT COUNT(DISTINCT checkin.quest_id) AS completed_count
+       FROM vine_community_quest_checkins checkin
+       JOIN vine_community_quests quest ON quest.id = checkin.quest_id
+       WHERE checkin.user_id = ? AND quest.status = 'completed'`,
+      [user.id]
+    ).catch(() => [[{ completed_count: 0 }]]);
+    user.community_quest_badges = Number(questBadgeRow?.completed_count || 0);
+    const [activityDays] = await db.query(`SELECT DISTINCT DATE(created_at) AS day FROM (
+      SELECT created_at FROM vine_posts WHERE user_id = ?
+      UNION ALL SELECT created_at FROM vine_comments WHERE user_id = ?
+    ) activity WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 370 DAY) ORDER BY day DESC`, [user.id, user.id]).catch(() => [[]]);
+    let streak = 0;
+    const daySet = new Set(activityDays.map((row) => String(row.day).slice(0, 10)));
+    const cursor = new Date();
+    if (!daySet.has(cursor.toISOString().slice(0, 10))) cursor.setDate(cursor.getDate() - 1);
+    while (daySet.has(cursor.toISOString().slice(0, 10))) { streak += 1; cursor.setDate(cursor.getDate() - 1); }
+    user.profile_streak_days = streak;
 
     const [communityRows] = await timedVineQuery(
       perfCtx,

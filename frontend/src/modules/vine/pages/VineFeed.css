@@ -80,6 +80,33 @@ body:has(.vine-feed-container) {
 
 }
 
+@media (min-width: 1181px) {
+  .vine-desktop-dm-panel,
+  .vine-right-sidebar-panel {
+    background:
+      radial-gradient(circle at 12% 0%, rgba(122, 220, 169, .2), transparent 32%),
+      linear-gradient(160deg, #e5f7ec 0%, #c9ead8 48%, #b4dcc7 100%);
+    border-color: rgba(6, 95, 70, .3);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.7), 0 20px 42px rgba(4, 78, 59, .18);
+  }
+  .vine-desktop-dm-head,
+  .vine-right-sidebar-head {
+    background: linear-gradient(145deg, rgba(5, 78, 59, .98), rgba(8, 128, 97, .95));
+    color: #f1fff7;
+    border-bottom: 1px solid rgba(180, 243, 215, .28);
+  }
+  .vine-desktop-dm-head h3,
+  .vine-right-sidebar-head h3 { color: #f1fff7; }
+  .vine-desktop-dm-head p,
+  .vine-right-sidebar-head p,
+  .vine-desktop-dm-copy { color: #c9efdc; }
+  .vine-desktop-dm-section-head { color: #07513f; }
+  .vine-desktop-dm-person,
+  .vine-sidecard { border-color: rgba(6, 95, 70, .22); background: rgba(248, 255, 251, .72); }
+  .vine-desktop-dm-person:hover,
+  .vine-sidecard:hover { background: rgba(255,255,255,.94); box-shadow: 0 8px 18px rgba(4,78,59,.14); }
+}
+
 .vine-nav-row {
   display: flex;
   align-items: center;
@@ -3663,6 +3690,54 @@ body:has(.vine-feed-container) {
   color: #111827;
 }
 
+/* Forest-green recommendations rail refinement */
+.vine-suggest-carousel {
+  margin: 10px 0 16px;
+  padding: 16px;
+  border: 1px solid rgba(111, 181, 145, .46);
+  border-radius: 22px;
+  background: linear-gradient(145deg, rgba(247, 255, 250, .96), rgba(229, 247, 237, .9));
+  box-shadow: 0 14px 30px rgba(6, 78, 59, .1), inset 0 1px 0 rgba(255,255,255,.9);
+}
+.suggest-carousel-header { font-size: 1.03rem; letter-spacing: -.01em; }
+.suggest-carousel-track { gap: 10px; padding: 2px 1px 8px; scrollbar-width: none; }
+.suggest-carousel-track::-webkit-scrollbar { display: none; }
+.suggest-card {
+  min-width: 148px;
+  padding: 13px 11px 11px;
+  border: 1px solid rgba(111, 181, 145, .48);
+  border-radius: 18px;
+  background: rgba(255,255,255,.72);
+  box-shadow: 0 7px 16px rgba(6, 78, 59, .08);
+  transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+}
+.suggest-card:hover { transform: translateY(-2px); border-color: #4fa77a; box-shadow: 0 12px 22px rgba(6, 78, 59, .14); }
+.suggest-card img { width: 58px; height: 58px; border: 3px solid #9ad8b4; box-shadow: 0 0 0 4px rgba(154,216,180,.18); }
+.suggest-name { max-width: 100%; font-size: .88rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.suggest-handle { font-size: .76rem; }
+.suggest-meta { color: #39705b; font-size: .72rem; }
+.suggest-follow { width: 100%; min-height: 34px; padding: 8px 12px; border-radius: 10px; background: linear-gradient(145deg, #075a42, #0b8060); box-shadow: 0 5px 12px rgba(6,78,59,.18); }
+.suggest-follow:hover { filter: brightness(1.08); transform: translateY(-1px); }
+
+@media (max-width: 600px) {
+  .vine-suggest-carousel { padding: 12px 10px; border-radius: 18px; }
+  .suggest-carousel-subtitle { font-size: .78rem; }
+  .suggest-card { min-width: 132px; padding: 10px 8px; border-radius: 15px; }
+  .suggest-card img { width: 50px; height: 50px; }
+  .suggest-name { font-size: .78rem; }
+  .suggest-follow { min-height: 31px; font-size: .73rem; }
+}
+
+.theme-dark .vine-suggest-carousel { background: linear-gradient(145deg, #132b20, #0d2118); border-color: rgba(111,181,145,.35); }
+.theme-dark .suggest-card { background: rgba(18, 43, 31, .86); border-color: rgba(111,181,145,.34); }
+.theme-dark .suggest-meta { color: #9ed0b3; }
+
+/* Keep the primary navigation anchored in Vine's forest-green palette. */
+.vine-nav-top {
+  background: linear-gradient(112deg, #043d2f 0%, #075844 54%, #0a7658 100%) !important;
+  border-bottom-color: rgba(154, 216, 180, .34);
+}
+
 .no-posts-hint {
   margin-top: 40px;
   color: #14532d;
@@ -6539,6 +6614,22 @@ body:has(.vine-feed-container) {
 
 .vine-nav-top h2:hover { color: #fff2c9; }
 
+.vine-brand-mark,
+.vine-nav-icon,
+.vine-action-icon {
+  display: inline-grid;
+  place-items: center;
+  line-height: 1;
+  filter: saturate(.82) drop-shadow(0 1px 2px rgba(0,0,0,.2));
+}
+.vine-brand-mark { font-size: 1.12em; }
+.vine-nav-icon { font-size: 1.08rem; }
+.vine-action-icon {
+  width: 1.15em;
+  margin-right: .35em;
+  font-size: 1em;
+}
+
 .notif-bell {
   min-width: 40px;
   min-height: 40px;
@@ -6767,8 +6858,10 @@ body:has(.vine-feed-container) {
   line-height: 1;
   vertical-align: middle;
 }
+.vine-nav-top .nav-btn.mobile-only { display: none; }
 
 @media (max-width: 768px) {
+  .vine-nav-top .nav-btn.mobile-only { display: inline-flex; }
   .vine-nav-top .nav-btn { height: 34px; min-height: 34px; }
 }
 
@@ -6883,6 +6976,25 @@ body:has(.vine-feed-container) {
     radial-gradient(circle at 30% 20%, rgba(255, 247, 210, 0.62), transparent 30%),
     linear-gradient(145deg, #effbf4, #c9f0dc);
   border-color: rgba(16, 147, 106, 0.45);
+}
+.vine-statuses-section .status-add-avatar {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  opacity: .92;
+}
+.vine-statuses-section .status-card-art-add .status-add-plus {
+  position: absolute;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: rgba(5, 113, 83, .92);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(5, 75, 57, .28);
 }
 
 .vine-statuses-section .status-add-plus {
@@ -7297,3 +7409,7 @@ body:has(.vine-news-feed) {
   .vine-news-intro p { font-size: 0.75rem; }
   .vine-news-post .link-preview-img { height: 190px; }
 }
+.vine-daily-prompt { display:flex; align-items:center; gap:10px; margin: 8px 4px 10px; color:#0f766e; }
+.vine-daily-prompt span { font-size:.64rem; font-weight:900; letter-spacing:.14em; }
+.vine-daily-prompt strong { color:#315a49; font-size:.82rem; font-weight:750; }
+@media (max-width:560px) { .vine-daily-prompt { flex-wrap:wrap; gap:4px 8px; } }

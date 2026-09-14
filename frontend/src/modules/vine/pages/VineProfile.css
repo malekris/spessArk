@@ -1180,6 +1180,47 @@
   color: #7e22ce;
 }
 
+.profile-learning-badge.platinum {
+  position: relative;
+  gap: 9px;
+  min-height: 42px;
+  padding: 7px 15px 7px 9px;
+  border: 1px solid rgba(100, 116, 139, .55);
+  background:
+    linear-gradient(120deg, rgba(255,255,255,.98) 0%, rgba(226,232,240,.98) 28%, rgba(248,250,252,.98) 47%, rgba(148,163,184,.72) 70%, rgba(241,245,249,.98) 100%);
+  color: #1e293b;
+  letter-spacing: .015em;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.98), inset 0 -1px 0 rgba(71,85,105,.2), 0 10px 24px rgba(51,65,85,.18);
+}
+
+.profile-learning-badge.platinum::after {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border-radius: inherit;
+  border: 1px solid rgba(255,255,255,.62);
+  pointer-events: none;
+}
+
+.profile-learning-badge.platinum .platinum-emblem {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  background: linear-gradient(145deg, #f8fafc, #94a3b8 52%, #f8fafc);
+  color: #334155;
+  font-size: 1.05rem;
+  line-height: 1;
+  box-shadow: inset 0 1px 2px rgba(255,255,255,.95), 0 2px 5px rgba(30,41,59,.25);
+}
+
+.profile-learning-badge.platinum strong {
+  color: #0f766e;
+  font-weight: 950;
+  padding-left: 2px;
+}
+
 .theme-dark .profile-learning-badge {
   border-color: rgba(167, 243, 208, 0.18);
   background: linear-gradient(135deg, rgba(15, 23, 42, 0.96), rgba(6, 78, 59, 0.9));
@@ -2436,3 +2477,14 @@
   font-size: 18px;
   cursor: pointer;
 }
+[data-vine-profile-theme="ocean"] .vine-profile-wrapper { background:linear-gradient(145deg,#eff6ff,#dbeafe); }
+[data-vine-profile-theme="plum"] .vine-profile-wrapper { background:linear-gradient(145deg,#faf5ff,#f3e8ff); }
+[data-vine-profile-theme="sunset"] .vine-profile-wrapper { background:linear-gradient(145deg,#fff7ed,#ffedd5); }
+[data-vine-profile-theme="ocean"] .vine-profile-wrapper .profile-learning-badge-label { color:#1d4ed8; }
+[data-vine-profile-theme="plum"] .vine-profile-wrapper .profile-learning-badge-label { color:#7e22ce; }
+[data-vine-profile-theme="sunset"] .vine-profile-wrapper .profile-learning-badge-label { color:#c2410c; }
+.profile-streak-pill { display:inline-flex; width:max-content; margin:-4px 0 14px; padding:7px 12px; border:1px solid rgba(234,88,12,.22); border-radius:999px; background:linear-gradient(135deg,#fff7ed,#ffedd5); color:#9a3412; font-size:.8rem; font-weight:900; box-shadow:0 8px 18px rgba(234,88,12,.1); }
+.profile-memory-card { display:grid; gap:3px; width:min(100%,420px); margin:0 0 16px; padding:13px 15px; border:1px solid rgba(16,120,88,.2); border-radius:17px; background:linear-gradient(135deg,#ecfdf5,#fff); box-shadow:0 10px 22px rgba(6,95,70,.08); }
+.profile-memory-card span { color:#0f766e; font-size:.65rem; font-weight:900; letter-spacing:.15em; }
+.profile-memory-card strong { color:#124b38; font-size:.95rem; }
+.profile-memory-card small { color:#6b8478; font-size:.78rem; }

@@ -27,6 +27,8 @@ export default function CommunityQuests({ communityId, viewerRole = "member" }) 
   const [targetCount, setTargetCount] = useState(20);
   const [endsAt, setEndsAt] = useState(defaultDeadline);
   const [notice, setNotice] = useState("");
+  const [celebrating, setCelebrating] = useState(false);
+  const [leaders, setLeaders] = useState([]);
   const canManage = useMemo(() => ["owner", "moderator"].includes(String(viewerRole || "").toLowerCase()), [viewerRole]);
 
   const loadQuests = useCallback(async (signal) => {
@@ -51,6 +53,8 @@ export default function CommunityQuests({ communityId, viewerRole = "member" }) 
   useEffect(() => {
     const controller = new AbortController();
     loadQuests(controller.signal);
+    fetch(`${API}/api/vine/communities/${communityId}/quests/leaderboard`, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" })
+      .then((r) => r.json()).then((data) => setLeaders(Array.isArray(data) ? data : [])).catch(() => setLeaders([]));
     return () => controller.abort();
   }, [loadQuests]);
 
@@ -96,6 +100,10 @@ export default function CommunityQuests({ communityId, viewerRole = "member" }) 
       setQuests((current) => current.map((quest) => Number(quest.id) === Number(questId)
         ? { ...quest, progress: data.progress, target: data.target, percent: data.percent, complete: data.complete, status: data.complete ? "completed" : quest.status, viewer_checked_today: true }
         : quest));
+      if (data.complete) {
+        setCelebrating(true);
+        window.setTimeout(() => setCelebrating(false), 2200);
+      }
       setNotice(data.complete ? "Quest complete — the community did it! 🏆" : "Your contribution is in. Come back tomorrow to help again.");
     } catch (error) {
       setNotice(error.message);
@@ -145,7 +153,12 @@ export default function CommunityQuests({ communityId, viewerRole = "member" }) 
         </form>
       )}
 
-      {notice && <div className="community-quest-notice" role="status">{notice}</div>}
+      {notice && <div className={`community-quest-notice ${celebrating ? "celebrating" : ""}`} role="status">{celebrating && <span className="quest-confetti" aria-hidden="true">✦ ✧ ✦</span>}{notice}</div>}
+
+      {leaders.length > 0 && <aside className="community-quest-leaderboard" aria-label="Quest leaderboard">
+        <div><span>Community momentum</span><strong>Quest leaderboard</strong></div>
+        <div className="community-quest-leaders">{leaders.slice(0, 3).map((leader, index) => <div key={leader.id}><b>{index + 1}</b><span>{leader.display_name || leader.username}</span><small>Level {leader.community_level || 1} · {leader.quests_won || 0} won</small><i>{leader.level_progress || 0}/5 to next level</i></div>)}</div>
+      </aside>}
 
       {loading ? (
         <div className="community-quest-empty">Gathering the quests…</div>

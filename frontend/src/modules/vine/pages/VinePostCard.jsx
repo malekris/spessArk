@@ -12,6 +12,7 @@ import useNearScreen from "../../../hooks/useNearScreen";
 // ────────────────────────────────────────────────
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
+const SUGGESTED_REPLIES = ["I relate to this", "Tell me more", "This is beautiful ✨"];
 const DEFAULT_AVATAR = "/default-avatar.png";
 const ORIGIN = API.replace(/\/api$/, "");
 const SHARE_PREVIEW_VERSION = "20260403";
@@ -343,7 +344,7 @@ function VinePostCard({
     String(currentUser?.role || "").toLowerCase() === "moderator" ||
     String(currentUser?.badge_type || "").toLowerCase() === "guardian" ||
     ["vine guardian","vine_guardian","vine news","vine_news"].includes(String(currentUser?.username || "").toLowerCase());
-  const currentUserAvatar = currentUser?.avatar_url || DEFAULT_AVATAR;
+  const currentUserAvatar = currentUser?.avatar_url || currentUser?.profile_picture || currentUser?.profile_image || currentUser?.photo_url || currentUser?.avatar || DEFAULT_AVATAR;
   const isGuardianPost = ["vine guardian","vine_guardian","vine news","vine_news"].includes(String(post.username || "").toLowerCase());
   const isCommunityInteractionLocked = Boolean(communityInteractionLocked) && Number(post.community_id) > 0;
 
@@ -363,6 +364,18 @@ function VinePostCard({
   const [revineSubmitting, setRevineSubmitting] = useState(false);
   const [open, setOpen] = useState(false);
   const [comments, setComments] = useState([]);
+  const composerAvatar = (() => {
+    if (currentUserAvatar !== DEFAULT_AVATAR) return currentUserAvatar;
+    const findAvatar = (nodes) => {
+      for (const node of Array.isArray(nodes) ? nodes : []) {
+        if (Number(node?.user_id) === Number(current_user_id) && node?.avatar_url) return node.avatar_url;
+        const nested = findAvatar(node?.replies);
+        if (nested) return nested;
+      }
+      return null;
+    };
+    return findAvatar(comments) || DEFAULT_AVATAR;
+  })();
   const [text, setText] = useState("");
   const [commentCount, setCommentCount] = useState(post.comments || 0);
   const [showMini, setShowMini] = useState(false);
@@ -1070,9 +1083,12 @@ function VinePostCard({
   }
   postMedia = postMedia.filter(Boolean);
   const pdfUrls = postMedia.filter((u) => /\.pdf(\?|$)/i.test(String(u)));
-  const visualMediaUrls = postMedia.filter((u) => !/\.pdf(\?|$)/i.test(String(u)));
-  const linkPreviewImage = linkPreview?.image || (isNewsPost ? visualMediaUrls[0] : null);
-  const carouselMediaPayload = visualMediaUrls.length && !(isNewsPost && linkPreviewImage)
+  const rawVisualMediaUrls = postMedia.filter((u) => !/\.pdf(\?|$)/i.test(String(u)));
+  const linkPreviewImage = linkPreview?.image || (isNewsPost ? rawVisualMediaUrls[0] : null);
+  // Link-preview artwork belongs to the preview card only; remove it from
+  // the carousel payload to prevent the same image appearing twice.
+  const visualMediaUrls = rawVisualMediaUrls.filter((url) => !linkPreviewImage || String(url) !== String(linkPreviewImage));
+  const carouselMediaPayload = visualMediaUrls.length
     ? JSON.stringify(visualMediaUrls)
     : null;
   const isQuotedPost = Number(post.revined_by || 0) > 0;
@@ -1090,6 +1106,11 @@ function VinePostCard({
         <div className="profile-pinned-strip" role="status" aria-label="Pinned to profile">
           <span className="profile-pinned-strip-icon" aria-hidden="true">✦</span>
           <span><strong>Pinned to profile</strong><small>Featured post</small></span>
+        </div>
+      )}
+      {(isNewsPost || isQuotedPost) && (
+        <div className={`vine-post-ribbon ${isNewsPost ? "news" : "quote"}`}>
+          <span aria-hidden="true">{isNewsPost ? "✦" : "↻"}</span>{isNewsPost ? "Vine News" : "Quoted post"}
         </div>
       )}
       <GifPickerModal
@@ -1637,7 +1658,7 @@ function VinePostCard({
             <>
               <div className="comment-input-row">
                 <img
-                  src={currentUserAvatar}
+                  src={composerAvatar}
                   className="comment-composer-avatar"
                   alt=""
                   onError={(e) => {
@@ -1670,6 +1691,11 @@ function VinePostCard({
                     </button>
                   </div>
                 </div>
+              </div>
+              <div className="suggested-replies" aria-label="Suggested replies">
+                {SUGGESTED_REPLIES.map((suggestion) => (
+                  <button key={suggestion} type="button" onClick={() => setText((current) => current ? `${current} ${suggestion}` : suggestion)}>{suggestion}</button>
+                ))}
               </div>
               {commentGifUrl && (
                 <div className="comment-gif-preview">
@@ -1730,7 +1756,7 @@ function VinePostCard({
     canReply={!isCommunityInteractionLocked}
     isPostOwner={isPostAuthor}
     currentUserId={current_user_id}
-    currentUserAvatar={currentUserAvatar}
+    currentUserAvatar={composerAvatar}
     isModerator={isModerator}
     token={token}
     onReport={openCommentReport}
@@ -2254,6 +2280,7 @@ function Comment({
           <div className="comment-bubble-shell">
             <div className="comment-content-column">
               <div className="comment-bubble">
+                {comment.is_highlighted === 1 && <div className="comment-highlight-ribbon" aria-label="Highlighted comment">✦ Highlighted comment</div>}
                 <div className="comment-meta">
                   <div className="comment-meta-text">
                     <strong
@@ -2331,7 +2358,7 @@ function Comment({
               {replying && canReply && (
                 <div className="comment-reply-box">
                   <img
-                    src={currentUserAvatar || DEFAULT_AVATAR}
+                    src={currentUserAvatar}
                     className="comment-composer-avatar comment-composer-avatar-small"
                     alt=""
                     onError={(e) => {

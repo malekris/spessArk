@@ -13,6 +13,7 @@ import { getCurrentVinePostSource } from "../utils/postSource";
 import VineEClassFeedRail from "../eclass/VineEClassFeedRail";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
+const DAILY_PROMPTS = ["What made you smile today?", "Share a small win with your people.", "What are you listening to right now?", "Drop a thought you want to remember.", "Who deserves a little appreciation today?"];
 const STATUS_COLORS = [
   "#0f766e",
   "#0f172a",
@@ -451,6 +452,7 @@ export default function VineFeed() {
   const [myCommunities, setMyCommunities] = useState([]);
   const [communityId, setCommunityId] = useState("");
   const [statusRail, setStatusRail] = useState([]);
+  const [myProfileAvatar, setMyProfileAvatar] = useState("");
   const [statusRailLoading, setStatusRailLoading] = useState(true);
   const [statusComposerOpen, setStatusComposerOpen] = useState(false);
   const [statusText, setStatusText] = useState("");
@@ -520,6 +522,22 @@ export default function VineFeed() {
     window.addEventListener("resize", syncDesktopDmEnabled);
     return () => window.removeEventListener("resize", syncDesktopDmEnabled);
   }, []);
+
+  useEffect(() => {
+    if (!myUsername || !token) return undefined;
+    let cancelled = false;
+    fetch(`${API}/api/vine/users/${encodeURIComponent(myUsername)}/header`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        const user = data?.user || data;
+        const avatar = user?.avatar_url || user?.profile_picture || user?.profile_image || user?.profile_picture_url || user?.photo_url || user?.image_url;
+        if (!cancelled && avatar) setMyProfileAvatar(avatar);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [myUsername, token]);
 
   const buildPreviewItems = async (files) => {
     const list = Array.from(files || []);
@@ -2258,12 +2276,12 @@ export default function VineFeed() {
                 }}
                 style={{ cursor: "pointer" }}
               >
-                🌱 Vine
+                <span className="vine-brand-mark" aria-hidden="true">🌱</span><span>Vine</span>
               </h2>
 
 
         <div className="notif-bell" onClick={handleOpenNotifications}>
-          🔔
+          <span className="vine-nav-icon" aria-hidden="true">🔔</span>
           {notificationBadgeCount > 0 && (
             <span className="notif-badge">{formatBadgeCount(notificationBadgeCount)}</span>
           )}
@@ -2311,16 +2329,16 @@ export default function VineFeed() {
             onClick={() => navigate("/vine/dms")}
             style={{ position: "relative" }}
           >
-            💬 DM
+            <span className="vine-action-icon" aria-hidden="true">💬</span><span>DM</span>
             {unreadDMs > 0 && <span className="dm-unread-badge">{formatBadgeCount(unreadDMs)}</span>}
           </button>
 
           <button className="discover-btn" onClick={() => navigate("/vine/suggestions")}>
-            👥 Discover
+            <span className="vine-action-icon" aria-hidden="true">👥</span><span>Discover</span>
           </button>
 
           <button className="discover-btn" onClick={() => navigate("/vine/communities")}>
-            👥 Communities
+            <span className="vine-action-icon" aria-hidden="true">👥</span><span>Communities</span>
           </button>
 
           {isModerator && (
@@ -2583,7 +2601,17 @@ export default function VineFeed() {
               onClick={openStatusComposer}
               aria-label="Create a status"
             >
-              <div className="status-card-art status-card-art-add" aria-hidden="true">
+              <div className="status-card-art status-card-art-add">
+                <img
+                  src={(() => {
+                    const raw = myProfileAvatar || me?.avatar_url || me?.profile_picture || me?.profile_image || me?.profile_picture_url || me?.photo_url || me?.image_url || me?.photo || me?.avatar ||
+                      statusRail.find((row) => String(row?.username || "").toLowerCase() === String(myUsername || "").toLowerCase())?.avatar_url;
+                    return raw ? (String(raw).startsWith("http") ? raw : `${API}${raw.startsWith("/") ? raw : `/${raw}`}`) : DEFAULT_AVATAR;
+                  })()}
+                  alt="Your avatar"
+                  className="status-add-avatar"
+                  onError={(e) => { e.currentTarget.src = DEFAULT_AVATAR; }}
+                />
                 <span className="status-add-plus">+</span>
               </div>
               <div className="status-chip-meta">
@@ -2666,6 +2694,7 @@ export default function VineFeed() {
           <button type="button" onClick={() => applyComposeFormat("~~")} title="Strikethrough"><s>S</s></button>
           <button type="button" onClick={insertTagToken} title="Tag user">@</button>
         </div>
+        <div className="vine-daily-prompt" aria-label="Daily prompt"><span>DAILY PROMPT</span><strong>{DAILY_PROMPTS[new Date().getDate() % DAILY_PROMPTS.length]}</strong></div>
         <textarea
                       className={`create-textarea ${
                         content.length > 0 && content.length < 120 ? "big-text" : ""

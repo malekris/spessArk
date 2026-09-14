@@ -1005,3 +1005,10 @@
   .settings-primary-btn,
   .danger-btn { transition: none; }
 }
+.profile-theme-picker { display:flex; flex-wrap:wrap; gap:8px; }
+.profile-theme-swatch { border:1px solid rgba(15,118,110,.2); border-radius:999px; padding:8px 12px; font-weight:800; cursor:pointer; }
+.profile-theme-swatch.active { outline:2px solid #0f766e; outline-offset:2px; }
+.profile-theme-swatch.forest { background:#d1fae5; color:#065f46; }
+.profile-theme-swatch.ocean { background:#dbeafe; color:#1d4ed8; }
+.profile-theme-swatch.plum { background:#f3e8ff; color:#7e22ce; }
+.profile-theme-swatch.sunset { background:#ffedd5; color:#9a3412; }

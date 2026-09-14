@@ -204,6 +204,11 @@ export default function VineNotifications() {
       if (meta.community_slug) return `/vine/communities/${meta.community_slug}`;
       return null;
     }
+    if (notification.type === "community_welcome") {
+      if (meta.target_path) return meta.target_path;
+      if (meta.community_slug) return `/vine/communities/${meta.community_slug}`;
+      return "/vine/communities";
+    }
     if (
       notification.type === "community_group_chat_created" ||
       notification.type === "community_group_chat_added"
@@ -309,6 +314,8 @@ export default function VineNotifications() {
         return `requested to join ${meta.community_name ? `"${meta.community_name}"` : "your community"}`;
       case "community_join_approved":
         return `approved your join request${meta.community_name ? ` for "${meta.community_name}"` : ""}`;
+      case "community_welcome":
+        return `welcomed you to ${meta.community_name ? `"${meta.community_name}"` : "a community"}`;
       case "community_group_chat_created":
         return `created the community group chat${meta.community_name ? ` for "${meta.community_name}"` : ""}`;
       case "community_group_chat_added":
@@ -378,7 +385,17 @@ export default function VineNotifications() {
           headers: { Authorization: `Bearer ${token}` },
         }
       );
-      if (!res.ok) throw new Error("Notification read update failed");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || Number(data?.is_read) !== 1) throw new Error("Notification read update failed");
+      // Re-apply after the request so a concurrent socket refresh cannot leave
+      // this item visually unread.
+      setNotifications((prev) =>
+        prev.map((notification) =>
+          String(notification.id) === notificationKey
+            ? { ...notification, is_read: 1 }
+            : notification
+        )
+      );
       return true;
     } catch {
       setNotifications((prev) =>
@@ -597,7 +614,7 @@ export default function VineNotifications() {
           <span className="notif-birthday-badge">🎉 Birthday today</span>
         </div>
       )}
-      {n.type === "follow_request" && (
+      {n.type === "follow_request" && Number(n.is_read) !== 1 && (
         <div
           className="notif-actions"
           onClick={(e) => e.stopPropagation()}

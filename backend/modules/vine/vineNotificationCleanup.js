@@ -16,13 +16,10 @@ export const createCleanupExpiredReadNotifications = ({
 
     cleanupInFlight = true;
     try {
-      const [result] = await db.query(
-        `
-        DELETE FROM vine_notifications
-        WHERE is_read = 1
-          AND created_at < DATE_SUB(NOW(), INTERVAL ${readNotificationRetentionDays} DAY)
-        `
-      );
+      // Notification history is user-visible inbox content. Do not delete read
+      // rows here; deleting by creation date made older notifications appear
+      // capped immediately after they were opened.
+      const [result] = [{ affectedRows: 0 }];
       lastCleanupAt = Date.now();
       if (Number(result?.affectedRows || 0)) {
         clearVineReadCache("notifications", "notifications-unread", "notifications-unseen");

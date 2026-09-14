@@ -6986,6 +6986,10 @@ body:has(.vine-feed-container) {
 }
 .vine-statuses-section .status-card-art-add .status-add-plus {
   position: absolute;
+  left: auto;
+  right: -14px;
+  top: 50%;
+  transform: translateY(-50%);
   z-index: 1;
   display: grid;
   place-items: center;
@@ -6996,6 +7000,8 @@ body:has(.vine-feed-container) {
   color: #fff;
   box-shadow: 0 4px 12px rgba(5, 75, 57, .28);
 }
+
+.vine-statuses-section .status-card-art-add { overflow: visible; }
 
 .vine-statuses-section .status-add-plus {
   width: 33px;

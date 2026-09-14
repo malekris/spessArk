@@ -760,6 +760,13 @@ const uploadBufferToR2 = async (buffer, options = {}) => {
     })
   );
   const url = `${R2_PUBLIC_BASE_URL}/${key}`;
+  visibleMembers.sort((a, b) => {
+    const activeDiff = Number(b.is_recently_active || 0) - Number(a.is_recently_active || 0);
+    if (activeDiff) return activeDiff;
+    const timeDiff = new Date(b.last_active_at || 0).getTime() - new Date(a.last_active_at || 0).getTime();
+    if (timeDiff) return timeDiff;
+    return String(a.display_name || a.username).localeCompare(String(b.display_name || b.username));
+  });
   return {
     secure_url: url,
     url,
@@ -1021,6 +1028,7 @@ const getGroupDetails = async (conversationId, viewerId) => {
     group_avatar_url: conversation.group_avatar_url || null,
     avatar_url: conversation.group_avatar_url || null,
     created_by: Number(conversation.created_by || 0) || null,
+    viewer_id: Number(viewerId || 0) || null,
     created_at: owner?.joined_at || members[0]?.joined_at || null,
     created_by_user: creator
       ? {

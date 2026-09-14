@@ -113,10 +113,16 @@ export default function GroupDetailsSheet({
   const availableCandidates = directory.people.filter((person) => !memberIds.has(Number(person.id)));
   const visibleMembers = useMemo(() => {
     const cleanQuery = memberQuery.trim().toLowerCase();
-    if (!cleanQuery) return group?.members || [];
-    return (group?.members || []).filter((member) =>
+    const filtered = !cleanQuery ? (group?.members || []) : (group?.members || []).filter((member) =>
       `${member.display_name || ""} ${member.username || ""} ${member.role || ""}`.toLowerCase().includes(cleanQuery)
     );
+    return [...filtered].sort((a, b) => {
+      const activeDiff = Number(b.is_recently_active || 0) - Number(a.is_recently_active || 0);
+      if (activeDiff) return activeDiff;
+      const timeDiff = new Date(b.last_active_at || 0).getTime() - new Date(a.last_active_at || 0).getTime();
+      if (timeDiff) return timeDiff;
+      return String(a.display_name || a.username).localeCompare(String(b.display_name || b.username));
+    });
   }, [group?.members, memberQuery]);
   const visibleMedia = mediaFilter === "all" ? mediaItems : mediaItems.filter((item) => item.media_type === mediaFilter);
 
@@ -318,7 +324,7 @@ export default function GroupDetailsSheet({
         <div className="dm-group-member-list">
           {visibleMembers.map((member) => {
             const avatar = member.avatar_url ? (member.avatar_url.startsWith("http") ? member.avatar_url : `${API}${member.avatar_url}`) : DEFAULT_AVATAR;
-            const isMe = Number(member.user_id) === Number(currentUser?.id);
+            const isMe = Number(member.user_id) === Number(group?.viewer_id || currentUser?.id);
             const canRemove = group.can_manage && !isMe && member.role !== "owner" && !(group.viewer_role === "admin" && member.role === "admin");
             const activityLabel = getActivityLabel(member);
             return <div className="dm-group-member" key={member.user_id}>

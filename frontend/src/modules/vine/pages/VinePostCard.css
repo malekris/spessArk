@@ -4468,11 +4468,23 @@
     margin-bottom: 10px;
   }
 }
-.suggested-replies { display:flex; flex-wrap:wrap; gap:8px; margin:10px 0 2px 58px; }
-.suggested-replies button { border:1px solid rgba(16,120,88,.2); border-radius:999px; padding:7px 11px; background:rgba(236,253,245,.72); color:#17634b; font-size:.78rem; font-weight:800; cursor:pointer; }
-.suggested-replies button:hover { background:#d1fae5; border-color:rgba(16,120,88,.4); }
-@media (max-width:560px) { .suggested-replies { margin-left:0; } }
-.vine-post-ribbon { display:inline-flex; align-items:center; gap:6px; margin:12px 20px 0; padding:6px 11px; border-radius:999px; font-size:.7rem; font-weight:900; letter-spacing:.08em; text-transform:uppercase; }
-.vine-post-ribbon.news { color:#0f766e; background:rgba(204,251,241,.72); border:1px solid rgba(13,148,136,.24); }
-.vine-post-ribbon.quote { color:#6b4d13; background:rgba(254,243,199,.82); border:1px solid rgba(202,138,4,.28); }
+.suggested-replies { display:flex; align-items:center; flex-wrap:wrap; gap:7px; margin:10px 0 2px 58px; }
+.suggested-replies > span { color:#789087; font-size:.67rem; font-weight:900; letter-spacing:.08em; text-transform:uppercase; }
+.suggested-replies button { border:1px solid rgba(16,120,88,.2); border-radius:999px; padding:7px 11px; background:rgba(236,253,245,.72); color:#17634b; font-size:.76rem; font-weight:800; cursor:pointer; transition:background .16s ease, border-color .16s ease, transform .16s ease; }
+.suggested-replies button:hover { background:#d1fae5; border-color:rgba(16,120,88,.4); transform:translateY(-1px); }
+.vine-post-ribbons { display:flex; flex-wrap:wrap; gap:7px; margin:12px 20px 0; }
+.vine-post-ribbons + .vine-post-header { margin-top: 16px; }
+.vine-post-ribbon { display:inline-flex; align-items:center; gap:6px; margin:0; padding:6px 11px; border-radius:999px; font-size:.67rem; font-weight:950; letter-spacing:.08em; text-transform:uppercase; box-shadow:inset 0 1px 0 rgba(255,255,255,.72); }
+.vine-post-ribbon.news { color:#0f5e64; background:linear-gradient(135deg,#ecfeff,#ccfbf1); border:1px solid rgba(13,148,136,.28); }
+.vine-post-ribbon.quote { color:#795414; background:linear-gradient(135deg,#fffbeb,#fef3c7); border:1px solid rgba(202,138,4,.3); }
+.vine-post-ribbon.revine { color:#17634b; background:linear-gradient(135deg,#ecfdf5,#d1fae5); border:1px solid rgba(5,150,105,.26); }
+.theme-dark .suggested-replies button { border-color:rgba(110,210,164,.26); background:rgba(15,78,59,.48); color:#d1fae5; }
+.theme-dark .vine-post-ribbon.news { color:#a5f3fc; background:rgba(22,78,99,.58); }
+.theme-dark .vine-post-ribbon.quote { color:#fde68a; background:rgba(113,63,18,.55); }
+.theme-dark .vine-post-ribbon.revine { color:#a7f3d0; background:rgba(6,78,59,.62); }
+@media (max-width:560px) {
+  .suggested-replies { margin-left:0; }
+  .vine-post-ribbons { margin:10px 12px 0; }
+  .vine-post-ribbons + .vine-post-header { margin-top: 13px; }
+}
 .comment-highlight-ribbon { display:inline-flex; align-items:center; gap:6px; margin-bottom:8px; padding:5px 9px; border-radius:999px; background:linear-gradient(135deg,#fffbeb,#fef3c7); border:1px solid rgba(202,138,4,.28); color:#8a6114; font-size:.68rem; font-weight:900; letter-spacing:.08em; text-transform:uppercase; }

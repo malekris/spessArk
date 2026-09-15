@@ -1005,10 +1005,23 @@
   .settings-primary-btn,
   .danger-btn { transition: none; }
 }
-.profile-theme-picker { display:flex; flex-wrap:wrap; gap:8px; }
-.profile-theme-swatch { border:1px solid rgba(15,118,110,.2); border-radius:999px; padding:8px 12px; font-weight:800; cursor:pointer; }
-.profile-theme-swatch.active { outline:2px solid #0f766e; outline-offset:2px; }
+.profile-theme-picker { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.profile-theme-swatch { display:flex; align-items:center; gap:9px; min-height:46px; border:1px solid rgba(15,118,110,.2); border-radius:16px; padding:9px 12px; font-weight:850; cursor:pointer; transition:transform .16s ease,box-shadow .16s ease,border-color .16s ease; }
+.profile-theme-swatch > span { width:24px; height:24px; flex:0 0 24px; border:2px solid rgba(255,255,255,.86); border-radius:50%; background:currentColor; box-shadow:0 0 0 1px rgba(15,23,42,.1),inset 0 0 0 6px rgba(255,255,255,.5); }
+.profile-theme-swatch:hover:not(:disabled) { transform:translateY(-1px); box-shadow:0 9px 18px rgba(15,23,42,.08); }
+.profile-theme-swatch.active { border-color:currentColor; outline:2px solid currentColor; outline-offset:2px; box-shadow:0 10px 22px rgba(15,23,42,.1); }
+.profile-theme-swatch:disabled { cursor:wait; opacity:.72; }
 .profile-theme-swatch.forest { background:#d1fae5; color:#065f46; }
 .profile-theme-swatch.ocean { background:#dbeafe; color:#1d4ed8; }
 .profile-theme-swatch.plum { background:#f3e8ff; color:#7e22ce; }
 .profile-theme-swatch.sunset { background:#ffedd5; color:#9a3412; }
+.profile-theme-swatch.midnight { background:#e0e7ff; color:#312e81; }
+.profile-theme-swatch.rose { background:#ffe4e6; color:#9f1239; }
+.profile-theme-swatch.gold { background:#fef3c7; color:#92400e; }
+.profile-theme-swatch.graphite { background:#e2e8f0; color:#334155; }
+.profile-theme-swatch.aurora { background:linear-gradient(135deg,#ccfbf1,#ede9fe); color:#0f766e; }
+.profile-theme-swatch.aurora > span { background:linear-gradient(135deg,#14b8a6 0 48%,#8b5cf6 52% 100%); }
+.profile-theme-swatch.cherry { background:#fee2e2; color:#991b1b; }
+.profile-theme-swatch.cocoa { background:#f5e6d3; color:#78350f; }
+.profile-theme-swatch.ice { background:#cffafe; color:#155e75; }
+@media (max-width:480px) { .profile-theme-picker { grid-template-columns:1fr; } }

@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./CommunityQuests.css";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const QUEST_EMOJIS = ["🏆", "🌱", "📚", "💪", "✨", "🤝"];
+const DEFAULT_AVATAR = "/default-avatar.png";
 
 const defaultDeadline = () => {
   const value = new Date();
@@ -14,6 +15,14 @@ const formatDeadline = (value) => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "No deadline";
   return date.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
+};
+
+const getCommunityLevelName = (level) => {
+  if (level >= 10) return "Legend";
+  if (level >= 7) return "Champion";
+  if (level >= 4) return "Builder";
+  if (level >= 2) return "Contributor";
+  return "Sprout";
 };
 
 export default function CommunityQuests({ communityId, viewerRole = "member" }) {
@@ -29,6 +38,8 @@ export default function CommunityQuests({ communityId, viewerRole = "member" }) 
   const [notice, setNotice] = useState("");
   const [celebrating, setCelebrating] = useState(false);
   const [leaders, setLeaders] = useState([]);
+  const [leaderboardLoading, setLeaderboardLoading] = useState(true);
+  const celebrationTimerRef = useRef(null);
   const canManage = useMemo(() => ["owner", "moderator"].includes(String(viewerRole || "").toLowerCase()), [viewerRole]);
 
   const loadQuests = useCallback(async (signal) => {
@@ -50,13 +61,32 @@ export default function CommunityQuests({ communityId, viewerRole = "member" }) 
     }
   }, [communityId, token]);
 
+  const loadLeaderboard = useCallback(async (signal) => {
+    if (!communityId || !token) return;
+    setLeaderboardLoading(true);
+    try {
+      const response = await fetch(`${API}/api/vine/communities/${communityId}/quests/leaderboard`, {
+        headers: { Authorization: `Bearer ${token}` }, signal, cache: "no-store",
+      });
+      const data = await response.json().catch(() => []);
+      if (!response.ok) throw new Error("Could not load quest standings");
+      setLeaders(Array.isArray(data) ? data : []);
+    } catch (error) {
+      if (error?.name !== "AbortError") setLeaders([]);
+    } finally {
+      if (!signal?.aborted) setLeaderboardLoading(false);
+    }
+  }, [communityId, token]);
+
   useEffect(() => {
     const controller = new AbortController();
     loadQuests(controller.signal);
-    fetch(`${API}/api/vine/communities/${communityId}/quests/leaderboard`, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" })
-      .then((r) => r.json()).then((data) => setLeaders(Array.isArray(data) ? data : [])).catch(() => setLeaders([]));
-    return () => controller.abort();
-  }, [loadQuests]);
+    loadLeaderboard(controller.signal);
+    return () => {
+      controller.abort();
+      if (celebrationTimerRef.current) window.clearTimeout(celebrationTimerRef.current);
+    };
+  }, [loadLeaderboard, loadQuests]);
 
   const createQuest = async (event) => {
     event.preventDefault();
@@ -78,6 +108,7 @@ export default function CommunityQuests({ communityId, viewerRole = "member" }) 
       setEndsAt(defaultDeadline());
       setComposerOpen(false);
       await loadQuests();
+      await loadLeaderboard();
       setNotice("Quest launched. The whole community can contribute now.");
     } catch (error) {
       setNotice(error.message);
@@ -102,8 +133,10 @@ export default function CommunityQuests({ communityId, viewerRole = "member" }) 
         : quest));
       if (data.complete) {
         setCelebrating(true);
-        window.setTimeout(() => setCelebrating(false), 2200);
+        if (celebrationTimerRef.current) window.clearTimeout(celebrationTimerRef.current);
+        celebrationTimerRef.current = window.setTimeout(() => setCelebrating(false), 2600);
       }
+      await loadLeaderboard();
       setNotice(data.complete ? "Quest complete — the community did it! 🏆" : "Your contribution is in. Come back tomorrow to help again.");
     } catch (error) {
       setNotice(error.message);
@@ -123,6 +156,7 @@ export default function CommunityQuests({ communityId, viewerRole = "member" }) 
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.message || "Could not remove quest");
       setQuests((current) => current.filter((quest) => Number(quest.id) !== Number(questId)));
+      await loadLeaderboard();
     } catch (error) {
       setNotice(error.message);
     } finally {
@@ -155,9 +189,12 @@ export default function CommunityQuests({ communityId, viewerRole = "member" }) 
 
       {notice && <div className={`community-quest-notice ${celebrating ? "celebrating" : ""}`} role="status">{celebrating && <span className="quest-confetti" aria-hidden="true">✦ ✧ ✦</span>}{notice}</div>}
 
-      {leaders.length > 0 && <aside className="community-quest-leaderboard" aria-label="Quest leaderboard">
-        <div><span>Community momentum</span><strong>Quest leaderboard</strong></div>
-        <div className="community-quest-leaders">{leaders.slice(0, 3).map((leader, index) => <div key={leader.id}><b>{index + 1}</b><span>{leader.display_name || leader.username}</span><small>Level {leader.community_level || 1} · {leader.quests_won || 0} won</small><i>{leader.level_progress || 0}/5 to next level</i></div>)}</div>
+      {(leaderboardLoading || leaders.length > 0 || (!loading && quests.length > 0)) && <aside className="community-quest-leaderboard" aria-label="Quest leaderboard">
+        <div className="community-quest-leaderboard-head"><div><span>Community momentum</span><strong>Quest leaderboard</strong></div><small>Updates after every check-in</small></div>
+        {leaderboardLoading ? <div className="community-quest-leaderboard-state">Calculating community standings…</div> : leaders.length === 0 ? <div className="community-quest-leaderboard-state">The first contribution will start the leaderboard.</div> : <div className="community-quest-leaders">{leaders.slice(0, 3).map((leader, index) => {
+          const avatar = leader.avatar_url ? (String(leader.avatar_url).startsWith("http") ? leader.avatar_url : `${API}${leader.avatar_url}`) : DEFAULT_AVATAR;
+          return <div key={leader.id} className={`quest-leader rank-${index + 1}`}><b aria-label={`Rank ${index + 1}`}>{index + 1}</b><img src={avatar} alt="" onError={(event) => { event.currentTarget.src = DEFAULT_AVATAR; }} /><span>{leader.display_name || leader.username}</span><small>Level {leader.community_level || 1} {getCommunityLevelName(Number(leader.community_level || 1))} · {leader.quests_won || 0} won · {leader.contributions || 0} check-ins</small><div className="quest-level-track" aria-label={`${leader.level_progress || 0} of ${leader.level_target || 5} check-ins to next level`}><i style={{ width: `${Math.min(100, (Number(leader.level_progress || 0) / Number(leader.level_target || 5)) * 100)}%` }} /></div></div>;
+        })}</div>}
       </aside>}
 
       {loading ? (

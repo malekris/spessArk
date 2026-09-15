@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { PROFILE_THEMES, resolveProfileTheme } from "../utils/profileThemes";
 import { useNavigate } from "react-router-dom";
 import "./VineSettings.css";
 
@@ -74,6 +75,7 @@ export default function VineSettings() {
   const [twoFactorEmail, setTwoFactorEmail] = useState(false);
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem("vine_theme") === "dark");
   const [profileTheme, setProfileTheme] = useState(() => localStorage.getItem("vine_profile_theme") || "forest");
+  const [profileThemeSaving, setProfileThemeSaving] = useState(false);
   const [isVerified, setIsVerified] = useState(false);
   const [verifyEmail, setVerifyEmail] = useState("");
   const [verifyCode, setVerifyCode] = useState("");
@@ -95,9 +97,7 @@ export default function VineSettings() {
     localStorage.setItem("vine_theme", darkMode ? "dark" : "light");
   }, [darkMode]);
   useEffect(() => {
-    const allowed = ["forest", "ocean", "plum", "sunset"];
-    const next = allowed.includes(profileTheme) ? profileTheme : "forest";
-    document.documentElement.dataset.vineProfileTheme = next;
+    const next = resolveProfileTheme(profileTheme);
     localStorage.setItem("vine_profile_theme", next);
   }, [profileTheme]);
 
@@ -215,6 +215,8 @@ export default function VineSettings() {
         setAutoplayMedia(prefData.autoplay_media !== 0);
         setBlurSensitiveMedia(Boolean(prefData.blur_sensitive_media));
         setDeleteRequestedAt(prefData.delete_requested_at || null);
+        const savedProfileTheme = resolveProfileTheme(prefData.profile_theme);
+        setProfileTheme(savedProfileTheme);
         applyBirthdayPreferences(prefData);
         applyDisplayNamePreferences(prefData, user?.display_name || "");
 
@@ -242,6 +244,35 @@ export default function VineSettings() {
       setTimeout(() => setSaveMsg(""), 1400);
     } catch {
       // ignore
+    }
+  };
+
+  const chooseProfileTheme = async (nextTheme) => {
+    if (profileThemeSaving || nextTheme === profileTheme) return;
+    const previousTheme = profileTheme;
+    setProfileTheme(nextTheme);
+    setProfileThemeSaving(true);
+    setSaveMsg("");
+    try {
+      const res = await fetch(`${API}/api/vine/users/me/settings`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ profile_theme: nextTheme }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.message || "Could not save profile theme");
+      const persistedTheme = data?.user?.profile_theme || nextTheme;
+      setProfileTheme(persistedTheme);
+      setSaveMsg("Profile theme saved");
+      setTimeout(() => setSaveMsg(""), 1800);
+    } catch (err) {
+      setProfileTheme(previousTheme);
+      setSaveMsg(err?.message || "Could not save profile theme");
+    } finally {
+      setProfileThemeSaving(false);
     }
   };
 
@@ -1055,7 +1086,8 @@ export default function VineSettings() {
           </div>
           <div className="settings-item stack">
             <label>Profile theme</label>
-            <div className="profile-theme-picker">{[["forest","Forest"],["ocean","Ocean"],["plum","Plum"],["sunset","Sunset"]].map(([value,label]) => <button type="button" key={value} className={`profile-theme-swatch ${value} ${profileTheme === value ? "active" : ""}`} onClick={() => setProfileTheme(value)}>{label}</button>)}</div>
+            <div className="profile-theme-picker" aria-label="Choose the theme visitors see on your profile">{PROFILE_THEMES.map(({ value, label }) => <button type="button" key={value} className={`profile-theme-swatch ${value} ${profileTheme === value ? "active" : ""}`} aria-pressed={profileTheme === value} disabled={profileThemeSaving} onClick={() => chooseProfileTheme(value)}><span aria-hidden="true" />{label}</button>)}</div>
+            <div className="settings-hint">This theme is saved to your account and shown to everyone who visits your profile.</div>
           </div>
           <div className="settings-item stack">
             <label>Change password</label>

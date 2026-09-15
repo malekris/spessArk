@@ -2,6 +2,82 @@
   width: min(100%, 760px);
 }
 
+.vine-public-shell.profile-theme-forest {
+  --public-profile-deep:#064e3b; --public-profile-accent:#10b981; --public-profile-soft:#d1fae5;
+  --public-profile-page:#ecfdf5; --public-profile-ink:#052e16;
+}
+.vine-public-shell.profile-theme-ocean {
+  --public-profile-deep:#0c4a6e; --public-profile-accent:#0ea5e9; --public-profile-soft:#dbeafe;
+  --public-profile-page:#eff6ff; --public-profile-ink:#082f49;
+}
+.vine-public-shell.profile-theme-plum {
+  --public-profile-deep:#581c87; --public-profile-accent:#a855f7; --public-profile-soft:#f3e8ff;
+  --public-profile-page:#faf5ff; --public-profile-ink:#3b0764;
+}
+.vine-public-shell.profile-theme-sunset {
+  --public-profile-deep:#9a3412; --public-profile-accent:#f97316; --public-profile-soft:#ffedd5;
+  --public-profile-page:#fff7ed; --public-profile-ink:#7c2d12;
+}
+.vine-public-shell.profile-theme-midnight {
+  --public-profile-deep:#1e1b4b; --public-profile-accent:#6366f1; --public-profile-soft:#e0e7ff;
+  --public-profile-page:#eef2ff; --public-profile-ink:#1e1b4b;
+}
+.vine-public-shell.profile-theme-rose {
+  --public-profile-deep:#881337; --public-profile-accent:#f43f5e; --public-profile-soft:#ffe4e6;
+  --public-profile-page:#fff1f2; --public-profile-ink:#881337;
+}
+.vine-public-shell.profile-theme-gold {
+  --public-profile-deep:#78350f; --public-profile-accent:#f59e0b; --public-profile-soft:#fef3c7;
+  --public-profile-page:#fffbeb; --public-profile-ink:#78350f;
+}
+.vine-public-shell.profile-theme-graphite {
+  --public-profile-deep:#1f2937; --public-profile-accent:#64748b; --public-profile-soft:#e2e8f0;
+  --public-profile-page:#f8fafc; --public-profile-ink:#0f172a;
+}
+.vine-public-shell.profile-theme-aurora {
+  --public-profile-deep:#115e59; --public-profile-accent:#8b5cf6; --public-profile-soft:#ccfbf1;
+  --public-profile-page:#f5f3ff; --public-profile-ink:#134e4a;
+}
+.vine-public-shell.profile-theme-cherry {
+  --public-profile-deep:#7f1d1d; --public-profile-accent:#ef4444; --public-profile-soft:#fee2e2;
+  --public-profile-page:#fef2f2; --public-profile-ink:#7f1d1d;
+}
+.vine-public-shell.profile-theme-cocoa {
+  --public-profile-deep:#4a2c20; --public-profile-accent:#a16207; --public-profile-soft:#f5e6d3;
+  --public-profile-page:#fffaf4; --public-profile-ink:#422006;
+}
+.vine-public-shell.profile-theme-ice {
+  --public-profile-deep:#164e63; --public-profile-accent:#22d3ee; --public-profile-soft:#cffafe;
+  --public-profile-page:#ecfeff; --public-profile-ink:#164e63;
+}
+.vine-public-shell[class*="profile-theme-"] {
+  background:
+    radial-gradient(circle at 82% 5%,color-mix(in srgb,var(--public-profile-accent) 20%,transparent),transparent 34%),
+    linear-gradient(150deg,#fff 0%,var(--public-profile-page) 54%,var(--public-profile-soft) 100%);
+}
+.vine-public-shell[class*="profile-theme-"] .vine-public-topbar { background:var(--public-profile-deep); }
+.vine-public-shell[class*="profile-theme-"] .vine-public-profile-card {
+  border-color:color-mix(in srgb,var(--public-profile-accent) 24%,transparent);
+  background:linear-gradient(145deg,rgba(255,255,255,.96),color-mix(in srgb,var(--public-profile-soft) 44%,white));
+  box-shadow:0 22px 48px color-mix(in srgb,var(--public-profile-deep) 12%,transparent);
+}
+.vine-public-shell[class*="profile-theme-"] .vine-public-profile-avatar { border-color:var(--public-profile-accent); box-shadow:0 10px 26px color-mix(in srgb,var(--public-profile-deep) 18%,transparent); }
+.vine-public-shell[class*="profile-theme-"] .vine-public-name,
+.vine-public-shell[class*="profile-theme-"] .vine-public-profile-stats strong,
+.vine-public-shell[class*="profile-theme-"] .vine-public-community-memberships-head { color:var(--public-profile-ink); }
+.vine-public-shell[class*="profile-theme-"] .vine-public-learning-badge-label { color:var(--public-profile-deep); }
+.vine-public-shell[class*="profile-theme-"] .vine-public-community-memberships {
+  border-color:color-mix(in srgb,var(--public-profile-accent) 24%,transparent);
+  background:linear-gradient(135deg,color-mix(in srgb,var(--public-profile-soft) 62%,white),rgba(255,255,255,.92));
+}
+.vine-public-shell[class*="profile-theme-"] .vine-public-community-memberships-head small { background:var(--public-profile-soft); color:var(--public-profile-deep); }
+.vine-public-shell.profile-theme-aurora {
+  background:
+    radial-gradient(circle at 82% 5%,rgba(139,92,246,.23),transparent 34%),
+    radial-gradient(circle at 10% 34%,rgba(20,184,166,.17),transparent 36%),
+    linear-gradient(150deg,#fff 0%,#f5f3ff 54%,#ccfbf1 100%);
+}
+
 .vine-public-profile-card {
   margin-bottom: 18px;
 }

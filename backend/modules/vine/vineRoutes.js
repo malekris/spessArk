@@ -10232,15 +10232,16 @@ const getProfileUserPayload = async (username, viewerId, perfCtx = null) => {
       [user.id]
     ).catch(() => [[{ completed_count: 0 }]]);
     user.community_quest_badges = Number(questBadgeRow?.completed_count || 0);
-    const [activityDays] = await db.query(`SELECT DISTINCT DATE(created_at) AS day FROM (
+    const [activityDays] = await db.query(`SELECT DISTINCT DATE_FORMAT(created_at, '%Y-%m-%d') AS day FROM (
       SELECT created_at FROM vine_posts WHERE user_id = ?
       UNION ALL SELECT created_at FROM vine_comments WHERE user_id = ?
     ) activity WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 370 DAY) ORDER BY day DESC`, [user.id, user.id]).catch(() => [[]]);
     let streak = 0;
-    const daySet = new Set(activityDays.map((row) => String(row.day).slice(0, 10)));
+    const daySet = new Set(activityDays.map((row) => String(row.day || "").slice(0, 10)).filter(Boolean));
+    const toLocalDay = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
     const cursor = new Date();
-    if (!daySet.has(cursor.toISOString().slice(0, 10))) cursor.setDate(cursor.getDate() - 1);
-    while (daySet.has(cursor.toISOString().slice(0, 10))) { streak += 1; cursor.setDate(cursor.getDate() - 1); }
+    if (!daySet.has(toLocalDay(cursor))) cursor.setDate(cursor.getDate() - 1);
+    while (daySet.has(toLocalDay(cursor))) { streak += 1; cursor.setDate(cursor.getDate() - 1); }
     user.profile_streak_days = streak;
 
     const [communityRows] = await timedVineQuery(
@@ -11875,6 +11876,7 @@ router.patch("/users/me/settings", authenticate, async (req, res) => {
       blur_sensitive_media,
       birthday_on_profile,
       birthday_on_profile_mode,
+      profile_theme,
     } = req.body || {};
 
     const allowedDm = new Set(["everyone", "followers", "no_one"]);
@@ -11883,6 +11885,10 @@ router.patch("/users/me/settings", authenticate, async (req, res) => {
     const allowedTags = new Set(["everyone", "followers", "no_one"]);
     const allowedDigest = new Set(["instant", "hourly", "daily"]);
     const allowedBirthdayModes = new Set(["month_day", "full_year"]);
+    const allowedProfileThemes = new Set([
+      "forest", "ocean", "plum", "sunset", "midnight", "rose",
+      "gold", "graphite", "aurora", "cherry", "cocoa", "ice",
+    ]);
     const updates = [];
     const params = [];
 
@@ -11998,6 +12004,15 @@ router.patch("/users/me/settings", authenticate, async (req, res) => {
       params.push(String(birthday_on_profile_mode));
     }
 
+    if (profile_theme !== undefined) {
+      const normalizedProfileTheme = String(profile_theme || "").trim().toLowerCase();
+      if (!allowedProfileThemes.has(normalizedProfileTheme)) {
+        return res.status(400).json({ message: "Invalid profile_theme" });
+      }
+      updates.push("profile_theme = ?");
+      params.push(normalizedProfileTheme);
+    }
+
     if (!updates.length) {
       return res.json({ success: true });
     }
@@ -12019,7 +12034,7 @@ router.patch("/users/me/settings", authenticate, async (req, res) => {
              notif_email_likes, notif_email_comments, notif_email_mentions, notif_email_messages, notif_email_reports,
              quiet_hours_enabled, quiet_hours_start, quiet_hours_end, notif_digest,
              muted_words, autoplay_media, blur_sensitive_media,
-             birthday_on_profile, birthday_on_profile_mode
+             birthday_on_profile, birthday_on_profile_mode, profile_theme
       FROM vine_users
       WHERE id = ?
       `,
@@ -12043,7 +12058,7 @@ router.get("/users/me/preferences", authenticate, async (req, res) => {
     const [[prefs]] = await db.query(
       `
       SELECT display_name, dm_privacy, is_private, hide_like_counts, show_last_active, about_privacy, date_of_birth,
-             birthday_on_profile, birthday_on_profile_mode,
+             birthday_on_profile, birthday_on_profile_mode, profile_theme,
              two_factor_email, mentions_privacy, tags_privacy, hide_from_search,
              notif_inapp_likes, notif_inapp_comments, notif_inapp_mentions, notif_inapp_messages, notif_inapp_reports,
              notif_email_likes, notif_email_comments, notif_email_mentions, notif_email_messages, notif_email_reports,

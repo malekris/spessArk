@@ -13,7 +13,28 @@ import { getCurrentVinePostSource } from "../utils/postSource";
 import VineEClassFeedRail from "../eclass/VineEClassFeedRail";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
-const DAILY_PROMPTS = ["What made you smile today?", "Share a small win with your people.", "What are you listening to right now?", "Drop a thought you want to remember.", "Who deserves a little appreciation today?"];
+const DAILY_PROMPTS = [
+  "What made you smile today?",
+  "Share a small win with your people.",
+  "What are you listening to right now?",
+  "Drop a thought you want to remember.",
+  "Who deserves a little appreciation today?",
+  "What is one thing you learned today?",
+  "Show us a moment that felt peaceful.",
+  "What are you looking forward to?",
+  "Share something your community should know.",
+  "What is keeping you motivated this week?",
+  "Name a person who made your day better.",
+  "What would make today a good day?",
+  "Share an unpopular opinion—kindly.",
+  "What deserves more attention right now?",
+];
+const getDailyPrompt = () => {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), 0, 0);
+  const dayOfYear = Math.floor((now - start) / 86400000);
+  return DAILY_PROMPTS[dayOfYear % DAILY_PROMPTS.length];
+};
 const STATUS_COLORS = [
   "#0f766e",
   "#0f172a",
@@ -427,6 +448,7 @@ export default function VineFeed() {
   const [feedLoadingMore, setFeedLoadingMore] = useState(false);
   const [feedHasMore, setFeedHasMore] = useState(false);
   const [content, setContent] = useState("");
+  const dailyPrompt = getDailyPrompt();
   const [images, setImages] = useState([]);
   const [previews, setPreviews] = useState([]);
   const [feeling, setFeeling] = useState("");
@@ -2694,7 +2716,20 @@ export default function VineFeed() {
           <button type="button" onClick={() => applyComposeFormat("~~")} title="Strikethrough"><s>S</s></button>
           <button type="button" onClick={insertTagToken} title="Tag user">@</button>
         </div>
-        <div className="vine-daily-prompt" aria-label="Daily prompt"><span>DAILY PROMPT</span><strong>{DAILY_PROMPTS[new Date().getDate() % DAILY_PROMPTS.length]}</strong></div>
+        <div className="vine-daily-prompt" aria-label="Daily prompt">
+          <span>DAILY PROMPT</span>
+          <strong>{dailyPrompt}</strong>
+          <button
+            type="button"
+            disabled={Boolean(content.trim())}
+            onClick={() => {
+              setContent(dailyPrompt);
+              requestAnimationFrame(() => createInputRef.current?.focus());
+            }}
+          >
+            {content.trim() ? "Writing" : "Answer"}
+          </button>
+        </div>
         <textarea
                       className={`create-textarea ${
                         content.length > 0 && content.length < 120 ? "big-text" : ""

@@ -7415,7 +7415,25 @@ body:has(.vine-news-feed) {
   .vine-news-intro p { font-size: 0.75rem; }
   .vine-news-post .link-preview-img { height: 190px; }
 }
-.vine-daily-prompt { display:flex; align-items:center; gap:10px; margin: 8px 4px 10px; color:#0f766e; }
-.vine-daily-prompt span { font-size:.64rem; font-weight:900; letter-spacing:.14em; }
-.vine-daily-prompt strong { color:#315a49; font-size:.82rem; font-weight:750; }
-@media (max-width:560px) { .vine-daily-prompt { flex-wrap:wrap; gap:4px 8px; } }
+.vine-daily-prompt {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px 12px;
+  margin: 10px 2px 12px;
+  padding: 11px 12px;
+  border: 1px solid rgba(16, 120, 88, 0.18);
+  border-radius: 15px;
+  background: linear-gradient(135deg, rgba(236, 253, 245, 0.82), rgba(255, 251, 235, 0.78));
+}
+.vine-daily-prompt > span { color: #0f766e; font-size: .62rem; font-weight: 950; letter-spacing: .14em; }
+.vine-daily-prompt strong { min-width: 0; color: #315a49; font-size: .82rem; font-weight: 780; line-height: 1.35; }
+.vine-daily-prompt button { border: 1px solid rgba(5, 150, 105, .24); border-radius: 999px; padding: 6px 10px; background: #fff; color: #047857; font-size: .72rem; font-weight: 900; cursor: pointer; }
+.vine-daily-prompt button:hover:not(:disabled) { background: #d1fae5; }
+.vine-daily-prompt button:disabled { opacity: .58; cursor: default; }
+.theme-dark .vine-daily-prompt { border-color: rgba(110, 210, 164, .24); background: linear-gradient(135deg, rgba(12, 55, 41, .78), rgba(61, 45, 20, .46)); }
+.theme-dark .vine-daily-prompt strong { color: #d1fae5; }
+@media (max-width:560px) {
+  .vine-daily-prompt { grid-template-columns: 1fr auto; }
+  .vine-daily-prompt > span { grid-column: 1 / -1; }
+}

@@ -12,7 +12,13 @@ import useNearScreen from "../../../hooks/useNearScreen";
 // ────────────────────────────────────────────────
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
-const SUGGESTED_REPLIES = ["I relate to this", "Tell me more", "This is beautiful ✨"];
+const getSuggestedReplies = (content = "") => {
+  const value = String(content).toLowerCase();
+  if (value.includes("?")) return ["Good question", "Here’s what I think…", "Tell me more"];
+  if (/congrat|proud|won|passed|birthday|celebrat/.test(value)) return ["Congratulations! 🎉", "You earned this", "So happy for you ✨"];
+  if (/sad|sorry|hard|hurt|miss|alone/.test(value)) return ["I’m here for you", "Sending you love 💚", "You’re not alone"];
+  return ["I relate to this", "Tell me more", "This is beautiful ✨"];
+};
 const DEFAULT_AVATAR = "/default-avatar.png";
 const ORIGIN = API.replace(/\/api$/, "");
 const SHARE_PREVIEW_VERSION = "20260403";
@@ -1092,6 +1098,9 @@ function VinePostCard({
     ? JSON.stringify(visualMediaUrls)
     : null;
   const isQuotedPost = Number(post.revined_by || 0) > 0;
+  const isQuoteRevine = isQuotedPost && Boolean(String(post.revine_note || "").trim());
+  const isNewsContent = isNewsPost || String(post.badge_type || "").toLowerCase() === "news" || /vine news/i.test(String(post.post_source_label || ""));
+  const suggestedReplies = getSuggestedReplies(post.content);
   const headerAvatarUrl = isQuotedPost
     ? (post.reviner_avatar_url || post.avatar_url || DEFAULT_AVATAR)
     : (post.avatar_url || DEFAULT_AVATAR);
@@ -1099,7 +1108,7 @@ function VinePostCard({
   // ── Render ──────────────────────────────────────
   return (
     <div
-      className={`vine-post light-green-theme ${displayContext === "profile" ? "vine-post-profile" : ""} ${isNewsPost ? "vine-news-post" : ""} ${isPinnedPost ? "pinned" : ""} ${Number(post.revined_by) > 0 ? "vine-post-quoted" : ""}`.trim()}
+      className={`vine-post light-green-theme ${displayContext === "profile" ? "vine-post-profile" : ""} ${isNewsContent ? "vine-news-post" : ""} ${isPinnedPost ? "pinned" : ""} ${isQuotedPost ? "vine-post-quoted" : ""}`.trim()}
       id={`post-${post.id}`}
     >
       {displayContext === "profile" && isPinnedPost && (
@@ -1108,11 +1117,10 @@ function VinePostCard({
           <span><strong>Pinned to profile</strong><small>Featured post</small></span>
         </div>
       )}
-      {(isNewsPost || isQuotedPost) && (
-        <div className={`vine-post-ribbon ${isNewsPost ? "news" : "quote"}`}>
-          <span aria-hidden="true">{isNewsPost ? "✦" : "↻"}</span>{isNewsPost ? "Vine News" : "Quoted post"}
-        </div>
-      )}
+      {(isNewsContent || isQuotedPost) && <div className="vine-post-ribbons" aria-label="Post labels">
+        {isNewsContent && <span className="vine-post-ribbon news"><span aria-hidden="true">✦</span>Vine News</span>}
+        {isQuotedPost && <span className={`vine-post-ribbon ${isQuoteRevine ? "quote" : "revine"}`}><span aria-hidden="true">↻</span>{isQuoteRevine ? "Quote Revine" : "Revined"}</span>}
+      </div>}
       <GifPickerModal
         open={gifPickerCommentOpen}
         token={token}
@@ -1692,11 +1700,12 @@ function VinePostCard({
                   </div>
                 </div>
               </div>
-              <div className="suggested-replies" aria-label="Suggested replies">
-                {SUGGESTED_REPLIES.map((suggestion) => (
-                  <button key={suggestion} type="button" onClick={() => setText((current) => current ? `${current} ${suggestion}` : suggestion)}>{suggestion}</button>
+              {!text.trim() && !commentGifUrl && <div className="suggested-replies" aria-label="Suggested replies">
+                <span>Quick reply</span>
+                {suggestedReplies.map((suggestion) => (
+                  <button key={suggestion} type="button" onClick={() => setText(suggestion)}>{suggestion}</button>
                 ))}
-              </div>
+              </div>}
               {commentGifUrl && (
                 <div className="comment-gif-preview">
                   <img src={commentGifUrl} alt="Selected GIF" />

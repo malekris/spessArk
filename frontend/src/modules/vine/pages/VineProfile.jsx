@@ -4,6 +4,7 @@ import "./VineProfile.css";
 import VinePostCard from "./VinePostCard";
 import ProfileDelights from "../components/ProfileDelights";
 import { convertHeicFileToJpeg, isHeicLikeFile } from "../utils/heic";
+import { resolveProfileTheme } from "../utils/profileThemes";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const DEFAULT_AVATAR = "/default-avatar.png";
@@ -1514,7 +1515,7 @@ export default function VineProfile() {
   }
 
   return (
-    <div className="vine-profile-wrapper">
+    <div className={`vine-profile-wrapper profile-theme-${resolveProfileTheme(userObj?.profile_theme)}`}>
       {/* Top sticky bar */}
       <div className="vine-profile-topbar">
         <button
@@ -2083,7 +2084,7 @@ export default function VineProfile() {
 
             <p className="bio">{userObj?.bio || "No bio yet 🌱"}</p>
             {memoriesToday.length > 0 && <aside className="profile-memory-card"><span>ON THIS DAY</span><strong>Moments worth revisiting</strong><small>{memoriesToday.length} memory{memoriesToday.length === 1 ? "" : "ies"} from your Vine history</small></aside>}
-            {Number(userObj?.profile_streak_days || 0) > 0 && <div className="profile-streak-pill" title="Consecutive days active on Vine">🔥 {Number(userObj.profile_streak_days)} day streak</div>}
+            {Number(userObj?.profile_streak_days || 0) > 0 && <div className="profile-streak-card" title="Consecutive days active on Vine"><span className="profile-streak-flame" aria-hidden="true">🔥</span><span><small>Vine streak</small><strong>{Number(userObj.profile_streak_days)} day{Number(userObj.profile_streak_days) === 1 ? "" : "s"}</strong></span></div>}
 
             <div className="profile-extra">
   {userObj?.location && (

@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import ImageCarousel from "./ImageCarousel";
 import ProfileDelights from "../components/ProfileDelights";
 import { getVineToken, isVineTokenExpired } from "../utils/vineAuth";
+import { resolveProfileTheme } from "../utils/profileThemes";
 import "./VinePublicPost.css";
 import "./VinePublicProfile.css";
 
@@ -225,7 +226,7 @@ export default function VinePublicProfile() {
   };
 
   return (
-    <div className="vine-public-shell">
+    <div className={`vine-public-shell profile-theme-${resolveProfileTheme(profile?.user?.profile_theme)}`}>
       <div className="vine-public-topbar">
         <Link to="/" className="vine-public-back">← Home</Link>
         <div className="vine-public-brand">🌱 Vine</div>
@@ -234,7 +235,7 @@ export default function VinePublicProfile() {
         </button>
       </div>
 
-      <div className={`vine-public-wrap vine-public-profile-wrap profile-theme-${profile?.user?.profile_theme || "forest"}`}>
+      <div className="vine-public-wrap vine-public-profile-wrap">
         {loading ? (
           <div className="vine-public-state">Loading profile…</div>
         ) : error ? (

@@ -29,6 +29,7 @@ import { endEClassRuntimeSession } from "./vineEClassSocket.js";
 import { VINE_READ_NOTIFICATION_RETENTION_DAYS, createCleanupExpiredReadNotifications } from "./vineNotificationCleanup.js";
 import { VINE_CACHE_TTLS, buildVineCacheKey, readThroughVineCache, clearVineReadCache } from "./vineCache.js";
 import { getPokePair, resolvePokeState } from "./profilePokes.js";
+import { calculateConsecutiveDayStreak } from "./profileStreak.js";
 import {
   getSessionExpiry,
   getVineSessionIdleMs,
@@ -3105,6 +3106,29 @@ const recordVineUserEvent = async ({
     `,
     [numericUserId, normalizedType, normalizedValue, normalizedSessionJti, metadataJson]
   );
+};
+
+const dailyVineActivityCache = new Map();
+const recordDailyVineActivity = async ({ userId, sessionJti, source }) => {
+  const numericUserId = Number(userId || 0);
+  if (!numericUserId) return;
+  const dayKey = getAnalyticsDayKey();
+  const cacheKey = `${numericUserId}:${String(sessionJti || "sessionless")}`;
+  if (dailyVineActivityCache.get(cacheKey) === dayKey) return;
+
+  await recordVineUserEvent({
+    userId: numericUserId,
+    sessionJti,
+    eventType: "daily_active",
+    eventValue: dayKey,
+    metadata: { source: String(source || "authenticated").slice(0, 40) },
+  });
+  dailyVineActivityCache.set(cacheKey, dayKey);
+
+  if (dailyVineActivityCache.size > 5000) {
+    const oldestKey = dailyVineActivityCache.keys().next().value;
+    if (oldestKey) dailyVineActivityCache.delete(oldestKey);
+  }
 };
 
 let postTagSchemaReady = false;
@@ -6558,6 +6582,13 @@ router.post("/auth/login", async (req, res) => {
 
 router.get("/auth/session", authenticate, async (req, res) => {
   try {
+    await recordDailyVineActivity({
+      userId: req.user.id,
+      sessionJti: req.user.jti,
+      source: "session_check",
+    }).catch((err) => {
+      console.warn("Daily Vine activity record failed:", err?.message || err);
+    });
     const [[user]] = await db.query(
       `
       SELECT id, username, display_name, email, is_admin, role, badge_type,
@@ -6594,6 +6625,13 @@ router.get("/auth/session", authenticate, async (req, res) => {
 
 router.post("/auth/renew", authenticate, async (req, res) => {
   try {
+    await recordDailyVineActivity({
+      userId: req.user.id,
+      sessionJti: req.user.jti,
+      source: "session_renew",
+    }).catch((err) => {
+      console.warn("Daily Vine activity record failed:", err?.message || err);
+    });
     const [[user]] = await db.query(
       `
       SELECT id, username, display_name, email, is_admin, role, badge_type,
@@ -6630,6 +6668,13 @@ router.post("/auth/renew", authenticate, async (req, res) => {
 
 router.post("/auth/activity", authenticate, async (req, res) => {
   try {
+    await recordDailyVineActivity({
+      userId: req.user.id,
+      sessionJti: req.user.jti,
+      source: "session_activity",
+    }).catch((err) => {
+      console.warn("Daily Vine activity record failed:", err?.message || err);
+    });
     res.setHeader("Cache-Control", "no-store");
     res.json({
       ok: true,
@@ -10232,17 +10277,44 @@ const getProfileUserPayload = async (username, viewerId, perfCtx = null) => {
       [user.id]
     ).catch(() => [[{ completed_count: 0 }]]);
     user.community_quest_badges = Number(questBadgeRow?.completed_count || 0);
-    const [activityDays] = await db.query(`SELECT DISTINCT DATE_FORMAT(created_at, '%Y-%m-%d') AS day FROM (
-      SELECT created_at FROM vine_posts WHERE user_id = ?
-      UNION ALL SELECT created_at FROM vine_comments WHERE user_id = ?
-    ) activity WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 370 DAY) ORDER BY day DESC`, [user.id, user.id]).catch(() => [[]]);
-    let streak = 0;
-    const daySet = new Set(activityDays.map((row) => String(row.day || "").slice(0, 10)).filter(Boolean));
-    const toLocalDay = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-    const cursor = new Date();
-    if (!daySet.has(toLocalDay(cursor))) cursor.setDate(cursor.getDate() - 1);
-    while (daySet.has(toLocalDay(cursor))) { streak += 1; cursor.setDate(cursor.getDate() - 1); }
-    user.profile_streak_days = streak;
+    await ensureLifecycleAnalyticsSchema();
+    const [activityDays] = await db.query(
+      `
+      SELECT DISTINCT activity_day AS day
+      FROM (
+        SELECT ${analyticsDaySql("created_at")} AS activity_day
+        FROM vine_login_events
+        WHERE user_id = ? AND created_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 371 DAY)
+
+        UNION ALL
+
+        SELECT ${analyticsDaySql("created_at")} AS activity_day
+        FROM vine_user_events
+        WHERE user_id = ?
+          AND event_type IN ('daily_active', 'feed_view')
+          AND created_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 371 DAY)
+
+        UNION ALL
+
+        SELECT ${analyticsDaySql("created_at")} AS activity_day
+        FROM vine_posts
+        WHERE user_id = ? AND created_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 371 DAY)
+
+        UNION ALL
+
+        SELECT ${analyticsDaySql("created_at")} AS activity_day
+        FROM vine_comments
+        WHERE user_id = ? AND created_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 371 DAY)
+      ) vine_activity
+      WHERE activity_day IS NOT NULL
+      ORDER BY activity_day DESC
+      `,
+      [user.id, user.id, user.id, user.id]
+    );
+    user.profile_streak_days = calculateConsecutiveDayStreak(
+      activityDays,
+      getAnalyticsDayKey()
+    );
 
     const [communityRows] = await timedVineQuery(
       perfCtx,

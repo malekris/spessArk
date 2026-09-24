@@ -450,6 +450,8 @@ export default function VineProfile() {
   const canMessage =
     !isMe;
   const learningBadges = sortLearningBadges(userObj?.learning_badges);
+  const profileStreakDays = Math.max(0, Number(userObj?.profile_streak_days || 0));
+  const showProfileStreak = Boolean(isMe) || profileStreakDays > 0;
   const memoriesToday = profilePosts.filter((post) => {
     const date = new Date(post.created_at || post.sort_time);
     const now = new Date();
@@ -2084,7 +2086,22 @@ export default function VineProfile() {
 
             <p className="bio">{userObj?.bio || "No bio yet 🌱"}</p>
             {memoriesToday.length > 0 && <aside className="profile-memory-card"><span>ON THIS DAY</span><strong>Moments worth revisiting</strong><small>{memoriesToday.length} memory{memoriesToday.length === 1 ? "" : "ies"} from your Vine history</small></aside>}
-            {Number(userObj?.profile_streak_days || 0) > 0 && <div className="profile-streak-card" title="Consecutive days active on Vine"><span className="profile-streak-flame" aria-hidden="true">🔥</span><span><small>Vine streak</small><strong>{Number(userObj.profile_streak_days)} day{Number(userObj.profile_streak_days) === 1 ? "" : "s"}</strong></span></div>}
+            {showProfileStreak && (
+              <div
+                className={`profile-streak-card ${profileStreakDays === 0 ? "is-empty" : ""}`}
+                title={profileStreakDays > 0 ? "Consecutive days active on Vine" : "Visit Vine each day to build your streak"}
+              >
+                <span className="profile-streak-flame" aria-hidden="true">🔥</span>
+                <span>
+                  <small>Vine streak</small>
+                  <strong>
+                    {profileStreakDays > 0
+                      ? `${profileStreakDays} day${profileStreakDays === 1 ? "" : "s"}`
+                      : "Start today"}
+                  </strong>
+                </span>
+              </div>
+            )}
 
             <div className="profile-extra">
   {userObj?.location && (

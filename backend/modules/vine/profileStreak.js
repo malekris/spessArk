@@ -1,5 +1,13 @@
 const DAY_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
+const normalizeDayKey = (value) => {
+  const candidate = value?.day ?? value;
+  if (candidate instanceof Date && !Number.isNaN(candidate.getTime())) {
+    return candidate.toISOString().slice(0, 10);
+  }
+  return String(candidate ?? "").slice(0, 10);
+};
+
 const shiftDayKey = (dayKey, amount) => {
   if (!DAY_KEY_PATTERN.test(String(dayKey || ""))) return "";
   const date = new Date(`${dayKey}T12:00:00.000Z`);
@@ -14,7 +22,7 @@ export const calculateConsecutiveDayStreak = (activityDays, todayKey) => {
 
   const activeDays = new Set(
     (Array.isArray(activityDays) ? activityDays : [])
-      .map((value) => String(value?.day ?? value ?? "").slice(0, 10))
+      .map(normalizeDayKey)
       .filter((value) => DAY_KEY_PATTERN.test(value))
   );
 

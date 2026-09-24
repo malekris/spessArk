@@ -2552,6 +2552,8 @@
 .profile-streak-card > span:last-child { display:grid; gap:1px; }
 .profile-streak-card small { color:#c2410c; font-size:.59rem; font-weight:950; letter-spacing:.12em; text-transform:uppercase; }
 .profile-streak-card strong { color:#7c2d12; font-size:.82rem; font-weight:900; }
+.profile-streak-card.is-empty { border-style:dashed; background:linear-gradient(135deg,rgba(255,247,237,.76),rgba(255,255,255,.82)); box-shadow:none; }
+.profile-streak-card.is-empty .profile-streak-flame { filter:grayscale(.45); opacity:.78; }
 .theme-dark .profile-streak-card { border-color:rgba(251,146,60,.28); background:linear-gradient(135deg,rgba(124,45,18,.72),rgba(67,20,7,.82)); }
 .theme-dark .profile-streak-card strong { color:#ffedd5; }
 .profile-memory-card { display:grid; gap:3px; width:min(100%,420px); margin:0 0 16px; padding:13px 15px; border:1px solid rgba(16,120,88,.2); border-radius:17px; background:linear-gradient(135deg,#ecfdf5,#fff); box-shadow:0 10px 22px rgba(6,95,70,.08); }

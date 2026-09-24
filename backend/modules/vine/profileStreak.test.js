@@ -29,3 +29,16 @@ test("ignores duplicate and invalid activity days", () => {
     1
   );
 });
+
+test("accepts MySQL DATE values decoded as JavaScript Date objects", () => {
+  assert.equal(
+    calculateConsecutiveDayStreak(
+      [
+        { day: new Date("2026-09-21T00:00:00.000Z") },
+        { day: new Date("2026-09-20T00:00:00.000Z") },
+      ],
+      "2026-09-21"
+    ),
+    2
+  );
+});

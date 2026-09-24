@@ -10280,8 +10280,28 @@ const getProfileUserPayload = async (username, viewerId, perfCtx = null) => {
     await ensureLifecycleAnalyticsSchema();
     const [activityDays] = await db.query(
       `
-      SELECT DISTINCT activity_day AS day
+      SELECT DISTINCT DATE_FORMAT(activity_day, '%Y-%m-%d') AS day
       FROM (
+        SELECT ${analyticsDaySql("last_active_at")} AS activity_day
+        FROM vine_users
+        WHERE id = ?
+          AND last_active_at IS NOT NULL
+          AND last_active_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 371 DAY)
+
+        UNION ALL
+
+        SELECT ${analyticsDaySql("created_at")} AS activity_day
+        FROM vine_user_sessions
+        WHERE user_id = ? AND created_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 371 DAY)
+
+        UNION ALL
+
+        SELECT ${analyticsDaySql("last_seen_at")} AS activity_day
+        FROM vine_user_sessions
+        WHERE user_id = ? AND last_seen_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 371 DAY)
+
+        UNION ALL
+
         SELECT ${analyticsDaySql("created_at")} AS activity_day
         FROM vine_login_events
         WHERE user_id = ? AND created_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 371 DAY)
@@ -10305,16 +10325,45 @@ const getProfileUserPayload = async (username, viewerId, perfCtx = null) => {
         SELECT ${analyticsDaySql("created_at")} AS activity_day
         FROM vine_comments
         WHERE user_id = ? AND created_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 371 DAY)
+
+        UNION ALL
+
+        SELECT ${analyticsDaySql("created_at")} AS activity_day
+        FROM vine_likes
+        WHERE user_id = ? AND created_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 371 DAY)
+
+        UNION ALL
+
+        SELECT ${analyticsDaySql("created_at")} AS activity_day
+        FROM vine_revines
+        WHERE user_id = ? AND created_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 371 DAY)
       ) vine_activity
       WHERE activity_day IS NOT NULL
       ORDER BY activity_day DESC
       `,
-      [user.id, user.id, user.id, user.id]
+      [
+        user.id,
+        user.id,
+        user.id,
+        user.id,
+        user.id,
+        user.id,
+        user.id,
+        user.id,
+        user.id,
+      ]
     );
+    const streakTodayKey = getAnalyticsDayKey();
     user.profile_streak_days = calculateConsecutiveDayStreak(
       activityDays,
-      getAnalyticsDayKey()
+      streakTodayKey
     );
+    user.profile_streak_active_today = activityDays.some(
+      (row) => String(row?.day || "").slice(0, 10) === streakTodayKey
+    );
+    user.profile_streak_last_active_day = activityDays[0]?.day
+      ? String(activityDays[0].day).slice(0, 10)
+      : null;
 
     const [communityRows] = await timedVineQuery(
       perfCtx,

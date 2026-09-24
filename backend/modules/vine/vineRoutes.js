@@ -10339,7 +10339,7 @@ const getProfileUserPayload = async (username, viewerId, perfCtx = null) => {
         WHERE user_id = ? AND created_at >= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 371 DAY)
       ) vine_activity
       WHERE activity_day IS NOT NULL
-      ORDER BY activity_day DESC
+      ORDER BY day DESC
       `,
       [
         user.id,

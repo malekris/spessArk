@@ -65,7 +65,6 @@ import { ensureAlevelPromotionSchemaReady } from "./services/alevelPromotionServ
 import { ensureParentPortalSchemaReady } from "./services/parentPortalService.js";
 import { ensureSiteVisitSchemaReady } from "./services/siteVisitService.js";
 import createPublicSiteVisitRoutes from "./routes/publicSiteVisits.js";
-import spessMailRoutes from "./routes/spessMail.js";
 
 
 const app = express();
@@ -128,11 +127,9 @@ app.use(cors({
     "https://stphillipsequatorial.com",
     "https://www.stphillipsequatorial.com",
     "http://localhost:5173",
-    "http://127.0.0.1:5173",
     "http://localhost:5001"
   ],
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  credentials: true,
   allowedHeaders: [
     "Content-Type",
     "Authorization",
@@ -146,7 +143,6 @@ app.use(cors({
 // Explicitly handle preflight requests
 app.use("/public", express.static("public"));
 app.use(express.json());
-app.use("/api/mail", spessMailRoutes);
 app.use("/api/teachers", teacherRoutes);
 app.use("/api/students", studentRoutes);
 app.use("/api/admin/reports", adminReportsRoutes);

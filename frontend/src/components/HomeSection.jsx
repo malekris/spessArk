@@ -32,10 +32,6 @@ export default function HomeSection() {
 
           <div className="hero-actions" aria-label="School platforms">
             <Link to="/ark" className="hero-action hero-action-ark">Open SPESS ARK</Link>
-            <Link to="/mail" className="hero-action hero-action-mail">
-              <span aria-hidden="true">✉</span>
-              Open SPESS Mail
-            </Link>
             <Link to="/vine/enter" className="hero-action hero-action-vine">Enter SPESS Vine</Link>
             <Link to="/reports" className="hero-action hero-action-reports">SPESS Reports</Link>
           </div>

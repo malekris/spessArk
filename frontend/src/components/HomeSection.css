@@ -125,26 +125,6 @@
   background: #0f5d91;
 }
 
-.hero-action-mail {
-  gap: 0.55rem;
-  color: #163629;
-  background: #f6f2e4;
-  border-color: #e8c66f;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
-}
-
-.hero-action-mail span {
-  color: #a97b19;
-  font-size: 1.05rem;
-  line-height: 1;
-}
-
-.hero-action-mail:hover {
-  color: #0f2d22;
-  background: #ffffff;
-  border-color: #f0d58b;
-}
-
 .hero-action-vine {
   background: #157255;
   border-color: #65c6a4;

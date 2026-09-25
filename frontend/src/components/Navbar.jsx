@@ -33,7 +33,6 @@ export default function Navbar() {
         <a href="#updates" onClick={closeMenu}>Updates</a>
         <a href="#activities" onClick={closeMenu}>Activities</a>
         <a href="#contact" onClick={closeMenu}>Contact</a>
-        <a href="/mail" onClick={closeMenu}>SPESS Mail</a>
         <a href="/ark" className="site-nav-ark" onClick={closeMenu}>SPESS ARK</a>
       </div>
     </nav>

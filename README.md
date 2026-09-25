@@ -217,6 +217,25 @@ To provide affordable, modern, and scalable academic management solutions for sc
 ---
 
 Built with persistence, faith, and countless late nights.
+
+---
+
+## SPESS Mail
+
+SPESS Mail provides a school-branded inbox at `/mail` while RENU's Carbonio server remains responsible for mailbox storage, delivery, spam filtering, and the mail domain. The application backend talks to Carbonio's SOAP API and keeps the Carbonio auth token in an opaque, HTTP-only application session cookie; mailbox passwords and auth tokens are never stored in the browser.
+
+Backend configuration:
+
+```text
+SPESS_MAIL_BASE_URL=https://webmail.stphillipsequatorial.com
+```
+
+`SPESS_MAIL_TEST_EMAIL` and `SPESS_MAIL_TEST_PASSWORD` are optional diagnostic credentials only. Keep them in an untracked local or deployment secret store, not in a committed environment file. From `backend`, verify the direct Carbonio connection with `npm run diagnose:mail` and the SPESS API session flow with `npm run smoke:mail-api` while the backend is running.
+
+Mailbox sign-in, folder/message listing, reading, composing, replying, starring, archiving, spam, trash, and logout are connected. Learner self-activation remains disabled until RENU supplies a delegated account with permission to create and update users and the app's learner-to-mailbox eligibility rule is finalized. `SPESS_MAIL_PROVISIONER_EMAIL` and `SPESS_MAIL_PROVISIONER_PASSWORD` are reserved for that future integration; do not use the primary administrator account.
+
+The current mailbox session store is in memory, so a backend restart signs users out. Production should move these opaque sessions to Redis or another shared server-side store before running multiple backend instances.
+
 # SPESS VINE
 
 ### The School Social Network

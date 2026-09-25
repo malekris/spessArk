@@ -64,6 +64,7 @@ const VinePublicProfile = lazy(() => import("./modules/vine/pages/VinePublicProf
 const VineEntrySplash = lazy(() => import("./modules/vine/pages/VineEntrySplash"));
 const ParentsEntry = lazy(() => import("./modules/parents/pages/ParentsEntry"));
 const ParentsPortal = lazy(() => import("./modules/parents/pages/ParentsPortal"));
+const SpessMail = lazy(() => import("./modules/mail/SpessMail"));
 
 function RouteLoadingScreen() {
   return (
@@ -105,6 +106,8 @@ function App() {
   useEffect(() => {
     const appSurface = location.pathname.startsWith("/vine")
       ? "vine"
+      : location.pathname.startsWith("/mail")
+        ? "mail"
       : location.pathname.startsWith("/reports")
         ? "parents"
       : location.pathname.startsWith("/ark")
@@ -163,6 +166,7 @@ function App() {
     <Route path="/" element={<LandingPage />} />
     <Route path="/reports" element={<ParentsEntry />} />
     <Route path="/reports/portal" element={<ParentsPortal />} />
+    <Route path="/mail" element={<SpessMail />} />
   
     {/* 🔐 ARK system */}
     <Route

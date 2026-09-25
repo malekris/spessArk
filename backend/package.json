@@ -8,6 +8,8 @@
     "start": "node server.js",
     "dev": "nodemon server.js",
     "diagnose:mysql": "node scripts/mysqlMemoryDiagnosis.js",
+    "diagnose:mail": "node scripts/diagnoseSpessMail.js",
+    "smoke:mail-api": "node scripts/smokeSpessMailApi.js",
     "backup:mysql": "node scripts/resilientMysqlBackup.js"
   },
   "keywords": [],

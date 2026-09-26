@@ -32,6 +32,26 @@ const formatReportDateValue = (value) => {
   return parsed.toLocaleDateString("en-GB");
 };
 
+const appendEndOfYearPromotion = (comment, classLevel, isEndOfYear) => {
+  if (!isEndOfYear) return comment;
+
+  const normalizedClass = String(classLevel || "")
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, "");
+  const classMatch = normalizedClass.match(/^(?:S|SENIOR)([1-3])$/);
+  if (!classMatch) return comment;
+
+  const nextClass = `S${Number(classMatch[1]) + 1}`;
+  const cleanComment = String(comment || "")
+    .trim()
+    .replace(/[.!?]+$/, "");
+
+  return cleanComment
+    ? `${cleanComment}. Promoted to ${nextClass}.`
+    : `Promoted to ${nextClass}.`;
+};
+
 const COMMENT_BANK = {
   poor: {
     head: [
@@ -789,9 +809,13 @@ const headTeacherComment = pickComment(
   student.info.student_id
 );
 
-const classTeacherComment = pickComment(
-  COMMENT_BANK[category].class,
-  student.info.student_id
+const classTeacherComment = appendEndOfYearPromotion(
+  pickComment(
+    COMMENT_BANK[category].class,
+    student.info.student_id
+  ),
+  student.info.class_level,
+  isEndOfYear
 );
 
       /* ===========================

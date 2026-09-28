@@ -1,7 +1,9 @@
-import React, { useState } from "react";
+import { useState } from "react";
 import "./ContactSection.css";
 import { useSiteVisuals } from "../utils/siteVisuals";
 import VisitorStats from "./VisitorStats";
+
+const SCHOOL_EMAIL = "stphillipsequatorial@gmail.com";
 
 export default function ContactSection() {
   const siteVisuals = useSiteVisuals();
@@ -10,8 +12,14 @@ export default function ContactSection() {
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    console.log("Form Submitted:", formData);
-    alert("Message sent to SPESS !");
+    const subject = `Website enquiry from ${formData.name.trim()}`;
+    const body = [
+      `Name: ${formData.name.trim()}`,
+      `Reply-to email: ${formData.email.trim()}`,
+      "",
+      formData.message.trim(),
+    ].join("\n");
+    window.location.href = `mailto:${SCHOOL_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   };
 
   return (
@@ -57,22 +65,29 @@ export default function ContactSection() {
               <input 
                 type="text" 
                 placeholder="Your Name" 
-                required 
+                required
+                value={formData.name}
                 onChange={(e) => setFormData({...formData, name: e.target.value})}
               />
               <input 
                 type="email" 
                 placeholder="Your Email" 
-                required 
+                required
+                value={formData.email}
                 onChange={(e) => setFormData({...formData, email: e.target.value})}
               />
               <textarea 
                 placeholder="How can we help you?" 
                 rows="4" 
                 required
+                value={formData.message}
                 onChange={(e) => setFormData({...formData, message: e.target.value})}
               ></textarea>
-              <button type="submit" className="submit-btn">Send to school EMAIL</button>
+              <button type="submit" className="submit-btn">Send a Message</button>
+              <p className="contact-email-note">
+                Opens your email app with the message addressed to{" "}
+                <a href={`mailto:${SCHOOL_EMAIL}`}>{SCHOOL_EMAIL}</a>.
+              </p>
             </form>
           </div>
 
@@ -85,14 +100,16 @@ export default function ContactSection() {
             <div className="embed-wrapper">
               {/* Note: Standard embed URL structure used here */}
               <iframe
-                src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3989.758814725345!2d32.5825!3d0.3476!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x0%3A0x0!2zMMKwMjAnNTEuNCJOIDMywrAzNSc1Ny4wIkU!5e0!3m2!1sen!2sug!4v1625000000000!5m2!1sen!2sug"
+                src="https://www.google.com/maps?q=0.00669%2C32.04758&z=17&output=embed"
                 style={{ border: 0 }}
                 allowFullScreen=""
                 loading="lazy"
                 title="School Map"
               />
             </div>
-            <p className="card-sub">St. Phillip’s Equatorial Secondary School Campus.</p>
+            <p className="card-sub">
+              St. Phillip’s Equatorial Secondary School Campus · 0°00&apos;24.1&quot;N, 32°02&apos;51.3&quot;E
+            </p>
           </div>
 
         </div>

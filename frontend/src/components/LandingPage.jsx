@@ -4,6 +4,11 @@ import HomeSection from "./HomeSection";
 import SchoolUpdatesSection from "./SchoolUpdatesSection";
 import ActivitiesSection from "../components/ActivitiesSection";
 import ContactSection from "../components/ContactSection";
+import {
+  HomepageFaq,
+  HomepageStorySections,
+  MobileQuickActions,
+} from "./HomepageExperience";
 
 export default function LandingPage() {
   useEffect(() => {
@@ -11,12 +16,15 @@ export default function LandingPage() {
   }, []);
 
   return (
-    <div style={{ scrollBehavior: "smooth" }}>
+    <div className="landing-page" style={{ scrollBehavior: "smooth" }}>
       <Navbar />
       <HomeSection />
+      <HomepageStorySections />
       <SchoolUpdatesSection />
       <ActivitiesSection />
+      <HomepageFaq />
       <ContactSection />
+      <MobileQuickActions />
     </div>
   );
 }

@@ -168,6 +168,19 @@
   background: #0f5c8f;
 }
 
+.contact-email-note {
+  margin: 0.15rem 0 0;
+  color: #91a4b5;
+  font-size: 0.74rem;
+  line-height: 1.5;
+}
+
+.contact-email-note a {
+  color: #f0ce78;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 980px) {
   .contact-grid {
     grid-template-columns: 1fr;

@@ -4,12 +4,15 @@ import { loadPdfTools } from "../../../utils/loadPdfTools";
 import { withCacheBust } from "../../../utils/cacheBust";
 import {
   DEFAULT_ACTIVITY_GALLERY_IMAGES,
+  DEFAULT_HOMEPAGE_CONTENT,
   DEFAULT_SITE_VISUALS,
+  normalizeHomepageContent,
   primeSiteVisualsCache,
 } from "../../../utils/siteVisuals";
 import { primeVineAuthThemeCache } from "../utils/authTheme";
 import { convertHeicFileToJpeg, isHeicLikeFile } from "../utils/heic";
 import SpessNewsManager from "../components/SpessNewsManager";
+import HomepageContentEditor from "../components/HomepageContentEditor";
 import "./VineGuardianAnalytics.css";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
@@ -61,6 +64,7 @@ const DEFAULT_SITE_VISUAL_FORM = {
   activities_latest_batch: DEFAULT_SITE_VISUALS.activities_latest_batch,
   activities_latest_day: DEFAULT_SITE_VISUALS.activities_latest_day,
   create_community_enabled: DEFAULT_SITE_VISUALS.create_community_enabled,
+  homepage_content: DEFAULT_HOMEPAGE_CONTENT,
 };
 const SITE_VISUAL_NOTICE_DURATION_MS = 4500;
 const SITE_VISUAL_NOTICE_LABELS = {
@@ -70,6 +74,7 @@ const SITE_VISUAL_NOTICE_LABELS = {
   "ark-slides": "ARK auth slideshow",
   "contact-hero": "Contact hero",
   "community-create-toggle": "Community creation",
+  "homepage-content": "Homepage content",
 };
 
 const getKampalaDateStamp = (date = new Date()) =>
@@ -168,6 +173,8 @@ export default function VineGuardianAnalytics() {
   const [siteActivitiesBannerPreview, setSiteActivitiesBannerPreview] = useState("");
   const [siteContactHeroFile, setSiteContactHeroFile] = useState(null);
   const [siteContactHeroPreview, setSiteContactHeroPreview] = useState("");
+  const [headteacherFile, setHeadteacherFile] = useState(null);
+  const [headteacherPreview, setHeadteacherPreview] = useState("");
   const [siteSlideFiles, setSiteSlideFiles] = useState([]);
   const [siteActivitiesGalleryFiles, setSiteActivitiesGalleryFiles] = useState([]);
   const [draggedActivityIndex, setDraggedActivityIndex] = useState(null);
@@ -511,6 +518,7 @@ export default function VineGuardianAnalytics() {
         source.create_community_enabled === undefined || source.create_community_enabled === null
           ? true
           : Number(source.create_community_enabled) === 1 || source.create_community_enabled === true,
+      homepage_content: normalizeHomepageContent(source.homepage_content),
     });
   }, [data?.siteVisualSettings]);
 
@@ -563,6 +571,16 @@ export default function VineGuardianAnalytics() {
     setSiteContactHeroPreview(objectUrl);
     return () => URL.revokeObjectURL(objectUrl);
   }, [siteContactHeroFile]);
+
+  useEffect(() => {
+    if (!headteacherFile) {
+      setHeadteacherPreview("");
+      return undefined;
+    }
+    const objectUrl = URL.createObjectURL(headteacherFile);
+    setHeadteacherPreview(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [headteacherFile]);
 
   useEffect(() => {
     if (!authThemeNotice) return undefined;
@@ -1133,6 +1151,18 @@ export default function VineGuardianAnalytics() {
     setSiteContactHeroFile(normalized);
   };
 
+  const handleHeadteacherPick = async (event) => {
+    const file = event.target.files?.[0] || null;
+    event.target.value = "";
+    if (!file) {
+      setHeadteacherFile(null);
+      return;
+    }
+    const normalized = await normalizeVisualFile(file, "Headteacher portrait");
+    if (!normalized) return;
+    setHeadteacherFile(normalized);
+  };
+
   const handleSiteSlidesPick = async (event) => {
     const files = Array.from(event.target.files || []);
     event.target.value = "";
@@ -1235,6 +1265,7 @@ export default function VineGuardianAnalytics() {
       let nextActivitiesGallery = [...(siteVisualForm.activities_gallery || [])];
       let nextActivitiesLatestBatch = [...(siteVisualForm.activities_latest_batch || [])];
       let nextActivitiesLatestDay = siteVisualForm.activities_latest_day || null;
+      let nextHomepageContent = normalizeHomepageContent(siteVisualForm.homepage_content);
 
       if (siteHeroFile) {
         const formData = new FormData();
@@ -1306,6 +1337,30 @@ export default function VineGuardianAnalytics() {
           return;
         }
         nextContactHeroUrl = String(uploadBody?.url || nextContactHeroUrl || "").trim();
+      }
+
+      if (headteacherFile) {
+        const formData = new FormData();
+        formData.append("headteacher", headteacherFile);
+        const uploadRes = await fetch(`${API}/api/vine/site-visuals/headteacher-image`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          body: formData,
+        });
+        const uploadBody = await uploadRes.json().catch(() => ({}));
+        if (!uploadRes.ok) {
+          showSiteVisualNotice("homepage-content", "error", uploadBody?.message || "Failed to upload the headteacher image.");
+          return;
+        }
+        nextHomepageContent = {
+          ...nextHomepageContent,
+          headteacher: {
+            ...nextHomepageContent.headteacher,
+            image_url: String(uploadBody?.url || "").trim(),
+          },
+        };
       }
 
       if (siteSlideFiles.length) {
@@ -1386,6 +1441,7 @@ export default function VineGuardianAnalytics() {
           activities_gallery: nextActivitiesGallery,
           activities_latest_batch: nextActivitiesLatestBatch,
           activities_latest_day: nextActivitiesLatestDay,
+          homepage_content: nextHomepageContent,
         }),
       });
       const body = await res.json().catch(() => ({}));
@@ -1400,6 +1456,7 @@ export default function VineGuardianAnalytics() {
       setSiteBoardingFile(null);
       setSiteActivitiesBannerFile(null);
       setSiteContactHeroFile(null);
+      setHeadteacherFile(null);
       setSiteSlideFiles([]);
       setSiteActivitiesGalleryFiles([]);
       setDraggedActivityIndex(null);
@@ -1410,6 +1467,7 @@ export default function VineGuardianAnalytics() {
         "activities-gallery": "Activities banner and gallery are now live.",
         "ark-slides": "ARK auth slideshow published successfully.",
         "contact-hero": "Contact hero is now live.",
+        "homepage-content": "Homepage sections and leadership message are now live.",
       };
       showSiteVisualNotice(target, "success", successMessageByTarget[target] || "Visuals published successfully.");
     } catch {
@@ -1534,6 +1592,12 @@ export default function VineGuardianAnalytics() {
     siteContactHeroPreview ||
     withCacheBust(
       siteVisualForm.contact_hero_url || DEFAULT_SITE_VISUAL_FORM.contact_hero_url,
+      siteVisualSettings?.updated_at
+    );
+  const headteacherPreviewUrl =
+    headteacherPreview ||
+    withCacheBust(
+      siteVisualForm.homepage_content?.headteacher?.image_url || "",
       siteVisualSettings?.updated_at
     );
   const recentLogins = activity?.recent_logins || EMPTY_ANALYTICS_ROWS;
@@ -2104,6 +2168,35 @@ export default function VineGuardianAnalytics() {
             Turn this off when you do not want learners creating new communities from the Communities page.
           </p>
         </div>
+        <HomepageContentEditor
+          content={siteVisualForm.homepage_content}
+          imageFile={headteacherFile}
+          imagePreviewUrl={headteacherPreviewUrl}
+          saving={siteVisualSaving && siteVisualSavingTarget === "homepage-content"}
+          disabled={siteVisualSaving}
+          onChange={(homepageContent) => {
+            setSiteVisualForm((previous) => ({
+              ...previous,
+              homepage_content: homepageContent,
+            }));
+          }}
+          onImagePick={handleHeadteacherPick}
+          onClearImage={() => setHeadteacherFile(null)}
+          onRemovePublishedImage={() => {
+            setHeadteacherFile(null);
+            setSiteVisualForm((previous) => ({
+              ...previous,
+              homepage_content: {
+                ...previous.homepage_content,
+                headteacher: {
+                  ...previous.homepage_content.headteacher,
+                  image_url: "",
+                },
+              },
+            }));
+          }}
+          onSave={() => saveSiteVisuals("homepage-content")}
+        />
         <div className="guardian-site-visual-layout">
           <div className="guardian-site-visual-stack">
             <div className="guardian-news-card guardian-auth-theme-card">

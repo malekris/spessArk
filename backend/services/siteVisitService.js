@@ -24,6 +24,19 @@ export function getKampalaDate(now = new Date()) {
   return `${values.year}-${values.month}-${values.day}`;
 }
 
+export function getKampalaMonthBounds(now = new Date()) {
+  const today = getKampalaDate(now);
+  const [year, month] = today.split("-").map(Number);
+  const nextYear = month === 12 ? year + 1 : year;
+  const nextMonth = month === 12 ? 1 : month + 1;
+
+  return {
+    today,
+    monthStart: `${year}-${String(month).padStart(2, "0")}-01`,
+    nextMonthStart: `${nextYear}-${String(nextMonth).padStart(2, "0")}-01`,
+  };
+}
+
 export function ensureSiteVisitSchemaReady(pool) {
   if (!schemaReadyByPool.has(pool)) {
     const ready = pool.query(`
@@ -49,30 +62,69 @@ export function ensureSiteVisitSchemaReady(pool) {
 
 export async function readSiteVisitStats(pool, now = new Date()) {
   await ensureSiteVisitSchemaReady(pool);
-  const today = getKampalaDate(now);
+  const { today, monthStart, nextMonthStart } = getKampalaMonthBounds(now);
   const [[row = {}]] = await pool.query(
     `SELECT
        COUNT(*) AS total,
        COALESCE(SUM(CASE WHEN visit_date = ? THEN 1 ELSE 0 END), 0) AS today,
+       COUNT(DISTINCT CASE
+         WHEN visit_date >= ? AND visit_date < ? THEN visitor_hash
+       END) AS month_total,
        COALESCE(SUM(visited_home), 0) AS home_total,
        COALESCE(SUM(CASE WHEN visit_date = ? THEN visited_home ELSE 0 END), 0) AS home_today,
+       COUNT(DISTINCT CASE
+         WHEN visit_date >= ? AND visit_date < ? AND visited_home = 1 THEN visitor_hash
+       END) AS home_month,
        COALESCE(SUM(visited_ark), 0) AS ark_total,
        COALESCE(SUM(CASE WHEN visit_date = ? THEN visited_ark ELSE 0 END), 0) AS ark_today,
+       COUNT(DISTINCT CASE
+         WHEN visit_date >= ? AND visit_date < ? AND visited_ark = 1 THEN visitor_hash
+       END) AS ark_month,
        COALESCE(SUM(visited_vine), 0) AS vine_total,
-       COALESCE(SUM(CASE WHEN visit_date = ? THEN visited_vine ELSE 0 END), 0) AS vine_today
+       COALESCE(SUM(CASE WHEN visit_date = ? THEN visited_vine ELSE 0 END), 0) AS vine_today,
+       COUNT(DISTINCT CASE
+         WHEN visit_date >= ? AND visit_date < ? AND visited_vine = 1 THEN visitor_hash
+       END) AS vine_month
      FROM site_daily_visitors`,
-    [today, today, today, today]
+    [
+      today,
+      monthStart,
+      nextMonthStart,
+      today,
+      monthStart,
+      nextMonthStart,
+      today,
+      monthStart,
+      nextMonthStart,
+      today,
+      monthStart,
+      nextMonthStart,
+    ]
   );
 
   return {
     total: Number(row.total) || 0,
     today: Number(row.today) || 0,
+    month: Number(row.month_total) || 0,
     surfaces: {
-      home: { total: Number(row.home_total) || 0, today: Number(row.home_today) || 0 },
-      ark: { total: Number(row.ark_total) || 0, today: Number(row.ark_today) || 0 },
-      vine: { total: Number(row.vine_total) || 0, today: Number(row.vine_today) || 0 },
+      home: {
+        total: Number(row.home_total) || 0,
+        today: Number(row.home_today) || 0,
+        month: Number(row.home_month) || 0,
+      },
+      ark: {
+        total: Number(row.ark_total) || 0,
+        today: Number(row.ark_today) || 0,
+        month: Number(row.ark_month) || 0,
+      },
+      vine: {
+        total: Number(row.vine_total) || 0,
+        today: Number(row.vine_today) || 0,
+        month: Number(row.vine_month) || 0,
+      },
     },
     date: today,
+    monthStart,
   };
 }
 

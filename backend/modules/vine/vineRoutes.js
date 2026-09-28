@@ -274,6 +274,69 @@ const VINE_SITE_VISUAL_DEFAULT_ACTIVITIES_GALLERY = [
   ...Array.from({ length: 20 }, (_, index) => `/image${index + 1}.jpg`),
 ];
 const VINE_SITE_VISUAL_DEFAULT_ACTIVITIES_LATEST_BATCH = VINE_SITE_VISUAL_DEFAULT_ACTIVITIES_GALLERY.slice(0, 6);
+const VINE_SITE_VISUAL_DEFAULT_HOMEPAGE_CONTENT = {
+  why_spess: {
+    eyebrow: "Why choose SPESS?",
+    title: "A grounded education for a changing world.",
+    intro: "Learners grow through strong academics, purposeful discipline, faith, and a connected school community.",
+    cards: [
+      { title: "Whole-learner growth", body: "Academic ambition, character, confidence, and service are developed together." },
+      { title: "Accessible excellence", body: "A government USE school committed to quality O-Level and A-Level education." },
+      { title: "Faith in action", body: "Church of Uganda values shape a caring culture of responsibility and purpose." },
+      { title: "Connected community", body: "Families, teachers, and learners stay informed through our digital school platforms." },
+    ],
+  },
+  academic_pathways: {
+    eyebrow: "Academic pathways",
+    title: "A clear journey from foundation to future.",
+    intro: "Our learning pathways support students as they build knowledge, discover strengths, and prepare for their next step.",
+    items: [
+      {
+        label: "O-Level",
+        title: "Build a strong foundation",
+        body: "A broad secondary education that strengthens core knowledge, study habits, practical skills, and personal responsibility.",
+        highlights: ["Government USE access", "Broad subject foundation", "Guided learner development"],
+      },
+      {
+        label: "A-Level",
+        title: "Prepare with direction",
+        body: "Focused advanced study that helps learners deepen subject mastery and prepare for university, training, and service.",
+        highlights: ["Focused subject combinations", "Higher-study preparation", "Leadership and responsibility"],
+      },
+    ],
+  },
+  digital_platforms: {
+    eyebrow: "Digital campus",
+    title: "School life, learning, and progress—connected.",
+    intro: "Our digital platforms make essential school services easier to reach for learners, teachers, and families.",
+    items: [
+      { key: "ark", title: "SPESS ARK", body: "Academic workflows, teacher tools, marks, and school administration in one place.", cta: "Open ARK", href: "/ark" },
+      { key: "vine", title: "SPESS Vine", body: "A school community space for communication, learning, news, and participation.", cta: "Enter Vine", href: "/vine/enter" },
+      { key: "reports", title: "SPESS Reports", body: "Secure access for families to view learner progress and released school reports.", cta: "View reports", href: "/reports" },
+    ],
+  },
+  headteacher: {
+    eyebrow: "A word from school leadership",
+    title: "Welcome to St. Phillip’s.",
+    name: "The Headteacher",
+    role: "Headteacher",
+    message: "We believe every learner deserves an education that calls out their ability, strengthens their character, and prepares them to serve with confidence. At St. Phillip’s, academic growth and faith move together in a community where every learner is known and encouraged.",
+    image_url: "",
+  },
+  faqs: [
+    { question: "Which academic levels does St. Phillip’s offer?", answer: "The school offers both O-Level and A-Level secondary education." },
+    { question: "Is St. Phillip’s a government USE school?", answer: "Yes. St. Phillip’s is a government USE school committed to accessible, quality education." },
+    { question: "How can families access learner reports?", answer: "Use SPESS Reports from the homepage. Families can sign in through the secure reports portal when reports are released." },
+    { question: "Where can I find current school dates and updates?", answer: "The School Updates section on this homepage shows published news and important dates from the current academic calendar." },
+    { question: "How can I contact or visit the school?", answer: "Use the contact section below for the school’s communication channels and campus map." },
+  ],
+  quick_actions: [
+    { key: "ark", label: "ARK", href: "/ark" },
+    { key: "vine", label: "Vine", href: "/vine/enter" },
+    { key: "reports", label: "Reports", href: "/reports" },
+    { key: "contact", label: "Contact", href: "#contact" },
+  ],
+};
 const VINE_AUTH_THEME_EFFECT_OPTIONS = new Set([
   "clean",
   "cinematic",
@@ -3415,6 +3478,100 @@ const normalizeSiteVisualDateStamp = (value) => {
   return Number.isNaN(parsed.getTime()) ? null : getSiteVisualsDateStamp(parsed);
 };
 
+const cleanHomepageText = (value, fallback = "", maxLength = 500) =>
+  String(value ?? fallback).trim().slice(0, maxLength) || String(fallback || "").trim();
+
+const normalizeHomepageContent = (rawValue = {}) => {
+  let value = rawValue;
+  if (typeof value === "string") {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      value = {};
+    }
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) value = {};
+
+  const defaults = VINE_SITE_VISUAL_DEFAULT_HOMEPAGE_CONTENT;
+  const whySource = value.why_spess && typeof value.why_spess === "object" ? value.why_spess : {};
+  const whyCards = Array.isArray(whySource.cards) ? whySource.cards : [];
+  const pathwaySource = value.academic_pathways && typeof value.academic_pathways === "object"
+    ? value.academic_pathways
+    : {};
+  const pathwayItems = Array.isArray(pathwaySource.items) ? pathwaySource.items : [];
+  const platformSource = value.digital_platforms && typeof value.digital_platforms === "object"
+    ? value.digital_platforms
+    : {};
+  const platformItems = Array.isArray(platformSource.items) ? platformSource.items : [];
+  const headteacherSource = value.headteacher && typeof value.headteacher === "object"
+    ? value.headteacher
+    : {};
+
+  const faqs = (Array.isArray(value.faqs) ? value.faqs : defaults.faqs)
+    .slice(0, 8)
+    .map((item, index) => ({
+      question: cleanHomepageText(item?.question, defaults.faqs[index]?.question || "Question", 180),
+      answer: cleanHomepageText(item?.answer, defaults.faqs[index]?.answer || "Answer coming soon.", 800),
+    }))
+    .filter((item) => item.question && item.answer);
+
+  return {
+    why_spess: {
+      eyebrow: cleanHomepageText(whySource.eyebrow, defaults.why_spess.eyebrow, 80),
+      title: cleanHomepageText(whySource.title, defaults.why_spess.title, 180),
+      intro: cleanHomepageText(whySource.intro, defaults.why_spess.intro, 500),
+      cards: defaults.why_spess.cards.map((fallback, index) => ({
+        title: cleanHomepageText(whyCards[index]?.title, fallback.title, 100),
+        body: cleanHomepageText(whyCards[index]?.body, fallback.body, 400),
+      })),
+    },
+    academic_pathways: {
+      eyebrow: cleanHomepageText(pathwaySource.eyebrow, defaults.academic_pathways.eyebrow, 80),
+      title: cleanHomepageText(pathwaySource.title, defaults.academic_pathways.title, 180),
+      intro: cleanHomepageText(pathwaySource.intro, defaults.academic_pathways.intro, 500),
+      items: defaults.academic_pathways.items.map((fallback, index) => {
+        const item = pathwayItems[index] || {};
+        const highlights = (Array.isArray(item.highlights) ? item.highlights : fallback.highlights)
+          .map((entry) => cleanHomepageText(entry, "", 100))
+          .filter(Boolean)
+          .slice(0, 5);
+        return {
+          label: cleanHomepageText(item.label, fallback.label, 60),
+          title: cleanHomepageText(item.title, fallback.title, 140),
+          body: cleanHomepageText(item.body, fallback.body, 600),
+          highlights: highlights.length ? highlights : fallback.highlights,
+        };
+      }),
+    },
+    digital_platforms: {
+      eyebrow: cleanHomepageText(platformSource.eyebrow, defaults.digital_platforms.eyebrow, 80),
+      title: cleanHomepageText(platformSource.title, defaults.digital_platforms.title, 180),
+      intro: cleanHomepageText(platformSource.intro, defaults.digital_platforms.intro, 500),
+      items: defaults.digital_platforms.items.map((fallback, index) => ({
+        key: fallback.key,
+        title: cleanHomepageText(platformItems[index]?.title, fallback.title, 100),
+        body: cleanHomepageText(platformItems[index]?.body, fallback.body, 500),
+        cta: cleanHomepageText(platformItems[index]?.cta, fallback.cta, 50),
+        href: fallback.href,
+      })),
+    },
+    headteacher: {
+      eyebrow: cleanHomepageText(headteacherSource.eyebrow, defaults.headteacher.eyebrow, 100),
+      title: cleanHomepageText(headteacherSource.title, defaults.headteacher.title, 180),
+      name: cleanHomepageText(headteacherSource.name, defaults.headteacher.name, 120),
+      role: cleanHomepageText(headteacherSource.role, defaults.headteacher.role, 120),
+      message: cleanHomepageText(headteacherSource.message, defaults.headteacher.message, 1500),
+      image_url: String(headteacherSource.image_url || "").trim().slice(0, 1000),
+    },
+    faqs: faqs.length ? faqs : defaults.faqs,
+    quick_actions: defaults.quick_actions.map((fallback, index) => ({
+      key: fallback.key,
+      label: cleanHomepageText(value.quick_actions?.[index]?.label, fallback.label, 30),
+      href: fallback.href,
+    })),
+  };
+};
+
 const normalizeSiteVisualSettings = (value = {}) => {
   const homeHeroUrl = String(
     value.home_hero_url || VINE_SITE_VISUAL_DEFAULT_HOME_HERO_URL || ""
@@ -3510,6 +3667,7 @@ const normalizeSiteVisualSettings = (value = {}) => {
     spess_news_posted_on: spessNewsPostedOn,
     spess_news_image_url: String(value.spess_news_image_url || "").trim(),
     spess_news_published: spessNewsPublished,
+    homepage_content: normalizeHomepageContent(value.homepage_content),
     updated_by: value.updated_by ? Number(value.updated_by) : null,
     updated_at: value.updated_at || null,
   };
@@ -3536,6 +3694,7 @@ const ensureSiteVisualSettingsSchema = async () => {
       spess_news_posted_on DATE NULL,
       spess_news_image_url VARCHAR(1000) NULL,
       spess_news_published TINYINT NOT NULL DEFAULT 0,
+      homepage_content_json LONGTEXT NULL,
       updated_by INT NULL,
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
@@ -3592,6 +3751,7 @@ const ensureSiteVisualSettingsSchema = async () => {
     "spess_news_published",
     "TINYINT NOT NULL DEFAULT 0"
   );
+  await ensureColumnExists(dbName, "vine_site_visual_settings", "homepage_content_json", "LONGTEXT NULL");
   siteVisualSettingsSchemaReady = true;
 };
 
@@ -3612,6 +3772,7 @@ const getCurrentSiteVisualSettings = async ({ force = false } = {}) => {
            activities_latest_batch_json AS activities_latest_batch, activities_latest_day,
            create_community_enabled, spess_news_heading, spess_news_body,
            spess_news_posted_on, spess_news_image_url, spess_news_published,
+           homepage_content_json AS homepage_content,
            updated_by, updated_at
     FROM vine_site_visual_settings
     WHERE id = 1
@@ -3644,6 +3805,7 @@ const saveSiteVisualSettings = async (payload = {}, updatedBy = null) => {
     spess_news_posted_on: payload.spess_news_posted_on === undefined ? current.spess_news_posted_on : payload.spess_news_posted_on,
     spess_news_image_url: payload.spess_news_image_url === undefined ? current.spess_news_image_url : payload.spess_news_image_url,
     spess_news_published: payload.spess_news_published === undefined ? current.spess_news_published : payload.spess_news_published,
+    homepage_content: payload.homepage_content === undefined ? current.homepage_content : payload.homepage_content,
   });
 
   await db.query(
@@ -3653,9 +3815,9 @@ const saveSiteVisualSettings = async (payload = {}, updatedBy = null) => {
        contact_hero_url, activities_gallery_json, activities_latest_batch_json,
        activities_latest_day, create_community_enabled, spess_news_heading,
        spess_news_body, spess_news_posted_on, spess_news_image_url,
-       spess_news_published, updated_by, updated_at)
+       spess_news_published, homepage_content_json, updated_by, updated_at)
     VALUES
-      (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+      (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
     ON DUPLICATE KEY UPDATE
       home_hero_url = VALUES(home_hero_url),
       boarding_login_url = VALUES(boarding_login_url),
@@ -3671,6 +3833,7 @@ const saveSiteVisualSettings = async (payload = {}, updatedBy = null) => {
       spess_news_posted_on = VALUES(spess_news_posted_on),
       spess_news_image_url = VALUES(spess_news_image_url),
       spess_news_published = VALUES(spess_news_published),
+      homepage_content_json = VALUES(homepage_content_json),
       updated_by = VALUES(updated_by),
       updated_at = NOW()
     `,
@@ -3689,6 +3852,7 @@ const saveSiteVisualSettings = async (payload = {}, updatedBy = null) => {
       merged.spess_news_posted_on || null,
       merged.spess_news_image_url || null,
       merged.spess_news_published ? 1 : 0,
+      JSON.stringify(merged.homepage_content),
       updatedBy ? Number(updatedBy) : null,
     ]
   );
@@ -3700,6 +3864,7 @@ const saveSiteVisualSettings = async (payload = {}, updatedBy = null) => {
            activities_latest_batch_json AS activities_latest_batch, activities_latest_day,
            create_community_enabled, spess_news_heading, spess_news_body,
            spess_news_posted_on, spess_news_image_url, spess_news_published,
+           homepage_content_json AS homepage_content,
            updated_by, updated_at
     FROM vine_site_visual_settings
     WHERE id = 1
@@ -6158,6 +6323,15 @@ const buildSpessNewsImageBuffer = async (buffer) => {
   return { buffer: out, mimetype: "image/jpeg" };
 };
 
+const buildHeadteacherPortraitBuffer = async (buffer) => {
+  const out = await sharp(buffer)
+    .rotate()
+    .resize(1000, 1200, { fit: "cover", position: sharp.strategy.attention })
+    .jpeg({ quality: 88, mozjpeg: true })
+    .toBuffer();
+  return { buffer: out, mimetype: "image/jpeg" };
+};
+
 const buildSiteAuthSlideBuffer = async (buffer) => {
   const out = await sharp(buffer)
     .rotate()
@@ -8286,6 +8460,39 @@ router.post(
 );
 
 router.post(
+  "/site-visuals/headteacher-image",
+  managedVisualNoCache,
+  authenticate,
+  requireR2Storage,
+  uploadBannerMemory.single("headteacher"),
+  async (req, res) => {
+    try {
+      const user = req.user || {};
+      if (!isModeratorAccount(user)) {
+        return res.status(403).json({ message: "Only moderators can upload the headteacher portrait." });
+      }
+      if (!req.file) {
+        return res.status(400).json({ message: "Please choose a headteacher image." });
+      }
+
+      const normalized = await normalizeImageBuffer(req.file);
+      const prepared = await buildHeadteacherPortraitBuffer(normalized.buffer);
+      const upload = await uploadBufferToR2(prepared.buffer, {
+        folder: "vine/site-visuals",
+        public_id: `headteacher-${Date.now()}-${crypto.randomUUID()}`,
+        resource_type: "image",
+        format: "jpg",
+      });
+
+      res.json({ success: true, url: upload.secure_url || upload.url });
+    } catch (err) {
+      console.error("Headteacher portrait upload error:", err);
+      res.status(500).json({ message: "Failed to upload the headteacher image" });
+    }
+  }
+);
+
+router.post(
   "/site-visuals/boarding-login",
   managedVisualNoCache,
   authenticate,
@@ -8576,6 +8783,10 @@ router.put("/site-visuals/settings", managedVisualNoCache, authenticate, async (
       req.body?.create_community_enabled === undefined
         ? current.create_community_enabled
         : Number(req.body?.create_community_enabled) === 1 || req.body?.create_community_enabled === true;
+    const nextHomepageContent =
+      req.body?.homepage_content === undefined
+        ? current.homepage_content
+        : req.body.homepage_content;
     const settings = await saveSiteVisualSettings(
       {
         home_hero_url:
@@ -8599,6 +8810,7 @@ router.put("/site-visuals/settings", managedVisualNoCache, authenticate, async (
         activities_latest_batch: nextActivitiesLatestBatch,
         activities_latest_day: nextActivitiesLatestDay,
         create_community_enabled: nextCreateCommunityEnabled,
+        homepage_content: nextHomepageContent,
       },
       user.id || null
     );
@@ -8620,6 +8832,10 @@ router.put("/site-visuals/settings", managedVisualNoCache, authenticate, async (
           ...(current.contact_hero_url &&
           current.contact_hero_url !== settings.contact_hero_url
             ? [current.contact_hero_url]
+            : []),
+          ...(current.homepage_content?.headteacher?.image_url &&
+          current.homepage_content.headteacher.image_url !== settings.homepage_content?.headteacher?.image_url
+            ? [current.homepage_content.headteacher.image_url]
             : []),
           ...current.ark_auth_slides.filter((url) => !settings.ark_auth_slides.includes(url)),
           ...current.activities_gallery.filter((url) => !settings.activities_gallery.includes(url)),

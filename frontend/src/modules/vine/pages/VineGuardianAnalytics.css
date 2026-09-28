@@ -2595,6 +2595,251 @@ button.guardian-row:hover {
   border-radius: 12px;
 }
 
+.guardian-homepage-editor {
+  margin: 18px 0;
+  overflow: hidden;
+  border: 1px solid #cfe1d8;
+  border-radius: 18px;
+  background: #ffffff;
+  box-shadow: 0 18px 44px rgba(21, 47, 37, 0.08);
+}
+
+.guardian-homepage-editor > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px;
+  cursor: pointer;
+  list-style: none;
+  color: #f0fdf4;
+  background: linear-gradient(135deg, #052e16, #047857);
+}
+
+.guardian-homepage-editor > summary::-webkit-details-marker {
+  display: none;
+}
+
+.guardian-homepage-editor > summary > span:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.guardian-homepage-editor > summary strong {
+  font-size: 1rem;
+  letter-spacing: 0.01em;
+}
+
+.guardian-homepage-editor > summary small {
+  color: #bbf7d0;
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.guardian-home-editor-toggle {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 50%;
+  font-size: 1.35rem;
+  line-height: 1;
+  transition: transform 0.2s ease;
+}
+
+.guardian-homepage-editor[open] .guardian-home-editor-toggle {
+  transform: rotate(45deg);
+}
+
+.guardian-home-editor-body {
+  display: grid;
+}
+
+.guardian-home-editor-section {
+  display: grid;
+  gap: 16px;
+  padding: 22px;
+  border-bottom: 1px solid #e1ebe6;
+}
+
+.guardian-home-editor-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+}
+
+.guardian-home-editor-heading > span {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  place-items: center;
+  border-radius: 8px;
+  background: #dcfce7;
+  color: #047857;
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.guardian-home-editor-heading > div {
+  display: grid;
+  gap: 3px;
+}
+
+.guardian-home-editor-heading strong {
+  color: #123f30;
+  font-size: 0.94rem;
+}
+
+.guardian-home-editor-heading small {
+  color: #6a7f76;
+  font-size: 0.76rem;
+}
+
+.guardian-home-editor-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.guardian-home-editor-grid--two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.guardian-home-editor-grid--three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.guardian-home-editor-grid--four {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.guardian-home-field {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-width: 0;
+  color: #3d5e52;
+  font-size: 0.74rem;
+  font-weight: 850;
+}
+
+.guardian-home-field input,
+.guardian-home-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #cbded5;
+  border-radius: 9px;
+  background: #fbfdfc;
+  color: #153c2e;
+  padding: 10px 11px;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 650;
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.guardian-home-field textarea {
+  min-height: 104px;
+}
+
+.guardian-home-field input:focus,
+.guardian-home-field textarea:focus {
+  border-color: #34a77d;
+  background: #ffffff;
+  outline: 3px solid rgba(52, 167, 125, 0.13);
+}
+
+.guardian-home-card-editor-grid,
+.guardian-home-faq-editor-list {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.guardian-home-card-editor-grid--two,
+.guardian-home-faq-editor-list {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.guardian-home-mini-card,
+.guardian-home-faq-editor {
+  display: grid;
+  align-content: start;
+  gap: 11px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid #dce8e2;
+  border-radius: 12px;
+  background: #f6faf8;
+}
+
+.guardian-home-mini-card > span,
+.guardian-home-faq-editor > span {
+  color: #07805f;
+  font-size: 0.68rem;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.guardian-home-leadership-layout {
+  display: grid;
+  grid-template-columns: minmax(210px, 0.32fr) minmax(0, 1fr);
+  gap: 18px;
+}
+
+.guardian-home-portrait-editor {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+}
+
+.guardian-home-portrait-preview {
+  display: grid;
+  width: 100%;
+  aspect-ratio: 5 / 6;
+  place-items: center;
+  overflow: hidden;
+  border: 1px dashed #9fc8b6;
+  border-radius: 13px;
+  background: linear-gradient(145deg, #edf8f3, #dff2e9);
+  color: #648075;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.guardian-home-portrait-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.guardian-home-inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.guardian-home-editor-publish {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px 22px;
+  background: #f0f8f4;
+}
+
+.guardian-home-editor-publish p {
+  max-width: 680px;
+  margin: 0;
+  color: #526a60;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
 .guardian-analytics-page button:focus-visible,
 .guardian-analytics-page a:focus-visible,
 .guardian-analytics-page input:focus-visible,
@@ -2612,6 +2857,15 @@ button.guardian-row:hover {
   .guardian-activity-split {
     grid-template-columns: 1fr;
   }
+
+  .guardian-home-editor-grid--three,
+  .guardian-home-card-editor-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .guardian-home-editor-grid--four {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 768px) {
@@ -2622,6 +2876,36 @@ button.guardian-row:hover {
 
   .guardian-analytics-page [id] {
     scroll-margin-top: 126px;
+  }
+
+  .guardian-homepage-editor {
+    margin: 14px;
+    border-radius: 14px;
+  }
+
+  .guardian-homepage-editor > summary,
+  .guardian-home-editor-section,
+  .guardian-home-editor-publish {
+    padding: 16px;
+  }
+
+  .guardian-home-editor-grid--two,
+  .guardian-home-editor-grid--three,
+  .guardian-home-editor-grid--four,
+  .guardian-home-card-editor-grid,
+  .guardian-home-card-editor-grid--two,
+  .guardian-home-faq-editor-list,
+  .guardian-home-leadership-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .guardian-home-portrait-editor {
+    max-width: 320px;
+  }
+
+  .guardian-home-editor-publish {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .guardian-topbar {

@@ -3,5 +3,7 @@
 backend/node_modules/
 frontend/node_modules/
 .vscode/
+# Local backend configuration may contain credentials.
 backend/.env
-backend/.env.local
+backend/.env.*
+!backend/.env.example

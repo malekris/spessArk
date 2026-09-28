@@ -32,7 +32,7 @@
 
 .visitor-stats-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   margin: 0;
   border: 1px solid #314355;
   border-radius: 8px;
@@ -54,6 +54,10 @@
   background: #18281f;
 }
 
+.visitor-stats-grid .visitor-stat-monthly {
+  background: #192735;
+}
+
 .visitor-stats-grid dt {
   color: #91a3b5;
   font-size: 0.68rem;
@@ -69,7 +73,8 @@
   line-height: 1;
 }
 
-.visitor-stat-primary dd {
+.visitor-stat-primary dd,
+.visitor-stat-monthly dd {
   color: #f0ce78;
 }
 

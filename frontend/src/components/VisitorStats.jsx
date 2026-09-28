@@ -6,10 +6,11 @@ import "./VisitorStats.css";
 const EMPTY_STATS = {
   total: 0,
   today: 0,
+  month: 0,
   surfaces: {
-    home: { total: 0 },
-    ark: { total: 0 },
-    vine: { total: 0 },
+    home: { total: 0, today: 0, month: 0 },
+    ark: { total: 0, today: 0, month: 0 },
+    vine: { total: 0, today: 0, month: 0 },
   },
 };
 
@@ -46,7 +47,7 @@ export default function VisitorStats() {
       <div className="visitor-stats-heading">
         <span>Our digital reach</span>
         <h2 id="visitor-stats-title">Daily visitors</h2>
-        <p>Unique daily reach across the school website and learning platforms.</p>
+        <p>Unique daily and monthly reach across the school website and learning platforms.</p>
       </div>
 
       {available ? (
@@ -54,6 +55,10 @@ export default function VisitorStats() {
           <div className="visitor-stat-primary">
             <dt>Visitors today</dt>
             <dd>{formatCount(stats.today)}</dd>
+          </div>
+          <div className="visitor-stat-monthly">
+            <dt>Visitors this month</dt>
+            <dd>{formatCount(stats.month)}</dd>
           </div>
           <div>
             <dt>Website today</dt>

@@ -30,6 +30,7 @@ export default function Navbar() {
 
       <div className={`site-nav-links ${menuOpen ? "open" : ""}`}>
         <a href="#home" onClick={closeMenu}>Home</a>
+        <a href="#academics" onClick={closeMenu}>Academics</a>
         <a href="#updates" onClick={closeMenu}>Updates</a>
         <a href="#activities" onClick={closeMenu}>Activities</a>
         <a href="#contact" onClick={closeMenu}>Contact</a>

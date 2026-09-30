@@ -1958,6 +1958,65 @@ body:has(.vine-feed-container) {
     0 16px 28px rgba(16, 185, 129, 0.1);
 }
 
+/* Keep people useful at a glance without letting each profile dominate the rail. */
+.vine-desktop-dm-profile {
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  gap: 9px;
+  min-height: 52px;
+  padding: 7px 8px;
+  border-radius: 16px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.86),
+    0 7px 16px rgba(5, 46, 22, 0.045);
+}
+
+.vine-desktop-dm-profile:hover {
+  transform: translateY(-1px) translateX(1px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    0 10px 20px rgba(6, 95, 70, 0.09);
+}
+
+.vine-desktop-dm-profile .vine-desktop-dm-avatar-wrap,
+.vine-desktop-dm-person.vine-desktop-dm-profile img {
+  width: 36px;
+  height: 36px;
+}
+
+.vine-desktop-dm-person.vine-desktop-dm-profile img {
+  border-radius: 13px;
+}
+
+.vine-desktop-dm-profile .vine-desktop-dm-person-meta {
+  gap: 1px;
+}
+
+.vine-desktop-dm-profile .vine-desktop-dm-person-meta strong {
+  font-size: 0.84rem;
+  line-height: 1.15;
+}
+
+.vine-desktop-dm-profile .vine-desktop-dm-person-meta span {
+  font-size: 0.69rem;
+  line-height: 1.2;
+}
+
+.vine-desktop-dm-profile .vine-desktop-dm-presence-dot {
+  right: -1px;
+  bottom: -1px;
+  width: 10px;
+  height: 10px;
+}
+
+.vine-desktop-dm-profile .vine-desktop-dm-person-status {
+  grid-column: auto;
+  justify-self: end;
+  padding: 3px 7px;
+  font-size: 0.62rem;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
 .vine-desktop-dm-person.vine-desktop-dm-group {
   border-color: rgba(217, 119, 6, 0.2);
   background:

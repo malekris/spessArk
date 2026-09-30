@@ -2487,7 +2487,7 @@ export default function VineFeed() {
                       <button
                         key={`desktop-active-${user.id}`}
                         type="button"
-                        className="vine-desktop-dm-person presence-online"
+                        className="vine-desktop-dm-person vine-desktop-dm-profile presence-online"
                         onClick={() => openDesktopDmWindow(user)}
                       >
                         <div className="vine-desktop-dm-avatar-wrap">
@@ -2531,7 +2531,7 @@ export default function VineFeed() {
                       <button
                         key={`desktop-recent-${user.id}`}
                         type="button"
-                        className={`vine-desktop-dm-person presence-${presenceTone}`}
+                        className={`vine-desktop-dm-person vine-desktop-dm-profile presence-${presenceTone}`}
                         onClick={() => openDesktopDmWindow(user)}
                       >
                         <div className="vine-desktop-dm-avatar-wrap">

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { socket } from "../../../socket";
 import VineEClass from "../components/VineEClass";
@@ -1608,11 +1609,31 @@ export default function VineCommunities() {
       setSubmissionDrafts((prev) => ({ ...prev, [assignmentId]: "" }));
       setSavedDraftsMap((prev) => ({ ...prev, [assignmentId]: "" }));
       setSubmissionFiles((prev) => ({ ...prev, [assignmentId]: [] }));
-      await loadCommunityDetail(activeCommunity.slug, topicFilter);
       showCommunitySuccessModal(
-        "Assignment submitted",
-        "Your work is now safely in and ready for the class owner to review."
+        isPractical ? "Practical files uploaded" : "Assignment submitted",
+        isPractical
+          ? "Your files were uploaded successfully and are ready for the class owner to review."
+          : "Your work is now safely in and ready for the class owner to review.",
+        isPractical
+          ? {
+              details: [
+                {
+                  label: "Files received",
+                  value: `${files.length} file${files.length === 1 ? "" : "s"}`,
+                },
+                {
+                  label: "Upload",
+                  value: files.map((file) => file.name).filter(Boolean).join(", "),
+                },
+              ],
+            }
+          : undefined
       );
+      try {
+        await loadCommunityDetail(activeCommunity.slug, topicFilter);
+      } catch (refreshError) {
+        console.error("Refresh assignments after submission failed:", refreshError);
+      }
     } catch {
       alert("Failed to submit assignment");
     }
@@ -3560,7 +3581,7 @@ export default function VineCommunities() {
                   {sessionCreateNotice}
                 </div>
               ) : null}
-              {assignmentDeleteTarget ? (
+              {assignmentDeleteTarget ? createPortal((
                 <div className="community-confirm-backdrop" role="presentation">
                   <div
                     className="community-confirm-modal"
@@ -3593,14 +3614,19 @@ export default function VineCommunities() {
                     </div>
                   </div>
                 </div>
-              ) : null}
-              {communitySuccessModal ? (
-                <div className="community-confirm-backdrop" role="presentation">
+              ), document.body) : null}
+              {communitySuccessModal ? createPortal((
+                <div
+                  className="community-confirm-backdrop"
+                  role="presentation"
+                  onClick={() => setCommunitySuccessModal(null)}
+                >
                   <div
                     className="community-confirm-modal community-confirm-modal-success"
                     role="dialog"
                     aria-modal="true"
                     aria-labelledby="community-success-title"
+                    onClick={(event) => event.stopPropagation()}
                   >
                     <div className="community-confirm-kicker">{communitySuccessModal.kicker || "All set"}</div>
                     <h4 id="community-success-title">{communitySuccessModal.title}</h4>
@@ -3630,7 +3656,7 @@ export default function VineCommunities() {
                     </div>
                   </div>
                 </div>
-              ) : null}
+              ), document.body) : null}
               <div className="community-hero">
                 <div
                   className="community-banner"

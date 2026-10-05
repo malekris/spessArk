@@ -10,6 +10,12 @@ import { normalizeSchoolCalendar } from "../../../utils/schoolCalendar";
 import { recordAdminReportGeneration } from "../../../utils/adminAuditEvents";
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const ALEVEL_REPORT_DATES_STORAGE_KEY = "spess_alevel_report_dates";
+const ALEVEL_GRADE_REFERENCE_HEAD = [["GRADE", "A", "B", "C", "D", "E", "P", "F"]];
+const ALEVEL_GRADE_REFERENCE_BODY = [
+  ["INDICATOR", "Exceptional", "Outstanding", "Satisfactory", "Basic", "Elementary", "Pass", "Fail"],
+  ["AVERAGE", "79.5-100", "69.5-79.4", "59.5-69.4", "49.5-59.4", "0-49.4", "50-100", "0-49.9"],
+  ["POINTS", "5", "4", "3", "2", "1", "1", "0"],
+];
 
 const formatReportDateValue = (value) => {
   if (!value) return "__________";
@@ -210,25 +216,26 @@ const getAlevelMissedRiskTone = (risk) => {
   };
 };
 
-const getAlevelSubjectDescriptor = (average) => {
+const getAlevelSubjectDescriptor = (average, subjectTypes = []) => {
   const value = Number(average);
   if (!Number.isFinite(value)) return "Pending";
-  if (value >= 75) return "Distinction";
-  if (value >= 60) return "Credit";
-  if (value >= 50) return "Pass";
-  if (value >= 40) return "Subsidiary";
-  return "Fail";
+  if (subjectTypes.includes("Subsidiary")) return value >= 50 ? "Pass" : "Fail";
+  if (value >= 79.5) return "Exceptional";
+  if (value >= 69.5) return "Outstanding";
+  if (value >= 59.5) return "Satisfactory";
+  if (value >= 49.5) return "Basic";
+  return "Elementary";
 };
 
 const getAlevelSubjectTone = (descriptor) => {
-  if (descriptor === "Distinction") {
+  if (descriptor === "Exceptional" || descriptor === "Pass") {
     return {
       background: "rgba(22, 101, 52, 0.24)",
       color: "#bbf7d0",
       border: "1px solid rgba(34, 197, 94, 0.22)",
     };
   }
-  if (descriptor === "Credit" || descriptor === "Pass") {
+  if (descriptor === "Outstanding" || descriptor === "Satisfactory") {
     return {
       background: "rgba(14, 116, 144, 0.22)",
       color: "#bae6fd",
@@ -413,7 +420,7 @@ const buildAlevelSubjectRankRows = (
       return {
         subject: row.subject,
         average,
-        descriptor: getAlevelSubjectDescriptor(average),
+        descriptor: getAlevelSubjectDescriptor(average, Array.from(row.subjectTypes)),
         scoredLearners: row.averages.length,
         learnerCount: row.registeredLearners.size || row.reportLearners.size,
         missedCount: row.missedCount,
@@ -979,9 +986,9 @@ export default function AlevelReport() {
           if (hookData.section !== "body") return;
           const row = subjectRankRows[hookData.row.index];
           if (hookData.column.index === 3) {
-            if (row.descriptor === "Distinction") hookData.cell.styles.textColor = [22, 101, 52];
-            if (row.descriptor === "Credit" || row.descriptor === "Pass") hookData.cell.styles.textColor = [14, 116, 144];
-            if (row.descriptor === "Subsidiary" || row.descriptor === "Fail") hookData.cell.styles.textColor = [154, 52, 18];
+            if (row.descriptor === "Exceptional" || row.descriptor === "Pass") hookData.cell.styles.textColor = [22, 101, 52];
+            if (row.descriptor === "Outstanding" || row.descriptor === "Satisfactory") hookData.cell.styles.textColor = [14, 116, 144];
+            if (["Basic", "Elementary", "Fail"].includes(row.descriptor)) hookData.cell.styles.textColor = [154, 52, 18];
             hookData.cell.styles.fontStyle = "bold";
           }
         },
@@ -1771,8 +1778,8 @@ export async function generateAlevelPDF(data, meta, options = {}) {
     ? `MID-TERM PARENT REPORT - ${meta.term} ${meta.year}`
     : `END OF ${meta.term} ${meta.year} REPORT CARD`;
   const subjectTableHead = midOnly
-    ? [["Subject", "Paper", "MID Score", "Paper Grade", "Subject Grade", "Points", "Teacher"]]
-    : [["Subject", "Paper", "MID", "EOT", "Paper Avg", "Score", "Grade", "Points", "Teacher"]];
+    ? [["Subject", "Paper", "MID Score", "Subject Avg", "Grade", "Points", "Teacher"]]
+    : [["Subject", "Paper", "MID", "EOT", "Paper Avg", "Subject Avg", "Grade", "Points", "Teacher"]];
 
   const formatPaperScore = (value) => {
     if (
@@ -1839,18 +1846,23 @@ export async function generateAlevelPDF(data, meta, options = {}) {
           row.push(formatComponentScore(paperRow.eot, paperRow.eot_status));
           row.push(formatAverage(paperRow.avg));
         }
-        row.push(formatPaperScore(paperRow.paperScore));
-
         if (index === 0) {
           const incompleteSubject =
             isMissingStatus(subjectGroup.grade) || isMissedStatus(subjectGroup.grade);
+          const missedSubject = isMissedStatus(subjectGroup.grade);
+          const missingSubject = isMissingStatus(subjectGroup.grade);
           row.push({
-            content: incompleteSubject ? "—" : subjectGroup.grade || "—",
+            content: incompleteSubject ? "—" : formatAverage(subjectGroup.mergedAverage),
             rowSpan: papers.length,
             styles: { valign: "middle", fontStyle: "bold" },
           });
           row.push({
-            content: incompleteSubject ? "—" : String(subjectGroup.points ?? "—"),
+            content: missedSubject ? "X" : missingSubject ? "Not Submitted" : subjectGroup.grade || "—",
+            rowSpan: papers.length,
+            styles: { valign: "middle", fontStyle: "bold" },
+          });
+          row.push({
+            content: missedSubject ? "0" : missingSubject ? "—" : String(subjectGroup.points ?? "—"),
             rowSpan: papers.length,
             styles: { valign: "middle", fontStyle: "bold" },
           });
@@ -2099,11 +2111,11 @@ export async function generateAlevelPDF(data, meta, options = {}) {
       startY: referenceY,
       margin: { left: margin, right: margin },
       tableWidth: contentWidth,
-      head: [["PAPER GRADING", "D1", "D2", "C3", "C4", "C5", "C6", "P7", "P8", "F9"]],
-      body: [["SCORE", "85-100", "80-84", "75-79", "70-74", "65-69", "60-64", "50-59", "40-49", "0-39"]],
+      head: ALEVEL_GRADE_REFERENCE_HEAD,
+      body: ALEVEL_GRADE_REFERENCE_BODY,
       theme: "grid",
       styles: {
-        fontSize: 8,
+        fontSize: 6.4,
         halign: "center",
         cellPadding: 1,
         lineColor: colors.line,
@@ -2123,7 +2135,7 @@ export async function generateAlevelPDF(data, meta, options = {}) {
     doc.setFont("helvetica", "italic");
     doc.setFontSize(8.4);
     doc.text(
-      "MID marks only. Report not valid without school stamp.",
+      "A-E: principal subjects. P-F: subsidiary subjects. MID marks only. Report not valid without school stamp.",
       pageWidth / 2,
       Math.min((doc.lastAutoTable?.finalY || referenceY) + 5, footerY - 3),
       { align: "center" }
@@ -2334,42 +2346,15 @@ doc.text("Signature: ____________________________", 15, commentY + 22);
 let tableStartY = commentY + 32;
 
 /* =========================
-   PAPER GRADING TABLE
+   REVISED UNEB GRADING TABLE
 ========================= */
 autoTable(doc, {
   startY: tableStartY,
-  head: [["Paper Grading", "D1", "D2", "C3", "C4", "C5", "C6", "P7", "P8", "F9"]],
-  body: [["Score", "85-100", "80-84", "75-79", "70-74", "65-69", "60-64", "50-59", "40-49", "0-39"]],
+  head: ALEVEL_GRADE_REFERENCE_HEAD,
+  body: ALEVEL_GRADE_REFERENCE_BODY,
   theme: "grid",
   styles: {
-    fontSize: 8,
-    halign: "center",
-    lineColor: [15, 23, 42],
-    lineWidth: 0.15,
-    textColor: 0,
-    fillColor: [255, 255, 255],
-  },
-  headStyles: {
-    fillColor: [255, 255, 255],
-    textColor: 0,
-    fontStyle: "bold",
-    lineColor: [15, 23, 42],
-    lineWidth: 0.18,
-  },
-  alternateRowStyles: { fillColor: [255, 255, 255] },
-  margin: { left: 15 },
-});
-
-/* =========================
-   GRADE → POINTS TABLE (COMPACT)
-========================= */
-autoTable(doc, {
-  startY: doc.lastAutoTable.finalY + 4,
-  head: [["Grade Points", "F", "O", "E", "D", "C", "B", "A"]],
-  body: [["", "0", "1", "2", "3", "4", "5", "6"]],
-  theme: "grid",
-  styles: {
-    fontSize: 8,
+    fontSize: 6.4,
     halign: "center",
     lineColor: [15, 23, 42],
     lineWidth: 0.15,
@@ -2389,9 +2374,9 @@ autoTable(doc, {
 
 const subsidiaryNoteY = doc.lastAutoTable.finalY + 6;
 doc.setFont("helvetica", "bold");
-doc.text("Subsidiary subjects:", 15, subsidiaryNoteY);
+doc.text("Grade types:", 15, subsidiaryNoteY);
 doc.setFont("helvetica", "normal");
-doc.text("1, 2, 3, 4, 5, 6 = Pass (O); 7, 8, 9 = Fail (F)", 51, subsidiaryNoteY);
+doc.text("A-E apply to principal subjects; P-F apply to subsidiary subjects.", 40, subsidiaryNoteY);
 
 // Final Y after all grading reference tables / notes
 let afterTablesY = subsidiaryNoteY + 8;

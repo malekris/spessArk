@@ -1,6 +1,11 @@
 import express from "express";
 import { db } from "../../server.js";
 import { ensureAlevelPromotionSchemaReady } from "../../services/alevelPromotionService.js";
+import {
+  averageAlevelScores,
+  gradePrincipalAverage,
+  gradeSubsidiaryAverage,
+} from "./alevelGrading.js";
 
 const router = express.Router();
 
@@ -16,22 +21,6 @@ const SINGLE_PAPER_SUBJECTS = new Set(["general paper", "sub math", "submath"]);
 
 function isSinglePaperSubject(subjectName = "") {
   return SINGLE_PAPER_SUBJECTS.has(String(subjectName || "").trim().toLowerCase());
-}
-
-function isSubIctSubject(subjectName = "") {
-  const normalized = String(subjectName || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, "");
-  return normalized === "subict" || normalized === "subsidiaryict";
-}
-
-function isGeneralPaperSubject(subjectName = "") {
-  const normalized = String(subjectName || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, "");
-  return normalized === "generalpaper" || normalized === "gp";
 }
 
 function getPaperOptionsForSubject(subjectName = "") {
@@ -57,15 +46,7 @@ function paperSortValue(paperLabel = "") {
 --------------------------------*/
 
 function calcAverage(mid, eot) {
-  if (mid === null || mid === undefined || eot === null || eot === undefined) {
-    return null;
-  }
-  const midScore = Number(mid);
-  const eotScore = Number(eot);
-  if (!Number.isFinite(midScore) || !Number.isFinite(eotScore)) {
-    return null;
-  }
-  return Math.round(((midScore + eotScore) / 2) * 10) / 10;
+  return averageAlevelScores([mid, eot]);
 }
 
 function normalizeAssessmentMode(value = "") {
@@ -105,84 +86,6 @@ function getAge(dob) {
     const [cls, ...rest] = full.split(" ");
     return { cls, stream: rest.join(" ") };
   }
-function scoreFromAverage(avg) {
-  if (avg === null) return "";
-  if (avg <= 39) return "F9";
-  if (avg <= 49) return "P8";
-  if (avg <= 59) return "P7";
-  if (avg <= 64) return "C6";
-  if (avg <= 69) return "C5";
-  if (avg <= 74) return "C4";
-  if (avg <= 79) return "C3";
-  if (avg <= 84) return "D2";
-  return "D1";
-}
-
-function paperGradeNumber(score = "") {
-  return {
-    D1: 1,
-    D2: 2,
-    C3: 3,
-    C4: 4,
-    C5: 5,
-    C6: 6,
-    P7: 7,
-    P8: 8,
-    F9: 9,
-  }[String(score || "").trim().toUpperCase()] ?? null;
-}
-
-function gradeFromScore(score) {
-  if (["D1", "D2"].includes(score)) return "A";
-  if (["C3"].includes(score)) return "B";
-  if (["C4", "C5", "C6"].includes(score)) return "C";
-  if (["P7"].includes(score)) return "D";
-  if (["P8"].includes(score)) return "E";
-  if (["F9"].includes(score)) return "F";
-  return "";
-}
-
-function pointsFromGrade(grade) {
-  return { A: 6, B: 5, C: 4, D: 3, E: 2, O: 1, F: 0 }[grade] ?? 0;
-}
-
-function deriveSubsidiarySubjectGrade(papers = []) {
-  if (!Array.isArray(papers) || papers.length === 0) {
-    return { grade: "Missing", points: 0 };
-  }
-
-  const paperGrades = papers.map((paper) => paperGradeNumber(paper.paperScore));
-  if (paperGrades.some((gradeNumber) => !Number.isFinite(gradeNumber))) {
-    return { grade: "Missing", points: 0 };
-  }
-
-  return paperGrades.every((gradeNumber) => gradeNumber <= 6)
-    ? { grade: "O", points: 1 }
-    : { grade: "F", points: 0 };
-}
-
-function deriveTwoPaperSubjectGrade(firstPaperScore, secondPaperScore) {
-  const first = paperGradeNumber(firstPaperScore);
-  const second = paperGradeNumber(secondPaperScore);
-
-  if (!Number.isFinite(first) || !Number.isFinite(second)) {
-    return "Missing";
-  }
-
-  const [better, weaker] = [first, second].sort((a, b) => a - b);
-  const aggregate = better + weaker;
-  const hasSubjectPass = better === 7 || better === 8 || weaker === 7 || weaker === 8;
-
-  if (weaker <= 2) return "A";
-  if (weaker === 3) return "B";
-  if (weaker === 4) return "C";
-  if (weaker === 5) return "D";
-  if (weaker === 6 || (weaker <= 8 && aggregate <= 12)) return "E";
-  if ((hasSubjectPass && aggregate <= 16) || (weaker === 9 && better <= 6)) return "O";
-  if ((better === 8 && weaker === 9) || (better === 9 && weaker === 9)) return "F";
-  return "F";
-}
-
 const COMMENT_BANK = {
   low: {
     head: [
@@ -319,7 +222,6 @@ function groupRowsBySubject(rows = [], { assessmentMode = "FULL" } = {}) {
     const relevantStatuses = midOnly ? [midStatus] : [midStatus, eotStatus];
     const paperResultStatus =
       paperAverage === null ? incompleteLabelFromStatuses(relevantStatuses) : "Submitted";
-    const paperScore = paperAverage === null ? paperResultStatus : scoreFromAverage(paperAverage);
     group.papers.push({
       paper: normalizePaperLabel(row.paper_label) || "Single",
       teacher: row.teacher || "—",
@@ -329,7 +231,6 @@ function groupRowsBySubject(rows = [], { assessmentMode = "FULL" } = {}) {
       eot_status: eotStatus,
       avg: paperAverage,
       resultStatus: paperResultStatus,
-      paperScore,
     });
   });
 
@@ -349,53 +250,34 @@ function groupRowsBySubject(rows = [], { assessmentMode = "FULL" } = {}) {
             : [paper.mid_status, paper.eot_status, paper.resultStatus]
         )
       );
-      const availablePaperAverages = papers
-        .map((paper) => Number(paper.avg))
-        .filter((value) => Number.isFinite(value));
-      const mergedAverage = !hasIncompletePaper && availablePaperAverages.length
-        ? Math.round(
-            (availablePaperAverages.reduce((sum, value) => sum + value, 0) /
-              availablePaperAverages.length) *
-              10
-          ) / 10
-        : null;
-
-      const isTwoPaperSubject = papers.length >= 2 && papers.some((paper) => paper.paper !== "Single");
-      const score = scoreFromAverage(mergedAverage);
+      const mergedAverage = hasIncompletePaper
+        ? null
+        : averageAlevelScores(papers.map((paper) => paper.avg));
 
       if (group.isSubsidiary) {
-        const subsidiary = hasIncompletePaper
-          ? { grade: incompleteLabel, points: 0 }
-          : isSubIctSubject(group.subject) || isGeneralPaperSubject(group.subject)
-          ? { grade: mergedAverage >= 50 ? "O" : "F", points: mergedAverage >= 50 ? 1 : 0 }
-          : deriveSubsidiarySubjectGrade(papers);
+        const subsidiary = hasIncompletePaper ? null : gradeSubsidiaryAverage(mergedAverage);
         return {
           subject: group.subject,
           isSubsidiary: true,
           papers,
           mergedAverage,
-          score,
-          grade: subsidiary.grade,
-          points: subsidiary.points,
+          score: mergedAverage,
+          grade: subsidiary?.grade || incompleteLabel,
+          indicator: subsidiary?.indicator || incompleteLabel,
+          points: subsidiary?.points ?? 0,
         };
       }
 
-      const grade = isTwoPaperSubject
-        ? hasIncompletePaper
-          ? incompleteLabel
-          : deriveTwoPaperSubjectGrade(papers[0]?.paperScore, papers[1]?.paperScore)
-        : mergedAverage === null
-        ? incompleteLabel
-        : gradeFromScore(score);
-      const points = pointsFromGrade(grade);
+      const principal = hasIncompletePaper ? null : gradePrincipalAverage(mergedAverage);
       return {
         subject: group.subject,
         isSubsidiary: false,
         papers,
         mergedAverage,
-        score: isTwoPaperSubject ? "—" : mergedAverage === null ? incompleteLabel : score,
-        grade,
-        points,
+        score: mergedAverage,
+        grade: principal?.grade || incompleteLabel,
+        indicator: principal?.indicator || incompleteLabel,
+        points: principal?.points ?? 0,
       };
     })
     .sort((a, b) => a.subject.localeCompare(b.subject));

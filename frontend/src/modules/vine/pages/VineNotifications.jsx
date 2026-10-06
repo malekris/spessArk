@@ -164,6 +164,11 @@ export default function VineNotifications() {
     if (notification.type === "guestbook_entry" && actorUsername) {
       return `/vine/profile/${meta.profile_username || actorUsername}`;
     }
+    if (notification.type === "profile_media_comment" || notification.type === "profile_media_reply") {
+      const profileUsername = meta.profile_username || actorUsername;
+      const mediaType = meta.media_type === "banner" ? "banner" : "avatar";
+      return profileUsername ? `/vine/profile/${profileUsername}?media=${mediaType}` : null;
+    }
     if (notification.type === "birthday" && actorUsername) {
       return `/vine/profile/${actorUsername}`;
     }
@@ -288,6 +293,10 @@ export default function VineNotifications() {
         return `marked ${years} ${years === 1 ? "year" : "years"} on Vine 🎉`;
       }
       case "guestbook_entry": return "left a guestbook note for your approval";
+      case "profile_media_comment":
+        return `commented on your ${meta.media_type === "banner" ? "cover photo" : "profile picture"}`;
+      case "profile_media_reply":
+        return `replied to your comment on a ${meta.media_type === "banner" ? "cover photo" : "profile picture"}`;
       case "missed_call": return "called you. You missed the audio call";
       case "report_post": return "reported a post to Guardian";
       case "report_comment": return "reported a comment to Guardian";

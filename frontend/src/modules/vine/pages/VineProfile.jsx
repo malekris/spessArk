@@ -290,6 +290,236 @@ function ProfilePostSkeleton() {
   );
 }
 
+function ProfileMediaViewer({
+  mediaType,
+  mediaUrl,
+  owner,
+  token,
+  currentUser,
+  currentUserId,
+  isModerator,
+  onClose,
+  navigate,
+}) {
+  const [comments, setComments] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+  const [draft, setDraft] = useState("");
+  const [replyTo, setReplyTo] = useState(null);
+  const ownerUsername = String(owner?.username || "").trim();
+  const isAvatar = mediaType === "avatar";
+
+  const loadComments = useCallback(async (signal) => {
+    if (!ownerUsername || !mediaType) return;
+    setLoading(true);
+    setError("");
+    try {
+      const response = await fetch(
+        `${API}/api/vine/users/${encodeURIComponent(ownerUsername)}/profile-media/${mediaType}/comments`,
+        {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          signal,
+        }
+      );
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || "Could not load comments");
+      if (!signal?.aborted) setComments(Array.isArray(data.comments) ? data.comments : []);
+    } catch (loadError) {
+      if (loadError?.name !== "AbortError") setError(loadError.message || "Could not load comments");
+    } finally {
+      if (!signal?.aborted) setLoading(false);
+    }
+  }, [mediaType, ownerUsername, token]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    loadComments(controller.signal);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      controller.abort();
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [loadComments, onClose]);
+
+  const commentsByParent = comments.reduce((groups, comment) => {
+    const parentKey = Number(comment.parent_comment_id || 0);
+    if (!groups[parentKey]) groups[parentKey] = [];
+    groups[parentKey].push(comment);
+    return groups;
+  }, {});
+
+  const submitComment = async (event) => {
+    event.preventDefault();
+    const content = draft.trim();
+    if (!content || submitting || !token) return;
+    setSubmitting(true);
+    setError("");
+    try {
+      const response = await fetch(
+        `${API}/api/vine/users/${encodeURIComponent(ownerUsername)}/profile-media/${mediaType}/comments`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ content, parent_comment_id: replyTo?.id || null }),
+        }
+      );
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || "Could not post comment");
+      if (data.comment) setComments((previous) => [...previous, data.comment]);
+      setDraft("");
+      setReplyTo(null);
+    } catch (submitError) {
+      setError(submitError.message || "Could not post comment");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const deleteComment = async (commentId) => {
+    if (!commentId || !token) return;
+    setError("");
+    try {
+      const response = await fetch(`${API}/api/vine/profile-media-comments/${commentId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || "Could not delete comment");
+      setComments((previous) => previous.filter(
+        (comment) => Number(comment.id) !== Number(commentId) &&
+          Number(comment.parent_comment_id || 0) !== Number(commentId)
+      ));
+      if (Number(replyTo?.id) === Number(commentId)) setReplyTo(null);
+    } catch (deleteError) {
+      setError(deleteError.message || "Could not delete comment");
+    }
+  };
+
+  const renderComment = (comment, depth = 0) => {
+    const replies = commentsByParent[Number(comment.id)] || [];
+    const canDelete =
+      Number(comment.user_id) === Number(currentUserId) ||
+      Number(owner?.id) === Number(currentUserId) ||
+      isModerator;
+    return (
+      <div className={`profile-media-comment-thread ${depth ? "is-reply" : ""}`} key={comment.id}>
+        <article className="profile-media-comment">
+          <button
+            type="button"
+            className="profile-media-comment-avatar"
+            onClick={() => navigate(`/vine/profile/${comment.username}`)}
+            aria-label={`View ${comment.display_name || comment.username}'s profile`}
+          >
+            <img
+              src={comment.avatar_url || DEFAULT_AVATAR}
+              alt=""
+              onError={(event) => { event.currentTarget.src = DEFAULT_AVATAR; }}
+            />
+          </button>
+          <div className="profile-media-comment-content">
+            <button
+              type="button"
+              className="profile-media-comment-name"
+              onClick={() => navigate(`/vine/profile/${comment.username}`)}
+            >
+              {comment.display_name || comment.username}
+              {Number(comment.is_verified) === 1 ? <span aria-label="Verified">✓</span> : null}
+            </button>
+            <p>{renderMentions(comment.content, navigate)}</p>
+            <div className="profile-media-comment-actions">
+              <time>{formatPostDate(comment.created_at)}</time>
+              <button type="button" onClick={() => setReplyTo(comment)}>Reply</button>
+              {canDelete ? (
+                <button type="button" className="danger" onClick={() => deleteComment(comment.id)}>Delete</button>
+              ) : null}
+            </div>
+          </div>
+        </article>
+        {replies.length > 0 ? (
+          <div className="profile-media-comment-replies">
+            {replies.map((reply) => renderComment(reply, depth + 1))}
+          </div>
+        ) : null}
+      </div>
+    );
+  };
+
+  const composerAvatar =
+    (isAvatar && Number(owner?.id) === Number(currentUserId) ? mediaUrl : null) ||
+    currentUser?.avatar_url ||
+    currentUser?.profile_picture ||
+    currentUser?.profile_image ||
+    currentUser?.photo_url ||
+    currentUser?.avatar ||
+    DEFAULT_AVATAR;
+  const rootComments = commentsByParent[0] || [];
+  return (
+    <div className="profile-media-viewer" role="dialog" aria-modal="true" aria-label={`${isAvatar ? "Profile" : "Cover"} photo`}>
+      <aside className="profile-media-comments" onClick={(event) => event.stopPropagation()}>
+        <header className="profile-media-comments-header">
+          <div>
+            <span>{isAvatar ? "Profile picture" : "Cover photo"}</span>
+            <strong>{owner?.display_name || ownerUsername}</strong>
+          </div>
+          <span className="profile-media-comments-count">{comments.length}</span>
+        </header>
+        <div className="profile-media-comments-list">
+          {loading ? (
+            <div className="profile-media-comments-state">Loading comments…</div>
+          ) : rootComments.length > 0 ? (
+            rootComments.map((comment) => renderComment(comment))
+          ) : (
+            <div className="profile-media-comments-state">
+              <span aria-hidden="true">💬</span>
+              <strong>Start the conversation</strong>
+              <p>Be the first to leave a comment on this {isAvatar ? "profile picture" : "cover photo"}.</p>
+            </div>
+          )}
+        </div>
+        {error ? <div className="profile-media-comments-error" role="alert">{error}</div> : null}
+        {replyTo ? (
+          <div className="profile-media-replying">
+            Replying to {replyTo.display_name || `@${replyTo.username}`}
+            <button type="button" onClick={() => setReplyTo(null)} aria-label="Cancel reply">×</button>
+          </div>
+        ) : null}
+        <form className="profile-media-comment-composer" onSubmit={submitComment}>
+          <img src={composerAvatar} alt="" onError={(event) => { event.currentTarget.src = DEFAULT_AVATAR; }} />
+          <textarea
+            value={draft}
+            onChange={(event) => setDraft(event.target.value.slice(0, 1000))}
+            placeholder={replyTo ? `Reply to ${replyTo.display_name || replyTo.username}…` : "Write a comment…"}
+            rows="1"
+            disabled={!token || submitting}
+          />
+          <button type="submit" disabled={!draft.trim() || !token || submitting}>
+            {submitting ? "Posting…" : "Post"}
+          </button>
+        </form>
+      </aside>
+      <section className="profile-media-stage" onClick={onClose}>
+        <button type="button" className="profile-media-close" onClick={onClose} aria-label="Close viewer">×</button>
+        <img
+          src={mediaUrl}
+          className={isAvatar ? "is-avatar" : "is-banner"}
+          alt={`${owner?.display_name || ownerUsername}'s ${isAvatar ? "profile picture" : "cover photo"}`}
+          onClick={(event) => event.stopPropagation()}
+        />
+      </section>
+    </div>
+  );
+}
+
 
 // ────────────────────────────────────────────────
 //  MAIN PROFILE COMPONENT
@@ -989,6 +1219,35 @@ export default function VineProfile() {
   }, [username]);
 
   useEffect(() => {
+    const requestedMedia = new URLSearchParams(location.search).get("media");
+    if (requestedMedia === "avatar" && avatarUrl) setAvatarViewerOpen(true);
+    if (requestedMedia === "banner" && bannerUrl) setBannerViewerOpen(true);
+  }, [avatarUrl, bannerUrl, location.search]);
+
+  const closeProfileMediaViewer = useCallback((mediaType) => {
+    if (mediaType === "avatar") setAvatarViewerOpen(false);
+    if (mediaType === "banner") setBannerViewerOpen(false);
+
+    const params = new URLSearchParams(location.search);
+    if (params.get("media") !== mediaType) return;
+    params.delete("media");
+    const search = params.toString();
+    navigate(
+      { pathname: location.pathname, search: search ? `?${search}` : "" },
+      { replace: true }
+    );
+  }, [location.pathname, location.search, navigate]);
+
+  const closeBannerViewer = useCallback(
+    () => closeProfileMediaViewer("banner"),
+    [closeProfileMediaViewer]
+  );
+  const closeAvatarViewer = useCallback(
+    () => closeProfileMediaViewer("avatar"),
+    [closeProfileMediaViewer]
+  );
+
+  useEffect(() => {
     const q = mentionAnchor?.query;
     if (!q) {
       setMentionResults([]);
@@ -1628,33 +1887,32 @@ export default function VineProfile() {
 
       {/* Fullscreen banner viewer */}
       {bannerViewerOpen && bannerUrl && (
-        <div className="image-viewer-overlay" onClick={() => setBannerViewerOpen(false)}>
-          <button className="viewer-close" onClick={() => setBannerViewerOpen(false)}>
-            ✕
-          </button>
-          <img
-            src={bannerUrl}
-            className="image-viewer-img"
-            alt="banner fullscreen"
-            onClick={(e) => e.stopPropagation()}
-          />
-        </div>
+        <ProfileMediaViewer
+          mediaType="banner"
+          mediaUrl={bannerUrl}
+          owner={userObj}
+          token={token}
+          currentUser={currentUser}
+          currentUserId={currentUserId}
+          isModerator={isModerator}
+          navigate={navigate}
+          onClose={closeBannerViewer}
+        />
       )}
 
       {/* Avatar fullscreen viewer */}
       {avatarViewerOpen && avatarUrl && (
-        <div className="image-viewer-overlay" onClick={() => setAvatarViewerOpen(false)}>
-          <button className="viewer-close" onClick={() => setAvatarViewerOpen(false)}>
-            ✕
-          </button>
-          <img
-            src={avatarUrl || DEFAULT_AVATAR}
-            className="image-viewer-img"
-            alt="avatar fullscreen"
-            onClick={(e) => e.stopPropagation()}
-            style={{ borderRadius: "50%" }}
-          />
-        </div>
+        <ProfileMediaViewer
+          mediaType="avatar"
+          mediaUrl={avatarUrl}
+          owner={userObj}
+          token={token}
+          currentUser={currentUser}
+          currentUserId={currentUserId}
+          isModerator={isModerator}
+          navigate={navigate}
+          onClose={closeAvatarViewer}
+        />
       )}
 
       {/* Avatar action sheet */}

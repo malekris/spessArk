@@ -25,6 +25,7 @@ import createVineCommunityEClassRouter from "./vineCommunityEClassRoutes.js";
 import createVineAvatarThumbnailRouter from "./vineAvatarThumbnailRoutes.js";
 import createVineNotificationRouter from "./vineNotificationRoutes.js";
 import createVineDelightRouter from "./vineDelightRoutes.js";
+import createVineProfileMediaRouter from "./vineProfileMediaRoutes.js";
 import { endEClassRuntimeSession } from "./vineEClassSocket.js";
 import { VINE_READ_NOTIFICATION_RETENTION_DAYS, createCleanupExpiredReadNotifications } from "./vineNotificationCleanup.js";
 import { VINE_CACHE_TTLS, buildVineCacheKey, readThroughVineCache, clearVineReadCache } from "./vineCache.js";
@@ -2901,6 +2902,21 @@ router.use((req, res, next) => {
   return vineDelightRouter(req, res, next);
 });
 
+let vineProfileMediaRouter = null;
+router.use((req, res, next) => {
+  if (!vineProfileMediaRouter) {
+    vineProfileMediaRouter = createVineProfileMediaRouter({
+      db,
+      authenticate,
+      authOptional,
+      isUserBlocked,
+      isModeratorAccount,
+      notifyUser,
+    });
+  }
+  return vineProfileMediaRouter(req, res, next);
+});
+
 const buildVineAuthUser = (user) => ({
   id: user.id,
   username: user.username,
@@ -4015,6 +4031,17 @@ const purgeUserAccount = async (userId) => {
   await db.query("DELETE FROM vine_community_assignments WHERE creator_id = ?", [numericUserId]).catch(() => {});
   await db.query("DELETE FROM vine_status_views WHERE viewer_id = ? OR user_id = ?", [numericUserId, numericUserId]).catch(() => {});
   await db.query("DELETE FROM vine_statuses WHERE user_id = ?", [numericUserId]).catch(() => {});
+  await db.query(
+    `DELETE FROM vine_profile_media_comments
+     WHERE owner_user_id = ?
+        OR user_id = ?
+        OR parent_comment_id IN (
+          SELECT id FROM (
+            SELECT id FROM vine_profile_media_comments WHERE owner_user_id = ? OR user_id = ?
+          ) AS removed_profile_media_comments
+        )`,
+    [numericUserId, numericUserId, numericUserId, numericUserId]
+  ).catch(() => {});
   await db.query("DELETE FROM vine_comment_likes WHERE user_id = ?", [numericUserId]).catch(() => {});
   await db.query("DELETE FROM vine_comments WHERE user_id = ?", [numericUserId]).catch(() => {});
   await db.query("DELETE FROM vine_bookmarks WHERE user_id = ?", [numericUserId]).catch(() => {});
@@ -11941,6 +11968,10 @@ router.post("/users/avatar", authenticate, uploadAvatarMiddleware, async (req, r
     );
 
     if (userRow?.avatar_url && userRow.avatar_url !== avatarUrl) {
+      await db.query(
+        "DELETE FROM vine_profile_media_comments WHERE owner_user_id = ? AND media_type = 'avatar' AND media_url = ?",
+        [req.user.id, userRow.avatar_url]
+      ).catch(() => {});
       await deleteCloudinaryByUrl(userRow.avatar_url).catch(() => {});
     }
 
@@ -11988,6 +12019,10 @@ router.post(
       );
 
       if (userRow?.banner_url && userRow.banner_url !== bannerUrl) {
+        await db.query(
+          "DELETE FROM vine_profile_media_comments WHERE owner_user_id = ? AND media_type = 'banner' AND media_url = ?",
+          [req.user.id, userRow.banner_url]
+        ).catch(() => {});
         await deleteCloudinaryByUrl(userRow.banner_url).catch(() => {});
       }
 

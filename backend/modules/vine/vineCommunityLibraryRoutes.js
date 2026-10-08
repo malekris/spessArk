@@ -14,6 +14,19 @@ const LIBRARY_DOCUMENT_TYPES = {
   },
 };
 
+const LIBRARY_SUPPORT_FILE_TYPES = {
+  zip: { mime: "application/zip", label: "ZIP archive" },
+  "7z": { mime: "application/x-7z-compressed", label: "7-Zip archive" },
+  rar: { mime: "application/vnd.rar", label: "RAR archive" },
+};
+
+export const getLibrarySupportFileType = (file) => {
+  const name = String(file?.originalname || file?.name || "").trim();
+  const extension = name.toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] || "";
+  const definition = LIBRARY_SUPPORT_FILE_TYPES[extension];
+  return definition ? { ...definition, extension } : null;
+};
+
 const getLibraryDocumentType = (file) => {
   const name = String(file?.originalname || "").trim();
   const extension = name.toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] || "";
@@ -34,6 +47,7 @@ export default function createVineCommunityLibraryRouter({
   db,
   authenticate,
   uploadPostCloudinary,
+  uploadCommunitySupportFile,
   ensureCommunitySchema,
   ensureVinePerformanceSchema,
   isCommunityMemberUser,
@@ -180,6 +194,55 @@ export default function createVineCommunityLibraryRouter({
     }
   });
 
+  router.get("/communities/:slug/library/support-files", authenticate, async (req, res) => {
+    try {
+      await ensureCommunitySchema();
+      await ensureVinePerformanceSchema();
+      const viewerId = Number(req.user.id);
+      const [[community]] = await db.query(
+        "SELECT id FROM vine_communities WHERE slug = ? LIMIT 1",
+        [req.params.slug]
+      );
+      if (!community) return res.status(404).json([]);
+      if (!(await isCommunityMemberUser(community.id, viewerId))) return res.status(403).json([]);
+
+      const cacheKey = buildVineCacheKey(
+        "community-library-support-files",
+        req.params.slug.toLowerCase(),
+        viewerId
+      );
+      const rows = await readThroughVineCache(cacheKey, vineCacheTtls.communityLibrary, async () => {
+        const [supportRows] = await db.query(
+          `
+          SELECT
+            support.id,
+            support.community_id,
+            support.uploader_id,
+            support.title,
+            support.file_url,
+            support.file_name,
+            support.file_mime,
+            support.file_size,
+            support.created_at,
+            u.username AS uploader_username,
+            u.display_name AS uploader_display_name
+          FROM vine_community_library_support_files support
+          JOIN vine_users u ON u.id = support.uploader_id
+          WHERE support.community_id = ?
+          ORDER BY support.created_at DESC, support.id DESC
+          `,
+          [community.id]
+        );
+        return supportRows;
+      });
+
+      res.json(rows);
+    } catch (err) {
+      console.error("Get community library support files error:", err);
+      res.status(500).json([]);
+    }
+  });
+
   router.post(
     "/communities/:id/library",
     authenticate,
@@ -242,6 +305,71 @@ export default function createVineCommunityLibraryRouter({
       } catch (err) {
         console.error("Upload community library document error:", err);
         res.status(500).json({ message: "Failed to upload document" });
+      }
+    }
+  );
+
+  router.post(
+    "/communities/:id/library/support-files",
+    authenticate,
+    uploadCommunitySupportFile.single("support_file"),
+    async (req, res) => {
+      try {
+        await ensureCommunitySchema();
+        const userId = Number(req.user.id);
+        const communityId = Number(req.params.id);
+        const title = String(req.body?.title || "").trim();
+        const file = req.file || null;
+        const supportType = getLibrarySupportFileType(file);
+        if (!communityId || !title) {
+          return res.status(400).json({ message: "title is required" });
+        }
+        if (!file || !supportType) {
+          return res.status(400).json({ message: "Choose a ZIP, 7Z, or RAR compressed folder" });
+        }
+
+        const role = String(await getCommunityRole(communityId, userId) || "").toLowerCase();
+        if (!isCommunityModOrOwner(role)) {
+          return res.status(403).json({ message: "Only community owners or moderators can upload support files" });
+        }
+
+        const fileName = cleanLibraryFileName(file.originalname, supportType.extension);
+        const downloadFileName = fileName
+          .replace(/[^\x20-\x7e]/g, "_")
+          .replace(/["\\]/g, "_");
+        const uploaded = await uploadBufferToCloudinary(file.buffer, {
+          folder: "vine/community-library-support-files",
+          resource_type: "raw",
+          public_id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+          format: supportType.extension,
+          content_type: supportType.mime,
+          content_disposition: `attachment; filename="${downloadFileName}"`,
+        });
+        const fileUrl = uploaded.secure_url || uploaded.url || null;
+        if (!fileUrl) return res.status(500).json({ message: "Upload failed" });
+
+        const [result] = await db.query(
+          `
+          INSERT INTO vine_community_library_support_files
+            (community_id, uploader_id, title, file_url, file_name, file_mime, file_size, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
+          `,
+          [
+            communityId,
+            userId,
+            title.slice(0, 180),
+            fileUrl,
+            fileName,
+            supportType.mime,
+            Number(file.size || file.buffer?.length || 0),
+          ]
+        );
+
+        clearVineReadCache("community-library-support-files");
+        res.json({ success: true, id: Number(result.insertId), file_url: fileUrl });
+      } catch (err) {
+        console.error("Upload community library support file error:", err);
+        res.status(500).json({ message: "Failed to upload support file" });
       }
     }
   );
@@ -359,6 +487,38 @@ export default function createVineCommunityLibraryRouter({
     } catch (err) {
       console.error("Delete community library video error:", err);
       res.status(500).json({ message: "Failed to delete video" });
+    }
+  });
+
+  router.delete("/communities/:id/library/support-files/:itemId", authenticate, async (req, res) => {
+    try {
+      await ensureCommunitySchema();
+      const userId = Number(req.user.id);
+      const communityId = Number(req.params.id);
+      const itemId = Number(req.params.itemId);
+      if (!communityId || !itemId) return res.status(400).json({ message: "Invalid request" });
+
+      const role = String(await getCommunityRole(communityId, userId) || "").toLowerCase();
+      if (!isCommunityModOrOwner(role)) {
+        return res.status(403).json({ message: "Only community owners or moderators can remove support files" });
+      }
+
+      const [[item]] = await db.query(
+        "SELECT id, file_url FROM vine_community_library_support_files WHERE id = ? AND community_id = ? LIMIT 1",
+        [itemId, communityId]
+      );
+      if (!item) return res.status(404).json({ message: "Support file not found" });
+
+      await db.query(
+        "DELETE FROM vine_community_library_support_files WHERE id = ? AND community_id = ?",
+        [itemId, communityId]
+      );
+      if (item.file_url) await deleteCloudinaryByUrl(item.file_url);
+      clearVineReadCache("community-library-support-files");
+      res.json({ success: true });
+    } catch (err) {
+      console.error("Delete community library support file error:", err);
+      res.status(500).json({ message: "Failed to delete support file" });
     }
   });
 

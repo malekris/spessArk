@@ -10,6 +10,13 @@ export const uploadPostCloudinary = multer({
   limits: { fileSize: 500 * 1024 * 1024 },
 });
 
+// Community Library support packs stay as opaque archives. The server never
+// extracts them; this limit only bounds the in-memory handoff to object storage.
+export const uploadCommunitySupportFile = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 200 * 1024 * 1024 },
+});
+
 // ------------------------
 // Avatar/Banner upload (memory, convert if needed)
 // ------------------------

@@ -218,6 +218,10 @@ export default function createVineCommunitySettingsRouter({
         "SELECT video_url FROM vine_community_library_videos WHERE community_id = ?",
         [communityId]
       );
+      const [librarySupportFiles] = await db.query(
+        "SELECT file_url FROM vine_community_library_support_files WHERE community_id = ?",
+        [communityId]
+      );
       const [scheduledPosts] = await db.query(
         "SELECT image_url FROM vine_scheduled_posts WHERE community_id = ?",
         [communityId]
@@ -232,6 +236,7 @@ export default function createVineCommunitySettingsRouter({
         ...submissionFiles.map((row) => row.file_url),
         ...libraryItems.map((row) => row.pdf_url),
         ...libraryVideos.map((row) => row.video_url),
+        ...librarySupportFiles.map((row) => row.file_url),
       ].filter(Boolean);
 
       if (postIds.length > 0) {
@@ -258,6 +263,7 @@ export default function createVineCommunitySettingsRouter({
 
       await db.query("DELETE FROM vine_community_library_video_comments WHERE community_id = ?", [communityId]).catch(() => {});
       await db.query("DELETE FROM vine_community_library_videos WHERE community_id = ?", [communityId]).catch(() => {});
+      await db.query("DELETE FROM vine_community_library_support_files WHERE community_id = ?", [communityId]).catch(() => {});
       await db.query("DELETE FROM vine_community_library WHERE community_id = ?", [communityId]).catch(() => {});
       await db.query("DELETE FROM vine_community_submission_files WHERE community_id = ?", [communityId]);
       await db.query("DELETE FROM vine_community_submission_drafts WHERE community_id = ?", [communityId]);
@@ -285,6 +291,7 @@ export default function createVineCommunitySettingsRouter({
         "community-progress",
         "community-library",
         "community-library-videos",
+        "community-library-support-files",
         "community-sessions",
         "community-attendance-session",
         "community-attendance-summary",

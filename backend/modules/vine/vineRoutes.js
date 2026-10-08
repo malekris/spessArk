@@ -7,7 +7,7 @@ import { sendVineWelcomeEmail, sendVineResetCodeEmail, sendVineVerificationCodeE
 import authMiddleware from "../../middleware/authMiddleware.js";
 import authOptional from "../authOptional.js";
 import { authenticate } from "../auth.js";
-import { uploadAvatarMemory, uploadBannerMemory } from "../../middleware/upload.js";
+import { uploadAvatarMemory, uploadBannerMemory, uploadCommunitySupportFile } from "../../middleware/upload.js";
 import { io } from "../../server.js"; 
 import { uploadPostCloudinary } from "../../middleware/upload.js";
 import cloudinary from "../../config/cloudinary.js";
@@ -4377,6 +4377,22 @@ const ensureCommunitySchema = async () => {
   `);
 
   await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_community_library_support_files (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      community_id INT NOT NULL,
+      uploader_id INT NOT NULL,
+      title VARCHAR(180) NOT NULL,
+      file_url TEXT NOT NULL,
+      file_name VARCHAR(255) NOT NULL,
+      file_mime VARCHAR(120) NOT NULL,
+      file_size BIGINT UNSIGNED NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_library_support_community_created (community_id, created_at),
+      INDEX idx_library_support_uploader (uploader_id)
+    )
+  `);
+
+  await db.query(`
     CREATE TABLE IF NOT EXISTS vine_community_library_videos (
       id INT AUTO_INCREMENT PRIMARY KEY,
       community_id INT NOT NULL,
@@ -7578,6 +7594,7 @@ router.use((req, res, next) => {
       db,
       authenticate,
       uploadPostCloudinary,
+      uploadCommunitySupportFile,
       ensureCommunitySchema,
       ensureVinePerformanceSchema,
       isCommunityMemberUser,

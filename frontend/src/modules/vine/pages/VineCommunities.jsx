@@ -33,6 +33,22 @@ const LIBRARY_DOCUMENT_TYPES = {
   xls: { extension: "xls", label: "XLS", tone: "sheet", action: "Download" },
   xlsx: { extension: "xlsx", label: "XLSX", tone: "sheet", action: "Download" },
 };
+const LIBRARY_SUPPORT_ACCEPT = [
+  ".zip",
+  ".7z",
+  ".rar",
+  "application/zip",
+  "application/x-zip-compressed",
+  "application/x-7z-compressed",
+  "application/vnd.rar",
+  "application/x-rar-compressed",
+].join(",");
+const LIBRARY_SUPPORT_TYPES = {
+  zip: { extension: "zip", label: "ZIP", tone: "zip" },
+  "7z": { extension: "7z", label: "7Z", tone: "seven" },
+  rar: { extension: "rar", label: "RAR", tone: "rar" },
+};
+const LIBRARY_SUPPORT_MAX_BYTES = 200 * 1024 * 1024;
 const COMMUNITY_MEMORY_WALL_TAG = "memorywall";
 const MEMORY_WALL_MAX_FILES = 30;
 const MEMORY_WALL_PROMPTS = ["Holiday check-in", "Photo drop", "Term memory"];
@@ -241,6 +257,21 @@ const getLibraryDocumentMeta = (source, fallbackToPdf = true) => {
   return fallbackToPdf ? LIBRARY_DOCUMENT_TYPES.pdf : null;
 };
 
+const getLibrarySupportMeta = (source) => {
+  const name = String(source?.file_name || source?.name || source?.file_url || "")
+    .split(/[?#]/)[0]
+    .toLowerCase();
+  const extension = name.match(/\.([a-z0-9]+)$/)?.[1] || "";
+  return LIBRARY_SUPPORT_TYPES[extension] || null;
+};
+
+const formatLibraryFileSize = (value) => {
+  const bytes = Number(value || 0);
+  if (!Number.isFinite(bytes) || bytes <= 0) return "Compressed folder";
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(bytes >= 10 * 1024 * 1024 ? 0 : 1)} MB`;
+};
+
 const openLibraryDocument = (item) => {
   const rawUrl = String(item?.file_url || item?.pdf_url || "").trim();
   if (!rawUrl) return;
@@ -357,6 +388,10 @@ export default function VineCommunities() {
   const [libraryTitle, setLibraryTitle] = useState("");
   const [libraryFile, setLibraryFile] = useState(null);
   const [isUploadingLibraryFile, setIsUploadingLibraryFile] = useState(false);
+  const [librarySupportFiles, setLibrarySupportFiles] = useState([]);
+  const [librarySupportTitle, setLibrarySupportTitle] = useState("");
+  const [librarySupportFile, setLibrarySupportFile] = useState(null);
+  const [isUploadingLibrarySupportFile, setIsUploadingLibrarySupportFile] = useState(false);
   const [submissionDrafts, setSubmissionDrafts] = useState({});
   const [submissionFiles, setSubmissionFiles] = useState({});
   const [savedDraftsMap, setSavedDraftsMap] = useState({});
@@ -406,6 +441,7 @@ export default function VineCommunities() {
   const communityBannerInputRef = useRef(null);
   const assignmentFileInputRef = useRef(null);
   const libraryFileInputRef = useRef(null);
+  const librarySupportFileInputRef = useRef(null);
   const [nowMs, setNowMs] = useState(Date.now());
   const canManageCommunitySettings = ["owner", "moderator"].includes(
     String(activeCommunity?.viewer_role || "").toLowerCase()
@@ -603,6 +639,7 @@ export default function VineCommunities() {
         setEvents([]);
         setMediaPosts([]);
         setLibraryItems([]);
+        setLibrarySupportFiles([]);
         setEClassLiveSession(null);
         setLibraryVideos([]);
         setCommunityNameDraft("");
@@ -612,7 +649,7 @@ export default function VineCommunities() {
 
       const isMember = Number(cData?.is_member) === 1 || isVineGuardianUser(currentUser);
 
-      const [pRes, mRes, rulesRes, questionsRes, eventsRes, mediaRes, assignmentsRes, libraryRes, eclassRes] = await Promise.all([
+      const [pRes, mRes, rulesRes, questionsRes, eventsRes, mediaRes, assignmentsRes, libraryRes, supportFilesRes, eclassRes] = await Promise.all([
         isMember
           ? fetch(
               `${API}/api/vine/communities/${encodeURIComponent(communitySlug)}/posts${nextTopic ? `?topic=${encodeURIComponent(nextTopic)}` : ""}`,
@@ -648,6 +685,11 @@ export default function VineCommunities() {
               headers: { Authorization: `Bearer ${token}` },
             })
           : Promise.resolve(null),
+        isMember
+          ? fetch(`${API}/api/vine/communities/${encodeURIComponent(communitySlug)}/library/support-files`, {
+              headers: { Authorization: `Bearer ${token}` },
+            })
+          : Promise.resolve(null),
         Number(cData?.is_member) === 1
           ? fetch(`${API}/api/vine/communities/${cData.id}/eclass/live`, {
               headers: { Authorization: `Bearer ${token}` },
@@ -663,6 +705,7 @@ export default function VineCommunities() {
       const mediaData = await mediaRes.json().catch(() => []);
       const assignmentsData = assignmentsRes ? await assignmentsRes.json().catch(() => []) : [];
       const libraryData = libraryRes ? await libraryRes.json().catch(() => []) : [];
+      const supportFilesData = supportFilesRes ? await supportFilesRes.json().catch(() => []) : [];
       const eclassData = eclassRes ? await eclassRes.json().catch(() => ({})) : {};
       setActiveCommunity(cData);
       setPosts(Array.isArray(pData) ? pData : []);
@@ -679,6 +722,7 @@ export default function VineCommunities() {
       const safeAssignments = sortCommunityAssignments(assignmentsData);
       setAssignments(safeAssignments);
       setLibraryItems(Array.isArray(libraryData) ? libraryData : []);
+      setLibrarySupportFiles(Array.isArray(supportFilesData) ? supportFilesData : []);
       setEClassLiveSession(eclassRes?.ok ? eclassData.session || null : null);
       const persisted = {};
       for (const a of safeAssignments) {
@@ -717,6 +761,7 @@ export default function VineCommunities() {
       setMediaPosts([]);
       setAssignments([]);
       setLibraryItems([]);
+      setLibrarySupportFiles([]);
       setEClassLiveSession(null);
       setLibraryVideos([]);
       setSavedDraftsMap({});
@@ -2220,6 +2265,97 @@ export default function VineCommunities() {
     }
   };
 
+  const selectLibrarySupportFile = (file) => {
+    if (!file) return false;
+    const supportMeta = getLibrarySupportMeta(file);
+    if (!supportMeta) {
+      alert("Choose a ZIP, 7Z, or RAR compressed folder");
+      return false;
+    }
+    if (Number(file.size || 0) > LIBRARY_SUPPORT_MAX_BYTES) {
+      alert("Support files can be up to 200 MB");
+      return false;
+    }
+    setLibrarySupportFile(file);
+    setLibrarySupportTitle((current) => {
+      if (current.trim()) return current;
+      return String(file.name || "Support files")
+        .replace(/\.(zip|7z|rar)$/i, "")
+        .replace(/[_-]+/g, " ")
+        .trim()
+        .slice(0, 180) || "Support files";
+    });
+    return true;
+  };
+
+  const pasteLibrarySupportFile = (event) => {
+    const file = Array.from(event.clipboardData?.files || [])[0] || null;
+    if (!file) return;
+    event.preventDefault();
+    selectLibrarySupportFile(file);
+  };
+
+  const dropLibrarySupportFile = (event) => {
+    event.preventDefault();
+    const file = Array.from(event.dataTransfer?.files || [])[0] || null;
+    if (file) selectLibrarySupportFile(file);
+  };
+
+  const uploadLibrarySupportFile = async () => {
+    if (!activeCommunity?.id || isUploadingLibrarySupportFile) return;
+    if (!librarySupportTitle.trim() || !librarySupportFile) {
+      alert("Add a title and choose a compressed folder");
+      return;
+    }
+    const supportMeta = getLibrarySupportMeta(librarySupportFile);
+    if (!supportMeta) {
+      alert("Choose a ZIP, 7Z, or RAR compressed folder");
+      return;
+    }
+    const uploadedTitle = librarySupportTitle.trim();
+    const uploadedFileName = String(librarySupportFile.name || `support-files.${supportMeta.extension}`);
+    setIsUploadingLibrarySupportFile(true);
+    try {
+      const formData = new FormData();
+      formData.append("title", uploadedTitle);
+      formData.append("support_file", librarySupportFile);
+      const res = await fetch(
+        `${API}/api/vine/communities/${activeCommunity.id}/library/support-files`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+          body: formData,
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || "Failed to upload support file");
+        return;
+      }
+      setLibrarySupportTitle("");
+      setLibrarySupportFile(null);
+      if (librarySupportFileInputRef.current) librarySupportFileInputRef.current.value = "";
+      await loadCommunityDetail(activeCommunity.slug, topicFilter);
+      showCommunitySuccessModal(
+        "Support pack added",
+        `“${uploadedTitle}” is now on the Support files shelf for community members to download.`,
+        {
+          kicker: "Library updated",
+          buttonLabel: "Done",
+          details: [
+            { label: "Archive", value: uploadedFileName },
+            { label: "Format", value: supportMeta.label },
+            { label: "Access", value: "Available to community members" },
+          ],
+        }
+      );
+    } catch {
+      alert("Failed to upload support file");
+    } finally {
+      setIsUploadingLibrarySupportFile(false);
+    }
+  };
+
   const deleteLibraryItem = async (itemId) => {
     if (!activeCommunity?.id || !itemId) return;
     const ok = window.confirm("Remove this document from the library?");
@@ -2236,6 +2372,29 @@ export default function VineCommunities() {
       await loadCommunityDetail(activeCommunity.slug, topicFilter);
     } catch {
       alert("Failed to remove document");
+    }
+  };
+
+  const deleteLibrarySupportFile = async (itemId) => {
+    if (!activeCommunity?.id || !itemId) return;
+    const ok = window.confirm("Remove this support file from the library?");
+    if (!ok) return;
+    try {
+      const res = await fetch(
+        `${API}/api/vine/communities/${activeCommunity.id}/library/support-files/${itemId}`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || "Failed to remove support file");
+        return;
+      }
+      await loadCommunityDetail(activeCommunity.slug, topicFilter);
+    } catch {
+      alert("Failed to remove support file");
     }
   };
 
@@ -5141,25 +5300,49 @@ export default function VineCommunities() {
                 )}
                 {activeTab === "library" && !showCommunityMembershipGate && (
                   <section className="community-settings-panel community-library-panel">
-                    <div className="assignment-top-row">
-                      <h4>Library</h4>
+                    <div className="community-library-titlebar">
+                      <div className="community-library-titlemark" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" focusable="false">
+                          <path d="M5 4.75A2.75 2.75 0 0 1 7.75 2h8.5A2.75 2.75 0 0 1 19 4.75v14.5A2.75 2.75 0 0 1 16.25 22h-8.5A2.75 2.75 0 0 1 5 19.25V4.75Z" />
+                          <path d="M8.5 6.5h7M8.5 10h7M8.5 13.5h4.75" />
+                        </svg>
+                      </div>
+                      <div className="community-library-titlecopy">
+                        <span>Community resource room</span>
+                        <h4>Library</h4>
+                      </div>
+                      <div className="community-library-access">
+                        <i aria-hidden="true" />
+                        Members only
+                      </div>
                     </div>
                     <div className="community-library-hero">
-                      <div>
+                      <div className="community-library-hero-copy">
+                        <span className="community-library-kicker">Curated for {activeCommunity.name}</span>
                         <strong>Study shelf</strong>
                         <p>Keep PDFs, Word documents, spreadsheets, and reference material together for learners.</p>
                       </div>
                       <div className="community-library-hero-stats">
-                        <span>{libraryItems.length} {libraryItems.length === 1 ? "file" : "files"}</span>
+                        <span>
+                          <strong>{libraryItems.length}</strong>
+                          <small>{libraryItems.length === 1 ? "Document" : "Documents"}</small>
+                        </span>
+                        <span>
+                          <strong>{librarySupportFiles.length}</strong>
+                          <small>{librarySupportFiles.length === 1 ? "Support pack" : "Support packs"}</small>
+                        </span>
                       </div>
                     </div>
                     <div className="library-stack">
-                      <div className="library-section">
+                      <div className="library-section library-document-section">
                         <div className="library-section-head">
                           <div>
                             <strong>Document shelf</strong>
                             <p>Past papers, handouts, Word files, and spreadsheets ready to open or download.</p>
                           </div>
+                          <span className="library-section-count">
+                            {libraryItems.length} {libraryItems.length === 1 ? "resource" : "resources"}
+                          </span>
                         </div>
                         {isCommunityOwner && (
                           <div className="library-upload-row">
@@ -5258,6 +5441,117 @@ export default function VineCommunities() {
                                     </button>
                                   )}
                                 </div>
+                              );
+                            })
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="library-section library-support-section">
+                        <div className="library-section-head">
+                          <div>
+                            <strong>Support files</strong>
+                            <p>Compressed folders for Windows—software packs, project assets, templates, and offline resources.</p>
+                          </div>
+                          <span className="library-support-shelf-count">
+                            {librarySupportFiles.length} {librarySupportFiles.length === 1 ? "archive" : "archives"}
+                          </span>
+                        </div>
+
+                        {isCommunityMod && (
+                          <div className="library-support-upload">
+                            <label className="library-upload-field">
+                              <span>Support pack title</span>
+                              <input
+                                type="text"
+                                placeholder="e.g. Windows practical files"
+                                value={librarySupportTitle}
+                                maxLength={180}
+                                onChange={(event) => setLibrarySupportTitle(event.target.value)}
+                              />
+                            </label>
+                            <div
+                              className={`library-support-dropzone ${librarySupportFile ? "has-file" : ""}`}
+                              tabIndex={0}
+                              role="button"
+                              onClick={() => librarySupportFileInputRef.current?.click()}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter" || event.key === " ") {
+                                  event.preventDefault();
+                                  librarySupportFileInputRef.current?.click();
+                                }
+                              }}
+                              onPaste={pasteLibrarySupportFile}
+                              onDragOver={(event) => event.preventDefault()}
+                              onDrop={dropLibrarySupportFile}
+                            >
+                              <div className="library-support-dropzone-icon" aria-hidden="true">🗜️</div>
+                              <div>
+                                <strong>{librarySupportFile ? librarySupportFile.name : "Choose, drop, or paste an archive"}</strong>
+                                <span>
+                                  {librarySupportFile
+                                    ? `${getLibrarySupportMeta(librarySupportFile)?.label || "Archive"} • ${formatLibraryFileSize(librarySupportFile.size)}`
+                                    : "ZIP, 7Z, or RAR • up to 200 MB"}
+                                </span>
+                              </div>
+                              <input
+                                ref={librarySupportFileInputRef}
+                                type="file"
+                                accept={LIBRARY_SUPPORT_ACCEPT}
+                                onChange={(event) => {
+                                  const file = event.target.files?.[0] || null;
+                                  if (!selectLibrarySupportFile(file)) event.target.value = "";
+                                }}
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              className="library-upload-submit library-support-submit"
+                              onClick={uploadLibrarySupportFile}
+                              disabled={isUploadingLibrarySupportFile || !librarySupportFile}
+                            >
+                              {isUploadingLibrarySupportFile ? "Uploading support pack..." : "Add to support shelf"}
+                            </button>
+                          </div>
+                        )}
+
+                        <div className="library-support-shelf">
+                          {librarySupportFiles.length === 0 ? (
+                            <div className="community-empty library-support-empty">
+                              No support packs yet. Compressed folders will sit here without changing the document shelf.
+                            </div>
+                          ) : (
+                            librarySupportFiles.map((item) => {
+                              const supportMeta = getLibrarySupportMeta(item) || LIBRARY_SUPPORT_TYPES.zip;
+                              const fileUrl = toCommunityMediaUrl(item.file_url);
+                              return (
+                                <article className="library-support-card" key={`library-support-${item.id}`}>
+                                  <div className={`library-support-spine library-support-spine-${supportMeta.tone}`}>
+                                    <span>{supportMeta.label}</span>
+                                  </div>
+                                  <div className="library-support-copy">
+                                    <strong>{item.title}</strong>
+                                    <span title={item.file_name}>{item.file_name}</span>
+                                    <small>
+                                      {formatLibraryFileSize(item.file_size)} • {item.uploader_display_name || item.uploader_username}
+                                    </small>
+                                  </div>
+                                  <div className="library-support-actions">
+                                    <a
+                                      href={fileUrl}
+                                      download={item.file_name || undefined}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                    >
+                                      Download
+                                    </a>
+                                    {isCommunityMod && (
+                                      <button type="button" onClick={() => deleteLibrarySupportFile(item.id)}>
+                                        Remove
+                                      </button>
+                                    )}
+                                  </div>
+                                </article>
                               );
                             })
                           )}

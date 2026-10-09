@@ -1,42 +1,22 @@
 /* =========================================================
    TEACHER MARKS ENTRY
-   Scoped to the selected-assignment score table so these
-   controls do not alter shared admin tables elsewhere.
+   A neutral score register scoped to the teacher dashboard.
 ========================================================= */
 
 .teacher-score-table-shell {
   margin-top: 0.2rem;
-  border: 1px solid rgba(125, 211, 252, 0.18);
-  border-radius: 8px;
-  background: #07111f;
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.04),
-    0 18px 42px rgba(2, 6, 23, 0.24);
-  scrollbar-color: rgba(56, 189, 248, 0.5) rgba(15, 23, 42, 0.7);
-  scrollbar-width: thin;
-}
-
-.teacher-score-table-shell::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-
-.teacher-score-table-shell::-webkit-scrollbar-track {
-  background: rgba(15, 23, 42, 0.74);
-}
-
-.teacher-score-table-shell::-webkit-scrollbar-thumb {
-  border: 2px solid rgba(15, 23, 42, 0.74);
-  border-radius: 8px;
-  background: rgba(56, 189, 248, 0.48);
+  border: 1px solid #475569;
+  border-radius: 4px;
+  background: transparent;
+  box-shadow: none;
 }
 
 .teacher-root .teacher-score-table {
   border-collapse: separate;
   border-spacing: 0;
   table-layout: fixed;
-  background: #081321;
-  color: #e5edf7;
+  background: #0f172a;
+  color: #e5e7eb;
 }
 
 .teacher-root .teacher-score-table *,
@@ -46,21 +26,20 @@
 }
 
 .teacher-root .teacher-score-table thead {
-  background: #101d2f;
+  background: #111827;
 }
 
 .teacher-root .teacher-score-table th {
-  height: 52px;
-  padding: 0.7rem 0.8rem;
-  border-right: 1px solid rgba(148, 163, 184, 0.12);
-  border-bottom: 1px solid rgba(125, 211, 252, 0.25);
-  background: #101d2f;
-  color: #a9bdd4;
-  font-size: 0.7rem;
-  font-weight: 900;
-  letter-spacing: 0.1em;
+  height: 46px;
+  padding: 0.55rem 0.7rem;
+  border-right: 1px solid #475569;
+  border-bottom: 1px solid #475569;
+  background: #111827;
+  color: #e5e7eb;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
   text-align: center;
-  transition: background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
 }
 
 .teacher-root .teacher-score-table th:not(.teacher-score-learner-heading):not(.teacher-score-average-heading) {
@@ -68,9 +47,9 @@
 }
 
 .teacher-root .teacher-score-table th.is-focused {
-  background: #12324a;
-  color: #e6f8ff;
-  box-shadow: inset 0 -3px 0 #38bdf8;
+  background: #111827;
+  color: #ffffff;
+  box-shadow: none;
 }
 
 .teacher-root .teacher-score-table th:first-child,
@@ -85,24 +64,17 @@
 
 .teacher-root .teacher-score-table tbody tr,
 .teacher-root .teacher-score-table tbody tr:nth-child(odd),
-.teacher-root .teacher-score-table tbody tr:nth-child(even) {
-  background: #081321;
-}
-
-.teacher-root .teacher-score-table tbody tr:nth-child(even) {
-  background: #0b1727;
-}
-
+.teacher-root .teacher-score-table tbody tr:nth-child(even),
 .teacher-root .teacher-score-table tbody tr:hover {
-  background: #0f2033;
+  background: #0f172a;
 }
 
 .teacher-root .teacher-score-table td {
-  height: 66px;
-  padding: 0.58rem 0.72rem;
-  border-right: 1px solid rgba(148, 163, 184, 0.1);
-  border-bottom: 1px solid rgba(148, 163, 184, 0.11);
-  color: #dbe7f3;
+  height: 56px;
+  padding: 0.45rem 0.6rem;
+  border-right: 1px solid #475569;
+  border-bottom: 1px solid #475569;
+  color: #e5e7eb;
   vertical-align: middle;
 }
 
@@ -110,10 +82,10 @@
   border-bottom: 0;
 }
 
-/* The learner column remains readable while the marks columns scroll. */
+/* Keep learner names visible while the score columns scroll horizontally. */
 .teacher-root .teacher-score-learner-heading {
-  border-right: 1px solid rgba(125, 211, 252, 0.25);
-  background: #101d2f;
+  border-right: 1px solid #475569;
+  background: #111827;
   text-align: left;
 }
 
@@ -121,61 +93,51 @@
   display: flex;
   align-items: center;
   gap: 0.55rem;
-  border-right: 1px solid rgba(125, 211, 252, 0.2);
-  background: #0d1a2a;
-  box-shadow: 8px 0 18px rgba(2, 6, 23, 0.16);
+  border-right: 1px solid #475569;
+  background: #0f172a;
+  box-shadow: none;
 }
 
-.teacher-root .teacher-score-row:nth-child(even) .teacher-score-learner-cell {
-  background: #101e30;
+/* Transparent on mobile so the existing compact flex layout is preserved. */
+.teacher-score-learner-content {
+  display: contents;
 }
 
+.teacher-root .teacher-score-row:nth-child(even) .teacher-score-learner-cell,
 .teacher-root .teacher-score-row:hover .teacher-score-learner-cell {
-  background: #13263b;
+  background: #0f172a;
 }
 
 .teacher-score-row-number {
   flex: 0 0 auto;
-  color: #5f7790;
+  color: #94a3b8;
   font-size: 0.65rem;
-  font-weight: 900;
-  letter-spacing: 0.06em;
+  font-weight: 700;
+  letter-spacing: 0.04em;
 }
 
 .teacher-score-learner-name {
   min-width: 0;
   overflow: hidden;
-  color: #f4f8fc;
+  color: #f8fafc;
   font-size: 0.82rem;
-  font-weight: 850;
+  font-weight: 750;
   line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .teacher-score-gender {
-  display: inline-flex;
-  min-width: 42px;
-  min-height: 28px;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  border-radius: 6px;
-  background: rgba(148, 163, 184, 0.07);
-  color: #b8c8da;
-  font-size: 0.68rem;
-  font-weight: 850;
-  letter-spacing: 0.05em;
+  color: #d1d5db;
+  font-size: 0.72rem;
+  font-weight: 700;
   text-transform: uppercase;
 }
 
-.teacher-root .teacher-score-entry-cell {
-  transition: background 0.18s ease, box-shadow 0.18s ease;
-}
-
+.teacher-root .teacher-score-entry-cell,
 .teacher-root .teacher-score-entry-cell.is-focused {
-  background: rgba(14, 116, 144, 0.11);
-  box-shadow: inset 1px 0 rgba(56, 189, 248, 0.13), inset -1px 0 rgba(56, 189, 248, 0.13);
+  background: #0f172a;
+  box-shadow: none;
 }
 
 .teacher-score-editor {
@@ -186,136 +148,101 @@
   min-width: 0;
 }
 
-/* Status select: native behavior, polished shell, unmistakable state. */
 .teacher-score-status-shell {
-  position: relative;
   display: block;
   min-width: 0;
 }
 
 .teacher-score-status-shell::before {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: 0.66rem;
-  z-index: 1;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #4ade80;
-  box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.12);
-  pointer-events: none;
-  transform: translateY(-50%);
+  content: none;
 }
 
-.teacher-score-status-shell.is-missed::before {
-  background: #fb7185;
-  box-shadow: 0 0 0 3px rgba(251, 113, 133, 0.12);
-}
-
-.teacher-score-status-select {
+.teacher-root .teacher-score-table .teacher-score-status-select {
   width: 100%;
-  min-height: 40px;
-  appearance: none;
-  border: 1px solid rgba(74, 222, 128, 0.24);
-  border-radius: 6px;
-  background-color: rgba(20, 83, 45, 0.18);
-  background-image:
-    linear-gradient(45deg, transparent 50%, #86efac 50%),
-    linear-gradient(135deg, #86efac 50%, transparent 50%);
-  background-position:
-    calc(100% - 14px) 50%,
-    calc(100% - 9px) 50%;
-  background-repeat: no-repeat;
-  background-size: 5px 5px, 5px 5px;
-  color: #dcfce7;
+  height: 34px;
+  min-height: 34px;
+  appearance: auto;
+  border: 1px solid #64748b;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #111827;
   cursor: pointer;
-  font-size: 0.75rem;
-  font-weight: 850;
+  font-size: 0.78rem;
+  font-weight: 650;
   outline: none;
-  padding: 0.55rem 1.55rem 0.55rem 1.42rem;
-  transition: border-color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease;
+  padding: 0.3rem 0.45rem;
 }
 
-.teacher-score-status-shell.is-missed .teacher-score-status-select {
-  border-color: rgba(251, 113, 133, 0.34);
-  background-color: rgba(127, 29, 29, 0.22);
-  background-image:
-    linear-gradient(45deg, transparent 50%, #fda4af 50%),
-    linear-gradient(135deg, #fda4af 50%, transparent 50%);
-  color: #ffe4e6;
-}
-
+.teacher-score-status-shell.is-missed .teacher-score-status-select,
 .teacher-score-status-select:hover {
-  border-color: rgba(125, 211, 252, 0.48);
+  border-color: #64748b;
+  background: #ffffff;
+  color: #111827;
 }
 
-.teacher-score-status-select:focus-visible {
-  border-color: #38bdf8;
-  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.16);
+.teacher-score-status-select:focus-visible,
+.teacher-score-input:focus-visible {
+  border-color: #334155;
+  outline: 2px solid #94a3b8;
+  outline-offset: 1px;
+  box-shadow: none;
 }
 
 .teacher-score-status-select option {
-  background: #101d2f;
-  color: #f8fafc;
+  background: #ffffff;
+  color: #111827;
 }
 
-.teacher-score-input {
+.teacher-root .teacher-score-table .teacher-score-input {
   width: 100%;
   min-width: 0;
-  min-height: 40px;
-  border: 1px solid rgba(148, 163, 184, 0.22);
-  border-radius: 6px;
-  background: #0b1727;
-  color: #f8fafc;
+  height: 34px;
+  min-height: 34px;
+  border: 1px solid #64748b;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #111827;
   font-size: 0.92rem;
-  font-weight: 900;
+  font-weight: 700;
   outline: none;
-  padding: 0.5rem 0.56rem;
+  padding: 0.3rem 0.45rem;
   text-align: center;
-  transition: border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
 }
 
 .teacher-score-input::placeholder {
-  color: #5f7790;
-  font-size: 0.68rem;
-  font-weight: 750;
+  color: #6b7280;
+  font-size: 0.72rem;
+  font-weight: 600;
 }
 
 .teacher-score-input:hover:not(:disabled) {
-  border-color: rgba(125, 211, 252, 0.46);
-  background: #0d1c2e;
-}
-
-.teacher-score-input:focus-visible {
-  border-color: #38bdf8;
-  background: #10243a;
-  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.16);
+  border-color: #475569;
+  background: #ffffff;
 }
 
 .teacher-score-input:disabled {
-  border-color: rgba(251, 113, 133, 0.14);
-  background: rgba(69, 10, 10, 0.18);
-  color: #718096;
+  border-color: #94a3b8;
+  background: #e5e7eb;
+  color: #64748b;
   cursor: not-allowed;
 }
 
 .teacher-score-input.is-invalid {
-  border-color: #fb7185;
-  background: rgba(127, 29, 29, 0.2);
-  box-shadow: 0 0 0 3px rgba(251, 113, 133, 0.12);
+  border-color: #dc2626;
+  background: #ffffff;
+  box-shadow: none;
 }
 
 .teacher-score-error {
   margin-top: 0.34rem;
-  color: #fecdd3;
+  color: #fca5a5;
   font-size: 0.7rem;
   font-weight: 700;
   line-height: 1.35;
 }
 
 .teacher-root .teacher-score-average-heading {
-  color: #c4b5fd;
+  color: #e5e7eb;
 }
 
 .teacher-score-average-cell {
@@ -323,23 +250,52 @@
 }
 
 .teacher-score-average-cell > span {
-  display: inline-flex;
-  min-width: 52px;
-  min-height: 34px;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid rgba(167, 139, 250, 0.24);
-  border-radius: 6px;
-  background: rgba(91, 33, 182, 0.12);
-  color: #ddd6fe;
-  font-size: 0.82rem;
-  font-weight: 900;
+  color: #f8fafc;
+  font-size: 0.88rem;
+  font-weight: 800;
+}
+
+@media (min-width: 901px) {
+  /* Desktop geometry stays generous without adding a visual theme. */
+  .teacher-root .teacher-score-learner-cell {
+    display: table-cell;
+  }
+
+  .teacher-score-learner-content {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 0.65rem;
+  }
+
+  .teacher-score-learner-name {
+    font-size: 0.9rem;
+  }
+
+  .teacher-root .teacher-score-entry-cell {
+    padding-right: 0.7rem;
+    padding-left: 0.7rem;
+  }
+
+  .teacher-score-editor {
+    grid-template-columns: minmax(116px, 1fr) minmax(82px, 0.68fr);
+    gap: 0.5rem;
+  }
+
+  .teacher-score-status-select {
+    font-size: 0.8rem;
+  }
+
+  .teacher-score-input {
+    min-width: 82px;
+    font-size: 0.88rem;
+  }
 }
 
 @media (max-width: 900px) {
   .teacher-root .teacher-score-table td {
-    height: 62px;
-    padding: 0.5rem 0.55rem;
+    height: 54px;
+    padding: 0.4rem 0.5rem;
   }
 
   .teacher-root .teacher-score-learner-cell {
@@ -353,14 +309,5 @@
 
   .teacher-score-learner-name {
     font-size: 0.75rem;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .teacher-root .teacher-score-table th,
-  .teacher-root .teacher-score-entry-cell,
-  .teacher-score-status-select,
-  .teacher-score-input {
-    transition: none;
   }
 }

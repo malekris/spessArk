@@ -1478,8 +1478,29 @@ useEffect(() => {
   // Keep O-Level table spacing stable across Term 1/2/3 (including Term 3 /80 mode).
   const effectiveColumnCount = selectedAssignment?.isAlevel ? 2 : 4;
   const learnersTableMinWidth = Math.max(1100, 320 + effectiveColumnCount * 190);
-  const learnerColWidth = 146;
-  const genderColWidth = 72;
+  const learnerColWidth = 230;
+  const genderColWidth = 100;
+  const scoreEntryColWidth = 240;
+  const averageColWidth = 110;
+  const desktopScoreColumnCount = renderAoiColumns.length + (hasExam80Column ? 1 : 0);
+  const desktopLearnersTableWidth = Math.max(
+    learnersTableMinWidth,
+    learnerColWidth + genderColWidth + desktopScoreColumnCount * scoreEntryColWidth + averageColWidth
+  );
+  const desktopScoreColumnStyle = isMobileTable
+    ? undefined
+    : {
+        width: `${scoreEntryColWidth}px`,
+        minWidth: `${scoreEntryColWidth}px`,
+        maxWidth: `${scoreEntryColWidth}px`,
+      };
+  const desktopAverageColumnStyle = isMobileTable
+    ? undefined
+    : {
+        width: `${averageColWidth}px`,
+        minWidth: `${averageColWidth}px`,
+        maxWidth: `${averageColWidth}px`,
+      };
   const learnerTableColumnCount = 2 + renderAoiColumns.length + 1 + (hasExam80Column ? 1 : 0);
   const currentCalendarYear = calendarSyncClock.getFullYear();
   const calendarMarksContext = getCalendarMarksContext(schoolCalendar, calendarSyncClock);
@@ -2915,7 +2936,13 @@ useEffect(() => {
                   className="teachers-table-wrapper teacher-score-table-shell"
                   style={{ maxWidth: "100%", maxHeight: "62vh", overflowX: "auto", overflowY: "auto", WebkitOverflowScrolling: "touch" }}
                 >
-                  <table className="teachers-table teacher-score-table" style={{ minWidth: `${learnersTableMinWidth}px` }}>
+                  <table
+                    className="teachers-table teacher-score-table"
+                    style={{
+                      minWidth: `${isMobileTable ? learnersTableMinWidth : desktopLearnersTableWidth}px`,
+                      width: isMobileTable ? undefined : `${desktopLearnersTableWidth}px`,
+                    }}
+                  >
                     <thead>
                       <tr>
                         <th
@@ -2933,6 +2960,7 @@ useEffect(() => {
                                   position: "sticky",
                                   left: 0,
                                   zIndex: 8,
+                                  width: `${learnerColWidth}px`,
                                   minWidth: `${learnerColWidth}px`,
                                   maxWidth: `${learnerColWidth}px`,
                                 }),
@@ -2948,6 +2976,7 @@ useEffect(() => {
                                   maxWidth: "78px",
                                 }
                               : {
+                                  width: `${genderColWidth}px`,
                                   minWidth: `${genderColWidth}px`,
                                   maxWidth: `${genderColWidth}px`,
                                 }),
@@ -2958,17 +2987,24 @@ useEffect(() => {
                         {renderAoiColumns.map((c) => (
                           <th
                             key={c}
-                            className={activeFocusColumn === c ? "is-focused" : ""}
+                            className={`teacher-score-entry-heading${activeFocusColumn === c ? " is-focused" : ""}`}
+                            style={desktopScoreColumnStyle}
                             onClick={() => setFocusedColumn(c)}
                             title={`Focus ${formatColumnLabel(c)} marks`}
                           >
                             {formatColumnLabel(c)}
                           </th>
                         ))}
-                        <th className="teacher-score-average-heading">Average</th>
+                        <th
+                          className="teacher-score-average-heading"
+                          style={desktopAverageColumnStyle}
+                        >
+                          Average
+                        </th>
                         {hasExam80Column && (
                           <th
-                            className={activeFocusColumn === "EXAM80" ? "is-focused" : ""}
+                            className={`teacher-score-entry-heading${activeFocusColumn === "EXAM80" ? " is-focused" : ""}`}
+                            style={desktopScoreColumnStyle}
                             onClick={() => setFocusedColumn("EXAM80")}
                             title="Focus examination marks"
                           >
@@ -3000,15 +3036,18 @@ useEffect(() => {
                                       position: "sticky",
                                       left: 0,
                                       zIndex: 4,
+                                      width: `${learnerColWidth}px`,
                                       minWidth: `${learnerColWidth}px`,
                                       maxWidth: `${learnerColWidth}px`,
                                     }),
                               }}
                             >
-                              <span className="teacher-score-row-number">
-                                {String(studentIndex + 1).padStart(2, "0")}
-                              </span>
-                              <span className="teacher-score-learner-name">{s.name}</span>
+                              <div className="teacher-score-learner-content">
+                                <span className="teacher-score-row-number">
+                                  {String(studentIndex + 1).padStart(2, "0")}
+                                </span>
+                                <span className="teacher-score-learner-name">{s.name}</span>
+                              </div>
                             </td>
                             <td
                               style={{
@@ -3018,6 +3057,7 @@ useEffect(() => {
                                       maxWidth: "78px",
                                     }
                                   : {
+                                      width: `${genderColWidth}px`,
                                       minWidth: `${genderColWidth}px`,
                                       maxWidth: `${genderColWidth}px`,
                                     }),
@@ -3036,6 +3076,7 @@ useEffect(() => {
                                 <td
                                   key={aoi}
                                   className={activeFocusColumn === aoi ? "teacher-score-entry-cell is-focused" : "teacher-score-entry-cell"}
+                                  style={desktopScoreColumnStyle}
                                 >
                                   <div className="teacher-score-editor">
                                     <span className={`teacher-score-status-shell ${status === "Missed" ? "is-missed" : "is-present"}`}>
@@ -3073,7 +3114,10 @@ useEffect(() => {
                               );
                             })}
 
-                            <td className="teacher-score-average-cell">
+                            <td
+                              className="teacher-score-average-cell"
+                              style={desktopAverageColumnStyle}
+                            >
                               <span>{calculateAverage(studentMarks[s.id], averageColumns)}</span>
                             </td>
                             {hasExam80Column && (() => {
@@ -3085,6 +3129,7 @@ useEffect(() => {
                               return (
                                 <td
                                   className={activeFocusColumn === "EXAM80" ? "teacher-score-entry-cell is-focused" : "teacher-score-entry-cell"}
+                                  style={desktopScoreColumnStyle}
                                 >
                                   <div className="teacher-score-editor">
                                     <span className={`teacher-score-status-shell ${status === "Missed" ? "is-missed" : "is-present"}`}>

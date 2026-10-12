@@ -370,6 +370,7 @@ function VinePostCard({
   const [revineSubmitting, setRevineSubmitting] = useState(false);
   const [open, setOpen] = useState(false);
   const [comments, setComments] = useState([]);
+  const [commentsLoading, setCommentsLoading] = useState(false);
   const composerAvatar = (() => {
     if (currentUserAvatar !== DEFAULT_AVATAR) return currentUserAvatar;
     const findAvatar = (nodes) => {
@@ -472,6 +473,7 @@ function VinePostCard({
   }
 
   const fetchComments = useCallback(async () => {
+    setCommentsLoading(true);
     try {
       const res = await fetch(
         `${API}/api/vine/posts/${post.id}/comments`,
@@ -498,6 +500,8 @@ function VinePostCard({
       console.error("Error fetching comments:", err);
       setComments([]);
       setCommentCount(0);
+    } finally {
+      setCommentsLoading(false);
     }
   }, [post.id, token]);
 
@@ -1018,26 +1022,26 @@ function VinePostCard({
   const sendComment = async (content, parent_comment_id = null, gifUrl = "") => {
     if (isCommunityInteractionLocked) {
       alert("Join this community to comment or revine.");
-      return;
+      return false;
     }
-    if (!content.trim() && !gifUrl) return;
+    if (!content.trim() && !gifUrl) return false;
     const finalContent = gifUrl
       ? `${content.trim()}${content.trim() ? "\n" : ""}${gifUrl}`
       : content;
-    const res = await fetch(`${API}/api/vine/posts/${post.id}/comments`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ content: finalContent, parent_comment_id }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      alert(data.message || "Failed to post comment");
-      return;
-    }
-    if (res.ok) {
+    try {
+      const res = await fetch(`${API}/api/vine/posts/${post.id}/comments`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ content: finalContent, parent_comment_id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.message || "Failed to post comment");
+        return false;
+      }
       if (!parent_comment_id) {
         setText("");
         setCommentGifUrl("");
@@ -1047,6 +1051,11 @@ function VinePostCard({
       } else {
         setCommentCount((prev) => prev + 1);
       }
+      return true;
+    } catch (error) {
+      console.error("Comment failed", error);
+      alert("Failed to post comment");
+      return false;
     }
   };
 
@@ -1402,6 +1411,21 @@ function VinePostCard({
         onRevine={handleRevine}
         onComments={() => {
           setOpen(true);
+        }}
+        comments={comments}
+        commentsLoading={commentsLoading}
+        composerAvatar={composerAvatar}
+        canComment={Boolean(token) && !isCommunityInteractionLocked}
+        commentDisabledMessage={
+          isCommunityInteractionLocked
+            ? "Join this community to comment."
+            : !token
+              ? "Log in to join the conversation."
+              : ""
+        }
+        onSubmitComment={(content) => sendComment(content)}
+        onCommentAuthorClick={(commentUsername) => {
+          if (commentUsername) navigate(`/vine/profile/${commentUsername}`);
         }}
         likeCount={canShowLikeCount ? postLikes : null}
         revineCount={revines}

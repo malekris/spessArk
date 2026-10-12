@@ -11,6 +11,7 @@ import { convertHeicFileToJpeg, isHeicLikeFile } from "../utils/heic";
 import { createClientRequestId } from "../../../utils/requestId";
 import { getCurrentVinePostSource } from "../utils/postSource";
 import VineEClassFeedRail from "../eclass/VineEClassFeedRail";
+import SuspensionCountdown from "../components/SuspensionCountdown";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const DAILY_PROMPTS = [
@@ -471,6 +472,12 @@ export default function VineFeed() {
   const [birthdaysLoading, setBirthdaysLoading] = useState(true);
   const [birthdaysExpanded, setBirthdaysExpanded] = useState(false);
   const [restriction, setRestriction] = useState(null);
+  const [restrictionLoading, setRestrictionLoading] = useState(true);
+  const [appealModalOpen, setAppealModalOpen] = useState(false);
+  const [appealMessage, setAppealMessage] = useState("");
+  const [appealSubmitting, setAppealSubmitting] = useState(false);
+  const [appealError, setAppealError] = useState("");
+  const [appealSent, setAppealSent] = useState(false);
   const [myCommunities, setMyCommunities] = useState([]);
   const [communityId, setCommunityId] = useState("");
   const [statusRail, setStatusRail] = useState([]);
@@ -740,7 +747,7 @@ export default function VineFeed() {
   }, [posts, handledDeepLink]);
 
   useEffect(() => {
-    if (!targetPostId || isNewsTab || feedLoading) return;
+    if (restrictionLoading || restriction || !targetPostId || isNewsTab || feedLoading) return;
     if (posts.some((row) => String(row?.id) === String(targetPostId))) return;
 
     const targetKey = `${targetPostId}:${targetCommentId || ""}`;
@@ -776,10 +783,10 @@ export default function VineFeed() {
 
     resolveNewsLane();
     return () => controller.abort();
-  }, [feedLoading, isNewsTab, posts, setParams, targetCommentId, targetPostId, token]);
+  }, [feedLoading, isNewsTab, posts, restriction, restrictionLoading, setParams, targetCommentId, targetPostId, token]);
 
   useEffect(() => {
-    if (!targetPostId || isNewsTab || feedLoading) return;
+    if (restrictionLoading || restriction || !targetPostId || isNewsTab || feedLoading) return;
     if (posts.some((row) => String(row?.id) === String(targetPostId))) return;
 
     const injectKey = `${activeFeedTab}:${targetPostId}`;
@@ -811,7 +818,7 @@ export default function VineFeed() {
 
     injectTargetPost();
     return () => controller.abort();
-  }, [activeFeedTab, feedLoading, isNewsTab, posts, targetPostId, token]);
+  }, [activeFeedTab, feedLoading, isNewsTab, posts, restriction, restrictionLoading, targetPostId, token]);
 
   // ── Feed Loading + Polling ──────────────────────
   const loadFeed = useCallback(async (signal, { append = false, cursorOverride = null } = {}) => {
@@ -972,6 +979,8 @@ export default function VineFeed() {
     } catch (err) {
       if (err?.name === "AbortError") return;
       setRestriction(null);
+    } finally {
+      if (!signal?.aborted) setRestrictionLoading(false);
     }
   }, [token]);
 
@@ -1012,6 +1021,30 @@ export default function VineFeed() {
 
   useEffect(() => {
     const controller = new AbortController();
+    setRestrictionLoading(true);
+    loadRestrictions(controller.signal);
+    return () => controller.abort();
+  }, [loadRestrictions]);
+
+  useEffect(() => {
+    if (restrictionLoading) return undefined;
+    if (restriction) {
+      setPosts([]);
+      setSuggestedUsers([]);
+      setTrendingPosts([]);
+      setBirthdayRows({ today: [], upcoming: [] });
+      setStatusRail([]);
+      setFeedLoading(false);
+      setFeedLoadingMore(false);
+      setFeedHasMore(false);
+      setSuggestionsLoading(false);
+      setTrendingLoading(false);
+      setBirthdaysLoading(false);
+      setStatusRailLoading(false);
+      return undefined;
+    }
+
+    const controller = new AbortController();
     setFeedLoading(true);
     setFeedLoadingMore(false);
     feedNextCursorRef.current = null;
@@ -1024,7 +1057,6 @@ export default function VineFeed() {
     loadSuggestions(controller.signal);
     loadTrending(controller.signal);
     loadBirthdays(controller.signal);
-    loadRestrictions(controller.signal);
     loadMyCommunities(controller.signal);
     loadStatusRail(controller.signal);
 
@@ -1043,10 +1075,10 @@ export default function VineFeed() {
       clearInterval(interval);
       clearInterval(statusInterval);
     };
-  }, [isNewsTab, loadBirthdays, loadFeed, loadSuggestions, loadTrending, loadRestrictions, loadMyCommunities, loadStatusRail]);
+  }, [isNewsTab, loadBirthdays, loadFeed, loadSuggestions, loadTrending, loadMyCommunities, loadStatusRail, restriction, restrictionLoading]);
 
   useEffect(() => {
-    if (!token) return undefined;
+    if (!token || restrictionLoading || restriction) return undefined;
 
     let refreshTimer = null;
     const scheduleRefresh = ({ statuses = false, full = false } = {}) => {
@@ -1088,7 +1120,18 @@ export default function VineFeed() {
       window.removeEventListener("focus", handleWakeRefresh);
       document.removeEventListener("visibilitychange", handleWakeRefresh);
     };
-  }, [token, isNewsTab, loadFeed, loadTrending, loadSuggestions, loadBirthdays, loadRestrictions, loadMyCommunities, loadStatusRail]);
+  }, [token, isNewsTab, loadFeed, loadTrending, loadSuggestions, loadBirthdays, loadRestrictions, loadMyCommunities, loadStatusRail, restriction, restrictionLoading]);
+
+  useEffect(() => {
+    if (!restriction) return;
+    setGifPickerOpen(false);
+    setPollOpen(false);
+    setPresenceModalOpen(false);
+    setStatusComposerOpen(false);
+    setStatusViewerOpen(false);
+    setStatusViewsOpen(false);
+    setDesktopChatWindows([]);
+  }, [restriction]);
 
   useEffect(() => {
     if (!statusViewerOpen) return;
@@ -1236,13 +1279,15 @@ export default function VineFeed() {
   }, [statusMediaPreview]);
 
   useEffect(() => {
-    if (!statusComposerOpen && !statusViewerOpen && !statusViewsOpen) return;
+    if (!statusComposerOpen && !statusViewerOpen && !statusViewsOpen && !appealModalOpen) return;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
 
     const handleStatusEscape = (event) => {
       if (event.key !== "Escape") return;
-      if (statusViewsOpen) {
+      if (appealModalOpen) {
+        if (!appealSubmitting) setAppealModalOpen(false);
+      } else if (statusViewsOpen) {
         setStatusViewsOpen(false);
       } else if (statusComposerOpen) {
         setStatusComposerOpen(false);
@@ -1256,7 +1301,7 @@ export default function VineFeed() {
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", handleStatusEscape);
     };
-  }, [statusComposerOpen, statusViewerOpen, statusViewsOpen]);
+  }, [appealModalOpen, appealSubmitting, statusComposerOpen, statusViewerOpen, statusViewsOpen]);
 
   useEffect(() => {
     const q = mentionAnchor?.query;
@@ -1287,23 +1332,48 @@ export default function VineFeed() {
   }, [mentionAnchor?.query, token]);
 
 
-  const submitAppeal = async () => {
-    const message = window.prompt("Appeal to Guardian: explain your case");
-    if (!message || !message.trim()) return;
-    const res = await fetch(`${API}/api/vine/moderation/appeals`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ message: message.trim() }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      alert(data.message || "Appeal failed");
+  const openAppealModal = () => {
+    setAppealMessage("");
+    setAppealError("");
+    setAppealSent(false);
+    setAppealModalOpen(true);
+  };
+
+  const closeAppealModal = () => {
+    if (appealSubmitting) return;
+    setAppealModalOpen(false);
+  };
+
+  const submitAppeal = async (event) => {
+    event?.preventDefault();
+    const message = appealMessage.trim();
+    if (!message) {
+      setAppealError("Tell Guardian why this restriction should be reviewed.");
       return;
     }
-    alert("Appeal sent to Guardian");
+
+    setAppealSubmitting(true);
+    setAppealError("");
+    try {
+      const res = await fetch(`${API}/api/vine/moderation/appeals`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ message }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setAppealError(data.message || "Your appeal could not be sent. Please try again.");
+        return;
+      }
+      setAppealSent(true);
+    } catch {
+      setAppealError("Your appeal could not be sent. Check your connection and try again.");
+    } finally {
+      setAppealSubmitting(false);
+    }
   };
 
   const resetStatusComposer = () => {
@@ -1623,8 +1693,13 @@ export default function VineFeed() {
     fetchUnseenNotifications();
     fetchUnreadDMs();
 
+    const handleNotification = () => {
+      fetchUnseenNotifications();
+      loadRestrictions(notificationController.signal);
+    };
+
     // Socket listeners
-    socket.on("notification", fetchUnseenNotifications);
+    socket.on("notification", handleNotification);
     socket.on("notifications_seen", fetchUnseenNotifications);
     socket.on("dm_received", fetchUnreadDMs);
     socket.on("messages_seen", fetchUnreadDMs);
@@ -1632,12 +1707,12 @@ export default function VineFeed() {
     return () => {
       notificationController.abort();
       dmController.abort();
-      socket.off("notification", fetchUnseenNotifications);
+      socket.off("notification", handleNotification);
       socket.off("notifications_seen", fetchUnseenNotifications);
       socket.off("dm_received", fetchUnreadDMs);
       socket.off("messages_seen", fetchUnreadDMs);
     };
-  }, [token, viewerId]);
+  }, [token, viewerId, loadRestrictions]);
 
   useEffect(() => {
     if (!token) return;
@@ -2382,6 +2457,151 @@ export default function VineFeed() {
         </div>
       </nav>
 
+      {restrictionLoading && (
+        <main className="vine-suspension-gate vine-suspension-gate-loading" aria-live="polite">
+          <span className="vine-suspension-gate-spinner" aria-hidden="true" />
+          <strong>Checking Guardian access</strong>
+          <small>Your Vine access is being verified.</small>
+        </main>
+      )}
+
+      {!restrictionLoading && restriction && (
+        <main className="vine-suspension-gate" aria-labelledby="vine-suspension-title">
+          <div className="vine-suspension-gate-card">
+            <div className="vine-suspension-gate-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="34" height="34" fill="none">
+                <rect x="5" y="10" width="14" height="10" rx="3" stroke="currentColor" strokeWidth="1.8" />
+                <path d="M8.5 10V7.5a3.5 3.5 0 0 1 7 0V10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                <path d="M12 14v2.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+              </svg>
+            </div>
+            <span className="vine-suspension-gate-kicker">Guardian restriction</span>
+            <h1 id="vine-suspension-title">You have been Suspended</h1>
+            <p>
+              Posts, Vine News, statuses, likes, comments, revines, and messaging stay unavailable
+              until this restriction ends.
+            </p>
+
+            {restriction.reason ? (
+              <div className="vine-suspension-reason">
+                <span>Reason</span>
+                <strong>{restriction.reason}</strong>
+              </div>
+            ) : null}
+
+            <div className="vine-suspension-release">
+              <span>{restriction.ends_at ? "Access returns in" : "Restriction period"}</span>
+              <SuspensionCountdown
+                suspension={restriction}
+                onExpire={() => {
+                  setRestrictionLoading(true);
+                  const controller = new AbortController();
+                  loadRestrictions(controller.signal);
+                }}
+              />
+            </div>
+
+            <button type="button" className="vine-suspension-appeal" onClick={openAppealModal}>
+              Appeal to Guardian
+            </button>
+            <small className="vine-suspension-gate-note">
+              Your top navigation remains available for account access and Guardian notices.
+            </small>
+          </div>
+        </main>
+      )}
+
+      {appealModalOpen && (
+        <div className="vine-appeal-backdrop" onMouseDown={closeAppealModal}>
+          <section
+            className={`vine-appeal-modal ${appealSent ? "is-sent" : ""}`.trim()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="vine-appeal-title"
+            aria-describedby="vine-appeal-description"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="vine-appeal-close"
+              aria-label="Close appeal window"
+              onClick={closeAppealModal}
+              disabled={appealSubmitting}
+            >
+              ×
+            </button>
+
+            {appealSent ? (
+              <div className="vine-appeal-success" role="status">
+                <span className="vine-appeal-success-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="34" height="34" fill="none">
+                    <path d="m5 12.5 4.3 4.3L19 7" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </span>
+                <span className="vine-appeal-kicker">Appeal received</span>
+                <h2 id="vine-appeal-title">Guardian will review your case</h2>
+                <p id="vine-appeal-description">
+                  Your explanation was sent successfully. You will receive a Vine notification when Guardian responds.
+                </p>
+                <button type="button" className="vine-appeal-primary" onClick={closeAppealModal}>
+                  Done
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={submitAppeal}>
+                <div className="vine-appeal-heading">
+                  <span className="vine-appeal-heading-icon" aria-hidden="true">G</span>
+                  <div>
+                    <span className="vine-appeal-kicker">Guardian review</span>
+                    <h2 id="vine-appeal-title">Appeal your suspension</h2>
+                  </div>
+                </div>
+                <p id="vine-appeal-description" className="vine-appeal-intro">
+                  Explain clearly why the restriction should be reconsidered. Guardian will see this message with your account details.
+                </p>
+
+                {restriction?.reason ? (
+                  <div className="vine-appeal-restriction">
+                    <span>Current reason</span>
+                    <strong>{restriction.reason}</strong>
+                  </div>
+                ) : null}
+
+                <label className="vine-appeal-field">
+                  <span>Your appeal</span>
+                  <textarea
+                    autoFocus
+                    value={appealMessage}
+                    maxLength={1000}
+                    rows={7}
+                    placeholder="Tell Guardian what happened and why your account should be restored…"
+                    onChange={(event) => {
+                      setAppealMessage(event.target.value);
+                      if (appealError) setAppealError("");
+                    }}
+                    disabled={appealSubmitting}
+                  />
+                  <small>{appealMessage.length}/1000</small>
+                </label>
+
+                {appealError ? <div className="vine-appeal-error" role="alert">{appealError}</div> : null}
+
+                <div className="vine-appeal-actions">
+                  <button type="button" className="vine-appeal-secondary" onClick={closeAppealModal} disabled={appealSubmitting}>
+                    Cancel
+                  </button>
+                  <button type="submit" className="vine-appeal-primary" disabled={appealSubmitting || !appealMessage.trim()}>
+                    {appealSubmitting ? "Sending appeal…" : "Send appeal"}
+                  </button>
+                </div>
+                <small className="vine-appeal-privacy">One clear appeal is enough. Guardian reviews it privately.</small>
+              </form>
+            )}
+          </section>
+        </div>
+      )}
+
+      {!restrictionLoading && !restriction && (
       <div className="vine-feed-main-shell">
         <aside className="vine-desktop-dm-sidebar" aria-label="Desktop chats">
           <div className="vine-desktop-dm-panel">
@@ -2563,15 +2783,6 @@ export default function VineFeed() {
           <div className="hashtag-filter-banner">
             Showing posts for <strong>#{targetTag}</strong>
             <button onClick={() => navigate("/vine/feed")}>Clear</button>
-          </div>
-        )}
-        {restriction && (
-          <div className="suspension-banner">
-            <div className="suspension-banner-text">
-              Account restricted from likes/comments.
-              {restriction.reason ? ` Reason: ${restriction.reason}` : ""}
-            </div>
-            <button onClick={submitAppeal}>Appeal to Guardian</button>
           </div>
         )}
         <div className="vine-feed-switcher" role="tablist" aria-label="Feed tabs">
@@ -3438,8 +3649,9 @@ export default function VineFeed() {
         </div>
       </aside>
       </div>
+      )}
 
-      {desktopDmEnabled && desktopChatWindows.length > 0 && (
+      {!restrictionLoading && !restriction && desktopDmEnabled && desktopChatWindows.length > 0 && (
         <div className="vine-desktop-chat-dock" aria-label="Desktop chat windows">
           {desktopMinimizedWindows.length > 0 && (
             <div className="vine-desktop-chat-tabs">

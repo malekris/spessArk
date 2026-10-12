@@ -23,6 +23,13 @@ export default function ImageCarousel({
   timeLabel,
   caption,
   layout = "carousel",
+  comments = null,
+  commentsLoading = false,
+  composerAvatar = "",
+  canComment = true,
+  commentDisabledMessage = "",
+  onSubmitComment,
+  onCommentAuthorClick,
 }) {
   const isVideoUrl = (src) => {
     const s = String(src || "");
@@ -60,6 +67,9 @@ export default function ImageCarousel({
   const [viewerOpen, setViewerOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [pseudoFullscreen, setPseudoFullscreen] = useState(false);
+  const [viewerCommentsOpen, setViewerCommentsOpen] = useState(false);
+  const [viewerCommentDraft, setViewerCommentDraft] = useState("");
+  const [viewerCommentSubmitting, setViewerCommentSubmitting] = useState(false);
 
   // ── Handlers ─────────────────────────────────────
   const handleScroll = () => {
@@ -83,7 +93,13 @@ export default function ImageCarousel({
     src.startsWith("http") ? src : `${ORIGIN}${src}`;
   const openViewerAt = (targetIndex) => {
     setCurrentIndex(targetIndex);
+    setViewerCommentsOpen(false);
     setViewerOpen(true);
+  };
+  const closeViewer = () => {
+    setViewerOpen(false);
+    setViewerCommentsOpen(false);
+    setViewerCommentDraft("");
   };
   const showPrev = (event) => {
     event.stopPropagation();
@@ -160,6 +176,68 @@ export default function ImageCarousel({
   
   // ── Render ───────────────────────────────────────
   const isSingle = media.length === 1;
+  const supportsViewerComments = Array.isArray(comments) && typeof onSubmitComment === "function";
+  const formatCommentTime = (value) => {
+    const timestamp = new Date(String(value || "").replace(" ", "T")).getTime();
+    if (!Number.isFinite(timestamp)) return "";
+    const elapsedSeconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+    if (elapsedSeconds < 60) return "Just now";
+    if (elapsedSeconds < 3600) return `${Math.floor(elapsedSeconds / 60)}m`;
+    if (elapsedSeconds < 86400) return `${Math.floor(elapsedSeconds / 3600)}h`;
+    return new Date(timestamp).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  };
+  const renderViewerComment = (comment, depth = 0) => (
+    <div
+      className={`viewer-comment-thread ${depth > 0 ? "is-reply" : ""}`}
+      key={comment.id}
+    >
+      <article className="viewer-comment-row">
+        <button
+          type="button"
+          className="viewer-comment-avatar"
+          onClick={() => onCommentAuthorClick?.(comment.username)}
+          aria-label={`View ${comment.display_name || comment.username || "user"}'s profile`}
+        >
+          <img
+            src={comment.avatar_url || "/default-avatar.png"}
+            alt=""
+            onError={(event) => {
+              event.currentTarget.src = "/default-avatar.png";
+            }}
+          />
+        </button>
+        <div className="viewer-comment-copy">
+          <button
+            type="button"
+            className="viewer-comment-author"
+            onClick={() => onCommentAuthorClick?.(comment.username)}
+          >
+            {comment.display_name || comment.username || "Vine user"}
+            {Number(comment.is_verified) === 1 ? <span aria-label="Verified">✓</span> : null}
+          </button>
+          <p>{comment.content}</p>
+          <time>{formatCommentTime(comment.created_at || comment.sort_time)}</time>
+        </div>
+      </article>
+      {Array.isArray(comment.replies) && comment.replies.length > 0 ? (
+        <div className="viewer-comment-replies">
+          {comment.replies.map((reply) => renderViewerComment(reply, depth + 1))}
+        </div>
+      ) : null}
+    </div>
+  );
+  const submitViewerComment = async (event) => {
+    event.preventDefault();
+    const content = viewerCommentDraft.trim();
+    if (!content || viewerCommentSubmitting || !canComment) return;
+    setViewerCommentSubmitting(true);
+    try {
+      const posted = await onSubmitComment?.(content);
+      if (posted !== false) setViewerCommentDraft("");
+    } finally {
+      setViewerCommentSubmitting(false);
+    }
+  };
 
   return (
     <div
@@ -225,7 +303,7 @@ export default function ImageCarousel({
                           disablePictureInPicture
                           playsInline
                           preload={isCarouselVisible && i === currentIndex ? "metadata" : "none"}
-                          onClick={() => setViewerOpen(true)}
+                          onClick={() => openViewerAt(i)}
                         />
                       ) : (
                         <button
@@ -261,7 +339,7 @@ export default function ImageCarousel({
                         loading={i === 0 ? "eager" : "lazy"}
                         decoding="async"
                         fetchPriority={i === 0 ? "high" : "low"}
-                        onClick={() => setViewerOpen(true)}
+                        onClick={() => openViewerAt(i)}
                       />
                     )
                   ) : (
@@ -298,15 +376,15 @@ export default function ImageCarousel({
       {viewerOpen &&
         createPortal(
           <div
-            className={`image-viewer-overlay ${(isFullscreen || pseudoFullscreen) ? "fullscreen" : ""}`}
-            onClick={() => setViewerOpen(false)}
+            className={`image-viewer-overlay ${(isFullscreen || pseudoFullscreen) ? "fullscreen" : ""} ${viewerCommentsOpen ? "viewer-comments-visible" : ""}`}
+            onClick={closeViewer}
             ref={viewerRef}
           >
             <button
               className="viewer-close"
               onClick={(e) => {
                 e.stopPropagation();
-                setViewerOpen(false);
+                closeViewer();
               }}
             >
               ✕
@@ -382,7 +460,20 @@ export default function ImageCarousel({
                   {userLiked ? "❤️" : "🤍"}
                   {likeCount !== null && likeCount !== undefined && ` ${likeCount}`}
                 </button>
-                <button className="viewer-action" onClick={() => onComments?.()}>
+                <button
+                  className={`viewer-action ${viewerCommentsOpen ? "active-comment" : ""}`}
+                  aria-expanded={viewerCommentsOpen}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    if (!supportsViewerComments) {
+                      onComments?.();
+                      return;
+                    }
+                    const nextOpen = !viewerCommentsOpen;
+                    setViewerCommentsOpen(nextOpen);
+                    if (nextOpen) onComments?.();
+                  }}
+                >
                   💬 {commentCount ?? 0}
                 </button>
                 <button
@@ -393,6 +484,68 @@ export default function ImageCarousel({
                 </button>
               </div>
             </div>
+
+            {viewerCommentsOpen && supportsViewerComments ? (
+              <aside className="viewer-comments-drawer" onClick={(event) => event.stopPropagation()}>
+                <header className="viewer-comments-header">
+                  <div>
+                    <span>Conversation</span>
+                    <strong>Comments</strong>
+                  </div>
+                  <div className="viewer-comments-header-actions">
+                    <span>{commentCount ?? 0}</span>
+                    <button
+                      type="button"
+                      onClick={() => setViewerCommentsOpen(false)}
+                      aria-label="Close comments"
+                    >
+                      ×
+                    </button>
+                  </div>
+                </header>
+
+                <div className="viewer-comments-list">
+                  {commentsLoading ? (
+                    <div className="viewer-comments-state">Loading comments…</div>
+                  ) : comments.length > 0 ? (
+                    comments.map((comment) => renderViewerComment(comment))
+                  ) : (
+                    <div className="viewer-comments-state">
+                      <span aria-hidden="true">💬</span>
+                      <strong>Start the conversation</strong>
+                      <p>Be the first to comment on this post.</p>
+                    </div>
+                  )}
+                </div>
+
+                {commentDisabledMessage ? (
+                  <div className="viewer-comments-disabled">{commentDisabledMessage}</div>
+                ) : null}
+
+                <form className="viewer-comment-composer" onSubmit={submitViewerComment}>
+                  <img
+                    src={composerAvatar || "/default-avatar.png"}
+                    alt=""
+                    onError={(event) => {
+                      event.currentTarget.src = "/default-avatar.png";
+                    }}
+                  />
+                  <textarea
+                    value={viewerCommentDraft}
+                    onChange={(event) => setViewerCommentDraft(event.target.value.slice(0, 5000))}
+                    placeholder={canComment ? "Write a comment…" : "Comments unavailable"}
+                    rows="1"
+                    disabled={!canComment || viewerCommentSubmitting}
+                  />
+                  <button
+                    type="submit"
+                    disabled={!canComment || !viewerCommentDraft.trim() || viewerCommentSubmitting}
+                  >
+                    {viewerCommentSubmitting ? "Posting…" : "Post"}
+                  </button>
+                </form>
+              </aside>
+            ) : null}
           </div>,
           document.body
         )}

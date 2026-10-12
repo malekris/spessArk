@@ -455,7 +455,9 @@ export default function VineCallLayer() {
           ? "User is already on a call"
           : payload.reason === "offline"
             ? "User is offline. Missed call notification sent"
-            : "Call declined"
+            : payload.reason === "suspended"
+              ? "Calling is paused during your Guardian restriction"
+              : "Call declined"
       );
     };
 

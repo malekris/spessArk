@@ -2912,6 +2912,442 @@ body:has(.vine-feed-container) {
   cursor: pointer;
 }
 
+.vine-suspension-gate {
+  position: relative;
+  display: grid;
+  min-height: calc(100vh - 112px);
+  place-items: center;
+  padding: clamp(28px, 7vw, 82px) 18px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 18% 14%, rgba(18, 164, 114, 0.15), transparent 30rem),
+    radial-gradient(circle at 88% 20%, rgba(234, 177, 62, 0.14), transparent 25rem),
+    linear-gradient(150deg, #edf9f3 0%, #f8fcfa 52%, #f2f8f5 100%);
+}
+
+.vine-suspension-gate::before,
+.vine-suspension-gate::after {
+  position: absolute;
+  content: "";
+  pointer-events: none;
+  border-radius: 999px;
+}
+
+.vine-suspension-gate::before {
+  width: 260px;
+  height: 260px;
+  top: 8%;
+  left: -150px;
+  border: 40px solid rgba(8, 119, 83, 0.055);
+}
+
+.vine-suspension-gate::after {
+  width: 190px;
+  height: 190px;
+  right: -85px;
+  bottom: 3%;
+  background: rgba(225, 170, 57, 0.08);
+}
+
+.vine-suspension-gate-card {
+  position: relative;
+  z-index: 1;
+  width: min(620px, 100%);
+  padding: clamp(28px, 6vw, 50px);
+  border: 1px solid rgba(9, 108, 78, 0.17);
+  border-radius: 30px;
+  background:
+    linear-gradient(140deg, rgba(255, 255, 255, 0.98), rgba(247, 253, 250, 0.94));
+  box-shadow: 0 30px 80px rgba(8, 72, 53, 0.15);
+  color: #0a3c2d;
+  text-align: center;
+}
+
+.vine-suspension-gate-card::before {
+  position: absolute;
+  inset: 0;
+  content: "";
+  pointer-events: none;
+  border-radius: inherit;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82);
+}
+
+.vine-suspension-gate-icon {
+  display: grid;
+  width: 72px;
+  height: 72px;
+  margin: 0 auto 18px;
+  place-items: center;
+  border: 1px solid rgba(161, 97, 15, 0.18);
+  border-radius: 23px;
+  background: linear-gradient(145deg, #fff7df, #f8e7b6);
+  color: #8d5b11;
+  box-shadow: 0 14px 28px rgba(141, 91, 17, 0.14);
+}
+
+.vine-suspension-gate-kicker {
+  display: block;
+  margin-bottom: 8px;
+  color: #9b6515;
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.vine-suspension-gate-card h1 {
+  margin: 0;
+  color: #b3132a;
+  font-size: clamp(1.75rem, 5vw, 2.5rem);
+  font-weight: 950;
+  line-height: 1.08;
+  letter-spacing: -0.045em;
+  text-shadow: 0 8px 24px rgba(179, 19, 42, 0.18);
+}
+
+.vine-suspension-gate-card > p {
+  max-width: 500px;
+  margin: 14px auto 24px;
+  color: #5f756d;
+  font-size: 0.95rem;
+  line-height: 1.65;
+}
+
+.vine-suspension-reason {
+  display: grid;
+  gap: 5px;
+  margin: 0 0 13px;
+  padding: 14px 16px;
+  border: 1px solid rgba(155, 101, 21, 0.17);
+  border-radius: 16px;
+  background: #fffaf0;
+  text-align: left;
+}
+
+.vine-suspension-reason > span,
+.vine-suspension-release > span {
+  color: #94713b;
+  font-size: 0.64rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.vine-suspension-reason > strong {
+  color: #59411d;
+  font-size: 0.86rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.vine-suspension-release {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding: 13px 15px;
+  border: 1px solid rgba(8, 119, 83, 0.15);
+  border-radius: 16px;
+  background: #f0faf5;
+}
+
+.vine-suspension-release .suspension-countdown {
+  border-color: rgba(8, 119, 83, 0.17);
+  background: #fff;
+  color: #087553;
+}
+
+.vine-suspension-appeal {
+  width: 100%;
+  min-height: 48px;
+  border: 1px solid #075e45;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #08694d, #07513d);
+  color: #fff;
+  font: inherit;
+  font-weight: 850;
+  cursor: pointer;
+  box-shadow: 0 12px 24px rgba(7, 81, 61, 0.18);
+  transition: transform 160ms ease, box-shadow 160ms ease;
+}
+
+.vine-suspension-appeal:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 15px 28px rgba(7, 81, 61, 0.24);
+}
+
+.vine-appeal-backdrop {
+  position: fixed;
+  z-index: 5200;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(3, 23, 17, 0.66);
+  backdrop-filter: blur(10px);
+}
+
+.vine-appeal-modal {
+  position: relative;
+  width: min(590px, 100%);
+  max-height: min(760px, calc(100vh - 32px));
+  padding: clamp(24px, 5vw, 36px);
+  overflow-y: auto;
+  border: 1px solid rgba(16, 129, 92, 0.2);
+  border-radius: 26px;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(230, 177, 61, 0.12), transparent 18rem),
+    linear-gradient(145deg, #ffffff, #f7fcf9);
+  color: #0a3c2d;
+  box-shadow: 0 34px 90px rgba(1, 32, 23, 0.32);
+}
+
+.vine-appeal-modal form { display: grid; gap: 18px; }
+
+.vine-appeal-close {
+  position: absolute;
+  z-index: 2;
+  top: 16px;
+  right: 16px;
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgba(8, 105, 77, 0.15);
+  border-radius: 50%;
+  background: rgba(239, 249, 244, 0.92);
+  color: #315e4e;
+  font: inherit;
+  font-size: 1.35rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.vine-appeal-close:disabled { cursor: not-allowed; opacity: 0.5; }
+
+.vine-appeal-heading {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding-right: 40px;
+}
+
+.vine-appeal-heading-icon {
+  display: grid;
+  width: 49px;
+  height: 49px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid rgba(12, 132, 92, 0.17);
+  border-radius: 15px;
+  background: linear-gradient(145deg, #e0f7eb, #f3fbf7);
+  color: #087452;
+  font-size: 1rem;
+  font-weight: 950;
+  box-shadow: 0 9px 20px rgba(8, 116, 82, 0.11);
+}
+
+.vine-appeal-heading > div { min-width: 0; }
+
+.vine-appeal-kicker {
+  display: block;
+  margin-bottom: 4px;
+  color: #9a681c;
+  font-size: 0.66rem;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.vine-appeal-modal h2 {
+  margin: 0;
+  color: #083d2d;
+  font-size: clamp(1.35rem, 4vw, 1.8rem);
+  line-height: 1.15;
+  letter-spacing: -0.035em;
+}
+
+.vine-appeal-intro,
+.vine-appeal-success p {
+  margin: 0;
+  color: #637a71;
+  font-size: 0.88rem;
+  line-height: 1.6;
+}
+
+.vine-appeal-restriction {
+  display: grid;
+  gap: 5px;
+  padding: 13px 14px;
+  border: 1px solid rgba(160, 105, 22, 0.17);
+  border-radius: 14px;
+  background: #fffaf0;
+}
+
+.vine-appeal-restriction span,
+.vine-appeal-field > span {
+  color: #7d6350;
+  font-size: 0.67rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.vine-appeal-restriction strong {
+  color: #5c431f;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.vine-appeal-field {
+  position: relative;
+  display: grid;
+  gap: 8px;
+}
+
+.vine-appeal-field textarea {
+  width: 100%;
+  min-height: 168px;
+  padding: 15px 16px 30px;
+  resize: vertical;
+  border: 1px solid rgba(8, 105, 77, 0.22);
+  border-radius: 16px;
+  outline: none;
+  background: #fff;
+  color: #183e31;
+  font: inherit;
+  font-size: 0.92rem;
+  line-height: 1.55;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.vine-appeal-field textarea:focus {
+  border-color: #0b9368;
+  box-shadow: 0 0 0 4px rgba(11, 147, 104, 0.11);
+}
+
+.vine-appeal-field textarea::placeholder { color: #98aaa3; }
+
+.vine-appeal-field > small {
+  position: absolute;
+  right: 12px;
+  bottom: 9px;
+  color: #81958d;
+  font-size: 0.67rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.vine-appeal-error {
+  padding: 10px 12px;
+  border: 1px solid #f2b7bd;
+  border-radius: 12px;
+  background: #fff0f1;
+  color: #a92439;
+  font-size: 0.8rem;
+  font-weight: 750;
+}
+
+.vine-appeal-actions {
+  display: grid;
+  grid-template-columns: minmax(100px, 0.42fr) minmax(150px, 1fr);
+  gap: 10px;
+}
+
+.vine-appeal-actions button,
+.vine-appeal-success > button {
+  min-height: 46px;
+  padding: 0 16px;
+  border-radius: 13px;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.vine-appeal-primary {
+  border: 1px solid #075d44;
+  background: linear-gradient(135deg, #087554, #064a38);
+  color: #fff;
+  box-shadow: 0 10px 22px rgba(6, 74, 56, 0.17);
+}
+
+.vine-appeal-primary:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+  box-shadow: none;
+}
+
+.vine-appeal-secondary {
+  border: 1px solid rgba(8, 105, 77, 0.19);
+  background: #f2f9f5;
+  color: #315e4e;
+}
+
+.vine-appeal-privacy {
+  color: #81938c;
+  font-size: 0.68rem;
+  line-height: 1.45;
+  text-align: center;
+}
+
+.vine-appeal-success {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 28px 8px 8px;
+  text-align: center;
+}
+
+.vine-appeal-success-icon {
+  display: grid;
+  width: 68px;
+  height: 68px;
+  margin-bottom: 5px;
+  place-items: center;
+  border: 1px solid rgba(8, 135, 93, 0.18);
+  border-radius: 50%;
+  background: #e4f8ee;
+  color: #078057;
+  box-shadow: 0 13px 27px rgba(7, 128, 87, 0.13);
+}
+
+.vine-appeal-success p { max-width: 430px; margin-bottom: 10px; }
+.vine-appeal-success > button { width: min(280px, 100%); }
+
+.vine-suspension-gate-note {
+  display: block;
+  margin-top: 14px;
+  color: #7d9189;
+  font-size: 0.7rem;
+  line-height: 1.45;
+}
+
+.vine-suspension-gate-loading {
+  align-content: center;
+  gap: 7px;
+  color: #174c3b;
+  text-align: center;
+}
+
+.vine-suspension-gate-loading > small { color: #72877f; }
+
+.vine-suspension-gate-spinner {
+  width: 34px;
+  height: 34px;
+  margin-bottom: 5px;
+  border: 3px solid #cbe9dc;
+  border-top-color: #087553;
+  border-radius: 50%;
+  animation: vine-suspension-spin 700ms linear infinite;
+}
+
+@keyframes vine-suspension-spin {
+  to { transform: rotate(360deg); }
+}
+
 .suspension-banner {
   width: 100%;
   display: flex;
@@ -2930,8 +3366,48 @@ body:has(.vine-feed-container) {
 .suspension-banner-text {
   flex: 1 1 auto;
   min-width: 0;
+  display: grid;
+  gap: 3px;
   white-space: normal;
   line-height: 1.35;
+}
+
+.suspension-banner-text > strong {
+  color: #991b1b;
+  font-size: 0.92rem;
+}
+
+.suspension-banner-text > span {
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.suspension-release-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 3px;
+  color: #9a3412;
+}
+
+.suspension-countdown {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 4px 9px;
+  border: 1px solid rgba(220, 38, 38, 0.2);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.78);
+  color: #b91c1c;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.76rem;
+  font-weight: 900;
+  letter-spacing: 0.01em;
+}
+
+.suspension-countdown.indefinite {
+  color: #7c2d12;
 }
 
 .suspension-banner button {
@@ -7588,4 +8064,96 @@ body:has(.vine-news-feed) {
 @media (max-width:560px) {
   .vine-daily-prompt { grid-template-columns: 1fr auto; }
   .vine-daily-prompt > span { grid-column: 1 / -1; }
+}
+
+.theme-dark .vine-suspension-gate {
+  background:
+    radial-gradient(circle at 18% 14%, rgba(18, 164, 114, 0.12), transparent 30rem),
+    linear-gradient(150deg, #0c2019, #101d18 56%, #171d19);
+}
+
+.theme-dark .vine-suspension-gate-card {
+  border-color: rgba(113, 214, 173, 0.2);
+  background: linear-gradient(145deg, rgba(18, 46, 37, 0.98), rgba(17, 35, 29, 0.98));
+  color: #e9fff5;
+}
+
+.theme-dark .vine-suspension-gate-card h1 {
+  color: #ff6675;
+  text-shadow: 0 8px 28px rgba(255, 50, 72, 0.26);
+}
+.theme-dark .vine-suspension-gate-card > p,
+.theme-dark .vine-suspension-gate-note,
+.theme-dark .vine-suspension-gate-loading > small { color: #9ab5aa; }
+.theme-dark .vine-suspension-reason { border-color: rgba(226, 183, 92, 0.22); background: rgba(91, 64, 20, 0.26); }
+.theme-dark .vine-suspension-reason > strong { color: #f5dfb3; }
+.theme-dark .vine-suspension-release { border-color: rgba(88, 215, 161, 0.18); background: rgba(6, 76, 54, 0.28); }
+.theme-dark .vine-appeal-modal {
+  border-color: rgba(113, 214, 173, 0.2);
+  background: radial-gradient(circle at 100% 0%, rgba(175, 124, 30, 0.15), transparent 18rem), linear-gradient(145deg, #122e25, #101f1a);
+  color: #eafff6;
+}
+.theme-dark .vine-appeal-modal h2 { color: #eefff8; }
+.theme-dark .vine-appeal-intro,
+.theme-dark .vine-appeal-success p,
+.theme-dark .vine-appeal-privacy { color: #9bb4aa; }
+.theme-dark .vine-appeal-close { border-color: rgba(113, 214, 173, 0.18); background: #193c30; color: #d9f7ea; }
+.theme-dark .vine-appeal-restriction { border-color: rgba(226, 183, 92, 0.2); background: rgba(91, 64, 20, 0.28); }
+.theme-dark .vine-appeal-restriction strong { color: #f4dfb6; }
+.theme-dark .vine-appeal-field textarea { border-color: rgba(113, 214, 173, 0.22); background: #0d211b; color: #eafff6; }
+.theme-dark .vine-appeal-secondary { border-color: rgba(113, 214, 173, 0.2); background: #183a2f; color: #d9f7ea; }
+
+@media (max-width: 600px) {
+  .vine-suspension-gate {
+    min-height: calc(100vh - 142px);
+    padding: 28px 12px;
+  }
+
+  .vine-suspension-gate-card {
+    padding: 28px 20px;
+    border-radius: 23px;
+  }
+
+  .vine-suspension-gate-icon {
+    width: 62px;
+    height: 62px;
+    border-radius: 19px;
+  }
+
+  .vine-suspension-gate-card > p {
+    margin-bottom: 19px;
+    font-size: 0.87rem;
+  }
+
+  .vine-suspension-release {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .vine-suspension-release .suspension-countdown {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .vine-appeal-backdrop { padding: 10px; }
+
+  .vine-appeal-modal {
+    max-height: calc(100vh - 20px);
+    padding: 24px 18px;
+    border-radius: 22px;
+  }
+
+  .vine-appeal-heading { padding-right: 34px; }
+
+  .vine-appeal-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .vine-appeal-primary { grid-row: 1; }
+  .vine-appeal-secondary { grid-row: 2; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vine-suspension-appeal { transition: none; }
+  .vine-suspension-gate-spinner { animation-duration: 1.6s; }
 }

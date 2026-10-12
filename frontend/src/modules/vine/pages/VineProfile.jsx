@@ -5,6 +5,7 @@ import VinePostCard from "./VinePostCard";
 import ProfileDelights from "../components/ProfileDelights";
 import { convertHeicFileToJpeg, isHeicLikeFile } from "../utils/heic";
 import { resolveProfileTheme } from "../utils/profileThemes";
+import { createClientRequestId } from "../../../utils/requestId";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const DEFAULT_AVATAR = "/default-avatar.png";
@@ -1577,9 +1578,11 @@ export default function VineProfile() {
       return;
     }
 
+    const avatarRequestId = createClientRequestId("profile-picture");
     const uploadAvatarFile = async (file) => {
       const formData = new FormData();
       formData.append("avatar", file);
+      formData.append("client_request_id", avatarRequestId);
       const res = await fetch(`${API}/api/vine/users/avatar`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
@@ -1612,7 +1615,11 @@ export default function VineProfile() {
       setAvatarCropOpen(false);
       setAvatarCropSrc(null);
       setAvatarCropFile(null);
-      loadProfileHeader();
+      setPhotosLoaded(false);
+      await Promise.allSettled([
+        loadProfileHeader(),
+        loadProfilePosts({ reset: true }),
+      ]);
     } else {
       alert(result.data?.message || result.raw || "Avatar upload failed");
     }

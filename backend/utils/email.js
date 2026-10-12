@@ -397,7 +397,7 @@ export async function sendVineSuspensionEmail(email, username, durationLabel, re
         <div style="max-width:600px; margin:auto; background:white; padding:32px; border-radius:18px;">
           <h2 style="color:#991b1b;">Account Suspended</h2>
           <p>Hello ${username || "Viner"},</p>
-          <p>Your account has been suspended from liking and commenting by Vine Guardian.</p>
+          <p>Your feed and statuses have been paused by Vine Guardian. You cannot view or create posts, revine, like, comment, or send messages during the restriction.</p>
           <p><strong>Duration:</strong> ${durationLabel}</p>
           ${safeReason ? `<p><strong>Reason:</strong> ${safeReason}</p>` : ""}
           <p>You can submit an appeal from your Vine feed if you believe this was a mistake.</p>
@@ -421,7 +421,7 @@ export async function sendVineUnsuspensionEmail(email, username) {
           <h2 style="color:#14532d;">Account Restored</h2>
           <p>Hello ${username || "Viner"},</p>
           <p>Your suspension has been lifted by Vine Guardian.</p>
-          <p>You can now like and comment again. Please follow community guidelines moving forward.</p>
+          <p>Your feed, statuses, posting, interactions, and messaging access have been restored. Please follow community guidelines moving forward.</p>
           <p style="font-size:13px;color:#777;">SPESS VINE moderation system</p>
         </div>
       </div>

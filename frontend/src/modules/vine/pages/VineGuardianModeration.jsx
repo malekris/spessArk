@@ -4,6 +4,15 @@ import "./VineGuardianModeration.css";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 
+const moderationViews = [
+  { value: "posts", label: "Posts", mark: "P", description: "Review published posts and engagement." },
+  { value: "comments", label: "Comments", mark: "C", description: "Inspect replies and conversation activity." },
+  { value: "reports", label: "Reports", mark: "!", description: "Work through open community reports." },
+  { value: "appeals", label: "Appeals", mark: "A", description: "Review requests from restricted accounts." },
+  { value: "users", label: "Users", mark: "U", description: "Open profiles and manage restrictions." },
+  { value: "creators", label: "Creators", mark: "V", description: "Review creator activity and reach." },
+];
+
 const isGuardianUser = (user) => {
   if (!user) return false;
   if (Number(user.is_admin) === 1) return true;
@@ -32,6 +41,8 @@ export default function VineGuardianModeration() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [suspendDurationByKey, setSuspendDurationByKey] = useState({});
+  const activeView = moderationViews.find((view) => view.value === type) || moderationViews[0];
+  const isLiveQueue = type === "reports" || type === "appeals";
 
   const suspensionOptions = [
     { value: "day", label: "1 day" },
@@ -167,7 +178,7 @@ export default function VineGuardianModeration() {
     if (reportId) {
       setItems((prev) => prev.filter((x) => x.id !== reportId));
     }
-    alert("User suspended");
+    alert("User suspended. Feed, statuses, posts, interactions, and messages are now paused.");
   };
 
   const getDurationForKey = (key) => suspendDurationByKey[key] || "week";
@@ -201,7 +212,11 @@ export default function VineGuardianModeration() {
 
   const renderSuspendControl = ({ keyId, userId, reportId = null, reason = "" }) => (
     <div className="suspend-inline">
+      <span className="suspend-scope-label" title="Pauses the feed, statuses, posts, interactions, direct messages and group messages">
+        Feed · status · interactions · messages
+      </span>
       <select
+        aria-label="Suspension duration"
         value={getDurationForKey(keyId)}
         onChange={(e) => setDurationForKey(keyId, e.target.value)}
       >
@@ -229,41 +244,123 @@ export default function VineGuardianModeration() {
 
   return (
     <div className="guardian-mod-page">
-      <div className="guardian-mod-topbar">
-        <button onClick={() => navigate("/vine/guardian/analytics")}>Back to Analytics</button>
-        <h2>Guardian Moderation Drilldown</h2>
-      </div>
-
-      <div className="guardian-mod-filters">
-        <select value={type} onChange={(e) => setType(e.target.value)}>
-          <option value="posts">Posts</option>
-          <option value="comments">Comments</option>
-          <option value="reports">Reports</option>
-          <option value="appeals">Appeals</option>
-          <option value="users">Users</option>
-          <option value="creators">Creators</option>
-        </select>
-        {type !== "reports" && type !== "appeals" && (
-          <>
-            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-            <input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
-          </>
-        )}
-        {userFilter && (
-          <button type="button" className="guardian-user-filter" onClick={() => setUserFilter("")}>
-            User #{userFilter} ×
+      <div className="guardian-mod-shell">
+        <header className="guardian-mod-topbar">
+          <button
+            type="button"
+            className="guardian-mod-back"
+            onClick={() => navigate("/vine/guardian/analytics")}
+            aria-label="Back to Guardian Analytics"
+          >
+            <span aria-hidden="true">←</span>
+            <span>Analytics</span>
           </button>
+          <div className="guardian-mod-title-wrap">
+            <span className="guardian-mod-kicker">Guardian workspace</span>
+            <h1>Moderation drilldown</h1>
+            <p>Review activity, resolve reports, and manage account restrictions.</p>
+          </div>
+          <div className="guardian-mod-access" aria-label="Guardian tools active">
+            <span aria-hidden="true" />
+            Guardian tools active
+          </div>
+        </header>
+
+        <nav className="guardian-mod-view-tabs" aria-label="Moderation views">
+          {moderationViews.map((view) => (
+            <button
+              type="button"
+              key={view.value}
+              className={type === view.value ? "is-active" : ""}
+              aria-pressed={type === view.value}
+              onClick={() => setType(view.value)}
+            >
+              <span className="guardian-mod-tab-mark" aria-hidden="true">{view.mark}</span>
+              <span>{view.label}</span>
+            </button>
+          ))}
+        </nav>
+
+        <section className="guardian-mod-toolbar" aria-label="Drilldown filters">
+          <div className="guardian-mod-current-view">
+            <span className="guardian-mod-current-mark" aria-hidden="true">{activeView.mark}</span>
+            <span>
+              <small>Viewing</small>
+              <strong>{activeView.label}</strong>
+              <em>{activeView.description}</em>
+            </span>
+          </div>
+
+          <div className="guardian-mod-filters">
+            <label className="guardian-mod-mobile-view">
+              <span>View</span>
+              <select value={type} onChange={(e) => setType(e.target.value)}>
+                {moderationViews.map((view) => (
+                  <option key={view.value} value={view.value}>{view.label}</option>
+                ))}
+              </select>
+            </label>
+            {!isLiveQueue && (
+              <div className="guardian-mod-date-range">
+                <label>
+                  <span>From</span>
+                  <input aria-label="Drilldown start date" type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+                </label>
+                <span className="guardian-mod-date-arrow" aria-hidden="true">→</span>
+                <label>
+                  <span>To</span>
+                  <input aria-label="Drilldown end date" type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+                </label>
+              </div>
+            )}
+            {isLiveQueue && (
+              <div className="guardian-mod-live-filter">
+                <span aria-hidden="true" />
+                Live open queue
+              </div>
+            )}
+            {userFilter && (
+              <button type="button" className="guardian-user-filter" onClick={() => setUserFilter("")}>
+                User #{userFilter} <span aria-hidden="true">×</span>
+              </button>
+            )}
+          </div>
+        </section>
+
+        <div className="guardian-mod-results-head">
+          <div>
+            <span className="guardian-mod-results-eyebrow">Case review</span>
+            <h2>{activeView.label}</h2>
+          </div>
+          <span className="guardian-mod-result-count">
+            {loading ? "Loading" : `${items.length} ${items.length === 1 ? "result" : "results"}`}
+          </span>
+        </div>
+
+        {loading && (
+          <div className="guardian-mod-empty guardian-mod-loading" role="status">
+            <span className="guardian-mod-spinner" aria-hidden="true" />
+            <strong>Loading Guardian records</strong>
+            <small>Preparing the latest moderation data…</small>
+          </div>
         )}
-      </div>
+        {!loading && items.length === 0 && (
+          <div className="guardian-mod-empty">
+            <span className="guardian-mod-empty-mark" aria-hidden="true">✓</span>
+            <strong>Nothing needs attention here</strong>
+            <small>No {activeView.label.toLowerCase()} match the current view.</small>
+          </div>
+        )}
 
-      {loading && <div className="guardian-mod-empty">Loading...</div>}
-      {!loading && items.length === 0 && <div className="guardian-mod-empty">No rows</div>}
-
-      <div className="guardian-mod-list">
+        <div className="guardian-mod-list">
         {!loading &&
           items.map((row) => (
             <div className="guardian-mod-row" key={`${type}-${row.id || row.user_id}-${row.created_at || ""}`}>
               <div className="guardian-mod-main">
+                <div className="guardian-mod-row-label">
+                  <span>{activeView.mark}</span>
+                  <small>{type === "reports" || type === "appeals" ? "Open case" : activeView.label.slice(0, -1) || activeView.label}</small>
+                </div>
                 {type === "posts" && (
                   <>
                     <strong>{row.display_name || row.username}</strong>
@@ -406,6 +503,7 @@ export default function VineGuardianModeration() {
               </div>
             </div>
           ))}
+        </div>
       </div>
     </div>
   );

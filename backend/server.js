@@ -33,6 +33,7 @@ import alevelReports from "./modules/alevel/alevelReports.js";
 import vineRoutes from "./modules/vine/vineRoutes.js";
 import vineAuth from "./modules/vine/vineAuth.js";
 import dmRoutes, { ensureDmSchema, recordDmCallMessage } from "./modules/vine/dms.js";
+import { getActiveVineSuspension } from "./modules/vine/vineSuspensions.js";
 import {
   registerVineEClassSocketHandlers,
   startVineEClassHostReaper,
@@ -4217,6 +4218,21 @@ io.on("connection", (socket) => {
     if (!conversationId || !callId || callId.length > 120 || !payload.offer) return;
     const fromUserId = socketToUserId.get(socket.id) || payload.fromUserId || null;
     if (!(await isDmConversationParticipant(conversationId, fromUserId))) return;
+    const activeSuspension = await getActiveVineSuspension(db, fromUserId).catch((error) => {
+      console.error("DM call suspension check failed:", error);
+      return null;
+    });
+    if (activeSuspension) {
+      socket.emit("dm_call_decline", {
+        conversationId,
+        callId,
+        fromUserId,
+        toUserId: fromUserId,
+        reason: "suspended",
+        suspension: activeSuspension,
+      });
+      return;
+    }
     const participants = await getDmConversationParticipants(conversationId);
     const toUserId = Number(participants?.user1_id) === Number(fromUserId)
       ? Number(participants?.user2_id || 0)

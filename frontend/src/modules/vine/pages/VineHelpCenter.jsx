@@ -50,8 +50,9 @@ export default function VineHelpCenter() {
         <section className="vine-help-card">
           <h3>If You Get Suspended</h3>
           <ul>
-            <li>You may lose like/comment access temporarily.</li>
+            <li>You may temporarily lose access to the feed, statuses, posting, revines, likes, comments, and messages.</li>
             <li>You’ll get an in-app notification and email.</li>
+            <li>Likes, comments, and messages remain paused until the countdown ends.</li>
             <li>Use <strong>Appeal to Guardian</strong> in feed if needed.</li>
             <li>Guardian can unsuspend early after review.</li>
           </ul>

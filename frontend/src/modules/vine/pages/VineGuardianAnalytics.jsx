@@ -13,6 +13,7 @@ import { primeVineAuthThemeCache } from "../utils/authTheme";
 import { convertHeicFileToJpeg, isHeicLikeFile } from "../utils/heic";
 import SpessNewsManager from "../components/SpessNewsManager";
 import HomepageContentEditor from "../components/HomepageContentEditor";
+import SuspensionCountdown from "../components/SuspensionCountdown";
 import "./VineGuardianAnalytics.css";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
@@ -2937,10 +2938,14 @@ export default function VineGuardianAnalytics() {
               className="guardian-row guardian-row-moderation"
             >
               <span className="guardian-row-main">
-                {p.display_name || p.username} • {p.sentence_label}
+                <strong>{p.display_name || p.username}</strong>
+                <small>@{p.username} · {p.sentence_label}</small>
+                <small className="guardian-suspension-scope">Feed · Status · Posts · Interactions · Messages</small>
               </span>
               <span className="guardian-row-meta">
-                Start {new Date(p.starts_at).toLocaleString()} • Release {p.ends_at ? new Date(p.ends_at).toLocaleString() : "Indefinite"}
+                <span>Start {new Date(p.starts_at).toLocaleString()}</span>
+                <span>Release {p.ends_at ? new Date(p.ends_at).toLocaleString() : "Indefinite"}</span>
+                <SuspensionCountdown suspension={p} className="guardian-suspension-countdown" />
               </span>
               <div className="guardian-row-actions">
                 <button

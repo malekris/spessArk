@@ -2485,6 +2485,49 @@ button.guardian-row:hover {
   grid-template-columns: minmax(160px, 0.8fr) minmax(220px, 1.25fr) auto;
 }
 
+.guardian-row-moderation .guardian-row-main,
+.guardian-row-moderation .guardian-row-meta {
+  display: grid;
+  align-content: center;
+  gap: 3px;
+}
+
+.guardian-row-moderation .guardian-row-main strong {
+  color: #073c2b;
+  font-size: 0.9rem;
+}
+
+.guardian-row-moderation .guardian-row-main small {
+  color: #56766a;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.guardian-row-moderation .guardian-suspension-scope {
+  width: fit-content;
+  margin-top: 2px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: #fff1f2;
+  color: #be123c;
+  font-size: 0.62rem;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+}
+
+.guardian-row-moderation .guardian-suspension-countdown {
+  justify-self: end;
+  margin-top: 2px;
+  padding: 4px 8px;
+  border: 1px solid #f6c9cf;
+  border-radius: 999px;
+  background: #fff7f8;
+  color: #b42336;
+  font-size: 0.7rem;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+
 .guardian-row-alert {
   grid-template-columns: minmax(0, 1fr) auto;
 }

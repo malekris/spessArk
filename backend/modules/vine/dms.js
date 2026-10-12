@@ -11,6 +11,7 @@ import { formatGroupMembersAdded } from "./groupSystemMessages.js";
 import { planCommunityGroupMembership } from "./communityGroupChat.js";
 import { canDeleteConversationMessage } from "./groupMessageModeration.js";
 import { resolveChatPetStage } from "./vineDelightLogic.js";
+import { buildSuspensionResponse, getActiveVineSuspension } from "./vineSuspensions.js";
 
 const router = express.Router();
 const DISAPPEARING_MODES = new Set(["after_read", "1h", "24h"]);
@@ -46,6 +47,19 @@ const uploadDmMedia = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 25 * 1024 * 1024 },
 });
+
+const rejectSuspendedMessaging = async (req, res, next) => {
+  try {
+    const suspension = await getActiveVineSuspension(db, req.user?.id);
+    if (suspension) {
+      return res.status(403).json(buildSuspensionResponse(suspension));
+    }
+    next();
+  } catch (error) {
+    console.error("DM suspension check failed:", error);
+    res.status(500).json({ error: "Could not verify messaging access" });
+  }
+};
 
 let dmSchemaReady = false;
 let dmSchemaPromise = null;
@@ -3738,7 +3752,7 @@ router.patch("/conversations/:id/settings", authenticate, async (req, res) => {
 /* =========================
    SEND MESSAGE (REALTIME FIXED)
 ========================= */
-router.post("/send", authenticate, async (req, res) => {
+router.post("/send", authenticate, rejectSuspendedMessaging, async (req, res) => {
   const senderId = req.user.id;
   const { conversationId, receiverId, content, media_url, media_type, reply_to_id, media_items } = req.body;
   const clientRequestId = normalizeDmClientRequestId(req.body?.client_request_id);
@@ -4026,7 +4040,7 @@ router.post("/send", authenticate, async (req, res) => {
   }
 });
 
-router.post("/upload-media", authenticate, uploadDmMedia.single("file"), async (req, res) => {
+router.post("/upload-media", authenticate, rejectSuspendedMessaging, uploadDmMedia.single("file"), async (req, res) => {
   try {
     const file = req.file;
     if (!file) return res.status(400).json({ error: "No file uploaded" });
@@ -4062,7 +4076,7 @@ router.post("/upload-media", authenticate, uploadDmMedia.single("file"), async (
   }
 });
 
-router.post("/messages/:id/reaction", authenticate, async (req, res) => {
+router.post("/messages/:id/reaction", authenticate, rejectSuspendedMessaging, async (req, res) => {
   const userId = Number(req.user.id);
   const messageId = Number(req.params.id);
   const reaction = String(req.body?.reaction || "").trim().slice(0, 16);

@@ -10,6 +10,7 @@ import { CHAT_THEMES, normalizeChatTheme } from "./chatThemes";
 import { buildGroupSenderStyles } from "./groupSenderColors";
 import "./ChatWindow.css";
 import { createClientRequestId } from "../../utils/requestId";
+import SuspensionCountdown from "../../modules/vine/components/SuspensionCountdown";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const DEFAULT_AVATAR = "/default-avatar.png";
@@ -233,6 +234,7 @@ export default function ChatWindow({
   const [callState, setCallState] = useState("idle");
   const [callNotice, setCallNotice] = useState("");
   const [incomingCall, setIncomingCall] = useState(null);
+  const [messagingRestriction, setMessagingRestriction] = useState(null);
   const [, setLastSeenTick] = useState(0);
 
   const scrollRef = useRef(null);
@@ -275,6 +277,31 @@ export default function ChatWindow({
     .map((userId) => String(Number(userId || 0)))
     .filter((userId) => userId !== "0")
     .some((userId) => normalizeChatNickname(nicknameDrafts[userId]) !== String(chatSettings.nicknames?.[userId] || ""));
+
+  useEffect(() => {
+    if (!token) return undefined;
+    const controller = new AbortController();
+    const loadMessagingRestriction = async () => {
+      try {
+        const response = await fetch(`${API}/api/vine/users/me/restrictions`, {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
+          cache: "no-store",
+        });
+        const body = await response.json().catch(() => ({}));
+        if (controller.signal.aborted) return;
+        setMessagingRestriction(response.ok && body.suspended ? body.suspension : null);
+      } catch (error) {
+        if (error?.name !== "AbortError") setMessagingRestriction(null);
+      }
+    };
+    loadMessagingRestriction();
+    socket.on("notification", loadMessagingRestriction);
+    return () => {
+      controller.abort();
+      socket.off("notification", loadMessagingRestriction);
+    };
+  }, [token]);
 
   const setCallStatus = (nextState, notice = "") => {
     callStateRef.current = nextState;
@@ -354,6 +381,10 @@ export default function ChatWindow({
   };
 
   const startAudioCall = async () => {
+    if (messagingRestriction) {
+      setCallNotice("Messaging is paused while your Guardian restriction is active.");
+      return;
+    }
     if (window.__vineCallLayerActive) {
       window.dispatchEvent(new CustomEvent("vine:start-audio-call", {
         detail: {
@@ -648,13 +679,19 @@ export default function ChatWindow({
       body: fd,
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || "Upload failed");
+    if (!res.ok) {
+      if (res.status === 403 && data?.code === "VINE_ACCOUNT_SUSPENDED") {
+        setMessagingRestriction(data.suspension || { reason: data.message });
+      }
+      throw new Error(data.error || "Upload failed");
+    }
     return data;
   };
 
   const handleSendMessage = async (payload) => {
     if (!myId) return;
     if (!conversationId && !receiverId) return;
+    if (messagingRestriction) return;
     stickToBottomRef.current = true;
     const content = String(payload?.content || "").trim();
     const mediaFiles = Array.isArray(payload?.mediaFiles) ? payload.mediaFiles.filter(Boolean) : [];
@@ -750,7 +787,13 @@ export default function ChatWindow({
         ),
       });
   
-      if (!res.ok) throw new Error("Send failed");
+      if (!res.ok) {
+        const errorBody = await res.json().catch(() => ({}));
+        if (res.status === 403 && errorBody?.code === "VINE_ACCOUNT_SUSPENDED") {
+          setMessagingRestriction(errorBody.suspension || { reason: errorBody.message });
+        }
+        throw new Error(errorBody.error || errorBody.message || "Send failed");
+      }
   
       const { message: saved, conversationId: savedConversationId } = await res.json();
       if (!conversationId && savedConversationId) {
@@ -1055,7 +1098,13 @@ export default function ChatWindow({
       if (window.__vineCallLayerActive) return;
       if (String(payload.conversationId) !== String(conversationId)) return;
       if (payload.callId !== callIdRef.current) return;
-      resetCall(payload.reason === "busy" ? "User is already on a call" : "Call declined");
+      resetCall(
+        payload.reason === "busy"
+          ? "User is already on a call"
+          : payload.reason === "suspended"
+            ? "Messaging is paused during your Guardian restriction"
+            : "Call declined"
+      );
     });
     socket.on("dm_call_end", (payload = {}) => {
       if (window.__vineCallLayerActive) return;
@@ -1494,9 +1543,15 @@ export default function ChatWindow({
               type="button"
               className="dm-call-btn"
               onClick={startAudioCall}
-              disabled={!conversationId || !partnerUserId || callState !== "idle"}
+              disabled={!conversationId || !partnerUserId || callState !== "idle" || Boolean(messagingRestriction)}
               aria-label="Start audio call"
-              title={conversationId ? "Start audio call" : "Send a message first to start calls"}
+              title={
+                messagingRestriction
+                  ? "Calling is paused during your Guardian restriction"
+                  : conversationId
+                    ? "Start audio call"
+                    : "Send a message first to start calls"
+              }
             >
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden="true">
                 <path
@@ -1642,7 +1697,7 @@ export default function ChatWindow({
                   nicknames={isGroup ? undefined : chatSettings.nicknames}
                   canModerate={isGroup && ["owner", "admin"].includes(partner?.viewer_role)}
                   onReply={handleReply}
-                  onReact={handleReact}
+                  onReact={messagingRestriction ? undefined : handleReact}
                   onDelete={handleDeleteMessage}
                 />
               </div>
@@ -1655,6 +1710,22 @@ export default function ChatWindow({
 
       {/* INPUT */}
       <div className="chat-footer">
+        {messagingRestriction && (
+          <div className="dm-suspension-notice" role="status">
+            <div>
+              <strong>Messaging paused by Vine Guardian</strong>
+              <span>
+                {messagingRestriction.reason
+                  ? `Reason: ${messagingRestriction.reason}`
+                  : "You can still read your conversations."}
+              </span>
+            </div>
+            <SuspensionCountdown
+              suspension={messagingRestriction}
+              onExpire={() => setMessagingRestriction(null)}
+            />
+          </div>
+        )}
         {partnerTyping && (
           <div
             className="chat-typing-pill chat-typing-pill-footer"
@@ -1671,6 +1742,8 @@ export default function ChatWindow({
         )}
         <MessageInput
           onSend={handleSendMessage}
+          disabled={Boolean(messagingRestriction)}
+          disabledMessage="Messaging is paused until the Guardian restriction ends"
           quickEmoji={isGroup ? "" : chatSettings.quick_emoji}
           replyTarget={replyTarget}
           onCancelReply={() => setReplyTarget(null)}

@@ -301,7 +301,7 @@ export default function VineNotifications() {
       case "report_post": return "reported a post to Guardian";
       case "report_comment": return "reported a comment to Guardian";
       case "appeal": return "submitted an appeal";
-      case "account_suspended": return "suspended your likes/comments access";
+      case "account_suspended": return "paused your feed, statuses, posting, interactions, and messaging access";
       case "account_unsuspended": return "lifted your suspension";
       case "guardian_warning": return "sent you a warning about reported content";
       case "community_announcement":

@@ -31,6 +31,8 @@ import { VINE_READ_NOTIFICATION_RETENTION_DAYS, createCleanupExpiredReadNotifica
 import { VINE_CACHE_TTLS, buildVineCacheKey, readThroughVineCache, clearVineReadCache } from "./vineCache.js";
 import { getPokePair, resolvePokeState } from "./profilePokes.js";
 import { calculateConsecutiveDayStreak } from "./profileStreak.js";
+import { buildProfilePicturePostPayload } from "./profilePicturePost.js";
+import { buildSuspensionResponse, getActiveVineSuspension } from "./vineSuspensions.js";
 import {
   getSessionExpiry,
   getVineSessionIdleMs,
@@ -2947,28 +2949,19 @@ const signVineSessionToken = (user, sessionJti, sessionMode = "browser_session")
     { expiresIn: getSessionExpiry(sessionMode, VINE_JWT_EXPIRES_IN) }
   );
 
-const getActiveInteractionSuspension = async (userId) => {
-  if (!userId) return null;
-  const dbName = await getDbName();
-  if (!dbName) return null;
-  const tableExists = await hasTable(dbName, "vine_user_suspensions");
-  if (!tableExists) return null;
+const getActiveInteractionSuspension = (userId) => getActiveVineSuspension(db, userId);
 
-  const [rows] = await db.query(
-    `
-    SELECT id, reason, scope, starts_at, ends_at
-    FROM vine_user_suspensions
-    WHERE user_id = ?
-      AND is_active = 1
-      AND scope IN ('likes_comments', 'all')
-      AND starts_at <= NOW()
-      AND (ends_at IS NULL OR ends_at > NOW())
-    ORDER BY created_at DESC
-    LIMIT 1
-    `,
-    [userId]
-  );
-  return rows[0] || null;
+const requireUnrestrictedVineAccess = async (req, res, next) => {
+  try {
+    const suspension = await getActiveInteractionSuspension(req.user?.id);
+    if (suspension) {
+      return res.status(403).json(buildSuspensionResponse(suspension));
+    }
+    return next();
+  } catch (error) {
+    console.error("Verify Vine suspension error:", error);
+    return res.status(500).json({ message: "Could not verify Vine access" });
+  }
 };
 
 let eulaSchemaReady = false;
@@ -4606,7 +4599,7 @@ const ensureModerationSchema = async () => {
     CREATE TABLE IF NOT EXISTS vine_user_suspensions (
       id INT AUTO_INCREMENT PRIMARY KEY,
       user_id INT NOT NULL,
-      scope VARCHAR(30) NOT NULL DEFAULT 'likes_comments',
+      scope VARCHAR(30) NOT NULL DEFAULT 'all',
       reason TEXT NULL,
       starts_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       ends_at DATETIME NULL,
@@ -4645,7 +4638,7 @@ const ensureModerationSchema = async () => {
     await ensureColumnExists(dbName, "vine_reports", "created_at", "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP");
 
     await ensureColumnExists(dbName, "vine_user_suspensions", "user_id", "INT NOT NULL");
-    await ensureColumnExists(dbName, "vine_user_suspensions", "scope", "VARCHAR(30) NOT NULL DEFAULT 'likes_comments'");
+    await ensureColumnExists(dbName, "vine_user_suspensions", "scope", "VARCHAR(30) NOT NULL DEFAULT 'all'");
     await ensureColumnExists(dbName, "vine_user_suspensions", "reason", "TEXT NULL");
     await ensureColumnExists(dbName, "vine_user_suspensions", "starts_at", "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP");
     await ensureColumnExists(dbName, "vine_user_suspensions", "ends_at", "DATETIME NULL");
@@ -5802,7 +5795,7 @@ const uploadBufferToCloudinary = async (buffer, options = {}) => {
 };
 
 // Text status (24h) - create
-router.post("/statuses", requireVineAuth, uploadPostCloudinary.single("media"), async (req, res) => {
+router.post("/statuses", requireVineAuth, requireUnrestrictedVineAccess, uploadPostCloudinary.single("media"), async (req, res) => {
   try {
     await ensureStatusSchema();
     const userId = req.user.id;
@@ -5860,7 +5853,7 @@ router.post("/statuses", requireVineAuth, uploadPostCloudinary.single("media"), 
 });
 
 // Status rail for feed
-router.get("/statuses/rail", requireVineAuth, async (req, res) => {
+router.get("/statuses/rail", requireVineAuth, requireUnrestrictedVineAccess, async (req, res) => {
   try {
     await ensureStatusSchema();
     await ensureVinePerformanceSchema();
@@ -5918,7 +5911,7 @@ router.get("/statuses/rail", requireVineAuth, async (req, res) => {
 });
 
 // Active statuses for one user
-router.get("/statuses/user/:userId", requireVineAuth, async (req, res) => {
+router.get("/statuses/user/:userId", requireVineAuth, requireUnrestrictedVineAccess, async (req, res) => {
   try {
     await ensureStatusSchema();
     await ensureVinePerformanceSchema();
@@ -5978,7 +5971,7 @@ router.get("/statuses/user/:userId", requireVineAuth, async (req, res) => {
 });
 
 // Mark status seen
-router.post("/statuses/:id/view", requireVineAuth, async (req, res) => {
+router.post("/statuses/:id/view", requireVineAuth, requireUnrestrictedVineAccess, async (req, res) => {
   try {
     await ensureStatusSchema();
     const statusId = Number(req.params.id);
@@ -6065,7 +6058,7 @@ router.delete("/statuses/:id", requireVineAuth, async (req, res) => {
 });
 
 // Status viewers (owner only)
-router.get("/statuses/:id/views", requireVineAuth, async (req, res) => {
+router.get("/statuses/:id/views", requireVineAuth, requireUnrestrictedVineAccess, async (req, res) => {
   try {
     await ensureStatusSchema();
     await ensureVinePerformanceSchema();
@@ -6110,7 +6103,7 @@ router.get("/statuses/:id/views", requireVineAuth, async (req, res) => {
   }
 });
 
-router.post("/statuses/:id/react", requireVineAuth, async (req, res) => {
+router.post("/statuses/:id/react", requireVineAuth, requireUnrestrictedVineAccess, async (req, res) => {
   try {
     await ensureStatusSchema();
     const statusId = Number(req.params.id);
@@ -6183,7 +6176,7 @@ router.post("/statuses/:id/react", requireVineAuth, async (req, res) => {
   }
 });
 
-router.post("/statuses/:id/reply", requireVineAuth, async (req, res) => {
+router.post("/statuses/:id/reply", requireVineAuth, requireUnrestrictedVineAccess, async (req, res) => {
   try {
     await ensureStatusSchema();
     const statusId = Number(req.params.id);
@@ -8198,7 +8191,7 @@ router.post(
 );
 
   // create posts
-router.get("/posts", authOptional, async (req, res) => {
+router.get("/posts", authOptional, requireUnrestrictedVineAccess, async (req, res) => {
     try {
       const viewerId = req.user?.id || null;
       const sessionJti = req.user?.jti || null;
@@ -9379,7 +9372,7 @@ router.get("/share/:id", async (req, res) => {
   }
 });
 
-router.get("/posts/:id/public", authOptional, async (req, res) => {
+router.get("/posts/:id/public", authOptional, requireUnrestrictedVineAccess, async (req, res) => {
   try {
     const postId = Number(req.params.id);
     const viewerId = Number(req.user?.id || 0) || null;
@@ -9436,6 +9429,7 @@ router.get("/posts/:id/public", authOptional, async (req, res) => {
   router.post(
     "/posts",
     requireVineAuth,
+    requireUnrestrictedVineAccess,
     uploadPostCloudinary.array("images", VINE_POST_MAX_MEDIA_FILES),
     async (req, res) => {
       try {
@@ -9717,7 +9711,7 @@ router.get("/posts/:id/poll", authOptional, async (req, res) => {
   }
 });
 
-router.post("/posts/:id/poll/vote", requireVineAuth, async (req, res) => {
+router.post("/posts/:id/poll/vote", requireVineAuth, requireUnrestrictedVineAccess, async (req, res) => {
   try {
     await ensurePollSchema();
     const postId = Number(req.params.id);
@@ -11091,7 +11085,7 @@ router.get("/posts/:id/comments", authOptional, async (req, res) => {
 });
 
 // Latest public/follower-visible posts strip
-router.get("/posts/trending", authOptional, async (req, res) => {
+router.get("/posts/trending", authOptional, requireUnrestrictedVineAccess, async (req, res) => {
   try {
     const viewerId = req.user?.id || null;
     const limit = Math.min(Number(req.query.limit || 10), 20);
@@ -11233,7 +11227,7 @@ router.get("/posts/_legacy-ranked-debug", authOptional, async (req, res) => {
 });
 
 // 🔁 Toggle revine (single source of truth)
-router.post("/posts/:id/revine", authMiddleware, async (req, res) => {
+router.post("/posts/:id/revine", authMiddleware, requireUnrestrictedVineAccess, async (req, res) => {
   try {
     await ensureVineRevineQuoteSchema();
     const postId = req.params.id;
@@ -11333,10 +11327,7 @@ router.post("/posts/:id/like", requireVineAuth, async (req, res) => {
   const selectedReaction = normalizePostReaction(req.body?.reaction || "like");
   const activeSuspension = await getActiveInteractionSuspension(userId);
   if (activeSuspension) {
-    return res.status(403).json({
-      message: "Your account is temporarily suspended from likes/comments.",
-      suspension: activeSuspension,
-    });
+    return res.status(403).json(buildSuspensionResponse(activeSuspension));
   }
 
   // Find post owner
@@ -11463,7 +11454,7 @@ router.patch("/users/me/change-password", authenticate, async (req, res) => {
 });
 
 // 🔖 Toggle bookmark
-router.post("/posts/:id/bookmark", requireVineAuth, async (req, res) => {
+router.post("/posts/:id/bookmark", requireVineAuth, requireUnrestrictedVineAccess, async (req, res) => {
   const postId = req.params.id;
   const userId = req.user.id;
 
@@ -11515,10 +11506,7 @@ router.post("/posts/:id/comments", authMiddleware, async (req, res) => {
     }
     const activeSuspension = await getActiveInteractionSuspension(userId);
     if (activeSuspension) {
-      return res.status(403).json({
-        message: "Your account is temporarily suspended from likes/comments.",
-        suspension: activeSuspension,
-      });
+      return res.status(403).json(buildSuspensionResponse(activeSuspension));
     }
 
     if (!content || !content.trim()) {
@@ -11623,10 +11611,7 @@ router.post("/comments/:id/like", requireVineAuth, async (req, res) => {
     const selectedReaction = normalizeCommentReaction(req.body?.reaction || "like");
     const activeSuspension = await getActiveInteractionSuspension(userId);
     if (activeSuspension) {
-      return res.status(403).json({
-        message: "Your account is temporarily suspended from likes/comments.",
-        suspension: activeSuspension,
-      });
+      return res.status(403).json(buildSuspensionResponse(activeSuspension));
     }
 
     // Get comment owner + post
@@ -11721,7 +11706,7 @@ router.post("/comments/:id/like", requireVineAuth, async (req, res) => {
 });
 
 // 🔁 Toggle revine (reshares)
-router.post("/posts/:id/revine", authMiddleware, async (req, res) => {
+router.post("/posts/:id/revine", authMiddleware, requireUnrestrictedVineAccess, async (req, res) => {
   try {
     const postId = Number(req.params.id);
     const userId = req.user.id;
@@ -11951,6 +11936,12 @@ const uploadAvatarMiddleware = (req, res, next) => {
 };
 
 router.post("/users/avatar", authenticate, uploadAvatarMiddleware, async (req, res) => {
+  let conn = null;
+  let uploadedAvatarUrl = null;
+  let avatarPersisted = false;
+  const userId = Number(req.user?.id || 0);
+  const clientRequestId = normalizeClientRequestId(req.body?.client_request_id);
+
   try {
     if (!req.file) {
       console.warn("Avatar upload missing file", {
@@ -11960,16 +11951,37 @@ router.post("/users/avatar", authenticate, uploadAvatarMiddleware, async (req, r
       return res.status(400).json({ message: "No file uploaded" });
     }
 
-    if (!req.user || !req.user.id) {
+    if (!userId) {
       return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    await ensureVineRequestDedupSchema();
+    await ensureVinePostSourceSchema();
+
+    if (clientRequestId) {
+      const [[existing]] = await db.query(
+        `
+        SELECT p.id AS post_id, u.avatar_url
+        FROM vine_posts p
+        JOIN vine_users u ON u.id = p.user_id
+        WHERE p.user_id = ? AND p.client_request_id = ?
+        LIMIT 1
+        `,
+        [userId, clientRequestId]
+      );
+      if (existing?.post_id) {
+        const post = await getVinePostRowById(existing.post_id, userId);
+        return res.json({
+          avatar_url: existing.avatar_url,
+          post_id: Number(existing.post_id),
+          post,
+          duplicate: true,
+        });
+      }
     }
 
     const normalized = await normalizeImageBuffer(req.file);
     const prepared = await buildCommunityAvatarBuffer(normalized.buffer);
-    const [[userRow]] = await db.query(
-      "SELECT avatar_url FROM vine_users WHERE id = ? LIMIT 1",
-      [req.user.id]
-    );
     const upload = await uploadBufferToCloudinary(prepared.buffer, {
       folder: "vine/avatars",
       resource_type: "image",
@@ -11978,25 +11990,143 @@ router.post("/users/avatar", authenticate, uploadAvatarMiddleware, async (req, r
       transformation: [{ width: 400, height: 400, crop: "fill", gravity: "face" }],
     });
     const avatarUrl = upload.secure_url;
+    uploadedAvatarUrl = avatarUrl;
+    const postSourceLabel = summarizeVinePostSource(req.get("user-agent"));
+    const profilePicturePost = buildProfilePicturePostPayload({
+      avatarUrl,
+      clientRequestId,
+      postSourceLabel,
+    });
 
-    await db.query(
-      "UPDATE vine_users SET avatar_url = ? WHERE id = ?",
-      [avatarUrl, req.user.id]
+    conn = await db.getConnection();
+    await conn.beginTransaction();
+
+    const [[userRow]] = await conn.query(
+      "SELECT avatar_url FROM vine_users WHERE id = ? LIMIT 1 FOR UPDATE",
+      [userId]
     );
+    if (!userRow) {
+      const error = new Error("User not found");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    await conn.query("UPDATE vine_users SET avatar_url = ? WHERE id = ?", [avatarUrl, userId]);
+
+    const [postResult] = await conn.query(
+      `
+      INSERT INTO vine_posts
+        (user_id, content, image_url, topic_tag, client_request_id, post_source_label, post_source_origin)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      `,
+      [
+        userId,
+        profilePicturePost.content,
+        profilePicturePost.imageUrl,
+        profilePicturePost.topicTag,
+        profilePicturePost.clientRequestId,
+        profilePicturePost.postSourceLabel,
+        profilePicturePost.postSourceLabel ? "live" : null,
+      ]
+    );
+    const createdPostId = Number(postResult.insertId);
+
+    await conn.commit();
+    avatarPersisted = true;
+    conn.release();
+    conn = null;
 
     if (userRow?.avatar_url && userRow.avatar_url !== avatarUrl) {
       await db.query(
         "DELETE FROM vine_profile_media_comments WHERE owner_user_id = ? AND media_type = 'avatar' AND media_url = ?",
-        [req.user.id, userRow.avatar_url]
+        [userId, userRow.avatar_url]
       ).catch(() => {});
-      await deleteCloudinaryByUrl(userRow.avatar_url).catch(() => {});
+
+      // Older profile-picture posts keep using their original image URL. Only
+      // remove the previous upload when no post still references it.
+      let oldAvatarIsReferenced = true;
+      try {
+        const [[reference]] = await db.query(
+          `
+          SELECT id
+          FROM vine_posts
+          WHERE user_id = ?
+            AND image_url IS NOT NULL
+            AND LOCATE(?, image_url) > 0
+          LIMIT 1
+          `,
+          [userId, userRow.avatar_url]
+        );
+        oldAvatarIsReferenced = Boolean(reference?.id);
+      } catch (referenceErr) {
+        console.warn("Avatar reference check failed; preserving old image", referenceErr?.message || referenceErr);
+      }
+      if (!oldAvatarIsReferenced) {
+        await deleteCloudinaryByUrl(userRow.avatar_url).catch(() => {});
+      }
     }
 
-    clearVineReadCache();
-    res.json({ avatar_url: avatarUrl });
+    await syncPostTagLinks({
+      postId: createdPostId,
+      actorId: userId,
+      content: profilePicturePost.content,
+    }).catch((tagErr) => {
+      console.warn("Profile picture post tag sync failed", tagErr?.message || tagErr);
+    });
+
+    const post = await getVinePostRowById(createdPostId, userId).catch(() => null);
+    emitVineFeedUpdated({
+      type: "post_created",
+      postId: createdPostId,
+      communityId: null,
+      authorId: userId,
+      reason: "profile_picture_changed",
+    });
+
+    res.json({
+      avatar_url: avatarUrl,
+      post_id: createdPostId,
+      post,
+    });
   } catch (err) {
+    if (conn) {
+      try {
+        await conn.rollback();
+      } catch {
+        // ignore rollback failures
+      }
+      conn.release();
+      conn = null;
+    }
+
+    if (uploadedAvatarUrl && !avatarPersisted) {
+      await deleteCloudinaryByUrl(uploadedAvatarUrl).catch(() => {});
+    }
+
+    if (err?.code === "ER_DUP_ENTRY" && clientRequestId && userId) {
+      const [[existing]] = await db.query(
+        `
+        SELECT p.id AS post_id, u.avatar_url
+        FROM vine_posts p
+        JOIN vine_users u ON u.id = p.user_id
+        WHERE p.user_id = ? AND p.client_request_id = ?
+        LIMIT 1
+        `,
+        [userId, clientRequestId]
+      ).catch(() => [[]]);
+      if (existing?.post_id) {
+        const post = await getVinePostRowById(existing.post_id, userId).catch(() => null);
+        return res.json({
+          avatar_url: existing.avatar_url,
+          post_id: Number(existing.post_id),
+          post,
+          duplicate: true,
+        });
+      }
+    }
+
     console.error("Avatar upload error:", err);
-    res.status(500).json({ message: "Upload failed" });
+    res.status(err?.statusCode || 500).json({ message: err?.message || "Upload failed" });
   }
 });
 
@@ -13487,7 +13617,7 @@ router.post("/moderation/suspend", authenticate, async (req, res) => {
         `
         INSERT INTO vine_user_suspensions
         (user_id, scope, reason, starts_at, ends_at, is_active, created_by, created_at)
-        VALUES (?, 'likes_comments', ?, NOW(), NULL, 1, ?, NOW())
+        VALUES (?, 'all', ?, NOW(), NULL, 1, ?, NOW())
         `,
         [targetUserId, String(reason || "").slice(0, 500), req.user.id]
       );
@@ -13496,7 +13626,7 @@ router.post("/moderation/suspend", authenticate, async (req, res) => {
         `
         INSERT INTO vine_user_suspensions
         (user_id, scope, reason, starts_at, ends_at, is_active, created_by, created_at)
-        VALUES (?, 'likes_comments', ?, NOW(), ${endsExpr}, 1, ?, NOW())
+        VALUES (?, 'all', ?, NOW(), ${endsExpr}, 1, ?, NOW())
         `,
         [targetUserId, String(reason || "").slice(0, 500), req.user.id]
       );
@@ -13533,7 +13663,8 @@ router.post("/moderation/suspend", authenticate, async (req, res) => {
       });
     }
 
-    res.json({ success: true });
+    const suspension = await getActiveInteractionSuspension(targetUserId);
+    res.json({ success: true, suspension });
   } catch (err) {
     console.error("Suspend user error:", err);
     res.status(500).json({ message: "Failed to suspend user" });

@@ -61,7 +61,15 @@ const resizeMessageInput = (element) => {
   element.style.overflowY = element.scrollHeight > maxHeight ? "auto" : "hidden";
 };
 
-export default function MessageInput({ onSend, replyTarget, onCancelReply, onTyping, quickEmoji = "" }) {
+export default function MessageInput({
+  onSend,
+  replyTarget,
+  onCancelReply,
+  onTyping,
+  quickEmoji = "",
+  disabled = false,
+  disabledMessage = "Messaging unavailable",
+}) {
   const [text, setText] = useState("");
   const [enterToSend, setEnterToSend] = useState(() => readDmInboxPreferences().enterToSend);
   const [mediaFiles, setMediaFiles] = useState([]);
@@ -82,6 +90,16 @@ export default function MessageInput({ onSend, replyTarget, onCancelReply, onTyp
     []
   );
 
+  useEffect(() => {
+    if (!disabled || !recorderRef.current) return;
+    const timer = window.setTimeout(() => {
+      recorderRef.current?.stop();
+      recorderRef.current = null;
+      setRecording(false);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [disabled]);
+
   const syncText = (nextValue) => {
     setText(nextValue);
     onTyping?.(nextValue);
@@ -99,6 +117,7 @@ export default function MessageInput({ onSend, replyTarget, onCancelReply, onTyp
   };
 
   const onPickMedia = async (fileList) => {
+    if (disabled) return;
     const rawFiles = Array.from(fileList || []).filter(Boolean);
     if (!rawFiles.length) return;
 
@@ -150,6 +169,7 @@ export default function MessageInput({ onSend, replyTarget, onCancelReply, onTyp
   };
 
   const startRecording = async () => {
+    if (disabled) return;
     try {
       if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
         alert("Voice recording is not supported on this device/browser.");
@@ -197,6 +217,7 @@ export default function MessageInput({ onSend, replyTarget, onCancelReply, onTyp
   };
 
   const send = () => {
+    if (disabled) return;
     const content = String(text || "").trim();
     if (!content && !mediaFiles.length) return;
     const retainedPreviews = mediaFiles.length
@@ -223,6 +244,7 @@ export default function MessageInput({ onSend, replyTarget, onCancelReply, onTyp
   };
 
   const sendQuickEmoji = () => {
+    if (disabled) return;
     const emoji = String(quickEmoji || "").trim();
     if (!emoji) return;
     onSend({
@@ -239,7 +261,7 @@ export default function MessageInput({ onSend, replyTarget, onCancelReply, onTyp
   const showQuickEmoji = Boolean(quickEmoji) && !hasMessageReady;
 
   return (
-    <div className="chat-input-wrap">
+    <div className={`chat-input-wrap ${disabled ? "is-disabled" : ""}`}>
       {replyTarget && (
         <div className="dm-reply-bar">
           <div className="dm-reply-label">
@@ -276,6 +298,7 @@ export default function MessageInput({ onSend, replyTarget, onCancelReply, onTyp
           type="button"
           className="chat-icon-btn"
           onClick={() => fileInputRef.current?.click()}
+          disabled={disabled}
           aria-label="Add photo or video"
           title="Add photo or video"
         >
@@ -291,6 +314,7 @@ export default function MessageInput({ onSend, replyTarget, onCancelReply, onTyp
           accept="image/*,video/*,.heic,.heif"
           multiple
           hidden
+          disabled={disabled}
           onChange={(e) => {
             const file = Array.from(e.target.files || []);
             e.target.value = "";
@@ -302,6 +326,7 @@ export default function MessageInput({ onSend, replyTarget, onCancelReply, onTyp
           type="button"
           className={`chat-icon-btn ${recording ? "recording" : ""}`}
           onClick={recording ? stopRecording : startRecording}
+          disabled={disabled}
           aria-label={recording ? "Stop recording" : "Record voice note"}
           title={recording ? "Stop recording" : "Record voice note"}
         >
@@ -321,12 +346,13 @@ export default function MessageInput({ onSend, replyTarget, onCancelReply, onTyp
           ref={textInputRef}
           rows={1}
           value={text}
+          disabled={disabled}
           onChange={(e) => {
             syncText(e.target.value);
             resizeMessageInput(e.currentTarget);
           }}
           onBlur={() => onTyping?.("")}
-          placeholder="Type a message..."
+          placeholder={disabled ? disabledMessage : "Type a message..."}
           className="chat-input"
           onKeyDown={(e) => {
             const keyboardSend = enterToSend
@@ -343,7 +369,7 @@ export default function MessageInput({ onSend, replyTarget, onCancelReply, onTyp
           type="button"
           onClick={showQuickEmoji ? sendQuickEmoji : send}
           className={`chat-send-btn ${showQuickEmoji ? "quick-emoji" : ""}`}
-          disabled={!showQuickEmoji && !hasMessageReady}
+          disabled={disabled || (!showQuickEmoji && !hasMessageReady)}
           aria-label={showQuickEmoji ? `Send ${quickEmoji}` : "Send message"}
           title={showQuickEmoji ? `Send ${quickEmoji}` : "Send message"}
         >

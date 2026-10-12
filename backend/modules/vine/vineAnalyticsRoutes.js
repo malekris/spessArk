@@ -964,6 +964,10 @@ router.get("/analytics/overview", authenticate, async (req, res) => {
           s.reason,
           s.starts_at,
           s.ends_at,
+          CASE
+            WHEN s.ends_at IS NULL THEN NULL
+            ELSE GREATEST(0, TIMESTAMPDIFF(SECOND, NOW(), s.ends_at))
+          END AS remaining_seconds,
           s.created_at,
           u.username,
           u.display_name

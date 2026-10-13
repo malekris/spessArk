@@ -1,0 +1,178 @@
+.vine-suspended-profile {
+  min-height: 100vh;
+  min-height: 100svh;
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  padding: clamp(28px, 8vh, 90px) 18px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 15% 12%, rgba(220, 38, 38, 0.13), transparent 28rem),
+    radial-gradient(circle at 88% 88%, rgba(127, 29, 29, 0.1), transparent 24rem),
+    linear-gradient(145deg, #fff7f7 0%, #fff 50%, #fff1f2 100%);
+}
+
+.vine-suspended-profile-banner {
+  position: relative;
+  width: min(760px, 100%);
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: clamp(18px, 4vw, 34px);
+  padding: clamp(28px, 6vw, 52px);
+  border: 1px solid rgba(190, 18, 60, 0.28);
+  border-left: 8px solid #be123c;
+  border-radius: 28px;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(244, 63, 94, 0.12), transparent 19rem),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.99), rgba(255, 241, 242, 0.98));
+  color: #4c0519;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    0 30px 80px rgba(136, 19, 55, 0.18);
+}
+
+.vine-suspended-profile-banner::after {
+  position: absolute;
+  inset: 10px;
+  content: "";
+  pointer-events: none;
+  border: 1px solid rgba(225, 29, 72, 0.08);
+  border-radius: 19px;
+}
+
+.vine-suspended-profile-back {
+  position: relative;
+  z-index: 2;
+  grid-column: 1 / -1;
+  justify-self: start;
+  min-height: 38px;
+  padding: 0 13px 0 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid rgba(190, 18, 60, 0.22);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.86);
+  color: #9f1239;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 850;
+  cursor: pointer;
+  box-shadow: 0 8px 20px rgba(136, 19, 55, 0.1);
+  transition: transform 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+}
+
+.vine-suspended-profile-back:hover {
+  background: #ffffff;
+  box-shadow: 0 11px 24px rgba(136, 19, 55, 0.16);
+  transform: translateY(-1px);
+}
+
+.vine-suspended-profile-back:focus-visible {
+  outline: 3px solid rgba(244, 63, 94, 0.22);
+  outline-offset: 3px;
+}
+
+.vine-suspended-profile-icon {
+  width: clamp(74px, 10vw, 96px);
+  height: clamp(74px, 10vw, 96px);
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(190, 18, 60, 0.24);
+  border-radius: 28px;
+  background: linear-gradient(145deg, #ffe4e6, #fecdd3);
+  color: #be123c;
+  box-shadow: 0 18px 38px rgba(190, 18, 60, 0.18);
+}
+
+.vine-suspended-profile-copy {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+}
+
+.vine-suspended-profile-copy > span {
+  display: block;
+  margin-bottom: 9px;
+  color: #9f1239;
+  font-size: 0.72rem;
+  font-weight: 950;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.vine-suspended-profile-copy h1 {
+  margin: 0;
+  color: #a30d2d;
+  font-size: clamp(1.8rem, 5vw, 3rem);
+  font-weight: 950;
+  line-height: 1.05;
+  letter-spacing: -0.045em;
+  text-shadow: 0 10px 28px rgba(159, 18, 57, 0.16);
+}
+
+.vine-suspended-profile-copy p {
+  max-width: 540px;
+  margin: 14px 0 0;
+  color: #6f263a;
+  font-size: clamp(0.92rem, 2vw, 1.03rem);
+  font-weight: 650;
+  line-height: 1.65;
+}
+
+.theme-dark .vine-suspended-profile {
+  background:
+    radial-gradient(circle at 15% 12%, rgba(244, 63, 94, 0.16), transparent 28rem),
+    linear-gradient(145deg, #210b11, #160d10 58%, #201015);
+}
+
+.theme-dark .vine-suspended-profile-banner {
+  border-color: rgba(251, 113, 133, 0.3);
+  border-left-color: #fb7185;
+  background: linear-gradient(145deg, rgba(63, 18, 30, 0.98), rgba(35, 15, 21, 0.98));
+  color: #fff1f2;
+}
+
+.theme-dark .vine-suspended-profile-icon {
+  border-color: rgba(251, 113, 133, 0.32);
+  background: linear-gradient(145deg, #5c1b2c, #3e1420);
+  color: #fda4af;
+}
+
+.theme-dark .vine-suspended-profile-back {
+  border-color: rgba(251, 113, 133, 0.28);
+  background: rgba(40, 15, 22, 0.9);
+  color: #fda4af;
+}
+
+.theme-dark .vine-suspended-profile-back:hover { background: #36131e; }
+
+.theme-dark .vine-suspended-profile-copy > span,
+.theme-dark .vine-suspended-profile-copy h1 { color: #fb7185; }
+.theme-dark .vine-suspended-profile-copy p { color: #fecdd3; }
+
+@media (max-width: 600px) {
+  .vine-suspended-profile { padding: 24px 12px; }
+
+  .vine-suspended-profile-banner {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    padding: 30px 22px 34px;
+    border-left-width: 1px;
+    border-top: 7px solid #be123c;
+    border-radius: 24px;
+    text-align: center;
+  }
+
+  .vine-suspended-profile-back {
+    justify-self: center;
+  }
+
+  .vine-suspended-profile-back:hover { transform: translateY(-1px); }
+
+  .vine-suspended-profile-icon { border-radius: 24px; }
+  .vine-suspended-profile-copy p { margin-inline: auto; }
+}

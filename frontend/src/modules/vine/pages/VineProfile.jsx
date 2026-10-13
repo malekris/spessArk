@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, useRef } from "react";
 import { Link, useParams, useNavigate, useLocation } from "react-router-dom";
 import "./VineProfile.css";
+import SuspendedProfileNotice from "../components/SuspendedProfileNotice";
 import VinePostCard from "./VinePostCard";
 import ProfileDelights from "../components/ProfileDelights";
 import { convertHeicFileToJpeg, isHeicLikeFile } from "../utils/heic";
@@ -677,6 +678,7 @@ export default function VineProfile() {
   const isBlocking = Boolean(userObj?.is_blocking) && !isMe;
   const isMutingUser = Boolean(userObj?.is_muting) && !isMe;
   const isPrivateLocked = Boolean(profile?.privateLocked) && !isMe;
+  const isSuspended = Boolean(profile?.suspended);
   const canShowLastActive = userObj.show_last_active !== 0 || isMe;
   const canMessage =
     !isMe;
@@ -1152,23 +1154,9 @@ export default function VineProfile() {
     setProfilePostsHasMore(false);
     setProfilePostsLoading(false);
     setProfilePostsLoadingMore(false);
+    setProfile(null);
 
     try {
-      const cachedHeader =
-        localStorage.getItem(`vine_profile_header_cache_${username}`) ||
-        localStorage.getItem(`vine_profile_cache_${username}`);
-      if (cachedHeader) {
-        const parsed = JSON.parse(cachedHeader);
-        const nextProfile = parsed?.user ? parsed : { user: parsed };
-        if (nextProfile?.user && nextProfile.user.post_count == null && Array.isArray(parsed?.posts)) {
-          nextProfile.user.post_count = parsed.posts.length;
-        }
-        setProfile(nextProfile);
-        applyUserDataToForm(nextProfile?.user || {});
-      } else {
-        setProfile(null);
-      }
-
       const cachedPosts =
         localStorage.getItem(`vine_profile_posts_cache_${username}`) ||
         localStorage.getItem(`vine_profile_cache_${username}`);
@@ -1201,7 +1189,7 @@ export default function VineProfile() {
     (async () => {
       const headerData = await loadProfileHeader({ signal: headerController.signal });
       if (!headerData || headerController.signal.aborted) return;
-      if (headerData.blocked || headerData.privateLocked) {
+      if (headerData.suspended || headerData.blocked || headerData.privateLocked) {
         setProfilePosts([]);
         setProfilePostsOffset(0);
         setProfilePostsHasMore(false);
@@ -1767,7 +1755,7 @@ export default function VineProfile() {
     );
   }
 
-  if (!profile) {
+  if (isLoadingProfile || !profile) {
     return (
       <div className="vine-profile-wrapper">
         <ProfileHeaderSkeleton />
@@ -1780,6 +1768,10 @@ export default function VineProfile() {
         </div>
       </div>
     );
+  }
+
+  if (isSuspended) {
+    return <SuspendedProfileNotice isSelf={Boolean(isMe)} />;
   }
 
   return (

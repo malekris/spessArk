@@ -10459,6 +10459,27 @@ const getProfileUserPayload = async (username, viewerId, perfCtx = null) => {
 
     const isSelf = safeViewerId && Number(safeViewerId) === Number(user.id);
     const isFollowing = safeViewerId && Number(user.is_following) === 1;
+    const activeSuspension = await getActiveInteractionSuspension(user.id);
+
+    // A suspended profile is intentionally reduced to the minimum identity
+    // required by the client to render the Guardian notice. Do not send bio,
+    // media, stats, badges, communities, or other profile details while the
+    // account is suspended.
+    if (activeSuspension) {
+      return {
+        user: {
+          id: user.id,
+          username: user.username,
+          display_name: user.display_name,
+        },
+        suspended: true,
+        blocked: false,
+        privateLocked: false,
+        isSelf: Boolean(isSelf),
+        isFollowing: Boolean(isFollowing),
+      };
+    }
+
     const canViewAbout =
       isSelf ||
       user.about_privacy === "everyone" ||
@@ -10878,13 +10899,14 @@ router.get("/users/:username/posts", authOptional, async (req, res) => {
           return { status: 404, body: { message: "Not found" } };
         }
 
-        if (payload.blocked || payload.privateLocked) {
+        if (payload.suspended || payload.blocked || payload.privateLocked) {
           return {
             status: 200,
             body: {
               items: [],
               hasMore: false,
               nextOffset: offset,
+              suspended: Boolean(payload.suspended),
               blocked: payload.blocked,
               privateLocked: payload.privateLocked,
             },
@@ -10931,6 +10953,9 @@ router.get("/users/:username", authOptional, async (req, res) => {
       async (perfCtx) => {
         const payload = await getProfileUserPayload(username, viewerId, perfCtx);
         if (!payload) return { status: 404, body: { message: "Not found" } };
+        if (payload.suspended) {
+          return { status: 200, body: { user: payload.user, posts: [], suspended: true } };
+        }
         if (payload.blocked) {
           return { status: 200, body: { user: payload.user, posts: [], blocked: true } };
         }
@@ -13647,6 +13672,13 @@ router.post("/moderation/suspend", authenticate, async (req, res) => {
       [targetUserId, req.user.id]
     );
     io.to(`user-${targetUserId}`).emit("notification");
+    clearVineReadCache(
+      "profile-header",
+      "profile-posts",
+      "profile-likes",
+      "profile-photos",
+      "profile-bookmarks"
+    );
 
     const [[targetUser]] = await db.query(
       "SELECT email, username FROM vine_users WHERE id = ? LIMIT 1",
@@ -13756,6 +13788,13 @@ router.post("/moderation/unsuspend", authenticate, async (req, res) => {
       [targetUserId, req.user.id]
     );
     io.to(`user-${targetUserId}`).emit("notification");
+    clearVineReadCache(
+      "profile-header",
+      "profile-posts",
+      "profile-likes",
+      "profile-photos",
+      "profile-bookmarks"
+    );
 
     const [[targetUser]] = await db.query(
       "SELECT email, username FROM vine_users WHERE id = ? LIMIT 1",
@@ -13866,6 +13905,10 @@ router.get("/users/:username/likes", authOptional, async (req, res) => {
       return res.status(200).json([]);
     }
 
+    if (await getActiveInteractionSuspension(user.id)) {
+      return res.status(200).json([]);
+    }
+
     if (await isUserBlocked(user.id, viewerId)) {
       return res.status(200).json([]);
     }
@@ -13940,6 +13983,10 @@ router.get("/users/:username/photos", authOptional, async (req, res) => {
     );
 
     if (!user) {
+      return res.status(200).json([]);
+    }
+
+    if (await getActiveInteractionSuspension(user.id)) {
       return res.status(200).json([]);
     }
 

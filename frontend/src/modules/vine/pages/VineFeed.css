@@ -2915,9 +2915,16 @@ body:has(.vine-feed-container) {
 .vine-suspension-gate {
   position: relative;
   display: grid;
-  min-height: calc(100vh - 112px);
-  place-items: center;
-  padding: clamp(28px, 7vw, 82px) 18px;
+  width: 100%;
+  min-height: 100vh;
+  min-height: 100svh;
+  box-sizing: border-box;
+  align-content: center;
+  justify-items: center;
+  padding:
+    calc(76px + clamp(30px, 6vh, 72px))
+    18px
+    clamp(52px, 8vh, 96px);
   overflow: hidden;
   background:
     radial-gradient(circle at 18% 14%, rgba(18, 164, 114, 0.15), transparent 30rem),
@@ -2952,7 +2959,8 @@ body:has(.vine-feed-container) {
 .vine-suspension-gate-card {
   position: relative;
   z-index: 1;
-  width: min(620px, 100%);
+  width: min(680px, 100%);
+  margin-inline: auto;
   padding: clamp(28px, 6vw, 50px);
   border: 1px solid rgba(9, 108, 78, 0.17);
   border-radius: 30px;
@@ -8103,10 +8111,21 @@ body:has(.vine-news-feed) {
 .theme-dark .vine-appeal-field textarea { border-color: rgba(113, 214, 173, 0.22); background: #0d211b; color: #eafff6; }
 .theme-dark .vine-appeal-secondary { border-color: rgba(113, 214, 173, 0.2); background: #183a2f; color: #d9f7ea; }
 
-@media (max-width: 600px) {
+@media (max-width: 768px) {
   .vine-suspension-gate {
-    min-height: calc(100vh - 142px);
-    padding: 28px 12px;
+    min-height: 100vh;
+    min-height: 100svh;
+    padding:
+      calc(210px + env(safe-area-inset-top) + 24px)
+      12px
+      max(48px, env(safe-area-inset-bottom));
+  }
+
+  /* Keep the Guardian restriction lookup silent on mobile. The request still
+     runs before feed data is exposed; only the internal loading copy and
+     spinner are hidden from the user. */
+  .vine-suspension-gate-loading > * {
+    display: none;
   }
 
   .vine-suspension-gate-card {

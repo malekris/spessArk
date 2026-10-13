@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import ImageCarousel from "./ImageCarousel";
 import ProfileDelights from "../components/ProfileDelights";
+import SuspendedProfileNotice from "../components/SuspendedProfileNotice";
 import { getVineToken, isVineTokenExpired } from "../utils/vineAuth";
 import { resolveProfileTheme } from "../utils/profileThemes";
 import "./VinePublicPost.css";
@@ -174,7 +175,7 @@ export default function VinePublicProfile() {
       }
       setProfile(headerData);
 
-      if (headerData.blocked || headerData.privateLocked) {
+      if (headerData.suspended || headerData.blocked || headerData.privateLocked) {
         setPosts([]);
         setHasMore(false);
         setNextOffset(0);
@@ -224,6 +225,15 @@ export default function VinePublicProfile() {
     }
     navigate(`/vine/login?redirect=${encodeURIComponent(protectedProfileTarget)}`);
   };
+
+  if (!loading && !error && profile?.suspended) {
+    return (
+      <SuspendedProfileNotice
+        isSelf={Boolean(viewerId && viewerId === Number(profile?.user?.id))}
+        fallbackTo={loggedIn ? "/vine/feed" : "/"}
+      />
+    );
+  }
 
   return (
     <div className={`vine-public-shell profile-theme-${resolveProfileTheme(profile?.user?.profile_theme)}`}>

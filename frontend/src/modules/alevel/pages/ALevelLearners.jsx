@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState } from "react";
 import { plainFetch } from "../../../lib/api";
 import { loadPdfTools } from "../../../utils/loadPdfTools";
 import ALevelAdminShell from "../components/ALevelAdminShell";
+import ALevelMarksheetCard from "../components/ALevelMarksheetCard";
 import "../../../pages/AdminDashboard.css";
 import "./ALevelAdminTheme.css";
 
@@ -779,6 +780,8 @@ export default function ALevelLearners() {
                 </table>
               </div>
             )}
+
+            {!loading && <ALevelMarksheetCard learners={learners} />}
           </div>
         </div>
       </>

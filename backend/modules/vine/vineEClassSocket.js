@@ -1,4 +1,5 @@
 import jwt from "jsonwebtoken";
+import { getJwtSecret } from "../../config/security.js";
 import { getEClassIceConfig } from "./vineEClassIceConfig.js";
 
 const eclassRooms = new Map();
@@ -113,7 +114,7 @@ const getLiveMembership = async (db, sessionId, userId) => {
 const getAuthenticatedUserId = async (db, rawToken) => {
   const token = String(rawToken || "").trim();
   if (!token) return null;
-  const decoded = jwt.verify(token, process.env.JWT_SECRET || "vine_secret_key");
+  const decoded = jwt.verify(token, getJwtSecret());
   const userId = Number(decoded?.id || 0);
   if (!userId) return null;
   if (decoded?.jti) {
@@ -288,6 +289,18 @@ export function registerVineEClassSocketHandlers({ io, socket, db, getIceConfig 
     if (!stored || !socket.rooms.has(roomName(sid))) return null;
     return stored;
   };
+  const requireCurrentMembership = async (sessionId) => {
+    const stored = requireJoinedSession(sessionId);
+    if (!stored || Number(stored.userId) !== Number(socket.data.userId)) return null;
+    const membership = await getLiveMembership(db, sessionId, stored.userId);
+    if (!membership) {
+      await leaveSession(sessionId, { emit: false });
+      return null;
+    }
+    stored.role = membership.community_role;
+    stored.hostUserId = Number(membership.host_user_id);
+    return stored;
+  };
 
   const leaveSession = async (sessionId, { emit = true } = {}) => {
     const sid = Number(sessionId);
@@ -316,7 +329,7 @@ export function registerVineEClassSocketHandlers({ io, socket, db, getIceConfig 
   socket.on("eclass_join", async (payload = {}, callback) => {
     try {
       const sessionId = Number(payload.sessionId);
-      const userId = await getAuthenticatedUserId(db, payload.token).catch(() => null);
+      const userId = Number(socket.data.userId || 0);
       if (!sessionId || !userId) {
         return acknowledge(callback, { ok: false, message: "Sign in to join Vine eClass" });
       }
@@ -389,8 +402,8 @@ export function registerVineEClassSocketHandlers({ io, socket, db, getIceConfig 
     acknowledge(callback, { ok: true });
   });
 
-  socket.on("eclass_signal", (payload = {}) => {
-    const session = requireJoinedSession(payload.sessionId);
+  socket.on("eclass_signal", async (payload = {}) => {
+    const session = await requireCurrentMembership(payload.sessionId);
     const targetUserId = Number(payload.targetUserId);
     if (!session || !targetUserId || targetUserId === session.userId) return;
     if (!eclassRooms.get(Number(payload.sessionId))?.has(targetUserId)) return;
@@ -405,7 +418,7 @@ export function registerVineEClassSocketHandlers({ io, socket, db, getIceConfig 
 
   socket.on("eclass_chat", async (payload = {}, callback) => {
     try {
-      const session = requireJoinedSession(payload.sessionId);
+      const session = await requireCurrentMembership(payload.sessionId);
       const content = String(payload.content || "").trim().slice(0, 1200);
       if (!session || !content) return acknowledge(callback, { ok: false });
       const [inserted] = await db.query(
@@ -433,7 +446,7 @@ export function registerVineEClassSocketHandlers({ io, socket, db, getIceConfig 
   });
 
   socket.on("eclass_audio_state", async (payload = {}, callback) => {
-    const session = requireJoinedSession(payload.sessionId);
+    const session = await requireCurrentMembership(payload.sessionId);
     if (!session) return acknowledge(callback, { ok: false });
     const wantsMuted = payload.muted ? 1 : 0;
     const [[participant]] = await db.query(
@@ -456,7 +469,7 @@ export function registerVineEClassSocketHandlers({ io, socket, db, getIceConfig 
   });
 
   socket.on("eclass_raise_hand", async (payload = {}, callback) => {
-    const session = requireJoinedSession(payload.sessionId);
+    const session = await requireCurrentMembership(payload.sessionId);
     if (!session) return acknowledge(callback, { ok: false });
     const raised = payload.raised ? 1 : 0;
     await db.query(
@@ -473,7 +486,7 @@ export function registerVineEClassSocketHandlers({ io, socket, db, getIceConfig 
 
   socket.on("eclass_moderate_mute", async (payload = {}, callback) => {
     try {
-      const session = requireJoinedSession(payload.sessionId);
+      const session = await requireCurrentMembership(payload.sessionId);
       const targetUserId = Number(payload.targetUserId);
       if (!session || !targetUserId) return acknowledge(callback, { ok: false });
       if (!["owner", "moderator"].includes(String(session.role || "").toLowerCase())) {
@@ -511,8 +524,8 @@ export function registerVineEClassSocketHandlers({ io, socket, db, getIceConfig 
     }
   });
 
-  socket.on("eclass_screen_state", (payload = {}, callback) => {
-    const session = requireJoinedSession(payload.sessionId);
+  socket.on("eclass_screen_state", async (payload = {}, callback) => {
+    const session = await requireCurrentMembership(payload.sessionId);
     if (!session || !["owner", "moderator"].includes(String(session.role || "").toLowerCase())) {
       return acknowledge(callback, { ok: false, message: "Moderator access required" });
     }

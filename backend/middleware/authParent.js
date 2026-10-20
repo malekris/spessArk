@@ -1,4 +1,5 @@
 import jwt from "jsonwebtoken";
+import { getJwtSecret } from "../config/security.js";
 import { ensureParentPortalSchemaReady } from "../services/parentPortalService.js";
 
 export function signParentSessionToken(parent) {
@@ -9,7 +10,7 @@ export function signParentSessionToken(parent) {
       name: parent.display_name,
       role: "parent",
     },
-    process.env.JWT_SECRET || "dev_secret",
+    getJwtSecret(),
     { expiresIn: "12h" }
   );
 }
@@ -24,7 +25,7 @@ export default function createParentAuth(connection) {
     }
 
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "dev_secret");
+      const decoded = jwt.verify(token, getJwtSecret());
       if (decoded?.role !== "parent" || !decoded?.id) throw new Error("Invalid parent token");
 
       await ensureParentPortalSchemaReady(connection);

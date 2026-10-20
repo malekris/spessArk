@@ -4,4 +4,5 @@ const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 
 export const socket = io(API, {
   autoConnect: false, // we connect manually after login
+  auth: (callback) => callback({ token: localStorage.getItem("vine_token") || "" }),
 });

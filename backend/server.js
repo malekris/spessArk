@@ -1,5 +1,7 @@
 // backend/server.js
 import "./config/env.js";   // 👈 must be first, before everything
+import { getJwtSecret, validateSecurityConfiguration } from "./config/security.js";
+import { createDatabaseRateLimit } from "./middleware/databaseRateLimit.js";
 import http from "http";
 import fs from "fs";
 import os from "os";
@@ -110,7 +112,8 @@ function getVineFrontendBase(req) {
     return "https://www.stphillipsequatorial.com";
   }
 
-  return `${requestProto}://${requestHost}`.replace(/\/+$/, "");
+  // Never reflect an unrecognised Host/X-Forwarded-Host into a redirect.
+  return "https://www.stphillipsequatorial.com";
 }
 
 function fireAndForgetEmail(job, label) {
@@ -140,12 +143,23 @@ app.use(cors({
   ],
   exposedHeaders: ["Content-Disposition", "Content-Length"],
 }));
+app.disable("x-powered-by");
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("Permissions-Policy", "camera=(), geolocation=(), microphone=(self)");
+  if (process.env.NODE_ENV === "production" && req.secure) {
+    res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  }
+  next();
+});
 
 // Explicitly handle preflight requests
 app.use("/public", express.static("public"));
 app.use(express.json());
 app.use("/api/teachers", teacherRoutes);
-app.use("/api/students", studentRoutes);
+app.use("/api/students", authAdmin, studentRoutes);
 app.use("/api/admin/reports", adminReportsRoutes);
 app.use("/api/admin/audit-logs", adminAuditLogsRoutes);
 app.use("/api/admin", adminPromotionRoutes);
@@ -155,10 +169,9 @@ app.use("/api/admin/stream-readiness", streamReadinessRoutes);
 app.use("/api/alevel", alevelRoutes);
 app.use("/api/boarding", boardingRoutes);
 app.use("/api/new-signup", newSignupRoutes);
-app.use("/api/alevel/reports", alevelReports);
+app.use("/api/alevel/reports", authAdmin, alevelReports);
 app.use("/api/vine", vineRoutes);
 app.use("/api/vine/auth", vineAuth);
-app.use("/api/vine", vineRoutes);
 app.use("/uploads", express.static(path.join(__dirname, "uploads"), {
   maxAge: "1y",
   immutable: true,
@@ -183,10 +196,10 @@ app.get(/^\/vine(?:\/.*)?$/, (req, res) => {
 /* =======================
    PUBLIC LOOKUPS
 ======================= */
-app.get("/api/teachers", async (req, res) => {
+app.get("/api/teachers", authAdmin, async (req, res) => {
   try {
     const [rows] = await pool.query(
-      `SELECT id, name, email
+      `SELECT id, name
        FROM teachers
        ORDER BY name`
     );
@@ -212,7 +225,7 @@ function signTeacherToken(teacher, sessionMode = "browser_session") {
       role: "teacher",
       session_mode: sessionMode,
     },
-    process.env.JWT_SECRET || "dev_secret",
+    getJwtSecret(),
     { expiresIn: getSessionExpiry(sessionMode, "7d") }
   );
 }
@@ -230,7 +243,7 @@ async function authTeacher(req, res, next) {
   try {
     const decoded = jwt.verify(
       token,
-      process.env.JWT_SECRET || "dev_secret"
+      getJwtSecret()
     );
     await ensureTeacherAccountLifecycleColumns(pool);
     const [[teacherAccount]] = await pool.query(
@@ -255,7 +268,8 @@ async function authTeacher(req, res, next) {
   }
 }
 //AdminAuth route//
-app.post("/api/admin/login", async (req, res) => {
+const limitAdminLogin = createDatabaseRateLimit(() => pool, { namespace: "admin-login", max: 5, account: (req) => req.body?.username });
+app.post("/api/admin/login", limitAdminLogin, async (req, res) => {
   try {
     const username = String(req.body?.username || "").trim();
     const password = String(req.body?.password || "");
@@ -1048,11 +1062,11 @@ async function ensureAdminCredentialsTable() {
       );
 
       if (!rows.length) {
-        const seedUsername =
-          String(process.env.ADMIN_USERNAME || "admin").trim() || "admin";
-        const seedPassword =
-          String(process.env.ADMIN_PASSWORD || process.env.ADMIN_KEY || "admin").trim() ||
-          "admin";
+        const seedUsername = String(process.env.ADMIN_USERNAME || "").trim();
+        const seedPassword = String(process.env.ADMIN_PASSWORD || "").trim();
+        if (!seedUsername || !seedPassword) {
+          throw new Error("Initial admin provisioning requires ADMIN_USERNAME and ADMIN_PASSWORD");
+        }
         const passwordHash = await bcrypt.hash(seedPassword, 10);
 
         await pool.query(
@@ -1538,7 +1552,7 @@ app.get("/api/admin/marks-sets", authAdmin, async (req, res) => {
   }
 });
 
-app.get("/api/students", async (req, res) => {
+app.get("/api/students", authAdmin, async (req, res) => {
   try {
     await ensureStudentLifecycleColumns(pool);
     const [rows] = await pool.query(
@@ -1901,7 +1915,7 @@ app.delete("/api/admin/teachers/:id", authAdmin, requireAdminReauth, async (req,
 // ===============================
 // ADMIN → STUDENTS
 // ===============================
-app.get("/api/students", async (req, res) => {
+app.get("/api/students", authAdmin, async (req, res) => {
   try {
     await ensureStudentLifecycleColumns(pool);
     const [rows] = await pool.query(
@@ -1917,7 +1931,7 @@ app.get("/api/students", async (req, res) => {
   }
 });
 
-app.post("/api/students", async (req, res) => {
+app.post("/api/students", authAdmin, async (req, res) => {
   try {
     await ensureStudentLifecycleColumns(pool);
     const { name, gender, dob, class_level, stream, subjects } = req.body;
@@ -1969,7 +1983,7 @@ app.post("/api/students", async (req, res) => {
 // ===============================
 // LOOKUP → TEACHERS (Admin UI)
 // ===============================
-app.get("/api/teachers", async (req, res) => {
+app.get("/api/teachers", authAdmin, async (req, res) => {
   try {
     const [rows] = await pool.query(
       `SELECT id, name, email
@@ -4005,6 +4019,17 @@ app.get("/health", async (req, res) => {
   }
 });
 
+// Final error boundary: operational logs retain detail, clients never receive
+// stack traces, database errors, or filesystem paths.
+app.use((err, req, res, _next) => {
+  const status = Number(err?.status || err?.statusCode || 500);
+  if (status >= 500) console.error("Unhandled request error", { path: req.originalUrl, message: err?.message });
+  if (res.headersSent) return;
+  res.status(status >= 400 && status < 600 ? status : 500).json({
+    message: status >= 500 ? "Internal server error" : (err?.message || "Request failed"),
+  });
+});
+
 /* =======================
    START SERVER
 ======================= */
@@ -4013,7 +4038,7 @@ const server = http.createServer(app);
 
 export const io = new Server(server, {
   cors: {
-    origin: "*", // fine for dev
+    origin: ["https://stphillipsequatorial.com", "https://www.stphillipsequatorial.com", "http://localhost:5173"],
   },
 });
 const socketToUserId = new Map();
@@ -4021,6 +4046,35 @@ const userIdToSockets = new Map();
 const activeDmCalls = new Map();
 
 export const getOnlineUserIds = () => Array.from(userIdToSockets.keys());
+
+// A socket identity comes only from a verified Vine session.  In particular,
+// never accept an actor id supplied by the browser as proof of identity.
+io.use(async (socket, next) => {
+  try {
+    const token = String(socket.handshake.auth?.token || socket.handshake.headers?.authorization || "")
+      .replace(/^Bearer\s+/i, "").trim();
+    const decoded = jwt.verify(token, getJwtSecret());
+    const userId = Number(decoded?.id);
+    if (!userId || decoded?.role === "teacher" || decoded?.purpose) throw new Error("invalid token purpose");
+    if (decoded?.jti) {
+      const [[session]] = await db.query(
+        "SELECT revoked_at FROM vine_user_sessions WHERE user_id = ? AND session_jti = ? LIMIT 1",
+        [userId, decoded.jti]
+      );
+      if (!session || session.revoked_at) throw new Error("revoked session");
+    }
+    const [[user]] = await db.query(
+      "SELECT id FROM vine_users WHERE id = ? AND (delete_requested_at IS NULL OR DATE_ADD(delete_requested_at, INTERVAL 10 DAY) > NOW()) LIMIT 1",
+      [userId]
+    );
+    if (!user) throw new Error("inactive account");
+    socket.data.userId = userId;
+    socket.data.sessionJti = decoded.jti || null;
+    next();
+  } catch {
+    next(new Error("Unauthorized"));
+  }
+});
 
 const isDmConversationParticipant = async (conversationId, userId) => {
   const cid = Number(conversationId);
@@ -4158,29 +4212,19 @@ const finalizeDmCall = async (callId, status) => {
 io.on("connection", (socket) => {
   console.log("🔌 Socket connected:", socket.id);
 
+  const uid = Number(socket.data.userId);
+  const existingSockets = userIdToSockets.get(uid);
+  const wasOnline = Boolean(existingSockets && existingSockets.size > 0);
+  socket.join(`user-${uid}`);
+  socketToUserId.set(socket.id, uid);
+  if (!userIdToSockets.has(uid)) userIdToSockets.set(uid, new Set());
+  userIdToSockets.get(uid).add(socket.id);
+  if (!wasOnline) io.emit("user_presence_changed", { userId: uid, is_online_now: true, last_active_at: new Date().toISOString() });
+
   registerVineEClassSocketHandlers({
     io,
     socket,
     db,
-  });
-
-  socket.on("register", (userId) => {
-    const uid = Number(userId);
-    if (!uid) return;
-    const existingSockets = userIdToSockets.get(uid);
-    const wasOnline = Boolean(existingSockets && existingSockets.size > 0);
-    socket.join(`user-${uid}`);
-    socketToUserId.set(socket.id, uid);
-    if (!userIdToSockets.has(uid)) userIdToSockets.set(uid, new Set());
-    userIdToSockets.get(uid).add(socket.id);
-    console.log("👤 User joined room:", uid);
-    if (!wasOnline) {
-      io.emit("user_presence_changed", {
-        userId: uid,
-        is_online_now: true,
-        last_active_at: new Date().toISOString(),
-      });
-    }
   });
 
   socket.on("join_conversation", async (conversationId) => {
@@ -4216,7 +4260,7 @@ io.on("connection", (socket) => {
     const conversationId = payload.conversationId;
     const callId = String(payload.callId || "").trim();
     if (!conversationId || !callId || callId.length > 120 || !payload.offer) return;
-    const fromUserId = socketToUserId.get(socket.id) || payload.fromUserId || null;
+    const fromUserId = socket.data.userId;
     if (!(await isDmConversationParticipant(conversationId, fromUserId))) return;
     const activeSuspension = await getActiveVineSuspension(db, fromUserId).catch((error) => {
       console.error("DM call suspension check failed:", error);
@@ -4290,7 +4334,7 @@ io.on("connection", (socket) => {
   socket.on("dm_call_accept", async (payload = {}) => {
     const conversationId = payload.conversationId;
     if (!conversationId || !payload.callId || !payload.answer) return;
-    const fromUserId = socketToUserId.get(socket.id) || payload.fromUserId || null;
+    const fromUserId = socket.data.userId;
     if (!(await isDmConversationParticipant(conversationId, fromUserId))) return;
     const activeCall = activeDmCalls.get(String(payload.callId || "").trim());
     if (
@@ -4316,7 +4360,7 @@ io.on("connection", (socket) => {
   socket.on("dm_call_connected", async (payload = {}) => {
     const conversationId = payload.conversationId;
     if (!conversationId || !payload.callId) return;
-    const fromUserId = socketToUserId.get(socket.id) || payload.fromUserId || null;
+    const fromUserId = socket.data.userId;
     if (!(await isDmConversationParticipant(conversationId, fromUserId))) return;
     const activeCall = activeDmCalls.get(String(payload.callId || "").trim());
     if (
@@ -4331,7 +4375,7 @@ io.on("connection", (socket) => {
   socket.on("dm_call_decline", async (payload = {}) => {
     const conversationId = payload.conversationId;
     if (!conversationId || !payload.callId) return;
-    const fromUserId = socketToUserId.get(socket.id) || payload.fromUserId || null;
+    const fromUserId = socket.data.userId;
     if (!(await isDmConversationParticipant(conversationId, fromUserId))) return;
     const activeCall = activeDmCalls.get(String(payload.callId || "").trim());
     if (
@@ -4358,7 +4402,7 @@ io.on("connection", (socket) => {
   socket.on("dm_call_end", async (payload = {}) => {
     const conversationId = payload.conversationId;
     if (!conversationId || !payload.callId) return;
-    const fromUserId = socketToUserId.get(socket.id) || payload.fromUserId || null;
+    const fromUserId = socket.data.userId;
     if (!(await isDmConversationParticipant(conversationId, fromUserId))) return;
     const activeCall = activeDmCalls.get(String(payload.callId || "").trim());
     if (
@@ -4385,7 +4429,7 @@ io.on("connection", (socket) => {
   socket.on("dm_call_signal", async (payload = {}) => {
     const conversationId = payload.conversationId;
     if (!conversationId || !payload.callId || !payload.candidate) return;
-    const fromUserId = socketToUserId.get(socket.id) || payload.fromUserId || null;
+    const fromUserId = socket.data.userId;
     if (!(await isDmConversationParticipant(conversationId, fromUserId))) return;
     const activeCall = activeDmCalls.get(String(payload.callId || "").trim());
     if (
@@ -4447,7 +4491,9 @@ io.on("connection", (socket) => {
   });
 });
 
-server.listen(PORT, () => {
+validateSecurityConfiguration();
+const listenHost = process.env.HOST || (process.env.NODE_ENV === "production" ? "0.0.0.0" : "127.0.0.1");
+server.listen(PORT, listenHost, () => {
   console.log(`✅ Spess Ark backend + WS running on http://localhost:${PORT}`);
   startVineEClassHostReaper({ io, db });
   ensureDmSchema()

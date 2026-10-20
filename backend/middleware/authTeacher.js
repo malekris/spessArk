@@ -1,6 +1,7 @@
  // backend/middleware/authTeacher.js
 import jwt from "jsonwebtoken";
 import { ensureTeacherAccountLifecycleColumns, pool } from "../server.js";
+import { getJwtSecret } from "../config/security.js";
 
 export default async function authTeacher(req, res, next) {
   try {
@@ -17,9 +18,12 @@ export default async function authTeacher(req, res, next) {
 
     const decoded = jwt.verify(
       token,
-      process.env.JWT_SECRET || "dev_secret"
+      getJwtSecret()
     );
 
+    if (decoded?.resetOnly || decoded?.purpose === "password_reset" || decoded?.role !== "teacher") {
+      return res.status(401).json({ message: "Invalid or expired token" });
+    }
     await ensureTeacherAccountLifecycleColumns(pool);
     const [[teacherAccount]] = await pool.query(
       `SELECT id

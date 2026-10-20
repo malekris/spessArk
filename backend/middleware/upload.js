@@ -7,14 +7,14 @@ import cloudinary from "../config/cloudinary.js";
 // ------------------------
 export const uploadPostCloudinary = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 500 * 1024 * 1024 },
+  limits: { fileSize: 15 * 1024 * 1024, files: 4, fields: 30, parts: 40 },
 });
 
 // Community Library support packs stay as opaque archives. The server never
 // extracts them; this limit only bounds the in-memory handoff to object storage.
 export const uploadCommunitySupportFile = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 200 * 1024 * 1024 },
+  limits: { fileSize: 50 * 1024 * 1024, files: 1, fields: 20, parts: 25 },
 });
 
 // ------------------------
@@ -22,12 +22,12 @@ export const uploadCommunitySupportFile = multer({
 // ------------------------
 export const uploadAvatarMemory = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 20 * 1024 * 1024 },
+  limits: { fileSize: 10 * 1024 * 1024, files: 1, fields: 20, parts: 25 },
 });
 
 export const uploadBannerMemory = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 20 * 1024 * 1024 },
+  limits: { fileSize: 10 * 1024 * 1024, files: 1, fields: 20, parts: 25 },
 });
 
 // ------------------------

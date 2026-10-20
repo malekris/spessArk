@@ -4,6 +4,7 @@ import "./AdminDashboard.css";
 import AssignSubjectsPanel from "../components/AssignSubjectsPanel";
 import { plainFetch, adminFetch } from "../lib/api";
 import EditStudentModal from "../components/EditStudentModal";
+import LearnerProfileModal from "../components/LearnerProfileModal";
 import EndOfTermReports from "./EndOfTermReports";
 import MiniProgressReports from "./MiniProgressReports";
 import { useNavigate } from "react-router-dom";
@@ -672,6 +673,7 @@ export default function AdminDashboard() {
   const [deletingStudentId, setDeletingStudentId] = useState(null);
   const [pendingStudentDelete, setPendingStudentDelete] = useState(null);
   const [editingStudent, setEditingStudent] = useState(null);
+  const [viewingStudent, setViewingStudent] = useState(null);
   const [studentLifecycleNotice, setStudentLifecycleNotice] = useState("");
   const savingStudentRef = useRef(false);
   const detailSectionRef = useRef(null);
@@ -1354,8 +1356,8 @@ export default function AdminDashboard() {
 
     try {
       const [studentsData, aLevelData] = await Promise.all([
-        plainFetch("/api/students"),
-        plainFetch("/api/alevel/learners"),
+        adminFetch("/api/students"),
+        adminFetch("/api/alevel/learners"),
       ]);
 
       if (Array.isArray(studentsData)) latestStudents = studentsData;
@@ -4158,7 +4160,16 @@ export default function AdminDashboard() {
                     <tbody>
                     {filteredStudents.map((s) => (
   <tr key={s.id} className={isActiveStudent(s) ? "" : "learner-row-paused"}>
-    <td>{s.name}</td>
+    <td>
+      <button
+        type="button"
+        className="learner-profile-link"
+        onClick={() => setViewingStudent(s)}
+        title={`View ${s.name || "learner"} profile`}
+      >
+        {s.name}
+      </button>
+    </td>
     <td>{s.gender}</td>
     <td>{s.class_level}</td>
     <td>{s.stream}</td>
@@ -6239,6 +6250,14 @@ export default function AdminDashboard() {
       </main>
 
       {/* single modal instance */}
+      {viewingStudent && (
+        <LearnerProfileModal
+          student={viewingStudent}
+          onClose={() => setViewingStudent(null)}
+          onEdit={(student) => setEditingStudent(student)}
+        />
+      )}
+
       {editingStudent && (
         <EditStudentModal
           student={editingStudent}

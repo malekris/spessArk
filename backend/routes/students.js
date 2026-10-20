@@ -4,12 +4,12 @@ import { ensureStudentLifecycleColumns } from "../services/studentLifecycleServi
 
 const router = express.Router();
 
-// GET all students (admin / public use)
+// This router is mounted behind authAdmin; never expose school records publicly.
 router.get("/", async (req, res) => {
   try {
     await ensureStudentLifecycleColumns(pool);
     const [rows] = await pool.query(
-      `SELECT *
+      `SELECT id, name, gender, dob, class, stream, status
        FROM students
        WHERE COALESCE(NULLIF(status, ''), 'active') = 'active'
        ORDER BY name`

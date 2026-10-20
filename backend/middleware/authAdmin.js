@@ -1,7 +1,8 @@
 import jwt from "jsonwebtoken";
 import { getSessionExpiry } from "../utils/deviceSession.js";
+import { getJwtSecret } from "../config/security.js";
 
-const ADMIN_JWT_SECRET = process.env.JWT_SECRET || "dev_secret";
+const ADMIN_JWT_SECRET = getJwtSecret();
 
 // Keep admin security behavior consistent between localhost and production.
 // If we ever need a bypass for emergency development work, it should be explicit.

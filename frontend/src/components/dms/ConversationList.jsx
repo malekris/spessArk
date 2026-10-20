@@ -200,13 +200,7 @@ export default function ConversationList() {
 
   useEffect(() => {
     const user = JSON.parse(localStorage.getItem("vine_user"));
-    const registerUser = () => {
-      if (user?.id) socket.emit("register", user.id);
-    };
-
     if (!socket.connected) socket.connect();
-    registerUser();
-    socket.on("connect", registerUser);
 
     // Listen for realtime inbox updates
     const refreshInbox = () => {
@@ -222,7 +216,6 @@ export default function ConversationList() {
     socket.on("messages_seen", refreshInbox);
 
     return () => {
-      socket.off("connect", registerUser);
       socket.off("dm_received", refreshInbox);
       socket.off("inbox_updated", refreshInbox);
       socket.off("messages_seen", refreshInbox);

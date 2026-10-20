@@ -2,6 +2,7 @@
 import express from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
 import dotenv from "dotenv";
 import {
   sendWelcomeEmail,
@@ -20,9 +21,15 @@ import { getSessionExpiry, resolveRequestedSessionMode } from "../utils/deviceSe
 import { queueAdminYearSnapshotRefresh } from "../services/adminYearSnapshotService.js";
 import { readMaintenanceSettings } from "../services/maintenanceModeService.js";
 import { ensureAlevelPromotionSchemaReady } from "../services/alevelPromotionService.js";
+import { getJwtSecret } from "../config/security.js";
+import { createDatabaseRateLimit } from "../middleware/databaseRateLimit.js";
 
 dotenv.config();
 const router = express.Router();
+const limitTeacherResetIssue = createDatabaseRateLimit(() => pool, { namespace: "teacher-reset-issue", max: 3, account: (req) => req.body?.email });
+const limitTeacherResetVerify = createDatabaseRateLimit(() => pool, { namespace: "teacher-reset-verify", max: 5, account: (req) => req.body?.email });
+const limitTeacherLogin = createDatabaseRateLimit(() => pool, { namespace: "teacher-login", max: 8, account: (req) => req.body?.email });
+const limitTeacherSignup = createDatabaseRateLimit(() => pool, { namespace: "teacher-signup", max: 3, account: (req) => req.body?.email });
 
 const normalizeAlevelPaperLabel = (value = "") => {
   const raw = String(value || "").trim().toLowerCase();
@@ -50,7 +57,7 @@ const signTeacherSessionToken = (teacher, sessionMode = "browser_session") =>
       role: "teacher",
       session_mode: sessionMode,
     },
-    process.env.JWT_SECRET || "dev_secret",
+    getJwtSecret(),
     { expiresIn: getSessionExpiry(sessionMode, "7d") }
   );
 
@@ -158,7 +165,12 @@ async function ensureAlevelTeacherSubjectLifecycleColumns(connection = pool) {
 /* =======================
    REGISTER TEACHER
 ======================= */
-router.post("/register", async (req, res) => {
+router.post("/register", limitTeacherSignup, async (req, res) => {
+  // Teacher accounts must be provisioned by an administrator.  Leaving this
+  // endpoint in place avoids a confusing 404 for old clients without granting
+  // privileges to an unaudited self-registration.
+  return res.status(403).json({ message: "Teacher self-registration is disabled. Contact an administrator." });
+  /* c8 ignore next */
   console.log("🟢 /api/teachers/register HIT:", req.body);
 
   const { name, email, password } = req.body;
@@ -180,7 +192,7 @@ router.post("/register", async (req, res) => {
     }
 
     // Hash password
-    const passwordHash = await bcrypt.hash(password, 6);
+    const passwordHash = await bcrypt.hash(password, 12);
 
     // Create teacher
     const [result] = await pool.query(
@@ -220,7 +232,7 @@ router.get("/verify/:token", async (req, res) => {
 
     const decoded = jwt.verify(
       token,
-      process.env.JWT_SECRET || "dev_secret"
+      getJwtSecret()
     );
 
     await pool.query(
@@ -241,7 +253,7 @@ router.get("/verify/:token", async (req, res) => {
 /* =======================
    LOGIN (LOCKED UNTIL VERIFIED)
 ======================= */
-router.post("/login", async (req, res) => {
+router.post("/login", limitTeacherLogin, async (req, res) => {
   try {
     await ensureTeacherAccountLifecycleColumns(pool);
     const maintenance = await readMaintenanceSettings(pool);
@@ -321,7 +333,7 @@ router.post("/login", async (req, res) => {
 /* =======================
    FORGOT PASSWORD (CODE)
 ======================= */
-router.post("/forgot-password", async (req, res) => {
+router.post("/forgot-password", limitTeacherResetIssue, async (req, res) => {
   try {
     await ensureTeacherAccountLifecycleColumns(pool);
     const normalizedEmail = normalizeTeacherEmail(req.body?.email);
@@ -343,12 +355,13 @@ router.post("/forgot-password", async (req, res) => {
       return res.json({ message: "If that email exists, a code was sent." });
     }
 
-    const code = String(Math.floor(1000 + Math.random() * 9000));
-    const expires = new Date(Date.now() + 15 * 60 * 1000);
+    const code = crypto.randomInt(100000, 1000000).toString();
+    const expires = new Date(Date.now() + 10 * 60 * 1000);
+    const codeHash = crypto.createHash("sha256").update(code).digest("hex");
 
     await pool.query(
       "UPDATE teachers SET reset_token = ?, reset_expires = ? WHERE id = ?",
-      [code, expires, rows[0].id]
+      [codeHash, expires, rows[0].id]
     );
 
     await sendTeacherResetCodeEmail(normalizedEmail, code);
@@ -362,7 +375,7 @@ router.post("/forgot-password", async (req, res) => {
 /* =======================
    VERIFY RESET CODE
 ======================= */
-router.post("/verify-reset-code", async (req, res) => {
+router.post("/verify-reset-code", limitTeacherResetVerify, async (req, res) => {
   try {
     await ensureTeacherAccountLifecycleColumns(pool);
     const normalizedEmail = normalizeTeacherEmail(req.body?.email);
@@ -387,7 +400,10 @@ router.post("/verify-reset-code", async (req, res) => {
     }
 
     const expired = new Date(teacher.reset_expires).getTime() < Date.now();
-    if (expired || String(teacher.reset_token) !== String(code)) {
+    const submittedHash = crypto.createHash("sha256").update(String(code)).digest("hex");
+    const storedHash = Buffer.from(String(teacher.reset_token));
+    const candidateHash = Buffer.from(submittedHash);
+    if (expired || storedHash.length !== candidateHash.length || !crypto.timingSafeEqual(storedHash, candidateHash)) {
       return res.status(400).json({ message: "Invalid or expired code" });
     }
 
@@ -398,7 +414,7 @@ router.post("/verify-reset-code", async (req, res) => {
         role: "teacher",
         resetOnly: true,
       },
-      process.env.JWT_SECRET || "dev_secret",
+      getJwtSecret(),
       { expiresIn: "20m" }
     );
 
@@ -409,7 +425,7 @@ router.post("/verify-reset-code", async (req, res) => {
         name: teacher.name,
         email: teacher.email,
       },
-      resetOnly: true,
+        purpose: "teacher_password_reset",
     });
   } catch (err) {
     console.error("❌ Verify reset code error:", err);
@@ -420,18 +436,26 @@ router.post("/verify-reset-code", async (req, res) => {
 /* =======================
    RESET PASSWORD (RESET TOKEN)
 ======================= */
-router.post("/reset-password", authTeacher, async (req, res) => {
+const requireTeacherPasswordReset = (req, res, next) => {
   try {
-    if (!req.teacher?.resetOnly) {
-      return res.status(403).json({ message: "Reset token required" });
-    }
+    const token = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+    const decoded = jwt.verify(token, getJwtSecret());
+    if (decoded?.role !== "teacher" || decoded?.purpose !== "teacher_password_reset") throw new Error("wrong purpose");
+    req.teacher = decoded;
+    next();
+  } catch {
+    return res.status(401).json({ message: "Reset token required" });
+  }
+};
 
+router.post("/reset-password", requireTeacherPasswordReset, async (req, res) => {
+  try {
     const { newPassword } = req.body;
     if (!newPassword) {
       return res.status(400).json({ message: "New password is required" });
     }
 
-    const hashed = await bcrypt.hash(newPassword, 10);
+    const hashed = await bcrypt.hash(newPassword, 12);
     const [teacherRows] = await pool.query(
       "SELECT id, name, email FROM teachers WHERE id = ? LIMIT 1",
       [req.teacher.id]

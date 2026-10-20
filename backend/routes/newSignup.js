@@ -6,6 +6,8 @@ import { pool } from "../server.js";
 const router = express.Router();
 
 router.post("/", async (req, res) => {
+  return res.status(403).json({ message: "Teacher self-registration is disabled. Contact an administrator." });
+  /* c8 ignore next */
   const { name, email, password } = req.body;
 
   console.log("🆕 New signup hit:", email);

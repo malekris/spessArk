@@ -4040,6 +4040,43 @@
   background: rgba(120, 83, 18, 0.06);
 }
 
+.learner-profile-link {
+  max-width: 260px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #7dd3fc;
+  font: inherit;
+  font-weight: 850;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-color: rgba(125, 211, 252, 0.34);
+  text-underline-offset: 3px;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.learner-profile-link:hover,
+.learner-profile-link:focus-visible {
+  color: #e3bd52;
+  text-decoration-color: currentColor;
+  outline: none;
+}
+
+.learner-profile-link:focus-visible {
+  border-radius: 3px;
+  box-shadow: 0 0 0 3px rgba(125, 211, 252, 0.18);
+}
+
+.admin-root.mode-light .learner-profile-link {
+  color: #0369a1;
+}
+
+.admin-root.mode-light .learner-profile-link:hover,
+.admin-root.mode-light .learner-profile-link:focus-visible {
+  color: #8a5a08;
+}
+
 .learner-lifecycle-notice {
   display: flex;
   align-items: center;

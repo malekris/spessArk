@@ -1,5 +1,6 @@
 import express from "express";
 import { db } from "../../server.js";
+import authAdmin from "../../middleware/authAdmin.js";
 import { ensureAlevelPromotionSchemaReady } from "../../services/alevelPromotionService.js";
 import {
   averageAlevelScores,
@@ -290,7 +291,7 @@ function random(arr) {
 /* ------------------------------
    PREVIEW
 --------------------------------*/
-router.post("/preview", async (req, res) => {
+router.post("/preview", authAdmin, async (req, res) => {
   try {
     await ensureAlevelPromotionSchemaReady(db);
     const { term, class: cls, stream, year } = req.body;
@@ -335,7 +336,7 @@ router.post("/preview", async (req, res) => {
 /* ------------------------------
    DOWNLOAD FULL REPORT
 --------------------------------*/
-router.post("/download", async (req, res) => {
+router.post("/download", authAdmin, async (req, res) => {
     try {
       await ensureAlevelPromotionSchemaReady(db);
       const { term, class: cls, stream, year } = req.body;

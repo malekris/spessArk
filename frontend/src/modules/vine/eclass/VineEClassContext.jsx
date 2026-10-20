@@ -56,13 +56,11 @@ const emitWithAck = (eventName, payload, timeoutMs = 12000) =>
 const waitForSocket = (userId) =>
   new Promise((resolve, reject) => {
     if (socket.connected) {
-      socket.emit("register", userId);
       resolve();
       return;
     }
     const handleConnect = () => {
       window.clearTimeout(timer);
-      socket.emit("register", userId);
       resolve();
     };
     const timer = window.setTimeout(() => {

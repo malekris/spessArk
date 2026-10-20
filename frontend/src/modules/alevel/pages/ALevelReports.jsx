@@ -8,6 +8,7 @@ import badge from "../../../assets/badge.png";
 import { loadPdfTools } from "../../../utils/loadPdfTools";
 import { normalizeSchoolCalendar } from "../../../utils/schoolCalendar";
 import { recordAdminReportGeneration } from "../../../utils/adminAuditEvents";
+import { adminFetch } from "../../../lib/api";
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const ALEVEL_REPORT_DATES_STORAGE_KEY = "spess_alevel_report_dates";
 const ALEVEL_GRADE_REFERENCE_HEAD = [["GRADE", "A", "B", "C", "D", "E", "P", "F"]];
@@ -585,29 +586,11 @@ export default function AlevelReport() {
       const payload = { term, class: cls, stream, year, assessmentMode };
       const fullStream = `${cls} ${stream}`;
 
-      const [previewRes, reportRes, learnersRes] = await Promise.all([
-        fetch(`${API_BASE}/api/alevel/reports/preview`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        }),
-        fetch(`${API_BASE}/api/alevel/reports/download`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        }),
-        fetch(`${API_BASE}/api/alevel/learners`),
-      ]);
-
       const [preview, reports, learners] = await Promise.all([
-        previewRes.json(),
-        reportRes.json(),
-        learnersRes.json(),
+        adminFetch("/api/alevel/reports/preview", { method: "POST", body: payload }),
+        adminFetch("/api/alevel/reports/download", { method: "POST", body: payload }),
+        adminFetch("/api/alevel/learners"),
       ]);
-
-      if (!previewRes.ok) throw new Error(preview.message || "Failed to preview reports");
-      if (!reportRes.ok) throw new Error(reports.message || "Failed to load A-Level report details");
-      if (!learnersRes.ok) throw new Error(learners.message || "Failed to load A-Level learners");
 
       const filteredLearners = (Array.isArray(learners) ? learners : []).filter(
         (learner) => String(learner.stream || "").trim() === fullStream
@@ -631,14 +614,7 @@ export default function AlevelReport() {
       let data = reportData;
 
       if (!Array.isArray(data) || data.length === 0) {
-        const res = await fetch(`${API_BASE}/api/alevel/reports/download`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ term, class: cls, stream, year, assessmentMode }),
-        });
-
-        data = await res.json();
-        if (!res.ok) throw new Error(data.message || "Download failed");
+        data = await adminFetch("/api/alevel/reports/download", { method: "POST", body: { term, class: cls, stream, year, assessmentMode } });
       }
 
       if (!Array.isArray(data) || data.length === 0) {

@@ -497,14 +497,8 @@ export default function ChatWindow({
   }, []);
 
   useEffect(() => {
-    const registerUser = () => {
-      if (myId) socket.emit("register", myId);
-    };
     if (!socket.connected) socket.connect();
-    registerUser();
-    socket.on("connect", registerUser);
     return () => {
-      socket.off("connect", registerUser);
     };
   }, [myId]);
 

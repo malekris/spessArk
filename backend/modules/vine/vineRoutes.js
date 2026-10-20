@@ -2,6 +2,8 @@ import express from "express";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
+import dns from "node:dns/promises";
+import net from "node:net";
 import { db } from "../../server.js";
 import { sendVineWelcomeEmail, sendVineResetCodeEmail, sendVineVerificationCodeEmail, sendVineSuspensionEmail, sendVineUnsuspensionEmail, sendVineWarningEmail, sendVineDeletionScheduledEmail, sendVineDeletionCancelledEmail } from "../../utils/email.js";
 import authMiddleware from "../../middleware/authMiddleware.js";
@@ -33,6 +35,8 @@ import { getPokePair, resolvePokeState } from "./profilePokes.js";
 import { calculateConsecutiveDayStreak } from "./profileStreak.js";
 import { buildProfilePicturePostPayload } from "./profilePicturePost.js";
 import { buildSuspensionResponse, getActiveVineSuspension } from "./vineSuspensions.js";
+import { getJwtSecret } from "../../config/security.js";
+import { createDatabaseRateLimit } from "../../middleware/databaseRateLimit.js";
 import {
   getSessionExpiry,
   getVineSessionIdleMs,
@@ -40,6 +44,8 @@ import {
 } from "../../utils/deviceSession.js";
 
 const router = express.Router();
+const limitVineResetIssue = createDatabaseRateLimit(() => db, { namespace: "vine-reset-issue", max: 3, account: (req) => req.body?.email });
+const limitVineResetVerify = createDatabaseRateLimit(() => db, { namespace: "vine-reset-verify", max: 5, account: (req) => req.body?.email });
 router.use(createVineAvatarThumbnailRouter());
 const applyManagedVisualNoCache = (res) => {
   res.set({
@@ -53,7 +59,7 @@ const managedVisualNoCache = (_req, res, next) => {
   next();
 };
 const SESSION_IDLE_MS = 1 * 60 * 60 * 1000;
-const JWT_SECRET = process.env.JWT_SECRET || "vine_secret_key";
+const JWT_SECRET = getJwtSecret();
 const VINE_JWT_EXPIRES_IN = process.env.VINE_JWT_EXPIRES_IN || "7d";
 const GIPHY_API_KEY = process.env.GIPHY_API_KEY || "";
 const USE_R2_UPLOADS = String(process.env.USE_R2_UPLOADS || "").toLowerCase() === "true";
@@ -6587,22 +6593,48 @@ const isPrivateHostname = (hostname) => {
   return false;
 };
 
+const isPublicAddress = (address) => {
+  const value = String(address || "").toLowerCase();
+  if (net.isIP(value) === 4) {
+    const [a, b] = value.split(".").map(Number);
+    return !(a === 0 || a === 10 || a === 127 || a >= 224 || (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 192 && b === 0));
+  }
+  if (net.isIP(value) === 6) {
+    return !(value === "::1" || value === "::" || value.startsWith("fc") || value.startsWith("fd") ||
+      value.startsWith("fe80") || value.startsWith("::ffff:") || value.startsWith("2001:db8"));
+  }
+  return false;
+};
+
+const validatePreviewUrl = async (rawUrl) => {
+  const parsed = new URL(rawUrl);
+  if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password ||
+      (parsed.port && !["80", "443"].includes(parsed.port)) || isPrivateHostname(parsed.hostname)) {
+    throw new Error("unsafe URL");
+  }
+  const addresses = await dns.lookup(parsed.hostname, { all: true, verbatim: true });
+  if (!addresses.length || addresses.some(({ address }) => !isPublicAddress(address))) throw new Error("unsafe address");
+  return parsed;
+};
+
 const fetchLinkPreview = async (url) => {
   try {
-    const parsed = new URL(url);
-    if (isPrivateHostname(parsed.hostname)) return null;
+    const parsed = await validatePreviewUrl(url);
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 3500);
     const res = await fetch(parsed.href, {
       signal: controller.signal,
-      redirect: "follow",
+      // Redirects are deliberately not followed. A second request after a 3xx
+      // response would need fresh DNS validation and a pinned destination.
+      redirect: "manual",
       headers: {
         "User-Agent": "Mozilla/5.0 (compatible; VineBot/1.0)",
       },
     });
     clearTimeout(timeout);
-    if (!res.ok) return null;
+    if (!res.ok || res.status >= 300) return null;
 
     const html = (await res.text()).slice(0, 1_000_000);
     const getMeta = (key) => {
@@ -9936,8 +9968,8 @@ router.get("/search", authenticate, async (req, res) => {
   }
 });
 
-// 🔐 Forgot password (send 4-digit code)
-router.post("/auth/forgot-password", async (req, res) => {
+// 🔐 Forgot password (short-lived, hashed one-time code)
+router.post("/auth/forgot-password", limitVineResetIssue, async (req, res) => {
   try {
     const { email } = req.body;
     if (!email) return res.status(400).json({ message: "Email required" });
@@ -9952,12 +9984,13 @@ router.post("/auth/forgot-password", async (req, res) => {
       return res.json({ success: true });
     }
 
-    const code = String(Math.floor(1000 + Math.random() * 9000));
-    const expires = new Date(Date.now() + 15 * 60 * 1000);
+    const code = crypto.randomInt(100000, 1000000).toString();
+    const expires = new Date(Date.now() + 10 * 60 * 1000);
+    const codeHash = crypto.createHash("sha256").update(code).digest("hex");
 
     await db.query(
       "UPDATE vine_users SET reset_token = ?, reset_expires = ? WHERE id = ?",
-      [code, expires, user.id]
+      [codeHash, expires, user.id]
     );
 
     await sendVineResetCodeEmail(email, code);
@@ -9970,7 +10003,7 @@ router.post("/auth/forgot-password", async (req, res) => {
 });
 
 // 🔐 Reset password with code
-router.post("/auth/reset-password-code", async (req, res) => {
+router.post("/auth/reset-password-code", limitVineResetVerify, async (req, res) => {
   try {
     const { email, code, newPassword } = req.body;
     if (!email || !code || !newPassword) {
@@ -9990,11 +10023,13 @@ router.post("/auth/reset-password-code", async (req, res) => {
     }
 
     const expired = new Date(user.reset_expires).getTime() < Date.now();
-    if (expired || String(user.reset_token) !== String(code)) {
+    const storedHash = Buffer.from(String(user.reset_token));
+    const candidateHash = Buffer.from(crypto.createHash("sha256").update(String(code)).digest("hex"));
+    if (expired || storedHash.length !== candidateHash.length || !crypto.timingSafeEqual(storedHash, candidateHash)) {
       return res.status(400).json({ message: "Invalid or expired code" });
     }
 
-    const hash = await bcrypt.hash(newPassword, 10);
+    const hash = await bcrypt.hash(newPassword, 12);
     await db.query(
       "UPDATE vine_users SET password_hash = ?, reset_token = NULL, reset_expires = NULL WHERE id = ?",
       [hash, user.id]

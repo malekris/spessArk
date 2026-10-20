@@ -1,4 +1,5 @@
 import jwt from "jsonwebtoken";
+import { getJwtSecret } from "../config/security.js";
 
 export default function authBoardingAdmin(req, res, next) {
   const authHeader = req.headers.authorization || "";
@@ -9,7 +10,7 @@ export default function authBoardingAdmin(req, res, next) {
   }
 
   try {
-    const payload = jwt.verify(token, process.env.JWT_SECRET || "dev_secret");
+    const payload = jwt.verify(token, getJwtSecret());
     if (payload?.role !== "boarding_admin") {
       return res.status(403).json({ message: "Boarding admin authorization required" });
     }

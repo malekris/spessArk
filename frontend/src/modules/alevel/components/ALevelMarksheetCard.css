@@ -1,4 +1,9 @@
 .alevel-marksheet-section {
+  container-name: alevel-marksheet;
+  container-type: inline-size;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   margin-top: 1.25rem;
   padding-top: 1.2rem;
   border-top: 1px solid rgba(125, 211, 252, 0.18);
@@ -44,9 +49,11 @@
 
 .alevel-marksheet-controls {
   display: grid;
-  grid-template-columns: repeat(4, minmax(145px, 1fr)) auto;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.7rem;
   align-items: end;
+  width: 100%;
+  min-width: 0;
   margin-top: 1rem;
 }
 
@@ -88,7 +95,12 @@
 }
 
 .alevel-marksheet-download {
+  grid-column: 1 / -1;
+  justify-self: stretch;
+  width: 100%;
+  max-width: 100%;
   min-height: 44px;
+  box-sizing: border-box;
   white-space: nowrap;
 }
 
@@ -120,18 +132,18 @@
   color: #0f172a;
 }
 
-@media (max-width: 1180px) {
+@container alevel-marksheet (min-width: 980px) {
   .alevel-marksheet-controls {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr)) minmax(150px, auto);
   }
 
   .alevel-marksheet-download {
-    width: 100%;
-    grid-column: 1 / -1;
+    grid-column: auto;
+    width: auto;
   }
 }
 
-@media (max-width: 680px) {
+@container alevel-marksheet (max-width: 620px) {
   .alevel-marksheet-header {
     display: block;
   }

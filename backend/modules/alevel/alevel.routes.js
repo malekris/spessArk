@@ -272,10 +272,10 @@ const ensureALevelAssignmentLifecycleColumns = async (executor = pool) => {
   return aLevelAssignmentLifecycleReadyPromise;
 };
 // ===== A-LEVEL LEARNERS =====
-router.get("/learners", getLearners);
-router.post("/learners", createLearner);
-router.put("/learners/:id", updateLearner);
-router.delete("/learners/:id", deleteLearner);
+router.get("/learners", authAdmin, getLearners);
+router.post("/learners", authAdmin, createLearner);
+router.put("/learners/:id", authAdmin, updateLearner);
+router.delete("/learners/:id", authAdmin, requireAdminReauth, deleteLearner);
 
 router.get("/admin/promotions/preview", authAdmin, previewAlevelPromotionsController);
 router.post("/admin/promotions/execute", authAdmin, executeAlevelPromotionsController);
@@ -1232,7 +1232,7 @@ router.get("/alevel-analytics/subject", authTeacher, async (req, res) => {
 // =======================================
 // A-LEVEL DOWNLOAD — FETCH MARK SETS
 // =======================================
-router.get("/admin/marks-sets", async (req, res) => {
+router.get("/admin/marks-sets", authAdmin, async (req, res) => {
   try {
     const [rows] = await db.query(`
       SELECT DISTINCT
@@ -1269,7 +1269,7 @@ router.get("/admin/marks-sets", async (req, res) => {
 // =======================================
 // A-LEVEL DOWNLOAD — FETCH MARK DETAILS
 // =======================================
-router.get("/admin/marks-detail", async (req, res) => {
+router.get("/admin/marks-detail", authAdmin, async (req, res) => {
   try {
     const { assignmentId, term, year, aoi } = req.query;
 
@@ -1925,7 +1925,7 @@ router.get("/admin/dashboard-insights", authAdmin, async (req, res) => {
   }
 });
 
-router.get("/download/sets", async (req, res) => {
+router.get("/download/sets", authAdmin, async (req, res) => {
   try {
     const [rows] = await pool.query(`
       SELECT
@@ -1970,7 +1970,7 @@ router.get("/download/sets", async (req, res) => {
   }
 });
 
-router.get("/download/sets/:setId", async (req, res) => {
+router.get("/download/sets/:setId", authAdmin, async (req, res) => {
   try {
     const { setId } = req.params;
 
@@ -2159,7 +2159,7 @@ router.get("/download/score-sheet", authAdmin, async (req, res) => {
 });
 
 
-router.get("/download/sets/:assignmentId/export", async (req, res) => {
+router.get("/download/sets/:assignmentId/export", authAdmin, async (req, res) => {
   try {
     const { assignmentId } = req.params;
     const { term } = req.query;

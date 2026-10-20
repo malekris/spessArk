@@ -4,8 +4,11 @@ import { pool } from "../../server.js";
 import authBoardingAdmin from "../../middleware/authBoardingAdmin.js";
 import { extractClientIp, logAuditEvent } from "../../utils/auditLogger.js";
 import { getSessionExpiry, resolveRequestedSessionMode } from "../../utils/deviceSession.js";
+import { getJwtSecret, requireSecret } from "../../config/security.js";
+import { createDatabaseRateLimit } from "../../middleware/databaseRateLimit.js";
 
 const router = express.Router();
+const limitBoardingLogin = createDatabaseRateLimit(() => pool, { namespace: "boarding-login", max: 5, account: (req) => req.body?.username });
 
 const BOARDING_CLASSES = ["S1", "S2", "S3", "S4"];
 const BOARDING_TERMS = ["Term 1", "Term 2", "Term 3"];
@@ -333,12 +336,26 @@ async function buildBoardingReportPayload(classLevel, term, year) {
   return reports;
 }
 
-router.post("/login", async (req, res) => {
+router.post("/login", limitBoardingLogin, async (req, res) => {
+  let expectedUsername;
+  let expectedPassword;
+
+  try {
+    expectedUsername = requireSecret("BOARDING_ADMIN_USERNAME", { minLength: 3 });
+    // This is a human-entered credential, not a signing key. Keep a strong
+    // minimum without imposing the JWT secret's machine-generated length.
+    expectedPassword = requireSecret("BOARDING_ADMIN_PASSWORD", { minLength: 12 });
+  } catch (configurationError) {
+    console.error("Boarding admin configuration error:", configurationError.message);
+    return res.status(503).json({
+      code: "BOARDING_ADMIN_NOT_CONFIGURED",
+      message: "Boarding admin access is not configured. Set the boarding admin credentials on the backend service and redeploy.",
+    });
+  }
+
   try {
     const username = String(req.body?.username || "").trim();
     const password = String(req.body?.password || "").trim();
-    const expectedUsername = process.env.BOARDING_ADMIN_USERNAME || "boarding";
-    const expectedPassword = process.env.BOARDING_ADMIN_PASSWORD || "boarding";
 
     if (username !== expectedUsername || password !== expectedPassword) {
       return res.status(401).json({ message: "Invalid boarding admin credentials" });
@@ -355,7 +372,7 @@ router.post("/login", async (req, res) => {
         name: "Boarding Admin",
         session_mode: sessionMode,
       },
-      process.env.JWT_SECRET || "dev_secret",
+      getJwtSecret(),
       { expiresIn: getSessionExpiry(sessionMode, "7d") }
     );
 

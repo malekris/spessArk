@@ -6,7 +6,7 @@
 // Imports
 // -------------------------
 import { useEffect, useMemo, useState } from "react";
-import { plainFetch } from "../../../lib/api";
+import { adminFetch } from "../../../lib/api";
 import { loadPdfTools } from "../../../utils/loadPdfTools";
 import ALevelAdminShell from "../components/ALevelAdminShell";
 import ALevelMarksheetCard from "../components/ALevelMarksheetCard";
@@ -225,11 +225,11 @@ export default function ALevelLearners() {
     setLoading(true);
     setError("");
     try {
-      const data = await plainFetch(`${API}/learners`);
+      const data = await adminFetch(`${API}/learners`);
       setLearners(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error("fetchLearners", err);
-      setError("Failed to load learners");
+      setError(err?.message || "Failed to load learners");
       setLearners([]);
     } finally {
       setLoading(false);
@@ -291,9 +291,9 @@ export default function ALevelLearners() {
 
     try {
       if (editing) {
-        await plainFetch(`${API}/learners/${editing.id}`, { method: "PUT", body: payload });
+        await adminFetch(`${API}/learners/${editing.id}`, { method: "PUT", body: payload });
       } else {
-        await plainFetch(`${API}/learners`, { method: "POST", body: payload });
+        await adminFetch(`${API}/learners`, { method: "POST", body: payload });
       }
 
       // reset
@@ -328,11 +328,11 @@ export default function ALevelLearners() {
   const handleDelete = async (id) => {
     if (!window.confirm("Delete learner?")) return;
     try {
-      await plainFetch(`${API}/learners/${id}`, { method: "DELETE" });
+      await adminFetch(`${API}/learners/${id}`, { method: "DELETE" });
       fetchLearners();
     } catch (err) {
       console.error("delete", err);
-      setError("Delete failed");
+      setError(err?.message || "Delete failed");
     }
   };
 

@@ -138,7 +138,6 @@ function App() {
   
     const handleConnect = () => {
       console.log("🟢 Socket connected:", socket.id);
-      socket.emit("register", user.id);
     };
   
     const handleDisconnect = () => {

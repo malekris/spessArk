@@ -158,6 +158,69 @@ export default function OptionalSubjectPredictor() {
         },
       });
 
+      const categorySummaryRows = ["A", "B"].flatMap((category) => {
+        const subjects = Array.isArray(result?.categories?.[category]) ? result.categories[category] : [];
+        return subjects.map((subject) => {
+          const recommendationCount = learners.filter(
+            (learner) => learner?.[`category${category}`]?.subject === subject
+          ).length;
+          return [`Category ${category}`, subject, recommendationCount];
+        });
+      });
+      const pageHeight = doc.internal.pageSize.getHeight();
+      let summaryStartY = (doc.lastAutoTable?.finalY || 62) + 12;
+
+      // Keep the distribution heading and its ten subject rows together.
+      if (summaryStartY + 90 > pageHeight - 15) {
+        doc.addPage();
+        summaryStartY = 18;
+      }
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      doc.setTextColor(15, 23, 42);
+      doc.text("OPTIONAL SUBJECT RECOMMENDATION SUMMARY", 14, summaryStartY);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8);
+      doc.setTextColor(71, 85, 105);
+      doc.text(
+        `Counts show how many of the ${learners.length} learners were recommended for each optional subject.`,
+        14,
+        summaryStartY + 5
+      );
+
+      autoTable(doc, {
+        startY: summaryStartY + 9,
+        margin: { left: 14, right: 14, bottom: 15 },
+        tableWidth: 150,
+        head: [["Category", "Optional subject", "Learners recommended"]],
+        body: categorySummaryRows,
+        theme: "grid",
+        styles: {
+          font: "helvetica",
+          fontSize: 8.5,
+          cellPadding: 2.3,
+          textColor: [15, 23, 42],
+          lineColor: [148, 163, 184],
+          lineWidth: 0.2,
+        },
+        headStyles: {
+          fillColor: [241, 245, 249],
+          textColor: [15, 23, 42],
+          fontStyle: "bold",
+        },
+        columnStyles: {
+          0: { cellWidth: 28 },
+          1: { cellWidth: 82 },
+          2: { cellWidth: 40, halign: "center" },
+        },
+        didParseCell: (hook) => {
+          if (hook.section === "body" && hook.column.index === 2) {
+            hook.cell.styles.fontStyle = "bold";
+          }
+        },
+      });
+
       const pageCount = doc.internal.getNumberOfPages();
       for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
         doc.setPage(pageNumber);

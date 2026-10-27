@@ -5,8 +5,9 @@ import { getCurrentAcademicYear } from "../services/adminYearSnapshotService.js"
 import { ensureStudentLifecycleColumns } from "../services/studentLifecycleService.js";
 import {
   buildOptionalSubjectPredictions,
-  ENTREPRENEURSHIP_PREDICTOR_AVERAGE_CAP,
-  KISWAHILI_PREDICTOR_AVERAGE_CAP,
+  CATEGORY_B_CLOSE_ALTERNATIVE_MARGIN,
+  ENTREPRENEURSHIP_MINIMUM_AVERAGE,
+  KISWAHILI_MINIMUM_AVERAGE,
   OPTIONAL_SUBJECT_CATEGORIES,
   OPTIONAL_SUBJECT_LOW_CONFIDENCE_THRESHOLD,
   OPTIONAL_SUBJECT_RECOMMENDATION_THRESHOLD,
@@ -83,8 +84,9 @@ router.get("/optional-subject-predictor", authAdmin, async (req, res) => {
       thresholds: {
         recommended: OPTIONAL_SUBJECT_RECOMMENDATION_THRESHOLD,
         lowConfidenceBelow: OPTIONAL_SUBJECT_LOW_CONFIDENCE_THRESHOLD,
-        entrepreneurshipAverageCap: ENTREPRENEURSHIP_PREDICTOR_AVERAGE_CAP,
-        kiswahiliAverageCap: KISWAHILI_PREDICTOR_AVERAGE_CAP,
+        entrepreneurshipMinimumAverage: ENTREPRENEURSHIP_MINIMUM_AVERAGE,
+        kiswahiliMinimumAverage: KISWAHILI_MINIMUM_AVERAGE,
+        categoryBCloseAlternativeMargin: CATEGORY_B_CLOSE_ALTERNATIVE_MARGIN,
       },
       learnerCount: predictions.length,
       completeCount,

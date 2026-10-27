@@ -17,14 +17,15 @@ const subjectWithAverage = (selection) => {
 };
 
 const evidenceLabel = (selection) => {
-  if (selection?.capApplied) {
-    return `Actual average ${averageLabel(selection.actualAverage)}; predictor cap ${averageLabel(selection.predictorCap)} | ${selection.scoreCount} AOI score(s)`;
+  if (selection?.closeAlternativeApplied) {
+    return `Within 0.30 of Kiswahili | based on ${selection.scoreCount} AOI score(s)`;
   }
   return `Based on ${selection?.scoreCount || 0} AOI score(s)`;
 };
 
 const confidenceLabel = (selection) => {
   if (!selection?.subject) return "Missing registration";
+  if (selection.closeAlternativeApplied) return "Close alternative";
   if (selection.lowConfidence) return "Low confidence";
   if (selection.confidence === "borderline") return "Below 1.5 threshold";
   return "Recommended";
@@ -99,14 +100,19 @@ export default function OptionalSubjectPredictor() {
         42
       );
       doc.text(
-        "Balance rule: Entrepreneurship is capped at 2.50 and Kiswahili at 2.80 for prediction only; actual marks remain unchanged.",
+        "Eligibility: Entrepreneurship requires at least 2.50 and Kiswahili requires at least 2.80 to be recommended.",
         14,
         47
       );
-      doc.text("Recommendation threshold: 1.50  |  Low confidence: below 1.40 or no usable AOI score", 14, 52);
+      doc.text(
+        "Close alternative: choose another Category B subject at 1.50+ when it is within 0.30 of eligible Kiswahili.",
+        14,
+        52
+      );
+      doc.text("General recommendation: 1.50+  |  Low confidence: below 1.40 or no usable AOI score", 14, 57);
 
       autoTable(doc, {
-        startY: 57,
+        startY: 62,
         margin: { left: 14, right: 14, bottom: 15 },
         head: [["#", "Learner", "Category A subject", "Category B subject", "Decision flag"]],
         body: learners.map((learner, index) => [
@@ -229,7 +235,7 @@ export default function OptionalSubjectPredictor() {
         <section className="optional-predictor-rules" aria-label="Predictor rules">
           <div><strong>Category A</strong><span>PE, ICT, Art, Entrepreneurship, Agriculture</span></div>
           <div><strong>Category B</strong><span>Luganda, Kiswahili, CRE, IRE, Literature</span></div>
-          <p>Only registered subjects are considered and the `/80` exam is excluded. Predictor caps: Entrepreneurship 2.50; Kiswahili 2.80. Actual marks remain unchanged.</p>
+          <p>Only registered subjects are considered and the `/80` exam is excluded. Eligibility: Entrepreneurship 2.50+; Kiswahili 2.80+. A Category B alternative at 1.50+ wins when it is within 0.30 of Kiswahili.</p>
         </section>
 
         {error && <div className="optional-predictor-alert">{error}</div>}

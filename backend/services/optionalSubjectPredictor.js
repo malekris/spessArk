@@ -22,12 +22,13 @@ export const OPTIONAL_SUBJECT_CATEGORIES = Object.freeze({
 
 export const OPTIONAL_SUBJECT_RECOMMENDATION_THRESHOLD = 1.5;
 export const OPTIONAL_SUBJECT_LOW_CONFIDENCE_THRESHOLD = 1.4;
-export const ENTREPRENEURSHIP_PREDICTOR_AVERAGE_CAP = 2.5;
-export const KISWAHILI_PREDICTOR_AVERAGE_CAP = 2.8;
+export const ENTREPRENEURSHIP_MINIMUM_AVERAGE = 2.5;
+export const KISWAHILI_MINIMUM_AVERAGE = 2.8;
+export const CATEGORY_B_CLOSE_ALTERNATIVE_MARGIN = 0.3;
 
-const SUBJECT_PREDICTOR_AVERAGE_CAPS = new Map([
-  ["Entrepreneurship", ENTREPRENEURSHIP_PREDICTOR_AVERAGE_CAP],
-  ["Kiswahili", KISWAHILI_PREDICTOR_AVERAGE_CAP],
+const SUBJECT_MINIMUM_AVERAGES = new Map([
+  ["Entrepreneurship", ENTREPRENEURSHIP_MINIMUM_AVERAGE],
+  ["Kiswahili", KISWAHILI_MINIMUM_AVERAGE],
 ]);
 
 const SUBJECT_ALIASES = new Map([
@@ -76,16 +77,14 @@ const rankCandidates = (subjects, scoreMap) =>
   subjects
     .map((subject) => {
       const scores = scoreMap.get(subject) || [];
-      const actualAverage = averageScores(scores);
-      const predictorCap = SUBJECT_PREDICTOR_AVERAGE_CAPS.get(subject) ?? null;
-      const capApplied = actualAverage !== null && predictorCap !== null && actualAverage > predictorCap;
-      const average = capApplied ? predictorCap : actualAverage;
+      const average = averageScores(scores);
+      const minimumAverage = SUBJECT_MINIMUM_AVERAGES.get(subject) ?? null;
+      const eligible = minimumAverage === null || (average !== null && average >= minimumAverage);
       return {
         subject,
         average,
-        actualAverage,
-        predictorCap,
-        capApplied,
+        minimumAverage,
+        eligible,
         scoreCount: scores.length,
         recommended: scores.length > 0 && average >= OPTIONAL_SUBJECT_RECOMMENDATION_THRESHOLD,
       };
@@ -99,7 +98,24 @@ const rankCandidates = (subjects, scoreMap) =>
     });
 
 const toSelection = (category, candidates) => {
-  const selected = candidates[0] || null;
+  const eligibleCandidates = candidates.filter((candidate) => candidate.eligible);
+  let selected = eligibleCandidates[0] || null;
+  let closeAlternativeApplied = false;
+
+  if (category === "B" && selected?.subject === "Kiswahili" && selected.average !== null) {
+    const alternative = eligibleCandidates.find(
+      (candidate) =>
+        candidate.subject !== "Kiswahili" &&
+        candidate.average !== null &&
+        candidate.average >= OPTIONAL_SUBJECT_RECOMMENDATION_THRESHOLD &&
+        selected.average - candidate.average <= CATEGORY_B_CLOSE_ALTERNATIVE_MARGIN
+    );
+    if (alternative) {
+      selected = alternative;
+      closeAlternativeApplied = true;
+    }
+  }
+
   if (!selected) {
     return {
       category,
@@ -108,8 +124,10 @@ const toSelection = (category, candidates) => {
       scoreCount: 0,
       confidence: "missing_registration",
       lowConfidence: true,
-      reason: `No registered Category ${category} subject is available.`,
-      candidates: [],
+      reason: candidates.length
+        ? `No registered Category ${category} subject met its eligibility rule.`
+        : `No registered Category ${category} subject is available.`,
+      candidates,
     };
   }
 
@@ -124,9 +142,12 @@ const toSelection = (category, candidates) => {
   return {
     category,
     ...selected,
+    closeAlternativeApplied,
     confidence,
     lowConfidence,
-    reason: noScores
+    reason: closeAlternativeApplied
+      ? `Selected as a close alternative within ${CATEGORY_B_CLOSE_ALTERNATIVE_MARGIN.toFixed(2)} of Kiswahili.`
+      : noScores
       ? "No usable Term 1, Term 2 or Term 3 AOI scores were found."
       : lowConfidence
         ? `Best available average is below ${OPTIONAL_SUBJECT_LOW_CONFIDENCE_THRESHOLD.toFixed(1)}.`

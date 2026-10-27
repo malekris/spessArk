@@ -189,7 +189,11 @@ export default function VineNotifications() {
       if (meta.community_slug) return `/vine/communities/${meta.community_slug}?tab=eclass`;
       return null;
     }
-    if (notification.type === "community_assignment_created" || notification.type === "community_assignment_graded") {
+    if (
+      notification.type === "community_assignment_created"
+      || notification.type === "community_assignment_graded"
+      || notification.type === "community_assignment_reminder"
+    ) {
       if (meta.community_slug) return `/vine/communities/${meta.community_slug}?tab=assignments`;
       return null;
     }
@@ -310,6 +314,8 @@ export default function VineNotifications() {
         return `started Vine eClass${meta.title ? `: "${meta.title}"` : ""}${meta.community_name ? ` in "${meta.community_name}"` : ""}`;
       case "community_assignment_created":
         return `posted a new assignment: "${meta.title || "Untitled assignment"}"`;
+      case "community_assignment_reminder":
+        return `reminded you to submit${meta.assignment_title ? `: "${meta.assignment_title}"` : " an assignment"}`;
       case "community_quest_created":
         return `started a community quest${meta.quest_title ? `: "${meta.quest_title}"` : ""}`;
       case "community_assignment_submission": {

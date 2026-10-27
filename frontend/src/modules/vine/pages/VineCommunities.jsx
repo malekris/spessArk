@@ -4,6 +4,8 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { socket } from "../../../socket";
 import VineEClass from "../components/VineEClass";
 import CommunityQuests from "../components/CommunityQuests";
+import AssignmentCommandCenter from "../components/AssignmentCommandCenter";
+import AssignmentGradeHistory from "../components/AssignmentGradeHistory";
 import VinePostCard from "./VinePostCard";
 import "./VineCommunities.css";
 import { loadPdfTools } from "../../../utils/loadPdfTools";
@@ -408,6 +410,7 @@ export default function VineCommunities() {
   const [assignmentSubmissions, setAssignmentSubmissions] = useState([]);
   const [gradingDrafts, setGradingDrafts] = useState({});
   const [gradingSubmissionId, setGradingSubmissionId] = useState(null);
+  const [remindingAssignmentId, setRemindingAssignmentId] = useState(null);
   const [downloadingSubmissionFileKey, setDownloadingSubmissionFileKey] = useState("");
   const [deletingSubmissionFileKey, setDeletingSubmissionFileKey] = useState("");
   const [submissionFileDeleteTarget, setSubmissionFileDeleteTarget] = useState(null);
@@ -2526,7 +2529,7 @@ export default function VineCommunities() {
     }
   };
 
-  const toggleAssignmentReview = async (assignmentId) => {
+  const toggleAssignmentReview = async (assignmentId, options = {}) => {
     if (!assignmentId) return;
     const viewerRole = String(activeCommunity?.viewer_role || "").toLowerCase();
     if (viewerRole !== "owner") return;
@@ -2538,6 +2541,61 @@ export default function VineCommunities() {
     }
     setSelectedAssignmentId(assignmentId);
     await loadAssignmentSubmissions(assignmentId);
+    if (options.scrollIntoView) {
+      window.requestAnimationFrame(() => {
+        document.getElementById(`assignment-${assignmentId}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    }
+  };
+
+  const sendAssignmentReminder = async (assignment) => {
+    if (!activeCommunity?.id || !assignment?.id) return;
+    if (Number(remindingAssignmentId) === Number(assignment.id)) return;
+    setRemindingAssignmentId(assignment.id);
+    try {
+      const res = await fetch(
+        `${API}/api/vine/communities/${activeCommunity.id}/assignments/${assignment.id}/reminders`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showCommunitySuccessModal(
+          "Reminder not sent",
+          data.message || "The reminder could not be sent.",
+          { kicker: "Assignment command center", tone: "warning", buttonLabel: "Close" }
+        );
+        return;
+      }
+      const sentCount = Number(data.sent_count || 0);
+      showCommunitySuccessModal(
+        sentCount > 0 ? "Reminder sent" : "No reminder needed",
+        sentCount > 0
+          ? `${sentCount} ${sentCount === 1 ? "learner was" : "learners were"} notified about ${assignment.title || "this assignment"}.`
+          : data.message || "Every learner has already submitted this assignment.",
+        {
+          kicker: "Assignment command center",
+          buttonLabel: "Done",
+          details: sentCount > 0
+            ? [
+                { label: "Assignment", value: assignment.title || "Untitled assignment" },
+                { label: "Recipients", value: sentCount },
+              ]
+            : [],
+        }
+      );
+      await loadCommunityDetail(activeCommunity.slug, topicFilter);
+    } catch {
+      showCommunitySuccessModal(
+        "Reminder not sent",
+        "The reminder could not be sent. Check the connection and try again.",
+        { kicker: "Connection interrupted", tone: "warning", buttonLabel: "Close" }
+      );
+    } finally {
+      setRemindingAssignmentId(null);
+    }
   };
 
   const scheduleCommunityPost = async () => {
@@ -4937,6 +4995,15 @@ export default function VineCommunities() {
                         </div>
                       </div>
                     )}
+                    {isCommunityOwner && (
+                      <AssignmentCommandCenter
+                        assignments={assignments}
+                        selectedAssignmentId={selectedAssignmentId}
+                        remindingAssignmentId={remindingAssignmentId}
+                        onReview={(assignmentId) => toggleAssignmentReview(assignmentId, { scrollIntoView: true })}
+                        onRemind={sendAssignmentReminder}
+                      />
+                    )}
                     <div className="assignments-list">
                       {assignments.length === 0 ? (
                         <div className="community-empty">No assignments yet.</div>
@@ -4962,7 +5029,7 @@ export default function VineCommunities() {
                             );
                           const hasImageAttachment = isAssignmentImageAttachment(a);
                           return (
-                            <div key={a.id} className={`assignment-row ${isCommunityMod ? "mod-view" : ""}`}>
+                            <div id={`assignment-${a.id}`} key={a.id} className={`assignment-row ${isCommunityMod ? "mod-view" : ""}`}>
                               <div className="assignment-card-head">
                                 <div className="assignment-card-title-block">
                                   <div className="member-name">{a.title}</div>
@@ -5498,6 +5565,7 @@ export default function VineCommunities() {
                                               </div>
                                             </div>
                                           </div>
+                                          <AssignmentGradeHistory history={s.grade_history} />
                                         </div>
                                       );
                                     })

@@ -18,6 +18,7 @@ export default function createVineCommunityAssignmentsRouter({
   isPdfFile,
   uploadBufferToCloudinary,
   notifyUser,
+  notifyUsersBulk,
   clearVineReadCache,
   deleteCloudinaryByUrl,
   runVinePerfRoute,
@@ -202,6 +203,14 @@ router.delete("/communities/:id/assignments/:assignmentId", authenticate, async 
       [assignmentId, communityId]
     );
     await db.query(
+      "DELETE FROM vine_community_grade_history WHERE assignment_id = ? AND community_id = ?",
+      [assignmentId, communityId]
+    );
+    await db.query(
+      "DELETE FROM vine_community_assignment_reminders WHERE assignment_id = ? AND community_id = ?",
+      [assignmentId, communityId]
+    );
+    await db.query(
       "DELETE FROM vine_community_assignments WHERE id = ? AND community_id = ?",
       [assignmentId, communityId]
     );
@@ -312,7 +321,15 @@ router.get("/communities/:slug/assignments", authenticate, async (req, res) => {
               a.created_at,
               cu.username AS creator_username,
               cu.display_name AS creator_display_name,
-              (SELECT COUNT(*) FROM vine_community_submissions s WHERE s.assignment_id = a.id) AS submission_count,
+              COALESCE(member_stats.eligible_learner_count, 0) AS eligible_learner_count,
+              COALESCE(submission_stats.submission_count, 0) AS submission_count,
+              COALESCE(submission_stats.graded_count, 0) AS graded_count,
+              COALESCE(submission_stats.awaiting_grading_count, 0) AS awaiting_grading_count,
+              GREATEST(
+                COALESCE(member_stats.eligible_learner_count, 0) - COALESCE(submission_stats.submission_count, 0),
+                0
+              ) AS missing_count,
+              reminder_stats.latest_reminder_at,
               vs.id AS viewer_submission_id,
               vs.status AS viewer_submission_status,
               vs.graded_at AS viewer_submission_graded_at,
@@ -327,6 +344,38 @@ router.get("/communities/:slug/assignments", authenticate, async (req, res) => {
               vd.updated_at AS viewer_draft_updated_at
             FROM vine_community_assignments a
             JOIN vine_users cu ON cu.id = a.creator_id
+            LEFT JOIN (
+              SELECT community_id, COUNT(*) AS eligible_learner_count
+              FROM vine_community_members
+              WHERE LOWER(COALESCE(role, 'member')) = 'member'
+              GROUP BY community_id
+            ) member_stats ON member_stats.community_id = a.community_id
+            LEFT JOIN (
+              SELECT
+                s.assignment_id,
+                COUNT(*) AS submission_count,
+                SUM(
+                  s.graded_at IS NOT NULL
+                  OR s.score IS NOT NULL
+                  OR LOWER(COALESCE(s.status, '')) IN ('graded', 'needs_revision', 'missing')
+                ) AS graded_count,
+                SUM(
+                  s.graded_at IS NULL
+                  AND s.score IS NULL
+                  AND LOWER(COALESCE(s.status, 'submitted')) NOT IN ('graded', 'needs_revision', 'missing')
+                ) AS awaiting_grading_count
+              FROM vine_community_submissions s
+              JOIN vine_community_members m
+                ON m.community_id = s.community_id
+               AND m.user_id = s.user_id
+               AND LOWER(COALESCE(m.role, 'member')) = 'member'
+              GROUP BY s.assignment_id
+            ) submission_stats ON submission_stats.assignment_id = a.id
+            LEFT JOIN (
+              SELECT assignment_id, MAX(sent_at) AS latest_reminder_at
+              FROM vine_community_assignment_reminders
+              GROUP BY assignment_id
+            ) reminder_stats ON reminder_stats.assignment_id = a.id
             LEFT JOIN vine_community_submissions vs
               ON vs.assignment_id = a.id
              AND vs.user_id = ?
@@ -381,6 +430,106 @@ router.get("/communities/:slug/assignments", authenticate, async (req, res) => {
   } catch (err) {
     console.error("Get community assignments error:", err);
     res.status(500).json([]);
+  }
+});
+
+router.post("/communities/:id/assignments/:assignmentId/reminders", authenticate, async (req, res) => {
+  try {
+    await ensureCommunitySchema();
+    const userId = Number(req.user.id);
+    const communityId = Number(req.params.id);
+    const assignmentId = Number(req.params.assignmentId);
+    if (!communityId || !assignmentId) {
+      return res.status(400).json({ message: "Invalid request" });
+    }
+
+    const role = String(await getCommunityRole(communityId, userId) || "").toLowerCase();
+    if (role !== "owner") {
+      return res.status(403).json({ message: "Only the community owner can send assignment reminders" });
+    }
+
+    const [[assignment]] = await db.query(
+      `
+      SELECT a.id, a.title, a.due_at, c.slug AS community_slug, c.name AS community_name
+      FROM vine_community_assignments a
+      JOIN vine_communities c ON c.id = a.community_id
+      WHERE a.id = ? AND a.community_id = ?
+      LIMIT 1
+      `,
+      [assignmentId, communityId]
+    );
+    if (!assignment) return res.status(404).json({ message: "Assignment not found" });
+
+    // Keep one-click reminders useful without letting an accidental double-click
+    // flood learner notification feeds.
+    const [[latestReminder]] = await db.query(
+      `
+      SELECT sent_at
+      FROM vine_community_assignment_reminders
+      WHERE assignment_id = ? AND community_id = ?
+      ORDER BY sent_at DESC, id DESC
+      LIMIT 1
+      `,
+      [assignmentId, communityId]
+    );
+    if (latestReminder?.sent_at) {
+      const elapsedMs = Date.now() - new Date(latestReminder.sent_at).getTime();
+      const cooldownMs = 6 * 60 * 60 * 1000;
+      if (Number.isFinite(elapsedMs) && elapsedMs >= 0 && elapsedMs < cooldownMs) {
+        return res.status(429).json({
+          message: "Missing learners were reminded recently. You can send another reminder after the six-hour cooldown.",
+          retry_after_minutes: Math.ceil((cooldownMs - elapsedMs) / 60000),
+        });
+      }
+    }
+
+    const [missingLearners] = await db.query(
+      `
+      SELECT m.user_id
+      FROM vine_community_members m
+      LEFT JOIN vine_community_submissions s
+        ON s.community_id = m.community_id
+       AND s.assignment_id = ?
+       AND s.user_id = m.user_id
+      WHERE m.community_id = ?
+        AND LOWER(COALESCE(m.role, 'member')) = 'member'
+        AND s.id IS NULL
+      ORDER BY m.user_id ASC
+      `,
+      [assignmentId, communityId]
+    );
+    const recipientIds = missingLearners.map((row) => Number(row.user_id)).filter(Boolean);
+    if (recipientIds.length === 0) {
+      return res.json({ success: true, sent_count: 0, message: "Every learner has already submitted this assignment." });
+    }
+
+    const sentCount = await notifyUsersBulk({
+      userIds: recipientIds,
+      actorId: userId,
+      type: "community_assignment_reminder",
+      meta: {
+        community_id: communityId,
+        community_slug: assignment.community_slug || null,
+        community_name: assignment.community_name || null,
+        assignment_id: assignmentId,
+        assignment_title: assignment.title || null,
+        due_at: assignment.due_at || null,
+      },
+    });
+    await db.query(
+      `
+      INSERT INTO vine_community_assignment_reminders
+      (community_id, assignment_id, sent_by, recipient_count, sent_at)
+      VALUES (?, ?, ?, ?, NOW())
+      `,
+      [communityId, assignmentId, userId, Number(sentCount || recipientIds.length)]
+    );
+
+    clearVineReadCache("community-assignments");
+    return res.json({ success: true, sent_count: Number(sentCount || recipientIds.length) });
+  } catch (err) {
+    console.error("Send assignment reminders error:", err);
+    return res.status(500).json({ message: "Failed to send assignment reminders" });
   }
 });
 
@@ -1003,8 +1152,44 @@ router.get("/communities/:id/assignments/:assignmentId/submissions", authenticat
               const sid = Number(row.id || 0);
               row.submission_files = sid > 0 ? (bySubmission[sid] || []) : [];
             }
+
+            const [historyRows] = await timedVineQuery(
+              perfCtx,
+              "community-assignment-submissions.grade-history",
+              `
+              SELECT
+                h.id,
+                h.submission_id,
+                h.previous_score,
+                h.previous_status,
+                h.previous_feedback,
+                h.new_score,
+                h.new_status,
+                h.new_feedback,
+                h.changed_at,
+                grader.username AS grader_username,
+                grader.display_name AS grader_display_name
+              FROM vine_community_grade_history h
+              LEFT JOIN vine_users grader ON grader.id = h.graded_by
+              WHERE h.submission_id IN (${placeholders})
+              ORDER BY h.changed_at DESC, h.id DESC
+              `,
+              submissionIds
+            );
+            const historyBySubmission = {};
+            for (const row of historyRows) {
+              const sid = Number(row.submission_id);
+              if (!historyBySubmission[sid]) historyBySubmission[sid] = [];
+              historyBySubmission[sid].push(row);
+            }
+            for (const row of submissionRows) {
+              row.grade_history = historyBySubmission[Number(row.id)] || [];
+            }
           } else {
-            for (const row of submissionRows) row.submission_files = [];
+            for (const row of submissionRows) {
+              row.submission_files = [];
+              row.grade_history = [];
+            }
           }
           return submissionRows;
         });
@@ -1113,35 +1298,76 @@ router.patch("/communities/:id/submissions/:submissionId/grade", authenticate, a
     if (role !== "owner") return res.status(403).json({ message: "Only community owner can grade assignments" });
     if (score !== null && !Number.isFinite(score)) return res.status(400).json({ message: "Invalid score" });
 
-    const [[submission]] = await db.query(
-      `
-      SELECT
-        s.id,
-        s.user_id,
-        s.assignment_id,
-        s.graded_at,
-        s.score,
-        s.status,
-        a.title AS assignment_title,
-        a.points AS assignment_points,
-        c.slug AS community_slug
-      FROM vine_community_submissions s
-      JOIN vine_community_assignments a ON a.id = s.assignment_id
-      LEFT JOIN vine_communities c ON c.id = s.community_id
-      WHERE s.id = ? AND s.community_id = ?
-      LIMIT 1
-      `,
-      [submissionId, communityId]
-    );
-    if (!submission) return res.status(404).json({ message: "Submission not found" });
-    await db.query(
-      `
-      UPDATE vine_community_submissions
-      SET score = ?, feedback = ?, status = ?, graded_at = NOW(), graded_by = ?, updated_at = NOW()
-      WHERE id = ? AND community_id = ?
-      `,
-      [score, feedback || null, status || "graded", userId, submissionId, communityId]
-    );
+    let submission = null;
+    const connection = await db.getConnection();
+    try {
+      await connection.beginTransaction();
+      [[submission]] = await connection.query(
+        `
+        SELECT
+          s.id,
+          s.user_id,
+          s.assignment_id,
+          s.graded_at,
+          s.score,
+          s.status,
+          s.feedback,
+          a.title AS assignment_title,
+          a.points AS assignment_points,
+          c.slug AS community_slug
+        FROM vine_community_submissions s
+        JOIN vine_community_assignments a ON a.id = s.assignment_id
+        LEFT JOIN vine_communities c ON c.id = s.community_id
+        WHERE s.id = ? AND s.community_id = ?
+        LIMIT 1
+        FOR UPDATE
+        `,
+        [submissionId, communityId]
+      );
+      if (!submission) {
+        await connection.rollback();
+        return res.status(404).json({ message: "Submission not found" });
+      }
+
+      await connection.query(
+        `
+        UPDATE vine_community_submissions
+        SET score = ?, feedback = ?, status = ?, graded_at = NOW(), graded_by = ?, updated_at = NOW()
+        WHERE id = ? AND community_id = ?
+        `,
+        [score, feedback || null, status || "graded", userId, submissionId, communityId]
+      );
+      await connection.query(
+        `
+        INSERT INTO vine_community_grade_history
+        (
+          community_id, assignment_id, submission_id, learner_id, graded_by,
+          previous_score, previous_status, previous_feedback,
+          new_score, new_status, new_feedback, changed_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+        `,
+        [
+          communityId,
+          Number(submission.assignment_id),
+          submissionId,
+          Number(submission.user_id),
+          userId,
+          submission.score ?? null,
+          submission.status || null,
+          submission.feedback || null,
+          score,
+          status || "graded",
+          feedback || null,
+        ]
+      );
+      await connection.commit();
+    } catch (transactionError) {
+      await connection.rollback();
+      throw transactionError;
+    } finally {
+      connection.release();
+    }
 
     if (Number(submission.user_id) !== userId) {
       await notifyUser({

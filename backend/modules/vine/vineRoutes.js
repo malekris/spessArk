@@ -4012,6 +4012,8 @@ const purgeUserAccount = async (userId) => {
   const communityIds = ownedCommunities.map((row) => Number(row.id)).filter(Boolean);
   if (communityIds.length) {
     const placeholders = communityIds.map(() => "?").join(", ");
+    await db.query(`DELETE FROM vine_community_grade_history WHERE community_id IN (${placeholders})`, communityIds);
+    await db.query(`DELETE FROM vine_community_assignment_reminders WHERE community_id IN (${placeholders})`, communityIds);
     await db.query(`DELETE FROM vine_community_submission_files WHERE community_id IN (${placeholders})`, communityIds);
     await db.query(`DELETE FROM vine_community_submission_drafts WHERE community_id IN (${placeholders})`, communityIds);
     await db.query(`DELETE FROM vine_community_submissions WHERE community_id IN (${placeholders})`, communityIds);
@@ -4030,6 +4032,8 @@ const purgeUserAccount = async (userId) => {
     await db.query(`DELETE FROM vine_communities WHERE id IN (${placeholders})`, communityIds);
   }
 
+  await db.query("DELETE FROM vine_community_grade_history WHERE learner_id = ? OR graded_by = ?", [numericUserId, numericUserId]).catch(() => {});
+  await db.query("DELETE FROM vine_community_assignment_reminders WHERE sent_by = ?", [numericUserId]).catch(() => {});
   await db.query("DELETE FROM vine_community_submission_files WHERE user_id = ?", [numericUserId]).catch(() => {});
   await db.query("DELETE FROM vine_community_submission_drafts WHERE user_id = ?", [numericUserId]).catch(() => {});
   await db.query("DELETE FROM vine_community_submissions WHERE user_id = ?", [numericUserId]).catch(() => {});
@@ -4367,6 +4371,83 @@ const ensureCommunitySchema = async () => {
       INDEX idx_submission_files_submission (submission_id, created_at),
       INDEX idx_submission_files_assignment (assignment_id, community_id),
       INDEX idx_submission_files_user (user_id, created_at)
+    )
+  `);
+
+  // Grade changes are append-only so owners can always reconstruct who changed
+  // a result, what changed, and when it happened.
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_community_grade_history (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      community_id INT NOT NULL,
+      assignment_id INT NOT NULL,
+      submission_id INT NOT NULL,
+      learner_id INT NOT NULL,
+      graded_by INT NOT NULL,
+      previous_score DECIMAL(6,2) NULL,
+      previous_status VARCHAR(20) NULL,
+      previous_feedback TEXT NULL,
+      new_score DECIMAL(6,2) NULL,
+      new_status VARCHAR(20) NOT NULL,
+      new_feedback TEXT NULL,
+      changed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_grade_history_submission (submission_id, changed_at, id),
+      INDEX idx_grade_history_assignment (assignment_id, community_id, changed_at),
+      INDEX idx_grade_history_learner (learner_id, changed_at)
+    )
+  `);
+
+  // Existing finalized grades predate the audit table. Preserve their current
+  // state as an initial snapshot so the history panel is useful immediately.
+  await db.query(`
+    INSERT INTO vine_community_grade_history
+    (
+      community_id, assignment_id, submission_id, learner_id, graded_by,
+      previous_score, previous_status, previous_feedback,
+      new_score, new_status, new_feedback, changed_at
+    )
+    SELECT
+      s.community_id,
+      s.assignment_id,
+      s.id,
+      s.user_id,
+      COALESCE(s.graded_by, a.creator_id),
+      NULL,
+      'submitted',
+      NULL,
+      s.score,
+      CASE
+        WHEN LOWER(COALESCE(s.status, '')) IN ('graded', 'needs_revision', 'missing')
+          THEN LOWER(s.status)
+        ELSE 'graded'
+      END,
+      s.feedback,
+      COALESCE(s.graded_at, s.updated_at, s.submitted_at, NOW())
+    FROM vine_community_submissions s
+    JOIN vine_community_assignments a ON a.id = s.assignment_id
+    WHERE (
+      s.graded_at IS NOT NULL
+      OR s.score IS NOT NULL
+      OR LOWER(COALESCE(s.status, '')) IN ('graded', 'needs_revision', 'missing')
+    )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM vine_community_grade_history h
+        WHERE h.submission_id = s.id
+      )
+  `);
+
+  // One row represents one owner-triggered reminder batch. Besides providing an
+  // audit trail, the latest row enforces a short anti-spam cooldown.
+  await db.query(`
+    CREATE TABLE IF NOT EXISTS vine_community_assignment_reminders (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      community_id INT NOT NULL,
+      assignment_id INT NOT NULL,
+      sent_by INT NOT NULL,
+      recipient_count INT NOT NULL DEFAULT 0,
+      sent_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_assignment_reminder_latest (assignment_id, community_id, sent_at)
     )
   `);
 
@@ -7679,6 +7760,7 @@ router.use((req, res, next) => {
       isPdfFile,
       uploadBufferToCloudinary,
       notifyUser,
+      notifyUsersBulk,
       clearVineReadCache,
       deleteCloudinaryByUrl,
       runVinePerfRoute,

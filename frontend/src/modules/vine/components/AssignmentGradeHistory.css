@@ -1,0 +1,104 @@
+.assignment-grade-history {
+  margin-top: 10px;
+  border: 1px solid #dbe3ec;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.assignment-grade-history summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 13px;
+  color: #334155;
+  font-size: 0.78rem;
+  font-weight: 900;
+  cursor: pointer;
+  list-style: none;
+}
+
+.assignment-grade-history summary::-webkit-details-marker {
+  display: none;
+}
+
+.assignment-grade-history summary b {
+  color: #64748b;
+  font-size: 0.7rem;
+}
+
+.assignment-grade-history-list {
+  display: grid;
+  border-top: 1px solid #e2e8f0;
+}
+
+.assignment-grade-history-entry {
+  display: grid;
+  gap: 7px;
+  padding: 12px 13px;
+  border-bottom: 1px solid #eef2f7;
+}
+
+.assignment-grade-history-entry:last-child {
+  border-bottom: 0;
+}
+
+.assignment-grade-history-entry-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.assignment-grade-history-entry-head strong {
+  color: #0f172a;
+  font-size: 0.78rem;
+}
+
+.assignment-grade-history-entry-head time,
+.assignment-grade-history-entry small {
+  color: #64748b;
+  font-size: 0.68rem;
+}
+
+.assignment-grade-history-change {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.assignment-grade-history-change span {
+  padding: 5px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: capitalize;
+}
+
+.assignment-grade-history-before {
+  background: #f1f5f9;
+  color: #64748b;
+  text-decoration: line-through;
+}
+
+.assignment-grade-history-after {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.assignment-grade-history-change i {
+  color: #94a3b8;
+  font-size: 0.65rem;
+  font-style: normal;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.assignment-grade-history-entry p {
+  margin: 0;
+  color: #475569;
+  font-size: 0.76rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}

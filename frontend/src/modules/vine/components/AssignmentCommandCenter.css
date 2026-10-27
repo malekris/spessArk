@@ -1,0 +1,226 @@
+.assignment-command-center {
+  margin: 18px 0;
+  border: 1px solid #d8e1ec;
+  border-radius: 8px;
+  background: #ffffff;
+  overflow: hidden;
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.08);
+}
+
+.assignment-command-center-head {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(420px, 1.35fr);
+  gap: 18px;
+  align-items: end;
+  padding: 18px;
+  background: #0f172a;
+  color: #ffffff;
+}
+
+.assignment-command-center-kicker {
+  display: block;
+  margin-bottom: 5px;
+  color: #67e8f9;
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.assignment-command-center h5 {
+  margin: 0;
+  color: #ffffff;
+  font-size: 1.1rem;
+}
+
+.assignment-command-center-head p {
+  margin: 6px 0 0;
+  color: #cbd5e1;
+  font-size: 0.82rem;
+}
+
+.assignment-command-center-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(74px, 1fr));
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.assignment-command-center-summary div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 10px 12px;
+  border-right: 1px solid rgba(148, 163, 184, 0.28);
+}
+
+.assignment-command-center-summary div:last-child {
+  border-right: 0;
+}
+
+.assignment-command-center-summary span {
+  color: #94a3b8;
+  font-size: 0.66rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.assignment-command-center-summary strong {
+  color: #ffffff;
+  font-size: 1.15rem;
+}
+
+.assignment-command-center-list {
+  display: grid;
+}
+
+.assignment-command-row {
+  display: grid;
+  grid-template-columns: minmax(190px, 1.3fr) minmax(100px, 0.65fr) minmax(250px, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  padding: 14px 18px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.assignment-command-row:last-child {
+  border-bottom: 0;
+}
+
+.assignment-command-title {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.assignment-command-title strong {
+  overflow: hidden;
+  color: #0f172a;
+  font-size: 0.92rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assignment-command-title span {
+  color: #64748b;
+  font-size: 0.73rem;
+}
+
+.assignment-command-progress {
+  height: 8px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  overflow: hidden;
+}
+
+.assignment-command-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #0f766e;
+}
+
+.assignment-command-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.assignment-command-counts span {
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.assignment-command-counts .is-missing {
+  background: #fff1f2;
+  color: #be123c;
+}
+
+.assignment-command-counts .is-complete {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.assignment-command-actions {
+  display: flex;
+  gap: 7px;
+  justify-content: flex-end;
+}
+
+.assignment-command-actions button {
+  min-height: 36px;
+  border-radius: 6px;
+  padding: 0 11px;
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 900;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.assignment-command-review {
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #334155;
+}
+
+.assignment-command-remind {
+  border: 1px solid #0f766e;
+  background: #0f766e;
+  color: #ffffff;
+}
+
+.assignment-command-actions button:disabled {
+  border-color: #cbd5e1;
+  background: #e2e8f0;
+  color: #64748b;
+  cursor: not-allowed;
+}
+
+.assignment-command-center-empty {
+  padding: 20px;
+  color: #64748b;
+  text-align: center;
+}
+
+@media (max-width: 1050px) {
+  .assignment-command-center-head {
+    grid-template-columns: 1fr;
+  }
+
+  .assignment-command-row {
+    grid-template-columns: minmax(190px, 1fr) minmax(100px, 0.5fr) minmax(220px, 1fr);
+  }
+
+  .assignment-command-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 720px) {
+  .assignment-command-center-summary {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .assignment-command-center-summary div:nth-child(2) {
+    border-right: 0;
+  }
+
+  .assignment-command-center-summary div:nth-child(-n + 2) {
+    border-bottom: 1px solid rgba(148, 163, 184, 0.28);
+  }
+
+  .assignment-command-row {
+    grid-template-columns: 1fr;
+  }
+
+  .assignment-command-actions {
+    grid-column: auto;
+  }
+}

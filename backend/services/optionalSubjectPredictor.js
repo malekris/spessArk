@@ -22,6 +22,13 @@ export const OPTIONAL_SUBJECT_CATEGORIES = Object.freeze({
 
 export const OPTIONAL_SUBJECT_RECOMMENDATION_THRESHOLD = 1.5;
 export const OPTIONAL_SUBJECT_LOW_CONFIDENCE_THRESHOLD = 1.4;
+export const ENTREPRENEURSHIP_PREDICTOR_AVERAGE_CAP = 2.5;
+export const KISWAHILI_PREDICTOR_AVERAGE_CAP = 2.8;
+
+const SUBJECT_PREDICTOR_AVERAGE_CAPS = new Map([
+  ["Entrepreneurship", ENTREPRENEURSHIP_PREDICTOR_AVERAGE_CAP],
+  ["Kiswahili", KISWAHILI_PREDICTOR_AVERAGE_CAP],
+]);
 
 const SUBJECT_ALIASES = new Map([
   ["pe", "Physical Education"],
@@ -69,11 +76,18 @@ const rankCandidates = (subjects, scoreMap) =>
   subjects
     .map((subject) => {
       const scores = scoreMap.get(subject) || [];
+      const actualAverage = averageScores(scores);
+      const predictorCap = SUBJECT_PREDICTOR_AVERAGE_CAPS.get(subject) ?? null;
+      const capApplied = actualAverage !== null && predictorCap !== null && actualAverage > predictorCap;
+      const average = capApplied ? predictorCap : actualAverage;
       return {
         subject,
-        average: averageScores(scores),
+        average,
+        actualAverage,
+        predictorCap,
+        capApplied,
         scoreCount: scores.length,
-        recommended: scores.length > 0 && averageScores(scores) >= OPTIONAL_SUBJECT_RECOMMENDATION_THRESHOLD,
+        recommended: scores.length > 0 && average >= OPTIONAL_SUBJECT_RECOMMENDATION_THRESHOLD,
       };
     })
     .sort((left, right) => {

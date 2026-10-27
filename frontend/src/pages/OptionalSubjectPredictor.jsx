@@ -16,6 +16,13 @@ const subjectWithAverage = (selection) => {
   return `${selection.subject} (${averageLabel(selection.average)})`;
 };
 
+const evidenceLabel = (selection) => {
+  if (selection?.capApplied) {
+    return `Actual average ${averageLabel(selection.actualAverage)}; predictor cap ${averageLabel(selection.predictorCap)} | ${selection.scoreCount} AOI score(s)`;
+  }
+  return `Based on ${selection?.scoreCount || 0} AOI score(s)`;
+};
+
 const confidenceLabel = (selection) => {
   if (!selection?.subject) return "Missing registration";
   if (selection.lowConfidence) return "Low confidence";
@@ -91,10 +98,15 @@ export default function OptionalSubjectPredictor() {
         14,
         42
       );
-      doc.text("Recommendation threshold: 1.50  |  Low confidence: below 1.40 or no usable AOI score", 14, 47);
+      doc.text(
+        "Balance rule: Entrepreneurship is capped at 2.50 and Kiswahili at 2.80 for prediction only; actual marks remain unchanged.",
+        14,
+        47
+      );
+      doc.text("Recommendation threshold: 1.50  |  Low confidence: below 1.40 or no usable AOI score", 14, 52);
 
       autoTable(doc, {
-        startY: 52,
+        startY: 57,
         margin: { left: 14, right: 14, bottom: 15 },
         head: [["#", "Learner", "Category A subject", "Category B subject", "Decision flag"]],
         body: learners.map((learner, index) => [
@@ -217,7 +229,7 @@ export default function OptionalSubjectPredictor() {
         <section className="optional-predictor-rules" aria-label="Predictor rules">
           <div><strong>Category A</strong><span>PE, ICT, Art, Entrepreneurship, Agriculture</span></div>
           <div><strong>Category B</strong><span>Luganda, Kiswahili, CRE, IRE, Literature</span></div>
-          <p>Only subjects registered by the learner are considered. The `/80` examination is excluded because it is not on the AOI scale.</p>
+          <p>Only registered subjects are considered and the `/80` exam is excluded. Predictor caps: Entrepreneurship 2.50; Kiswahili 2.80. Actual marks remain unchanged.</p>
         </section>
 
         {error && <div className="optional-predictor-alert">{error}</div>}
@@ -270,14 +282,14 @@ export default function OptionalSubjectPredictor() {
                           <td>
                             <div className="optional-predictor-subject">
                               <strong>{subjectWithAverage(learner.categoryA)}</strong>
-                              <span>Based on {learner.categoryA.scoreCount} AOI score(s)</span>
+                              <span>{evidenceLabel(learner.categoryA)}</span>
                               <em className={learner.categoryA.lowConfidence ? "is-warning" : ""}>{confidenceLabel(learner.categoryA)}</em>
                             </div>
                           </td>
                           <td>
                             <div className="optional-predictor-subject">
                               <strong>{subjectWithAverage(learner.categoryB)}</strong>
-                              <span>Based on {learner.categoryB.scoreCount} AOI score(s)</span>
+                              <span>{evidenceLabel(learner.categoryB)}</span>
                               <em className={learner.categoryB.lowConfidence ? "is-warning" : ""}>{confidenceLabel(learner.categoryB)}</em>
                             </div>
                           </td>

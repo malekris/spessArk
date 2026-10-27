@@ -4980,28 +4980,36 @@ export default function VineCommunities() {
                                 <span className="assignment-card-metric">
                                   Submissions: {a.submission_count || 0}
                                 </span>
-                                {isPractical
+                                {isCommunityOwner && isPractical
                                   ? (
+                                      <span className="assignment-card-metric">
+                                        {Number(a.submission_count || 0) > 0
+                                          ? "Learner files ready for review"
+                                          : "No learner uploads yet"}
+                                      </span>
+                                    )
+                                  : isPractical
+                                    ? (
                                       <span className="assignment-card-metric">
                                         {a.viewer_submitted_at
                                           ? `Last submitted: ${formatSubmissionRelativeTime(a.viewer_submitted_at)}`
                                           : "No upload yet for this practical assignment"}
                                       </span>
                                     )
-                                  : (
-                                      a.viewer_submission_status ? (
-                                        <span className="assignment-card-metric">
-                                          Your status: {a.viewer_submission_status}
-                                        </span>
-                                      ) : null
-                                    )}
-                                {a.viewer_submission_score !== null && a.viewer_submission_score !== undefined ? (
+                                    : (
+                                        a.viewer_submission_status ? (
+                                          <span className="assignment-card-metric">
+                                            Your status: {a.viewer_submission_status}
+                                          </span>
+                                        ) : null
+                                      )}
+                                {!isCommunityOwner && a.viewer_submission_score !== null && a.viewer_submission_score !== undefined ? (
                                   <span className="assignment-card-metric">Score: {a.viewer_submission_score}</span>
                                 ) : null}
-                                {isPractical && uploadedFilesCount > 0 ? (
+                                {!isCommunityOwner && isPractical && uploadedFilesCount > 0 ? (
                                   <span className="assignment-card-metric">Files uploaded: {uploadedFilesCount}</span>
                                 ) : null}
-                                {!isPractical && attempts > 0 ? (
+                                {!isCommunityOwner && !isPractical && attempts > 0 ? (
                                   <span className="assignment-card-metric">Attempts: {attempts}/2</span>
                                 ) : null}
                               </div>

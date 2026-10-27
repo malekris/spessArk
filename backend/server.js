@@ -19,6 +19,7 @@ import adminReportsRoutes from "./routes/adminReports.js";
 import adminAuditLogsRoutes from "./routes/adminAuditLogs.js";
 import adminPromotionRoutes from "./routes/adminPromotionRoutes.js";
 import adminEmisRegistrationRoutes from "./routes/adminEmisRegistrationRoutes.js";
+import adminOptionalSubjectPredictorRoutes from "./routes/adminOptionalSubjectPredictorRoutes.js";
 import authAdmin, {
   requireAdminReauth,
   signAdminReauthToken,
@@ -164,6 +165,7 @@ app.use("/api/admin/reports", adminReportsRoutes);
 app.use("/api/admin/audit-logs", adminAuditLogsRoutes);
 app.use("/api/admin", adminPromotionRoutes);
 app.use("/api/admin", adminEmisRegistrationRoutes);
+app.use("/api/admin", adminOptionalSubjectPredictorRoutes);
 app.use("/api/classes", classesRoutes);
 app.use("/api/admin/stream-readiness", streamReadinessRoutes);
 app.use("/api/alevel", alevelRoutes);

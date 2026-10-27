@@ -26,6 +26,7 @@ import useSiteVisitTracking from "./hooks/useSiteVisitTracking";
 
 const TeacherDashboard = lazy(() => import("./pages/TeacherDashboard"));
 const AdminDashboard = lazy(() => import("./pages/AdminDashboard"));
+const OptionalSubjectPredictor = lazy(() => import("./pages/OptionalSubjectPredictor"));
 const ALevelDashboard = lazy(() => import("./modules/alevel/pages/ALevelDashboard"));
 const ALevelLearners = lazy(() => import("./modules/alevel/pages/ALevelLearners"));
 const ALevelPromotions = lazy(() => import("./modules/alevel/pages/ALevelPromotions"));
@@ -223,6 +224,7 @@ function App() {
     <Route path="/ark/admin/alevel/assign" element={<ArkLayout><ALevelAssignSubjects /></ArkLayout>} />
     <Route path="/ark/admin/alevel/downloads" element={<ArkLayout><ALevelDownloads /></ArkLayout>} />
     <Route path="/ark/admin/alevel/reports" element={<ArkLayout><ALevelReports /></ArkLayout>} />
+    <Route path="/ark/admin/optional-subject-predictor" element={<ArkLayout><OptionalSubjectPredictor /></ArkLayout>} />
     <Route path="/ark/admin/timetable" element={<ArkLayout><TimetableDashboard /></ArkLayout>} />
     <Route path="/ark/boarding-login" element={<ArkLayout><BoardingLogin /></ArkLayout>} />
     <Route path="/ark/boarding" element={<ArkLayout><BoardingDashboard /></ArkLayout>} />

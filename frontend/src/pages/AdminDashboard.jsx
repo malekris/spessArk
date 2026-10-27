@@ -768,6 +768,14 @@ export default function AdminDashboard() {
       subtitle: "Promote classes and graduate S4",
       icon: "⬆️",
     },
+    {
+      title: "Optional Subjects Predictor",
+      subtitle: "Recommend one Category A and one Category B subject for S2",
+      icon: "OPT",
+      moduleRoute: "/ark/admin/optional-subject-predictor",
+      openInNewWindow: true,
+      cardClassName: "admin-card-optional-predictor",
+    },
     { title: "School Calendar", subtitle: "Manage terms and holiday dates", icon: "🗓️" },
     { title: "Stream Readiness", subtitle: "Compulsory coverage by class and stream", icon: "🧭" },
     { title: "Audit Log", subtitle: "Track system actions and changes", icon: "🛡️" },
@@ -2988,6 +2996,15 @@ export default function AdminDashboard() {
   const handleCardClick = (card) => {
     if (card?.status === "archived") return;
     console.log("[AdminDashboard] card clicked:", card?.title);
+    if (card?.moduleRoute && card?.openInNewWindow) {
+      const predictorWindow = window.open(
+        card.moduleRoute,
+        "spess-optional-subject-predictor",
+        "popup=yes,width=1440,height=920,resizable=yes,scrollbars=yes"
+      );
+      predictorWindow?.focus();
+      return;
+    }
     if (card?.moduleRoute) {
       navigate(card.moduleRoute);
       return;

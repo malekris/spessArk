@@ -89,6 +89,15 @@ const sortLearningBadges = (badges) =>
     return String(a).localeCompare(String(b));
   });
 
+const getLearningBadgeTone = (badge) => {
+  const normalized = String(badge || "").toLowerCase();
+  if (normalized.includes("perfect")) return "perfect";
+  if (normalized.includes("high achiever")) return "achiever";
+  if (normalized.includes("streak")) return "streak";
+  if (normalized.includes("consistent")) return "consistent";
+  return "standard";
+};
+
 const sortCommunityAssignments = (rows) =>
   [...(Array.isArray(rows) ? rows : [])].sort((a, b) => {
     const bCreated = new Date(b?.created_at || 0).getTime();
@@ -400,6 +409,8 @@ export default function VineCommunities() {
   const [gradingDrafts, setGradingDrafts] = useState({});
   const [gradingSubmissionId, setGradingSubmissionId] = useState(null);
   const [downloadingSubmissionFileKey, setDownloadingSubmissionFileKey] = useState("");
+  const [deletingSubmissionFileKey, setDeletingSubmissionFileKey] = useState("");
+  const [submissionFileDeleteTarget, setSubmissionFileDeleteTarget] = useState(null);
   const [deletingSubmissionId, setDeletingSubmissionId] = useState(null);
   const [badgesStreaks, setBadgesStreaks] = useState([]);
   const [progressRows, setProgressRows] = useState([]);
@@ -1819,24 +1830,48 @@ export default function VineCommunities() {
     }
   };
 
-  const deletePracticalSubmissionFile = async (assignmentId, fileId) => {
-    if (!activeCommunity?.id || !assignmentId || !fileId) return;
+  const requestPracticalSubmissionFileDelete = ({
+    assignmentId,
+    fileId = null,
+    submissionId = null,
+    fileName = "this file",
+    ownerView = false,
+  }) => {
+    if (!activeCommunity?.id || !assignmentId || (!fileId && !submissionId)) return;
+    setSubmissionFileDeleteTarget({ assignmentId, fileId, submissionId, fileName, ownerView });
+  };
+
+  const confirmDeletePracticalSubmissionFile = async () => {
+    const target = submissionFileDeleteTarget;
+    if (!activeCommunity?.id || !target?.assignmentId || (!target.fileId && !target.submissionId)) {
+      setSubmissionFileDeleteTarget(null);
+      return;
+    }
+    const deleteKey = target.fileId ? `file-${target.fileId}` : `submission-${target.submissionId}`;
+    setDeletingSubmissionFileKey(deleteKey);
     try {
-      const res = await fetch(
-        `${API}/api/vine/communities/${activeCommunity.id}/assignments/${assignmentId}/submission-files/${fileId}`,
-        {
-          method: "DELETE",
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
+      const endpoint = target.fileId
+        ? `${API}/api/vine/communities/${activeCommunity.id}/assignments/${target.assignmentId}/submission-files/${target.fileId}`
+        : `${API}/api/vine/communities/${activeCommunity.id}/assignments/${target.assignmentId}/submissions/${target.submissionId}/attachment`;
+      const res = await fetch(endpoint, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         alert(data.message || "Failed to delete file");
         return;
       }
+      setSubmissionFileDeleteTarget(null);
       await loadCommunityDetail(activeCommunity.slug, topicFilter);
+      if (target.ownerView || Number(selectedAssignmentId) === Number(target.assignmentId)) {
+        await loadAssignmentSubmissions(target.assignmentId);
+      }
+      showSessionCreateNotice("File removed. The rest of the learner's submission is unchanged.");
     } catch {
       alert("Failed to delete file");
+    } finally {
+      setDeletingSubmissionFileKey("");
     }
   };
 
@@ -1907,6 +1942,10 @@ export default function VineCommunities() {
     const draft = gradingDrafts[submissionId] || {};
     const submission = assignmentSubmissions.find((row) => Number(row.id) === Number(submissionId));
     const assignment = assignments.find((row) => Number(row.id) === Number(submission?.assignment_id || selectedAssignmentId));
+    const wasFinalized =
+      Boolean(submission?.graded_at) ||
+      (submission?.score !== null && submission?.score !== undefined) ||
+      ["graded", "needs_revision", "missing"].includes(String(submission?.status || "").toLowerCase());
     gradingSubmissionRequestRef.current = submissionId;
     setGradingSubmissionId(submissionId);
     try {
@@ -1948,10 +1987,12 @@ export default function VineCommunities() {
         ? "No numeric score"
         : `${draft.score}${Number(assignment?.points) > 0 ? ` / ${assignment.points}` : ""}`;
       showCommunitySuccessModal(
-        "Grade saved and submission locked",
-        "The learner has been graded. No further files or resubmissions can be added to this assignment.",
+        wasFinalized ? "Grade updated" : "Grade saved and learner locked",
+        wasFinalized
+          ? "The revised grade is live. The learner's submission remains locked."
+          : "The learner has been graded. No further files or resubmissions can be added to this assignment.",
         {
-          kicker: "Assessment finalized",
+          kicker: wasFinalized ? "Assessment revised" : "Assessment finalized",
           buttonLabel: "Done",
           details: [
             { label: "Learner", value: submission?.display_name || submission?.username || "Learner" },
@@ -3270,6 +3311,17 @@ export default function VineCommunities() {
     memoryWallPosts.length || posts.filter((p) => String(p?.topic_tag || "").toLowerCase() === COMMUNITY_MEMORY_WALL_TAG).length;
   const newAnnouncementCount = announcementPosts.filter((p) => !seenAnnouncementIds[p.id]).length;
   const announcementBadgeCount = isCommunityOwner ? 0 : newAnnouncementCount;
+  const badgeHighlightRows = [...badgesStreaks].sort(
+    (a, b) =>
+      Number(b.current_streak || 0) - Number(a.current_streak || 0) ||
+      (Array.isArray(b.badges) ? b.badges.length : 0) - (Array.isArray(a.badges) ? a.badges.length : 0) ||
+      Number(b.avg_percent || 0) - Number(a.avg_percent || 0)
+  );
+  const activeBadgeStreakCount = badgeHighlightRows.filter((row) => Number(row.current_streak || 0) > 0).length;
+  const earnedLearningBadgeCount = badgeHighlightRows.reduce(
+    (total, row) => total + (Array.isArray(row.badges) ? row.badges.length : 0),
+    0
+  );
   const spotlightUsedIds = new Set();
   const pickUnusedSpotlight = (rows, predicate = () => true) => {
     const safeRows = Array.isArray(rows) ? rows : [];
@@ -3856,6 +3908,41 @@ export default function VineCommunities() {
                         onClick={confirmDeleteAssignment}
                       >
                         Delete assignment
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ), document.body) : null}
+              {submissionFileDeleteTarget ? createPortal((
+                <div className="community-confirm-backdrop" role="presentation">
+                  <div
+                    className="community-confirm-modal"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="submission-file-delete-title"
+                  >
+                    <div className="community-confirm-kicker">Remove one file</div>
+                    <h4 id="submission-file-delete-title">Delete submitted file?</h4>
+                    <p>
+                      “{submissionFileDeleteTarget.fileName || "This file"}” will be removed permanently.
+                      The learner's remaining files, answer, and grade will stay in place.
+                    </p>
+                    <div className="community-confirm-actions">
+                      <button
+                        type="button"
+                        className="community-confirm-cancel"
+                        onClick={() => setSubmissionFileDeleteTarget(null)}
+                        disabled={Boolean(deletingSubmissionFileKey)}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        className="community-confirm-danger"
+                        onClick={confirmDeletePracticalSubmissionFile}
+                        disabled={Boolean(deletingSubmissionFileKey)}
+                      >
+                        {deletingSubmissionFileKey ? "Removing..." : "Delete file"}
                       </button>
                     </div>
                   </div>
@@ -5046,8 +5133,15 @@ export default function VineCommunities() {
                                       {isPractical && !pastDue && !gradedLocked && (
                                         <button
                                           type="button"
-                                          onClick={() => deletePracticalSubmissionFile(a.id, f.id)}
+                                          className="assignment-file-remove"
+                                          onClick={() => requestPracticalSubmissionFileDelete({
+                                            assignmentId: a.id,
+                                            fileId: f.id,
+                                            fileName: f.file_name || `Uploaded file ${i + 1}`,
+                                          })}
+                                          disabled={deletingSubmissionFileKey === `file-${f.id}`}
                                           title="Delete file"
+                                          aria-label={`Delete ${f.file_name || `uploaded file ${i + 1}`}`}
                                         >
                                           ×
                                         </button>
@@ -5057,20 +5151,38 @@ export default function VineCommunities() {
                                 </div>
                               ) : a.viewer_submission_attachment_url ? (
                                 <div className="assignment-attachment">
-                                  <button
-                                    type="button"
-                                    className="assignment-file-download"
-                                    onClick={() => downloadPracticalSubmissionFile({
-                                      assignmentId: a.id,
-                                      submissionId: a.viewer_submission_id,
-                                      fileName: a.viewer_submission_attachment_name || "Your uploaded file",
-                                    })}
-                                    disabled={downloadingSubmissionFileKey === `submission-${a.viewer_submission_id}`}
-                                  >
-                                    {downloadingSubmissionFileKey === `submission-${a.viewer_submission_id}`
-                                      ? "Downloading..."
-                                      : `📎 ${a.viewer_submission_attachment_name || "Your uploaded file"}`}
-                                  </button>
+                                  <div className="community-file-chip">
+                                    <button
+                                      type="button"
+                                      className="assignment-file-download"
+                                      onClick={() => downloadPracticalSubmissionFile({
+                                        assignmentId: a.id,
+                                        submissionId: a.viewer_submission_id,
+                                        fileName: a.viewer_submission_attachment_name || "Your uploaded file",
+                                      })}
+                                      disabled={downloadingSubmissionFileKey === `submission-${a.viewer_submission_id}`}
+                                    >
+                                      {downloadingSubmissionFileKey === `submission-${a.viewer_submission_id}`
+                                        ? "Downloading..."
+                                        : `📎 ${a.viewer_submission_attachment_name || "Your uploaded file"}`}
+                                    </button>
+                                    {isPractical && !pastDue && !gradedLocked && (
+                                      <button
+                                        type="button"
+                                        className="assignment-file-remove"
+                                        onClick={() => requestPracticalSubmissionFileDelete({
+                                          assignmentId: a.id,
+                                          submissionId: a.viewer_submission_id,
+                                          fileName: a.viewer_submission_attachment_name || "Your uploaded file",
+                                        })}
+                                        disabled={deletingSubmissionFileKey === `submission-${a.viewer_submission_id}`}
+                                        title="Delete file"
+                                        aria-label={`Delete ${a.viewer_submission_attachment_name || "uploaded file"}`}
+                                      >
+                                        ×
+                                      </button>
+                                    )}
+                                  </div>
                                 </div>
                               ) : null}
                               {!isCommunityOwner && Number(activeCommunity.is_member) === 1 && (
@@ -5194,7 +5306,7 @@ export default function VineCommunities() {
                                       const submissionFilesCount = Array.isArray(s.submission_files)
                                         ? s.submission_files.length
                                         : (s.attachment_url ? 1 : 0);
-                                      const gradeLocked =
+                                      const learnerLocked =
                                         Boolean(s.graded_at) ||
                                         s.score !== null && s.score !== undefined ||
                                         ["graded", "needs_revision", "missing"].includes(
@@ -5223,9 +5335,9 @@ export default function VineCommunities() {
                                                   Files: {submissionFilesCount}
                                                 </span>
                                               )}
-                                              {gradeLocked && (
+                                              {learnerLocked && (
                                                 <span className="assignment-submission-pill locked">
-                                                  Finalized
+                                                  Learner locked
                                                 </span>
                                               )}
                                             </div>
@@ -5244,7 +5356,7 @@ export default function VineCommunities() {
                                           {Array.isArray(s.submission_files) && s.submission_files.length > 0 ? (
                                             <div className="assignment-attachment">
                                               {s.submission_files.map((f, i) => (
-                                                <div key={`submission-file-${s.id}-${i}`}>
+                                                <div key={`submission-file-${s.id}-${i}`} className="community-file-chip">
                                                   <button
                                                     type="button"
                                                     className="assignment-file-download"
@@ -5259,36 +5371,73 @@ export default function VineCommunities() {
                                                       ? "Downloading..."
                                                       : `📎 ${f.file_name || `Submitted file ${i + 1}`}`}
                                                   </button>
+                                                  <button
+                                                    type="button"
+                                                    className="assignment-file-remove"
+                                                    onClick={() => requestPracticalSubmissionFileDelete({
+                                                      assignmentId: a.id,
+                                                      fileId: f.id,
+                                                      submissionId: s.id,
+                                                      fileName: f.file_name || `Submitted file ${i + 1}`,
+                                                      ownerView: true,
+                                                    })}
+                                                    disabled={deletingSubmissionFileKey === `file-${f.id}`}
+                                                    title={`Delete ${f.file_name || `submitted file ${i + 1}`}`}
+                                                    aria-label={`Delete ${f.file_name || `submitted file ${i + 1}`}`}
+                                                  >
+                                                    ×
+                                                  </button>
                                                 </div>
                                               ))}
                                             </div>
                                           ) : s.attachment_url ? (
                                             <div className="assignment-attachment">
-                                              <button
-                                                type="button"
-                                                className="assignment-file-download"
-                                                onClick={() => downloadPracticalSubmissionFile({
-                                                  assignmentId: a.id,
-                                                  submissionId: s.id,
-                                                  fileName: s.attachment_name || "Submitted file",
-                                                })}
-                                                disabled={downloadingSubmissionFileKey === `submission-${s.id}`}
-                                              >
-                                                {downloadingSubmissionFileKey === `submission-${s.id}`
-                                                  ? "Downloading..."
-                                                  : `📎 ${s.attachment_name || "Submitted file"}`}
-                                              </button>
+                                              <div className="community-file-chip">
+                                                <button
+                                                  type="button"
+                                                  className="assignment-file-download"
+                                                  onClick={() => downloadPracticalSubmissionFile({
+                                                    assignmentId: a.id,
+                                                    submissionId: s.id,
+                                                    fileName: s.attachment_name || "Submitted file",
+                                                  })}
+                                                  disabled={downloadingSubmissionFileKey === `submission-${s.id}`}
+                                                >
+                                                  {downloadingSubmissionFileKey === `submission-${s.id}`
+                                                    ? "Downloading..."
+                                                    : `📎 ${s.attachment_name || "Submitted file"}`}
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  className="assignment-file-remove"
+                                                  onClick={() => requestPracticalSubmissionFileDelete({
+                                                    assignmentId: a.id,
+                                                    submissionId: s.id,
+                                                    fileName: s.attachment_name || "Submitted file",
+                                                    ownerView: true,
+                                                  })}
+                                                  disabled={deletingSubmissionFileKey === `submission-${s.id}`}
+                                                  title={`Delete ${s.attachment_name || "submitted file"}`}
+                                                  aria-label={`Delete ${s.attachment_name || "submitted file"}`}
+                                                >
+                                                  ×
+                                                </button>
+                                              </div>
                                             </div>
                                           ) : null}
-                                          {gradeLocked && (
+                                          {learnerLocked && (
                                             <div className="assignment-lock-note">
-                                              Grade finalized. This submission is locked.
+                                              Learner uploads are locked. You can revise this grade at any time.
                                             </div>
                                           )}
                                           <div className="assignment-grade-shell">
                                             <div className="assignment-grade-shell-head">
-                                              <strong>Grade this submission</strong>
-                                              <small>Score it, choose a status, and leave guidance for the learner.</small>
+                                              <strong>{learnerLocked ? "Update this grade" : "Grade this submission"}</strong>
+                                              <small>
+                                                {learnerLocked
+                                                  ? "Changes save immediately while learner uploads remain locked."
+                                                  : "Score it, choose a status, and leave guidance for the learner."}
+                                              </small>
                                             </div>
                                             <div className="assignment-grade-grid">
                                               <label className="assignment-grade-field">
@@ -5306,7 +5455,6 @@ export default function VineCommunities() {
                                                     }))
                                                   }
                                                   placeholder="Score"
-                                                  disabled={gradeLocked}
                                                 />
                                               </label>
                                               <label className="assignment-grade-field">
@@ -5319,7 +5467,6 @@ export default function VineCommunities() {
                                                       [s.id]: { ...draft, status: e.target.value },
                                                     }))
                                                   }
-                                                  disabled={gradeLocked}
                                                 >
                                                   <option value="graded">graded</option>
                                                   <option value="needs_revision">needs revision</option>
@@ -5337,15 +5484,16 @@ export default function VineCommunities() {
                                                       [s.id]: { ...draft, feedback: e.target.value },
                                                     }))
                                                   }
-                                                  disabled={gradeLocked}
                                                 />
                                               </label>
                                               <div className="assignment-grade-action">
                                                 <button
                                                   onClick={() => gradeSubmission(s.id)}
-                                                  disabled={gradeLocked || Number(gradingSubmissionId) === Number(s.id)}
+                                                  disabled={Number(gradingSubmissionId) === Number(s.id)}
                                                 >
-                                                  {Number(gradingSubmissionId) === Number(s.id) ? "Saving..." : "Save Grade"}
+                                                  {Number(gradingSubmissionId) === Number(s.id)
+                                                    ? "Saving..."
+                                                    : learnerLocked ? "Update Grade" : "Save Grade"}
                                                 </button>
                                               </div>
                                             </div>
@@ -5363,71 +5511,140 @@ export default function VineCommunities() {
                     </div>
                     <div className="assignment-badges-panel">
                       <div className="assignment-badges-head">
-                        <div>
+                        <div className="assignment-badges-heading-copy">
                           <span className="assignment-badges-kicker">Learner highlights</span>
                           <h5>Badges & Streaks</h5>
                           <p>Spot the most consistent, on-time, and high-achieving learners in this community.</p>
                         </div>
+                        <div className="assignment-badges-overview" aria-label="Badge highlights overview">
+                          <div>
+                            <span>Learners</span>
+                            <strong>{badgeHighlightRows.length}</strong>
+                          </div>
+                          <div>
+                            <span>Active streaks</span>
+                            <strong>{activeBadgeStreakCount}</strong>
+                          </div>
+                          <div>
+                            <span>Badges earned</span>
+                            <strong>{earnedLearningBadgeCount}</strong>
+                          </div>
+                        </div>
                       </div>
-                      {badgesStreaks.length === 0 ? (
+                      {badgeHighlightRows.length === 0 ? (
                         <div className="community-empty">No learner streak data yet.</div>
                       ) : (
                         <div className="assignment-badges-list">
-                          {badgesStreaks.map((row) => (
-                            <button
-                              key={`badge-${row.id}`}
-                              className="assignment-badge-row"
-                              onClick={() => navigate(`/vine/profile/${row.username}`)}
-                            >
-                              <img
-                                src={
-                                  row.avatar_url
-                                    ? (row.avatar_url.startsWith("http") ? row.avatar_url : `${API}${row.avatar_url}`)
-                                    : DEFAULT_AVATAR
-                                }
-                                alt={row.username}
-                                onError={(e) => {
-                                  e.currentTarget.src = DEFAULT_AVATAR;
-                                }}
-                              />
-                              <div className="assignment-badge-body">
-                                <div className="member-name">
-                                  {row.display_name || row.username}
-                                  {Number(row.is_verified) === 1 && (
-                                    <span className="community-verified-badge" title="Verified">✓</span>
+                          {badgeHighlightRows.map((row, index) => {
+                            const learnerBadges = sortLearningBadges(row.badges);
+                            const averageLabel = row.avg_percent !== null && row.avg_percent !== undefined
+                              ? `${row.avg_percent}%`
+                              : (row.avg_score ?? "-");
+
+                            return (
+                              <button
+                                type="button"
+                                key={`badge-${row.id}`}
+                                className="assignment-badge-row"
+                                onClick={() => navigate(`/vine/profile/${row.username}`)}
+                                aria-label={`Open ${row.display_name || row.username}'s profile`}
+                              >
+                                <span className="assignment-badge-rank" aria-label={`Rank ${index + 1}`}>
+                                  {String(index + 1).padStart(2, "0")}
+                                </span>
+                                <span className="assignment-badge-avatar">
+                                  <img
+                                    src={
+                                      row.avatar_url
+                                        ? (row.avatar_url.startsWith("http") ? row.avatar_url : `${API}${row.avatar_url}`)
+                                        : DEFAULT_AVATAR
+                                    }
+                                    alt=""
+                                    onError={(e) => {
+                                      e.currentTarget.src = DEFAULT_AVATAR;
+                                    }}
+                                  />
+                                  {Number(row.current_streak || 0) > 0 && (
+                                    <span title={`${row.current_streak} consecutive on-time submissions`}>
+                                      {row.current_streak}
+                                    </span>
                                   )}
+                                </span>
+                                <div className="assignment-badge-body">
+                                  <div className="assignment-badge-identity">
+                                    <div>
+                                      <div className="member-name">
+                                        {row.display_name || row.username}
+                                        {Number(row.is_verified) === 1 && (
+                                          <span className="community-verified-badge" title="Verified">✓</span>
+                                        )}
+                                      </div>
+                                      <div className="member-meta">@{row.username}</div>
+                                    </div>
+                                    <span className="assignment-badge-profile-cue" aria-hidden="true">
+                                      View profile <span>›</span>
+                                    </span>
+                                  </div>
+                                  <div className="assignment-badge-stats">
+                                    <span className="assignment-badge-stat">
+                                      <small>Streak</small>
+                                      <strong>{row.current_streak || 0}</strong>
+                                    </span>
+                                    <span className="assignment-badge-stat">
+                                      <small>On time</small>
+                                      <strong>{row.total_on_time || 0}</strong>
+                                    </span>
+                                    <span className="assignment-badge-stat">
+                                      <small>Average</small>
+                                      <strong>{averageLabel}</strong>
+                                    </span>
+                                  </div>
+                                  <div className="assignment-badges-chips">
+                                    {learnerBadges.length > 0
+                                      ? learnerBadges.map((badge) => (
+                                          <span
+                                            key={`${row.id}-${badge}`}
+                                            className={`assignment-badge-chip ${getLearningBadgeTone(badge)}`}
+                                          >
+                                            {badge}
+                                          </span>
+                                        ))
+                                      : <span className="assignment-badge-chip muted">Building momentum</span>}
+                                  </div>
                                 </div>
-                                <div className="member-meta">
-                                  @{row.username}
-                                </div>
-                                <div className="assignment-badge-stats">
-                                  <span className="assignment-badge-stat">Streak: {row.current_streak || 0}</span>
-                                  <span className="assignment-badge-stat">On-time: {row.total_on_time || 0}</span>
-                                  <span className="assignment-badge-stat">
-                                    Avg: {row.avg_score ?? "-"}{row.avg_percent !== null && row.avg_percent !== undefined ? ` (${row.avg_percent}%)` : ""}
-                                  </span>
-                                </div>
-                                <div className="assignment-badges-chips">
-                                  {(row.badges || []).length > 0
-                                    ? row.badges.map((b) => (
-                                        <span key={`${row.id}-${b}`} className="assignment-badge-chip">{b}</span>
-                                      ))
-                                    : <span className="assignment-badge-chip muted">No badge yet</span>}
-                                </div>
-                              </div>
-                            </button>
-                          ))}
+                              </button>
+                            );
+                          })}
                         </div>
                       )}
                       <div className="assignment-badges-legend">
-                        <h6>Legend</h6>
-                        <div><strong>Streak:</strong> consecutive on-time submissions from the most recent assignments.</div>
-                        <div><strong>On-time:</strong> total submissions made before or on due date.</div>
-                        <div><strong>Avg:</strong> average of graded scores in this community.</div>
-                        <div><span>🔥</span> On-Time Streak = streak of 3+</div>
-                        <div><span>🎯</span> Perfect Score = at least one full score</div>
-                        <div><span>📚</span> Consistent Learner = 5+ submissions</div>
-                        <div><span>🏅</span> High Achiever = average 85%+ (min 3 graded)</div>
+                        <div className="assignment-badges-legend-copy">
+                          <span className="assignment-badges-kicker">How badges are earned</span>
+                          <h6>Recognition that follows the work</h6>
+                          <p>Streak tracks consecutive on-time work, while the average uses graded submissions in this community.</p>
+                        </div>
+                        <div className="assignment-badges-legend-grid">
+                          <div>
+                            <span aria-hidden="true">🔥</span>
+                            <strong>On-Time Streak</strong>
+                            <small>3+ in a row</small>
+                          </div>
+                          <div>
+                            <span aria-hidden="true">🎯</span>
+                            <strong>Perfect Score</strong>
+                            <small>At least one full score</small>
+                          </div>
+                          <div>
+                            <span aria-hidden="true">📚</span>
+                            <strong>Consistent Learner</strong>
+                            <small>5+ submissions</small>
+                          </div>
+                          <div>
+                            <span aria-hidden="true">🏅</span>
+                            <strong>High Achiever</strong>
+                            <small>85%+ across 3 graded tasks</small>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </section>

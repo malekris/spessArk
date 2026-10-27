@@ -675,6 +675,7 @@ router.delete("/communities/:id/assignments/:assignmentId/submission-files/:file
     }
     const role = await getCommunityRole(communityId, userId);
     if (!role) return res.status(403).json({ message: "Join this community first" });
+    const isOwner = String(role || "").toLowerCase() === "owner";
 
     const [[assignment]] = await db.query(
       "SELECT id, due_at, assignment_type FROM vine_community_assignments WHERE id = ? AND community_id = ? LIMIT 1",
@@ -684,7 +685,7 @@ router.delete("/communities/:id/assignments/:assignmentId/submission-files/:file
     if (String(assignment.assignment_type || "").toLowerCase() !== "practical") {
       return res.status(400).json({ message: "File deletion is only available for practical assignments" });
     }
-    if (assignment.due_at) {
+    if (!isOwner && assignment.due_at) {
       const dueAt = new Date(assignment.due_at);
       if (!Number.isNaN(dueAt.getTime()) && dueAt.getTime() < Date.now()) {
         return res.status(403).json({ message: "Submission window closed. Due date has passed." });
@@ -711,27 +712,39 @@ router.delete("/communities/:id/assignments/:assignmentId/submission-files/:file
       [fileId, assignmentId, communityId]
     );
     if (!row) return res.status(404).json({ message: "File not found" });
-    if (Number(row.user_id) !== Number(userId)) {
+    if (!isOwner && Number(row.user_id) !== Number(userId)) {
       return res.status(403).json({ message: "You can only delete your own uploaded files" });
     }
-    if (isSubmissionFinalized(row)) {
+    if (!isOwner && isSubmissionFinalized(row)) {
       return res.status(403).json({ message: "Assignment already graded. Uploaded files are locked." });
     }
 
-    const [deleteResult] = await db.query(
-      `
-      DELETE f
-      FROM vine_community_submission_files f
-      JOIN vine_community_submissions s ON s.id = f.submission_id
-      WHERE f.id = ?
-        AND s.graded_at IS NULL
-        AND s.score IS NULL
-        AND LOWER(COALESCE(s.status, '')) NOT IN ('graded', 'needs_revision', 'missing')
-      `,
-      [fileId]
-    );
+    const [deleteResult] = isOwner
+      ? await db.query(
+          `
+          DELETE FROM vine_community_submission_files
+          WHERE id = ? AND assignment_id = ? AND community_id = ?
+          `,
+          [fileId, assignmentId, communityId]
+        )
+      : await db.query(
+          `
+          DELETE f
+          FROM vine_community_submission_files f
+          JOIN vine_community_submissions s ON s.id = f.submission_id
+          WHERE f.id = ?
+            AND s.graded_at IS NULL
+            AND s.score IS NULL
+            AND LOWER(COALESCE(s.status, '')) NOT IN ('graded', 'needs_revision', 'missing')
+          `,
+          [fileId]
+        );
     if (Number(deleteResult?.affectedRows || 0) === 0) {
-      return res.status(403).json({ message: "Assignment was graded while this file was being removed. Uploaded files are locked." });
+      return res.status(isOwner ? 404 : 403).json({
+        message: isOwner
+          ? "Submitted file was already removed"
+          : "Assignment was graded while this file was being removed. Uploaded files are locked.",
+      });
     }
     await deleteCloudinaryByUrl(row.file_url);
 
@@ -768,6 +781,104 @@ router.delete("/communities/:id/assignments/:assignmentId/submission-files/:file
   }
 });
 
+router.delete("/communities/:id/assignments/:assignmentId/submissions/:submissionId/attachment", authenticate, async (req, res) => {
+  try {
+    await ensureCommunitySchema();
+    const userId = Number(req.user.id);
+    const communityId = Number(req.params.id);
+    const assignmentId = Number(req.params.assignmentId);
+    const submissionId = Number(req.params.submissionId);
+    if (!communityId || !assignmentId || !submissionId) {
+      return res.status(400).json({ message: "Invalid request" });
+    }
+
+    const role = await getCommunityRole(communityId, userId);
+    if (!role) return res.status(403).json({ message: "Join this community first" });
+    const isOwner = String(role || "").toLowerCase() === "owner";
+
+    const [[row]] = await db.query(
+      `
+      SELECT
+        s.id,
+        s.user_id,
+        s.attachment_url,
+        s.graded_at,
+        s.score,
+        s.status,
+        a.due_at,
+        a.assignment_type
+      FROM vine_community_submissions s
+      JOIN vine_community_assignments a ON a.id = s.assignment_id
+      WHERE s.id = ?
+        AND s.assignment_id = ?
+        AND s.community_id = ?
+        AND a.community_id = ?
+      LIMIT 1
+      `,
+      [submissionId, assignmentId, communityId, communityId]
+    );
+    if (!row?.attachment_url) return res.status(404).json({ message: "Submitted file not found" });
+    if (String(row.assignment_type || "").toLowerCase() !== "practical") {
+      return res.status(400).json({ message: "File deletion is only available for practical assignments" });
+    }
+    if (!isOwner && Number(row.user_id) !== userId) {
+      return res.status(403).json({ message: "You can only delete your own uploaded files" });
+    }
+    if (!isOwner && row.due_at) {
+      const dueAt = new Date(row.due_at);
+      if (!Number.isNaN(dueAt.getTime()) && dueAt.getTime() < Date.now()) {
+        return res.status(403).json({ message: "Submission window closed. Due date has passed." });
+      }
+    }
+    if (!isOwner && isSubmissionFinalized(row)) {
+      return res.status(403).json({ message: "Assignment already graded. Uploaded files are locked." });
+    }
+
+    const [updateResult] = isOwner
+      ? await db.query(
+          `
+          UPDATE vine_community_submissions
+          SET attachment_url = NULL, attachment_name = NULL, attachment_mime = NULL, updated_at = NOW()
+          WHERE id = ? AND assignment_id = ? AND community_id = ?
+          `,
+          [submissionId, assignmentId, communityId]
+        )
+      : await db.query(
+          `
+          UPDATE vine_community_submissions
+          SET attachment_url = NULL, attachment_name = NULL, attachment_mime = NULL, updated_at = NOW()
+          WHERE id = ?
+            AND assignment_id = ?
+            AND community_id = ?
+            AND graded_at IS NULL
+            AND score IS NULL
+            AND LOWER(COALESCE(status, '')) NOT IN ('graded', 'needs_revision', 'missing')
+          `,
+          [submissionId, assignmentId, communityId]
+        );
+    if (Number(updateResult?.affectedRows || 0) === 0) {
+      return res.status(isOwner ? 404 : 403).json({
+        message: isOwner
+          ? "Submitted file was already removed"
+          : "Assignment was graded while this file was being removed. Uploaded files are locked.",
+      });
+    }
+
+    await deleteCloudinaryByUrl(row.attachment_url);
+    clearVineReadCache(
+      "community-assignments",
+      "community-assignment-submissions",
+      "community-gradebook",
+      "community-progress",
+      "profile-header"
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Delete legacy practical submission file error:", err);
+    res.status(500).json({ message: "Failed to delete file" });
+  }
+});
+
 router.post("/communities/:id/assignments/:assignmentId/draft", authenticate, async (req, res) => {
   try {
     await ensureCommunitySchema();
@@ -786,6 +897,19 @@ router.post("/communities/:id/assignments/:assignmentId/draft", authenticate, as
       [assignmentId, communityId]
     );
     if (!assignment) return res.status(404).json({ message: "Assignment not found" });
+
+    const [[existingSubmission]] = await db.query(
+      `
+      SELECT graded_at, score, status
+      FROM vine_community_submissions
+      WHERE assignment_id = ? AND community_id = ? AND user_id = ?
+      LIMIT 1
+      `,
+      [assignmentId, communityId, userId]
+    );
+    if (existingSubmission && isSubmissionFinalized(existingSubmission)) {
+      return res.status(403).json({ message: "Assignment already graded. Draft changes are closed." });
+    }
 
     await db.query(
       `
@@ -1010,14 +1134,6 @@ router.patch("/communities/:id/submissions/:submissionId/grade", authenticate, a
       [submissionId, communityId]
     );
     if (!submission) return res.status(404).json({ message: "Submission not found" });
-    const alreadyFinalized =
-      submission.graded_at !== null ||
-      submission.score !== null ||
-      ["graded", "needs_revision", "missing"].includes(String(submission.status || "").toLowerCase());
-    if (alreadyFinalized) {
-      return res.status(403).json({ message: "Grade already finalized. This submission is locked." });
-    }
-
     await db.query(
       `
       UPDATE vine_community_submissions

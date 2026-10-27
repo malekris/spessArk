@@ -12,6 +12,12 @@ import {
   OPTIONAL_SUBJECT_LOW_CONFIDENCE_THRESHOLD,
   OPTIONAL_SUBJECT_RECOMMENDATION_THRESHOLD,
 } from "../services/optionalSubjectPredictor.js";
+import {
+  readOptionalSubjectSelections,
+  saveOptionalSubjectSelection,
+  validateManualOptionalSubjectSelection,
+} from "../services/optionalSubjectSelectionService.js";
+import { extractClientIp, logAuditEvent } from "../utils/auditLogger.js";
 
 const router = express.Router();
 const STREAMS = new Map([
@@ -72,8 +78,37 @@ router.get("/optional-subject-predictor", authAdmin, async (req, res) => {
     }
 
     const predictions = buildOptionalSubjectPredictions({ learners, marks });
-    const completeCount = predictions.filter((row) => row.complete).length;
-    const lowConfidenceCount = predictions.filter((row) => row.lowConfidence).length;
+    const savedSelections = await readOptionalSubjectSelections(pool, {
+      learnerIds,
+      academicYear,
+    });
+
+    const predictionsWithSelections = predictions.map((prediction) => {
+      const saved = savedSelections.get(prediction.id);
+      const categoryAIsCurrent = prediction.categoryA.candidates.some(
+        (candidate) => candidate.subject === saved?.categoryA
+      );
+      const categoryBIsCurrent = prediction.categoryB.candidates.some(
+        (candidate) => candidate.subject === saved?.categoryB
+      );
+
+      return {
+        ...prediction,
+        manualSelection: {
+          categoryA: categoryAIsCurrent ? saved.categoryA : "",
+          categoryB: categoryBIsCurrent ? saved.categoryB : "",
+          invalidCategoryA: saved?.categoryA && !categoryAIsCurrent ? saved.categoryA : null,
+          invalidCategoryB: saved?.categoryB && !categoryBIsCurrent ? saved.categoryB : null,
+          saved: Boolean(saved),
+          updatedAt: saved?.updatedAt || null,
+        },
+      };
+    });
+    const completeCount = predictionsWithSelections.filter((row) => row.complete).length;
+    const lowConfidenceCount = predictionsWithSelections.filter((row) => row.lowConfidence).length;
+    const manualCompleteCount = predictionsWithSelections.filter(
+      (row) => row.manualSelection.categoryA && row.manualSelection.categoryB
+    ).length;
 
     return res.json({
       classLevel: "S2",
@@ -88,15 +123,88 @@ router.get("/optional-subject-predictor", authAdmin, async (req, res) => {
         kiswahiliMinimumAverage: KISWAHILI_MINIMUM_AVERAGE,
         categoryBCloseAlternativeMargin: CATEGORY_B_CLOSE_ALTERNATIVE_MARGIN,
       },
-      learnerCount: predictions.length,
+      learnerCount: predictionsWithSelections.length,
       completeCount,
       lowConfidenceCount,
-      incompleteCount: predictions.length - completeCount,
-      learners: predictions,
+      incompleteCount: predictionsWithSelections.length - completeCount,
+      manualCompleteCount,
+      learners: predictionsWithSelections,
     });
   } catch (err) {
     console.error("Optional subject predictor error:", err);
     return res.status(500).json({ message: "Failed to build optional-subject predictions." });
+  }
+});
+
+router.put("/optional-subject-selections/:studentId", authAdmin, async (req, res) => {
+  try {
+    await ensureStudentLifecycleColumns(pool);
+    const learnerId = Number(req.params.studentId);
+    const academicYear = Number(req.body?.year);
+
+    if (!Number.isInteger(learnerId) || learnerId <= 0) {
+      return res.status(400).json({ message: "Invalid learner." });
+    }
+    if (!Number.isInteger(academicYear) || academicYear < 2000 || academicYear > 2200) {
+      return res.status(400).json({ message: "Choose a valid academic year." });
+    }
+
+    const [[learner]] = await pool.query(
+      `SELECT id, name, class_level, stream, subjects, status
+       FROM students
+       WHERE id = ?
+       LIMIT 1`,
+      [learnerId]
+    );
+
+    if (!learner) return res.status(404).json({ message: "Learner not found." });
+    if (String(learner.class_level || "").trim().toUpperCase() !== "S2") {
+      return res.status(400).json({ message: "Optional-subject selections are only available for S2 learners." });
+    }
+    if (String(learner.status || "active").trim().toLowerCase() !== "active") {
+      return res.status(400).json({ message: "Selections can only be saved for active learners." });
+    }
+
+    const categoryA = validateManualOptionalSubjectSelection({
+      subjects: learner.subjects,
+      category: "A",
+      value: req.body?.categoryA,
+    });
+    const categoryB = validateManualOptionalSubjectSelection({
+      subjects: learner.subjects,
+      category: "B",
+      value: req.body?.categoryB,
+    });
+
+    const selection = await saveOptionalSubjectSelection(pool, {
+      learnerId,
+      academicYear,
+      stream: String(learner.stream || "").trim(),
+      categoryA,
+      categoryB,
+      updatedByAdminId: Number(req.admin?.id) || null,
+    });
+
+    await logAuditEvent({
+      userId: req.admin?.id,
+      userRole: "admin",
+      action: "optional_subject_selection_saved",
+      entityType: "subject",
+      entityId: learnerId,
+      description: `Saved ${academicYear} S2 optional subjects for ${learner.name}: A=${categoryA || "not selected"}, B=${categoryB || "not selected"}.`,
+      ipAddress: extractClientIp(req),
+    });
+
+    return res.json({
+      message: "Optional-subject selection saved.",
+      selection,
+    });
+  } catch (err) {
+    if (err?.code === "INVALID_OPTIONAL_SUBJECT_SELECTION") {
+      return res.status(400).json({ message: err.message });
+    }
+    console.error("Optional subject selection save error:", err);
+    return res.status(500).json({ message: "Failed to save the optional-subject selection." });
   }
 });
 

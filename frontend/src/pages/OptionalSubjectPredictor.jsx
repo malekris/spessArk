@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { adminFetch } from "../lib/api";
 import { loadPdfTools } from "../utils/loadPdfTools";
 import "./OptionalSubjectPredictor.css";
@@ -37,6 +37,29 @@ const predictionFlag = (learner) => {
   return "Ready";
 };
 
+const candidateOptionLabel = (candidate) => {
+  const average = candidate?.average === null ? "no score" : `average ${averageLabel(candidate?.average)}`;
+  const scoreCount = Number(candidate?.scoreCount) || 0;
+  const rule = candidate?.eligible === false ? " - below predictor rule" : "";
+  return `${candidate?.subject || "Unknown subject"} - ${average}, ${scoreCount} AOI score${scoreCount === 1 ? "" : "s"}${rule}`;
+};
+
+const savedTimeLabel = (value) => {
+  if (!value) return "Saved";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Saved";
+  return `Saved ${date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+};
+
+const selectedCandidate = (learner, category, subject) => {
+  if (!subject) return { subject: null, average: null };
+  return (
+    learner?.[`category${category}`]?.candidates?.find(
+      (candidate) => candidate.subject === subject
+    ) || { subject, average: null }
+  );
+};
+
 export default function OptionalSubjectPredictor() {
   const [stream, setStream] = useState("");
   const [academicYear, setAcademicYear] = useState(currentYear);
@@ -44,11 +67,25 @@ export default function OptionalSubjectPredictor() {
   const [loading, setLoading] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
   const [error, setError] = useState("");
+  const [workspace, setWorkspace] = useState("predictor");
+  const [manualSelections, setManualSelections] = useState({});
+  const [saveStates, setSaveStates] = useState({});
+  const manualSelectionsRef = useRef({});
+  const saveQueuesRef = useRef(new Map());
+  const saveVersionsRef = useRef(new Map());
 
   const confidentCount = useMemo(() => {
     const rows = Array.isArray(result?.learners) ? result.learners : [];
     return rows.filter((row) => row.complete && !row.lowConfidence).length;
   }, [result]);
+
+  const manualCompleteCount = useMemo(() => {
+    const rows = Array.isArray(result?.learners) ? result.learners : [];
+    return rows.filter((learner) => {
+      const selection = manualSelections[learner.id] || {};
+      return selection.categoryA && selection.categoryB;
+    }).length;
+  }, [manualSelections, result]);
 
   const runPrediction = async () => {
     if (!stream) {
@@ -61,6 +98,26 @@ export default function OptionalSubjectPredictor() {
       const data = await adminFetch(
         `/api/admin/optional-subject-predictor?stream=${encodeURIComponent(stream)}&year=${encodeURIComponent(academicYear)}`
       );
+      const loadedSelections = Object.fromEntries(
+        (data.learners || []).map((learner) => [
+          learner.id,
+          {
+            categoryA: learner.manualSelection?.categoryA || "",
+            categoryB: learner.manualSelection?.categoryB || "",
+          },
+        ])
+      );
+      const loadedSaveStates = Object.fromEntries(
+        (data.learners || []).map((learner) => [
+          learner.id,
+          learner.manualSelection?.saved
+            ? { status: "saved", updatedAt: learner.manualSelection.updatedAt }
+            : { status: "idle", updatedAt: null },
+        ])
+      );
+      manualSelectionsRef.current = loadedSelections;
+      setManualSelections(loadedSelections);
+      setSaveStates(loadedSaveStates);
       setResult(data);
     } catch (err) {
       setResult(null);
@@ -68,6 +125,69 @@ export default function OptionalSubjectPredictor() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const updateManualSelection = (learnerId, categoryKey, value) => {
+    if (!result) return;
+
+    const nextSelection = {
+      categoryA: manualSelectionsRef.current[learnerId]?.categoryA || "",
+      categoryB: manualSelectionsRef.current[learnerId]?.categoryB || "",
+      [categoryKey]: value,
+    };
+    manualSelectionsRef.current = {
+      ...manualSelectionsRef.current,
+      [learnerId]: nextSelection,
+    };
+    setManualSelections(manualSelectionsRef.current);
+
+    const queueKey = `${result.academicYear}:${learnerId}`;
+    const nextVersion = (saveVersionsRef.current.get(queueKey) || 0) + 1;
+    saveVersionsRef.current.set(queueKey, nextVersion);
+    setSaveStates((current) => ({
+      ...current,
+      [learnerId]: { status: "saving", updatedAt: current[learnerId]?.updatedAt || null },
+    }));
+
+    // Queue saves per learner. This prevents a quick A-then-B choice from
+    // arriving out of order and overwriting the newer pair in the database.
+    const previousSave = saveQueuesRef.current.get(queueKey) || Promise.resolve();
+    const queuedSave = previousSave
+      .catch(() => undefined)
+      .then(() =>
+        adminFetch(`/api/admin/optional-subject-selections/${learnerId}`, {
+          method: "PUT",
+          body: {
+            year: result.academicYear,
+            categoryA: nextSelection.categoryA,
+            categoryB: nextSelection.categoryB,
+          },
+        })
+      );
+    saveQueuesRef.current.set(queueKey, queuedSave);
+
+    queuedSave
+      .then((response) => {
+        if (saveVersionsRef.current.get(queueKey) !== nextVersion) return;
+        setSaveStates((current) => ({
+          ...current,
+          [learnerId]: {
+            status: "saved",
+            updatedAt: response?.selection?.updatedAt || new Date().toISOString(),
+          },
+        }));
+      })
+      .catch((saveError) => {
+        if (saveVersionsRef.current.get(queueKey) !== nextVersion) return;
+        setSaveStates((current) => ({
+          ...current,
+          [learnerId]: {
+            status: "error",
+            updatedAt: current[learnerId]?.updatedAt || null,
+            message: saveError.message || "Save failed",
+          },
+        }));
+      });
   };
 
   const createPdf = async (download = false) => {
@@ -78,7 +198,28 @@ export default function OptionalSubjectPredictor() {
       const { jsPDF, autoTable } = await loadPdfTools();
       const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
       const generatedAt = new Date().toLocaleString();
-      const title = `S2 ${result.stream} Optional Subjects Predictor`;
+      const isManualRegister = workspace === "manual";
+      const title = isManualRegister
+        ? `S2 ${result.stream} Optional Subject Selection Register`
+        : `S2 ${result.stream} Optional Subjects Predictor`;
+      const pdfRows = learners.map((learner) => {
+        if (!isManualRegister) {
+          return {
+            categoryA: learner.categoryA,
+            categoryB: learner.categoryB,
+            flag: predictionFlag(learner),
+          };
+        }
+
+        const selection = manualSelections[learner.id] || {};
+        const categoryA = selectedCandidate(learner, "A", selection.categoryA);
+        const categoryB = selectedCandidate(learner, "B", selection.categoryB);
+        return {
+          categoryA,
+          categoryB,
+          flag: categoryA.subject && categoryB.subject ? "Complete" : "Incomplete",
+        };
+      });
 
       doc.setFont("helvetica", "bold");
       doc.setFontSize(16);
@@ -95,7 +236,9 @@ export default function OptionalSubjectPredictor() {
       doc.text("Category A: Physical Education, ICT, Art, Entrepreneurship, Agriculture", 14, 32);
       doc.text("Category B: Luganda, Kiswahili, Christian Religious Education, IRE, Literature", 14, 37);
       doc.text(
-        "Selection rule: Choose the highest AOI average from the learner's registered subjects in each category.",
+        isManualRegister
+          ? "Selection record: Admin-reviewed choices from each learner's currently registered optional subjects."
+          : "Selection rule: Choose the highest AOI average from the learner's registered subjects in each category.",
         14,
         42
       );
@@ -118,9 +261,9 @@ export default function OptionalSubjectPredictor() {
         body: learners.map((learner, index) => [
           index + 1,
           learner.name,
-          subjectWithAverage(learner.categoryA),
-          subjectWithAverage(learner.categoryB),
-          predictionFlag(learner),
+          subjectWithAverage(pdfRows[index].categoryA),
+          subjectWithAverage(pdfRows[index].categoryB),
+          pdfRows[index].flag,
         ]),
         theme: "grid",
         styles: {
@@ -147,10 +290,14 @@ export default function OptionalSubjectPredictor() {
         didParseCell: (hook) => {
           if (hook.section !== "body") return;
           const row = learners[hook.row.index];
+          const pdfRow = pdfRows[hook.row.index];
           const categoryWarning =
-            (hook.column.index === 2 && row?.categoryA?.lowConfidence) ||
-            (hook.column.index === 3 && row?.categoryB?.lowConfidence);
-          const decisionWarning = hook.column.index === 4 && (row?.lowConfidence || !row?.complete);
+            !isManualRegister &&
+            ((hook.column.index === 2 && row?.categoryA?.lowConfidence) ||
+              (hook.column.index === 3 && row?.categoryB?.lowConfidence));
+          const decisionWarning =
+            hook.column.index === 4 &&
+            (isManualRegister ? pdfRow?.flag === "Incomplete" : row?.lowConfidence || !row?.complete);
           if (categoryWarning || decisionWarning) {
             hook.cell.styles.textColor = [185, 28, 28];
             hook.cell.styles.fontStyle = "bold";
@@ -162,7 +309,7 @@ export default function OptionalSubjectPredictor() {
         const subjects = Array.isArray(result?.categories?.[category]) ? result.categories[category] : [];
         return subjects.map((subject) => {
           const recommendationCount = learners.filter(
-            (learner) => learner?.[`category${category}`]?.subject === subject
+            (learner, index) => pdfRows[index]?.[`category${category}`]?.subject === subject
           ).length;
           return [`Category ${category}`, subject, recommendationCount];
         });
@@ -179,12 +326,20 @@ export default function OptionalSubjectPredictor() {
       doc.setFont("helvetica", "bold");
       doc.setFontSize(11);
       doc.setTextColor(15, 23, 42);
-      doc.text("OPTIONAL SUBJECT RECOMMENDATION SUMMARY", 14, summaryStartY);
+      doc.text(
+        isManualRegister
+          ? "OPTIONAL SUBJECT SELECTION SUMMARY"
+          : "OPTIONAL SUBJECT RECOMMENDATION SUMMARY",
+        14,
+        summaryStartY
+      );
       doc.setFont("helvetica", "normal");
       doc.setFontSize(8);
       doc.setTextColor(71, 85, 105);
       doc.text(
-        `Counts show how many of the ${learners.length} learners were recommended for each optional subject.`,
+        `Counts show how many of the ${learners.length} learners were ${
+          isManualRegister ? "selected" : "recommended"
+        } for each optional subject.`,
         14,
         summaryStartY + 5
       );
@@ -193,7 +348,7 @@ export default function OptionalSubjectPredictor() {
         startY: summaryStartY + 9,
         margin: { left: 14, right: 14, bottom: 15 },
         tableWidth: 150,
-        head: [["Category", "Optional subject", "Learners recommended"]],
+        head: [["Category", "Optional subject", isManualRegister ? "Learners selected" : "Learners recommended"]],
         body: categorySummaryRows,
         theme: "grid",
         styles: {
@@ -235,7 +390,9 @@ export default function OptionalSubjectPredictor() {
         );
       }
 
-      const filename = `S2_${result.stream}_Optional_Subjects_${result.academicYear}.pdf`;
+      const filename = `S2_${result.stream}_Optional_Subjects_${
+        isManualRegister ? "Register" : "Predictor"
+      }_${result.academicYear}.pdf`;
       if (download) {
         doc.save(filename);
       } else {
@@ -291,7 +448,7 @@ export default function OptionalSubjectPredictor() {
             />
           </label>
           <button type="button" className="optional-predictor-run" onClick={runPrediction} disabled={loading}>
-            {loading ? "Calculating..." : "Run predictor"}
+            {loading ? "Loading stream..." : "Load stream"}
           </button>
         </section>
 
@@ -312,14 +469,35 @@ export default function OptionalSubjectPredictor() {
               <div><span>Incomplete pairs</span><strong>{result.incompleteCount}</strong></div>
               <div className="optional-predictor-pdf-actions">
                 <button type="button" onClick={() => createPdf(false)} disabled={pdfBusy || !result.learnerCount}>
-                  {pdfBusy ? "Preparing PDF..." : "Open PDF"}
+                  {pdfBusy ? "Preparing PDF..." : workspace === "manual" ? "Open register PDF" : "Open PDF"}
                 </button>
                 <button type="button" className="secondary" onClick={() => createPdf(true)} disabled={pdfBusy || !result.learnerCount}>
-                  Download PDF
+                  {workspace === "manual" ? "Download register PDF" : "Download PDF"}
                 </button>
               </div>
             </section>
 
+            <nav className="optional-predictor-workspaces" aria-label="Optional subject workspaces">
+              <div>
+                <button
+                  type="button"
+                  className={workspace === "predictor" ? "is-active" : ""}
+                  onClick={() => setWorkspace("predictor")}
+                >
+                  Predictor recommendations
+                </button>
+                <button
+                  type="button"
+                  className={workspace === "manual" ? "is-active" : ""}
+                  onClick={() => setWorkspace("manual")}
+                >
+                  Manual selection register
+                </button>
+              </div>
+              <span>{manualCompleteCount} of {result.learnerCount} manual pairs complete</span>
+            </nav>
+
+            {workspace === "predictor" ? (
             <section className="optional-predictor-results">
               <div className="optional-predictor-results-head">
                 <div>
@@ -374,6 +552,142 @@ export default function OptionalSubjectPredictor() {
                 </div>
               )}
             </section>
+            ) : (
+              <section className="optional-predictor-results optional-predictor-manual">
+                <div className="optional-predictor-results-head">
+                  <div>
+                    <span>Saved S2 register</span>
+                    <h2>{result.stream} manual subject selections</h2>
+                  </div>
+                  <p>Every change saves automatically for {result.academicYear}.</p>
+                </div>
+
+                {result.learners.length === 0 ? (
+                  <div className="optional-predictor-empty">No active S2 learners were found in this stream.</div>
+                ) : (
+                  <div className="optional-predictor-table-wrap">
+                    <table className="optional-predictor-table optional-predictor-manual-table">
+                      <thead>
+                        <tr>
+                          <th>#</th>
+                          <th>Learner</th>
+                          <th>Category A decision</th>
+                          <th>Category B decision</th>
+                          <th>Save status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {result.learners.map((learner, index) => {
+                          const selection = manualSelections[learner.id] || {};
+                          const saveState = saveStates[learner.id] || { status: "idle" };
+                          const invalidSelections = [
+                            !selection.categoryA && learner.manualSelection?.invalidCategoryA,
+                            !selection.categoryB && learner.manualSelection?.invalidCategoryB,
+                          ].filter(Boolean);
+                          const chosenCategoryA = selectedCandidate(
+                            learner,
+                            "A",
+                            selection.categoryA
+                          );
+                          const chosenCategoryB = selectedCandidate(
+                            learner,
+                            "B",
+                            selection.categoryB
+                          );
+
+                          return (
+                            <tr key={learner.id}>
+                              <td>{index + 1}</td>
+                              <td>
+                                <strong>{learner.name}</strong>
+                                <small>ID {learner.id}</small>
+                                {invalidSelections.length > 0 && (
+                                  <small className="optional-predictor-stale">
+                                    No longer registered: {invalidSelections.join(", ")}
+                                  </small>
+                                )}
+                              </td>
+                              <td>
+                                <label className="optional-predictor-choice">
+                                  <span>Choose from offered Category A subjects</span>
+                                  <select
+                                    value={selection.categoryA || ""}
+                                    onChange={(event) =>
+                                      updateManualSelection(learner.id, "categoryA", event.target.value)
+                                    }
+                                    disabled={learner.categoryA.candidates.length === 0}
+                                  >
+                                    <option value="">Not selected</option>
+                                    {learner.categoryA.candidates.map((candidate) => (
+                                      <option key={candidate.subject} value={candidate.subject}>
+                                        {candidateOptionLabel(candidate)}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  {selection.categoryA && (
+                                    <small>
+                                      Average {averageLabel(chosenCategoryA.average)} from {chosenCategoryA.scoreCount || 0} AOI score(s)
+                                    </small>
+                                  )}
+                                </label>
+                              </td>
+                              <td>
+                                <label className="optional-predictor-choice">
+                                  <span>Choose from offered Category B subjects</span>
+                                  <select
+                                    value={selection.categoryB || ""}
+                                    onChange={(event) =>
+                                      updateManualSelection(learner.id, "categoryB", event.target.value)
+                                    }
+                                    disabled={learner.categoryB.candidates.length === 0}
+                                  >
+                                    <option value="">Not selected</option>
+                                    {learner.categoryB.candidates.map((candidate) => (
+                                      <option key={candidate.subject} value={candidate.subject}>
+                                        {candidateOptionLabel(candidate)}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  {selection.categoryB && (
+                                    <small>
+                                      Average {averageLabel(chosenCategoryB.average)} from {chosenCategoryB.scoreCount || 0} AOI score(s)
+                                    </small>
+                                  )}
+                                </label>
+                              </td>
+                              <td>
+                                <div className="optional-predictor-save-cell">
+                                  <span className={`optional-predictor-save-state is-${saveState.status}`}>
+                                    {saveState.status === "saving" && "Saving..."}
+                                    {saveState.status === "saved" && savedTimeLabel(saveState.updatedAt)}
+                                    {saveState.status === "error" && (saveState.message || "Save failed")}
+                                    {saveState.status === "idle" && "Awaiting selection"}
+                                  </span>
+                                  {saveState.status === "error" && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        updateManualSelection(
+                                          learner.id,
+                                          "categoryA",
+                                          selection.categoryA || ""
+                                        )
+                                      }
+                                    >
+                                      Retry save
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </section>
+            )}
           </>
         )}
       </section>

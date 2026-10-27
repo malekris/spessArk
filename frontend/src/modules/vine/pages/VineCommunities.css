@@ -3361,7 +3361,8 @@
   margin-top: 10px;
 }
 
-.assignment-attachment a {
+.assignment-attachment a,
+.assignment-attachment .assignment-file-download {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -3371,12 +3372,34 @@
   border-radius: 14px;
   padding: 8px 12px;
   font-weight: 800;
+  font-family: inherit;
+  font-size: inherit;
   text-decoration: none;
   box-shadow: 0 10px 16px rgba(6, 95, 70, 0.08);
+  cursor: pointer;
 }
 
-.assignment-attachment a:hover {
+.assignment-attachment a:hover,
+.assignment-attachment .assignment-file-download:hover:not(:disabled) {
   filter: brightness(0.97);
+}
+
+.assignment-attachment .assignment-file-download:disabled {
+  cursor: wait;
+  opacity: 0.68;
+}
+
+.assignment-attachment .community-file-chip .assignment-file-download {
+  max-width: min(100%, 360px);
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+  color: #065f46;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .assignment-attachment .assignment-image-attachment {

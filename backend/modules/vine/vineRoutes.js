@@ -102,6 +102,16 @@ const isR2Url = (rawUrl) => {
   return /\.r2\.dev\//i.test(asString) || /\.r2\.cloudflarestorage\.com\//i.test(asString);
 };
 
+const isStoredVineUploadUrl = (rawUrl) => {
+  if (isR2Url(rawUrl)) return true;
+  try {
+    const parsed = new URL(String(rawUrl || ""));
+    return parsed.protocol === "https:" && parsed.hostname === "res.cloudinary.com";
+  } catch {
+    return false;
+  }
+};
+
 const extractR2KeyFromUrl = (rawUrl) => {
   const asString = String(rawUrl || "").trim();
   if (!asString) return null;
@@ -7678,6 +7688,7 @@ router.use((req, res, next) => {
       timedVineQuery,
       isCommunityMemberUser,
       isPracticalSubmissionFile,
+      isStoredSubmissionUrl: isStoredVineUploadUrl,
     });
   }
   return vineCommunityAssignmentsRouter(req, res, next);

@@ -398,6 +398,8 @@ export default function VineCommunities() {
   const [selectedAssignmentId, setSelectedAssignmentId] = useState(null);
   const [assignmentSubmissions, setAssignmentSubmissions] = useState([]);
   const [gradingDrafts, setGradingDrafts] = useState({});
+  const [gradingSubmissionId, setGradingSubmissionId] = useState(null);
+  const [downloadingSubmissionFileKey, setDownloadingSubmissionFileKey] = useState("");
   const [deletingSubmissionId, setDeletingSubmissionId] = useState(null);
   const [badgesStreaks, setBadgesStreaks] = useState([]);
   const [progressRows, setProgressRows] = useState([]);
@@ -442,6 +444,7 @@ export default function VineCommunities() {
   const assignmentFileInputRef = useRef(null);
   const libraryFileInputRef = useRef(null);
   const librarySupportFileInputRef = useRef(null);
+  const gradingSubmissionRequestRef = useRef(null);
   const [nowMs, setNowMs] = useState(Date.now());
   const canManageCommunitySettings = ["owner", "moderator"].includes(
     String(activeCommunity?.viewer_role || "").toLowerCase()
@@ -1767,6 +1770,55 @@ export default function VineCommunities() {
     }
   };
 
+  const downloadPracticalSubmissionFile = async ({
+    assignmentId,
+    fileId = null,
+    submissionId = null,
+    fileName = "submitted-file",
+  }) => {
+    if (!activeCommunity?.id || !assignmentId || (!fileId && !submissionId)) return;
+    const downloadKey = fileId ? `file-${fileId}` : `submission-${submissionId}`;
+    if (downloadingSubmissionFileKey === downloadKey) return;
+    setDownloadingSubmissionFileKey(downloadKey);
+
+    try {
+      const endpoint = fileId
+        ? `${API}/api/vine/communities/${activeCommunity.id}/assignments/${assignmentId}/submission-files/${fileId}/download`
+        : `${API}/api/vine/communities/${activeCommunity.id}/assignments/${assignmentId}/submissions/${submissionId}/attachment/download`;
+      const res = await fetch(endpoint, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        showCommunitySuccessModal(
+          "Download unavailable",
+          data.message || "The submitted file could not be downloaded.",
+          { kicker: "File not downloaded", tone: "warning", buttonLabel: "Close" }
+        );
+        return;
+      }
+
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = String(fileName || "submitted-file");
+      link.style.display = "none";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    } catch {
+      showCommunitySuccessModal(
+        "Download failed",
+        "The submitted file could not be downloaded. Please try again.",
+        { kicker: "Connection interrupted", tone: "warning", buttonLabel: "Close" }
+      );
+    } finally {
+      setDownloadingSubmissionFileKey("");
+    }
+  };
+
   const deletePracticalSubmissionFile = async (assignmentId, fileId) => {
     if (!activeCommunity?.id || !assignmentId || !fileId) return;
     try {
@@ -1842,12 +1894,21 @@ export default function VineCommunities() {
 
   const gradeSubmission = async (submissionId) => {
     if (!activeCommunity?.id || !submissionId) return;
+    if (Number(gradingSubmissionRequestRef.current) === Number(submissionId)) return;
     const viewerRole = String(activeCommunity?.viewer_role || "").toLowerCase();
     if (viewerRole !== "owner") {
-      alert("Only community owner can grade assignments");
+      showCommunitySuccessModal(
+        "Grade not saved",
+        "Only the community owner can finalize assignment grades.",
+        { kicker: "Permission required", tone: "warning", buttonLabel: "Close" }
+      );
       return;
     }
     const draft = gradingDrafts[submissionId] || {};
+    const submission = assignmentSubmissions.find((row) => Number(row.id) === Number(submissionId));
+    const assignment = assignments.find((row) => Number(row.id) === Number(submission?.assignment_id || selectedAssignmentId));
+    gradingSubmissionRequestRef.current = submissionId;
+    setGradingSubmissionId(submissionId);
     try {
       const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/submissions/${submissionId}/grade`, {
         method: "PATCH",
@@ -1863,10 +1924,13 @@ export default function VineCommunities() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        alert(data.message || "Failed to save grade");
+        showCommunitySuccessModal(
+          "Grade not saved",
+          data.message || "The grade could not be saved.",
+          { kicker: "Review required", tone: "warning", buttonLabel: "Review grade" }
+        );
         return;
       }
-      alert("Grade saved");
       setAssignmentSubmissions((prev) =>
         prev.map((s) =>
           s.id === submissionId
@@ -1878,14 +1942,37 @@ export default function VineCommunities() {
                 graded_at: new Date().toISOString(),
               }
             : s
-        )
+          )
+      );
+      const scoreLabel = draft.score === "" || draft.score === null || draft.score === undefined
+        ? "No numeric score"
+        : `${draft.score}${Number(assignment?.points) > 0 ? ` / ${assignment.points}` : ""}`;
+      showCommunitySuccessModal(
+        "Grade saved and submission locked",
+        "The learner has been graded. No further files or resubmissions can be added to this assignment.",
+        {
+          kicker: "Assessment finalized",
+          buttonLabel: "Done",
+          details: [
+            { label: "Learner", value: submission?.display_name || submission?.username || "Learner" },
+            { label: "Score", value: scoreLabel },
+            { label: "Status", value: String(draft.status || "graded").replace(/_/g, " ") },
+          ],
+        }
       );
       if (selectedAssignmentId) {
         await loadAssignmentSubmissions(selectedAssignmentId);
       }
       await loadCommunityDetail(activeCommunity.slug, topicFilter);
     } catch {
-      alert("Failed to save grade");
+      showCommunitySuccessModal(
+        "Grade not saved",
+        "The grade could not be saved. Please check the connection and try again.",
+        { kicker: "Connection interrupted", tone: "warning", buttonLabel: "Review grade" }
+      );
+    } finally {
+      gradingSubmissionRequestRef.current = null;
+      setGradingSubmissionId(null);
     }
   };
 
@@ -4780,15 +4867,12 @@ export default function VineCommunities() {
                           const pastDue = isAssignmentPastDue(a);
                           const attempts = Number(a.viewer_submission_attempts || 0);
                           const submissionLocked = isPractical ? false : attempts >= 2;
-                          const gradedLocked = isPractical
-                            ? false
-                            : (
-                                Boolean(a.viewer_submission_graded_at) ||
-                                (a.viewer_submission_score !== null && a.viewer_submission_score !== undefined) ||
-                                ["graded", "needs_revision", "missing"].includes(
-                                  String(viewerStatus || "").toLowerCase()
-                                )
-                              );
+                          const gradedLocked =
+                            Boolean(a.viewer_submission_graded_at) ||
+                            (a.viewer_submission_score !== null && a.viewer_submission_score !== undefined) ||
+                            ["graded", "needs_revision", "missing"].includes(
+                              String(viewerStatus || "").toLowerCase()
+                            );
                           const hasImageAttachment = isAssignmentImageAttachment(a);
                           return (
                             <div key={a.id} className={`assignment-row ${isCommunityMod ? "mod-view" : ""}`}>
@@ -4936,10 +5020,22 @@ export default function VineCommunities() {
                                 <div className="assignment-attachment">
                                   {a.viewer_submission_files.map((f, i) => (
                                     <div key={`my-sub-file-${a.id}-${i}`} className="community-file-chip">
-                                      <a href={f.file_url} target="_blank" rel="noreferrer">
-                                        📎 {f.file_name || `Uploaded file ${i + 1}`}
-                                      </a>
-                                      {isPractical && !pastDue && (
+                                      <button
+                                        type="button"
+                                        className="assignment-file-download"
+                                        onClick={() => downloadPracticalSubmissionFile({
+                                          assignmentId: a.id,
+                                          fileId: f.id,
+                                          fileName: f.file_name || `Uploaded file ${i + 1}`,
+                                        })}
+                                        disabled={downloadingSubmissionFileKey === `file-${f.id}`}
+                                        title={`Download ${f.file_name || `uploaded file ${i + 1}`}`}
+                                      >
+                                        {downloadingSubmissionFileKey === `file-${f.id}`
+                                          ? "Downloading..."
+                                          : `📎 ${f.file_name || `Uploaded file ${i + 1}`}`}
+                                      </button>
+                                      {isPractical && !pastDue && !gradedLocked && (
                                         <button
                                           type="button"
                                           onClick={() => deletePracticalSubmissionFile(a.id, f.id)}
@@ -4953,9 +5049,20 @@ export default function VineCommunities() {
                                 </div>
                               ) : a.viewer_submission_attachment_url ? (
                                 <div className="assignment-attachment">
-                                  <a href={a.viewer_submission_attachment_url} target="_blank" rel="noreferrer">
-                                    📎 {a.viewer_submission_attachment_name || "Your uploaded file"}
-                                  </a>
+                                  <button
+                                    type="button"
+                                    className="assignment-file-download"
+                                    onClick={() => downloadPracticalSubmissionFile({
+                                      assignmentId: a.id,
+                                      submissionId: a.viewer_submission_id,
+                                      fileName: a.viewer_submission_attachment_name || "Your uploaded file",
+                                    })}
+                                    disabled={downloadingSubmissionFileKey === `submission-${a.viewer_submission_id}`}
+                                  >
+                                    {downloadingSubmissionFileKey === `submission-${a.viewer_submission_id}`
+                                      ? "Downloading..."
+                                      : `📎 ${a.viewer_submission_attachment_name || "Your uploaded file"}`}
+                                  </button>
                                 </div>
                               ) : null}
                               {!isCommunityOwner && Number(activeCommunity.is_member) === 1 && (
@@ -5130,17 +5237,39 @@ export default function VineCommunities() {
                                             <div className="assignment-attachment">
                                               {s.submission_files.map((f, i) => (
                                                 <div key={`submission-file-${s.id}-${i}`}>
-                                                  <a href={f.file_url} target="_blank" rel="noreferrer">
-                                                    📎 {f.file_name || `Submitted file ${i + 1}`}
-                                                  </a>
+                                                  <button
+                                                    type="button"
+                                                    className="assignment-file-download"
+                                                    onClick={() => downloadPracticalSubmissionFile({
+                                                      assignmentId: a.id,
+                                                      fileId: f.id,
+                                                      fileName: f.file_name || `Submitted file ${i + 1}`,
+                                                    })}
+                                                    disabled={downloadingSubmissionFileKey === `file-${f.id}`}
+                                                  >
+                                                    {downloadingSubmissionFileKey === `file-${f.id}`
+                                                      ? "Downloading..."
+                                                      : `📎 ${f.file_name || `Submitted file ${i + 1}`}`}
+                                                  </button>
                                                 </div>
                                               ))}
                                             </div>
                                           ) : s.attachment_url ? (
                                             <div className="assignment-attachment">
-                                              <a href={s.attachment_url} target="_blank" rel="noreferrer">
-                                                📎 {s.attachment_name || "Submitted file"}
-                                              </a>
+                                              <button
+                                                type="button"
+                                                className="assignment-file-download"
+                                                onClick={() => downloadPracticalSubmissionFile({
+                                                  assignmentId: a.id,
+                                                  submissionId: s.id,
+                                                  fileName: s.attachment_name || "Submitted file",
+                                                })}
+                                                disabled={downloadingSubmissionFileKey === `submission-${s.id}`}
+                                              >
+                                                {downloadingSubmissionFileKey === `submission-${s.id}`
+                                                  ? "Downloading..."
+                                                  : `📎 ${s.attachment_name || "Submitted file"}`}
+                                              </button>
                                             </div>
                                           ) : null}
                                           {gradeLocked && (
@@ -5204,8 +5333,11 @@ export default function VineCommunities() {
                                                 />
                                               </label>
                                               <div className="assignment-grade-action">
-                                                <button onClick={() => gradeSubmission(s.id)} disabled={gradeLocked}>
-                                                  Save Grade
+                                                <button
+                                                  onClick={() => gradeSubmission(s.id)}
+                                                  disabled={gradeLocked || Number(gradingSubmissionId) === Number(s.id)}
+                                                >
+                                                  {Number(gradingSubmissionId) === Number(s.id) ? "Saving..." : "Save Grade"}
                                                 </button>
                                               </div>
                                             </div>

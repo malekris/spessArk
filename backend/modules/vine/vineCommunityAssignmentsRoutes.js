@@ -1,4 +1,11 @@
 import express from "express";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import {
+  buildAttachmentContentDisposition,
+  isSubmissionFinalized,
+  sanitizeSubmissionFilename,
+} from "./vineSubmissionFiles.js";
 
 export default function createVineCommunityAssignmentsRouter({
   db,
@@ -20,6 +27,7 @@ export default function createVineCommunityAssignmentsRouter({
   timedVineQuery,
   isCommunityMemberUser,
   isPracticalSubmissionFile,
+  isStoredSubmissionUrl,
 }) {
   const router = express.Router();
   const isAssignmentImageFile = (file) => {
@@ -34,6 +42,33 @@ export default function createVineCommunityAssignmentsRouter({
     const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw);
     const parsed = new Date(hasTimezone ? raw : `${raw}+03:00`);
     return Number.isNaN(parsed.getTime()) ? null : parsed;
+  };
+  const sendStoredSubmissionFile = async (res, file) => {
+    const sourceUrl = String(file?.file_url || "").trim();
+    if (!sourceUrl) {
+      res.status(404).json({ message: "Submitted file is no longer available" });
+      return;
+    }
+    if (!isStoredSubmissionUrl(sourceUrl)) {
+      res.status(400).json({ message: "Submitted file location is not trusted" });
+      return;
+    }
+
+    const upstream = await fetch(sourceUrl);
+    if (!upstream.ok || !upstream.body) {
+      res.status(502).json({ message: "Submitted file could not be downloaded" });
+      return;
+    }
+
+    const filename = sanitizeSubmissionFilename(file?.file_name, "submitted-file");
+    res.status(200);
+    res.setHeader("Content-Type", file?.file_mime || upstream.headers.get("content-type") || "application/octet-stream");
+    res.setHeader("Content-Disposition", buildAttachmentContentDisposition(filename));
+    res.setHeader("Cache-Control", "private, no-store");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    const contentLength = upstream.headers.get("content-length");
+    if (contentLength) res.setHeader("Content-Length", contentLength);
+    await pipeline(Readable.fromWeb(upstream.body), res);
   };
 
 router.post("/communities/:id/assignments", authenticate, uploadPostCloudinary.single("assignment_file"), async (req, res) => {
@@ -385,6 +420,17 @@ router.post("/communities/:id/assignments/:assignmentId/submissions", authentica
       }
     }
 
+    const [[existing]] = await db.query(
+      "SELECT id, attempt_count, graded_at, score, status, attachment_url, attachment_name, attachment_mime FROM vine_community_submissions WHERE assignment_id = ? AND community_id = ? AND user_id = ? LIMIT 1",
+      [assignmentId, communityId, userId]
+    );
+    if (existing && isSubmissionFinalized(existing)) {
+      return res.status(403).json({ message: "Assignment already graded. Further uploads are closed." });
+    }
+    if (existing && !isPractical && Number(existing.attempt_count || 1) >= 2) {
+      return res.status(403).json({ message: "Submission limit reached (2 attempts)." });
+    }
+
     const uploadedFiles = [];
     if (files.length > 0 && isPractical) {
       for (const file of files) {
@@ -396,6 +442,7 @@ router.post("/communities/:id/assignments/:assignmentId/submissions", authentica
           public_id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
           format: ext,
           content_type: file.mimetype || "application/octet-stream",
+          content_disposition: buildAttachmentContentDisposition(originalName || `submission.${ext}`),
         });
         uploadedFiles.push({
           url: uploaded.secure_url || uploaded.url || null,
@@ -405,28 +452,10 @@ router.post("/communities/:id/assignments/:assignmentId/submissions", authentica
       }
     }
 
-    const [[existing]] = await db.query(
-      "SELECT id, attempt_count, graded_at, score, status, attachment_url, attachment_name, attachment_mime FROM vine_community_submissions WHERE assignment_id = ? AND user_id = ? LIMIT 1",
-      [assignmentId, userId]
-    );
-
     const primaryAttachment = uploadedFiles[0] || null;
     let submissionId = null;
     if (existing) {
-      if (!isPractical) {
-        const isGraded =
-          existing.graded_at !== null ||
-          existing.score !== null ||
-          ["graded", "needs_revision", "missing"].includes(String(existing.status || "").toLowerCase());
-        if (isGraded) {
-          return res.status(403).json({ message: "Assignment already graded. Resubmission is closed." });
-        }
-        const attempts = Number(existing.attempt_count || 1);
-        if (attempts >= 2) {
-          return res.status(403).json({ message: "Submission limit reached (2 attempts)." });
-        }
-      }
-      await db.query(
+      const [updateResult] = await db.query(
         `
         UPDATE vine_community_submissions
         SET content = ?,
@@ -438,6 +467,9 @@ router.post("/communities/:id/assignments/:assignmentId/submissions", authentica
             submitted_at = NOW(),
             updated_at = NOW()
         WHERE id = ?
+          AND graded_at IS NULL
+          AND score IS NULL
+          AND LOWER(COALESCE(status, '')) NOT IN ('graded', 'needs_revision', 'missing')
         `,
         [
           content || null,
@@ -448,6 +480,10 @@ router.post("/communities/:id/assignments/:assignmentId/submissions", authentica
           existing.id,
         ]
       );
+      if (Number(updateResult?.affectedRows || 0) === 0) {
+        await Promise.all(uploadedFiles.map((file) => deleteCloudinaryByUrl(file.url)));
+        return res.status(403).json({ message: "Assignment was graded while this upload was in progress. Further uploads are closed." });
+      }
       submissionId = Number(existing.id);
     } else {
       const [inserted] = await db.query(
@@ -540,6 +576,93 @@ router.post("/communities/:id/assignments/:assignmentId/submissions", authentica
   }
 });
 
+router.get("/communities/:id/assignments/:assignmentId/submission-files/:fileId/download", authenticate, async (req, res) => {
+  try {
+    await ensureCommunitySchema();
+    const userId = Number(req.user.id);
+    const communityId = Number(req.params.id);
+    const assignmentId = Number(req.params.assignmentId);
+    const fileId = Number(req.params.fileId);
+    if (!communityId || !assignmentId || !fileId) {
+      return res.status(400).json({ message: "Invalid download request" });
+    }
+
+    const role = await getCommunityRole(communityId, userId);
+    if (!role) return res.status(403).json({ message: "Join this community first" });
+
+    const [[file]] = await db.query(
+      `
+      SELECT f.file_url, f.file_name, f.file_mime, s.user_id
+      FROM vine_community_submission_files f
+      JOIN vine_community_submissions s ON s.id = f.submission_id
+      WHERE f.id = ?
+        AND f.assignment_id = ?
+        AND f.community_id = ?
+        AND s.assignment_id = ?
+        AND s.community_id = ?
+      LIMIT 1
+      `,
+      [fileId, assignmentId, communityId, assignmentId, communityId]
+    );
+    if (!file) return res.status(404).json({ message: "Submitted file not found" });
+    if (Number(file.user_id) !== userId && !isCommunityModOrOwner(role)) {
+      return res.status(403).json({ message: "You cannot download another learner's submission" });
+    }
+
+    await sendStoredSubmissionFile(res, file);
+  } catch (err) {
+    console.error("Download practical submission file error:", err);
+    if (!res.headersSent) {
+      return res.status(500).json({ message: "Failed to download submitted file" });
+    }
+    res.destroy(err);
+  }
+});
+
+router.get("/communities/:id/assignments/:assignmentId/submissions/:submissionId/attachment/download", authenticate, async (req, res) => {
+  try {
+    await ensureCommunitySchema();
+    const userId = Number(req.user.id);
+    const communityId = Number(req.params.id);
+    const assignmentId = Number(req.params.assignmentId);
+    const submissionId = Number(req.params.submissionId);
+    if (!communityId || !assignmentId || !submissionId) {
+      return res.status(400).json({ message: "Invalid download request" });
+    }
+
+    const role = await getCommunityRole(communityId, userId);
+    if (!role) return res.status(403).json({ message: "Join this community first" });
+
+    const [[file]] = await db.query(
+      `
+      SELECT
+        attachment_url AS file_url,
+        attachment_name AS file_name,
+        attachment_mime AS file_mime,
+        user_id
+      FROM vine_community_submissions
+      WHERE id = ?
+        AND assignment_id = ?
+        AND community_id = ?
+      LIMIT 1
+      `,
+      [submissionId, assignmentId, communityId]
+    );
+    if (!file?.file_url) return res.status(404).json({ message: "Submitted file not found" });
+    if (Number(file.user_id) !== userId && !isCommunityModOrOwner(role)) {
+      return res.status(403).json({ message: "You cannot download another learner's submission" });
+    }
+
+    await sendStoredSubmissionFile(res, file);
+  } catch (err) {
+    console.error("Download legacy practical submission file error:", err);
+    if (!res.headersSent) {
+      return res.status(500).json({ message: "Failed to download submitted file" });
+    }
+    res.destroy(err);
+  }
+});
+
 router.delete("/communities/:id/assignments/:assignmentId/submission-files/:fileId", authenticate, async (req, res) => {
   try {
     await ensureCommunitySchema();
@@ -574,7 +697,10 @@ router.delete("/communities/:id/assignments/:assignmentId/submission-files/:file
         f.id,
         f.submission_id,
         f.file_url,
-        s.user_id
+        s.user_id,
+        s.graded_at,
+        s.score,
+        s.status
       FROM vine_community_submission_files f
       JOIN vine_community_submissions s ON s.id = f.submission_id
       WHERE f.id = ?
@@ -588,8 +714,25 @@ router.delete("/communities/:id/assignments/:assignmentId/submission-files/:file
     if (Number(row.user_id) !== Number(userId)) {
       return res.status(403).json({ message: "You can only delete your own uploaded files" });
     }
+    if (isSubmissionFinalized(row)) {
+      return res.status(403).json({ message: "Assignment already graded. Uploaded files are locked." });
+    }
 
-    await db.query("DELETE FROM vine_community_submission_files WHERE id = ? LIMIT 1", [fileId]);
+    const [deleteResult] = await db.query(
+      `
+      DELETE f
+      FROM vine_community_submission_files f
+      JOIN vine_community_submissions s ON s.id = f.submission_id
+      WHERE f.id = ?
+        AND s.graded_at IS NULL
+        AND s.score IS NULL
+        AND LOWER(COALESCE(s.status, '')) NOT IN ('graded', 'needs_revision', 'missing')
+      `,
+      [fileId]
+    );
+    if (Number(deleteResult?.affectedRows || 0) === 0) {
+      return res.status(403).json({ message: "Assignment was graded while this file was being removed. Uploaded files are locked." });
+    }
     await deleteCloudinaryByUrl(row.file_url);
 
     const [remaining] = await db.query(

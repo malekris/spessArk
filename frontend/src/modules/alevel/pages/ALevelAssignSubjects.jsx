@@ -143,7 +143,7 @@ export default function ALevelAssignSubjects() {
     try {
       const [subs, tchs, assigns] = await Promise.all([
         plainFetch("/api/alevel/subjects"),
-        plainFetch("/api/teachers"),
+        adminFetch("/api/teachers"),
         adminFetch("/api/alevel/admin/assignments?includeInactive=1"),
       ]);
 

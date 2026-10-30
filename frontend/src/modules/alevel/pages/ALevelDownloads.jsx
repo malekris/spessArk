@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { adminFetch, plainFetch } from "../../../lib/api";
 import { loadPdfTools } from "../../../utils/loadPdfTools";
 import ALevelAdminShell from "../components/ALevelAdminShell";
 import {
@@ -9,7 +10,6 @@ import {
 import "../../../pages/AdminDashboard.css";
 import "./ALevelAdminTheme.css";
 
-const API_BASE = import.meta.env.VITE_API_BASE || "";
 const ALEVEL_TERMS = ["Term 1", "Term 2", "Term 3"];
 
 const normalizeAlevelTerm = (value = "") => {
@@ -77,22 +77,10 @@ export default function ALevelDownload() {
   const cinematicBlack = "#0a0c10";
   const glassBg = "rgba(30, 41, 59, 0.45)";
   const platinum = "#f1f5f9";
-  const adminHeaders = useMemo(
-    () => ({
-      "x-admin-key": localStorage.getItem("SPESS_ADMIN_KEY") || "",
-      Authorization: `Bearer ${localStorage.getItem("adminToken") || ""}`,
-    }),
-    []
-  );
-
   /* ---------------- LOAD SETS ---------------- */
   useEffect(() => {
     fetchSets();
-    fetch(`${API_BASE}/api/school-calendar`)
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to load school calendar");
-        return res.json();
-      })
+    plainFetch("/api/school-calendar")
       .then((data) => setSchoolCalendar(normalizeSchoolCalendar(data)))
       .catch((err) => {
         console.error("A-Level Data Center calendar load failed:", err);
@@ -128,9 +116,7 @@ export default function ALevelDownload() {
   async function fetchSets() {
     setError("");
     try {
-      const res = await fetch(`${API_BASE}/api/alevel/download/sets`);
-      if (!res.ok) throw new Error("Failed to fetch sets");
-      const data = await res.json();
+      const data = await adminFetch("/api/alevel/download/sets");
       setSets(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error(err);
@@ -147,13 +133,7 @@ export default function ALevelDownload() {
     setError("");
 
     try {
-      const res = await fetch(
-        `${API_BASE}/api/alevel/download/sets/${set.setId}`
-      );
-
-      if (!res.ok) throw new Error("Failed to load preview");
-
-      const data = await res.json();
+      const data = await adminFetch(`/api/alevel/download/sets/${set.setId}`);
 
       if (!data?.rows || !data?.columns) {
         throw new Error("Invalid preview response");
@@ -176,12 +156,9 @@ export default function ALevelDownload() {
     if (!confirm(`Delete ${set.subject_display || set.subject} (${set.exam}) ${set.term}?`)) return;
 
     try {
-      const res = await fetch(
-        `${API_BASE}/api/alevel/download/sets/${set.setId}`,
-        { method: "DELETE", headers: adminHeaders }
-      );
-
-      if (!res.ok) throw new Error("Delete failed");
+      await adminFetch(`/api/alevel/download/sets/${set.setId}`, {
+        method: "DELETE",
+      });
 
       setSets(prev => prev.filter(s => s.setId !== set.setId));
 
@@ -609,14 +586,9 @@ export default function ALevelDownload() {
         term,
         year: String(year),
       });
-      const res = await fetch(`${API_BASE}/api/alevel/download/score-sheet?${params.toString()}`, {
-        headers: adminHeaders,
-      });
-      const data = await res.json().catch(() => ({}));
-
-      if (!res.ok) {
-        throw new Error(data?.message || "Failed to load A-Level score sheet data.");
-      }
+      const data = await adminFetch(
+        `/api/alevel/download/score-sheet?${params.toString()}`
+      );
 
       const learners = Array.isArray(data?.learners) ? data.learners : [];
       const papers = Array.isArray(data?.papers) ? data.papers : [];

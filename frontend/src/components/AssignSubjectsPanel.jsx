@@ -120,7 +120,7 @@ export default function AssignSubjectsPanel({ active }) {
       const [clsRes, subsRes, tchsRes, assignsRes] = await Promise.all([
         plainFetch("/api/classes").catch(() => []),
         plainFetch("/api/subjects").catch(() => []),
-        plainFetch("/api/teachers").catch(() => []),
+        adminFetch("/api/teachers").catch(() => []),
         adminFetch("/api/admin/assignments?includeInactive=1").catch(() => [])
       ]);
       

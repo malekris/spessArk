@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useMemo, useRef } from "react";
 import "./AdminDashboard.css";
 import AssignSubjectsPanel from "../components/AssignSubjectsPanel";
-import { plainFetch, adminFetch } from "../lib/api";
+import { adminFetch } from "../lib/api";
 import EditStudentModal from "../components/EditStudentModal";
 import LearnerProfileModal from "../components/LearnerProfileModal";
 import EndOfTermReports from "./EndOfTermReports";
@@ -1167,7 +1167,7 @@ export default function AdminDashboard() {
     setSavingTeacher(true);
     setTeacherError("");
     try {
-      const created = await plainFetch("/api/teachers", { method: "POST", body: { name, email, subject1, subject2 } });
+      const created = await adminFetch("/api/teachers", { method: "POST", body: { name, email, subject1, subject2 } });
       const teacherToAdd = {
         id: created.id ?? Date.now(),
         name: created.name ?? name,
@@ -1859,7 +1859,7 @@ export default function AdminDashboard() {
 
   const fetchALevelLearners = async () => {
     try {
-      const data = await plainFetch("/api/alevel/learners");
+      const data = await adminFetch("/api/alevel/learners");
       if (!Array.isArray(data)) throw new Error("Invalid A-Level learners response");
       setALevelLearners(data);
     } catch (err) {
@@ -1875,7 +1875,7 @@ export default function AdminDashboard() {
     setSavingStudent(true);
     setStudentError("");
     try {
-      const created = await plainFetch("/api/students", { method: "POST", body: { name, gender, dob, class_level, stream, subjects } });
+      const created = await adminFetch("/api/students", { method: "POST", body: { name, gender, dob, class_level, stream, subjects } });
       const studentToAdd = {
         id: created.id ?? Date.now(),
         name: created.name ?? name,

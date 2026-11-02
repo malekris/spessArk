@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { socket } from "../../../socket";
@@ -13,6 +13,13 @@ import { touchVineActivity } from "../utils/vineAuth";
 import { createClientRequestId } from "../../../utils/requestId";
 import { getCurrentVinePostSource } from "../utils/postSource";
 import { useSiteVisuals } from "../../../utils/siteVisuals";
+import {
+  buildLibraryFolderUploadEntries,
+  getLibraryFolderBreadcrumbs,
+  getLibraryFolderPaths,
+  getLibraryFolderView,
+  getLibraryItemFolderPath,
+} from "../utils/libraryFolders";
 
 const API = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const POST_MAX_LENGTH = 5000;
@@ -35,6 +42,9 @@ const LIBRARY_DOCUMENT_TYPES = {
   xls: { extension: "xls", label: "XLS", tone: "sheet", action: "Download" },
   xlsx: { extension: "xlsx", label: "XLSX", tone: "sheet", action: "Download" },
 };
+const LIBRARY_DOCUMENT_MAX_BYTES = 15 * 1024 * 1024;
+const LIBRARY_FOLDER_MAX_FILES = 100;
+const LIBRARY_FOLDER_MAX_BYTES = 200 * 1024 * 1024;
 const LIBRARY_SUPPORT_ACCEPT = [
   ".zip",
   ".7z",
@@ -399,6 +409,14 @@ export default function VineCommunities() {
   const [libraryTitle, setLibraryTitle] = useState("");
   const [libraryFile, setLibraryFile] = useState(null);
   const [isUploadingLibraryFile, setIsUploadingLibraryFile] = useState(false);
+  const [libraryUploadMode, setLibraryUploadMode] = useState("document");
+  const [libraryFolderFiles, setLibraryFolderFiles] = useState([]);
+  const [libraryFolderPath, setLibraryFolderPath] = useState("");
+  const [libraryFolderUploadProgress, setLibraryFolderUploadProgress] = useState({
+    completed: 0,
+    total: 0,
+  });
+  const [movingLibraryItemId, setMovingLibraryItemId] = useState(null);
   const [librarySupportFiles, setLibrarySupportFiles] = useState([]);
   const [librarySupportTitle, setLibrarySupportTitle] = useState("");
   const [librarySupportFile, setLibrarySupportFile] = useState(null);
@@ -457,6 +475,7 @@ export default function VineCommunities() {
   const communityBannerInputRef = useRef(null);
   const assignmentFileInputRef = useRef(null);
   const libraryFileInputRef = useRef(null);
+  const libraryFolderInputRef = useRef(null);
   const librarySupportFileInputRef = useRef(null);
   const gradingSubmissionRequestRef = useRef(null);
   const [nowMs, setNowMs] = useState(Date.now());
@@ -464,6 +483,18 @@ export default function VineCommunities() {
     String(activeCommunity?.viewer_role || "").toLowerCase()
   );
   const pendingRequestCount = pendingRequests.length;
+  const libraryFolderPaths = useMemo(
+    () => getLibraryFolderPaths(libraryItems),
+    [libraryItems]
+  );
+  const libraryFolderView = useMemo(
+    () => getLibraryFolderView(libraryItems, libraryFolderPath),
+    [libraryItems, libraryFolderPath]
+  );
+  const libraryBreadcrumbs = useMemo(
+    () => getLibraryFolderBreadcrumbs(libraryFolderPath),
+    [libraryFolderPath]
+  );
   const memberBadgesById = badgesStreaks.reduce((acc, row) => {
     acc[Number(row.id)] = sortLearningBadges(row.badges);
     return acc;
@@ -796,6 +827,19 @@ export default function VineCommunities() {
   useEffect(() => {
     loadCommunityDetail(slug, topicFilter);
   }, [slug, topicFilter]);
+
+  useEffect(() => {
+    setLibraryFolderPath("");
+    setLibraryFolderFiles([]);
+    setLibraryFolderUploadProgress({ completed: 0, total: 0 });
+    if (libraryFolderInputRef.current) libraryFolderInputRef.current.value = "";
+  }, [slug]);
+
+  useEffect(() => {
+    if (!libraryFolderPath || libraryFolderPaths.includes(libraryFolderPath)) return;
+    const parentPath = libraryFolderPath.split("/").slice(0, -1).join("/");
+    setLibraryFolderPath(parentPath);
+  }, [libraryFolderPath, libraryFolderPaths]);
 
   useEffect(() => {
     if (activeTab === "memorywall") {
@@ -2344,6 +2388,21 @@ export default function VineCommunities() {
     }
   };
 
+  const postLibraryDocument = async ({ file, title, folderPath }) => {
+    const formData = new FormData();
+    formData.append("title", title);
+    formData.append("folder_path", folderPath || "");
+    formData.append("library_file", file);
+    const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/library`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.message || "Failed to upload document");
+    return data;
+  };
+
   const uploadLibraryFile = async () => {
     if (!activeCommunity?.id || isUploadingLibraryFile) return;
     if (!libraryTitle.trim() || !libraryFile) {
@@ -2355,23 +2414,19 @@ export default function VineCommunities() {
       alert("Choose a PDF, Word document, or Excel spreadsheet");
       return;
     }
+    if (Number(libraryFile.size || 0) > LIBRARY_DOCUMENT_MAX_BYTES) {
+      alert("Library documents can be up to 15 MB each");
+      return;
+    }
     const uploadedTitle = libraryTitle.trim();
     const uploadedFileName = String(libraryFile.name || `Document.${documentMeta.extension}`);
     setIsUploadingLibraryFile(true);
     try {
-      const formData = new FormData();
-      formData.append("title", uploadedTitle);
-      formData.append("library_file", libraryFile);
-      const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/library`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-        body: formData,
+      await postLibraryDocument({
+        file: libraryFile,
+        title: uploadedTitle,
+        folderPath: libraryFolderPath,
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        alert(data.message || "Failed to upload document");
-        return;
-      }
       setLibraryTitle("");
       setLibraryFile(null);
       if (libraryFileInputRef.current) libraryFileInputRef.current.value = "";
@@ -2385,14 +2440,137 @@ export default function VineCommunities() {
           details: [
             { label: "File name", value: uploadedFileName },
             { label: "Document type", value: documentMeta.label },
+            { label: "Folder", value: libraryFolderPath || "Root shelf" },
             { label: "Access", value: "Available to learners" },
           ],
         }
       );
-    } catch {
-      alert("Failed to upload document");
+    } catch (error) {
+      alert(error?.message || "Failed to upload document");
     } finally {
       setIsUploadingLibraryFile(false);
+    }
+  };
+
+  const selectLibraryFolderFiles = (fileList) => {
+    const selectedFiles = Array.from(fileList || []);
+    if (selectedFiles.length === 0) {
+      setLibraryFolderFiles([]);
+      return;
+    }
+
+    const supportedFiles = selectedFiles.filter((file) => {
+      const documentMeta = getLibraryDocumentMeta(file, false);
+      return documentMeta && Number(file.size || 0) <= LIBRARY_DOCUMENT_MAX_BYTES;
+    });
+    const totalBytes = supportedFiles.reduce((sum, file) => sum + Number(file.size || 0), 0);
+    if (supportedFiles.length === 0) {
+      alert("That folder has no supported PDF, Word, or Excel documents under 15 MB");
+      setLibraryFolderFiles([]);
+      return;
+    }
+    if (supportedFiles.length > LIBRARY_FOLDER_MAX_FILES) {
+      alert(`Choose a folder with no more than ${LIBRARY_FOLDER_MAX_FILES} supported documents`);
+      setLibraryFolderFiles([]);
+      return;
+    }
+    if (totalBytes > LIBRARY_FOLDER_MAX_BYTES) {
+      alert("A folder upload can contain up to 200 MB of supported documents");
+      setLibraryFolderFiles([]);
+      return;
+    }
+
+    setLibraryFolderFiles(supportedFiles);
+    setLibraryFolderUploadProgress({ completed: 0, total: supportedFiles.length });
+  };
+
+  const uploadLibraryFolder = async () => {
+    if (!activeCommunity?.id || isUploadingLibraryFile || libraryFolderFiles.length === 0) return;
+    const entries = buildLibraryFolderUploadEntries(libraryFolderFiles, libraryFolderPath);
+    const firstRelativePath = String(libraryFolderFiles[0]?.webkitRelativePath || "");
+    const selectedFolderName = firstRelativePath.split("/").filter(Boolean)[0] || "Folder";
+    const failures = [];
+    let uploadedCount = 0;
+
+    setIsUploadingLibraryFile(true);
+    setLibraryFolderUploadProgress({ completed: 0, total: entries.length });
+    for (const entry of entries) {
+      try {
+        await postLibraryDocument({
+          file: entry.file,
+          title: entry.title,
+          folderPath: entry.folderPath,
+        });
+        uploadedCount += 1;
+      } catch (error) {
+        failures.push({ name: entry.file?.name || entry.title, message: error?.message });
+      } finally {
+        setLibraryFolderUploadProgress((current) => ({
+          ...current,
+          completed: current.completed + 1,
+        }));
+      }
+    }
+
+    try {
+      await loadCommunityDetail(activeCommunity.slug, topicFilter);
+      if (uploadedCount > 0) {
+        setLibraryFolderFiles([]);
+        if (libraryFolderInputRef.current) libraryFolderInputRef.current.value = "";
+        showCommunitySuccessModal(
+          failures.length > 0 ? "Folder partly uploaded" : "Folder posted",
+          failures.length > 0
+            ? `${uploadedCount} documents were added. ${failures.length} could not be uploaded.`
+            : `“${selectedFolderName}” is now available in the community Library.`,
+          {
+            kicker: "Library updated",
+            buttonLabel: "Done",
+            details: [
+              { label: "Documents added", value: String(uploadedCount) },
+              { label: "Destination", value: libraryFolderPath || "Root shelf" },
+              { label: "Access", value: "Available to learners" },
+            ],
+          }
+        );
+      } else {
+        alert(failures[0]?.message || "No documents could be uploaded");
+      }
+    } finally {
+      setIsUploadingLibraryFile(false);
+    }
+  };
+
+  const moveLibraryItem = async (item, nextFolderPath) => {
+    if (!activeCommunity?.id || !item?.id || movingLibraryItemId) return;
+    const currentFolderPath = getLibraryItemFolderPath(item);
+    if (currentFolderPath === nextFolderPath) return;
+
+    setMovingLibraryItemId(Number(item.id));
+    try {
+      const res = await fetch(
+        `${API}/api/vine/communities/${activeCommunity.id}/library/${item.id}/folder`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ folder_path: nextFolderPath }),
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.message || "Failed to move document");
+      setLibraryItems((current) =>
+        current.map((row) =>
+          Number(row.id) === Number(item.id)
+            ? { ...row, folder_path: data.folder_path || "" }
+            : row
+        )
+      );
+    } catch (error) {
+      alert(error?.message || "Failed to move document");
+    } finally {
+      setMovingLibraryItemId(null);
     }
   };
 
@@ -5770,44 +5948,159 @@ export default function VineCommunities() {
                           </span>
                         </div>
                         {isCommunityOwner && (
-                          <div className="library-upload-row">
-                            <label className="library-upload-field">
-                              <span>Resource title</span>
-                              <input
-                                type="text"
-                                placeholder="Name this resource"
-                                value={libraryTitle}
-                                maxLength={180}
-                                onChange={(e) => setLibraryTitle(e.target.value)}
-                              />
-                            </label>
-                            <label className="library-file-picker">
-                              <span>Document file</span>
-                              <strong>
-                                {libraryFile ? libraryFile.name : "Choose PDF, Word, or Excel file"}
-                              </strong>
-                              <input
-                                ref={libraryFileInputRef}
-                                type="file"
-                                accept={LIBRARY_DOCUMENT_ACCEPT}
-                                onChange={(e) => setLibraryFile(e.target.files?.[0] || null)}
-                              />
-                            </label>
-                            <button
-                              type="button"
-                              className="library-upload-submit"
-                              onClick={uploadLibraryFile}
-                              disabled={isUploadingLibraryFile}
-                            >
-                              {isUploadingLibraryFile ? "Posting document..." : "Post to library"}
-                            </button>
+                          <div className="library-upload-console">
+                            <div className="library-upload-console-head">
+                              <div className="library-upload-mode" role="group" aria-label="Library upload type">
+                                <button
+                                  type="button"
+                                  className={libraryUploadMode === "document" ? "is-active" : ""}
+                                  onClick={() => setLibraryUploadMode("document")}
+                                  disabled={isUploadingLibraryFile}
+                                >
+                                  Single document
+                                </button>
+                                <button
+                                  type="button"
+                                  className={libraryUploadMode === "folder" ? "is-active" : ""}
+                                  onClick={() => setLibraryUploadMode("folder")}
+                                  disabled={isUploadingLibraryFile}
+                                >
+                                  Full folder
+                                </button>
+                              </div>
+                              <span className="library-upload-destination">
+                                Uploading to <strong>{libraryFolderPath || "Root shelf"}</strong>
+                              </span>
+                            </div>
+
+                            {libraryUploadMode === "document" ? (
+                              <div className="library-upload-row">
+                                <label className="library-upload-field">
+                                  <span>Resource title</span>
+                                  <input
+                                    type="text"
+                                    placeholder="Name this resource"
+                                    value={libraryTitle}
+                                    maxLength={180}
+                                    onChange={(e) => setLibraryTitle(e.target.value)}
+                                  />
+                                </label>
+                                <label className="library-file-picker">
+                                  <span>Document file</span>
+                                  <strong>
+                                    {libraryFile ? libraryFile.name : "Choose PDF, Word, or Excel file"}
+                                  </strong>
+                                  <input
+                                    ref={libraryFileInputRef}
+                                    type="file"
+                                    accept={LIBRARY_DOCUMENT_ACCEPT}
+                                    onChange={(e) => setLibraryFile(e.target.files?.[0] || null)}
+                                  />
+                                </label>
+                                <button
+                                  type="button"
+                                  className="library-upload-submit"
+                                  onClick={uploadLibraryFile}
+                                  disabled={isUploadingLibraryFile}
+                                >
+                                  {isUploadingLibraryFile ? "Posting document..." : "Post to library"}
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="library-folder-upload">
+                                <label className="library-folder-picker">
+                                  <span className="library-folder-picker-icon" aria-hidden="true" />
+                                  <span className="library-folder-picker-copy">
+                                    <strong>
+                                      {libraryFolderFiles.length > 0
+                                        ? `${libraryFolderFiles.length} supported ${libraryFolderFiles.length === 1 ? "document" : "documents"} selected`
+                                        : "Choose a folder from this device"}
+                                    </strong>
+                                    <small>Nested folders stay in the same order. PDF, Word, and Excel only.</small>
+                                  </span>
+                                  <span className="library-folder-picker-action">Browse folder</span>
+                                  <input
+                                    ref={libraryFolderInputRef}
+                                    type="file"
+                                    accept={LIBRARY_DOCUMENT_ACCEPT}
+                                    multiple
+                                    webkitdirectory=""
+                                    onChange={(e) => selectLibraryFolderFiles(e.target.files)}
+                                  />
+                                </label>
+                                <button
+                                  type="button"
+                                  className="library-upload-submit library-folder-submit"
+                                  onClick={uploadLibraryFolder}
+                                  disabled={isUploadingLibraryFile || libraryFolderFiles.length === 0}
+                                >
+                                  {isUploadingLibraryFile
+                                    ? `Uploading ${libraryFolderUploadProgress.completed}/${libraryFolderUploadProgress.total}`
+                                    : "Post full folder"}
+                                </button>
+                              </div>
+                            )}
                           </div>
                         )}
+
+                        <div className="library-browser-toolbar">
+                          <nav className="library-breadcrumbs" aria-label="Document shelf folders">
+                            <button
+                              type="button"
+                              className={!libraryFolderPath ? "is-current" : ""}
+                              onClick={() => setLibraryFolderPath("")}
+                            >
+                              Document shelf
+                            </button>
+                            {libraryBreadcrumbs.map((crumb, index) => (
+                              <span key={crumb.path}>
+                                <i aria-hidden="true">/</i>
+                                <button
+                                  type="button"
+                                  className={index === libraryBreadcrumbs.length - 1 ? "is-current" : ""}
+                                  onClick={() => setLibraryFolderPath(crumb.path)}
+                                >
+                                  {crumb.label}
+                                </button>
+                              </span>
+                            ))}
+                          </nav>
+                          <span className="library-browser-count">
+                            {libraryFolderView.childFolders.length} folders · {libraryFolderView.directFiles.length} files
+                          </span>
+                        </div>
+
+                        {libraryFolderView.childFolders.length > 0 && (
+                          <div className="library-folder-grid">
+                            {libraryFolderView.childFolders.map((folder) => (
+                              <button
+                                type="button"
+                                className="library-folder-card"
+                                key={folder.path}
+                                onClick={() => setLibraryFolderPath(folder.path)}
+                              >
+                                <span className="library-folder-card-icon" aria-hidden="true" />
+                                <span>
+                                  <strong>{folder.name}</strong>
+                                  <small>
+                                    {folder.documentCount} {folder.documentCount === 1 ? "document" : "documents"}
+                                  </small>
+                                </span>
+                                <i aria-hidden="true">›</i>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+
                         <div className="library-grid">
-                          {libraryItems.length === 0 ? (
-                            <div className="community-empty">No documents in the library yet.</div>
+                          {libraryFolderView.directFiles.length === 0 && libraryFolderView.childFolders.length === 0 ? (
+                            <div className="community-empty">
+                              {libraryFolderPath
+                                ? "This folder has no documents yet."
+                                : "No documents in the library yet."}
+                            </div>
                           ) : (
-                            libraryItems.map((item) => {
+                            libraryFolderView.directFiles.map((item) => {
                               const documentMeta = getLibraryDocumentMeta(item);
                               const fileUrl = toCommunityMediaUrl(item.file_url || item.pdf_url);
                               const isPdf = documentMeta.extension === "pdf";
@@ -5854,16 +6147,32 @@ export default function VineCommunities() {
                                     <span className="library-card-action">{documentMeta.action}</span>
                                   </div>
                                   {isCommunityOwner && (
-                                    <button
-                                      type="button"
-                                      className="library-remove-btn"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        deleteLibraryItem(item.id);
-                                      }}
+                                    <div
+                                      className="library-owner-actions"
+                                      onClick={(e) => e.stopPropagation()}
+                                      onKeyDown={(e) => e.stopPropagation()}
                                     >
-                                      Remove
-                                    </button>
+                                      <label>
+                                        <span>Move to</span>
+                                        <select
+                                          value={getLibraryItemFolderPath(item)}
+                                          disabled={Number(movingLibraryItemId) === Number(item.id)}
+                                          onChange={(e) => moveLibraryItem(item, e.target.value)}
+                                        >
+                                          <option value="">Root shelf</option>
+                                          {libraryFolderPaths.map((path) => (
+                                            <option key={path} value={path}>{path}</option>
+                                          ))}
+                                        </select>
+                                      </label>
+                                      <button
+                                        type="button"
+                                        className="library-remove-btn"
+                                        onClick={() => deleteLibraryItem(item.id)}
+                                      >
+                                        Remove
+                                      </button>
+                                    </div>
                                   )}
                                 </div>
                               );

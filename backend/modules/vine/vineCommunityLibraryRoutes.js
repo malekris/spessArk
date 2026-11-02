@@ -43,6 +43,22 @@ const cleanLibraryFileName = (value, fallbackExtension) => {
   return cleaned || `community-resource.${fallbackExtension}`;
 };
 
+export const normalizeLibraryFolderPath = (value) => {
+  const cleanedValue = Array.from(String(value || ""))
+    .filter((character) => {
+      const code = character.charCodeAt(0);
+      return code >= 32 && code !== 127;
+    })
+    .join("");
+  const segments = cleanedValue
+    .replace(/\\/g, "/")
+    .split("/")
+    .map((segment) => segment.trim().slice(0, 100))
+    .filter((segment) => segment && segment !== "." && segment !== "..");
+
+  return segments.slice(0, 12).join("/").slice(0, 500);
+};
+
 export default function createVineCommunityLibraryRouter({
   db,
   authenticate,
@@ -89,6 +105,7 @@ export default function createVineCommunityLibraryRouter({
             l.pdf_url AS file_url,
             l.file_name,
             l.file_mime,
+            COALESCE(l.folder_path, '') AS folder_path,
             l.created_at,
             u.username AS uploader_username,
             u.display_name AS uploader_display_name
@@ -256,6 +273,7 @@ export default function createVineCommunityLibraryRouter({
         const userId = Number(req.user.id);
         const communityId = Number(req.params.id);
         const title = String(req.body?.title || "").trim();
+        const folderPath = normalizeLibraryFolderPath(req.body?.folder_path);
         const file = req.files?.library_file?.[0] || req.files?.library_pdf?.[0] || null;
         const documentType = getLibraryDocumentType(file);
         if (!communityId || !title) {
@@ -294,20 +312,60 @@ export default function createVineCommunityLibraryRouter({
         await db.query(
           `
           INSERT INTO vine_community_library
-            (community_id, uploader_id, title, pdf_url, file_name, file_mime, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, NOW())
+            (community_id, uploader_id, title, pdf_url, file_name, file_mime, folder_path, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
           `,
-          [communityId, userId, title.slice(0, 180), fileUrl, fileName, documentType.mime]
+          [
+            communityId,
+            userId,
+            title.slice(0, 180),
+            fileUrl,
+            fileName,
+            documentType.mime,
+            folderPath,
+          ]
         );
 
         clearVineReadCache("community-library");
-        res.json({ success: true });
+        res.json({ success: true, folder_path: folderPath });
       } catch (err) {
         console.error("Upload community library document error:", err);
         res.status(500).json({ message: "Failed to upload document" });
       }
     }
   );
+
+  router.patch("/communities/:id/library/:itemId/folder", authenticate, async (req, res) => {
+    try {
+      await ensureCommunitySchema();
+      const userId = Number(req.user.id);
+      const communityId = Number(req.params.id);
+      const itemId = Number(req.params.itemId);
+      const folderPath = normalizeLibraryFolderPath(req.body?.folder_path);
+      if (!communityId || !itemId) {
+        return res.status(400).json({ message: "Invalid request" });
+      }
+
+      const role = String((await getCommunityRole(communityId, userId)) || "").toLowerCase();
+      if (role !== "owner") {
+        return res.status(403).json({ message: "Only community owner can arrange library documents" });
+      }
+
+      const [result] = await db.query(
+        "UPDATE vine_community_library SET folder_path = ? WHERE id = ? AND community_id = ?",
+        [folderPath, itemId, communityId]
+      );
+      if (Number(result.affectedRows) === 0) {
+        return res.status(404).json({ message: "Library item not found" });
+      }
+
+      clearVineReadCache("community-library");
+      res.json({ success: true, folder_path: folderPath });
+    } catch (err) {
+      console.error("Move community library document error:", err);
+      res.status(500).json({ message: "Failed to move document" });
+    }
+  });
 
   router.post(
     "/communities/:id/library/support-files",

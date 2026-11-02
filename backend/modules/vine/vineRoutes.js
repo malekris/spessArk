@@ -4460,6 +4460,7 @@ const ensureCommunitySchema = async () => {
       pdf_url TEXT NOT NULL,
       file_name VARCHAR(255) NULL,
       file_mime VARCHAR(120) NULL,
+      folder_path VARCHAR(500) NOT NULL DEFAULT '',
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       INDEX idx_library_community_created (community_id, created_at),
       INDEX idx_library_uploader (uploader_id)
@@ -4618,6 +4619,7 @@ const ensureCommunitySchema = async () => {
   await ensureColumnExists(dbName, "vine_community_assignments", "assignment_type", "VARCHAR(20) NOT NULL DEFAULT 'theory'");
   await ensureColumnExists(dbName, "vine_community_library", "file_name", "VARCHAR(255) NULL");
   await ensureColumnExists(dbName, "vine_community_library", "file_mime", "VARCHAR(120) NULL");
+  await ensureColumnExists(dbName, "vine_community_library", "folder_path", "VARCHAR(500) NOT NULL DEFAULT ''");
   try {
     await db.query(
       "ALTER TABLE vine_community_assignments MODIFY COLUMN points DECIMAL(8,2) NOT NULL DEFAULT 100.00"

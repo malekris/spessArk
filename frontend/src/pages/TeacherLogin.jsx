@@ -6,7 +6,7 @@ import { useSiteVisuals } from "../utils/siteVisuals";
 import ArkMaintenancePage from "../components/ArkMaintenancePage";
 import "./LoginPage.css"; // Make sure this matches your new isolated CSS filename
 
-const API_BASE = import.meta.env.VITE_API_BASE || "https://spessark.onrender.com";
+const API_BASE = import.meta.env.VITE_API_BASE || "https://api.stphillipsequatorial.com";
 
 function TeacherLogin() {
   const navigate = useNavigate();

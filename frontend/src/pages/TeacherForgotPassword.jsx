@@ -4,7 +4,7 @@ import { writeTeacherIdleExpiry } from "../utils/teacherSecurity";
 import { useSiteVisuals } from "../utils/siteVisuals";
 import "./LoginPage.css";
 
-const API_BASE = import.meta.env.VITE_API_BASE || "https://spessark.onrender.com";
+const API_BASE = import.meta.env.VITE_API_BASE || "https://api.stphillipsequatorial.com";
 
 function TeacherForgotPassword() {
   const navigate = useNavigate();

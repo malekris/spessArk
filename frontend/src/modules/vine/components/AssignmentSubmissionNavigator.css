@@ -57,8 +57,34 @@
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: #059669;
-  transition: width 180ms ease;
+  background: #dc2626;
+  box-shadow: 0 0 8px rgba(220, 38, 38, 0.2);
+  transition: width 180ms ease, background-color 220ms ease, box-shadow 220ms ease;
+}
+
+.assignment-submission-progress.is-starting i {
+  background: #dc2626;
+  box-shadow: 0 0 8px rgba(220, 38, 38, 0.22);
+}
+
+.assignment-submission-progress.is-warming i {
+  background: #ea580c;
+  box-shadow: 0 0 8px rgba(234, 88, 12, 0.2);
+}
+
+.assignment-submission-progress.is-steady i {
+  background: #d97706;
+  box-shadow: 0 0 8px rgba(217, 119, 6, 0.2);
+}
+
+.assignment-submission-progress.is-strong i {
+  background: #16a34a;
+  box-shadow: 0 0 8px rgba(22, 163, 74, 0.2);
+}
+
+.assignment-submission-progress.is-complete i {
+  background: #166534;
+  box-shadow: 0 0 9px rgba(22, 101, 52, 0.26);
 }
 
 .assignment-submission-navigation-actions {

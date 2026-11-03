@@ -407,6 +407,7 @@ export default function VineCommunities() {
   const [assignmentPoints, setAssignmentPoints] = useState(100);
   const [assignmentRubric, setAssignmentRubric] = useState("");
   const [assignmentFile, setAssignmentFile] = useState(null);
+  const [isAssignmentStudioOpen, setIsAssignmentStudioOpen] = useState(false);
   const [libraryItems, setLibraryItems] = useState([]);
   const [libraryTitle, setLibraryTitle] = useState("");
   const [libraryFile, setLibraryFile] = useState(null);
@@ -1679,6 +1680,7 @@ export default function VineCommunities() {
       setAssignmentPoints(100);
       setAssignmentRubric("");
       setAssignmentFile(null);
+      setIsAssignmentStudioOpen(false);
       await loadCommunityDetail(activeCommunity.slug, topicFilter);
       showSessionCreateNotice("Assignment created. Learners can now see it under Assignments.");
     } catch {
@@ -4902,13 +4904,19 @@ export default function VineCommunities() {
                       <div className="community-calendar-card">
                         <div className="community-calendar-head">
                           <div className="community-calendar-title">
-                            <span>Assignment Calendar</span>
-                            <strong>Plan your week</strong>
-                            <small>Deadlines and class sessions are grouped by day.</small>
+                            <span className="community-calendar-title-mark" aria-hidden="true">
+                              <i />
+                            </span>
+                            <span className="community-calendar-title-copy">
+                              <span>Assignment Calendar</span>
+                              <strong>Plan your week</strong>
+                              <small>Deadlines and class sessions are grouped by day.</small>
+                            </span>
                           </div>
                           <div className="community-calendar-nav">
                             <button
                               type="button"
+                              aria-label="Previous month"
                               onClick={() => {
                                 setSelectedCalendarDay(null);
                                 setCalendarMonth(
@@ -4923,6 +4931,7 @@ export default function VineCommunities() {
                             </span>
                             <button
                               type="button"
+                              aria-label="Next month"
                               onClick={() => {
                                 setSelectedCalendarDay(null);
                                 setCalendarMonth(
@@ -4948,124 +4957,126 @@ export default function VineCommunities() {
                             <b>{dueSoonCount}</b>
                           </div>
                         </div>
-                        <div className="calendar-legend-row" aria-label="Calendar legend">
-                          <span><i className="legend-dot assignment-window" /> Assignment active days</span>
-                          <span><i className="legend-dot assignment" /> Assignment due date</span>
-                          <span><i className="legend-dot session" /> Class session</span>
-                          <span><i className="legend-dot today" /> Today</span>
-                          <span><i className="legend-dot attended" /> Attended lesson</span>
-                          <span><i className="legend-dot missed" /> Missed lesson</span>
-                        </div>
-                        {timelineStartDay && (
-                          <div className="calendar-timeline-pill">
-                            {timelineStartDay === timelineEndDay
-                              ? `This month has one assignment deadline on day ${timelineStartDay}.`
-                              : `Assignment deadline window: day ${timelineStartDay} to day ${timelineEndDay}.`}
+                        <div className="community-calendar-workspace">
+                          <div className="community-calendar-board">
+                            <div className="calendar-legend-row" aria-label="Calendar legend">
+                              <span><i className="legend-dot assignment-window" /> Assignment active days</span>
+                              <span><i className="legend-dot assignment" /> Assignment due date</span>
+                              <span><i className="legend-dot session" /> Class session</span>
+                              <span><i className="legend-dot today" /> Today</span>
+                              <span><i className="legend-dot attended" /> Attended lesson</span>
+                              <span><i className="legend-dot missed" /> Missed lesson</span>
+                            </div>
+                            {timelineStartDay && (
+                              <div className="calendar-timeline-pill">
+                                {timelineStartDay === timelineEndDay
+                                  ? `This month has one assignment deadline on day ${timelineStartDay}.`
+                                  : `Assignment deadline window: day ${timelineStartDay} to day ${timelineEndDay}.`}
+                              </div>
+                            )}
+                            <div className="community-calendar-grid">
+                              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d, idx) => (
+                                <div key={`head-${idx}-${d}`} className="calendar-day-head">{d}</div>
+                              ))}
+                              {monthCells.map((day, idx) => (
+                                (() => {
+                                  const attendanceForDay = day ? (attendanceRecordsByDay[day] || []) : [];
+                                  const attendanceTone = getCalendarAttendanceTone(attendanceForDay);
+                                  const assignmentWindowsForDay = day ? (assignmentWindowsByDay[day] || []) : [];
+                                  const startsAssignmentWindow = assignmentWindowsForDay.some((item) => item.isStart);
+                                  const dueAssignmentWindow = assignmentWindowsForDay.some((item) => item.isDue);
+                                  return (
+                                    <div
+                                      key={`day-${idx}`}
+                                      className={`calendar-day-cell ${day ? "" : "empty"} ${
+                                        day && isCurrentMonthView && day === nowDate.getDate() ? "today" : ""
+                                      } ${
+                                        assignmentWindowsForDay.length > 0 ? "assignment-window" : ""
+                                      } ${
+                                        startsAssignmentWindow ? "assignment-window-start" : ""
+                                      } ${
+                                        dueAssignmentWindow ? "assignment-window-due" : ""
+                                      } ${
+                                        attendanceTone ? `attendance-${attendanceTone}` : ""
+                                      } ${
+                                        day && selectedCalendarDay === day ? "selected" : ""
+                                      }`}
+                                      role={day ? "button" : undefined}
+                                      tabIndex={day ? 0 : undefined}
+                                      onClick={day ? () => setSelectedCalendarDay(day) : undefined}
+                                      onKeyDown={day ? (e) => {
+                                        if (e.key === "Enter" || e.key === " ") {
+                                          e.preventDefault();
+                                          setSelectedCalendarDay(day);
+                                        }
+                                      } : undefined}
+                                    >
+                                      {day ? (
+                                        <>
+                                          <span>{day}</span>
+                                          {assignmentWindowsForDay.length > 0 && (
+                                            <div className="calendar-assignment-window-note">
+                                              {dueAssignmentWindow
+                                                ? "Due day"
+                                                : `${assignmentWindowsForDay.length} active`}
+                                            </div>
+                                          )}
+                                          {calendarItemsByDay[day]?.length > 0 && (() => {
+                                            const dayItems = calendarItemsByDay[day];
+                                            const assignmentsForDay = dayItems.filter((it) => it.type === "assignment");
+                                            const sessionsForDay = dayItems.filter((it) => it.type === "session");
+                                            return (
+                                              <div className="calendar-marker-stack">
+                                                {assignmentsForDay.slice(0, 2).map((item) => {
+                                                  const meta = getAssignmentDeadlineMeta(item.when);
+                                                  return (
+                                                    <span
+                                                      key={`assign-${item.id}`}
+                                                      className={`calendar-deadline-chip ${meta.tone}`}
+                                                      title={`${item.title}: ${formatSimpleDate(item.when)}`}
+                                                    >
+                                                      {meta.tone === "overdue" ? meta.label : `Due ${meta.label}`}
+                                                    </span>
+                                                  );
+                                                })}
+                                                {sessionsForDay.length > 0 && (
+                                                  <span className="calendar-session-chip" title={`${sessionsForDay.length} class session${sessionsForDay.length === 1 ? "" : "s"}`}>
+                                                    {sessionsForDay.length} session{sessionsForDay.length === 1 ? "" : "s"}
+                                                  </span>
+                                                )}
+                                              </div>
+                                            );
+                                          })()}
+                                          {attendanceForDay.length > 0 && (
+                                            <div className="calendar-attendance-stack">
+                                              {attendanceForDay.slice(0, 2).map((row) => {
+                                                const meta = getAttendanceStatusMeta(row.status);
+                                                return (
+                                                  <span
+                                                    key={`attendance-${row.session_id}`}
+                                                    className={`calendar-attendance-chip ${meta.tone}`}
+                                                    title={`${row.title || "Lesson"}: ${meta.label}`}
+                                                  >
+                                                    {meta.label}
+                                                  </span>
+                                                );
+                                              })}
+                                            </div>
+                                          )}
+                                          {calendarItemsByDay[day]?.length > 3 && (
+                                            <div className="calendar-extra-count">
+                                              +{calendarItemsByDay[day].length - 3}
+                                            </div>
+                                          )}
+                                        </>
+                                      ) : null}
+                                    </div>
+                                  );
+                                })()
+                              ))}
                           </div>
-                        )}
-                        <div className="community-calendar-grid">
-                          {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d, idx) => (
-                            <div key={`head-${idx}-${d}`} className="calendar-day-head">{d}</div>
-                          ))}
-                          {monthCells.map((day, idx) => (
-                            (() => {
-                              const attendanceForDay = day ? (attendanceRecordsByDay[day] || []) : [];
-                              const attendanceTone = getCalendarAttendanceTone(attendanceForDay);
-                              const assignmentWindowsForDay = day ? (assignmentWindowsByDay[day] || []) : [];
-                              const startsAssignmentWindow = assignmentWindowsForDay.some((item) => item.isStart);
-                              const dueAssignmentWindow = assignmentWindowsForDay.some((item) => item.isDue);
-                              return (
-                                <div
-                                  key={`day-${idx}`}
-                                  className={`calendar-day-cell ${day ? "" : "empty"} ${
-                                    day && isCurrentMonthView && day === nowDate.getDate() ? "today" : ""
-                                  } ${
-                                    assignmentWindowsForDay.length > 0 ? "assignment-window" : ""
-                                  } ${
-                                    startsAssignmentWindow ? "assignment-window-start" : ""
-                                  } ${
-                                    dueAssignmentWindow ? "assignment-window-due" : ""
-                                  } ${
-                                    attendanceTone ? `attendance-${attendanceTone}` : ""
-                                  } ${
-                                    day && selectedCalendarDay === day ? "selected" : ""
-                                  }`}
-                                  role={day ? "button" : undefined}
-                                  tabIndex={day ? 0 : undefined}
-                                  onClick={day ? () => setSelectedCalendarDay(day) : undefined}
-                                  onKeyDown={day ? (e) => {
-                                    if (e.key === "Enter" || e.key === " ") {
-                                      e.preventDefault();
-                                      setSelectedCalendarDay(day);
-                                    }
-                                  } : undefined}
-                                >
-                                  {day ? (
-                                    <>
-                                      <span>{day}</span>
-                                      {assignmentWindowsForDay.length > 0 && (
-                                        <div className="calendar-assignment-window-note">
-                                          {dueAssignmentWindow
-                                            ? "Due day"
-                                            : `${assignmentWindowsForDay.length} active`}
-                                        </div>
-                                      )}
-                                      {calendarItemsByDay[day]?.length > 0 && (() => {
-                                    const dayItems = calendarItemsByDay[day];
-                                    const assignmentsForDay = dayItems.filter((it) => it.type === "assignment");
-                                    const sessionsForDay = dayItems.filter((it) => it.type === "session");
-                                    return (
-                                      <div className="calendar-marker-stack">
-                                        {assignmentsForDay.slice(0, 2).map((item) => {
-                                          const meta = getAssignmentDeadlineMeta(item.when);
-                                          return (
-                                            <span
-                                              key={`assign-${item.id}`}
-                                              className={`calendar-deadline-chip ${meta.tone}`}
-                                              title={`${item.title}: ${formatSimpleDate(item.when)}`}
-                                            >
-                                              {meta.tone === "overdue" ? meta.label : `Due ${meta.label}`}
-                                            </span>
-                                          );
-                                        })}
-                                        {sessionsForDay.length > 0 && (
-                                          <span className="calendar-session-chip" title={`${sessionsForDay.length} class session${sessionsForDay.length === 1 ? "" : "s"}`}>
-                                            {sessionsForDay.length} session{sessionsForDay.length === 1 ? "" : "s"}
-                                          </span>
-                                        )}
-                                      </div>
-                                    );
-                                  })()}
-                                  {attendanceForDay.length > 0 && (
-                                    <div className="calendar-attendance-stack">
-                                      {attendanceForDay.slice(0, 2).map((row) => {
-                                        const meta = getAttendanceStatusMeta(row.status);
-                                        return (
-                                          <span
-                                            key={`attendance-${row.session_id}`}
-                                            className={`calendar-attendance-chip ${meta.tone}`}
-                                            title={`${row.title || "Lesson"}: ${meta.label}`}
-                                          >
-                                            {meta.label}
-                                          </span>
-                                        );
-                                      })}
-                                    </div>
-                                  )}
-                                  {calendarItemsByDay[day]?.length > 3 && (
-                                    <div className="calendar-extra-count">
-                                      +{calendarItemsByDay[day].length - 3}
-                                    </div>
-                                  )}
-                                    </>
-                                  ) : null}
-                                </div>
-                              );
-                            })()
-                          ))}
-                        </div>
-                        {selectedCalendarDayDate && (
-                          <div className="calendar-day-detail-panel">
+                            {selectedCalendarDayDate && (
+                              <div className="calendar-day-detail-panel">
                             <div className="calendar-day-detail-head">
                               <div>
                                 <span>Selected day</span>
@@ -5126,46 +5137,63 @@ export default function VineCommunities() {
                                   })}
                               </div>
                             )}
-                          </div>
-                        )}
-                        <div className="community-calendar-upcoming">
-                          <div className="calendar-upcoming-head">
-                            <strong>Next up</strong>
-                            <small>Use this list when the month grid feels crowded.</small>
-                          </div>
-                          {upcomingCalendarItems.length === 0 ? (
-                            <span>No upcoming items.</span>
-                          ) : (
-                            upcomingCalendarItems.map((item) => (
-                              <div key={`upcoming-${item.id}`} className="calendar-upcoming-row">
-                                <span className={`calendar-pill ${item.type}`}>
-                                  {item.type === "assignment" ? "Due" : "Class"}
-                                </span>
-                                <span>
-                                  <b>{item.title}</b>
-                                  <small>{item.type === "assignment" ? "Assignment deadline" : "Class session"}</small>
-                                </span>
-                                <small>
-                                  {formatSimpleDate(item.when)}
-                                  {item.type === "assignment" ? ` • ${getAssignmentDeadlineMeta(item.when).label}` : ""}
-                                </small>
                               </div>
-                            ))
-                          )}
+                            )}
+                          </div>
+                          <aside className="community-calendar-upcoming">
+                            <div className="calendar-upcoming-head">
+                              <strong>Next up</strong>
+                              <small>Coming deadlines and classes</small>
+                            </div>
+                            {upcomingCalendarItems.length === 0 ? (
+                              <span className="calendar-upcoming-empty">No upcoming items.</span>
+                            ) : (
+                              upcomingCalendarItems.map((item) => (
+                                <div key={`upcoming-${item.id}`} className="calendar-upcoming-row">
+                                  <span className={`calendar-pill ${item.type}`}>
+                                    {item.type === "assignment" ? "Due" : "Class"}
+                                  </span>
+                                  <span>
+                                    <b>{item.title}</b>
+                                    <small>{item.type === "assignment" ? "Assignment deadline" : "Class session"}</small>
+                                  </span>
+                                  <small>
+                                    {formatSimpleDate(item.when)}
+                                    {item.type === "assignment" ? ` • ${getAssignmentDeadlineMeta(item.when).label}` : ""}
+                                  </small>
+                                </div>
+                              ))
+                            )}
+                          </aside>
                         </div>
                       </div>
 
                     </div>
                     {isCommunityOwner && (
-                      <div className="assignment-create-shell">
-                        <div className="assignment-create-head">
-                          <div>
+                      <section className={`assignment-create-shell ${isAssignmentStudioOpen ? "is-open" : "is-collapsed"}`}>
+                        <button
+                          type="button"
+                          className="assignment-create-toggle"
+                          onClick={() => setIsAssignmentStudioOpen((current) => !current)}
+                          aria-expanded={isAssignmentStudioOpen}
+                          aria-controls="assignment-studio-body"
+                        >
+                          <span className="assignment-create-toggle-icon" aria-hidden="true" />
+                          <span className="assignment-create-toggle-copy">
                             <span className="assignment-create-kicker">Assignment studio</span>
                             <strong>Set the next learner task</strong>
-                            <p>Shape the brief, close date, and attachment here before it goes live.</p>
-                          </div>
-                        </div>
-                        <div className="assignment-create-grid">
+                            <small>
+                              {isAssignmentStudioOpen ? "Draft in progress" : "Ready when you are"}
+                            </small>
+                          </span>
+                          <span className="assignment-create-toggle-action">
+                            {isAssignmentStudioOpen ? "Close" : "Open studio"}
+                            <i aria-hidden="true" />
+                          </span>
+                        </button>
+                        {isAssignmentStudioOpen && (
+                          <div id="assignment-studio-body" className="assignment-create-body">
+                            <div className="assignment-create-grid">
                           <label className="assignment-field assignment-field-wide">
                             <span className="assignment-field-label">Assignment title</span>
                             <input
@@ -5253,14 +5281,16 @@ export default function VineCommunities() {
                               </div>
                             )}
                           </div>
-                        </div>
-                        <div className="assignment-create-actions">
-                          <span className="assignment-create-note">
-                            Learners will see this as soon as you publish it.
-                          </span>
-                          <button onClick={createAssignment}>Create Assignment</button>
-                        </div>
-                      </div>
+                            </div>
+                            <div className="assignment-create-actions">
+                              <span className="assignment-create-note">
+                                Learners will see this as soon as you publish it.
+                              </span>
+                              <button onClick={createAssignment}>Create Assignment</button>
+                            </div>
+                          </div>
+                        )}
+                      </section>
                     )}
                     {isCommunityOwner && (
                       <AssignmentCommandCenter

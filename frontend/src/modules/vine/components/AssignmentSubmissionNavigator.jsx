@@ -16,7 +16,17 @@ export default function AssignmentSubmissionNavigator({
   const safeIndex = clampIndex(currentIndex, safeTotal);
   const atFirst = safeIndex === 0;
   const atLast = safeIndex === safeTotal - 1;
-  const progress = `${((safeIndex + 1) / safeTotal) * 100}%`;
+  const progressPercent = Math.round(((safeIndex + 1) / safeTotal) * 100);
+  const progress = `${progressPercent}%`;
+  const progressTone = progressPercent >= 100
+    ? "complete"
+    : progressPercent >= 75
+      ? "strong"
+      : progressPercent >= 50
+        ? "steady"
+        : progressPercent >= 25
+          ? "warming"
+          : "starting";
   const select = (nextIndex) => onSelect(clampIndex(nextIndex, safeTotal));
 
   return (
@@ -30,7 +40,14 @@ export default function AssignmentSubmissionNavigator({
         <small>{learnerName || "Learner submission"}</small>
       </div>
 
-      <div className="assignment-submission-progress" aria-hidden="true">
+      <div
+        className={`assignment-submission-progress is-${progressTone}`}
+        role="progressbar"
+        aria-label="Submission review progress"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        aria-valuenow={progressPercent}
+      >
         <i style={{ width: progress }} />
       </div>
 

@@ -1,0 +1,74 @@
+.assignment-gradebook-export {
+  display: grid;
+  grid-template-columns: minmax(230px, 360px) auto;
+  gap: 8px;
+  align-items: end;
+  min-width: 0;
+}
+
+.assignment-gradebook-export label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.assignment-gradebook-export label > span {
+  color: #64748b;
+  font-size: 0.64rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.assignment-gradebook-export select {
+  width: 100%;
+  min-width: 0;
+  min-height: 40px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 7px 34px 7px 10px;
+  background: #ffffff;
+  color: #0f172a;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 750;
+}
+
+.assignment-top-row .assignment-gradebook-export > button {
+  min-height: 40px;
+  border: 1px solid #047857;
+  border-radius: 8px;
+  padding: 8px 13px;
+  background: #047857;
+  color: #ffffff;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 850;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.assignment-gradebook-export select:focus,
+.assignment-top-row .assignment-gradebook-export > button:focus-visible {
+  outline: 3px solid rgba(16, 185, 129, 0.2);
+  outline-offset: 2px;
+}
+
+.assignment-top-row .assignment-gradebook-export > button:hover:not(:disabled) { background: #065f46; }
+.assignment-gradebook-export select:disabled,
+.assignment-top-row .assignment-gradebook-export > button:disabled { cursor: not-allowed; opacity: 0.58; }
+
+.theme-dark .assignment-gradebook-export label > span { color: #94a3b8; }
+.theme-dark .assignment-gradebook-export select {
+  border-color: #475569;
+  background: #172033;
+  color: #e2e8f0;
+}
+
+@media (max-width: 760px) {
+  .assignment-gradebook-export {
+    grid-template-columns: minmax(0, 1fr);
+    width: 100%;
+  }
+
+  .assignment-top-row .assignment-gradebook-export > button { width: 100%; }
+}

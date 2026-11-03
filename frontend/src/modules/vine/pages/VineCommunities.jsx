@@ -6,6 +6,8 @@ import VineEClass from "../components/VineEClass";
 import CommunityQuests from "../components/CommunityQuests";
 import AssignmentCommandCenter from "../components/AssignmentCommandCenter";
 import AssignmentGradeHistory from "../components/AssignmentGradeHistory";
+import AssignmentGradebookExport from "../components/AssignmentGradebookExport";
+import AssignmentSubmissionNavigator from "../components/AssignmentSubmissionNavigator";
 import VinePostCard from "./VinePostCard";
 import "./VineCommunities.css";
 import { loadPdfTools } from "../../../utils/loadPdfTools";
@@ -426,6 +428,9 @@ export default function VineCommunities() {
   const [savedDraftsMap, setSavedDraftsMap] = useState({});
   const [selectedAssignmentId, setSelectedAssignmentId] = useState(null);
   const [assignmentSubmissions, setAssignmentSubmissions] = useState([]);
+  const [assignmentSubmissionReaderIndex, setAssignmentSubmissionReaderIndex] = useState(0);
+  const [gradebookPdfAssignmentId, setGradebookPdfAssignmentId] = useState("");
+  const [isExportingGradebookPdf, setIsExportingGradebookPdf] = useState(false);
   const [gradingDrafts, setGradingDrafts] = useState({});
   const [gradingSubmissionId, setGradingSubmissionId] = useState(null);
   const [remindingAssignmentId, setRemindingAssignmentId] = useState(null);
@@ -483,6 +488,10 @@ export default function VineCommunities() {
     String(activeCommunity?.viewer_role || "").toLowerCase()
   );
   const pendingRequestCount = pendingRequests.length;
+  const activeCommunityMemberCount = Math.max(
+    0,
+    Number(activeCommunity?.member_count ?? members.length ?? 0) || 0
+  );
   const libraryFolderPaths = useMemo(
     () => getLibraryFolderPaths(libraryItems),
     [libraryItems]
@@ -840,6 +849,25 @@ export default function VineCommunities() {
     const parentPath = libraryFolderPath.split("/").slice(0, -1).join("/");
     setLibraryFolderPath(parentPath);
   }, [libraryFolderPath, libraryFolderPaths]);
+
+  // Keep the reader on a valid learner when a submission is deleted or refreshed.
+  useEffect(() => {
+    setAssignmentSubmissionReaderIndex((current) =>
+      Math.min(Math.max(current, 0), Math.max(0, assignmentSubmissions.length - 1))
+    );
+  }, [assignmentSubmissions.length]);
+
+  // Default PDF exports to the newest assignment; the full archive remains an explicit choice.
+  useEffect(() => {
+    setGradebookPdfAssignmentId((current) => {
+      if (assignments.length === 0) return "";
+      if (current === "all") return current;
+      if (assignments.some((assignment) => String(assignment.id) === String(current))) {
+        return current;
+      }
+      return String(assignments[0].id);
+    });
+  }, [assignments]);
 
   useEffect(() => {
     if (activeTab === "memorywall") {
@@ -1818,6 +1846,7 @@ export default function VineCommunities() {
       if (Number(selectedAssignmentId) === Number(assignmentId)) {
         setSelectedAssignmentId(null);
         setAssignmentSubmissions([]);
+        setAssignmentSubmissionReaderIndex(0);
         setGradingDrafts({});
       }
       await loadCommunityDetail(activeCommunity.slug, topicFilter);
@@ -2087,9 +2116,16 @@ export default function VineCommunities() {
   };
 
   const exportGradebookPdf = async () => {
-    if (!activeCommunity?.id) return;
+    if (!activeCommunity?.id || !gradebookPdfAssignmentId || isExportingGradebookPdf) return;
+    const selectedAssignment = assignments.find(
+      (assignment) => String(assignment.id) === String(gradebookPdfAssignmentId)
+    );
+    const query = gradebookPdfAssignmentId === "all"
+      ? ""
+      : `?assignment_id=${encodeURIComponent(gradebookPdfAssignmentId)}`;
+    setIsExportingGradebookPdf(true);
     try {
-      const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/gradebook`, {
+      const res = await fetch(`${API}/api/vine/communities/${activeCommunity.id}/gradebook${query}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) {
@@ -2120,12 +2156,23 @@ export default function VineCommunities() {
       doc.setTextColor(15, 23, 42);
       doc.setFontSize(12);
       doc.text(`${activeCommunity?.name || "Community"} — Gradebook`, 40, 62);
+      let gradebookBodyStartY = 80;
+      if (selectedAssignment) {
+        doc.setFontSize(9);
+        doc.setTextColor(71, 85, 105);
+        const selectedTitleLines = doc.splitTextToSize(
+          `Selected assignment: ${selectedAssignment.title}`,
+          pageWidth - 80
+        );
+        doc.text(selectedTitleLines, 40, 74);
+        gradebookBodyStartY = 74 + (selectedTitleLines.length * 10) + 8;
+      }
 
       if (sections.length === 0) {
         doc.setFontSize(11);
-        doc.text("No gradebook records available.", 40, 82);
+        doc.text("No gradebook records available.", 40, gradebookBodyStartY);
       } else {
-        let cursorY = 80;
+        let cursorY = gradebookBodyStartY;
         sections.forEach((group, index) => {
           const first = group[0] || {};
           const assignmentTitle = first.assignment_title || `Assignment ${first.assignment_id || ""}`;
@@ -2213,6 +2260,8 @@ export default function VineCommunities() {
       setTimeout(() => URL.revokeObjectURL(url), 60 * 1000);
     } catch {
       alert("Failed to export PDF");
+    } finally {
+      setIsExportingGradebookPdf(false);
     }
   };
 
@@ -2714,9 +2763,11 @@ export default function VineCommunities() {
     if (Number(selectedAssignmentId) === Number(assignmentId)) {
       setSelectedAssignmentId(null);
       setAssignmentSubmissions([]);
+      setAssignmentSubmissionReaderIndex(0);
       setGradingDrafts({});
       return;
     }
+    setAssignmentSubmissionReaderIndex(0);
     setSelectedAssignmentId(assignmentId);
     await loadAssignmentSubmissions(assignmentId);
     if (options.scrollIntoView) {
@@ -2724,6 +2775,15 @@ export default function VineCommunities() {
         document.getElementById(`assignment-${assignmentId}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
       });
     }
+  };
+
+  const selectAssignmentSubmissionPage = (assignmentId, nextIndex) => {
+    setAssignmentSubmissionReaderIndex(Math.max(0, Number(nextIndex) || 0));
+    window.requestAnimationFrame(() => {
+      document
+        .getElementById(`assignment-submission-reader-${assignmentId}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
   };
 
   const sendAssignmentReminder = async (assignment) => {
@@ -4257,9 +4317,29 @@ export default function VineCommunities() {
                   <div className="community-title-wrap">
                     <h3>{activeCommunity.name}</h3>
                     <div className="community-meta-line">
-                      <span>{activeCommunity.member_count || 0} members</span>
-                      <span>•</span>
-                      <span>{Number(activeCommunity.is_private) === 1 ? "Private" : "Public"}</span>
+                      <span>{Number(activeCommunity.is_private) === 1 ? "Private community" : "Public community"}</span>
+                      <span aria-hidden="true">•</span>
+                      {isCommunityMember ? (
+                        <button
+                          type="button"
+                          className="community-member-counter"
+                          onClick={() => setActiveTab("members")}
+                          aria-label={`View ${activeCommunityMemberCount} community members`}
+                        >
+                          <span className="community-member-counter-icon" aria-hidden="true" />
+                          <strong>{activeCommunityMemberCount.toLocaleString()}</strong>
+                          <span>{activeCommunityMemberCount === 1 ? "member" : "members"}</span>
+                        </button>
+                      ) : (
+                        <span
+                          className="community-member-counter community-member-counter-static"
+                          aria-label={`${activeCommunityMemberCount} community members`}
+                        >
+                          <span className="community-member-counter-icon" aria-hidden="true" />
+                          <strong>{activeCommunityMemberCount.toLocaleString()}</strong>
+                          <span>{activeCommunityMemberCount === 1 ? "member" : "members"}</span>
+                        </span>
+                      )}
                     </div>
                   </div>
                   <button
@@ -4441,7 +4521,10 @@ export default function VineCommunities() {
                 )}
                 {activeTab === "members" && !showCommunityMembershipGate && (
                   <section className="community-members-panel">
-                    <h4>Members</h4>
+                    <div className="community-members-titlebar">
+                      <h4>Members</h4>
+                      <span>{activeCommunityMemberCount.toLocaleString()} total</span>
+                    </div>
                     <div className="community-members-list">
                       {members.map((m) => (
                         <div key={m.id} className="member-row" onClick={() => navigate(`/vine/profile/${m.username}`)}>
@@ -4805,7 +4888,13 @@ export default function VineCommunities() {
                       {isCommunityOwner && (
                         <div className="assignment-actions">
                           <button onClick={exportGradebookCsv}>Export Gradebook CSV</button>
-                          <button onClick={exportGradebookPdf}>Export Gradebook PDF</button>
+                          <AssignmentGradebookExport
+                            assignments={assignments}
+                            isExporting={isExportingGradebookPdf}
+                            selectedAssignmentId={gradebookPdfAssignmentId}
+                            onSelectionChange={setGradebookPdfAssignmentId}
+                            onExport={exportGradebookPdf}
+                          />
                         </div>
                       )}
                     </div>
@@ -5206,6 +5295,13 @@ export default function VineCommunities() {
                               String(viewerStatus || "").toLowerCase()
                             );
                           const hasImageAttachment = isAssignmentImageAttachment(a);
+                          const visibleSubmissionIndex = Math.min(
+                            assignmentSubmissionReaderIndex,
+                            Math.max(0, assignmentSubmissions.length - 1)
+                          );
+                          const visibleSubmission = assignmentSubmissions[visibleSubmissionIndex] || null;
+                          const visibleLearnerName =
+                            visibleSubmission?.display_name || visibleSubmission?.username || "Learner submission";
                           return (
                             <div id={`assignment-${a.id}`} key={a.id} className={`assignment-row ${isCommunityMod ? "mod-view" : ""}`}>
                               <div className="assignment-card-head">
@@ -5525,7 +5621,10 @@ export default function VineCommunities() {
                                 </div>
                               )}
                               {isCommunityOwner && selectedAssignmentId === a.id && (
-                                <div className="assignment-submissions">
+                                <div
+                                  id={`assignment-submission-reader-${a.id}`}
+                                  className="assignment-submissions assignment-submission-reader"
+                                >
                                   <div className="assignment-submissions-head">
                                     <div className="assignment-submissions-head-copy">
                                       <strong>Submissions</strong>
@@ -5546,7 +5645,14 @@ export default function VineCommunities() {
                                   {assignmentSubmissions.length === 0 ? (
                                     <div className="community-empty">No submissions yet.</div>
                                   ) : (
-                                    assignmentSubmissions.map((s) => {
+                                    <>
+                                      <AssignmentSubmissionNavigator
+                                        currentIndex={visibleSubmissionIndex}
+                                        learnerName={visibleLearnerName}
+                                        total={assignmentSubmissions.length}
+                                        onSelect={(nextIndex) => selectAssignmentSubmissionPage(a.id, nextIndex)}
+                                      />
+                                      {assignmentSubmissions.slice(visibleSubmissionIndex, visibleSubmissionIndex + 1).map((s) => {
                                       const draft = gradingDrafts[s.id] || { score: "", feedback: "", status: "graded" };
                                       const submissionFilesCount = Array.isArray(s.submission_files)
                                         ? s.submission_files.length
@@ -5746,7 +5852,15 @@ export default function VineCommunities() {
                                           <AssignmentGradeHistory history={s.grade_history} />
                                         </div>
                                       );
-                                    })
+                                      })}
+                                      <AssignmentSubmissionNavigator
+                                        currentIndex={visibleSubmissionIndex}
+                                        learnerName={visibleLearnerName}
+                                        placement="bottom"
+                                        total={assignmentSubmissions.length}
+                                        onSelect={(nextIndex) => selectAssignmentSubmissionPage(a.id, nextIndex)}
+                                      />
+                                    </>
                                   )}
                                 </div>
                               )}

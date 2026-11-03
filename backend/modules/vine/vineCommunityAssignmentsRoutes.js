@@ -7,6 +7,13 @@ import {
   sanitizeSubmissionFilename,
 } from "./vineSubmissionFiles.js";
 
+export const filterGradebookRowsByAssignment = (rows, assignmentId) => {
+  const safeRows = Array.isArray(rows) ? rows : [];
+  const requestedId = Number(assignmentId);
+  if (!Number.isInteger(requestedId) || requestedId <= 0) return safeRows;
+  return safeRows.filter((row) => Number(row?.assignment_id) === requestedId);
+};
+
 export default function createVineCommunityAssignmentsRouter({
   db,
   authenticate,
@@ -1406,7 +1413,12 @@ router.get("/communities/:id/gradebook", authenticate, async (req, res) => {
     await ensureVinePerformanceSchema();
     const userId = Number(req.user.id);
     const communityId = Number(req.params.id);
+    const assignmentFilter = String(req.query.assignment_id || "").trim();
+    const assignmentId = assignmentFilter ? Number(assignmentFilter) : null;
     if (!communityId) return res.status(400).json([]);
+    if (assignmentFilter && (!Number.isInteger(assignmentId) || assignmentId <= 0)) {
+      return res.status(400).json({ message: "Invalid assignment filter" });
+    }
     const role = await getCommunityRole(communityId, userId);
     if (!isCommunityModOrOwner(role)) return res.status(403).json([]);
 
@@ -1441,6 +1453,9 @@ router.get("/communities/:id/gradebook", authenticate, async (req, res) => {
       );
       return gradebookRows;
     });
+    const responseRows = assignmentId
+      ? filterGradebookRowsByAssignment(rows, assignmentId)
+      : rows;
 
     if (String(req.query.format || "").toLowerCase() === "csv") {
       const csvHeader = [
@@ -1459,7 +1474,7 @@ router.get("/communities/:id/gradebook", authenticate, async (req, res) => {
       ];
       const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
       const lines = [csvHeader.join(",")];
-      for (const row of rows) {
+      for (const row of responseRows) {
         lines.push(
           [
             row.assignment_id,
@@ -1484,7 +1499,7 @@ router.get("/communities/:id/gradebook", authenticate, async (req, res) => {
       return res.status(200).send(lines.join("\n"));
     }
 
-    res.json(rows);
+    res.json(responseRows);
   } catch (err) {
     console.error("Get gradebook error:", err);
     res.status(500).json([]);

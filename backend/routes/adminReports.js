@@ -14,6 +14,11 @@ import {
   normalizeRegisteredSubjectKey,
   parseStoredSubjects,
 } from "../services/reportSubjectRegistration.js";
+import {
+  calculateOLevelYearCoursework,
+  getOLevelYearAssessmentPolicy,
+  isOLevelYearSubjectComplete,
+} from "../services/oLevelYearAssessmentPolicy.js";
 
 const router = express.Router();
 
@@ -540,7 +545,7 @@ router.get("/term", authAdmin, async (req, res) => {
 
 /*
   END OF YEAR REPORT
-  Uses Term 3 AOIs + Term 3 /80 exam and computed 20% coursework component.
+  Uses the academic year's assessment policy plus the Term 3 /80 exam.
 */
 router.get("/year", authAdmin, async (req, res) => {
   try {
@@ -555,33 +560,8 @@ router.get("/year", authAdmin, async (req, res) => {
 
     const normalizeStream = (v) => String(v || "").trim().toLowerCase();
     const wantedStream = normalizeStream(stream);
-    const isYearSubjectComplete = (row) => {
-      const requiredComponents = [
-        row.T1_AOI1,
-        row.T1_AOI2,
-        row.T1_AOI3,
-        row.T2_AOI1,
-        row.T2_AOI2,
-        row.T2_AOI3,
-        row.AOI1,
-        row.AOI2,
-        row.AOI3,
-        row.EXAM80,
-      ];
-      const hasAnyMissed =
-        isMissedStatus(row.T1_AOI1_status) ||
-        isMissedStatus(row.T1_AOI2_status) ||
-        isMissedStatus(row.T1_AOI3_status) ||
-        isMissedStatus(row.T2_AOI1_status) ||
-        isMissedStatus(row.T2_AOI2_status) ||
-        isMissedStatus(row.T2_AOI3_status) ||
-        isMissedStatus(row.AOI1_status) ||
-        isMissedStatus(row.AOI2_status) ||
-        isMissedStatus(row.AOI3_status) ||
-        isMissedStatus(row.EXAM80_status);
-
-      return requiredComponents.every((value) => hasRecordedScore(value)) && !hasAnyMissed;
-    };
+    const yearAssessmentPolicy = getOLevelYearAssessmentPolicy(yearParam);
+    const isYearSubjectComplete = (row) => isOLevelYearSubjectComplete(row, yearParam);
 
     const [rows] = await pool.query(
       `
@@ -664,29 +644,12 @@ router.get("/year", authAdmin, async (req, res) => {
     const reportRows = (rows || []).filter(isReportRowForRegisteredSubject);
 
     const processedAll = reportRows.map((r) => {
-      const term3 = [toNum(r.AOI1), toNum(r.AOI2), toNum(r.AOI3)];
-      const term3Present = term3.filter((v) => v !== null);
-      const average =
-        term3Present.length > 0
-          ? Number((term3Present.reduce((a, b) => a + b, 0) / term3Present.length).toFixed(2))
-          : null;
-
-      const nineAois = [
-        toNum(r.T1_AOI1), toNum(r.T1_AOI2), toNum(r.T1_AOI3),
-        toNum(r.T2_AOI1), toNum(r.T2_AOI2), toNum(r.T2_AOI3),
-        toNum(r.AOI1), toNum(r.AOI2), toNum(r.AOI3),
-      ];
-      const hasAnyNine = nineAois.some((v) => v !== null);
-      const nineSum = nineAois.reduce((acc, v) => acc + (v ?? 0), 0);
-      // 20% coursework = (Avg T1 + Avg T2 + Avg T3) / 9 * 20
-      // where Avg Ti = (AOI1 + AOI2 + AOI3) / 3
-      // Equivalent using all 9 AOIs directly: (sum of 9 AOIs / 27) * 20
-      const course20 = hasAnyNine ? Number(((nineSum / 27) * 20).toFixed(2)) : null;
+      const { term3Average, coursework20 } = calculateOLevelYearCoursework(r, yearParam);
 
       const exam80 = toNum(r.EXAM80);
       const total100 =
-        exam80 !== null || course20 !== null
-          ? Number(((exam80 ?? 0) + (course20 ?? 0)).toFixed(2))
+        exam80 !== null || coursework20 !== null
+          ? Number(((exam80 ?? 0) + (coursework20 ?? 0)).toFixed(2))
           : null;
 
       const grade = gradeFor(total100);
@@ -694,12 +657,13 @@ router.get("/year", authAdmin, async (req, res) => {
 
       return {
         ...r,
-        average,
-        percent20: course20,
+        average: term3Average,
+        percent20: coursework20,
         percent80: exam80,
         percent100: total100,
         grade,
         remark,
+        year_assessment_model: yearAssessmentPolicy.mode,
       };
     });
 

@@ -21,6 +21,7 @@ import LatestMarksActivityCard from "../components/admin-dashboard/LatestMarksAc
 import SystemReadinessCard from "../components/admin-dashboard/SystemReadinessCard";
 import LearnerMovementCard from "../components/admin-dashboard/LearnerMovementCard";
 import OLevelReportReadinessCard from "../components/admin-dashboard/OLevelReportReadinessCard";
+import TeacherLoginNoticeSettings from "../components/admin-dashboard/TeacherLoginNoticeSettings";
 import SpessParentsPanel from "../components/SpessParentsPanel";
 import "../components/admin-dashboard/AdminDashboardPulseCards.css";
 import { loadPdfTools } from "../utils/loadPdfTools";
@@ -6436,18 +6437,18 @@ export default function AdminDashboard() {
       )}
 
       {adminSettingsOpen && (
-        <div className="modal-backdrop" onClick={closeAdminSettings}>
+        <div className="modal-backdrop admin-settings-backdrop" onClick={closeAdminSettings}>
           <div
-            className="modal-card"
+            className="modal-card admin-settings-modal"
             onClick={(e) => e.stopPropagation()}
             style={{
-              maxWidth: "640px",
               background: "linear-gradient(180deg, rgba(15, 23, 42, 0.98), rgba(2, 6, 23, 0.98))",
               border: "1px solid rgba(96, 165, 250, 0.18)",
               boxShadow: "0 28px 60px rgba(2, 6, 23, 0.34)",
             }}
           >
             <div
+              className="admin-settings-tabs"
               style={{
                 display: "inline-flex",
                 alignItems: "center",
@@ -6467,42 +6468,48 @@ export default function AdminDashboard() {
               Admin Settings
             </div>
 
-            <h2 style={{ color: "#f8fafc", marginBottom: "0.45rem" }}>Protect Your Admin Session</h2>
+            <h2 style={{ color: "#f8fafc", marginBottom: "0.45rem" }}>
+              {adminSettingsMode === "password" ? "Protect Your Admin Session" : "Teacher Login Notice"}
+            </h2>
             <p style={{ color: "#cbd5e1", lineHeight: 1.65, marginBottom: "1rem" }}>
-              Update the admin password here. Destructive actions now require a recent password confirmation, and idle logout is set to <strong>15 minutes</strong>.
+              {adminSettingsMode === "password"
+                ? <>Update the admin password here. Destructive actions require a recent password confirmation, and idle logout is set to <strong>15 minutes</strong>.</>
+                : "Publish a staff message that each teacher acknowledges once after signing in."}
             </p>
 
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
-                gap: "0.8rem",
-                marginBottom: "1rem",
-              }}
-            >
-              {[
-                { label: "Admin Username", value: adminIdentity.username || "admin" },
-                { label: "Idle Logout", value: "15 minutes" },
-                { label: "Re-auth Window", value: "10 minutes" },
-              ].map((item) => (
-                <div
-                  key={item.label}
-                  style={{
-                    borderRadius: "16px",
-                    padding: "0.85rem 0.95rem",
-                    border: "1px solid rgba(148, 163, 184, 0.18)",
-                    background: "rgba(15, 23, 42, 0.58)",
-                  }}
-                >
-                  <div style={{ color: "#93c5fd", fontSize: "0.73rem", fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase" }}>
-                    {item.label}
+            {adminSettingsMode === "password" && (
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
+                  gap: "0.8rem",
+                  marginBottom: "1rem",
+                }}
+              >
+                {[
+                  { label: "Admin Username", value: adminIdentity.username || "admin" },
+                  { label: "Idle Logout", value: "15 minutes" },
+                  { label: "Re-auth Window", value: "10 minutes" },
+                ].map((item) => (
+                  <div
+                    key={item.label}
+                    style={{
+                      borderRadius: "16px",
+                      padding: "0.85rem 0.95rem",
+                      border: "1px solid rgba(148, 163, 184, 0.18)",
+                      background: "rgba(15, 23, 42, 0.58)",
+                    }}
+                  >
+                    <div style={{ color: "#93c5fd", fontSize: "0.73rem", fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase" }}>
+                      {item.label}
+                    </div>
+                    <div style={{ color: "#f8fafc", fontSize: "1rem", fontWeight: 800, marginTop: "0.35rem" }}>
+                      {item.value}
+                    </div>
                   </div>
-                  <div style={{ color: "#f8fafc", fontSize: "1rem", fontWeight: 800, marginTop: "0.35rem" }}>
-                    {item.value}
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
 
             <div
               style={{
@@ -6526,20 +6533,31 @@ export default function AdminDashboard() {
               >
                 Change Password
               </button>
+              <button
+                type="button"
+                className={adminSettingsMode === "teacher-notice" ? "primary-btn" : "ghost-btn"}
+                onClick={() => {
+                  setAdminSettingsMode("teacher-notice");
+                  setAdminSettingsError("");
+                  setAdminSettingsNotice("");
+                }}
+              >
+                Teacher Notice
+              </button>
             </div>
 
-            {adminSettingsError && (
+            {adminSettingsMode === "password" && adminSettingsError && (
               <div className="panel-alert panel-alert-error" style={{ marginBottom: "0.9rem" }}>
                 {adminSettingsError}
               </div>
             )}
-            {adminSettingsNotice && (
+            {adminSettingsMode === "password" && adminSettingsNotice && (
               <div className="panel-alert panel-alert-success" style={{ marginBottom: "0.9rem" }}>
                 {adminSettingsNotice}
               </div>
             )}
 
-            <div
+            {adminSettingsMode === "password" ? <div
               style={{
                 padding: "1rem",
                 borderRadius: "1rem",
@@ -6608,15 +6626,17 @@ export default function AdminDashboard() {
                   }}
                 />
               </label>
-            </div>
+            </div> : <TeacherLoginNoticeSettings />}
 
-            <div style={{ marginTop: "1rem", display: "flex", justifyContent: "flex-end", gap: "0.7rem", flexWrap: "wrap" }}>
+            <div className="admin-settings-footer" style={{ marginTop: "1rem", display: "flex", justifyContent: "flex-end", gap: "0.7rem", flexWrap: "wrap" }}>
               <button type="button" className="ghost-btn" onClick={closeAdminSettings} disabled={savingAdminSettings}>
                 Close
               </button>
-              <button type="button" className="primary-btn" onClick={handleChangeAdminPassword} disabled={savingAdminSettings}>
-                {savingAdminSettings ? "Saving…" : "Update Password"}
-              </button>
+              {adminSettingsMode === "password" && (
+                <button type="button" className="primary-btn" onClick={handleChangeAdminPassword} disabled={savingAdminSettings}>
+                  {savingAdminSettings ? "Saving…" : "Update Password"}
+                </button>
+              )}
             </div>
           </div>
         </div>

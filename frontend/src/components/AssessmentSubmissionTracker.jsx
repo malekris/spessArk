@@ -1,6 +1,7 @@
 import { useMemo, useState, useEffect } from "react";
 import { loadPdfTools } from "../utils/loadPdfTools";
 import { adminFetch } from "../lib/api";
+import { getOLevelMarkEntryColumns } from "../utils/oLevelYearAssessmentPolicy";
 
 const TERMS = [1, 2, 3];
 const DEFAULT_COMPONENT_OPTIONS = [
@@ -8,6 +9,12 @@ const DEFAULT_COMPONENT_OPTIONS = [
   { value: "AOI2", label: "AOI 2" },
   { value: "AOI3", label: "AOI 3" },
 ];
+const COMPONENT_LABELS = {
+  AOI1: "AOI 1",
+  AOI2: "AOI 2",
+  AOI3: "AOI 3",
+  EXAM80: "/80 (END)",
+};
 const keyOf = (cls, stream) => `${cls}||${stream}`;
 const normalizeSlotDisplay = (value) =>
   String(value || "")
@@ -30,7 +37,7 @@ export default function AssessmentSubmissionTracker({
   seedGroups = [],
   title = "Assessment Submission Tracker",
   subtitle = "Track subject submissions per class and stream.",
-  componentOptions = DEFAULT_COMPONENT_OPTIONS,
+  componentOptions = null,
   trackedUnitLabel = "subjects",
   currentTerm = null,
   currentYear = null,
@@ -40,15 +47,28 @@ export default function AssessmentSubmissionTracker({
   const drivenYear = Number(currentYear);
   const [selectedTerm, setSelectedTerm] = useState(drivenTerm || 1);
   const [selectedComponent, setSelectedComponent] = useState(
-    componentOptions[0]?.value || DEFAULT_COMPONENT_OPTIONS[0].value
+    componentOptions?.[0]?.value || DEFAULT_COMPONENT_OPTIONS[0].value
   );
   const [expectedByGroup, setExpectedByGroup] = useState({});
   const [assignmentsLoading, setAssignmentsLoading] = useState(true);
   const [assignmentsError, setAssignmentsError] = useState("");
   const [assignmentRefreshKey, setAssignmentRefreshKey] = useState(0);
+  const resolvedComponentOptions = useMemo(() => {
+    if (Array.isArray(componentOptions) && componentOptions.length > 0) {
+      return componentOptions;
+    }
+
+    const academicYear = Number.isFinite(drivenYear) && drivenYear > 0
+      ? drivenYear
+      : new Date().getFullYear();
+    return getOLevelMarkEntryColumns(`Term ${selectedTerm}`, academicYear).map((value) => ({
+      value,
+      label: COMPONENT_LABELS[value] || value,
+    }));
+  }, [componentOptions, drivenYear, selectedTerm]);
   const selectedComponentLabel =
-    componentOptions.find((option) => option.value === selectedComponent)?.label ||
-    componentOptions[0]?.label ||
+    resolvedComponentOptions.find((option) => option.value === selectedComponent)?.label ||
+    resolvedComponentOptions[0]?.label ||
     "AOI 1";
 
   useEffect(() => {
@@ -58,12 +78,12 @@ export default function AssessmentSubmissionTracker({
   }, [drivenTerm]);
 
   useEffect(() => {
-    const nextDefault = componentOptions[0]?.value || DEFAULT_COMPONENT_OPTIONS[0].value;
-    const stillValid = componentOptions.some((option) => option.value === selectedComponent);
+    const nextDefault = resolvedComponentOptions[0]?.value || DEFAULT_COMPONENT_OPTIONS[0].value;
+    const stillValid = resolvedComponentOptions.some((option) => option.value === selectedComponent);
     if (!stillValid) {
       setSelectedComponent(nextDefault);
     }
-  }, [componentOptions, selectedComponent]);
+  }, [resolvedComponentOptions, selectedComponent]);
 
   useEffect(() => {
     const loadExpectedSubjects = async () => {
@@ -428,7 +448,7 @@ export default function AssessmentSubmissionTracker({
       style={{ minWidth: "112px", cursor: "pointer" }}
       aria-label="Select assessment component to visualize"
     >
-      {componentOptions.map((option) => (
+      {resolvedComponentOptions.map((option) => (
         <option key={option.value} value={option.value}>
           {option.label}
         </option>

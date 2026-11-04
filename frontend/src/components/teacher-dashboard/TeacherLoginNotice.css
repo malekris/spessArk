@@ -1,0 +1,143 @@
+.teacher-login-notice-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 6100;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(2, 8, 23, 0.72);
+  backdrop-filter: blur(10px);
+}
+
+.teacher-login-notice {
+  position: relative;
+  width: 100%;
+  max-height: min(88vh, 720px);
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 26px 20px max(22px, env(safe-area-inset-bottom));
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-bottom: 0;
+  border-radius: 24px 24px 0 0;
+  background: #f8fafc;
+  box-shadow: 0 -24px 70px rgba(2, 6, 23, 0.42);
+  color: #0f172a;
+}
+
+.teacher-login-notice-accent {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 5px;
+  background: linear-gradient(90deg, #0f766e 0 72%, #d4a72c 72% 100%);
+}
+
+.teacher-login-notice-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #0f766e;
+  font-size: 0.74rem;
+  font-weight: 900;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.teacher-login-notice-label span {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #d4a72c;
+  box-shadow: 0 0 0 4px rgba(212, 167, 44, 0.14);
+}
+
+.teacher-login-notice-source {
+  margin: 20px 0 5px;
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.teacher-login-notice h2 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 1.55rem;
+  line-height: 1.18;
+  letter-spacing: 0;
+}
+
+.teacher-login-notice-copy {
+  margin: 16px 0 24px;
+  color: #334155;
+  font-size: 1rem;
+  line-height: 1.68;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.teacher-login-notice-error {
+  margin: 0 0 14px;
+  padding: 11px 12px;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  background: #fef2f2;
+  color: #991b1b;
+  font-size: 0.86rem;
+  font-weight: 750;
+}
+
+.teacher-login-notice-confirm {
+  width: 100%;
+  min-height: 52px;
+  border: 1px solid #0f766e;
+  border-radius: 12px;
+  background: #0f766e;
+  color: #fff;
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 900;
+  cursor: pointer;
+  transition: background 150ms ease, transform 150ms ease;
+}
+
+.teacher-login-notice-confirm:hover:not(:disabled) {
+  background: #115e59;
+}
+
+.teacher-login-notice-confirm:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.teacher-login-notice-confirm:focus-visible {
+  outline: 3px solid rgba(14, 165, 233, 0.35);
+  outline-offset: 3px;
+}
+
+.teacher-login-notice-confirm:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+@media (min-width: 640px) {
+  .teacher-login-notice-backdrop {
+    align-items: center;
+    padding: 24px;
+  }
+
+  .teacher-login-notice {
+    width: min(100%, 520px);
+    padding: 32px;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.28);
+    border-radius: 20px;
+    box-shadow: 0 32px 90px rgba(2, 6, 23, 0.46);
+  }
+
+  .teacher-login-notice h2 {
+    font-size: 1.8rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .teacher-login-notice-confirm {
+    transition: none;
+  }
+}

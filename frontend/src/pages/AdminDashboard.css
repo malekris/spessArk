@@ -5248,6 +5248,54 @@
   padding: 1.4rem;
   border: 1px solid rgba(148,163,184,0.4);
 }
+
+/* Admin Settings owns its scroll surface instead of inheriting the generic modal limits. */
+.admin-settings-backdrop {
+  z-index: 10020;
+  box-sizing: border-box;
+  padding: 16px;
+  overflow: hidden;
+}
+
+.admin-settings-modal {
+  width: min(100%, 680px);
+  max-width: 680px;
+  max-height: calc(100dvh - 32px);
+  box-sizing: border-box;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-gutter: stable;
+}
+
+.admin-settings-tabs {
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.admin-settings-footer {
+  padding-top: 14px;
+  border-top: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+@media (max-width: 640px) {
+  .admin-settings-backdrop {
+    align-items: flex-start;
+    padding: 8px;
+  }
+
+  .admin-settings-modal {
+    max-height: calc(100dvh - 16px);
+    padding: 18px 14px;
+    border-radius: 18px;
+  }
+
+  .admin-settings-footer {
+    padding-bottom: max(4px, env(safe-area-inset-bottom));
+  }
+}
 .nav-logout {
   all: unset; /* Clear defaults */
   display: inline-flex;

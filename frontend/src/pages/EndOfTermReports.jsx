@@ -5,6 +5,7 @@ import { normalizeSchoolCalendar } from "../utils/schoolCalendar";
 import { loadPdfTools } from "../utils/loadPdfTools";
 import { adminFetch } from "../lib/api";
 import { recordAdminReportGeneration } from "../utils/adminAuditEvents";
+import { usesEmergencyTwoAoiYearModel } from "../utils/oLevelYearAssessmentPolicy";
 
   const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5001";
   const REPORT_DATES_STORAGE_KEY = "spess_report_card_dates";
@@ -73,6 +74,10 @@ import { recordAdminReportGeneration } from "../utils/adminAuditEvents";
     ["AOI2_status", "T3 AOI 2"],
     ["AOI3_status", "T3 AOI 3"],
   ];
+  const getYearMissedAoiComponents = (row) =>
+    usesEmergencyTwoAoiYearModel(row)
+      ? YEAR_MISSED_AOI_COMPONENTS.filter(([statusKey]) => statusKey !== "AOI3_status")
+      : YEAR_MISSED_AOI_COMPONENTS;
   const MISSED_AOI_RISK_ORDER = {
     Critical: 0,
     Intermediate: 1,
@@ -100,7 +105,7 @@ import { recordAdminReportGeneration } from "../utils/adminAuditEvents";
           ["AOI2", "AOI2_status", "T3 AOI 2"],
           ["AOI3", "AOI3_status", "T3 AOI 3"],
           ["EXAM80", "EXAM80_status", "/80"],
-        ]
+        ].filter(([, statusKey]) => !usesEmergencyTwoAoiYearModel(row) || statusKey !== "AOI3_status")
       : [
           ["AOI1", "AOI1_status", "AOI 1"],
           ["AOI2", "AOI2_status", "AOI 2"],
@@ -149,9 +154,11 @@ import { recordAdminReportGeneration } from "../utils/adminAuditEvents";
 
   const buildMissedAoiRiskRows = (reportRows, isEndOfYearMode = false) => {
     const byStudent = new Map();
-    const missedAoiComponents = isEndOfYearMode ? YEAR_MISSED_AOI_COMPONENTS : TERM_MISSED_AOI_COMPONENTS;
 
     (Array.isArray(reportRows) ? reportRows : []).forEach((row) => {
+      const missedAoiComponents = isEndOfYearMode
+        ? getYearMissedAoiComponents(row)
+        : TERM_MISSED_AOI_COMPONENTS;
       const missedComponents = missedAoiComponents
         .filter(([statusKey]) => isMissedStatus(row[statusKey]))
         .map(([, label]) => label);
@@ -236,9 +243,11 @@ import { recordAdminReportGeneration } from "../utils/adminAuditEvents";
 
   const buildSubjectRankRows = (reportRows, isEndOfYearMode = false) => {
     const bySubject = new Map();
-    const missedAoiComponents = isEndOfYearMode ? YEAR_MISSED_AOI_COMPONENTS : TERM_MISSED_AOI_COMPONENTS;
 
     (Array.isArray(reportRows) ? reportRows : []).forEach((row) => {
+      const missedAoiComponents = isEndOfYearMode
+        ? getYearMissedAoiComponents(row)
+        : TERM_MISSED_AOI_COMPONENTS;
       const subject = String(row.subject || "").trim();
       if (!subject) return;
 

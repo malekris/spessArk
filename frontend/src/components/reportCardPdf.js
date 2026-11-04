@@ -1,6 +1,7 @@
 // src/components/ReportCardLayout.jsx
 import badge from "../assets/badge.png";
 import { loadPdfTools } from "../utils/loadPdfTools";
+import { usesEmergencyTwoAoiYearModel } from "../utils/oLevelYearAssessmentPolicy";
 const RHYTHM = 6; // mm — base vertical unit
 const getMedal = (position) => {
   if (position === 1) return " (1st)";
@@ -629,9 +630,24 @@ const displayMissedAsX = (value, fallback = "") => {
   if (value === null || value === undefined || value === "") return fallback;
   return String(value).trim().toUpperCase() === "MISSED" ? "X" : value;
 };
+const usesTwoTerm3Aois =
+  isEndOfYear && student.subjects.some((subject) => usesEmergencyTwoAoiYearModel(subject));
 
 const tableHead = isEndOfYear
-  ? [[
+  ? usesTwoTerm3Aois
+    ? [[
+        "Subject",
+        "A1",
+        "A2",
+        "AVG",
+        "20%",
+        "80%",
+        "100%",
+        "GRD",
+        "Remark",
+        "Teacher",
+      ]]
+    : [[
       "Subject",
       "A1",
       "A2",
@@ -655,7 +671,18 @@ const tableHead = isEndOfYear
     ]];
 
 const tableData = isEndOfYear
-  ? student.subjects.map((s) => [
+  ? student.subjects.map((s) => usesTwoTerm3Aois ? [
+      formatReportSubject(s.subject, { abbreviatePhysicalEducation: true }),
+      formatAoiCell(s.AOI1, s.AOI1_status),
+      formatAoiCell(s.AOI2, s.AOI2_status),
+      formatCell(s.average, 2),
+      formatCell(s.percent20, 2),
+      formatCell(s.percent80, 2),
+      formatCell(s.percent100, 2),
+      s.grade || "",
+      s.remark || "",
+      abbreviateName(s.teacher_name),
+    ] : [
       formatReportSubject(s.subject, { abbreviatePhysicalEducation: true }),
       formatAoiCell(s.AOI1, s.AOI1_status),
       formatAoiCell(s.AOI2, s.AOI2_status),
@@ -708,7 +735,30 @@ autoTable(doc, {
     fontSize: 9,
   }),
   columnStyles: isEndOfYear
-    ? {
+    ? usesTwoTerm3Aois
+      ? {
+          0: { cellWidth: COLUMN_WIDTH * 0.17 },
+          1: { cellWidth: COLUMN_WIDTH * 0.065, halign: "center" },
+          2: { cellWidth: COLUMN_WIDTH * 0.065, halign: "center" },
+          3: { cellWidth: COLUMN_WIDTH * 0.075, halign: "center" },
+          4: { cellWidth: COLUMN_WIDTH * 0.075, halign: "center" },
+          5: { cellWidth: COLUMN_WIDTH * 0.075, halign: "center" },
+          6: { cellWidth: COLUMN_WIDTH * 0.085, halign: "center" },
+          7: { cellWidth: COLUMN_WIDTH * 0.06, halign: "center" },
+          8: {
+            cellWidth: COLUMN_WIDTH * 0.16,
+            overflow: "linebreak",
+            halign: "left",
+            cellPadding: { left: 2, right: 2, top: 2, bottom: 2 },
+          },
+          9: {
+            cellWidth: COLUMN_WIDTH * 0.17,
+            overflow: "ellipsize",
+            halign: "center",
+            cellPadding: { left: 2, right: 2, top: 2, bottom: 2 },
+          },
+        }
+      : {
         0: { cellWidth: COLUMN_WIDTH * 0.17 },
         1: { cellWidth: COLUMN_WIDTH * 0.07, halign: "center" },
         2: { cellWidth: COLUMN_WIDTH * 0.07, halign: "center" },

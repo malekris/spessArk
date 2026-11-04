@@ -7,6 +7,7 @@ import useIdleSessionPrompt from "../hooks/useIdleSessionPrompt";
 import { useNavigate } from "react-router-dom";
 import { plainFetch } from "../lib/api";
 import ArkMaintenancePage from "../components/ArkMaintenancePage";
+import TeacherLoginNotice from "../components/teacher-dashboard/TeacherLoginNotice";
 import { loadPdfTools } from "../utils/loadPdfTools";
 import {
   TEACHER_SESSION_EXPIRED_EVENT,
@@ -23,6 +24,7 @@ import {
   getSchoolCalendarBadge,
   normalizeSchoolCalendar,
 } from "../utils/schoolCalendar";
+import { getOLevelMarkEntryColumns } from "../utils/oLevelYearAssessmentPolicy";
 
 // ============================
 // CONSTANTS / CONFIG
@@ -39,9 +41,9 @@ const formatDateTime = (value) => {
   return d.toLocaleString();
 };
 
-const getMarkColumns = (isAlevel, term) => {
+const getMarkColumns = (isAlevel, term, academicYear) => {
   if (isAlevel) return ["MID", "EOT"];
-  return term === "Term 3" ? ["AOI1", "AOI2", "AOI3", "EXAM80"] : ["AOI1", "AOI2", "AOI3"];
+  return getOLevelMarkEntryColumns(term, academicYear);
 };
 
 const getScoreConstraints = (isAlevel, aoi) => {
@@ -76,7 +78,7 @@ const getAssignmentDisplayLabel = (assignment) => {
 
 const formatColumnLabel = (column) => {
   if (!column) return "—";
-  return column === "EXAM80" ? "/80" : column;
+  return column === "EXAM80" ? "/80 (END)" : column;
 };
 
 const normalizeOperationalTerm = (value) => {
@@ -529,8 +531,24 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
               ? studentsBody.students
               : [];
             const marksList = Array.isArray(marksBody) ? marksBody : [];
-            const expectedEntries = studentsList.length * getMarkColumns(assignment.isAlevel === true, marksTerm).length;
-            const recordedEntries = marksList.length;
+            const expectedColumns = getMarkColumns(
+              assignment.isAlevel === true,
+              marksTerm,
+              marksYear
+            );
+            const expectedEntries = studentsList.length * expectedColumns.length;
+            const recordedEntries = new Set(
+              marksList
+                .map((mark) => ({
+                  studentId: Number(mark?.student_id),
+                  column: String(mark?.aoi_label || "").trim().toUpperCase(),
+                }))
+                .filter(
+                  ({ studentId, column }) =>
+                    Number.isInteger(studentId) && expectedColumns.includes(column)
+                )
+                .map(({ studentId, column }) => `${studentId}:${column}`)
+            ).size;
 
             let label = "Not Started";
             let tone = {
@@ -801,7 +819,7 @@ useEffect(() => {
       });
 
       // 4) initialize student marks/status using the appropriate columns
-      const columns = getMarkColumns(isAlevel, marksTerm);
+      const columns = getMarkColumns(isAlevel, marksTerm, marksYear);
 
       const studentMarksInit = {};
       const studentStatusInit = {};
@@ -1093,7 +1111,7 @@ useEffect(() => {
       const clearMarks = [];
       const errors = {};
       const isAlevel = selectedAssignment?.isAlevel === true;
-      const columns = getMarkColumns(isAlevel, marksTerm);
+      const columns = getMarkColumns(isAlevel, marksTerm, marksYear);
       const autoMissedCells = new Set();
 
       {
@@ -1282,12 +1300,19 @@ useEffect(() => {
       const pageWidth = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
       const assignmentLabel = getAssignmentDisplayLabel(selectedAssignment);
-      const columns = getMarkColumns(selectedAssignment?.isAlevel === true, marksTerm);
+      const columns = getMarkColumns(selectedAssignment?.isAlevel === true, marksTerm, marksYear);
       const hasExam80 = !selectedAssignment?.isAlevel && marksTerm === "Term 3";
       const pdfAoiColumns = hasExam80 ? columns.filter((c) => c !== "EXAM80") : columns;
-      const pdfAverageColumns = selectedAssignment?.isAlevel ? ["MID", "EOT"] : ["AOI1", "AOI2", "AOI3"];
+      const pdfAverageColumns = selectedAssignment?.isAlevel ? ["MID", "EOT"] : pdfAoiColumns;
       const scoreColumns = [...pdfAoiColumns, ...(hasExam80 ? ["EXAM80"] : [])];
-      const head = ["#", "Learner", "Gender", ...pdfAoiColumns.map(formatColumnLabel), "Avg", ...(hasExam80 ? ["/80"] : [])];
+      const head = [
+        "#",
+        "Learner",
+        "Gender",
+        ...pdfAoiColumns.map(formatColumnLabel),
+        ...(hasExam80 ? [formatColumnLabel("EXAM80")] : []),
+        "Avg",
+      ];
       const metadataCards = [
         {
           label: "Assignment",
@@ -1329,7 +1354,7 @@ useEffect(() => {
           })
           .filter((v) => v !== null);
         const avg = numeric.length ? (numeric.reduce((a, b) => a + b, 0) / numeric.length).toFixed(2) : "";
-        return [i + 1, s.name, s.gender, ...cells, avg, ...(hasExam80 ? [exam80Cell] : [])];
+        return [i + 1, s.name, s.gender, ...cells, ...(hasExam80 ? [exam80Cell] : []), avg];
       });
 
       doc.setDrawColor(31, 41, 55);
@@ -1471,10 +1496,10 @@ useEffect(() => {
   // ----------------------------
   // Compute dynamic columns for render
   // ----------------------------
-  const renderColumns = getMarkColumns(selectedAssignment?.isAlevel === true, marksTerm);
+  const renderColumns = getMarkColumns(selectedAssignment?.isAlevel === true, marksTerm, marksYear);
   const hasExam80Column = !selectedAssignment?.isAlevel && marksTerm === "Term 3";
   const renderAoiColumns = hasExam80Column ? renderColumns.filter((c) => c !== "EXAM80") : renderColumns;
-  const averageColumns = selectedAssignment?.isAlevel ? ["MID", "EOT"] : ["AOI1", "AOI2", "AOI3"];
+  const averageColumns = selectedAssignment?.isAlevel ? ["MID", "EOT"] : renderAoiColumns;
   // Keep O-Level table spacing stable across Term 1/2/3 (including Term 3 /80 mode).
   const effectiveColumnCount = selectedAssignment?.isAlevel ? 2 : 4;
   const learnersTableMinWidth = Math.max(1100, 320 + effectiveColumnCount * 190);
@@ -1713,6 +1738,7 @@ useEffect(() => {
 
   return (
     <div className="admin-root teacher-root">
+      <TeacherLoginNotice apiBase={API_BASE} request={fetchWithTeacherAuth} />
       {isPortrait && <div className="panel-alert">📱 Rotate your phone for better mark entry</div>}
       <header
   style={{
@@ -2995,12 +3021,6 @@ useEffect(() => {
                             {formatColumnLabel(c)}
                           </th>
                         ))}
-                        <th
-                          className="teacher-score-average-heading"
-                          style={desktopAverageColumnStyle}
-                        >
-                          Average
-                        </th>
                         {hasExam80Column && (
                           <th
                             className={`teacher-score-entry-heading${activeFocusColumn === "EXAM80" ? " is-focused" : ""}`}
@@ -3008,9 +3028,15 @@ useEffect(() => {
                             onClick={() => setFocusedColumn("EXAM80")}
                             title="Focus examination marks"
                           >
-                            /80
+                            {formatColumnLabel("EXAM80")}
                           </th>
                         )}
+                        <th
+                          className="teacher-score-average-heading"
+                          style={desktopAverageColumnStyle}
+                        >
+                          Average
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -3114,12 +3140,6 @@ useEffect(() => {
                               );
                             })}
 
-                            <td
-                              className="teacher-score-average-cell"
-                              style={desktopAverageColumnStyle}
-                            >
-                              <span>{calculateAverage(studentMarks[s.id], averageColumns)}</span>
-                            </td>
                             {hasExam80Column && (() => {
                               const aoi = "EXAM80";
                               const status = statusForS[aoi] ?? "Present";
@@ -3166,6 +3186,12 @@ useEffect(() => {
                                 </td>
                               );
                             })()}
+                            <td
+                              className="teacher-score-average-cell"
+                              style={desktopAverageColumnStyle}
+                            >
+                              <span>{calculateAverage(studentMarks[s.id], averageColumns)}</span>
+                            </td>
                           </tr>
                         );
                         })

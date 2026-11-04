@@ -68,6 +68,13 @@ import {
 import { ensureAlevelPromotionSchemaReady } from "./services/alevelPromotionService.js";
 import { ensureParentPortalSchemaReady } from "./services/parentPortalService.js";
 import { ensureSiteVisitSchemaReady } from "./services/siteVisitService.js";
+import { getOLevelMarkEntryComponents } from "./services/oLevelYearAssessmentPolicy.js";
+import {
+  acknowledgeTeacherLoginNotice,
+  readPendingTeacherLoginNotice,
+  readTeacherLoginNoticeSettings,
+  updateTeacherLoginNoticeSettings,
+} from "./services/teacherLoginNoticeService.js";
 import createPublicSiteVisitRoutes from "./routes/publicSiteVisits.js";
 
 
@@ -782,6 +789,71 @@ app.put("/api/admin/maintenance", authAdmin, async (req, res) => {
   } catch (err) {
     console.error("Update maintenance settings error:", err);
     res.status(500).json({ message: "Failed to update maintenance settings" });
+  }
+});
+
+app.get("/api/admin/teacher-login-notice", authAdmin, async (_req, res) => {
+  try {
+    res.json(await readTeacherLoginNoticeSettings(pool));
+  } catch (err) {
+    console.error("Admin read teacher login notice error:", err);
+    res.status(500).json({ message: "Failed to load teacher login notice" });
+  }
+});
+
+app.put("/api/admin/teacher-login-notice", authAdmin, async (req, res) => {
+  try {
+    const settings = await updateTeacherLoginNoticeSettings(
+      pool,
+      req.body || {},
+      Number(req.admin?.id) || 1
+    );
+
+    await logAuditEvent({
+      userId: Number(req.admin?.id) || 1,
+      userRole: "admin",
+      action: settings.enabled ? "PUBLISH_TEACHER_LOGIN_NOTICE" : "DISABLE_TEACHER_LOGIN_NOTICE",
+      entityType: "system",
+      entityId: 1,
+      description: settings.enabled
+        ? `Teacher login notice published: ${settings.title}`
+        : "Teacher login notice disabled",
+      ipAddress: extractClientIp(req),
+    });
+
+    res.json(settings);
+  } catch (err) {
+    console.error("Update teacher login notice error:", err);
+    res.status(Number(err?.statusCode || 500)).json({
+      message: err?.message || "Failed to update teacher login notice",
+    });
+  }
+});
+
+app.get("/api/teachers/login-notice", authTeacher, async (req, res) => {
+  try {
+    const notice = await readPendingTeacherLoginNotice(pool, req.teacher.id);
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ notice });
+  } catch (err) {
+    console.error("Read pending teacher login notice error:", err);
+    res.status(500).json({ message: "Failed to load teacher login notice" });
+  }
+});
+
+app.post("/api/teachers/login-notice/ack", authTeacher, async (req, res) => {
+  try {
+    const result = await acknowledgeTeacherLoginNotice(
+      pool,
+      req.teacher.id,
+      req.body?.version
+    );
+    res.json(result);
+  } catch (err) {
+    console.error("Acknowledge teacher login notice error:", err);
+    res.status(Number(err?.statusCode || 500)).json({
+      message: err?.message || "Failed to acknowledge teacher login notice",
+    });
   }
 });
 
@@ -2553,9 +2625,7 @@ app.post("/api/teacher/marks", authTeacher, async (req, res) => {
       });
     }
 
-    const allowedAois = term === "Term 3"
-      ? ["AOI1", "AOI2", "AOI3", "EXAM80"]
-      : ["AOI1", "AOI2", "AOI3"];
+    const allowedAois = getOLevelMarkEntryComponents(term, year);
 
     // 4) Clear explicitly emptied marks first
     for (const m of clearMarks) {
@@ -2956,9 +3026,7 @@ app.post("/api/teachers/marks", authTeacher, async (req, res) => {
       });
     }
 
-    const allowedAois = term === "Term 3"
-      ? ["AOI1", "AOI2", "AOI3", "EXAM80"]
-      : ["AOI1", "AOI2", "AOI3"];
+    const allowedAois = getOLevelMarkEntryComponents(term, year);
 
     // clear explicitly emptied marks first
     for (const m of clearMarks) {

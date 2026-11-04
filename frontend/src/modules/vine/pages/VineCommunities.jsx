@@ -6859,63 +6859,98 @@ export default function VineCommunities() {
                   </section>
                 )}
                 {activeTab === "settings" && ["owner", "moderator"].includes(String(activeCommunity.viewer_role || "").toLowerCase()) && (
-                  <section className="community-settings-panel">
-                    <h4>{isCommunityOwner ? "Group Settings" : "Pending Join Requests"}</h4>
+                  <section className="community-settings-panel community-settings-workspace">
+                    <header className="community-settings-header">
+                      <div className="community-settings-title">
+                        <span>{isCommunityOwner ? "Community management" : "Membership review"}</span>
+                        <h4>{isCommunityOwner ? "Group Settings" : "Pending Join Requests"}</h4>
+                        <p>
+                          {isCommunityOwner
+                            ? "Manage how this community looks, welcomes members, and stays organised."
+                            : "Review the people waiting to join this community."}
+                        </p>
+                      </div>
+                      {isCommunityOwner && (
+                        <button className="save-settings-btn" onClick={saveSettings}>Save Settings</button>
+                      )}
+                    </header>
                     {isCommunityOwner && (
                       <>
-                        <label className="settings-row">
-                          <span>Community name</span>
-                          <input
-                            value={communityNameDraft}
-                            onChange={(e) => setCommunityNameDraft(e.target.value)}
-                            maxLength={80}
-                            placeholder="Community name"
-                          />
-                          <small>{communityNameDraft.trim().length}/80</small>
-                        </label>
-                        <label className="settings-row">
-                          <span>Community description</span>
-                          <textarea
-                            value={communityDescriptionDraft}
-                            onChange={(e) => setCommunityDescriptionDraft(e.target.value)}
-                            maxLength={280}
-                            placeholder="Give members a quick feel for what this community is about."
-                          />
-                          <small>{communityDescriptionDraft.trim().length}/280</small>
-                          <div className="community-settings-preview">
-                            <b>Card preview</b>
-                            <p>{communityDescriptionPreview}</p>
+                        <div className="community-settings-section community-settings-identity">
+                          <div className="community-settings-section-head">
+                            <span>01</span>
+                            <div>
+                              <h5>Identity</h5>
+                              <p>The name and description members see across Vine.</p>
+                            </div>
                           </div>
-                        </label>
-                        <label className="settings-row">
-                          <span>How members join this community</span>
-                          <select value={joinPolicy} onChange={(e) => setJoinPolicy(e.target.value)}>
-                            <option value="open">Open (anyone can join)</option>
-                            <option value="approval">Approval required</option>
-                            <option value="closed">Closed (no new members)</option>
-                          </select>
-                        </label>
-                        <label className="settings-row">
-                          <span>Who can post</span>
-                          <input value="Only owner/moderators" disabled readOnly />
-                        </label>
-                        <label className="settings-row">
-                          <span>Auto welcome for new members</span>
-                          <select value={autoWelcomeEnabled ? "1" : "0"} onChange={(e) => setAutoWelcomeEnabled(e.target.value === "1")}>
-                            <option value="1">Enabled</option>
-                            <option value="0">Disabled</option>
-                          </select>
-                        </label>
-                        <label className="settings-row">
-                          <span>Welcome message</span>
-                          <input
-                            value={welcomeMessage}
-                            onChange={(e) => setWelcomeMessage(e.target.value)}
-                            maxLength={280}
-                            placeholder={`Welcome to ${activeCommunity.name}!`}
-                          />
-                        </label>
-                        <button className="save-settings-btn" onClick={saveSettings}>Save Settings</button>
+                          <div className="community-settings-identity-grid">
+                            <label className="settings-row">
+                              <span>Community name</span>
+                              <input
+                                value={communityNameDraft}
+                                onChange={(e) => setCommunityNameDraft(e.target.value)}
+                                maxLength={80}
+                                placeholder="Community name"
+                              />
+                              <small>{communityNameDraft.trim().length}/80</small>
+                            </label>
+                            <label className="settings-row settings-row-description">
+                              <span>Community description</span>
+                              <textarea
+                                value={communityDescriptionDraft}
+                                onChange={(e) => setCommunityDescriptionDraft(e.target.value)}
+                                maxLength={280}
+                                placeholder="Give members a quick feel for what this community is about."
+                              />
+                              <small>{communityDescriptionDraft.trim().length}/280</small>
+                              <div className="community-settings-preview">
+                                <b>Card preview</b>
+                                <p>{communityDescriptionPreview}</p>
+                              </div>
+                            </label>
+                          </div>
+                        </div>
+
+                        <div className="community-settings-section community-settings-access">
+                          <div className="community-settings-section-head">
+                            <span>02</span>
+                            <div>
+                              <h5>Access &amp; welcome</h5>
+                              <p>Set the entry rules and first message for new members.</p>
+                            </div>
+                          </div>
+                          <div className="community-settings-field-grid">
+                            <label className="settings-row">
+                              <span>How members join</span>
+                              <select value={joinPolicy} onChange={(e) => setJoinPolicy(e.target.value)}>
+                                <option value="open">Open (anyone can join)</option>
+                                <option value="approval">Approval required</option>
+                                <option value="closed">Closed (no new members)</option>
+                              </select>
+                            </label>
+                            <label className="settings-row">
+                              <span>Who can post</span>
+                              <input value="Only owner/moderators" disabled readOnly />
+                            </label>
+                            <label className="settings-row">
+                              <span>Auto welcome</span>
+                              <select value={autoWelcomeEnabled ? "1" : "0"} onChange={(e) => setAutoWelcomeEnabled(e.target.value === "1")}>
+                                <option value="1">Enabled</option>
+                                <option value="0">Disabled</option>
+                              </select>
+                            </label>
+                            <label className="settings-row settings-row-wide">
+                              <span>Welcome message</span>
+                              <input
+                                value={welcomeMessage}
+                                onChange={(e) => setWelcomeMessage(e.target.value)}
+                                maxLength={280}
+                                placeholder={`Welcome to ${activeCommunity.name}!`}
+                              />
+                            </label>
+                          </div>
+                        </div>
                         <div
                           className={`community-group-chat-tool ${communityGroupChat?.enabled ? "is-linked" : ""}`}
                           aria-live="polite"
@@ -6990,7 +7025,15 @@ export default function VineCommunities() {
                             )}
                           </div>
                         </div>
-                        <div className="community-upload-grid">
+                        <div className="community-settings-section community-settings-media">
+                          <div className="community-settings-section-head">
+                            <span>03</span>
+                            <div>
+                              <h5>Community media</h5>
+                              <p>Keep the avatar and banner polished across every screen.</p>
+                            </div>
+                          </div>
+                          <div className="community-upload-grid">
                           <div className="community-upload-card">
                             <div className="community-upload-head">
                               <span>Community avatar</span>
@@ -7068,12 +7111,13 @@ export default function VineCommunities() {
                               {isAdjustingCommunityBanner ? "Save Banner Position" : "Adjust Banner Position"}
                             </button>
                           </div>
+                          </div>
                         </div>
                       </>
                     )}
 
                     {joinPolicy === "approval" && (
-                      <div className="request-panel">
+                      <div className="request-panel community-settings-requests">
                         <h5>Pending Join Requests</h5>
                         {pendingRequests.length === 0 ? (
                           <div className="community-empty">No pending requests.</div>
@@ -7103,6 +7147,14 @@ export default function VineCommunities() {
 
                     {isCommunityOwner && (
                       <>
+                        <div className="community-settings-governance-head">
+                          <span>04</span>
+                          <div>
+                            <h5>Governance &amp; planning</h5>
+                            <p>Maintain the rules, entry questions, and scheduled publishing queue.</p>
+                          </div>
+                        </div>
+                        <div className="community-settings-governance-grid">
                         <div className="rules-editor">
                           <h5>Rules</h5>
                           {rules.map((r) => (
@@ -7143,6 +7195,7 @@ export default function VineCommunities() {
                               </div>
                             ))
                           )}
+                        </div>
                         </div>
                       </>
                     )}

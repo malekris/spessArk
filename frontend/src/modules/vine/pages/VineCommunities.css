@@ -9146,3 +9146,481 @@
   .community-calendar-upcoming { padding: 14px 10px; }
   .theme-dark .calendar-clarity-strip > div { border-bottom-color: rgba(148, 184, 169, 0.12); }
 }
+
+/* Community settings workspace */
+.community-settings-panel.community-settings-workspace {
+  overflow: hidden;
+  padding: 0;
+  border-color: #d9e3df;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 18px 44px rgba(24, 68, 53, 0.08);
+}
+
+.community-settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 22px;
+  padding: 24px;
+  border-bottom: 1px solid #dce6e2;
+  background: #f4f8f6;
+}
+
+.community-settings-title > span {
+  display: block;
+  margin-bottom: 5px;
+  color: #9a6c10;
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.community-settings-panel .community-settings-title h4 {
+  margin: 0;
+  color: #143f32;
+  font-size: clamp(1.25rem, 2vw, 1.65rem);
+  line-height: 1.15;
+}
+
+.community-settings-title p {
+  max-width: 680px;
+  margin: 7px 0 0;
+  color: #62756e;
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.community-settings-workspace .save-settings-btn {
+  min-height: 44px;
+  flex: 0 0 auto;
+  border: 1px solid #176b50;
+  border-radius: 7px;
+  padding: 10px 18px;
+  background: #176b50;
+  color: #ffffff;
+  box-shadow: 0 9px 20px rgba(23, 107, 80, 0.17);
+  font-size: 0.82rem;
+  font-weight: 900;
+  cursor: pointer;
+  transition: background 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.community-settings-workspace .save-settings-btn:hover {
+  transform: translateY(-1px);
+  background: #105d44;
+  box-shadow: 0 12px 24px rgba(23, 107, 80, 0.22);
+}
+
+.community-settings-section {
+  padding: 22px 24px;
+  border-bottom: 1px solid #e0e8e4;
+}
+
+.community-settings-section-head,
+.community-settings-governance-head {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: start;
+  gap: 11px;
+}
+
+.community-settings-section-head > span,
+.community-settings-governance-head > span {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #d6b456;
+  border-radius: 7px;
+  background: #fffaf0;
+  color: #805b08;
+  font-size: 0.68rem;
+  font-weight: 900;
+}
+
+.community-settings-section-head h5,
+.community-settings-governance-head h5 {
+  margin: 0;
+  color: #173f33;
+  font-size: 0.96rem;
+}
+
+.community-settings-section-head p,
+.community-settings-governance-head p {
+  margin: 3px 0 0;
+  color: #72817b;
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.community-settings-identity-grid,
+.community-settings-field-grid {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.community-settings-identity-grid {
+  grid-template-columns: minmax(220px, 0.78fr) minmax(320px, 1.22fr);
+  align-items: start;
+}
+
+.community-settings-field-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.community-settings-field-grid .settings-row-wide {
+  grid-column: span 2;
+}
+
+.community-settings-workspace .settings-row {
+  min-width: 0;
+  gap: 7px;
+  margin: 0;
+}
+
+.community-settings-workspace .settings-row > span {
+  color: #334b42;
+  font-size: 0.75rem;
+  font-weight: 850;
+}
+
+.community-settings-workspace .settings-row input,
+.community-settings-workspace .settings-row select,
+.community-settings-workspace .settings-row textarea,
+.community-settings-workspace .inline-add-row input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #cbd8d2;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #172c25;
+  font: inherit;
+  outline: none;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+
+.community-settings-workspace .settings-row input,
+.community-settings-workspace .settings-row select {
+  min-height: 46px;
+  padding: 10px 12px;
+}
+
+.community-settings-workspace .settings-row textarea {
+  min-height: 112px;
+  padding: 12px;
+}
+
+.community-settings-workspace .settings-row input:focus,
+.community-settings-workspace .settings-row select:focus,
+.community-settings-workspace .settings-row textarea:focus,
+.community-settings-workspace .inline-add-row input:focus {
+  border-color: #2f8b6c;
+  box-shadow: 0 0 0 3px rgba(47, 139, 108, 0.12);
+}
+
+.community-settings-workspace .settings-row input:disabled {
+  border-color: #dfe5e2;
+  background: #f2f5f3;
+  color: #6c7b75;
+  opacity: 1;
+}
+
+.community-settings-workspace .settings-row small {
+  justify-self: end;
+  color: #7a8983;
+  font-size: 0.68rem;
+}
+
+.community-settings-workspace .community-settings-preview {
+  margin: 2px 0 0;
+  border: 1px solid #d9e4df;
+  border-left: 3px solid #c99c2c;
+  border-radius: 7px;
+  padding: 11px 12px;
+  background: #f7faf8;
+  box-shadow: none;
+}
+
+.community-settings-workspace .community-settings-preview b {
+  color: #6f550f;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+}
+
+.community-settings-workspace .community-settings-preview p {
+  color: #53665f;
+}
+
+.community-settings-workspace .community-group-chat-tool {
+  margin: 0;
+  padding: 22px 24px;
+  border: 0;
+  border-bottom: 1px solid #e0e8e4;
+  background: #f5f9f7;
+}
+
+.community-settings-workspace .community-group-chat-tool.is-linked {
+  background: #f0f8f4;
+}
+
+.community-settings-workspace .community-group-chat-icon {
+  border-radius: 7px;
+  box-shadow: none;
+}
+
+.community-settings-workspace .community-group-chat-state,
+.community-settings-workspace .community-group-chat-metrics > span,
+.community-settings-workspace .community-group-chat-actions button {
+  border-radius: 7px;
+}
+
+.community-settings-workspace .community-group-chat-primary {
+  background: #176b50;
+  box-shadow: none;
+}
+
+.community-settings-workspace .community-settings-media {
+  background: #ffffff;
+}
+
+.community-settings-workspace .community-upload-grid {
+  margin-top: 18px;
+  gap: 12px;
+}
+
+.community-settings-workspace .community-upload-card {
+  border-color: #d9e4df;
+  border-radius: 8px;
+  padding: 16px;
+  background: #f8faf9;
+  box-shadow: none;
+}
+
+.community-settings-workspace .community-upload-preview,
+.community-settings-workspace .community-file-trigger,
+.community-settings-workspace .community-file-pill,
+.community-settings-workspace .community-upload-grid button {
+  border-radius: 7px;
+}
+
+.community-settings-workspace .community-file-trigger {
+  border-color: #b8cec4;
+  background: #f1f7f4;
+}
+
+.community-settings-workspace .community-upload-grid button {
+  min-height: 42px;
+  background: #176b50;
+}
+
+.community-settings-workspace .community-settings-requests {
+  margin: 0;
+  padding: 22px 24px;
+  border-bottom: 1px solid #e0e8e4;
+  background: #fffdf7;
+}
+
+.community-settings-workspace .community-settings-requests h5 {
+  color: #76560d;
+}
+
+.community-settings-governance-head {
+  padding: 22px 24px 0;
+}
+
+.community-settings-governance-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding: 18px 24px 24px;
+}
+
+.community-settings-workspace .community-settings-governance-grid .rules-editor {
+  min-width: 0;
+  margin: 0;
+  border: 1px solid #dbe5e1;
+  border-radius: 8px;
+  padding: 15px;
+  background: #f8faf9;
+}
+
+.community-settings-workspace .community-settings-governance-grid .rules-editor:last-child {
+  grid-column: 1 / -1;
+}
+
+.community-settings-workspace .rules-editor h5 {
+  margin-bottom: 11px;
+  color: #28483d;
+}
+
+.community-settings-workspace .rule-edit-row {
+  border-color: #dce5e1;
+  border-radius: 7px;
+  background: #ffffff;
+}
+
+.community-settings-workspace .rule-edit-row > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.community-settings-workspace .rule-edit-row button,
+.community-settings-workspace .inline-add-row button {
+  border-radius: 7px;
+}
+
+.community-settings-workspace .inline-add-row button {
+  min-width: 64px;
+  background: #176b50;
+}
+
+.theme-dark .community-settings-panel.community-settings-workspace {
+  border-color: rgba(148, 184, 169, 0.16);
+  background: #0f211b;
+  box-shadow: 0 20px 44px rgba(0, 0, 0, 0.25);
+}
+
+.theme-dark .community-settings-header,
+.theme-dark .community-settings-workspace .community-group-chat-tool,
+.theme-dark .community-settings-workspace .community-group-chat-tool.is-linked {
+  border-color: rgba(148, 184, 169, 0.14);
+  background: #10251e;
+}
+
+.theme-dark .community-settings-title p,
+.theme-dark .community-settings-section-head p,
+.theme-dark .community-settings-governance-head p,
+.theme-dark .community-settings-workspace .community-upload-head small,
+.theme-dark .community-settings-workspace .settings-row small {
+  color: #9db2aa;
+}
+
+.theme-dark .community-settings-panel .community-settings-title h4,
+.theme-dark .community-settings-section-head h5,
+.theme-dark .community-settings-governance-head h5,
+.theme-dark .community-settings-workspace .rules-editor h5,
+.theme-dark .community-settings-workspace .community-upload-head span,
+.theme-dark .community-settings-workspace .community-group-chat-heading h5 {
+  color: #d8eee5;
+}
+
+.theme-dark .community-settings-section,
+.theme-dark .community-settings-workspace .community-settings-requests {
+  border-color: rgba(148, 184, 169, 0.14);
+  background: #0f211b;
+}
+
+.theme-dark .community-settings-section-head > span,
+.theme-dark .community-settings-governance-head > span {
+  border-color: rgba(224, 181, 74, 0.42);
+  background: rgba(224, 181, 74, 0.09);
+  color: #e6c45f;
+}
+
+.theme-dark .community-settings-workspace .settings-row > span {
+  color: #bfd4cb;
+}
+
+.theme-dark .community-settings-workspace .settings-row input,
+.theme-dark .community-settings-workspace .settings-row select,
+.theme-dark .community-settings-workspace .settings-row textarea,
+.theme-dark .community-settings-workspace .inline-add-row input {
+  border-color: #2c463c;
+  background: #132a22;
+  color: #e0f0e9;
+}
+
+.theme-dark .community-settings-workspace .settings-row input:disabled {
+  border-color: #273b33;
+  background: #0d1c17;
+  color: #8ca099;
+}
+
+.theme-dark .community-settings-workspace .community-settings-preview,
+.theme-dark .community-settings-workspace .community-upload-card,
+.theme-dark .community-settings-workspace .community-settings-governance-grid .rules-editor {
+  border-color: #29443a;
+  background: #122820;
+}
+
+.theme-dark .community-settings-workspace .community-settings-preview p,
+.theme-dark .community-settings-workspace .community-group-chat-heading p {
+  color: #9db2aa;
+}
+
+.theme-dark .community-settings-workspace .community-file-trigger,
+.theme-dark .community-settings-workspace .community-file-pill,
+.theme-dark .community-settings-workspace .rule-edit-row {
+  border-color: #304a40;
+  background: #172f27;
+}
+
+.theme-dark .community-settings-workspace .community-file-pill strong,
+.theme-dark .community-settings-workspace .rule-edit-row {
+  color: #d4e9e0;
+}
+
+.theme-dark .community-settings-workspace .community-file-pill span {
+  color: #9db2aa;
+}
+
+@media (max-width: 980px) {
+  .community-settings-identity-grid,
+  .community-settings-field-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .community-settings-identity-grid .settings-row-description,
+  .community-settings-field-grid .settings-row-wide {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 720px) {
+  .community-settings-header {
+    align-items: stretch;
+    flex-direction: column;
+    padding: 18px 15px;
+  }
+
+  .community-settings-workspace .save-settings-btn {
+    width: 100%;
+  }
+
+  .community-settings-section,
+  .community-settings-workspace .community-group-chat-tool,
+  .community-settings-workspace .community-settings-requests {
+    padding: 18px 15px;
+  }
+
+  .community-settings-identity-grid,
+  .community-settings-field-grid,
+  .community-settings-governance-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .community-settings-identity-grid .settings-row-description,
+  .community-settings-field-grid .settings-row-wide,
+  .community-settings-workspace .community-settings-governance-grid .rules-editor:last-child {
+    grid-column: auto;
+  }
+
+  .community-settings-governance-head {
+    padding: 18px 15px 0;
+  }
+
+  .community-settings-governance-grid {
+    padding: 16px 15px 18px;
+  }
+
+  .community-settings-workspace .inline-add-row {
+    grid-template-columns: 1fr;
+  }
+
+  .community-settings-workspace .inline-add-row button {
+    min-height: 42px;
+  }
+}

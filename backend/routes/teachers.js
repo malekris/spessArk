@@ -23,6 +23,10 @@ import { readMaintenanceSettings } from "../services/maintenanceModeService.js";
 import { ensureAlevelPromotionSchemaReady } from "../services/alevelPromotionService.js";
 import { getJwtSecret } from "../config/security.js";
 import { createDatabaseRateLimit } from "../middleware/databaseRateLimit.js";
+import {
+  signTeacherPasswordResetToken,
+  verifyTeacherPasswordResetToken,
+} from "../services/teacherPasswordResetTokenService.js";
 
 dotenv.config();
 const router = express.Router();
@@ -407,16 +411,7 @@ router.post("/verify-reset-code", limitTeacherResetVerify, async (req, res) => {
       return res.status(400).json({ message: "Invalid or expired code" });
     }
 
-    const token = jwt.sign(
-      {
-        id: teacher.id,
-        email: teacher.email,
-        role: "teacher",
-        resetOnly: true,
-      },
-      getJwtSecret(),
-      { expiresIn: "20m" }
-    );
+    const token = signTeacherPasswordResetToken(teacher, getJwtSecret());
 
     return res.json({
       token,
@@ -425,7 +420,7 @@ router.post("/verify-reset-code", limitTeacherResetVerify, async (req, res) => {
         name: teacher.name,
         email: teacher.email,
       },
-        purpose: "teacher_password_reset",
+      purpose: "teacher_password_reset",
     });
   } catch (err) {
     console.error("❌ Verify reset code error:", err);
@@ -439,8 +434,7 @@ router.post("/verify-reset-code", limitTeacherResetVerify, async (req, res) => {
 const requireTeacherPasswordReset = (req, res, next) => {
   try {
     const token = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "");
-    const decoded = jwt.verify(token, getJwtSecret());
-    if (decoded?.role !== "teacher" || decoded?.purpose !== "teacher_password_reset") throw new Error("wrong purpose");
+    const decoded = verifyTeacherPasswordResetToken(token, getJwtSecret());
     req.teacher = decoded;
     next();
   } catch {
@@ -453,6 +447,9 @@ router.post("/reset-password", requireTeacherPasswordReset, async (req, res) => 
     const { newPassword } = req.body;
     if (!newPassword) {
       return res.status(400).json({ message: "New password is required" });
+    }
+    if (String(newPassword).length < 6) {
+      return res.status(400).json({ message: "New password must be at least 6 characters" });
     }
 
     const hashed = await bcrypt.hash(newPassword, 12);

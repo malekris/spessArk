@@ -5,6 +5,7 @@ import { Routes, Route, useLocation } from "react-router-dom";
 import LoginPage from "./pages/LoginPage";
 import TeacherLogin from "./pages/TeacherLogin";
 import TeacherForgotPassword from "./pages/TeacherForgotPassword";
+import TeacherResetPassword from "./pages/TeacherResetPassword";
 import TeacherSignup from "./pages/TeacherSignup";
 import LandingPage from "./components/LandingPage";
 import ArkLayout from "./components/ArkLayout";
@@ -197,6 +198,15 @@ function App() {
       element={
         <ArkLayout>
           <TeacherForgotPassword />
+        </ArkLayout>
+      }
+    />
+
+    <Route
+      path="/ark/teacher-reset"
+      element={
+        <ArkLayout>
+          <TeacherResetPassword />
         </ArkLayout>
       }
     />

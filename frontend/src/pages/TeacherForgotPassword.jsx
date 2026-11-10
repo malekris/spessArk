@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { writeTeacherIdleExpiry } from "../utils/teacherSecurity";
+import { clearTeacherSession } from "../utils/teacherSecurity";
 import { useSiteVisuals } from "../utils/siteVisuals";
 import "./LoginPage.css";
 
@@ -78,11 +78,11 @@ function TeacherForgotPassword() {
         return;
       }
 
-      localStorage.setItem("teacherToken", data.token);
-      localStorage.setItem("teacherProfile", JSON.stringify(data.teacher));
-      writeTeacherIdleExpiry(Date.now() + 60 * 60 * 1000);
-      sessionStorage.setItem("teacherResetMode", "1");
-      navigate("/ark/teacher?reset=1", { replace: true });
+      // Keep reset credentials separate from a normal signed-in teacher session.
+      clearTeacherSession();
+      sessionStorage.setItem("teacherPasswordResetToken", data.token);
+      sessionStorage.setItem("teacherPasswordResetProfile", JSON.stringify(data.teacher));
+      navigate("/ark/teacher-reset", { replace: true });
     } catch {
       setStatus("Verification failed.");
     } finally {

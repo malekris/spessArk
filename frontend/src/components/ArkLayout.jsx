@@ -12,6 +12,7 @@ const ARK_AUTH_PATHS = new Set([
   "/ark/teacher-login",
   "/ark/teacher-signup",
   "/ark/teacher-forgot",
+  "/ark/teacher-reset",
   "/ark/boarding-login",
 ]);
 

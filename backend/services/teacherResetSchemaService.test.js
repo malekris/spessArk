@@ -19,8 +19,8 @@ function createConnection(columns) {
 
 test("widens a legacy reset token column without recreating it", async () => {
   const connection = createConnection([
-    { column_name: "reset_token", data_type: "varchar", character_maximum_length: 50 },
-    { column_name: "reset_expires", data_type: "datetime", character_maximum_length: null },
+    { columnName: "reset_token", dataType: "varchar", characterMaximumLength: 50 },
+    { columnName: "reset_expires", dataType: "datetime", characterMaximumLength: null },
   ]);
 
   await ensureTeacherResetSchemaReady(connection);
@@ -31,8 +31,8 @@ test("widens a legacy reset token column without recreating it", async () => {
 
 test("does not alter an already compatible reset schema", async () => {
   const connection = createConnection([
-    { column_name: "reset_token", data_type: "varchar", character_maximum_length: 255 },
-    { column_name: "reset_expires", data_type: "datetime", character_maximum_length: null },
+    { columnName: "reset_token", dataType: "varchar", characterMaximumLength: 255 },
+    { columnName: "reset_expires", dataType: "datetime", characterMaximumLength: null },
   ]);
 
   await ensureTeacherResetSchemaReady(connection);

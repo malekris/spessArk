@@ -1,0 +1,271 @@
+.admin-population-summary {
+  margin-top: 1.5rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.8fr);
+  gap: 0.85rem;
+}
+
+.admin-population-card {
+  --population-accent: #38bdf8;
+  position: relative;
+  overflow: hidden;
+  min-width: 0;
+  min-height: 228px;
+  padding: 1.15rem 1.2rem 1rem;
+  border: 1px solid #293344;
+  border-radius: 8px;
+  background: #11161e;
+  color: #e7eef8;
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.24);
+}
+
+.admin-population-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--population-accent);
+}
+
+.admin-population-card-learners {
+  --population-accent: #38bdf8;
+}
+
+.admin-population-card-teachers {
+  --population-accent: #e6bd55;
+}
+
+.admin-population-card-header,
+.admin-population-heading {
+  display: flex;
+  align-items: center;
+}
+
+.admin-population-card-header {
+  justify-content: space-between;
+  gap: 0.8rem;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid #293344;
+}
+
+.admin-population-heading {
+  min-width: 0;
+  gap: 0.7rem;
+}
+
+.admin-population-mark {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--population-accent) 42%, #293344);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--population-accent) 12%, #11161e);
+  color: color-mix(in srgb, var(--population-accent) 78%, white);
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+.admin-population-eyebrow {
+  display: block;
+  margin-bottom: 0.18rem;
+  color: #8998ad;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.admin-population-heading h3 {
+  margin: 0;
+  color: #f8fafc;
+  font-size: 0.96rem;
+  letter-spacing: 0;
+}
+
+.admin-population-status {
+  flex: 0 0 auto;
+  min-height: 28px;
+  padding: 0.3rem 0.52rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--population-accent) 38%, #293344);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--population-accent) 9%, #11161e);
+  color: #cbd5e1;
+  font-size: 0.64rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.admin-population-primary {
+  min-height: 78px;
+  padding: 1rem 0 0.85rem;
+  display: flex;
+  align-items: flex-end;
+  gap: 0.72rem;
+}
+
+.admin-population-primary strong {
+  color: #ffffff;
+  font-size: 2.65rem;
+  font-weight: 850;
+  line-height: 0.92;
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-population-primary span {
+  max-width: 24ch;
+  padding-bottom: 0.16rem;
+  color: #a6b2c3;
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.admin-population-gender-track {
+  height: 5px;
+  display: flex;
+  overflow: hidden;
+  border-radius: 3px;
+  background: #293344;
+}
+
+.admin-population-gender-track span {
+  display: block;
+  height: 100%;
+}
+
+.admin-population-gender-track .is-boys {
+  background: #38bdf8;
+}
+
+.admin-population-gender-track .is-girls {
+  background: #f472b6;
+}
+
+.admin-population-detail-grid {
+  margin-top: 0.7rem;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-top: 1px solid #293344;
+}
+
+.admin-population-detail-grid > div {
+  min-width: 0;
+  padding: 0.68rem 0.75rem 0 0;
+}
+
+.admin-population-detail-grid > div + div {
+  padding-left: 0.75rem;
+  border-left: 1px solid #293344;
+}
+
+.admin-population-detail-grid span,
+.admin-population-teacher-summary span {
+  display: block;
+  color: #8998ad;
+  font-size: 0.64rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.admin-population-detail-grid strong {
+  display: block;
+  margin-top: 0.22rem;
+  color: #f8fafc;
+  font-size: 1.1rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-population-detail-grid small,
+.admin-population-teacher-summary small {
+  display: block;
+  margin-top: 0.12rem;
+  color: #8998ad;
+  font-size: 0.64rem;
+  line-height: 1.4;
+}
+
+.admin-population-teacher-summary {
+  padding-top: 0.75rem;
+  border-top: 1px solid #293344;
+}
+
+.admin-population-teacher-summary strong {
+  display: block;
+  margin-top: 0.28rem;
+  color: color-mix(in srgb, var(--population-accent) 76%, white);
+  font-size: 1.22rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-root.mode-light .admin-population-card {
+  border-color: #d7dee8;
+  background: #ffffff;
+  color: #172033;
+  box-shadow: 0 14px 30px rgba(71, 85, 105, 0.1);
+}
+
+.admin-root.mode-light .admin-population-card-header,
+.admin-root.mode-light .admin-population-detail-grid,
+.admin-root.mode-light .admin-population-detail-grid > div + div,
+.admin-root.mode-light .admin-population-teacher-summary {
+  border-color: #e0e6ee;
+}
+
+.admin-root.mode-light .admin-population-mark,
+.admin-root.mode-light .admin-population-status {
+  background: color-mix(in srgb, var(--population-accent) 8%, white);
+  border-color: color-mix(in srgb, var(--population-accent) 34%, #d7dee8);
+}
+
+.admin-root.mode-light .admin-population-heading h3,
+.admin-root.mode-light .admin-population-primary strong,
+.admin-root.mode-light .admin-population-detail-grid strong {
+  color: #0f172a;
+}
+
+.admin-root.mode-light .admin-population-eyebrow,
+.admin-root.mode-light .admin-population-primary span,
+.admin-root.mode-light .admin-population-detail-grid span,
+.admin-root.mode-light .admin-population-detail-grid small,
+.admin-root.mode-light .admin-population-teacher-summary span,
+.admin-root.mode-light .admin-population-teacher-summary small {
+  color: #64748b;
+}
+
+.admin-root.mode-light .admin-population-status {
+  color: #334155;
+}
+
+.admin-root.mode-light .admin-population-gender-track {
+  background: #e1e7ee;
+}
+
+@media (max-width: 900px) {
+  .admin-population-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-population-card {
+    min-height: auto;
+  }
+}
+
+@media (max-width: 480px) {
+  .admin-population-card {
+    padding: 1rem;
+  }
+
+  .admin-population-card-header {
+    align-items: flex-start;
+  }
+
+  .admin-population-primary strong {
+    font-size: 2.25rem;
+  }
+}

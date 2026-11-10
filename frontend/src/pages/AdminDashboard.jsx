@@ -20,6 +20,7 @@ import RecentAdminActivityCard from "../components/admin-dashboard/RecentAdminAc
 import LatestMarksActivityCard from "../components/admin-dashboard/LatestMarksActivityCard";
 import SystemReadinessCard from "../components/admin-dashboard/SystemReadinessCard";
 import LearnerMovementCard from "../components/admin-dashboard/LearnerMovementCard";
+import AdminPopulationSummary from "../components/admin-dashboard/AdminPopulationSummary";
 import OLevelReportReadinessCard from "../components/admin-dashboard/OLevelReportReadinessCard";
 import TeacherLoginNoticeSettings from "../components/admin-dashboard/TeacherLoginNoticeSettings";
 import SpessParentsPanel from "../components/SpessParentsPanel";
@@ -5549,74 +5550,14 @@ export default function AdminDashboard() {
     </div>
   )}
 
-  {/* ================= OVERVIEW CARDS ================= */}
-  <div
-    style={{
-      marginTop: "1.8rem",
-      display: "flex",
-      flexWrap: "wrap",
-      gap: "1rem",
-    }}
-  >
-    {/* TOTAL POPULATION */}
-    <div
-      style={{
-        flex: "1 1 260px",
-        padding: "1.4rem 1.6rem",
-        borderRadius: "1rem",
-        background:
-          "linear-gradient(135deg, rgba(56,189,248,0.22), rgba(79,70,229,0.35))",
-        border: "1px solid rgba(59,130,246,0.6)",
-        boxShadow: "0 18px 40px rgba(15,23,42,0.8)",
-      }}
-    >
-      <div
-        style={{
-          fontSize: "0.78rem",
-          textTransform: "uppercase",
-          letterSpacing: "0.18em",
-          color: "#bfdbfe",
-          marginBottom: "0.4rem",
-        }}
-      >
-        Total O level Population
-      </div>
-      <div style={{ fontSize: "2.3rem", fontWeight: 700 }}>
-        {dashboardTotalStudents}
-      </div>
-      <div style={{ marginTop: "0.4rem", fontSize: "0.85rem" }}>
-        Boys: <strong>{dashboardTotalBoys}</strong> • Girls:{" "}
-        <strong>{dashboardTotalGirls}</strong>
-      </div>
-    </div>
-
-    {/* TEACHERS */}
-    <div
-      style={{
-        flex: "1 1 200px",
-        padding: "1.1rem 1.3rem",
-        borderRadius: "1rem",
-        background:
-          "linear-gradient(135deg, rgba(244,114,182,0.22), rgba(236,72,153,0.35))",
-        border: "1px solid rgba(244,114,182,0.8)",
-      }}
-    >
-      <div
-        style={{
-          fontSize: "0.8rem",
-          textTransform: "uppercase",
-          letterSpacing: "0.14em",
-          color: "#fce7f3",
-          marginBottom: "0.2rem",
-        }}
-      >
-        Teachers Enrolled
-      </div>
-      <div style={{ fontSize: "2rem", fontWeight: 600 }}>
-        {dashboardTotalTeachers}
-      </div>
-    </div>
-  </div>
+  <AdminPopulationSummary
+    learnerTotal={dashboardTotalStudents}
+    boys={dashboardTotalBoys}
+    girls={dashboardTotalGirls}
+    teacherTotal={dashboardTotalTeachers}
+    academicYear={dashboardViewYear}
+    viewMode={dashboardViewMode}
+  />
 
   <button
     type="button"

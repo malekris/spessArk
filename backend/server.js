@@ -75,6 +75,7 @@ import {
   readTeacherLoginNoticeSettings,
   updateTeacherLoginNoticeSettings,
 } from "./services/teacherLoginNoticeService.js";
+import { ensureTeacherResetSchemaReady } from "./services/teacherResetSchemaService.js";
 import createPublicSiteVisitRoutes from "./routes/publicSiteVisits.js";
 
 
@@ -964,6 +965,8 @@ export async function ensureTeacherAssignmentLifecycleColumns(connection = pool)
 let teacherAccountLifecycleReadyPromise = null;
 
 async function prepareTeacherAccountLifecycleColumns(connection) {
+  await ensureTeacherResetSchemaReady(connection);
+
   if (!(await columnExists(connection, "teachers", "account_status"))) {
     await connection.query(
       `ALTER TABLE teachers

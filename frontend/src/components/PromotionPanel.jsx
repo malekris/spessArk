@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { adminFetch } from "../lib/api";
+import GraduatedLearnersPdfButton from "./admin-dashboard/GraduatedLearnersPdfButton";
 
 const CLASS_OPTIONS = ["S1", "S2", "S3", "S4"];
 const STREAM_OPTIONS = ["North", "South"];
@@ -13,7 +14,7 @@ const formatDateTime = (value) => {
 
 const defaultAcademicYear = String(new Date().getFullYear());
 
-export default function PromotionPanel() {
+export default function PromotionPanel({ onPromotionComplete }) {
   const [tab, setTab] = useState("promote");
 
   const [form, setForm] = useState({
@@ -149,6 +150,15 @@ export default function PromotionPanel() {
         body: payload,
       });
       setExecuteResult(data);
+      if (Number(data?.processedCount || 0) > 0 && onPromotionComplete) {
+        try {
+          await onPromotionComplete(data);
+        } catch (refreshError) {
+          // Graduation has already succeeded; a dashboard refresh failure must not
+          // misreport the database transaction as failed.
+          console.warn("Dashboard refresh after promotion failed:", refreshError);
+        }
+      }
       await handlePreview();
       if (tab === "history") {
         await fetchHistory();
@@ -531,6 +541,10 @@ export default function PromotionPanel() {
             <button type="button" className="ghost-btn" onClick={() => { setGraduatedPage(1); fetchGraduated(); }} disabled={graduatedLoading}>
               {graduatedLoading ? "Loading…" : "Apply"}
             </button>
+            <GraduatedLearnersPdfButton
+              academicYear={graduatedYear}
+              search={graduatedSearch}
+            />
           </div>
           {graduatedError && <div className="panel-alert panel-alert-error">{graduatedError}</div>}
           {graduatedLoading && graduatedRows.length === 0 ? (
@@ -544,8 +558,8 @@ export default function PromotionPanel() {
                   <tr>
                     <th>Name</th>
                     <th>Gender</th>
-                    <th>Class</th>
-                    <th>Stream</th>
+                    <th>Former Class</th>
+                    <th>Former Stream</th>
                     <th>Status</th>
                     <th>Graduated At</th>
                     <th>Academic Year</th>
@@ -556,8 +570,8 @@ export default function PromotionPanel() {
                     <tr key={s.id}>
                       <td>{s.name}</td>
                       <td>{s.gender}</td>
-                      <td>{s.class_level}</td>
-                      <td>{s.stream}</td>
+                      <td>{s.graduatedFromClassLevel || s.class_level}</td>
+                      <td>{s.graduatedFromStream || s.stream}</td>
                       <td>{s.status}</td>
                       <td>{formatDateTime(s.graduatedAt)}</td>
                       <td>{s.graduatedAcademicYear || "—"}</td>

@@ -422,7 +422,12 @@ export async function getGraduatedStudents({
     SELECT COUNT(*) AS total
     FROM students s
     LEFT JOIN (
-      SELECT sp1.student_id, sp1.academic_year, sp1.promoted_at
+      SELECT
+        sp1.student_id,
+        sp1.academic_year,
+        sp1.promoted_at,
+        sp1.from_class_level,
+        sp1.from_stream
       FROM student_promotions sp1
       JOIN (
         SELECT student_id, MAX(id) AS max_id
@@ -450,10 +455,17 @@ export async function getGraduatedStudents({
       s.created_at,
       s.updated_at,
       g.academic_year AS graduatedAcademicYear,
-      g.promoted_at AS graduatedAt
+      g.promoted_at AS graduatedAt,
+      g.from_class_level AS graduatedFromClassLevel,
+      g.from_stream AS graduatedFromStream
     FROM students s
     LEFT JOIN (
-      SELECT sp1.student_id, sp1.academic_year, sp1.promoted_at
+      SELECT
+        sp1.student_id,
+        sp1.academic_year,
+        sp1.promoted_at,
+        sp1.from_class_level,
+        sp1.from_stream
       FROM student_promotions sp1
       JOIN (
         SELECT student_id, MAX(id) AS max_id

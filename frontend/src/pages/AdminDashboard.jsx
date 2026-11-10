@@ -1869,6 +1869,15 @@ export default function AdminDashboard() {
     }
   };
 
+  const refreshDashboardAfterPromotion = async () => {
+    const yearToRefresh = selectedDashboardYear || String(dashboardOperationalYear);
+    await Promise.all([
+      fetchStudents(),
+      fetchDashboardSnapshot(yearToRefresh),
+      fetchDashboardYearOptions(dashboardOperationalYear),
+    ]);
+  };
+
   const performAddStudent = async (payload) => {
     if (savingStudentRef.current) return;
     const { name, gender, dob, class_level, stream, subjects } = payload;
@@ -5398,7 +5407,7 @@ export default function AdminDashboard() {
             </button>
           </div>
 
-          <PromotionPanel />
+          <PromotionPanel onPromotionComplete={refreshDashboardAfterPromotion} />
         </section>
       );
     }

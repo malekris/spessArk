@@ -200,6 +200,7 @@ export async function buildLiveAdminYearSnapshot(executor, academicYearInput = n
     executor,
     `SELECT id, name, gender, dob, class_level, stream, subjects, COALESCE(status, 'active') AS status, created_at, updated_at
      FROM students
+     WHERE COALESCE(NULLIF(status, ''), 'active') IN ('active', 'inactive')
      ORDER BY created_at DESC, id DESC`
   );
 

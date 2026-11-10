@@ -4,6 +4,8 @@ import {
   getPromotionHistory,
   previewPromotions,
 } from "../services/promotionService.js";
+import { pool } from "../server.js";
+import { queueAdminYearSnapshotRefresh } from "../services/adminYearSnapshotService.js";
 import { extractClientIp, logAuditEvent } from "../utils/auditLogger.js";
 
 const resolveClassLevel = (src) =>
@@ -82,6 +84,10 @@ export async function executePromotionsController(req, res) {
         `Promotion batch ${classLevel} ${stream} ${academicYear}: processed=${result.processedCount}, promoted=${result.promotedCount}, graduated=${result.graduatedCount}, marks_preserved=${result.preservedMarksCount || 0}, marks_cleared=0`,
       ipAddress,
     });
+
+    // Keep dashboard totals and school statistics aligned with the live register.
+    // Graduated S4 learners remain archived, but they are no longer active enrolment.
+    queueAdminYearSnapshotRefresh(pool, "olevel-promotion");
 
     return res.json(result);
   } catch (err) {

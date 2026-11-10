@@ -4521,6 +4521,40 @@
   letter-spacing: 0;
 }
 
+.graduated-pdf-action {
+  display: grid;
+  gap: 0.35rem;
+  align-self: end;
+}
+
+.graduated-export-btn {
+  min-height: 50px;
+  margin: 0;
+  padding: 0.65rem 1.1rem;
+  border-radius: 7px;
+  background: #d7a928;
+  color: #111827;
+  font-weight: 900;
+  letter-spacing: 0;
+  box-shadow: none;
+}
+
+.graduated-export-btn:hover:not(:disabled) {
+  background: #e6bb3e;
+}
+
+.graduated-export-btn:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.graduated-pdf-error {
+  max-width: 280px;
+  color: #fca5a5;
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
 .promotion-limit-select {
   width: 88px;
   height: 38px;
@@ -6027,6 +6061,10 @@
   color: #065f46;
 }
 
+.admin-root.mode-light .graduated-pdf-error {
+  color: #b91c1c;
+}
+
 .admin-root.mode-light .promotion-transition-banner {
   border-color: rgba(14, 165, 233, 0.24);
   background: rgba(240, 249, 255, 0.9);
@@ -6231,7 +6269,9 @@
 
   .promotion-action-row .promotion-preview-btn,
   .promotion-action-row .promotion-execute-btn,
-  .promotion-secondary-filters .ghost-btn {
+  .promotion-secondary-filters .ghost-btn,
+  .graduated-pdf-action,
+  .graduated-export-btn {
     width: 100%;
   }
 

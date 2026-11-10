@@ -44,9 +44,13 @@ function TeacherForgotPassword() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),
       });
-      await res.json().catch(() => ({}));
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setStatus(data?.message || "Failed to send reset code.");
+        return;
+      }
       setStep(2);
-      setStatus("If that email exists, a code was sent.");
+      setStatus(data?.message || "If that email exists, a code was sent.");
     } catch {
       setStatus("Failed to send code.");
     } finally {
@@ -58,6 +62,9 @@ function TeacherForgotPassword() {
     e.preventDefault();
     setStatus("");
     if (!email || !code) return setStatus("Enter your email and code.");
+    if (!/^\d{6}$/.test(code)) {
+      return setStatus("Enter the complete 6-digit code.");
+    }
     try {
       setLoading(true);
       const res = await fetch(`${API_BASE}/api/teachers/verify-reset-code`, {
@@ -109,8 +116,8 @@ function TeacherForgotPassword() {
           <h2>Teacher Account Recovery</h2>
           <p className="ark-subtitle">
             {step === 1
-              ? "Enter your email and we'll send a 4-digit code."
-              : "Enter the 4-digit code to continue."}
+              ? "Enter your email and we'll send a 6-digit code."
+              : "Enter the 6-digit code to continue."}
           </p>
         </div>
 
@@ -159,14 +166,16 @@ function TeacherForgotPassword() {
             </div>
 
             <div className="input-group">
-              <label>4-digit code</label>
+              <label>6-digit code</label>
               <input
                 type="text"
                 inputMode="numeric"
-                maxLength={4}
-                placeholder="1234"
+                autoComplete="one-time-code"
+                maxLength={6}
+                pattern="[0-9]{6}"
+                placeholder="123456"
                 value={code}
-                onChange={(e) => setCode(e.target.value)}
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
                 required
               />
             </div>

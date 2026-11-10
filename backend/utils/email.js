@@ -16,27 +16,59 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 20000) {
   }
 }
 
-// Resend client with custom fetch
-const resend = new Resend(process.env.RESEND_API_KEY, {
-  fetch: fetchWithTimeout,
-});
+let resendClient = null;
 
-// Retry wrapper (important on flaky networks)
-async function sendWithRetry(payload, retries = 2) {
+function getResendClient() {
+  const apiKey = String(process.env.RESEND_API_KEY || "").trim();
+  if (!apiKey) {
+    throw new Error("RESEND_API_KEY is not configured");
+  }
+
+  if (!resendClient) {
+    resendClient = new Resend(apiKey, { fetch: fetchWithTimeout });
+  }
+  return resendClient;
+}
+
+function buildResendError(error) {
+  const message = String(error?.message || "Resend rejected the email request");
+  const resendError = new Error(message);
+  resendError.name = "ResendDeliveryError";
+  resendError.statusCode = Number(error?.statusCode || error?.status || 0) || null;
+  resendError.code = error?.name || error?.code || null;
+  return resendError;
+}
+
+function shouldRetryEmail(error) {
+  const statusCode = Number(error?.statusCode || 0);
+  return !statusCode || statusCode === 429 || statusCode >= 500;
+}
+
+// Resend reports API rejections in `result.error`; it does not always throw.
+export async function sendWithRetry(payload, retries = 2, client = null) {
+  const deliveryClient = client || getResendClient();
   let lastError;
 
   for (let attempt = 1; attempt <= retries + 1; attempt++) {
     try {
       console.log(`📨 Resend attempt ${attempt}`);
-      const result = await resend.emails.send(payload);
+      const result = await deliveryClient.emails.send(payload);
+      if (result?.error) {
+        throw buildResendError(result.error);
+      }
+      if (!result?.data?.id) {
+        throw new Error("Resend returned no email delivery ID");
+      }
       return result;
     } catch (err) {
       lastError = err;
       console.warn(`⚠️ Email attempt ${attempt} failed:`, err.message);
 
-      // small delay before retry
-      if (attempt <= retries) {
+      // Retry transient network, rate-limit, and server failures only.
+      if (attempt <= retries && shouldRetryEmail(err)) {
         await new Promise((r) => setTimeout(r, 1500));
+      } else {
+        break;
       }
     }
   }
@@ -259,12 +291,12 @@ export async function sendTeacherResetCodeEmail(email, code) {
       <div style="font-family: Arial; background:#0f172a; padding:30px;">
         <div style="max-width:600px; margin:auto; background:white; padding:32px; border-radius:18px;">
           <h2 style="color:#0f172a;">Reset your Teacher password</h2>
-          <p>Use this 4-digit code to reset your password:</p>
+          <p>Use this 6-digit code to reset your password:</p>
           <div style="font-size:28px;font-weight:bold;letter-spacing:6px;color:#111827;margin:18px 0;">
             ${code}
           </div>
           <p style="font-size:13px;color:#777;">
-            This code expires in 15 minutes. If you didn’t request this, you can ignore this email.
+            This code expires in 10 minutes. If you didn’t request this, you can ignore this email.
           </p>
         </div>
       </div>

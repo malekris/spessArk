@@ -117,6 +117,7 @@
 }
 
 .teacher-score-learner-name {
+  display: block;
   min-width: 0;
   overflow: hidden;
   color: #f8fafc;
@@ -125,6 +126,22 @@
   line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.teacher-score-learner-identity {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.teacher-score-learner-stream {
+  display: block;
+  margin-top: 0.1rem;
+  color: #94a3b8;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.1;
+  text-transform: uppercase;
 }
 
 .teacher-score-gender {

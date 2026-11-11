@@ -25,6 +25,7 @@ import {
   normalizeSchoolCalendar,
 } from "../utils/schoolCalendar";
 import { getOLevelMarkEntryColumns } from "../utils/oLevelYearAssessmentPolicy";
+import { groupSubIctTeacherAssignments } from "../utils/teacherAlevelAssignmentGroups";
 
 // ============================
 // CONSTANTS / CONFIG
@@ -497,24 +498,34 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
       const entries = await Promise.all(
         assignmentRows.map(async (assignment) => {
           const key = `${assignment.isAlevel ? "al" : "ol"}-${assignment.id}`;
-          const params = new URLSearchParams({
-            assignmentId: assignment.id,
-            year: marksYear,
-            term: marksTerm,
-          });
+          const isCombinedSubIct =
+            assignment.isAlevel === true && assignment.isCombinedSubIct === true;
+          const params = new URLSearchParams({ year: marksYear, term: marksTerm });
+          if (isCombinedSubIct) {
+            params.set("assignmentIds", assignment.assignmentIds.join(","));
+          } else {
+            params.set("assignmentId", assignment.id);
+          }
+
+          const studentsPath = isCombinedSubIct
+            ? `/api/alevel/teachers/alevel-combined-sub-ict/students?assignmentIds=${assignment.assignmentIds.join(",")}`
+            : assignment.isAlevel
+            ? `/api/alevel/teachers/alevel-assignments/${assignment.id}/students`
+            : `/api/teachers/assignments/${assignment.id}/students`;
+          const marksPath = isCombinedSubIct
+            ? `/api/alevel/teachers/alevel-combined-sub-ict/marks?${params}`
+            : assignment.isAlevel
+            ? `/api/alevel/teachers/alevel-marks?${params}`
+            : `/api/teachers/marks?${params}`;
 
           try {
             const [studentsRes, marksRes] = await Promise.all([
               fetchWithTeacherAuth(
-                `${API_BASE}${assignment.isAlevel
-                  ? `/api/alevel/teachers/alevel-assignments/${assignment.id}/students`
-                  : `/api/teachers/assignments/${assignment.id}/students`}`,
+                `${API_BASE}${studentsPath}`,
                 { headers: { Authorization: `Bearer ${token}` } }
               ),
               fetchWithTeacherAuth(
-                `${API_BASE}${assignment.isAlevel
-                  ? `/api/alevel/teachers/alevel-marks?${params}`
-                  : `/api/teachers/marks?${params}`}`,
+                `${API_BASE}${marksPath}`,
                 { headers: { Authorization: `Bearer ${token}` } }
               ),
             ]);
@@ -698,7 +709,7 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
               ])
           ).values()
         );
-        setALevelAssignments(finalRows);
+        setALevelAssignments(groupSubIctTeacherAssignments(finalRows));
       } catch {
         setALevelAssignments([]);
       }
@@ -755,6 +766,7 @@ useEffect(() => {
   // ============================
   const loadStudentsAndMarks = async (assignment) => {
     const isAlevel = assignment.isAlevel === true;
+    const isCombinedSubIct = isAlevel && assignment.isCombinedSubIct === true;
     const token = localStorage.getItem("teacherToken");
     if (!token || !assignment) return;
 
@@ -763,11 +775,13 @@ useEffect(() => {
       setMarksError("");
 
       // 1) fetch students
+      const studentsPath = isCombinedSubIct
+        ? `/api/alevel/teachers/alevel-combined-sub-ict/students?assignmentIds=${assignment.assignmentIds.join(",")}`
+        : isAlevel
+        ? `/api/alevel/teachers/alevel-assignments/${assignment.id}/students`
+        : `/api/teachers/assignments/${assignment.id}/students`;
       const studentsRes = await fetchWithTeacherAuth(
-        `${API_BASE}${isAlevel ? 
-          `/api/alevel/teachers/alevel-assignments/${assignment.id}/students` :
-          `/api/teachers/assignments/${assignment.id}/students`
-        }`,
+        `${API_BASE}${studentsPath}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
       
@@ -787,8 +801,16 @@ useEffect(() => {
       // 2) fetch marks
       let marks = [];
       if (isAlevel) {
-        const params = new URLSearchParams({ assignmentId: assignment.id, year: marksYear,term:marksTerm });
-        const resMarks = await fetchWithTeacherAuth(`${API_BASE}/api/alevel/teachers/alevel-marks?${params}`, { headers: { Authorization: `Bearer ${token}` } });
+        const params = new URLSearchParams({ year: marksYear, term: marksTerm });
+        if (isCombinedSubIct) {
+          params.set("assignmentIds", assignment.assignmentIds.join(","));
+        } else {
+          params.set("assignmentId", assignment.id);
+        }
+        const marksPath = isCombinedSubIct
+          ? `/api/alevel/teachers/alevel-combined-sub-ict/marks?${params}`
+          : `/api/alevel/teachers/alevel-marks?${params}`;
+        const resMarks = await fetchWithTeacherAuth(`${API_BASE}${marksPath}`, { headers: { Authorization: `Bearer ${token}` } });
         if (resMarks.ok) marks = await resMarks.json();
         else console.warn("A-Level marks warning:", await resMarks.text());
       } else {
@@ -1238,9 +1260,23 @@ useEffect(() => {
 
       setMarksSaving(true);
 
-      const endpoint = isAlevel ? "/api/alevel/teachers/alevel-marks" : "/api/teachers/marks";
-      const payloadBody = isAlevel
-        ? { assignmentId: selectedAssignment.id, year: Number(marksYear),term:marksTerm, examType, marks: payload, clearMarks }
+      const isCombinedSubIct = isAlevel && selectedAssignment.isCombinedSubIct === true;
+      const endpoint = isCombinedSubIct
+        ? "/api/alevel/teachers/alevel-combined-sub-ict/marks"
+        : isAlevel
+        ? "/api/alevel/teachers/alevel-marks"
+        : "/api/teachers/marks";
+      const payloadBody = isCombinedSubIct
+        ? {
+            assignmentIds: selectedAssignment.assignmentIds,
+            year: Number(marksYear),
+            term: marksTerm,
+            examType,
+            marks: payload,
+            clearMarks,
+          }
+        : isAlevel
+        ? { assignmentId: selectedAssignment.id, year: Number(marksYear), term: marksTerm, examType, marks: payload, clearMarks }
         : { assignmentId: selectedAssignment.id, year: Number(marksYear), term: marksTerm, marks: payload, clearMarks };
 
       const res = await fetchWithTeacherAuth(`${API_BASE}${endpoint}`, {
@@ -1300,6 +1336,7 @@ useEffect(() => {
       const pageWidth = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
       const assignmentLabel = getAssignmentDisplayLabel(selectedAssignment);
+      const isCombinedSubIct = selectedAssignment.isCombinedSubIct === true;
       const columns = getMarkColumns(selectedAssignment?.isAlevel === true, marksTerm, marksYear);
       const hasExam80 = !selectedAssignment?.isAlevel && marksTerm === "Term 3";
       const pdfAoiColumns = hasExam80 ? columns.filter((c) => c !== "EXAM80") : columns;
@@ -1308,6 +1345,7 @@ useEffect(() => {
       const head = [
         "#",
         "Learner",
+        ...(isCombinedSubIct ? ["Stream"] : []),
         "Gender",
         ...pdfAoiColumns.map(formatColumnLabel),
         ...(hasExam80 ? [formatColumnLabel("EXAM80")] : []),
@@ -1354,7 +1392,15 @@ useEffect(() => {
           })
           .filter((v) => v !== null);
         const avg = numeric.length ? (numeric.reduce((a, b) => a + b, 0) / numeric.length).toFixed(2) : "";
-        return [i + 1, s.name, s.gender, ...cells, ...(hasExam80 ? [exam80Cell] : []), avg];
+        return [
+          i + 1,
+          s.name,
+          ...(isCombinedSubIct ? [String(s.stream || "").replace(/^S[56]\s+/i, "")] : []),
+          s.gender,
+          ...cells,
+          ...(hasExam80 ? [exam80Cell] : []),
+          avg,
+        ];
       });
 
       doc.setDrawColor(31, 41, 55);
@@ -1440,11 +1486,18 @@ useEffect(() => {
         alternateRowStyles: {
           fillColor: [248, 250, 252],
         },
-        columnStyles: {
-          0: { cellWidth: 12, halign: "center" },
-          1: { cellWidth: 66 },
-          2: { cellWidth: 20, halign: "center" },
-        },
+        columnStyles: isCombinedSubIct
+          ? {
+              0: { cellWidth: 10, halign: "center" },
+              1: { cellWidth: 52 },
+              2: { cellWidth: 24, halign: "center" },
+              3: { cellWidth: 18, halign: "center" },
+            }
+          : {
+              0: { cellWidth: 12, halign: "center" },
+              1: { cellWidth: 66 },
+              2: { cellWidth: 20, halign: "center" },
+            },
         didParseCell: (data) => {
           const value = String(data.cell.raw ?? "").trim();
           if (data.section === "body" && value === "Missed") {
@@ -2313,7 +2366,7 @@ useEffect(() => {
                           : undefined,
                     }}
                     onClick={() => {
-                      const derivedClass = a.stream?.split(" ")[0] ?? "A-Level";
+                      const derivedClass = a.class_level || a.stream?.split(" ")[0] || "A-Level";
                       const obj = { ...a, class_level: derivedClass, isAlevel: true };
                       setSelectedAssignment(obj);
                       setMarksSavedSummary(null);
@@ -2350,7 +2403,7 @@ useEffect(() => {
                           A-Level
                         </span>
                       </td>
-                      <td>{a.stream?.split(" ")[0] ?? "—"}</td>
+                      <td>{a.class_level || a.stream?.split(" ")[0] || "—"}</td>
                       <td>{a.stream}</td>
                       <td>{a.subject_display || a.subject}</td>
                       <td>
@@ -3072,7 +3125,14 @@ useEffect(() => {
                                 <span className="teacher-score-row-number">
                                   {String(studentIndex + 1).padStart(2, "0")}
                                 </span>
-                                <span className="teacher-score-learner-name">{s.name}</span>
+                                <span className="teacher-score-learner-identity">
+                                  <span className="teacher-score-learner-name">{s.name}</span>
+                                  {selectedAssignment?.isCombinedSubIct && (
+                                    <span className="teacher-score-learner-stream">
+                                      {String(s.stream || "").replace(/^S[56]\s+/i, "")}
+                                    </span>
+                                  )}
+                                </span>
                               </div>
                             </td>
                             <td

@@ -7,6 +7,7 @@ import { extractClientIp, logAuditEvent } from "../../utils/auditLogger.js";
 import { ensureMarksArchiveTablesReady, archiveALevelMarks } from "../../utils/marksArchive.js";
 import { queueAdminYearSnapshotRefresh } from "../../services/adminYearSnapshotService.js";
 import { ensureAlevelPromotionSchemaReady } from "../../services/alevelPromotionService.js";
+import { validateCombinedSubIctAssignments } from "./combinedSubIctAssignments.js";
 
 import {
   getLearners,
@@ -85,6 +86,63 @@ const normalizeAssignmentStatus = (value = "") =>
 
 const activeAlevelAssignmentClause = (alias = "ats") =>
   `COALESCE(${alias}.assignment_status, 'active') = 'active' AND ${alias}.ended_at IS NULL`;
+
+const parseCombinedAssignmentIds = (value) =>
+  Array.from(
+    new Set(
+      String(value || "")
+        .split(",")
+        .map((entry) => Number(entry.trim()))
+        .filter((id) => Number.isInteger(id) && id > 0)
+    )
+  );
+
+const getCombinedSubIctContext = async (
+  executor,
+  teacher,
+  assignmentIdsInput,
+  { lock = false } = {}
+) => {
+  const assignmentIds = Array.isArray(assignmentIdsInput)
+    ? Array.from(
+        new Set(
+          assignmentIdsInput
+            .map((value) => Number(value))
+            .filter((id) => Number.isInteger(id) && id > 0)
+        )
+      )
+    : parseCombinedAssignmentIds(assignmentIdsInput);
+
+  if (assignmentIds.length !== 2) {
+    return { valid: false, message: "Select the Arts and Sciences Sub ICT assignments." };
+  }
+
+  const scopedTeacherIds = await getScopedTeacherIds(executor, teacher);
+  if (scopedTeacherIds.length === 0) {
+    return { valid: false, message: "Teacher assignment access is unavailable." };
+  }
+
+  const assignmentPlaceholders = assignmentIds.map(() => "?").join(", ");
+  const teacherPlaceholders = scopedTeacherIds.map(() => "?").join(", ");
+  const [rows] = await executor.query(
+    `SELECT
+       ats.id,
+       ats.teacher_id,
+       ats.subject_id,
+       ats.stream,
+       ats.paper_label,
+       s.name AS subject_name
+     FROM alevel_teacher_subjects ats
+     JOIN alevel_subjects s ON s.id = ats.subject_id
+     WHERE ats.id IN (${assignmentPlaceholders})
+       AND ats.teacher_id IN (${teacherPlaceholders})
+       AND ${activeAlevelAssignmentClause("ats")}
+     ${lock ? "FOR UPDATE" : ""}`,
+    [...assignmentIds, ...scopedTeacherIds]
+  );
+
+  return validateCombinedSubIctAssignments(rows || []);
+};
 
 const getScopedTeacherIds = async (executor, teacher = {}) => {
   const ids = new Set();
@@ -743,6 +801,320 @@ router.get("/teachers/alevel-assignments-by-email", authTeacher, async (req, res
   } catch (err) {
     console.error("alevel assignments by email error:", err);
     res.status(500).json({ message: "Failed to fetch alevel assignments" });
+  }
+});
+
+/* GET the combined Arts + Sciences roster for one Sub ICT paper. */
+router.get("/teachers/alevel-combined-sub-ict/students", authTeacher, async (req, res) => {
+  try {
+    await ensureAlevelPromotionSchemaReady(pool);
+    await ensureALevelAssignmentLifecycleColumns(pool);
+    const context = await getCombinedSubIctContext(
+      db,
+      req.teacher,
+      req.query.assignmentIds
+    );
+
+    if (!context.valid) {
+      return res.status(400).json({ message: context.message });
+    }
+
+    const streams = context.assignments.map((assignment) => assignment.stream);
+    const [rows] = await db.query(
+      `SELECT
+         l.id,
+         CONCAT(l.first_name, ' ', l.last_name) AS name,
+         l.gender,
+         l.stream
+       FROM alevel_learner_subjects als
+       JOIN alevel_learners l ON l.id = als.learner_id
+       WHERE als.subject_id = ?
+         AND l.stream IN (?, ?)
+         AND COALESCE(NULLIF(l.status, ''), 'active') = 'active'
+       ORDER BY FIELD(l.stream, ?, ?), l.first_name, l.last_name`,
+      [context.subjectId, ...streams, ...streams]
+    );
+
+    return res.json(
+      (rows || []).map((learner) => ({
+        ...learner,
+        source_assignment_id: context.assignmentByStream.get(learner.stream),
+      }))
+    );
+  } catch (err) {
+    console.error("Combined Sub ICT learners error:", err);
+    return res.status(500).json({ message: "Failed to load the combined Sub ICT roster" });
+  }
+});
+
+/* GET MID / EOT marks across the two protected stream assignments. */
+router.get("/teachers/alevel-combined-sub-ict/marks", authTeacher, async (req, res) => {
+  try {
+    await ensureALevelAssignmentLifecycleColumns(pool);
+    const context = await getCombinedSubIctContext(
+      db,
+      req.teacher,
+      req.query.assignmentIds
+    );
+    if (!context.valid) {
+      return res.status(400).json({ message: context.message });
+    }
+
+    const normalizedTerm = normalizeAlevelTerm(req.query.term);
+    const year = Number(req.query.year);
+    const hasCreatedAt = await getAlevelMarksHasCreatedAt(db);
+    const yearClause = Number.isInteger(year) && year > 0 && hasCreatedAt
+      ? "AND YEAR(am.created_at) = ?"
+      : "";
+    const assignmentIds = context.assignments.map((assignment) => Number(assignment.id));
+    const streams = context.assignments.map((assignment) => assignment.stream);
+    const [rows] = await db.query(
+      `SELECT
+         am.id AS mark_id,
+         am.assignment_id,
+         am.learner_id AS student_id,
+         ae.name AS aoi_label,
+         am.score,
+         l.stream,
+         CASE WHEN am.score IS NULL THEN 'Missed' ELSE 'Present' END AS status
+       FROM alevel_marks am
+       JOIN alevel_exams ae ON ae.id = am.exam_id
+       LEFT JOIN alevel_learners l ON l.id = am.learner_id
+       WHERE ${NORMALIZED_ALEVEL_TERM_SQL("am.term")} = ?
+         AND (
+           am.assignment_id IN (?, ?)
+           OR (
+             am.assignment_id IS NULL
+             AND am.subject_id = ?
+             AND l.stream IN (?, ?)
+           )
+         )
+         ${yearClause}
+       ORDER BY am.learner_id, FIELD(ae.name, 'MID', 'EOT'), am.id DESC`,
+      [
+        normalizedTerm,
+        ...assignmentIds,
+        context.subjectId,
+        ...streams,
+        ...(yearClause ? [year] : []),
+      ]
+    );
+
+    const deduped = new Map();
+    for (const row of rows || []) {
+      const key = `${row.student_id}:${row.aoi_label}`;
+      const expectedAssignmentId = context.assignmentByStream.get(row.stream);
+      const currentIsAnchored = Number(row.assignment_id || 0) === Number(expectedAssignmentId);
+      const existing = deduped.get(key);
+      const existingIsAnchored =
+        Number(existing?.assignment_id || 0) === Number(expectedAssignmentId);
+
+      if (!existing || (currentIsAnchored && !existingIsAnchored)) {
+        deduped.set(key, row);
+      }
+    }
+
+    return res.json(
+      Array.from(deduped.values()).map(({ mark_id, assignment_id, stream, ...row }) => row)
+    );
+  } catch (err) {
+    console.error("Combined Sub ICT marks error:", err);
+    return res.status(500).json({ message: "Failed to load combined Sub ICT marks" });
+  }
+});
+
+/* SAVE both Sub ICT streams atomically while retaining their assignment IDs. */
+router.post("/teachers/alevel-combined-sub-ict/marks", authTeacher, async (req, res) => {
+  const marks = Array.isArray(req.body?.marks) ? req.body.marks : [];
+  const clearMarks = Array.isArray(req.body?.clearMarks) ? req.body.clearMarks : [];
+  let conn = null;
+
+  if (!req.body?.term || (!marks.length && !clearMarks.length)) {
+    return res.status(400).json({ message: "Term and mark changes are required." });
+  }
+
+  try {
+    await ensureALevelAssignmentLifecycleColumns(pool);
+    await ensureALevelMarksSchemaReady(pool);
+    await ensureMarksArchiveTablesReady(pool);
+    await ensureAlevelPromotionSchemaReady(pool);
+    conn = await db.getConnection();
+    await conn.beginTransaction();
+
+    const context = await getCombinedSubIctContext(
+      conn,
+      req.teacher,
+      req.body.assignmentIds,
+      { lock: true }
+    );
+    if (!context.valid) {
+      await conn.rollback();
+      return res.status(400).json({ message: context.message });
+    }
+
+    const streams = context.assignments.map((assignment) => assignment.stream);
+    const assignmentIds = context.assignments.map((assignment) => Number(assignment.id));
+    const [learnerRows] = await conn.query(
+      `SELECT l.id, l.stream
+       FROM alevel_learner_subjects als
+       JOIN alevel_learners l ON l.id = als.learner_id
+       WHERE als.subject_id = ?
+         AND l.stream IN (?, ?)
+         AND COALESCE(NULLIF(l.status, ''), 'active') = 'active'`,
+      [context.subjectId, ...streams]
+    );
+    const learnerStreamById = new Map(
+      (learnerRows || []).map((learner) => [Number(learner.id), learner.stream])
+    );
+    const learnerIds = Array.from(learnerStreamById.keys());
+    if (learnerIds.length === 0) {
+      await conn.rollback();
+      return res.status(400).json({ message: "No active Sub ICT learners were found." });
+    }
+
+    const changedEntries = [...marks, ...clearMarks];
+    const foreignLearner = changedEntries.find(
+      (entry) => !learnerStreamById.has(Number(entry?.studentId))
+    );
+    if (foreignLearner) {
+      await conn.rollback();
+      return res.status(400).json({ message: "A learner does not belong to this combined Sub ICT roster." });
+    }
+
+    const [exams] = await conn.query(
+      `SELECT id, name FROM alevel_exams WHERE name IN ('MID', 'EOT')`
+    );
+    const examMap = Object.fromEntries((exams || []).map((exam) => [exam.name, Number(exam.id)]));
+    const touchedComponents = Array.from(
+      new Set(
+        changedEntries
+          .map((entry) => normalizeAlevelComponent(entry?.aoi))
+          .filter((component) => ALEVEL_MARK_COMPONENTS.includes(component))
+      )
+    );
+    if (touchedComponents.length === 0) {
+      await conn.rollback();
+      return res.status(400).json({ message: "A-Level marks must use MID or EOT." });
+    }
+    for (const component of touchedComponents) {
+      if (!examMap[component]) {
+        await conn.rollback();
+        return res.status(400).json({ message: `Exam setup missing for ${component}` });
+      }
+    }
+
+    const normalizedTerm = normalizeAlevelTerm(req.body.term);
+    const examIds = touchedComponents.map((component) => examMap[component]);
+    const examPlaceholders = examIds.map(() => "?").join(", ");
+    const learnerPlaceholders = learnerIds.map(() => "?").join(", ");
+    const replaceParams = [
+      normalizedTerm,
+      ...examIds,
+      ...assignmentIds,
+      context.subjectId,
+      ...learnerIds,
+    ];
+
+    await archiveALevelMarks(conn, {
+      whereSql: `
+        ${NORMALIZED_ALEVEL_TERM_SQL("am.term")} = ?
+        AND am.exam_id IN (${examPlaceholders})
+        AND (
+          am.assignment_id IN (?, ?)
+          OR (
+            am.assignment_id IS NULL
+            AND am.subject_id = ?
+            AND am.learner_id IN (${learnerPlaceholders})
+          )
+        )
+      `,
+      params: replaceParams,
+      deletedByUserId: Number(req.teacher?.id),
+      deletedByRole: "teacher",
+      deleteReason: `Teacher replaced ${touchedComponents.join(", ")} for combined ${context.subjectName} ${context.paperLabel} (${context.classLevel} Arts + Sciences)`,
+      sourceAction: "REPLACE_MARKS_SET",
+    });
+
+    await conn.query(
+      `DELETE am
+       FROM alevel_marks am
+       WHERE ${NORMALIZED_ALEVEL_TERM_SQL("am.term")} = ?
+         AND am.exam_id IN (${examPlaceholders})
+         AND (
+           am.assignment_id IN (?, ?)
+           OR (
+             am.assignment_id IS NULL
+             AND am.subject_id = ?
+             AND am.learner_id IN (${learnerPlaceholders})
+           )
+         )`,
+      replaceParams
+    );
+
+    const insertRows = [];
+    for (const mark of marks) {
+      const component = normalizeAlevelComponent(mark?.aoi);
+      const score = mark?.score;
+      if (!ALEVEL_MARK_COMPONENTS.includes(component)) {
+        await conn.rollback();
+        return res.status(400).json({ message: "A-Level marks must use MID or EOT." });
+      }
+      const isMissed = score === "Missed";
+      const numericScore = Number(score);
+      if (!isMissed && (!Number.isFinite(numericScore) || numericScore < 0 || numericScore > 100)) {
+        await conn.rollback();
+        return res.status(400).json({ message: "A-Level score must be between 0 and 100." });
+      }
+
+      const learnerId = Number(mark.studentId);
+      const learnerStream = learnerStreamById.get(learnerId);
+      const sourceAssignmentId = context.assignmentByStream.get(learnerStream);
+      insertRows.push([
+        learnerId,
+        sourceAssignmentId,
+        context.subjectId,
+        examMap[component],
+        isMissed ? null : numericScore,
+        Number(req.teacher?.id),
+        normalizedTerm,
+      ]);
+    }
+
+    if (insertRows.length > 0) {
+      await conn.query(
+        `INSERT INTO alevel_marks
+         (learner_id, assignment_id, subject_id, exam_id, score, teacher_id, term)
+         VALUES ?`,
+        [insertRows]
+      );
+    }
+
+    await conn.commit();
+    conn.release();
+    conn = null;
+
+    await logAuditEvent({
+      userId: Number(req.teacher?.id),
+      userRole: "teacher",
+      action: "UPDATE_MARKS",
+      entityType: "marks",
+      entityId: assignmentIds[0],
+      description: `Saved combined ${context.subjectName} ${context.paperLabel} marks for ${context.classLevel} Arts + Sciences (${normalizedTerm})`,
+      ipAddress: extractClientIp(req),
+    });
+
+    return res.json({ success: true, assignmentIds, learnerCount: learnerIds.length });
+  } catch (err) {
+    if (conn) await conn.rollback();
+    console.error("Combined Sub ICT save error:", err);
+    if (err?.code === "ER_DUP_ENTRY") {
+      return res.status(409).json({
+        message: "Existing Sub ICT marks are colliding with the combined save. No partial changes were kept.",
+      });
+    }
+    return res.status(500).json({ message: "Failed to save combined Sub ICT marks" });
+  } finally {
+    if (conn) conn.release();
   }
 });
 

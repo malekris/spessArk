@@ -69,6 +69,7 @@ import { ensureAlevelPromotionSchemaReady } from "./services/alevelPromotionServ
 import { ensureParentPortalSchemaReady } from "./services/parentPortalService.js";
 import { ensureSiteVisitSchemaReady } from "./services/siteVisitService.js";
 import { getOLevelMarkEntryComponents } from "./services/oLevelYearAssessmentPolicy.js";
+import { validateCombinedOLevelOptionalAssignments } from "./services/combinedOLevelOptionalAssignments.js";
 import {
   acknowledgeTeacherLoginNotice,
   readPendingTeacherLoginNotice,
@@ -1117,6 +1118,43 @@ async function getRegisteredStudentIdsForSubject(connection, studentIds, subject
   jsonRows.forEach((row) => registeredIdsSet.add(Number(row.student_id)));
 
   return registeredIdsSet;
+}
+
+const parseCombinedOLevelAssignmentIds = (value) => {
+  const rawValues = Array.isArray(value) ? value : String(value || "").split(",");
+  return Array.from(
+    new Set(
+      rawValues
+        .map((entry) => Number(String(entry).trim()))
+        .filter((id) => Number.isInteger(id) && id > 0)
+    )
+  );
+};
+
+async function getCombinedOLevelOptionalContext(
+  executor,
+  teacherId,
+  assignmentIdsInput,
+  { lock = false } = {}
+) {
+  const assignmentIds = parseCombinedOLevelAssignmentIds(assignmentIdsInput);
+  if (assignmentIds.length !== 2) {
+    return { valid: false, message: "Select both stream assignments for this optional subject." };
+  }
+
+  const placeholders = assignmentIds.map(() => "?").join(", ");
+  const [rows] = await executor.query(
+    `SELECT id, teacher_id, class_level, stream, subject
+     FROM teacher_assignments
+     WHERE id IN (${placeholders})
+       AND teacher_id = ?
+       AND COALESCE(assignment_status, 'active') = 'active'
+       AND ended_at IS NULL
+     ${lock ? "FOR UPDATE" : ""}`,
+    [...assignmentIds, Number(teacherId)]
+  );
+
+  return validateCombinedOLevelOptionalAssignments(rows || []);
 }
 
 let adminCredentialsReadyPromise = null;
@@ -2890,6 +2928,388 @@ async function loadTeacherOLevelMarks(req, res, logLabel = "Load marks") {
     res.status(500).json({ message: "Failed to load marks" });
   }
 }
+
+/* Combined S3/S4 optional-subject roster. Source assignments remain stream-specific. */
+app.get("/api/teachers/combined-optional/students", authTeacher, async (req, res) => {
+  try {
+    await ensureTeacherAssignmentLifecycleColumns(pool);
+    await ensureStudentLifecycleColumns(pool);
+    const context = await getCombinedOLevelOptionalContext(
+      pool,
+      req.teacher.id,
+      req.query.assignmentIds
+    );
+    if (!context.valid) {
+      return res.status(400).json({ message: context.message });
+    }
+
+    const year = Number(req.query.year);
+    const streams = context.assignments.map((assignment) => assignment.stream);
+    const [candidateRows] = await pool.query(
+      `SELECT id, name, gender, stream
+       FROM students
+       WHERE class_level = ?
+         AND stream IN (?, ?)
+         AND COALESCE(NULLIF(status, ''), 'active') = 'active'
+       ORDER BY FIELD(stream, ?, ?), name`,
+      [context.classLevel, ...streams, ...streams]
+    );
+
+    const registeredIds = new Set();
+    for (const stream of streams) {
+      const streamIds = (candidateRows || [])
+        .filter((learner) => learner.stream === stream)
+        .map((learner) => Number(learner.id));
+      const streamRegistrations = await getRegisteredStudentIdsForSubject(
+        pool,
+        streamIds,
+        context.subjectByStream.get(stream),
+        year
+      );
+      streamRegistrations.forEach((id) => registeredIds.add(Number(id)));
+    }
+
+    const students = (candidateRows || [])
+      .filter((learner) => registeredIds.has(Number(learner.id)))
+      .map((learner) => ({
+        ...learner,
+        source_assignment_id: context.assignmentByStream.get(learner.stream),
+      }));
+
+    return res.json({ students });
+  } catch (err) {
+    console.error("Combined optional learners error:", err);
+    return res.status(500).json({ message: "Failed to load combined optional-subject learners" });
+  }
+});
+
+app.get("/api/teachers/combined-optional/marks", authTeacher, async (req, res) => {
+  try {
+    const year = Number(req.query.year);
+    const term = String(req.query.term || "").trim();
+    if (!Number.isInteger(year) || year <= 0 || !term) {
+      return res.status(400).json({ message: "Year and term are required." });
+    }
+
+    await ensureTeacherAssignmentLifecycleColumns(pool);
+    await ensureStudentLifecycleColumns(pool);
+    const context = await getCombinedOLevelOptionalContext(
+      pool,
+      req.teacher.id,
+      req.query.assignmentIds
+    );
+    if (!context.valid) {
+      return res.status(400).json({ message: context.message });
+    }
+
+    const [firstAssignment, secondAssignment] = context.assignments;
+    const assignmentIds = context.assignments.map((assignment) => Number(assignment.id));
+    const [rows] = await pool.query(
+      `SELECT
+         m.id AS mark_id,
+         m.assignment_id,
+         m.student_id,
+         m.score,
+         m.status,
+         CAST(m.aoi_label AS CHAR) AS aoi_label,
+         s.stream
+       FROM marks m
+       JOIN teacher_assignments ta ON ta.id = m.assignment_id
+       JOIN students s ON s.id = m.student_id
+       WHERE m.year = ?
+         AND m.term = ?
+         AND s.class_level = ?
+         AND ta.class_level = ?
+         AND COALESCE(NULLIF(s.status, ''), 'active') = 'active'
+         AND (
+           (ta.stream = ? AND LOWER(TRIM(ta.subject)) = LOWER(TRIM(?)))
+           OR
+           (ta.stream = ? AND LOWER(TRIM(ta.subject)) = LOWER(TRIM(?)))
+         )
+       ORDER BY m.student_id, m.id DESC`,
+      [
+        year,
+        term,
+        context.classLevel,
+        context.classLevel,
+        firstAssignment.stream,
+        firstAssignment.subject,
+        secondAssignment.stream,
+        secondAssignment.subject,
+      ]
+    );
+
+    const deduped = new Map();
+    for (const row of rows || []) {
+      const component = String(row.aoi_label || "").trim().toUpperCase();
+      const key = `${row.student_id}:${component}`;
+      const expectedAssignmentId = context.assignmentByStream.get(row.stream);
+      const currentIsAnchored = Number(row.assignment_id) === Number(expectedAssignmentId);
+      const existing = deduped.get(key);
+      const existingIsAnchored =
+        Number(existing?.assignment_id) === Number(expectedAssignmentId);
+      if (!existing || (currentIsAnchored && !existingIsAnchored)) {
+        deduped.set(key, row);
+      }
+    }
+
+    return res.json(
+      Array.from(deduped.values()).map(
+        ({ mark_id, assignment_id, stream, ...mark }) => mark
+      )
+    );
+  } catch (err) {
+    console.error("Combined optional marks error:", err);
+    return res.status(500).json({ message: "Failed to load combined optional-subject marks" });
+  }
+});
+
+app.post("/api/teachers/combined-optional/marks", authTeacher, async (req, res) => {
+  const marks = Array.isArray(req.body?.marks) ? req.body.marks : [];
+  const clearMarks = Array.isArray(req.body?.clearMarks) ? req.body.clearMarks : [];
+  const year = Number(req.body?.year);
+  const term = String(req.body?.term || "").trim();
+  const teacherId = Number(req.teacher?.id);
+  let conn = null;
+
+  if (!Number.isInteger(year) || year <= 0 || !term || (!marks.length && !clearMarks.length)) {
+    return res.status(400).json({ message: "Assignment IDs, year, term and mark changes are required." });
+  }
+
+  try {
+    await ensureTeacherAssignmentLifecycleColumns(pool);
+    await ensureStudentLifecycleColumns(pool);
+    await ensureMarksArchiveTablesReady(pool);
+    conn = await pool.getConnection();
+    await conn.beginTransaction();
+
+    const context = await getCombinedOLevelOptionalContext(
+      conn,
+      teacherId,
+      req.body.assignmentIds,
+      { lock: true }
+    );
+    if (!context.valid) {
+      await conn.rollback();
+      return res.status(400).json({ message: context.message });
+    }
+
+    const changedEntries = [...marks, ...clearMarks];
+    const studentIds = Array.from(
+      new Set(
+        changedEntries
+          .map((entry) => Number(entry?.studentId))
+          .filter((id) => Number.isInteger(id) && id > 0)
+      )
+    );
+    if (studentIds.length === 0) {
+      await conn.rollback();
+      return res.status(400).json({ message: "No valid learners were supplied." });
+    }
+
+    const placeholders = studentIds.map(() => "?").join(", ");
+    const streams = context.assignments.map((assignment) => assignment.stream);
+    const [studentRows] = await conn.query(
+      `SELECT id, stream
+       FROM students
+       WHERE id IN (${placeholders})
+         AND class_level = ?
+         AND stream IN (?, ?)
+         AND COALESCE(NULLIF(status, ''), 'active') = 'active'`,
+      [...studentIds, context.classLevel, ...streams]
+    );
+    const studentStreamById = new Map(
+      (studentRows || []).map((learner) => [Number(learner.id), learner.stream])
+    );
+    if (studentStreamById.size !== studentIds.length) {
+      await conn.rollback();
+      return res.status(400).json({ message: "A learner is outside this combined optional-subject roster." });
+    }
+
+    const registeredIds = new Set();
+    for (const stream of streams) {
+      const streamIds = studentIds.filter((id) => studentStreamById.get(id) === stream);
+      const streamRegistrations = await getRegisteredStudentIdsForSubject(
+        conn,
+        streamIds,
+        context.subjectByStream.get(stream),
+        year
+      );
+      streamRegistrations.forEach((id) => registeredIds.add(Number(id)));
+    }
+    const notRegistered = studentIds.filter((id) => !registeredIds.has(id));
+    if (notRegistered.length > 0) {
+      await conn.rollback();
+      return res.status(400).json({
+        message: `Learners not registered for this optional subject: ${notRegistered.join(", ")}`,
+      });
+    }
+
+    const allowedAois = getOLevelMarkEntryComponents(term, year);
+    const validateComponent = (entry) => {
+      const component = String(entry?.aoi || "").trim().toUpperCase();
+      return allowedAois.includes(component) ? component : null;
+    };
+
+    for (const entry of clearMarks) {
+      const studentId = Number(entry.studentId);
+      const component = validateComponent(entry);
+      if (!component) {
+        await conn.rollback();
+        return res.status(400).json({ message: "Invalid clearMarks assessment component." });
+      }
+
+      const stream = studentStreamById.get(studentId);
+      const subject = context.subjectByStream.get(stream);
+      await archiveOLevelMarks(conn, {
+        whereSql: `
+          m.assignment_id IN (
+            SELECT ta_slot.id
+            FROM teacher_assignments ta_slot
+            WHERE ta_slot.class_level = ?
+              AND ta_slot.stream = ?
+              AND LOWER(TRIM(ta_slot.subject)) = LOWER(TRIM(?))
+          )
+          AND m.student_id = ?
+          AND m.year = ?
+          AND m.term = ?
+          AND CAST(m.aoi_label AS CHAR) = ?
+        `,
+        params: [context.classLevel, stream, subject, studentId, year, term, component],
+        deletedByUserId: teacherId,
+        deletedByRole: "teacher",
+        deleteReason: `Teacher cleared ${component} for combined ${subject} in ${term} ${year}`,
+        sourceAction: "CLEAR_MARKS",
+      });
+      await conn.query(
+        `DELETE m
+         FROM marks m
+         JOIN teacher_assignments ta ON ta.id = m.assignment_id
+         WHERE ta.class_level = ?
+           AND ta.stream = ?
+           AND LOWER(TRIM(ta.subject)) = LOWER(TRIM(?))
+           AND m.student_id = ?
+           AND m.year = ?
+           AND m.term = ?
+           AND CAST(m.aoi_label AS CHAR) = ?`,
+        [context.classLevel, stream, subject, studentId, year, term, component]
+      );
+    }
+
+    for (const entry of marks) {
+      const studentId = Number(entry.studentId);
+      const component = validateComponent(entry);
+      const isMissed = entry.score === "Missed";
+      const numericScore = Number(entry.score);
+      if (!component) {
+        await conn.rollback();
+        return res.status(400).json({ message: `Marks must use ${allowedAois.join(", ")}.` });
+      }
+      if (
+        !isMissed &&
+        (!Number.isFinite(numericScore) ||
+          (component === "EXAM80"
+            ? numericScore < 0 || numericScore > 80
+            : numericScore < 0.9 || numericScore > 3))
+      ) {
+        await conn.rollback();
+        return res.status(400).json({
+          message: component === "EXAM80"
+            ? "EXAM80 score must be between 0 and 80."
+            : "AOI score must be between 0.9 and 3.0.",
+        });
+      }
+
+      const stream = studentStreamById.get(studentId);
+      const subject = context.subjectByStream.get(stream);
+      const assignmentId = context.assignmentByStream.get(stream);
+      await archiveOLevelMarks(conn, {
+        whereSql: `
+          m.assignment_id <> ?
+          AND m.assignment_id IN (
+            SELECT ta_slot.id
+            FROM teacher_assignments ta_slot
+            WHERE ta_slot.class_level = ?
+              AND ta_slot.stream = ?
+              AND LOWER(TRIM(ta_slot.subject)) = LOWER(TRIM(?))
+          )
+          AND m.student_id = ?
+          AND m.year = ?
+          AND m.term = ?
+          AND CAST(m.aoi_label AS CHAR) = ?
+        `,
+        params: [assignmentId, context.classLevel, stream, subject, studentId, year, term, component],
+        deletedByUserId: teacherId,
+        deletedByRole: "teacher",
+        deleteReason: `Teacher updated carried-over ${component} for combined ${subject} in ${term} ${year}`,
+        sourceAction: "REPLACE_HANDOVER_MARK",
+      });
+      await conn.query(
+        `DELETE m
+         FROM marks m
+         JOIN teacher_assignments ta ON ta.id = m.assignment_id
+         WHERE m.assignment_id <> ?
+           AND ta.class_level = ?
+           AND ta.stream = ?
+           AND LOWER(TRIM(ta.subject)) = LOWER(TRIM(?))
+           AND m.student_id = ?
+           AND m.year = ?
+           AND m.term = ?
+           AND CAST(m.aoi_label AS CHAR) = ?`,
+        [assignmentId, context.classLevel, stream, subject, studentId, year, term, component]
+      );
+      await conn.query(
+        `INSERT INTO marks
+          (teacher_id, assignment_id, student_id, score, status, year, term, aoi_label)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+          score = VALUES(score),
+          status = VALUES(status),
+          year = VALUES(year),
+          term = VALUES(term),
+          teacher_id = VALUES(teacher_id)`,
+        [
+          teacherId,
+          assignmentId,
+          studentId,
+          isMissed ? null : numericScore,
+          isMissed ? "Missed" : "Present",
+          year,
+          term,
+          component,
+        ]
+      );
+    }
+
+    await conn.commit();
+    conn.release();
+    conn = null;
+
+    await logAuditEvent({
+      userId: teacherId,
+      userRole: "teacher",
+      action: "UPDATE_MARKS",
+      entityType: "marks",
+      entityId: Number(context.assignments[0].id),
+      description: `Saved combined ${context.subject} marks for ${context.classLevel} ${streams.join(" + ")} (${term} ${year})`,
+      ipAddress: extractClientIp(req),
+    });
+
+    return res.json({ message: "Combined optional-subject marks saved successfully" });
+  } catch (err) {
+    if (conn) {
+      try {
+        await conn.rollback();
+      } catch (rollbackError) {
+        console.error("Combined optional rollback error:", rollbackError);
+      }
+    }
+    console.error("Combined optional save error:", err);
+    return res.status(500).json({ message: "Failed to save combined optional-subject marks" });
+  } finally {
+    if (conn) conn.release();
+  }
+});
 
 app.get("/api/teacher/marks", authTeacher, async (req, res) => {
   return loadTeacherOLevelMarks(req, res, "Load marks error");

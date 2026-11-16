@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { adminFetch } from "../../lib/api";
 import { loadPdfTools } from "../../utils/loadPdfTools";
 import { getOLevelMarkEntryColumns } from "../../utils/oLevelYearAssessmentPolicy";
+import { formatNoticeboardSubmissionMark } from "../../utils/noticeboardScoreSheet";
 import "./NoticeboardScoreSheetCard.css";
 
 const normalizeSubjectKey = (value) => {
@@ -23,16 +24,6 @@ const normalizeSubjectKey = (value) => {
 const formatComponentLabel = (component) => {
   if (component === "EXAM80") return "/80 (END)";
   return String(component || "").replace(/^AOI/i, "AOI ");
-};
-
-const formatScore = (mark) => {
-  if (!mark) return "";
-  if (String(mark.status || "").toLowerCase() === "missed") return "X";
-  if (mark.score === null || mark.score === undefined || mark.score === "") return "";
-  const numericScore = Number(mark.score);
-  return Number.isFinite(numericScore)
-    ? String(Number(numericScore.toFixed(2)))
-    : String(mark.score);
 };
 
 const formatGeneratedAt = (date) =>
@@ -238,7 +229,9 @@ export default function NoticeboardScoreSheetCard({
           learner.name || "",
           String(learner.gender || "").slice(0, 1).toUpperCase(),
           ...components.map((component) =>
-            formatScore(markMap.get(`${Number(learner.id)}|${component}`))
+            formatNoticeboardSubmissionMark(
+              markMap.get(`${Number(learner.id)}|${component}`)
+            )
           ),
         ]);
         const availableScoreWidth = 80;
@@ -303,7 +296,11 @@ export default function NoticeboardScoreSheetCard({
         doc.line(12, pageHeight - 13, pageWidth - 12, pageHeight - 13);
         doc.setFont("helvetica", "normal");
         doc.setFontSize(7.5);
-        doc.text(`X = missed assessment  |  Blank = no submitted mark  |  ${generatedAt}`, 12, pageHeight - 8);
+        doc.text(
+          `S = Submitted  |  X = missed assessment  |  Blank = no submitted mark  |  ${generatedAt}`,
+          12,
+          pageHeight - 8
+        );
         doc.text(`Page ${page} of ${totalPages}`, pageWidth - 12, pageHeight - 8, {
           align: "right",
         });

@@ -1,0 +1,113 @@
+.noticeboard-score-card {
+  overflow: hidden;
+  margin-bottom: 1rem;
+}
+
+.noticeboard-score-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.noticeboard-score-card__header h3 {
+  margin: 0.2rem 0 0.25rem;
+}
+
+.noticeboard-score-card__header p {
+  margin: 0;
+  color: #94a3b8;
+}
+
+.noticeboard-score-card__eyebrow {
+  color: #fbbf24;
+  font-size: 0.7rem;
+  font-weight: 850;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.noticeboard-score-card__format {
+  flex: 0 0 auto;
+  padding: 0.35rem 0.65rem;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 6px;
+  color: #cbd5e1;
+  font-size: 0.75rem;
+  font-weight: 750;
+}
+
+.noticeboard-score-card__filters {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(120px, 1fr));
+  gap: 0.75rem;
+}
+
+.noticeboard-score-card__filters label {
+  display: grid;
+  min-width: 0;
+  gap: 0.35rem;
+}
+
+.noticeboard-score-card__filters label > span {
+  color: #a8b3c7;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.noticeboard-score-card__filters select,
+.noticeboard-score-card__filters input {
+  width: 100%;
+  min-width: 0;
+}
+
+.noticeboard-score-card__subject {
+  grid-column: 1 / -1;
+}
+
+.noticeboard-score-card__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 0.9rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.16);
+  color: #94a3b8;
+}
+
+.noticeboard-score-card__footer strong {
+  color: #f8fafc;
+}
+
+@media (max-width: 800px) {
+  .noticeboard-score-card__filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .noticeboard-score-card__footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .noticeboard-score-card__footer .primary-btn {
+    width: 100%;
+  }
+}
+
+@media (max-width: 480px) {
+  .noticeboard-score-card__header {
+    flex-direction: column;
+  }
+
+  .noticeboard-score-card__filters {
+    grid-template-columns: 1fr;
+  }
+
+  .noticeboard-score-card__subject {
+    grid-column: auto;
+  }
+}

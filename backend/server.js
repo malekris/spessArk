@@ -77,6 +77,7 @@ import {
   updateTeacherLoginNoticeSettings,
 } from "./services/teacherLoginNoticeService.js";
 import { ensureTeacherResetSchemaReady } from "./services/teacherResetSchemaService.js";
+import { buildNoticeboardSubjectGroups } from "./services/noticeboardScoreSheetService.js";
 import createPublicSiteVisitRoutes from "./routes/publicSiteVisits.js";
 
 
@@ -2516,7 +2517,7 @@ app.get("/api/admin/score-sheet", authAdmin, async (req, res) => {
       });
     }
 
-    const [subjects] = await pool.query(
+    const [subjectRows] = await pool.query(
       `
       SELECT
         ta.id AS assignment_id,
@@ -2529,12 +2530,17 @@ app.get("/api/admin/score-sheet", authAdmin, async (req, res) => {
         AND ta.stream = ?
         AND m.term = ?
         AND m.year = ?
-        AND m.aoi_label IN ('AOI1', 'AOI2', 'AOI3')
+        AND m.aoi_label IN ('AOI1', 'AOI2', 'AOI3', 'EXAM80')
       GROUP BY ta.id, ta.subject, t.name
       ORDER BY ta.subject
       `,
       [classLevel, stream, term, year]
     );
+
+    // Teacher handovers can leave marks under more than one assignment ID.
+    // Collapse those IDs into one printable subject instead of duplicating or
+    // silently omitting part of the subject's marks.
+    const subjects = buildNoticeboardSubjectGroups(subjectRows);
 
     const [students] = await pool.query(
       `
@@ -2558,6 +2564,7 @@ app.get("/api/admin/score-sheet", authAdmin, async (req, res) => {
       const [rows] = await pool.query(
         `
         SELECT
+          id AS mark_id,
           assignment_id,
           student_id,
           aoi_label,
@@ -2567,7 +2574,8 @@ app.get("/api/admin/score-sheet", authAdmin, async (req, res) => {
         WHERE term = ?
           AND year = ?
           AND assignment_id IN (${placeholders})
-          AND aoi_label IN ('AOI1', 'AOI2', 'AOI3')
+          AND aoi_label IN ('AOI1', 'AOI2', 'AOI3', 'EXAM80')
+        ORDER BY id ASC
         `,
         [term, year, ...assignmentIds]
       );

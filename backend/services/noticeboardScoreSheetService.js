@@ -35,3 +35,22 @@ export function buildNoticeboardSubjectGroups(rows = []) {
     })
     .sort((a, b) => String(a.subject).localeCompare(String(b.subject)));
 }
+
+export function collectNoticeboardAssignmentIds(subjects = []) {
+  const assignmentIds = new Set();
+
+  for (const subject of Array.isArray(subjects) ? subjects : []) {
+    const candidates = Array.isArray(subject?.assignment_ids)
+      ? subject.assignment_ids
+      : [subject?.assignment_id];
+
+    for (const candidate of candidates) {
+      const assignmentId = Number(candidate);
+      if (Number.isInteger(assignmentId) && assignmentId > 0) {
+        assignmentIds.add(assignmentId);
+      }
+    }
+  }
+
+  return Array.from(assignmentIds);
+}

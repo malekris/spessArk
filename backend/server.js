@@ -77,7 +77,10 @@ import {
   updateTeacherLoginNoticeSettings,
 } from "./services/teacherLoginNoticeService.js";
 import { ensureTeacherResetSchemaReady } from "./services/teacherResetSchemaService.js";
-import { buildNoticeboardSubjectGroups } from "./services/noticeboardScoreSheetService.js";
+import {
+  buildNoticeboardSubjectGroups,
+  collectNoticeboardAssignmentIds,
+} from "./services/noticeboardScoreSheetService.js";
 import createPublicSiteVisitRoutes from "./routes/publicSiteVisits.js";
 
 
@@ -2542,22 +2545,9 @@ app.get("/api/admin/score-sheet", authAdmin, async (req, res) => {
     // silently omitting part of the subject's marks.
     const subjects = buildNoticeboardSubjectGroups(subjectRows);
 
-    const [students] = await pool.query(
-      `
-      SELECT id, name, gender
-      FROM students
-      WHERE class_level = ?
-        AND stream = ?
-        AND COALESCE(NULLIF(status, ''), 'active') = 'active'
-      ORDER BY name
-      `,
-      [classLevel, stream]
-    );
+    const assignmentIds = collectNoticeboardAssignmentIds(subjects);
 
-    const assignmentIds = (subjects || [])
-      .map((s) => Number(s.assignment_id))
-      .filter((id) => Number.isInteger(id) && id > 0);
-
+    let students = [];
     let marks = [];
     if (assignmentIds.length > 0) {
       const placeholders = assignmentIds.map(() => "?").join(",");
@@ -2580,6 +2570,24 @@ app.get("/api/admin/score-sheet", authAdmin, async (req, res) => {
         [term, year, ...assignmentIds]
       );
       marks = rows || [];
+
+      // Build this historical sheet from the marks in the selected period.
+      // A later pause, promotion, graduation, or stream edit must not hide a
+      // learner who submitted work while they belonged to this class.
+      const [learnerRows] = await pool.query(
+        `
+        SELECT DISTINCT s.id, s.name, s.gender
+        FROM marks m
+        JOIN students s ON s.id = m.student_id
+        WHERE m.term = ?
+          AND m.year = ?
+          AND m.assignment_id IN (${placeholders})
+          AND m.aoi_label IN ('AOI1', 'AOI2', 'AOI3', 'EXAM80')
+        ORDER BY s.name
+        `,
+        [term, year, ...assignmentIds]
+      );
+      students = learnerRows || [];
     }
 
     return res.json({
@@ -2587,7 +2595,7 @@ app.get("/api/admin/score-sheet", authAdmin, async (req, res) => {
       stream,
       term,
       year,
-      students: students || [],
+      students,
       subjects: subjects || [],
       marks,
     });

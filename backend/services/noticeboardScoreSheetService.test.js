@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildNoticeboardSubjectGroups } from "./noticeboardScoreSheetService.js";
+import {
+  buildNoticeboardSubjectGroups,
+  collectNoticeboardAssignmentIds,
+} from "./noticeboardScoreSheetService.js";
 
 test("collapses teacher handover assignment IDs into one subject", () => {
   const groups = buildNoticeboardSubjectGroups([
@@ -25,4 +28,13 @@ test("normalizes CRE and ICT aliases while keeping different subjects separate",
   assert.equal(groups.length, 3);
   assert.deepEqual(groups.find((group) => group.subject === "CRE").assignment_ids, [1, 2]);
   assert.deepEqual(groups.find((group) => group.subject === "ICT").assignment_ids, [3, 4]);
+});
+
+test("collects every teacher-handover assignment ID for the score sheet", () => {
+  const assignmentIds = collectNoticeboardAssignmentIds([
+    { assignment_id: 8, assignment_ids: [8, 14] },
+    { assignment_id: 21, assignment_ids: [21, 14] },
+  ]);
+
+  assert.deepEqual(assignmentIds, [8, 14, 21]);
 });

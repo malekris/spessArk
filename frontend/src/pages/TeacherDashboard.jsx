@@ -529,7 +529,10 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
             const [studentsRes, marksRes] = await Promise.all([
               fetchWithTeacherAuth(
                 `${API_BASE}${studentsPath}`,
-                { headers: { Authorization: `Bearer ${token}` } }
+                {
+                  cache: "no-store",
+                  headers: { Authorization: `Bearer ${token}` },
+                }
               ),
               fetchWithTeacherAuth(
                 `${API_BASE}${marksPath}`,
@@ -743,9 +746,30 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
     loadAssignmentStatuses();
   }, [loadAssignmentStatuses]);
 
-  // Reload marks when class, term or year changes
+  // Reload the live roster when an assignment changes and whenever a teacher
+  // returns to an already-open dashboard after an administrator edits learners.
 useEffect(() => {
-  if (selectedAssignment) loadStudentsAndMarks(selectedAssignment);
+  if (!selectedAssignment) return undefined;
+
+  let refreshTimer;
+  const refreshSelectedAssignment = () => {
+    window.clearTimeout(refreshTimer);
+    refreshTimer = window.setTimeout(() => {
+      if (document.visibilityState === "visible") {
+        loadStudentsAndMarks(selectedAssignment);
+      }
+    }, 120);
+  };
+
+  refreshSelectedAssignment();
+  window.addEventListener("focus", refreshSelectedAssignment);
+  document.addEventListener("visibilitychange", refreshSelectedAssignment);
+
+  return () => {
+    window.clearTimeout(refreshTimer);
+    window.removeEventListener("focus", refreshSelectedAssignment);
+    document.removeEventListener("visibilitychange", refreshSelectedAssignment);
+  };
 }, [selectedAssignment, marksTerm, marksYear]);
 
 useEffect(() => {
@@ -795,7 +819,10 @@ useEffect(() => {
         : `/api/teachers/assignments/${assignment.id}/students`;
       const studentsRes = await fetchWithTeacherAuth(
         `${API_BASE}${studentsPath}`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        {
+          cache: "no-store",
+          headers: { Authorization: `Bearer ${token}` },
+        }
       );
       
 

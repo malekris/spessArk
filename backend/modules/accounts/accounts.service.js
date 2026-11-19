@@ -34,6 +34,30 @@ export const parseMoneyAmount = (value, { nullable = false } = {}) => {
   return Number(amount.toFixed(2));
 };
 
+export const buildPaymentTransaction = (previousAmount, nextAmount) => {
+  const previous = previousAmount === null || previousAmount === undefined
+    ? null
+    : Number(previousAmount);
+  const next = nextAmount === null || nextAmount === undefined
+    ? null
+    : Number(nextAmount);
+
+  if (previous === next || (previous === null && next === null)) return null;
+
+  if (next === null) {
+    return { type: "payment_cleared", amountChange: -Number(previous || 0) };
+  }
+  if (previous === null && next === 0) {
+    return { type: "not_paid", amountChange: 0 };
+  }
+
+  const amountChange = Number((next - Number(previous || 0)).toFixed(2));
+  return {
+    type: amountChange >= 0 ? "payment_added" : "payment_corrected",
+    amountChange,
+  };
+};
+
 export const safeCredentialEquals = (provided, expected) => {
   const providedBuffer = Buffer.from(String(provided || ""));
   const expectedBuffer = Buffer.from(String(expected || ""));

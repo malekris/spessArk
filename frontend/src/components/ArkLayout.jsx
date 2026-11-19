@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useLocation } from "react-router-dom";
 import SplashScreen from "../pages/SplashScreen";
+import AccountsSplashScreen from "../modules/accounts/components/AccountsSplashScreen";
 import {
   NEW_ACCOUNT_SPLASH_KEY,
   NEW_ACCOUNT_SPLASH_MS,
@@ -18,6 +19,7 @@ const ARK_AUTH_PATHS = new Set([
 
 export default function ArkLayout({ children }) {
   const location = useLocation();
+  const isAccountsPath = location.pathname.startsWith("/ark/accounts");
   const [splashDurationMs] = useState(() => {
     const isAuthPath = ARK_AUTH_PATHS.has(location.pathname);
     const shouldUseNewAccountSplash =
@@ -33,6 +35,9 @@ export default function ArkLayout({ children }) {
   const [showSplash, setShowSplash] = useState(true);
 
   if (showSplash) {
+    if (isAccountsPath) {
+      return <AccountsSplashScreen durationMs={splashDurationMs} onFinish={() => setShowSplash(false)} />;
+    }
     return <SplashScreen durationMs={splashDurationMs} onFinish={() => setShowSplash(false)} />;
   }
 

@@ -6,6 +6,12 @@ const PORTAL_VIEWS = [
     description: "Find learners and record term payments.",
   },
   {
+    id: "insights",
+    eyebrow: "Financial intelligence",
+    title: "Insights",
+    description: "Review collections, balances and staff activity.",
+  },
+  {
     id: "settings",
     eyebrow: "Personal account",
     title: "Settings",
@@ -34,7 +40,7 @@ export default function AccountsPortalNav({ activeView, canAudit, canUseSettings
           <button
             key={view.id}
             type="button"
-            className={`accounts-portal-card ${active ? "is-active" : ""}`}
+            className={`accounts-portal-card is-${view.id} ${active ? "is-active" : ""}`}
             aria-expanded={active}
             aria-controls={`accounts-${view.id}-panel`}
             onClick={() => onChange(active ? null : view.id)}

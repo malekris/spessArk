@@ -807,6 +807,7 @@ router.get("/teachers/alevel-assignments-by-email", authTeacher, async (req, res
 /* GET the combined Arts + Sciences roster for one Sub ICT paper. */
 router.get("/teachers/alevel-combined-sub-ict/students", authTeacher, async (req, res) => {
   try {
+    res.set("Cache-Control", "private, no-store");
     await ensureAlevelPromotionSchemaReady(pool);
     await ensureALevelAssignmentLifecycleColumns(pool);
     const context = await getCombinedSubIctContext(
@@ -1123,6 +1124,7 @@ router.get("/teachers/alevel-assignments/:id/students", authTeacher, async (req,
   const { id } = req.params;
 
   try {
+    res.set("Cache-Control", "private, no-store");
     await ensureAlevelPromotionSchemaReady(pool);
     await ensureALevelAssignmentLifecycleColumns(pool);
     const scopedTeacherIds = await getScopedTeacherIds(db, req.teacher);

@@ -9,6 +9,7 @@ import TeacherResetPassword from "./pages/TeacherResetPassword";
 import TeacherSignup from "./pages/TeacherSignup";
 import LandingPage from "./components/LandingPage";
 import ArkLayout from "./components/ArkLayout";
+import AccountsSplashScreen from "./modules/accounts/components/AccountsSplashScreen";
 // vine imports
 import VineLogin from "./modules/vine/pages/VineLogin";
 import VineRegister from "./modules/vine/pages/VineRegister";
@@ -69,7 +70,11 @@ const VineEntrySplash = lazy(() => import("./modules/vine/pages/VineEntrySplash"
 const ParentsEntry = lazy(() => import("./modules/parents/pages/ParentsEntry"));
 const ParentsPortal = lazy(() => import("./modules/parents/pages/ParentsPortal"));
 
-function RouteLoadingScreen() {
+function RouteLoadingScreen({ pathname }) {
+  if (pathname.startsWith("/ark/accounts")) {
+    return <AccountsSplashScreen />;
+  }
+
   return (
     <div
       style={{
@@ -160,7 +165,7 @@ function App() {
 
   
   return (
-    <Suspense fallback={<RouteLoadingScreen />}>
+    <Suspense fallback={<RouteLoadingScreen pathname={location.pathname} />}>
     <Routes>
     {/* 🌍 Public website */}
     <Route path="/" element={<LandingPage />} />

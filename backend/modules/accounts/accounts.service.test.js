@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  buildPaymentTransaction,
   getLearnerLevelForClass,
   isValidAccountsEmail,
   isValidAccountsPassword,
@@ -33,6 +34,30 @@ test("validates money without floating-point drift", () => {
   assert.equal(parseMoneyAmount("0", { nullable: true }), 0);
   assert.equal(parseMoneyAmount("", { nullable: true }), null);
   assert.equal(parseMoneyAmount("-1"), null);
+});
+
+test("describes payment changes for the transaction ledger", () => {
+  assert.deepEqual(buildPaymentTransaction(null, 50_000), {
+    type: "payment_added",
+    amountChange: 50_000,
+  });
+  assert.deepEqual(buildPaymentTransaction(50_000, 80_000), {
+    type: "payment_added",
+    amountChange: 30_000,
+  });
+  assert.deepEqual(buildPaymentTransaction(80_000, 50_000), {
+    type: "payment_corrected",
+    amountChange: -30_000,
+  });
+  assert.deepEqual(buildPaymentTransaction(null, 0), {
+    type: "not_paid",
+    amountChange: 0,
+  });
+  assert.deepEqual(buildPaymentTransaction(50_000, null), {
+    type: "payment_cleared",
+    amountChange: -50_000,
+  });
+  assert.equal(buildPaymentTransaction(50_000, 50_000), null);
 });
 
 test("resolves learner level and compares credentials safely", () => {

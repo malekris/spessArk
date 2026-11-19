@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { getRequestedSessionMode } from "../../../utils/deviceSession";
 import { clearAccountsAuth, setAccountsAuth } from "../api";
+import schoolBadge from "../../../assets/badge.png";
 import "../AccountsPortal.css";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5001";
@@ -124,7 +125,9 @@ export default function AccountsLogin() {
     <main className="accounts-login-page">
       <button type="button" className="accounts-back-button" onClick={() => navigate("/ark")}><span aria-hidden="true">←</span> SPESS ARK</button>
       <section className="accounts-login-panel">
-        <div className="accounts-brand-mark" aria-hidden="true">SA</div>
+        <div className="accounts-login-badge">
+          <img src={schoolBadge} alt="St. Phillip's Equatorial Secondary School badge" />
+        </div>
         <div className="accounts-login-copy"><span>Finance Office</span><h1>SPESS Accounts</h1><p>St. Phillip&apos;s Equatorial Secondary School</p></div>
         <div className="accounts-auth-modes" role="tablist" aria-label="Accounts access">
           <button type="button" role="tab" aria-selected={mode === "login"} className={mode === "login" ? "is-active" : ""} onClick={() => changeMode("login")}>Sign in</button>

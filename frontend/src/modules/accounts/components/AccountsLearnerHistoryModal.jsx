@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { accountsRequest } from "../api";
+import AccountsLearnerStatement from "./AccountsLearnerStatement";
 
 const moneyFormatter = new Intl.NumberFormat("en-UG", {
   style: "currency",
@@ -47,6 +48,7 @@ export default function AccountsLearnerHistoryModal({ learner, onClose }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [view, setView] = useState("history");
 
   useEffect(() => {
     let active = true;
@@ -120,8 +122,18 @@ export default function AccountsLearnerHistoryModal({ learner, onClose }) {
           <div className="accounts-history-state">Loading payment history...</div>
         ) : error ? (
           <div className="accounts-history-state is-error" role="alert">{error}</div>
+        ) : view === "statement" ? (
+          <AccountsLearnerStatement
+            learner={profile}
+            history={history}
+            summary={data?.summary}
+            onBack={() => setView("history")}
+          />
         ) : (
           <div className="accounts-history-body">
+            <div className="accounts-history-actions">
+              <button type="button" onClick={() => setView("statement")}>Learner Statement</button>
+            </div>
             <dl className="accounts-history-profile">
               <div><dt>Current stream</dt><dd>{profile.class_level} {profile.stream}</dd></div>
               <div><dt>Added to system</dt><dd>{formatDate(profile.added_at)}</dd></div>

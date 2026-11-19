@@ -8,11 +8,17 @@ import {
   setAccountsUser,
 } from "../api";
 import AccountsAuditPanel from "../components/AccountsAuditPanel";
+import AccountsBursarActivitySummary from "../components/AccountsBursarActivitySummary";
+import AccountsCorrectionAlerts from "../components/AccountsCorrectionAlerts";
 import AccountsFundsSummary from "../components/AccountsFundsSummary";
 import AccountsLearnerHistoryModal from "../components/AccountsLearnerHistoryModal";
+import AccountsOutstandingBalances from "../components/AccountsOutstandingBalances";
 import AccountsPortalNav from "../components/AccountsPortalNav";
 import AccountsProfileSettings from "../components/AccountsProfileSettings";
+import AccountsRecentTransactions from "../components/AccountsRecentTransactions";
 import AccountsRegisterPdfButton from "../components/AccountsRegisterPdfButton";
+import AccountsTodayCollections from "../components/AccountsTodayCollections";
+import AccountsTransactionSearch from "../components/AccountsTransactionSearch";
 import { matchesLearnerSearch } from "../learnerSearch";
 import { formatMoneyInput, normalizeMoneyInput } from "../moneyInput";
 import "../AccountsPortal.css";
@@ -292,6 +298,8 @@ export default function AccountsDashboard() {
           <div className="accounts-period-chip">
             {activeView === "quick-entry"
               ? `${filters.term} - ${filters.year}`
+              : activeView === "insights"
+                ? "Financial intelligence"
               : activeView === "audit"
                 ? "Activity log"
                 : activeView === "settings"
@@ -305,6 +313,8 @@ export default function AccountsDashboard() {
           year={filters.year}
           refreshKey={summaryRefreshKey}
         />
+
+        <AccountsRecentTransactions refreshKey={summaryRefreshKey} />
 
         <AccountsPortalNav
           activeView={activeView}
@@ -476,6 +486,32 @@ export default function AccountsDashboard() {
                 </div>
               ) : <div className="accounts-empty-state">No active learners were found in this class and stream.</div>}
             </section>
+          </div>
+        ) : activeView === "insights" ? (
+          <div className="accounts-insights-panel" id="accounts-insights-panel">
+            <div className="accounts-insights-heading">
+              <span>Accounts Intelligence</span>
+              <h2>{filters.term} {filters.year}</h2>
+              <p>Live collections, balances, corrections and finance-team activity in one place.</p>
+            </div>
+            <div className="accounts-insights-grid">
+              <AccountsTodayCollections refreshKey={summaryRefreshKey} />
+              <AccountsBursarActivitySummary refreshKey={summaryRefreshKey} />
+              <AccountsOutstandingBalances
+                filters={filters}
+                refreshKey={summaryRefreshKey}
+                onSelectLearner={setSelectedLearner}
+              />
+              <AccountsCorrectionAlerts
+                refreshKey={summaryRefreshKey}
+                onSelectLearner={(learner) => setSelectedLearner({ ...learner, id: learner.learner_id })}
+              />
+              <AccountsTransactionSearch
+                filters={filters}
+                refreshKey={summaryRefreshKey}
+                onSelectLearner={setSelectedLearner}
+              />
+            </div>
           </div>
         ) : activeView === "settings" && isBursar ? (
           <div id="accounts-settings-panel">

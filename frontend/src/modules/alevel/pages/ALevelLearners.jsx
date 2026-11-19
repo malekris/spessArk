@@ -301,7 +301,9 @@ export default function ALevelLearners() {
       setPrincipals([]);
       setSubsidiaries([]);
       setEditing(null);
-      fetchLearners();
+      // Wait for the authoritative subject registrations before the learner
+      // table and marksheet controls are shown again.
+      await fetchLearners();
     } catch (err) {
       console.error("saveLearner", err);
       setError(err.message || "Save failed");

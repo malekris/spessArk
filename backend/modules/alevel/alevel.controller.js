@@ -67,6 +67,7 @@ async function findDuplicateLearner(conn, { first_name, last_name, gender, dob, 
 // GET /api/alevel/learners
 export async function getLearners(req, res) {
   try {
+    res.set("Cache-Control", "private, no-store");
     await ensureAlevelPromotionSchemaReady(db);
     const [rows] = await db.query(`
       SELECT 
@@ -260,6 +261,13 @@ export async function updateLearner(req, res) {
   const { id } = req.params;
   const { name, gender, dob, house, stream, combination, subjects } = req.body;
 
+  const requestedSubjects = Array.isArray(subjects)
+    ? Array.from(new Set(subjects.map((subject) => String(subject || "").trim()).filter(Boolean)))
+    : [];
+  if (!name || !gender || !dob || !house || !stream || requestedSubjects.length === 0) {
+    return res.status(400).json({ message: "Learner details and subjects are required" });
+  }
+
   const { first_name, last_name } = splitLearnerName(name);
 
   const conn = await db.getConnection();
@@ -309,17 +317,35 @@ export async function updateLearner(req, res) {
       [first_name, last_name, gender, dob, house, stream, combination, id]
     );
 
+    const [subjectRows] = await conn.query(
+      `SELECT id, name
+       FROM alevel_subjects
+       WHERE LOWER(TRIM(name)) IN (?)`,
+      [requestedSubjects.map((subject) => subject.toLowerCase())]
+    );
+
+    const subjectsByName = new Map(
+      (subjectRows || []).map((subject) => [String(subject.name || "").trim().toLowerCase(), subject])
+    );
+    const missingSubjects = requestedSubjects.filter(
+      (subject) => !subjectsByName.has(subject.toLowerCase())
+    );
+    if (missingSubjects.length > 0) {
+      await conn.rollback();
+      return res.status(400).json({
+        message: `These subjects are not configured: ${missingSubjects.join(", ")}`,
+      });
+    }
+
     await conn.query(
       "DELETE FROM alevel_learner_subjects WHERE learner_id = ?",
       [id]
     );
 
-    const [subjectRows] = await conn.query(
-      `SELECT id FROM alevel_subjects WHERE name IN (?)`,
-      [subjects]
-    );
-
-    const values = subjectRows.map(s => [id, s.id]);
+    const values = requestedSubjects.map((subject) => [
+      id,
+      subjectsByName.get(subject.toLowerCase()).id,
+    ]);
 
     await conn.query(
       `INSERT INTO alevel_learner_subjects (learner_id, subject_id) VALUES ?`,
@@ -337,7 +363,12 @@ export async function updateLearner(req, res) {
       ipAddress: extractClientIp(req),
     });
     queueAdminYearSnapshotRefresh(db, "alevel-learner-update");
-    res.json({ success: true });
+    res.set("Cache-Control", "private, no-store");
+    res.json({
+      success: true,
+      learner_id: Number(id),
+      subjects: requestedSubjects,
+    });
   } catch (err) {
     await conn.rollback();
     console.error(err);

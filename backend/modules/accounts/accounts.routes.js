@@ -18,6 +18,7 @@ import {
 import {
   ACCOUNTS_CLASSES,
   ACCOUNTS_TERMS,
+  buildPaymentTransaction,
   getLearnerLevelForClass,
   isValidAccountsEmail,
   isValidAccountsPassword,
@@ -114,6 +115,33 @@ async function ensureAccountsSchemaReady() {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
       `);
 
+      // Unlike accounts_learner_payments, this table is append-only. It keeps
+      // each fee change available for the live transaction feed and audit.
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS accounts_payment_transactions (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          learner_level ENUM('O_LEVEL','A_LEVEL') NOT NULL,
+          learner_id INT NOT NULL,
+          learner_name_snapshot VARCHAR(180) NOT NULL,
+          class_level_snapshot VARCHAR(10) NOT NULL,
+          stream_snapshot VARCHAR(100) NOT NULL,
+          academic_year INT NOT NULL,
+          term VARCHAR(20) NOT NULL,
+          residence_type ENUM('Day','Boarding') NOT NULL,
+          previous_amount DECIMAL(12,2) DEFAULT NULL,
+          new_amount DECIMAL(12,2) DEFAULT NULL,
+          amount_change DECIMAL(12,2) NOT NULL DEFAULT 0,
+          transaction_type VARCHAR(30) NOT NULL,
+          recorded_by_user_id BIGINT UNSIGNED DEFAULT NULL,
+          recorded_by_role VARCHAR(40) NOT NULL,
+          recorded_by_name VARCHAR(160) NOT NULL,
+          created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          KEY idx_accounts_transaction_recent (created_at, id),
+          KEY idx_accounts_transaction_learner (learner_level, learner_id, academic_year, term)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+      `);
+
       await pool.query(`
         CREATE TABLE IF NOT EXISTS accounts_users (
           id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -155,6 +183,61 @@ async function ensureAccountsSchemaReady() {
   }
   return accountsSchemaReadyPromise;
 }
+
+// A single read model keeps the live feed and search screens consistent. Rows
+// saved before the append-only ledger existed remain visible as legacy entries.
+const PAYMENT_ACTIVITY_SOURCE_SQL = `
+  SELECT
+    apt.id,
+    'ledger' AS source,
+    apt.learner_level,
+    apt.learner_id,
+    apt.learner_name_snapshot AS learner_name,
+    apt.class_level_snapshot AS class_level,
+    apt.stream_snapshot AS stream,
+    apt.academic_year,
+    apt.term,
+    apt.residence_type,
+    apt.previous_amount,
+    apt.new_amount,
+    apt.amount_change,
+    apt.transaction_type,
+    apt.recorded_by_name,
+    apt.created_at
+  FROM accounts_payment_transactions apt
+
+  UNION ALL
+
+  SELECT
+    alp.id,
+    'legacy' AS source,
+    alp.learner_level,
+    alp.learner_id,
+    alp.learner_name_snapshot AS learner_name,
+    alp.class_level_snapshot AS class_level,
+    alp.stream_snapshot AS stream,
+    alp.academic_year,
+    alp.term,
+    alp.residence_type,
+    NULL AS previous_amount,
+    alp.amount_paid AS new_amount,
+    COALESCE(alp.amount_paid, 0) AS amount_change,
+    CASE WHEN alp.amount_paid = 0 THEN 'not_paid' ELSE 'initial_record' END AS transaction_type,
+    COALESCE(staff.name, NULLIF(alp.updated_by, ''), 'Accounts Office') AS recorded_by_name,
+    alp.updated_at AS created_at
+  FROM accounts_learner_payments alp
+  LEFT JOIN accounts_users staff
+    ON LOWER(staff.email) = LOWER(alp.updated_by)
+  WHERE alp.amount_paid IS NOT NULL
+    AND NOT EXISTS (
+      SELECT 1
+      FROM accounts_payment_transactions existing_tx
+      WHERE existing_tx.learner_level = alp.learner_level
+        AND existing_tx.learner_id = alp.learner_id
+        AND existing_tx.academic_year = alp.academic_year
+        AND existing_tx.term = alp.term
+    )
+`;
 
 async function logAccountsAudit(req, action, description, entityId = null) {
   const actorId = Number(req?.accountsAdmin?.id ?? 0);
@@ -224,6 +307,29 @@ function parseScope(query = {}) {
     return null;
   }
   return { classLevel, stream, term, year };
+}
+
+function parseInsightPeriod(query = {}) {
+  const term = normalizeAccountsTerm(query.term);
+  const year = Number(query.year);
+  if (!term || !Number.isInteger(year) || year < 2020 || year > 2100) return null;
+  return { term, year };
+}
+
+function getKampalaDayEpochRange(now = new Date()) {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Africa/Kampala",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(now).filter((part) => part.type !== "literal").map((part) => [part.type, part.value])
+  );
+  const startMs = Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day)) - 3 * 60 * 60 * 1000;
+  return {
+    startEpoch: Math.floor(startMs / 1000),
+    endEpoch: Math.floor((startMs + 24 * 60 * 60 * 1000) / 1000),
+  };
 }
 
 async function loadScopedLearners(connection, classLevel, stream) {
@@ -837,6 +943,215 @@ router.get("/funds-summary", async (req, res) => {
   }
 });
 
+router.get("/recent-transactions", async (_req, res) => {
+  try {
+    await ensureAccountsSchemaReady();
+    res.set("Cache-Control", "private, no-store");
+
+    const [rows] = await pool.query(`
+      SELECT *
+      FROM (
+        ${PAYMENT_ACTIVITY_SOURCE_SQL}
+      ) recent
+      ORDER BY created_at DESC, id DESC
+      LIMIT 5
+    `);
+
+    return res.json({ transactions: rows || [] });
+  } catch (error) {
+    console.error("Accounts recent transactions error:", error);
+    return res.status(500).json({ message: "Failed to load recent transactions" });
+  }
+});
+
+router.get("/insights/today", async (_req, res) => {
+  try {
+    await ensureAccountsSchemaReady();
+    res.set("Cache-Control", "private, no-store");
+    const { startEpoch, endEpoch } = getKampalaDayEpochRange();
+    const [[summary]] = await pool.query(
+      `SELECT
+         COUNT(*) AS transaction_count,
+         COALESCE(SUM(CASE WHEN amount_change > 0 THEN amount_change ELSE 0 END), 0) AS collected,
+         COALESCE(SUM(CASE WHEN residence_type = 'Day' AND amount_change > 0 THEN amount_change ELSE 0 END), 0) AS day_collected,
+         COALESCE(SUM(CASE WHEN residence_type = 'Boarding' AND amount_change > 0 THEN amount_change ELSE 0 END), 0) AS hostel_collected,
+         SUM(CASE WHEN transaction_type IN ('payment_corrected','payment_cleared') THEN 1 ELSE 0 END) AS corrections,
+         MAX(created_at) AS latest_at
+       FROM (${PAYMENT_ACTIVITY_SOURCE_SQL}) activity
+       WHERE UNIX_TIMESTAMP(created_at) >= ? AND UNIX_TIMESTAMP(created_at) < ?`,
+      [startEpoch, endEpoch]
+    );
+
+    return res.json({
+      transaction_count: Number(summary?.transaction_count || 0),
+      collected: Number(summary?.collected || 0),
+      day_collected: Number(summary?.day_collected || 0),
+      hostel_collected: Number(summary?.hostel_collected || 0),
+      corrections: Number(summary?.corrections || 0),
+      latest_at: summary?.latest_at || null,
+    });
+  } catch (error) {
+    console.error("Accounts today collections error:", error);
+    return res.status(500).json({ message: "Failed to load today's collections" });
+  }
+});
+
+router.get("/insights/outstanding", async (req, res) => {
+  const period = parseInsightPeriod(req.query);
+  if (!period) return res.status(400).json({ message: "Choose a valid term and year" });
+
+  const classLevel = normalizeAccountsClass(req.query?.class_level);
+  const stream = String(req.query?.stream || "").trim();
+  const search = String(req.query?.search || "").trim().slice(0, 80);
+  const conditions = ["academic_year = ?", "term = ?", "expected_amount_snapshot > COALESCE(amount_paid, 0)"];
+  const params = [period.year, period.term];
+  if (classLevel) {
+    conditions.push("class_level_snapshot = ?");
+    params.push(classLevel);
+  }
+  if (stream) {
+    conditions.push("LOWER(stream_snapshot) = LOWER(?)");
+    params.push(stream);
+  }
+  if (search) {
+    conditions.push("learner_name_snapshot LIKE ?");
+    params.push(`%${search}%`);
+  }
+
+  try {
+    await ensureAccountsSchemaReady();
+    res.set("Cache-Control", "private, no-store");
+    const [rows] = await pool.query(
+      `SELECT
+         learner_level,
+         learner_id,
+         learner_name_snapshot AS learner_name,
+         class_level_snapshot AS class_level,
+         stream_snapshot AS stream,
+         residence_type,
+         expected_amount_snapshot AS expected_amount,
+         COALESCE(amount_paid, 0) AS amount_paid,
+         expected_amount_snapshot - COALESCE(amount_paid, 0) AS balance,
+         updated_at,
+         COUNT(*) OVER() AS total_learners,
+         SUM(expected_amount_snapshot - COALESCE(amount_paid, 0)) OVER() AS total_balance
+       FROM accounts_learner_payments
+       WHERE ${conditions.join(" AND ")}
+       ORDER BY balance DESC, learner_name_snapshot ASC
+       LIMIT 50`,
+      params
+    );
+
+    return res.json({
+      learners: rows || [],
+      summary: {
+        learners: Number(rows?.[0]?.total_learners || 0),
+        total_balance: Number(rows?.[0]?.total_balance || 0),
+      },
+    });
+  } catch (error) {
+    console.error("Accounts outstanding balances error:", error);
+    return res.status(500).json({ message: "Failed to load outstanding balances" });
+  }
+});
+
+router.get("/transactions", async (req, res) => {
+  const period = parseInsightPeriod(req.query);
+  if (!period) return res.status(400).json({ message: "Choose a valid term and year" });
+
+  const search = String(req.query?.search || "").trim().slice(0, 80);
+  const classLevel = normalizeAccountsClass(req.query?.class_level);
+  const stream = String(req.query?.stream || "").trim();
+  const conditions = ["academic_year = ?", "term = ?"];
+  const params = [period.year, period.term];
+  if (search) {
+    conditions.push("(learner_name LIKE ? OR recorded_by_name LIKE ?)");
+    params.push(`%${search}%`, `%${search}%`);
+  }
+  if (classLevel) {
+    conditions.push("class_level = ?");
+    params.push(classLevel);
+  }
+  if (stream) {
+    conditions.push("LOWER(stream) = LOWER(?)");
+    params.push(stream);
+  }
+
+  try {
+    await ensureAccountsSchemaReady();
+    res.set("Cache-Control", "private, no-store");
+    const [rows] = await pool.query(
+      `SELECT *
+       FROM (${PAYMENT_ACTIVITY_SOURCE_SQL}) activity
+       WHERE ${conditions.join(" AND ")}
+       ORDER BY created_at DESC, id DESC
+       LIMIT 50`,
+      params
+    );
+    return res.json({ transactions: rows || [] });
+  } catch (error) {
+    console.error("Accounts transaction search error:", error);
+    return res.status(500).json({ message: "Failed to search transactions" });
+  }
+});
+
+router.get("/insights/corrections", async (_req, res) => {
+  try {
+    await ensureAccountsSchemaReady();
+    res.set("Cache-Control", "private, no-store");
+    const [rows] = await pool.query(
+      `SELECT
+         id,
+         learner_level,
+         learner_id,
+         learner_name_snapshot AS learner_name,
+         class_level_snapshot AS class_level,
+         stream_snapshot AS stream,
+         academic_year,
+         term,
+         previous_amount,
+         new_amount,
+         amount_change,
+         transaction_type,
+         recorded_by_name,
+         created_at
+       FROM accounts_payment_transactions
+       WHERE transaction_type IN ('payment_corrected','payment_cleared')
+       ORDER BY created_at DESC, id DESC
+       LIMIT 10`
+    );
+    return res.json({ corrections: rows || [] });
+  } catch (error) {
+    console.error("Accounts correction alerts error:", error);
+    return res.status(500).json({ message: "Failed to load correction alerts" });
+  }
+});
+
+router.get("/insights/bursar-activity", async (_req, res) => {
+  try {
+    await ensureAccountsSchemaReady();
+    res.set("Cache-Control", "private, no-store");
+    const { startEpoch, endEpoch } = getKampalaDayEpochRange();
+    const [rows] = await pool.query(
+      `SELECT
+         recorded_by_name,
+         COUNT(*) AS transaction_count,
+         COALESCE(SUM(CASE WHEN amount_change > 0 THEN amount_change ELSE 0 END), 0) AS collected,
+         SUM(CASE WHEN transaction_type IN ('payment_corrected','payment_cleared') THEN 1 ELSE 0 END) AS corrections,
+         MAX(created_at) AS last_activity_at
+       FROM (${PAYMENT_ACTIVITY_SOURCE_SQL}) activity
+       WHERE UNIX_TIMESTAMP(created_at) >= ? AND UNIX_TIMESTAMP(created_at) < ?
+       GROUP BY recorded_by_name
+       ORDER BY collected DESC, transaction_count DESC, recorded_by_name ASC`,
+      [startEpoch, endEpoch]
+    );
+    return res.json({ staff: rows || [] });
+  } catch (error) {
+    console.error("Accounts bursar activity error:", error);
+    return res.status(500).json({ message: "Failed to load bursar activity" });
+  }
+});
+
 router.get("/learners", async (req, res) => {
   const scope = parseScope(req.query);
   if (!scope) {
@@ -1076,6 +1391,8 @@ router.put("/payments/batch", async (req, res) => {
     const actorName = String(
       req.accountsAdmin?.name || req.accountsAdmin?.username || "Accounts User"
     ).trim().slice(0, 100);
+    const actorId = Number(req.accountsAdmin?.id);
+    const actorRole = String(req.accountsAdmin?.role || "accounts_user").slice(0, 40);
     const normalizedRows = rows.map((row) => {
       const learnerId = Number(row?.learner_id);
       const learner = learnersById.get(learnerId);
@@ -1093,9 +1410,35 @@ router.put("/payments/batch", async (req, res) => {
         ),
       };
     });
+    if (new Set(normalizedRows.map((row) => Number(row.learner.id))).size !== normalizedRows.length) {
+      throw new Error("INVALID_PAYMENT_ROW");
+    }
 
     await connection.beginTransaction();
+    const learnerIds = normalizedRows.map((row) => Number(row.learner.id));
+    const [existingPaymentRows] = await connection.query(
+      `SELECT learner_id, amount_paid
+       FROM accounts_learner_payments
+       WHERE learner_level = ?
+         AND academic_year = ?
+         AND term = ?
+         AND learner_id IN (?)
+       FOR UPDATE`,
+      [learnerLevel, scope.year, scope.term, learnerIds]
+    );
+    const previousPayments = new Map(
+      (existingPaymentRows || []).map((row) => [
+        Number(row.learner_id),
+        row.amount_paid === null ? null : Number(row.amount_paid),
+      ])
+    );
+
     for (const row of normalizedRows) {
+      const previousAmount = previousPayments.has(Number(row.learner.id))
+        ? previousPayments.get(Number(row.learner.id))
+        : null;
+      const transaction = buildPaymentTransaction(previousAmount, row.amountPaid);
+
       await connection.query(
         `INSERT INTO accounts_learner_payments
           (learner_level, learner_id, learner_name_snapshot, class_level_snapshot,
@@ -1124,6 +1467,34 @@ router.put("/payments/batch", async (req, res) => {
           actorName,
         ]
       );
+
+      if (transaction) {
+        await connection.query(
+          `INSERT INTO accounts_payment_transactions
+            (learner_level, learner_id, learner_name_snapshot, class_level_snapshot,
+             stream_snapshot, academic_year, term, residence_type, previous_amount,
+             new_amount, amount_change, transaction_type, recorded_by_user_id,
+             recorded_by_role, recorded_by_name)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            learnerLevel,
+            row.learner.id,
+            row.learner.learner_name,
+            scope.classLevel,
+            scope.stream,
+            scope.year,
+            scope.term,
+            row.residenceType,
+            previousAmount,
+            row.amountPaid,
+            transaction.amountChange,
+            transaction.type,
+            Number.isInteger(actorId) && actorId > 0 ? actorId : null,
+            actorRole,
+            actorName,
+          ]
+        );
+      }
     }
     await connection.commit();
 

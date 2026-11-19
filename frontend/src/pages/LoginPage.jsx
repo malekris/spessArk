@@ -237,6 +237,28 @@ function LoginPage() {
                 Boarding Admin Access <span style={{ marginLeft: 8 }}>→</span>
               </button>
 
+              <div className="divider"><span>FINANCE ACCESS</span></div>
+
+              <button
+                type="button"
+                onClick={() => navigate("/ark/accounts-login")}
+                style={{
+                  width: "100%",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: "14px 18px",
+                  borderRadius: "16px",
+                  fontWeight: 800,
+                  border: "1px solid rgba(212, 175, 55, 0.38)",
+                  background: "rgba(41, 32, 8, 0.52)",
+                  color: "#fef3c7",
+                  cursor: "pointer",
+                }}
+              >
+                SPESS Accounts <span style={{ marginLeft: 8 }}>→</span>
+              </button>
+
               <button
                 type="button"
                 className="link-btn"

@@ -9,10 +9,10 @@ router.get("/", async (req, res) => {
   try {
     await ensureStudentLifecycleColumns(pool);
     const [rows] = await pool.query(
-      `SELECT id, name, gender, dob, class, stream, status
+      `SELECT *
        FROM students
        WHERE COALESCE(NULLIF(status, ''), 'active') = 'active'
-       ORDER BY name`
+       ORDER BY created_at DESC`
     );
     res.json(rows);
   } catch (err) {

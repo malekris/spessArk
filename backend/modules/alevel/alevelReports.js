@@ -54,6 +54,26 @@ function normalizeAssessmentMode(value = "") {
   return String(value || "").trim().toUpperCase() === "MID" ? "MID" : "FULL";
 }
 
+async function loadAlevelAccountsPayments(year, term) {
+  try {
+    const [rows] = await db.query(
+      `SELECT learner_id, residence_type, amount_paid
+       FROM accounts_learner_payments
+       WHERE learner_level = 'A_LEVEL'
+         AND academic_year = ?
+         AND term = ?`,
+      [year, term]
+    );
+    return new Map((rows || []).map((row) => [Number(row.learner_id), row]));
+  } catch (error) {
+    // Keep reports available before SPESS Accounts has created its tables.
+    if (error?.code === "ER_NO_SUCH_TABLE" || error?.code === "ER_BAD_FIELD_ERROR") {
+      return new Map();
+    }
+    throw error;
+  }
+}
+
 function normalizeSingleComponentScore(value) {
   if (value === null || value === undefined || value === "") return null;
   const score = Number(value);
@@ -350,6 +370,7 @@ router.post("/download", authAdmin, async (req, res) => {
          ORDER BY first_name`,
         [fullStream]
       );
+      const accountsPaymentsByLearner = await loadAlevelAccountsPayments(year, term);
   
       const reportData = [];
   
@@ -461,6 +482,7 @@ router.post("/download", authAdmin, async (req, res) => {
   
         const totalP = principals.reduce((s, x) => s + x.points, 0);
         const totalS = subsidiaries.reduce((s, x) => s + x.points, 0);
+        const accountsPayment = accountsPaymentsByLearner.get(Number(learner.id));
   
         reportData.push({
           learner: {
@@ -470,7 +492,9 @@ router.post("/download", authAdmin, async (req, res) => {
             house: learner.house,
             class: cls,
             stream: streamName,
-            combination: learner.combination
+            combination: learner.combination,
+            accountsResidenceType: accountsPayment?.residence_type || "Day",
+            accountsAmountPaid: accountsPayment?.amount_paid ?? null,
           },
           principals,
           subsidiaries,

@@ -40,6 +40,8 @@ const BoardingDashboard = lazy(() => import("./modules/boarding/pages/BoardingDa
 const BoardingLearners = lazy(() => import("./modules/boarding/pages/BoardingLearners"));
 const BoardingMarks = lazy(() => import("./modules/boarding/pages/BoardingMarks"));
 const BoardingReports = lazy(() => import("./modules/boarding/pages/BoardingReports"));
+const AccountsLogin = lazy(() => import("./modules/accounts/pages/AccountsLogin"));
+const AccountsDashboard = lazy(() => import("./modules/accounts/pages/AccountsDashboard"));
 const VineFeed = lazy(() => import("./modules/vine/pages/VineFeed"));
 const VineProfile = lazy(() => import("./modules/vine/pages/VineProfile"));
 const VineSettings = lazy(() => import("./modules/vine/pages/VineSettings"));
@@ -241,6 +243,8 @@ function App() {
     <Route path="/ark/boarding/learners" element={<ArkLayout><BoardingLearners /></ArkLayout>} />
     <Route path="/ark/boarding/marks" element={<ArkLayout><BoardingMarks /></ArkLayout>} />
     <Route path="/ark/boarding/reports" element={<ArkLayout><BoardingReports /></ArkLayout>} />
+    <Route path="/ark/accounts-login" element={<ArkLayout><AccountsLogin /></ArkLayout>} />
+    <Route path="/ark/accounts" element={<ArkLayout><AccountsDashboard /></ArkLayout>} />
 
 {/* 🌱 SPESS VINE */}
 <Route path="/vine/enter" element={<VineRouteErrorBoundary><VineEntrySplash /></VineRouteErrorBoundary>} />

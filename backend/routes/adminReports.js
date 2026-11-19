@@ -131,6 +131,27 @@ const safeAnalyticsQuery = async (executor, sql, params = []) => {
   }
 };
 
+const loadOLevelAccountsPayments = async (academicYear) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT learner_id, residence_type, amount_paid
+       FROM accounts_learner_payments
+       WHERE learner_level = 'O_LEVEL'
+         AND academic_year = ?
+         AND term = 'Term 3'`,
+      [academicYear]
+    );
+    return new Map((rows || []).map((row) => [Number(row.learner_id), row]));
+  } catch (error) {
+    // Older deployments may generate reports before SPESS Accounts is opened
+    // for the first time. Keep the report available and use the Day default.
+    if (error?.code === "ER_NO_SUCH_TABLE" || error?.code === "ER_BAD_FIELD_ERROR") {
+      return new Map();
+    }
+    throw error;
+  }
+};
+
 const deriveALevelClass = (stream = "") => {
   const raw = String(stream || "").trim();
   if (!raw) return "A-Level";
@@ -642,6 +663,7 @@ router.get("/year", authAdmin, async (req, res) => {
     };
 
     const reportRows = (rows || []).filter(isReportRowForRegisteredSubject);
+    const accountsPaymentsByStudent = await loadOLevelAccountsPayments(yearParam);
 
     const processedAll = reportRows.map((r) => {
       const { term3Average, coursework20 } = calculateOLevelYearCoursework(r, yearParam);
@@ -654,6 +676,7 @@ router.get("/year", authAdmin, async (req, res) => {
 
       const grade = gradeFor(total100);
       const remark = remarkForGrade(grade);
+      const accountsPayment = accountsPaymentsByStudent.get(Number(r.student_id));
 
       return {
         ...r,
@@ -664,6 +687,8 @@ router.get("/year", authAdmin, async (req, res) => {
         grade,
         remark,
         year_assessment_model: yearAssessmentPolicy.mode,
+        accounts_residence_type: accountsPayment?.residence_type || "Day",
+        accounts_amount_paid: accountsPayment?.amount_paid ?? null,
       };
     });
 

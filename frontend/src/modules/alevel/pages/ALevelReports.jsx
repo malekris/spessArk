@@ -9,6 +9,12 @@ import { loadPdfTools } from "../../../utils/loadPdfTools";
 import { normalizeSchoolCalendar } from "../../../utils/schoolCalendar";
 import { recordAdminReportGeneration } from "../../../utils/adminAuditEvents";
 import { adminFetch } from "../../../lib/api";
+import {
+  buildEndOfYearFeeCells,
+  buildFeeContributionTitle,
+  formatAccountsSection,
+  getEndOfYearFeeSummary,
+} from "../../accounts/endOfYearFees";
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const ALEVEL_REPORT_DATES_STORAGE_KEY = "spess_alevel_report_dates";
 const ALEVEL_GRADE_REFERENCE_HEAD = [["GRADE", "A", "B", "C", "D", "E", "P", "F"]];
@@ -2137,6 +2143,10 @@ export async function generateAlevelPDF(data, meta, options = {}) {
     }
 
     const { learner, principals, subsidiaries, totals, comments } = student;
+    const termFeeSummary = getEndOfYearFeeSummary({
+      residenceType: learner.accountsResidenceType,
+      amountPaid: learner.accountsAmountPaid,
+    });
 
     doc.addImage(badge, "PNG", 15, 10, 20, 20);
 
@@ -2215,6 +2225,12 @@ doc.text("Stream:", 15, y + 12);
 w = doc.getTextWidth("Stream:");
 doc.setFont("helvetica", "normal");
 doc.text(learner.stream, 15 + w + gap, y + 12);
+
+doc.setFont("helvetica", "bold");
+doc.text("Section:", 58, y + 12);
+w = doc.getTextWidth("Section:");
+doc.setFont("helvetica", "normal");
+doc.text(formatAccountsSection(termFeeSummary.residence), 58 + w + gap, y + 12);
 
 
 // RIGHT SIDE
@@ -2367,6 +2383,46 @@ if (midOnly) {
 } else {
   doc.text(`This term ended on: ${formatReportDateValue(meta?.termEndedOn)}`, 15, afterTablesY);
   doc.text(`Next term begins on: ${formatReportDateValue(meta?.nextTermBeginsOn)}`, 110, afterTablesY);
+
+  autoTable(doc, {
+    startY: afterTablesY + 4.5,
+    margin: { left: 15 },
+    tableWidth: pageWidth - 30,
+    head: [[{
+      content: buildFeeContributionTitle({
+        term: meta?.term,
+        year: meta?.year,
+      }),
+      colSpan: 4,
+      styles: {
+        halign: "left",
+        fontSize: 9.5,
+        fontStyle: "bold",
+        fillColor: [236, 236, 236],
+        textColor: 0,
+      },
+    }]],
+    body: [buildEndOfYearFeeCells(termFeeSummary)],
+    styles: {
+      font: "helvetica",
+      fontSize: 9.5,
+      fontStyle: "bold",
+      cellPadding: { top: 1.8, right: 1.6, bottom: 1.8, left: 1.6 },
+      lineColor: [15, 23, 42],
+      lineWidth: 0.2,
+      textColor: 0,
+      fillColor: [248, 248, 248],
+      valign: "middle",
+      overflow: "linebreak",
+    },
+    columnStyles: {
+      0: { cellWidth: (pageWidth - 30) * 0.22 },
+      1: { cellWidth: (pageWidth - 30) * 0.3 },
+      2: { cellWidth: (pageWidth - 30) * 0.23 },
+      3: { cellWidth: (pageWidth - 30) * 0.25 },
+    },
+    theme: "grid",
+  });
 }
 
     doc.setFontSize(8);

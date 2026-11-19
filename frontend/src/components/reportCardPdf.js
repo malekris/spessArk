@@ -394,7 +394,9 @@ const TERM_TEACHER_WIDTH = TERM_MARKS_TABLE_WIDTH * 0.19;
 
 // ===== VERTICAL RHYTHM =====
 const RHYTHM = 6;
-const CONTENT_START_Y = 69; // aligned to premium header + student info block
+// End-of-year reports carry the widest marks table, so begin it directly
+// below the learner details instead of reserving an unnecessary blank band.
+const CONTENT_START_Y = isEndOfYear ? 65 : 69;
 const TABLE_BORDER_COLOR = [0, 0, 0];
 const TABLE_BORDER_WIDTH = 0.38;
 const TABLE_HEADER_FILL = [236, 236, 236];
@@ -636,6 +638,7 @@ const usesTwoTerm3Aois =
 const tableHead = isEndOfYear
   ? usesTwoTerm3Aois
     ? [[
+        "#",
         "Subject",
         "A1",
         "A2",
@@ -648,6 +651,7 @@ const tableHead = isEndOfYear
         "Teacher",
       ]]
     : [[
+      "#",
       "Subject",
       "A1",
       "A2",
@@ -671,7 +675,8 @@ const tableHead = isEndOfYear
     ]];
 
 const tableData = isEndOfYear
-  ? student.subjects.map((s) => usesTwoTerm3Aois ? [
+  ? student.subjects.map((s, subjectIndex) => usesTwoTerm3Aois ? [
+      subjectIndex + 1,
       formatReportSubject(s.subject, { abbreviatePhysicalEducation: true }),
       formatAoiCell(s.AOI1, s.AOI1_status),
       formatAoiCell(s.AOI2, s.AOI2_status),
@@ -683,6 +688,7 @@ const tableData = isEndOfYear
       s.remark || "",
       abbreviateName(s.teacher_name),
     ] : [
+      subjectIndex + 1,
       formatReportSubject(s.subject, { abbreviatePhysicalEducation: true }),
       formatAoiCell(s.AOI1, s.AOI1_status),
       formatAoiCell(s.AOI2, s.AOI2_status),
@@ -737,21 +743,26 @@ autoTable(doc, {
   columnStyles: isEndOfYear
     ? usesTwoTerm3Aois
       ? {
-          0: { cellWidth: COLUMN_WIDTH * 0.17 },
-          1: { cellWidth: COLUMN_WIDTH * 0.065, halign: "center" },
+          0: {
+            cellWidth: COLUMN_WIDTH * 0.05,
+            halign: "center",
+            cellPadding: { left: 1, right: 1, top: 2, bottom: 2 },
+          },
+          1: { cellWidth: COLUMN_WIDTH * 0.17 },
           2: { cellWidth: COLUMN_WIDTH * 0.065, halign: "center" },
-          3: { cellWidth: COLUMN_WIDTH * 0.075, halign: "center" },
+          3: { cellWidth: COLUMN_WIDTH * 0.065, halign: "center" },
           4: { cellWidth: COLUMN_WIDTH * 0.075, halign: "center" },
           5: { cellWidth: COLUMN_WIDTH * 0.075, halign: "center" },
-          6: { cellWidth: COLUMN_WIDTH * 0.085, halign: "center" },
-          7: { cellWidth: COLUMN_WIDTH * 0.06, halign: "center" },
-          8: {
-            cellWidth: COLUMN_WIDTH * 0.16,
+          6: { cellWidth: COLUMN_WIDTH * 0.075, halign: "center" },
+          7: { cellWidth: COLUMN_WIDTH * 0.085, halign: "center" },
+          8: { cellWidth: COLUMN_WIDTH * 0.06, halign: "center" },
+          9: {
+            cellWidth: COLUMN_WIDTH * 0.11,
             overflow: "linebreak",
             halign: "left",
             cellPadding: { left: 2, right: 2, top: 2, bottom: 2 },
           },
-          9: {
+          10: {
             cellWidth: COLUMN_WIDTH * 0.17,
             overflow: "ellipsize",
             halign: "center",
@@ -759,23 +770,28 @@ autoTable(doc, {
           },
         }
       : {
-        0: { cellWidth: COLUMN_WIDTH * 0.17 },
-        1: { cellWidth: COLUMN_WIDTH * 0.07, halign: "center" },
-        2: { cellWidth: COLUMN_WIDTH * 0.07, halign: "center" },
-        3: { cellWidth: COLUMN_WIDTH * 0.07, halign: "center" },
-        4: { cellWidth: COLUMN_WIDTH * 0.08, halign: "center" },
-        5: { cellWidth: COLUMN_WIDTH * 0.08, halign: "center" },
-        6: { cellWidth: COLUMN_WIDTH * 0.08, halign: "center" },
-        7: { cellWidth: COLUMN_WIDTH * 0.09, halign: "center" },
-        8: { cellWidth: COLUMN_WIDTH * 0.07, halign: "center" },
-        9: {
-          cellWidth: COLUMN_WIDTH * 0.14,
+        0: {
+          cellWidth: COLUMN_WIDTH * 0.05,
+          halign: "center",
+          cellPadding: { left: 1, right: 1, top: 2, bottom: 2 },
+        },
+        1: { cellWidth: COLUMN_WIDTH * 0.165 },
+        2: { cellWidth: COLUMN_WIDTH * 0.06, halign: "center" },
+        3: { cellWidth: COLUMN_WIDTH * 0.06, halign: "center" },
+        4: { cellWidth: COLUMN_WIDTH * 0.06, halign: "center" },
+        5: { cellWidth: COLUMN_WIDTH * 0.07, halign: "center" },
+        6: { cellWidth: COLUMN_WIDTH * 0.07, halign: "center" },
+        7: { cellWidth: COLUMN_WIDTH * 0.07, halign: "center" },
+        8: { cellWidth: COLUMN_WIDTH * 0.08, halign: "center" },
+        9: { cellWidth: COLUMN_WIDTH * 0.055, halign: "center" },
+        10: {
+          cellWidth: COLUMN_WIDTH * 0.105,
           overflow: "linebreak",
           halign: "left",
           cellPadding: { left: 2, right: 2, top: 2, bottom: 2 },
         },
-        10: {
-          cellWidth: COLUMN_WIDTH * 0.13,
+        11: {
+          cellWidth: COLUMN_WIDTH * 0.155,
           overflow: "ellipsize",
           halign: "center",
           cellPadding: { left: 2, right: 2, top: 2, bottom: 2 },
@@ -1117,19 +1133,22 @@ const ineligibleNoteLines = showIneligibleFootnote
   ? doc.splitTextToSize(ineligibleNoteText, termDatesWidth)
   : [];
 const footerMetaBlockHeight =
-  RHYTHM * 3.4 + (showIneligibleFootnote ? ineligibleNoteLines.length * 3 + RHYTHM * 0.35 : 0);
+  RHYTHM * 2.4 + (showIneligibleFootnote ? ineligibleNoteLines.length * 3 + RHYTHM * 0.35 : 0);
 
 ensureSpace(footerMetaBlockHeight);
 
 doc.setFont("helvetica", "bold");
 doc.setFontSize(9.5);
-doc.text("Requirements for Next Term:", getColumnX(), currentY);
+const requirementsLabel = "Requirements for Next Term:";
+doc.text(requirementsLabel, getColumnX(), currentY);
 
 doc.setFont("helvetica", "normal");
 const requirementItems = ["Toilet paper", "Reams of paper", "Brooms"];
-doc.text(`• ${requirementItems.join("  •  ")}`, getColumnX() + 2, currentY + RHYTHM);
+const requirementsTextX =
+  getColumnX() + doc.getTextWidth(requirementsLabel) + 2.5;
+doc.text(`• ${requirementItems.join("  •  ")}`, requirementsTextX, currentY);
 
-currentY += RHYTHM * 2;
+currentY += RHYTHM;
 
 /* ===========================
    TERM DATES (AFTER REQUIREMENTS)

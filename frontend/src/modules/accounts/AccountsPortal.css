@@ -38,7 +38,7 @@
 .accounts-auth-message.is-success { border-color: #9dcbb9; background: #edf9f4; color: var(--accounts-green-dark); }
 .accounts-auth-message.is-error { border-color: #e3aaaa; background: #fff1f1; color: #7f1d1d; }
 .accounts-auth-secondary { min-height: 42px; border: 1px solid var(--accounts-line); border-radius: 6px; background: #fff; color: var(--accounts-green-dark); font: inherit; font-size: .78rem; font-weight: 900; cursor: pointer; }
-.accounts-primary-button, .accounts-secondary-button, .accounts-logout-button, .accounts-refresh-button { border: 0; cursor: pointer; font: inherit; font-weight: 900; }
+.accounts-primary-button, .accounts-secondary-button, .accounts-settings-button, .accounts-logout-button, .accounts-refresh-button { cursor: pointer; font: inherit; font-weight: 900; }
 .accounts-primary-button { min-height: 48px; padding: .82rem 1.1rem; border-radius: 6px; background: var(--accounts-green); color: #fff; }
 .accounts-primary-button:disabled, .accounts-secondary-button:disabled { opacity: .5; cursor: not-allowed; }
 .accounts-form-error { padding: .8rem; border-left: 4px solid var(--accounts-danger); background: #fff0f0; color: #7f1d1d; font-weight: 750; }
@@ -55,6 +55,8 @@
 .accounts-app-brand strong { font-size: .98rem; }
 .accounts-app-brand small { color: var(--accounts-muted); font-size: .72rem; margin-top: .15rem; }
 .accounts-header-actions { display: flex; gap: .45rem; }
+.accounts-settings-button { min-height: 40px; padding: 0 .75rem; border: 1px solid #c8d4ce; border-radius: 6px; background: #f4f7f5; color: #284138; font-size: .72rem; }
+.accounts-settings-button:hover { border-color: #9db8ac; background: #eaf2ee; }
 .accounts-icon-button { min-height: 40px; border: 1px solid var(--accounts-line); border-radius: 6px; background: #fff; color: var(--accounts-ink); }
 .accounts-icon-button { width: 40px; font-size: 1.1rem; cursor: pointer; }
 .accounts-logout-button { min-height: 40px; padding: 0 .9rem; border: 1px solid #8f2828; border-radius: 6px; background: #a93636; color: #fff; box-shadow: 0 4px 12px rgba(169,54,54,.18); }
@@ -482,6 +484,112 @@
   box-shadow: 0 10px 25px rgba(24,35,31,.075);
 }
 
+.accounts-settings-overlay { position: fixed; inset: 0; z-index: 100; display: flex; align-items: flex-end; justify-content: center; background: rgba(8, 20, 16, .56); backdrop-filter: blur(6px); }
+.accounts-settings-drawer { width: 100%; max-height: 92dvh; overflow: auto; overscroll-behavior: contain; border: 1px solid #d6dfda; border-bottom: 0; border-radius: 8px 8px 0 0; background: #f3f6f4; color: var(--accounts-ink); box-shadow: 0 -22px 70px rgba(8,20,16,.24); }
+.accounts-settings-drawer-header { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem; border-bottom: 1px solid #dce4e0; background: rgba(255,255,255,.96); backdrop-filter: blur(14px); }
+.accounts-settings-drawer-header span { color: var(--accounts-gold); font-size: .65rem; font-weight: 950; text-transform: uppercase; }
+.accounts-settings-drawer-header h2 { margin: .15rem 0 0; font-size: 1.25rem; }
+.accounts-settings-drawer-header button { width: 40px; height: 40px; display: grid; place-items: center; flex: 0 0 auto; border: 1px solid #d3dcd7; border-radius: 6px; background: #f5f7f6; color: #29372f; font: inherit; font-size: 1.5rem; line-height: 1; cursor: pointer; }
+.accounts-appearance-settings { margin: 1rem; padding: 1rem; border: 1px solid #d6dfda; border-left: 3px solid var(--accounts-gold); border-radius: 8px; background: #fff; box-shadow: 0 9px 24px rgba(24,35,31,.07); }
+.accounts-appearance-settings > div:first-child > span { color: var(--accounts-gold); font-size: .65rem; font-weight: 950; text-transform: uppercase; }
+.accounts-appearance-settings h3 { margin: .16rem 0 0; font-size: 1rem; }
+.accounts-appearance-settings p { margin: .3rem 0 0; color: var(--accounts-muted); font-size: .74rem; line-height: 1.45; }
+.accounts-theme-toggle { display: grid; grid-template-columns: 1fr 1fr; gap: 3px; margin-top: .9rem; padding: 3px; border-radius: 7px; background: #e6ece9; }
+.accounts-theme-toggle button { min-height: 48px; display: flex; align-items: center; justify-content: center; gap: .5rem; border: 0; border-radius: 5px; background: transparent; color: #536159; font: inherit; font-size: .75rem; font-weight: 900; cursor: pointer; }
+.accounts-theme-toggle button.is-active { background: #fff; color: var(--accounts-green-dark); box-shadow: 0 3px 10px rgba(24,35,31,.1); }
+.accounts-theme-swatch { width: 17px; height: 17px; display: inline-block; border: 1px solid #abb8b1; border-radius: 50%; }
+.accounts-theme-swatch.is-light { background: #fff; }
+.accounts-theme-swatch.is-dark { border-color: #30463d; background: #14231d; }
+.accounts-settings-drawer > .accounts-settings-panel { margin: 1rem; border-top-width: 1px; box-shadow: 0 9px 24px rgba(24,35,31,.07); }
+.accounts-settings-drawer .accounts-settings-layout { grid-template-columns: 1fr; }
+.accounts-settings-drawer .accounts-password-editor { padding: 1rem 0 0; border-top: 1px solid var(--accounts-line); border-left: 0; }
+.accounts-owner-settings-note { margin: 1rem; padding: .9rem 1rem; border-left: 3px solid #58a6d8; border-radius: 6px; background: #fff; color: var(--accounts-muted); font-size: .75rem; font-weight: 750; line-height: 1.5; }
+
+.accounts-app.theme-dark {
+  --accounts-ink: #edf4f0;
+  --accounts-muted: #a2b0a9;
+  --accounts-line: #33463e;
+  --accounts-paper: #17241f;
+  --accounts-canvas: #0d1713;
+  background: #0d1713;
+  color: #edf4f0;
+}
+.accounts-app.theme-dark .accounts-app-header { border-color: #2b3d35; background: rgba(14,24,20,.96); color: #f4f8f6; box-shadow: 0 5px 18px rgba(0,0,0,.24); }
+.accounts-app.theme-dark .accounts-app-brand small,
+.accounts-app.theme-dark .accounts-welcome-row p { color: #a2b0a9; }
+.accounts-app.theme-dark .accounts-welcome-row strong,
+.accounts-app.theme-dark .accounts-title-row h1 { color: #f5f8f7; }
+.accounts-app.theme-dark .accounts-settings-button { border-color: #3b5047; background: #17251f; color: #dbe6e1; }
+.accounts-app.theme-dark .accounts-period-chip,
+.accounts-app.theme-dark .accounts-state-pill { border-color: #3a4c44; background: #17231e; color: #b7c4be; }
+.accounts-app.theme-dark .accounts-funds-summary,
+.accounts-app.theme-dark .accounts-recent-transactions,
+.accounts-app.theme-dark .accounts-portal-card,
+.accounts-app.theme-dark .accounts-fee-panel,
+.accounts-app.theme-dark .accounts-register-panel,
+.accounts-app.theme-dark .accounts-pdf-panel,
+.accounts-app.theme-dark .accounts-audit-panel,
+.accounts-app.theme-dark .accounts-settings-panel,
+.accounts-app.theme-dark .accounts-insights-panel,
+.accounts-app.theme-dark .accounts-insight-card { border-color: #30433a; background: #131f1a; color: #edf4f0; box-shadow: 0 13px 28px rgba(0,0,0,.19); }
+.accounts-app.theme-dark .accounts-funds-header,
+.accounts-app.theme-dark .accounts-recent-transactions-header,
+.accounts-app.theme-dark .accounts-insight-card > header { border-color: #30433a; }
+.accounts-app.theme-dark .accounts-funds-header h2,
+.accounts-app.theme-dark .accounts-recent-transactions-header h2,
+.accounts-app.theme-dark .accounts-portal-copy strong,
+.accounts-app.theme-dark .accounts-section-heading h2,
+.accounts-app.theme-dark .accounts-insights-heading h2,
+.accounts-app.theme-dark .accounts-insight-card h3 { color: #f4f8f6; }
+.accounts-app.theme-dark .accounts-funds-stat,
+.accounts-app.theme-dark .accounts-metrics div { border-color: #354a40; background: #192720; color: #edf4f0; box-shadow: none; }
+.accounts-app.theme-dark .accounts-funds-stat span,
+.accounts-app.theme-dark .accounts-metrics span { color: #91a49b; }
+.accounts-app.theme-dark .accounts-funds-stat strong,
+.accounts-app.theme-dark .accounts-metrics strong { color: #f4f8f6; }
+.accounts-app.theme-dark .accounts-transaction-row,
+.accounts-app.theme-dark .accounts-transaction-row:nth-child(even),
+.accounts-app.theme-dark .accounts-history-entry,
+.accounts-app.theme-dark .accounts-audit-entry-copy,
+.accounts-app.theme-dark .accounts-staff-card { border-color: #30433a; background: #18251f; }
+.accounts-app.theme-dark .accounts-transactions-list { border-color: #30433a; }
+.accounts-app.theme-dark .accounts-transaction-row + .accounts-transaction-row { border-color: #30433a; }
+.accounts-app.theme-dark .accounts-transaction-copy strong,
+.accounts-app.theme-dark .accounts-learner-name-button { color: #edf4f0; }
+.accounts-app.theme-dark .accounts-portal-card.is-active { border-color: color-mix(in srgb, var(--portal-accent) 55%, #30433a); background: color-mix(in srgb, var(--portal-accent) 9%, #131f1a); }
+.accounts-app.theme-dark .accounts-portal-number,
+.accounts-app.theme-dark .accounts-portal-arrow { background: #192720; }
+.accounts-app.theme-dark .accounts-filter-band { border-color: #3a4d44; background: #111b17; }
+.accounts-app.theme-dark .accounts-fee-rates div,
+.accounts-app.theme-dark .accounts-empty-state,
+.accounts-app.theme-dark .accounts-transactions-state,
+.accounts-app.theme-dark .accounts-history-profile,
+.accounts-app.theme-dark .accounts-insight-state,
+.accounts-app.theme-dark .accounts-outstanding-total { border-color: #34473f; background: #18251f; color: #b1beb8; }
+.accounts-app.theme-dark input,
+.accounts-app.theme-dark select,
+.accounts-app.theme-dark .accounts-money-input,
+.accounts-app.theme-dark .accounts-refresh-button { border-color: #3b5047; background: #101a16; color: #edf4f0; }
+.accounts-app.theme-dark .accounts-residence-toggle,
+.accounts-app.theme-dark .accounts-payment-mode,
+.accounts-app.theme-dark .accounts-theme-toggle { background: #293a32; }
+.accounts-app.theme-dark .accounts-residence-toggle button.is-active,
+.accounts-app.theme-dark .accounts-payment-mode button.is-active { background: #eaf2ee; color: #0b513b; }
+.accounts-app.theme-dark .accounts-ledger-row { border-color: #30433a; background: #16231d; }
+.accounts-app.theme-dark .accounts-ledger-row.is-dirty { background: #2a2617; }
+.accounts-app.theme-dark .accounts-history-dialog,
+.accounts-app.theme-dark .accounts-settings-drawer { border-color: #30433a; background: #101a16; color: #edf4f0; }
+.accounts-app.theme-dark .accounts-history-header,
+.accounts-app.theme-dark .accounts-settings-drawer-header { border-color: #30433a; background: rgba(17,27,23,.97); }
+.accounts-app.theme-dark .accounts-settings-drawer-header button,
+.accounts-app.theme-dark .accounts-history-close { border-color: #3b5047; background: #1a2922; color: #edf4f0; }
+.accounts-app.theme-dark .accounts-appearance-settings,
+.accounts-app.theme-dark .accounts-settings-drawer > .accounts-settings-panel,
+.accounts-app.theme-dark .accounts-owner-settings-note { border-color: #34483f; background: #17241f; color: #a9b7b0; }
+.accounts-app.theme-dark .accounts-theme-toggle button { color: #a9b7b0; }
+.accounts-app.theme-dark .accounts-theme-toggle button.is-active { background: #26382f; color: #fff; box-shadow: none; }
+.accounts-app.theme-dark .accounts-avatar-editor { border-color: #35483f; background: #1a2922; }
+
 @media (max-width: 420px) {
   .accounts-app-brand small { max-width: 135px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .accounts-title-row { align-items: flex-start; }
@@ -547,6 +655,12 @@
   .accounts-history-profile > div:nth-child(odd) { border-right: 1px solid var(--accounts-line); }
   .accounts-history-profile > div:last-child { border-right: 0; }
   .accounts-history-money-row strong { font-size: .8rem; }
+  .accounts-settings-overlay { align-items: stretch; justify-content: flex-end; }
+  .accounts-settings-drawer { width: min(520px, 100%); max-height: none; border-width: 0 0 0 1px; border-radius: 8px 0 0 8px; box-shadow: -24px 0 70px rgba(8,20,16,.25); }
+  .accounts-settings-drawer-header { padding: 1.2rem; }
+  .accounts-appearance-settings,
+  .accounts-settings-drawer > .accounts-settings-panel,
+  .accounts-owner-settings-note { margin: 1.2rem; }
   .accounts-insights-panel { padding: 1.25rem; }
   .accounts-insights-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
   .accounts-insight-card.is-wide { grid-column: 1 / -1; }

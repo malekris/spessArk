@@ -14,9 +14,9 @@ import AccountsFundsSummary from "../components/AccountsFundsSummary";
 import AccountsLearnerHistoryModal from "../components/AccountsLearnerHistoryModal";
 import AccountsOutstandingBalances from "../components/AccountsOutstandingBalances";
 import AccountsPortalNav from "../components/AccountsPortalNav";
-import AccountsProfileSettings from "../components/AccountsProfileSettings";
 import AccountsRecentTransactions from "../components/AccountsRecentTransactions";
 import AccountsRegisterPdfButton from "../components/AccountsRegisterPdfButton";
+import AccountsSettingsDrawer from "../components/AccountsSettingsDrawer";
 import AccountsTodayCollections from "../components/AccountsTodayCollections";
 import AccountsTransactionSearch from "../components/AccountsTransactionSearch";
 import { matchesLearnerSearch } from "../learnerSearch";
@@ -32,6 +32,12 @@ const moneyFormatter = new Intl.NumberFormat("en-UG", {
 });
 
 const formatMoney = (value) => moneyFormatter.format(Number(value || 0));
+const ACCOUNTS_THEME_KEY = "spessAccountsTheme";
+const getInitialAccountsTheme = () => {
+  const savedTheme = window.localStorage.getItem(ACCOUNTS_THEME_KEY);
+  if (["light", "dark"].includes(savedTheme)) return savedTheme;
+  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+};
 const formatSavedAt = (value) => {
   if (!value) return "";
   const date = new Date(value);
@@ -72,6 +78,8 @@ export default function AccountsDashboard() {
   const [learnerQuery, setLearnerQuery] = useState("");
   const [activeView, setActiveView] = useState(null);
   const [selectedLearner, setSelectedLearner] = useState(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [theme, setTheme] = useState(getInitialAccountsTheme);
   const [notice, setNotice] = useState({ type: "", text: "" });
 
   useEffect(() => {
@@ -266,14 +274,20 @@ export default function AccountsDashboard() {
     setAccountsUser(nextUser);
   };
 
+  const changeTheme = (nextTheme) => {
+    setTheme(nextTheme);
+    window.localStorage.setItem(ACCOUNTS_THEME_KEY, nextTheme);
+  };
+
   return (
-    <main className="accounts-app">
+    <main className={`accounts-app theme-${theme}`}>
       <header className="accounts-app-header">
         <div className="accounts-app-brand">
           <div className="accounts-brand-mark" aria-hidden="true">SA</div>
           <div><strong>SPESS Accounts</strong><small>{user?.name || "Bursar Portal"}</small></div>
         </div>
         <div className="accounts-header-actions">
+          <button type="button" className="accounts-settings-button" aria-haspopup="dialog" onClick={() => setSettingsOpen(true)}>Settings</button>
           <button type="button" className="accounts-logout-button" onClick={() => {
             clearAccountsAuth();
             navigate("/ark/accounts-login", { replace: true });
@@ -302,8 +316,6 @@ export default function AccountsDashboard() {
                 ? "Financial intelligence"
               : activeView === "audit"
                 ? "Activity log"
-                : activeView === "settings"
-                  ? "Profile settings"
                 : "Choose section"}
           </div>
         </section>
@@ -319,7 +331,6 @@ export default function AccountsDashboard() {
         <AccountsPortalNav
           activeView={activeView}
           canAudit={isOwner}
-          canUseSettings={isBursar}
           onChange={changePortalView}
         />
 
@@ -513,10 +524,6 @@ export default function AccountsDashboard() {
               />
             </div>
           </div>
-        ) : activeView === "settings" && isBursar ? (
-          <div id="accounts-settings-panel">
-            <AccountsProfileSettings user={user} onProfileChange={updateProfile} />
-          </div>
         ) : activeView === "audit" && isOwner ? (
           <div id="accounts-audit-panel"><AccountsAuditPanel isOwner={isOwner} /></div>
         ) : null}
@@ -533,6 +540,17 @@ export default function AccountsDashboard() {
         <AccountsLearnerHistoryModal
           learner={selectedLearner}
           onClose={() => setSelectedLearner(null)}
+        />
+      ) : null}
+
+      {settingsOpen ? (
+        <AccountsSettingsDrawer
+          user={user}
+          isBursar={isBursar}
+          theme={theme}
+          onThemeChange={changeTheme}
+          onProfileChange={updateProfile}
+          onClose={() => setSettingsOpen(false)}
         />
       ) : null}
     </main>

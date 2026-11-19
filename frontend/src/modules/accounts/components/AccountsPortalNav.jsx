@@ -12,12 +12,6 @@ const PORTAL_VIEWS = [
     description: "Review collections, balances and staff activity.",
   },
   {
-    id: "settings",
-    eyebrow: "Personal account",
-    title: "Settings",
-    description: "Manage your profile photo and password.",
-  },
-  {
     id: "audit",
     eyebrow: "Account history",
     title: "Audit",
@@ -25,10 +19,9 @@ const PORTAL_VIEWS = [
   },
 ];
 
-export default function AccountsPortalNav({ activeView, canAudit, canUseSettings, onChange }) {
+export default function AccountsPortalNav({ activeView, canAudit, onChange }) {
   const visibleViews = PORTAL_VIEWS.filter((view) => {
     if (view.id === "audit") return canAudit;
-    if (view.id === "settings") return canUseSettings;
     return true;
   });
 

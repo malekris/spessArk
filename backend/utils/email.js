@@ -307,6 +307,27 @@ export async function sendTeacherResetCodeEmail(email, code) {
   console.log("📧 Teacher reset code sent");
 }
 
+export async function sendAccountsResetCodeEmail(email, code) {
+  const payload = {
+    from: "SPESS Accounts <no-reply@stphillipsequatorial.com>",
+    to: email,
+    subject: "Your SPESS Accounts reset code",
+    html: `
+      <div style="font-family:Arial,sans-serif;background:#eef2f0;padding:30px;">
+        <div style="max-width:600px;margin:auto;background:#ffffff;padding:32px;border:1px solid #d9e1dd;border-top:5px solid #126149;border-radius:8px;">
+          <p style="margin:0;color:#b88a18;font-size:12px;font-weight:800;text-transform:uppercase;">St. Phillip's Equatorial Secondary School</p>
+          <h2 style="margin:8px 0 14px;color:#17211d;">Reset your SPESS Accounts password</h2>
+          <p style="color:#495650;line-height:1.7;">Use this six-digit code to set a new bursar password:</p>
+          <div style="margin:22px 0;padding:18px;background:#f4f7f5;border:1px solid #d9e1dd;color:#126149;font-size:30px;font-weight:900;letter-spacing:7px;text-align:center;">${code}</div>
+          <p style="color:#64716b;font-size:13px;line-height:1.6;">This code expires in 10 minutes. If you did not request it, ignore this email and keep your existing password.</p>
+        </div>
+      </div>
+    `,
+  };
+
+  await sendWithRetry(payload, 2);
+}
+
 function buildTeacherAccountNoticeShell({ title, bodyHtml }) {
   return `
     <div style="font-family: Arial, sans-serif; background:#f8fafc; padding:30px;">

@@ -1,16 +1,28 @@
 import express from "express";
+import bcrypt from "bcryptjs";
+import crypto from "node:crypto";
 import jwt from "jsonwebtoken";
+import multer from "multer";
 import { pool } from "../../server.js";
 import authAccountsAdmin from "../../middleware/authAccountsAdmin.js";
 import { createDatabaseRateLimit } from "../../middleware/databaseRateLimit.js";
 import { getJwtSecret, requireSecret } from "../../config/security.js";
 import { getSessionExpiry, resolveRequestedSessionMode } from "../../utils/deviceSession.js";
 import { extractClientIp, logAuditEvent } from "../../utils/auditLogger.js";
+import { sendAccountsResetCodeEmail } from "../../utils/email.js";
+import {
+  deleteAccountsAvatar,
+  isAccountsAvatarStorageReady,
+  uploadAccountsAvatar,
+} from "../../services/accountsAvatarStorage.js";
 import {
   ACCOUNTS_CLASSES,
   ACCOUNTS_TERMS,
   getLearnerLevelForClass,
+  isValidAccountsEmail,
+  isValidAccountsPassword,
   normalizeAccountsClass,
+  normalizeAccountsEmail,
   normalizeAccountsTerm,
   normalizeResidenceType,
   parseMoneyAmount,
@@ -23,6 +35,38 @@ const limitAccountsLogin = createDatabaseRateLimit(() => pool, {
   max: 5,
   account: (req) => req.body?.username,
 });
+const limitAccountsRegistration = createDatabaseRateLimit(() => pool, {
+  namespace: "accounts-registration",
+  max: 5,
+  account: (req) => req.body?.email,
+});
+const limitAccountsReset = createDatabaseRateLimit(() => pool, {
+  namespace: "accounts-password-reset",
+  max: 5,
+  account: (req) => req.body?.email,
+});
+const limitAccountsPasswordChange = createDatabaseRateLimit(() => pool, {
+  namespace: "accounts-password-change",
+  max: 8,
+  account: (req) => req.accountsAdmin?.id,
+});
+const receiveAccountsAvatar = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 4, parts: 6 },
+}).single("avatar");
+const parseAccountsAvatar = (req, res, next) => {
+  receiveAccountsAvatar(req, res, (error) => {
+    if (!error) return next();
+    if (error.code === "LIMIT_FILE_SIZE") {
+      return res.status(413).json({ message: "Profile photo must be 5 MB or smaller." });
+    }
+    return res.status(400).json({ message: "Could not read that profile photo." });
+  });
+};
+const INVALID_ACCOUNTS_PASSWORD_HASH = bcrypt.hashSync("spess-accounts-invalid-password", 12);
+// Accounts staff use a dedicated audit ID range so their activity can never be
+// confused with older Owner logs that used the main administrator ID.
+const ACCOUNTS_AUDIT_STAFF_OFFSET = 1_000_000;
 
 let accountsSchemaReadyPromise = null;
 
@@ -69,6 +113,41 @@ async function ensureAccountsSchemaReady() {
           KEY idx_accounts_payment_learner (learner_level, learner_id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
       `);
+
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS accounts_users (
+          id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+          name VARCHAR(160) NOT NULL,
+          email VARCHAR(190) NOT NULL,
+          avatar_url VARCHAR(1000) DEFAULT NULL,
+          password_hash VARCHAR(255) NOT NULL,
+          role ENUM('bursar') NOT NULL DEFAULT 'bursar',
+          status ENUM('pending','active','suspended','rejected') NOT NULL DEFAULT 'pending',
+          reset_token VARCHAR(255) DEFAULT NULL,
+          reset_expires DATETIME DEFAULT NULL,
+          approved_by VARCHAR(100) DEFAULT NULL,
+          approved_at DATETIME DEFAULT NULL,
+          last_login_at DATETIME DEFAULT NULL,
+          created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          UNIQUE KEY uq_accounts_user_email (email),
+          KEY idx_accounts_user_status (status, created_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
+      `);
+
+      // Existing deployments already have accounts_users. Add profile support
+      // in place without requiring a manual Railway migration.
+      const [[avatarColumn]] = await pool.query(`
+        SELECT COUNT(*) AS count
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'accounts_users'
+          AND COLUMN_NAME = 'avatar_url'
+      `);
+      if (!Number(avatarColumn?.count || 0)) {
+        await pool.query("ALTER TABLE accounts_users ADD COLUMN avatar_url VARCHAR(1000) DEFAULT NULL AFTER email");
+      }
     })().catch((error) => {
       accountsSchemaReadyPromise = null;
       throw error;
@@ -78,8 +157,12 @@ async function ensureAccountsSchemaReady() {
 }
 
 async function logAccountsAudit(req, action, description, entityId = null) {
+  const actorId = Number(req?.accountsAdmin?.id ?? 0);
+  const auditUserId = req?.accountsAdmin?.role === "accounts_bursar"
+    ? ACCOUNTS_AUDIT_STAFF_OFFSET + actorId
+    : 0;
   await logAuditEvent({
-    userId: Number(req?.accountsAdmin?.id || 1),
+    userId: auditUserId,
     userRole: "admin",
     action: action.startsWith("ACCOUNTS_") ? action : `ACCOUNTS_${action}`,
     entityType: "system",
@@ -88,6 +171,41 @@ async function logAccountsAudit(req, action, description, entityId = null) {
     ipAddress: extractClientIp(req),
   });
 }
+
+const requireAccountsOwner = (req, res, next) => {
+  if (!["accounts_admin", "accounts_owner"].includes(req.accountsAdmin?.role)) {
+    return res.status(403).json({ message: "Accounts Owner authorization required" });
+  }
+  return next();
+};
+
+const requireAccountsBursar = (req, res, next) => {
+  if (req.accountsAdmin?.role !== "accounts_bursar") {
+    return res.status(403).json({ message: "Bursar account authorization required" });
+  }
+  return next();
+};
+
+const requireActiveAccountsAccess = async (req, res, next) => {
+  if (req.accountsAdmin?.role !== "accounts_bursar") return next();
+  try {
+    await ensureAccountsSchemaReady();
+    const [[user]] = await pool.query(
+      "SELECT name, email, avatar_url, status FROM accounts_users WHERE id = ? LIMIT 1",
+      [req.accountsAdmin.id]
+    );
+    if (!user || user.status !== "active") {
+      return res.status(403).json({ message: "This bursar account is not active" });
+    }
+    req.accountsAdmin.name = user.name;
+    req.accountsAdmin.username = user.email;
+    req.accountsAdmin.avatar_url = user.avatar_url || null;
+    return next();
+  } catch (error) {
+    console.error("Accounts access verification error:", error);
+    return res.status(500).json({ message: "Failed to verify Accounts access" });
+  }
+};
 
 function parseScope(query = {}) {
   const classLevel = normalizeAccountsClass(query.class_level);
@@ -166,36 +284,97 @@ router.post("/login", limitAccountsLogin, async (req, res) => {
     });
   }
 
-  const username = String(req.body?.username || "").trim();
+  const username = String(req.body?.username || req.body?.email || "").trim();
   const password = String(req.body?.password || "");
-  if (
-    !safeCredentialEquals(username, expectedUsername) ||
-    !safeCredentialEquals(password, expectedPassword)
-  ) {
-    return res.status(401).json({ message: "Invalid Accounts credentials" });
-  }
 
   try {
     await ensureAccountsSchemaReady();
     const sessionMode = resolveRequestedSessionMode(req, req.body?.session_mode);
+    const ownerLogin =
+      safeCredentialEquals(username, expectedUsername) &&
+      safeCredentialEquals(password, expectedPassword);
+
+    if (ownerLogin) {
+      const token = jwt.sign(
+        {
+          id: 0,
+          username: expectedUsername,
+          name: "Accounts Owner",
+          role: "accounts_owner",
+          session_mode: sessionMode,
+        },
+        getJwtSecret(),
+        { expiresIn: getSessionExpiry(sessionMode, "12h") }
+      );
+
+      req.accountsAdmin = { id: 0, username: expectedUsername, name: "Accounts Owner", role: "accounts_owner" };
+      await logAccountsAudit(req, "LOGIN", `Accounts Owner login successful (${expectedUsername})`);
+      return res.json({
+        token,
+        session_mode: sessionMode,
+        user: { id: 0, username: expectedUsername, name: "Accounts Owner", role: "accounts_owner" },
+      });
+    }
+
+    const email = normalizeAccountsEmail(username);
+    const [rows] = await pool.query(
+      `SELECT id, name, email, avatar_url, password_hash, status
+       FROM accounts_users
+       WHERE email = ?
+       LIMIT 1`,
+      [email]
+    );
+    const bursar = rows?.[0];
+    const passwordMatches = await bcrypt.compare(
+      password,
+      bursar?.password_hash || INVALID_ACCOUNTS_PASSWORD_HASH
+    );
+    if (!bursar || !passwordMatches) {
+      return res.status(401).json({ message: "Invalid Accounts credentials" });
+    }
+    if (bursar.status !== "active") {
+      const messages = {
+        pending: "Your Accounts registration is waiting for Owner approval.",
+        suspended: "Your Accounts access has been suspended.",
+        rejected: "Your Accounts registration was not approved.",
+      };
+      return res.status(403).json({
+        code: `ACCOUNTS_${String(bursar.status || "pending").toUpperCase()}`,
+        message: messages[bursar.status] || "Accounts access is unavailable.",
+      });
+    }
+
     const token = jwt.sign(
       {
-        id: 1,
-        username: expectedUsername,
-        name: "SPESS Bursar",
-        role: "accounts_admin",
+        id: Number(bursar.id),
+        username: bursar.email,
+        name: bursar.name,
+        role: "accounts_bursar",
         session_mode: sessionMode,
       },
       getJwtSecret(),
       { expiresIn: getSessionExpiry(sessionMode, "12h") }
     );
 
-    req.accountsAdmin = { id: 1, username: expectedUsername };
-    await logAccountsAudit(req, "LOGIN", `Accounts login successful (${expectedUsername})`, 1);
+    await pool.query("UPDATE accounts_users SET last_login_at = NOW() WHERE id = ?", [bursar.id]);
+    req.accountsAdmin = {
+      id: Number(bursar.id),
+      username: bursar.email,
+      name: bursar.name,
+      role: "accounts_bursar",
+    };
+    await logAccountsAudit(req, "LOGIN", `${bursar.name} signed in to SPESS Accounts`, bursar.id);
     return res.json({
       token,
       session_mode: sessionMode,
-      user: { id: 1, username: expectedUsername, name: "SPESS Bursar", role: "accounts_admin" },
+      user: {
+        id: Number(bursar.id),
+        username: bursar.email,
+        email: bursar.email,
+        avatar_url: bursar.avatar_url || null,
+        name: bursar.name,
+        role: "accounts_bursar",
+      },
     });
   } catch (error) {
     console.error("Accounts login error:", error);
@@ -203,15 +382,390 @@ router.post("/login", limitAccountsLogin, async (req, res) => {
   }
 });
 
-router.get("/me", authAccountsAdmin, (req, res) => {
-  return res.json({
-    id: req.accountsAdmin?.id || 1,
-    username: req.accountsAdmin?.username || "accounts",
-    name: req.accountsAdmin?.name || "SPESS Bursar",
-  });
+router.post("/register", limitAccountsRegistration, async (req, res) => {
+  const name = String(req.body?.name || "").trim().slice(0, 160);
+  const email = normalizeAccountsEmail(req.body?.email);
+  const password = String(req.body?.password || "");
+  if (name.length < 2 || !isValidAccountsEmail(email) || !isValidAccountsPassword(password)) {
+    return res.status(400).json({
+      message: "Enter a valid name, email, and password of at least 12 characters.",
+    });
+  }
+
+  try {
+    await ensureAccountsSchemaReady();
+    const passwordHash = await bcrypt.hash(password, 12);
+    const [result] = await pool.query(
+      `INSERT INTO accounts_users (name, email, password_hash, status)
+       VALUES (?, ?, ?, 'pending')`,
+      [name, email, passwordHash]
+    );
+    await logAuditEvent({
+      userId: ACCOUNTS_AUDIT_STAFF_OFFSET + Number(result.insertId),
+      userRole: "admin",
+      action: "ACCOUNTS_REGISTRATION",
+      entityType: "system",
+      entityId: Number(result.insertId),
+      description: `${name} submitted an Accounts access request (${email})`,
+      ipAddress: extractClientIp(req),
+    });
+    return res.status(201).json({
+      status: "pending",
+      message: "Registration received. The Accounts Owner must approve your access.",
+    });
+  } catch (error) {
+    if (error?.code === "ER_DUP_ENTRY") {
+      return res.status(409).json({ message: "An Accounts registration already exists for this email." });
+    }
+    console.error("Accounts registration error:", error);
+    return res.status(500).json({ message: "Failed to create Accounts registration" });
+  }
 });
 
-router.get("/meta", authAccountsAdmin, async (_req, res) => {
+router.post("/forgot-password", limitAccountsReset, async (req, res) => {
+  const email = normalizeAccountsEmail(req.body?.email);
+  if (!isValidAccountsEmail(email)) {
+    return res.status(400).json({ message: "Enter a valid email address." });
+  }
+
+  try {
+    await ensureAccountsSchemaReady();
+    const [[user]] = await pool.query(
+      `SELECT id FROM accounts_users WHERE email = ? AND status = 'active' LIMIT 1`,
+      [email]
+    );
+    if (!user) return res.json({ message: "If that active account exists, a reset code was sent." });
+
+    const code = crypto.randomInt(100000, 1000000).toString();
+    const tokenHash = crypto.createHash("sha256").update(`${email}:${code}`).digest("hex");
+    const expires = new Date(Date.now() + 10 * 60 * 1000);
+    await pool.query(
+      "UPDATE accounts_users SET reset_token = ?, reset_expires = ? WHERE id = ?",
+      [tokenHash, expires, user.id]
+    );
+    try {
+      await sendAccountsResetCodeEmail(email, code);
+    } catch (error) {
+      await pool.query(
+        "UPDATE accounts_users SET reset_token = NULL, reset_expires = NULL WHERE id = ?",
+        [user.id]
+      );
+      throw error;
+    }
+    return res.json({ message: "If that active account exists, a reset code was sent." });
+  } catch (error) {
+    console.error("Accounts forgot password error:", error);
+    return res.status(500).json({ message: "Failed to send Accounts reset code" });
+  }
+});
+
+router.post("/reset-password", limitAccountsReset, async (req, res) => {
+  const email = normalizeAccountsEmail(req.body?.email);
+  const code = String(req.body?.code || "").trim();
+  const password = String(req.body?.password || "");
+  if (!isValidAccountsEmail(email) || !/^\d{6}$/.test(code) || !isValidAccountsPassword(password)) {
+    return res.status(400).json({ message: "Enter the email, six-digit code, and a password of at least 12 characters." });
+  }
+
+  try {
+    await ensureAccountsSchemaReady();
+    const [[user]] = await pool.query(
+      `SELECT id, reset_token, reset_expires
+       FROM accounts_users
+       WHERE email = ? AND status = 'active'
+       LIMIT 1`,
+      [email]
+    );
+    const submittedHash = crypto.createHash("sha256").update(`${email}:${code}`).digest("hex");
+    const storedHash = Buffer.from(String(user?.reset_token || ""));
+    const candidateHash = Buffer.from(submittedHash);
+    const expired = !user?.reset_expires || new Date(user.reset_expires).getTime() < Date.now();
+    if (
+      !user ||
+      expired ||
+      storedHash.length !== candidateHash.length ||
+      !crypto.timingSafeEqual(storedHash, candidateHash)
+    ) {
+      return res.status(400).json({ message: "Invalid or expired reset code." });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 12);
+    await pool.query(
+      `UPDATE accounts_users
+       SET password_hash = ?, reset_token = NULL, reset_expires = NULL
+       WHERE id = ?`,
+      [passwordHash, user.id]
+    );
+    await logAuditEvent({
+      userId: ACCOUNTS_AUDIT_STAFF_OFFSET + Number(user.id),
+      userRole: "admin",
+      action: "ACCOUNTS_PASSWORD_RESET",
+      entityType: "system",
+      entityId: Number(user.id),
+      description: `Bursar password reset completed (${email})`,
+      ipAddress: extractClientIp(req),
+    });
+    return res.json({ message: "Password updated. You can now sign in." });
+  } catch (error) {
+    console.error("Accounts reset password error:", error);
+    return res.status(500).json({ message: "Failed to reset Accounts password" });
+  }
+});
+
+// Every route below this line is private. Active-status verification makes an
+// Owner suspension effective immediately, even for an already-open bursar tab.
+router.use(authAccountsAdmin, requireActiveAccountsAccess);
+
+router.get("/me", async (req, res) => {
+  if (req.accountsAdmin?.role !== "accounts_bursar") {
+    return res.json({
+      id: 0,
+      username: req.accountsAdmin?.username || "accounts",
+      name: req.accountsAdmin?.name || "Accounts Owner",
+      role: req.accountsAdmin?.role || "accounts_owner",
+      avatar_url: null,
+    });
+  }
+
+  try {
+    await ensureAccountsSchemaReady();
+    const [[user]] = await pool.query(
+      `SELECT id, name, email, avatar_url, status
+       FROM accounts_users
+       WHERE id = ?
+       LIMIT 1`,
+      [req.accountsAdmin.id]
+    );
+    if (!user || user.status !== "active") {
+      return res.status(403).json({ message: "This bursar account is not active" });
+    }
+    return res.json({
+      id: Number(user.id),
+      username: user.email,
+      email: user.email,
+      name: user.name,
+      avatar_url: user.avatar_url || null,
+      role: "accounts_bursar",
+    });
+  } catch (error) {
+    console.error("Accounts profile fetch error:", error);
+    return res.status(500).json({ message: "Failed to load Accounts profile" });
+  }
+});
+
+router.put(
+  "/profile/avatar",
+  requireAccountsBursar,
+  parseAccountsAvatar,
+  async (req, res) => {
+    const allowedTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
+    if (!req.file || !allowedTypes.has(String(req.file.mimetype || "").toLowerCase())) {
+      return res.status(400).json({ message: "Choose a JPG, PNG, or WebP profile photo." });
+    }
+    if (!isAccountsAvatarStorageReady()) {
+      return res.status(503).json({ message: "Cloudflare R2 profile storage is not configured." });
+    }
+
+    let uploaded = null;
+    try {
+      await ensureAccountsSchemaReady();
+      const [[user]] = await pool.query(
+        "SELECT id, name, avatar_url FROM accounts_users WHERE id = ? AND status = 'active' LIMIT 1",
+        [req.accountsAdmin.id]
+      );
+      if (!user) return res.status(403).json({ message: "This bursar account is not active" });
+
+      uploaded = await uploadAccountsAvatar(req.file.buffer, { userId: user.id });
+      await pool.query("UPDATE accounts_users SET avatar_url = ? WHERE id = ?", [uploaded.url, user.id]);
+      await logAccountsAudit(req, "PROFILE_PHOTO", `${user.name} updated their profile photo`, user.id);
+      if (user.avatar_url && user.avatar_url !== uploaded.url) {
+        deleteAccountsAvatar(user.avatar_url).catch((error) => {
+          console.error("Old Accounts avatar cleanup failed:", error?.message || error);
+        });
+      }
+      return res.json({ avatar_url: uploaded.url });
+    } catch (error) {
+      if (uploaded?.url) await deleteAccountsAvatar(uploaded.url).catch(() => {});
+      console.error("Accounts avatar update error:", error);
+      return res.status(500).json({ message: "Failed to update profile photo" });
+    }
+  }
+);
+
+router.put(
+  "/profile/password",
+  requireAccountsBursar,
+  limitAccountsPasswordChange,
+  async (req, res) => {
+    const currentPassword = String(req.body?.current_password || "");
+    const newPassword = String(req.body?.new_password || "");
+    if (!currentPassword || !isValidAccountsPassword(newPassword)) {
+      return res.status(400).json({ message: "Enter the current password and a new password of at least 12 characters." });
+    }
+    if (currentPassword === newPassword) {
+      return res.status(400).json({ message: "Choose a new password that is different from the current one." });
+    }
+
+    try {
+      await ensureAccountsSchemaReady();
+      const [[user]] = await pool.query(
+        `SELECT id, name, password_hash
+         FROM accounts_users
+         WHERE id = ? AND status = 'active'
+         LIMIT 1`,
+        [req.accountsAdmin.id]
+      );
+      const matches = await bcrypt.compare(
+        currentPassword,
+        user?.password_hash || INVALID_ACCOUNTS_PASSWORD_HASH
+      );
+      if (!user || !matches) {
+        return res.status(400).json({ message: "The current password is incorrect." });
+      }
+
+      const passwordHash = await bcrypt.hash(newPassword, 12);
+      await pool.query(
+        `UPDATE accounts_users
+         SET password_hash = ?, reset_token = NULL, reset_expires = NULL
+         WHERE id = ?`,
+        [passwordHash, user.id]
+      );
+      await logAccountsAudit(req, "PASSWORD_CHANGE", `${user.name} changed their Accounts password`, user.id);
+      return res.json({ message: "Password changed successfully." });
+    } catch (error) {
+      console.error("Accounts password change error:", error);
+      return res.status(500).json({ message: "Failed to change Accounts password" });
+    }
+  }
+);
+
+router.get("/staff", requireAccountsOwner, async (_req, res) => {
+  try {
+    await ensureAccountsSchemaReady();
+    const [rows] = await pool.query(
+      `SELECT id, name, email, avatar_url AS avatarUrl, status, approved_at AS approvedAt,
+              last_login_at AS lastLoginAt, created_at AS createdAt
+       FROM accounts_users
+       ORDER BY FIELD(status, 'pending','active','suspended','rejected'), created_at DESC`
+    );
+    return res.json({
+      staff: rows || [],
+      summary: {
+        pending: (rows || []).filter((row) => row.status === "pending").length,
+        active: (rows || []).filter((row) => row.status === "active").length,
+      },
+    });
+  } catch (error) {
+    console.error("Accounts staff fetch error:", error);
+    return res.status(500).json({ message: "Failed to load bursar access requests" });
+  }
+});
+
+router.patch("/staff/:staffId/status", requireAccountsOwner, async (req, res) => {
+  const staffId = Number(req.params.staffId);
+  const status = String(req.body?.status || "").trim().toLowerCase();
+  if (!Number.isInteger(staffId) || staffId <= 0 || !["pending", "active", "suspended", "rejected"].includes(status)) {
+    return res.status(400).json({ message: "Choose a valid bursar account and status" });
+  }
+
+  try {
+    await ensureAccountsSchemaReady();
+    const [[staff]] = await pool.query(
+      "SELECT id, name, email, status FROM accounts_users WHERE id = ? LIMIT 1",
+      [staffId]
+    );
+    if (!staff) return res.status(404).json({ message: "Bursar account not found" });
+    const [result] = await pool.query(
+      `UPDATE accounts_users
+       SET status = ?,
+           approved_by = CASE WHEN ? = 'active' THEN ? ELSE approved_by END,
+           approved_at = CASE WHEN ? = 'active' THEN NOW() ELSE approved_at END,
+           reset_token = CASE WHEN ? = 'active' THEN reset_token ELSE NULL END,
+           reset_expires = CASE WHEN ? = 'active' THEN reset_expires ELSE NULL END
+       WHERE id = ?`,
+      [
+        status,
+        status,
+        req.accountsAdmin?.username || "owner",
+        status,
+        status,
+        status,
+        staffId,
+      ]
+    );
+    if (!result.affectedRows) return res.status(500).json({ message: "Bursar access was not updated" });
+    await logAccountsAudit(
+      req,
+      "STAFF_STATUS",
+      `Changed ${staff.name} (${staff.email}) from ${staff.status} to ${status}`,
+      staffId
+    );
+    return res.json({ success: true, status });
+  } catch (error) {
+    console.error("Accounts staff status error:", error);
+    return res.status(500).json({ message: "Failed to update bursar access" });
+  }
+});
+
+router.get("/audit", requireAccountsOwner, async (req, res) => {
+  const requestedPage = Number(req.query?.page || 1);
+  const requestedLimit = Number(req.query?.limit || 30);
+  const page = Number.isInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
+  const limit = Number.isInteger(requestedLimit)
+    ? Math.max(1, Math.min(requestedLimit, 100))
+    : 30;
+  const offset = (page - 1) * limit;
+
+  try {
+    await ensureAccountsSchemaReady();
+    const [[countRow], [rows]] = await Promise.all([
+      pool.query(
+        `SELECT
+           COUNT(*) AS total,
+           MAX(CASE WHEN action = 'ACCOUNTS_LOGIN' THEN created_at END) AS lastLoginAt
+         FROM audit_logs
+         WHERE LEFT(action, 9) = 'ACCOUNTS_'`
+      ),
+      pool.query(
+        `SELECT
+           al.id,
+           al.user_id AS userId,
+           al.action,
+           al.description,
+           al.ip_address AS ipAddress,
+           al.created_at AS createdAt,
+           au.name AS staffName
+         FROM audit_logs al
+         LEFT JOIN accounts_users au
+           ON au.id = al.user_id - ${ACCOUNTS_AUDIT_STAFF_OFFSET}
+         WHERE LEFT(al.action, 9) = 'ACCOUNTS_'
+         ORDER BY al.created_at DESC, al.id DESC
+         LIMIT ? OFFSET ?`,
+        [limit, offset]
+      ),
+    ]);
+
+    const total = Number(countRow?.total || 0);
+    return res.json({
+      logs: (rows || []).map(({ staffName, ...row }) => ({
+        ...row,
+        actor: Number(row.userId) < ACCOUNTS_AUDIT_STAFF_OFFSET
+          ? req.accountsAdmin?.username || "Accounts Owner"
+          : staffName || "Bursar",
+      })),
+      total,
+      lastLoginAt: countRow?.lastLoginAt || null,
+      page,
+      limit,
+      totalPages: Math.max(1, Math.ceil(total / limit)),
+    });
+  } catch (error) {
+    console.error("Accounts audit error:", error);
+    return res.status(500).json({ message: "Failed to load Accounts activity" });
+  }
+});
+
+router.get("/meta", async (_req, res) => {
   try {
     await ensureAccountsSchemaReady();
     const [rows] = await pool.query(`
@@ -245,7 +799,45 @@ router.get("/meta", authAccountsAdmin, async (_req, res) => {
   }
 });
 
-router.get("/learners", authAccountsAdmin, async (req, res) => {
+router.get("/funds-summary", async (req, res) => {
+  const term = normalizeAccountsTerm(req.query?.term);
+  const year = Number(req.query?.year);
+  if (!term || !Number.isInteger(year) || year < 2020 || year > 2100) {
+    return res.status(400).json({ message: "Choose a valid term and year" });
+  }
+
+  try {
+    await ensureAccountsSchemaReady();
+    const [[summary]] = await pool.query(
+      `SELECT
+         COALESCE(SUM(COALESCE(amount_paid, 0)), 0) AS totalCollected,
+         COALESCE(SUM(CASE WHEN residence_type = 'Day' THEN COALESCE(amount_paid, 0) ELSE 0 END), 0) AS dayCollected,
+         COALESCE(SUM(CASE WHEN residence_type = 'Boarding' THEN COALESCE(amount_paid, 0) ELSE 0 END), 0) AS hostelCollected,
+         SUM(CASE WHEN amount_paid IS NOT NULL THEN 1 ELSE 0 END) AS recordedEntries,
+         SUM(CASE WHEN amount_paid = 0 THEN 1 ELSE 0 END) AS notPaidEntries,
+         MAX(updated_at) AS updatedAt
+       FROM accounts_learner_payments
+       WHERE academic_year = ? AND term = ?`,
+      [year, term]
+    );
+
+    return res.json({
+      term,
+      year,
+      total_collected: Number(summary?.totalCollected || 0),
+      day_collected: Number(summary?.dayCollected || 0),
+      hostel_collected: Number(summary?.hostelCollected || 0),
+      recorded_entries: Number(summary?.recordedEntries || 0),
+      not_paid_entries: Number(summary?.notPaidEntries || 0),
+      updated_at: summary?.updatedAt || null,
+    });
+  } catch (error) {
+    console.error("Accounts funds summary error:", error);
+    return res.status(500).json({ message: "Failed to load the funds summary" });
+  }
+});
+
+router.get("/learners", async (req, res) => {
   const scope = parseScope(req.query);
   if (!scope) {
     return res.status(400).json({ message: "Class, stream, term and year are required" });
@@ -265,10 +857,18 @@ router.get("/learners", authAccountsAdmin, async (req, res) => {
     );
 
     const [paymentRows] = await pool.query(
-      `SELECT learner_id, residence_type, expected_amount_snapshot, amount_paid, updated_at
-       FROM accounts_learner_payments
-       WHERE learner_level = ? AND academic_year = ? AND term = ?
-         AND class_level_snapshot = ? AND stream_snapshot = ?`,
+      `SELECT
+         alp.learner_id,
+         alp.residence_type,
+         alp.expected_amount_snapshot,
+         alp.amount_paid,
+         COALESCE(staff.name, alp.updated_by) AS updated_by,
+         alp.updated_at
+       FROM accounts_learner_payments alp
+       LEFT JOIN accounts_users staff
+         ON LOWER(staff.email) = LOWER(alp.updated_by)
+       WHERE alp.learner_level = ? AND alp.academic_year = ? AND alp.term = ?
+         AND alp.class_level_snapshot = ? AND alp.stream_snapshot = ?`,
       [learnerLevel, scope.year, scope.term, scope.classLevel, scope.stream]
     );
     const paymentsByLearner = new Map(
@@ -282,6 +882,7 @@ router.get("/learners", authAccountsAdmin, async (req, res) => {
         residence_type: payment?.residence_type || "Day",
         expected_amount: payment?.expected_amount_snapshot ?? null,
         amount_paid: payment?.amount_paid ?? null,
+        payment_updated_by: payment?.updated_by || null,
         payment_updated_at: payment?.updated_at || null,
       };
     });
@@ -303,7 +904,111 @@ router.get("/learners", authAccountsAdmin, async (req, res) => {
   }
 });
 
-router.put("/fee-settings", authAccountsAdmin, async (req, res) => {
+router.get("/learners/:learnerLevel/:learnerId/payment-history", async (req, res) => {
+  const learnerLevel = String(req.params?.learnerLevel || "").trim().toUpperCase();
+  const learnerId = Number(req.params?.learnerId);
+  if (!["O_LEVEL", "A_LEVEL"].includes(learnerLevel) || !Number.isInteger(learnerId) || learnerId < 1) {
+    return res.status(400).json({ message: "Choose a valid learner" });
+  }
+
+  try {
+    await ensureAccountsSchemaReady();
+
+    let learner;
+    if (learnerLevel === "A_LEVEL") {
+      // Some older A-Level registers predate registration timestamps. Detect
+      // the column so payment history remains available on those deployments.
+      const [[createdAtColumn]] = await pool.query(`
+        SELECT COUNT(*) AS count
+        FROM information_schema.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'alevel_learners'
+          AND COLUMN_NAME = 'created_at'
+      `);
+      const addedAtExpression = Number(createdAtColumn?.count || 0) > 0
+        ? "created_at"
+        : "NULL";
+      const [[row]] = await pool.query(
+        `SELECT
+           id,
+           TRIM(CONCAT_WS(' ', first_name, NULLIF(last_name, ''))) AS learner_name,
+           gender,
+           UPPER(SUBSTRING_INDEX(TRIM(stream), ' ', 1)) AS class_level,
+           TRIM(SUBSTRING(TRIM(stream), LENGTH(SUBSTRING_INDEX(TRIM(stream), ' ', 1)) + 1)) AS stream,
+           ${addedAtExpression} AS added_at
+         FROM alevel_learners
+         WHERE id = ?
+         LIMIT 1`,
+        [learnerId]
+      );
+      learner = row;
+    } else {
+      const [[row]] = await pool.query(
+        `SELECT
+           id,
+           name AS learner_name,
+           gender,
+           class_level,
+           stream,
+           created_at AS added_at
+         FROM students
+         WHERE id = ?
+         LIMIT 1`,
+        [learnerId]
+      );
+      learner = row;
+    }
+
+    if (!learner) {
+      return res.status(404).json({ message: "Learner not found" });
+    }
+
+    const [history] = await pool.query(
+      `SELECT
+         alp.id,
+         alp.academic_year AS academic_year,
+         alp.term,
+         alp.class_level_snapshot AS class_level,
+         alp.stream_snapshot AS stream,
+         alp.residence_type AS section,
+         alp.expected_amount_snapshot AS expected_amount,
+         alp.amount_paid,
+         COALESCE(staff.name, alp.updated_by) AS saved_by,
+         alp.created_at AS added_at,
+         alp.updated_at AS updated_at
+       FROM accounts_learner_payments alp
+       LEFT JOIN accounts_users staff
+         ON LOWER(staff.email) = LOWER(alp.updated_by)
+       WHERE alp.learner_level = ? AND alp.learner_id = ?
+       ORDER BY alp.academic_year DESC,
+         FIELD(alp.term, 'Term 3', 'Term 2', 'Term 1') DESC,
+         alp.updated_at DESC`,
+      [learnerLevel, learnerId]
+    );
+
+    const totalPaid = (history || []).reduce(
+      (sum, row) => sum + Number(row.amount_paid || 0),
+      0
+    );
+
+    return res.json({
+      learner: {
+        ...learner,
+        learner_level: learnerLevel,
+      },
+      history: history || [],
+      summary: {
+        records: history?.length || 0,
+        total_paid: Number(totalPaid.toFixed(2)),
+      },
+    });
+  } catch (error) {
+    console.error("Accounts learner payment history error:", error);
+    return res.status(500).json({ message: "Failed to load learner payment history" });
+  }
+});
+
+router.put("/fee-settings", requireAccountsOwner, async (req, res) => {
   const scope = parseScope(req.body);
   const dayAmount = parseMoneyAmount(req.body?.day_amount);
   const boardingAmount = parseMoneyAmount(req.body?.boarding_amount);
@@ -344,7 +1049,7 @@ router.put("/fee-settings", authAccountsAdmin, async (req, res) => {
   }
 });
 
-router.put("/payments/batch", authAccountsAdmin, async (req, res) => {
+router.put("/payments/batch", async (req, res) => {
   const scope = parseScope(req.body);
   const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
   if (!scope || rows.length === 0 || rows.length > 500) {
@@ -368,6 +1073,9 @@ router.put("/payments/batch", authAccountsAdmin, async (req, res) => {
     const scopedLearners = await loadScopedLearners(connection, scope.classLevel, scope.stream);
     const learnersById = new Map(scopedLearners.map((row) => [Number(row.id), row]));
     const learnerLevel = getLearnerLevelForClass(scope.classLevel);
+    const actorName = String(
+      req.accountsAdmin?.name || req.accountsAdmin?.username || "Accounts User"
+    ).trim().slice(0, 100);
     const normalizedRows = rows.map((row) => {
       const learnerId = Number(row?.learner_id);
       const learner = learnersById.get(learnerId);
@@ -413,7 +1121,7 @@ router.put("/payments/batch", authAccountsAdmin, async (req, res) => {
           row.residenceType,
           row.expectedAmount,
           row.amountPaid,
-          req.accountsAdmin?.username || "accounts",
+          actorName,
         ]
       );
     }
@@ -422,9 +1130,9 @@ router.put("/payments/batch", authAccountsAdmin, async (req, res) => {
     await logAccountsAudit(
       req,
       "SAVE_PAYMENTS",
-      `Saved ${normalizedRows.length} learner account row(s) for ${scope.classLevel} ${scope.stream}, ${scope.term} ${scope.year}`
+      `${actorName} saved ${normalizedRows.length} learner account row(s) for ${scope.classLevel} ${scope.stream}, ${scope.term} ${scope.year}`
     );
-    return res.json({ success: true, saved: normalizedRows.length });
+    return res.json({ success: true, saved: normalizedRows.length, saved_by: actorName });
   } catch (error) {
     await connection.rollback().catch(() => {});
     if (error?.message === "INVALID_PAYMENT_ROW") {

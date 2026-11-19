@@ -2,7 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   getLearnerLevelForClass,
+  isValidAccountsEmail,
+  isValidAccountsPassword,
   normalizeAccountsClass,
+  normalizeAccountsEmail,
   normalizeAccountsTerm,
   normalizeResidenceType,
   parseMoneyAmount,
@@ -14,6 +17,14 @@ test("normalizes Accounts selectors", () => {
   assert.equal(normalizeAccountsTerm("Term 2"), "Term 2");
   assert.equal(normalizeAccountsTerm("Holiday"), "");
   assert.equal(normalizeResidenceType("boarding"), "Boarding");
+});
+
+test("normalizes and validates bursar credentials", () => {
+  assert.equal(normalizeAccountsEmail(" Bursar@School.UG "), "bursar@school.ug");
+  assert.equal(isValidAccountsEmail("bursar@school.ug"), true);
+  assert.equal(isValidAccountsEmail("bursar"), false);
+  assert.equal(isValidAccountsPassword("twelve-chars"), true);
+  assert.equal(isValidAccountsPassword("short"), false);
 });
 
 test("validates money without floating-point drift", () => {

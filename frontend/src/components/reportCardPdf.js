@@ -47,16 +47,10 @@ const appendEndOfYearPromotion = (comment, classLevel, isEndOfYear) => {
     .toUpperCase()
     .replace(/\s+/g, "");
   const classMatch = normalizedClass.match(/^(?:S|SENIOR)([1-3])$/);
-  if (!classMatch) return comment;
+  if (!classMatch) return "";
 
   const nextClass = `S${Number(classMatch[1]) + 1}`;
-  const cleanComment = String(comment || "")
-    .trim()
-    .replace(/[.!?]+$/, "");
-
-  return cleanComment
-    ? `${cleanComment}. Promoted to ${nextClass}.`
-    : `Promoted to ${nextClass}.`;
+  return `Promoted to ${nextClass}.`;
 };
 
 const COMMENT_BANK = {

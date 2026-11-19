@@ -19,6 +19,14 @@ export const normalizeResidenceType = (value = "") => {
   return match || "";
 };
 
+export const normalizeAccountsEmail = (value = "") =>
+  String(value || "").trim().toLowerCase();
+
+export const isValidAccountsEmail = (value = "") =>
+  /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizeAccountsEmail(value));
+
+export const isValidAccountsPassword = (value = "") => String(value || "").length >= 12;
+
 export const parseMoneyAmount = (value, { nullable = false } = {}) => {
   if (nullable && (value === "" || value === null || value === undefined)) return null;
   const amount = Number(value);

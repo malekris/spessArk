@@ -5,8 +5,16 @@ import {
   clearAccountsAuth,
   getAccountsToken,
   getAccountsUser,
+  setAccountsUser,
 } from "../api";
+import AccountsAuditPanel from "../components/AccountsAuditPanel";
+import AccountsFundsSummary from "../components/AccountsFundsSummary";
+import AccountsLearnerHistoryModal from "../components/AccountsLearnerHistoryModal";
+import AccountsPortalNav from "../components/AccountsPortalNav";
+import AccountsProfileSettings from "../components/AccountsProfileSettings";
 import AccountsRegisterPdfButton from "../components/AccountsRegisterPdfButton";
+import { matchesLearnerSearch } from "../learnerSearch";
+import { formatMoneyInput, normalizeMoneyInput } from "../moneyInput";
 import "../AccountsPortal.css";
 
 const currentYear = new Date().getFullYear();
@@ -18,10 +26,32 @@ const moneyFormatter = new Intl.NumberFormat("en-UG", {
 });
 
 const formatMoney = (value) => moneyFormatter.format(Number(value || 0));
+const formatSavedAt = (value) => {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("en-GB", {
+    timeZone: "Africa/Kampala",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
 
 export default function AccountsDashboard() {
   const navigate = useNavigate();
-  const user = getAccountsUser();
+  const [user, setUser] = useState(() => getAccountsUser());
+  const isOwner = ["accounts_owner", "accounts_admin"].includes(user?.role);
+  const isBursar = user?.role === "accounts_bursar";
+  const firstName = String(user?.name || "Bursar").trim().split(/\s+/)[0] || "Bursar";
+  const initials = String(user?.name || "Bursar")
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part.slice(0, 1).toUpperCase())
+    .join("") || "B";
   const [meta, setMeta] = useState({ classes: [], terms: ["Term 1", "Term 2", "Term 3"] });
   const [filters, setFilters] = useState({ classLevel: "", stream: "", term: defaultTerm, year: currentYear });
   const [rows, setRows] = useState([]);
@@ -32,7 +62,10 @@ export default function AccountsDashboard() {
   const [loadingRegister, setLoadingRegister] = useState(false);
   const [savingFees, setSavingFees] = useState(false);
   const [savingPayments, setSavingPayments] = useState(false);
+  const [summaryRefreshKey, setSummaryRefreshKey] = useState(0);
   const [learnerQuery, setLearnerQuery] = useState("");
+  const [activeView, setActiveView] = useState(null);
+  const [selectedLearner, setSelectedLearner] = useState(null);
   const [notice, setNotice] = useState({ type: "", text: "" });
 
   useEffect(() => {
@@ -178,6 +211,7 @@ export default function AccountsDashboard() {
       });
       setNotice({ type: "success", text: `${body.saved} learner account row${body.saved === 1 ? "" : "s"} saved.` });
       await loadRegister();
+      setSummaryRefreshKey((current) => current + 1);
     } catch (error) {
       setNotice({ type: "error", text: error.message });
     } finally {
@@ -192,13 +226,39 @@ export default function AccountsDashboard() {
   }), [rows]);
 
   const visibleRows = useMemo(() => {
-    const query = learnerQuery.trim().toLowerCase();
     return rows
       .map((row, index) => ({ row, index }))
-      .filter(({ row }) => !query || String(row.learner_name || "").toLowerCase().includes(query));
+      .filter(({ row }) => matchesLearnerSearch(row.learner_name, learnerQuery));
   }, [learnerQuery, rows]);
 
+  const latestPaymentSave = useMemo(() => rows.reduce((latest, row) => {
+    if (!row.payment_updated_at || !row.payment_updated_by) return latest;
+    const timestamp = new Date(row.payment_updated_at).getTime();
+    if (!Number.isFinite(timestamp) || timestamp <= Number(latest?.timestamp || 0)) return latest;
+    return {
+      timestamp,
+      savedBy: row.payment_updated_by,
+      savedAt: row.payment_updated_at,
+    };
+  }, null), [rows]);
+
   const expectedFor = (row) => Number(row.residence_type === "Boarding" ? feeForm.boarding : feeForm.day) || 0;
+
+  const changePortalView = (nextView) => {
+    if (activeView === "quick-entry" && nextView !== "quick-entry" && dirtyIds.length) {
+      setNotice({
+        type: "info",
+        text: "Save the pending learner changes before closing Quick Entry.",
+      });
+      return;
+    }
+    setActiveView(nextView);
+  };
+
+  const updateProfile = (nextUser) => {
+    setUser(nextUser);
+    setAccountsUser(nextUser);
+  };
 
   return (
     <main className="accounts-app">
@@ -208,7 +268,6 @@ export default function AccountsDashboard() {
           <div><strong>SPESS Accounts</strong><small>{user?.name || "Bursar Portal"}</small></div>
         </div>
         <div className="accounts-header-actions">
-          <button type="button" className="accounts-icon-button" title="Return to SPESS ARK" onClick={() => navigate("/ark")}>←</button>
           <button type="button" className="accounts-logout-button" onClick={() => {
             clearAccountsAuth();
             navigate("/ark/accounts-login", { replace: true });
@@ -218,144 +277,228 @@ export default function AccountsDashboard() {
 
       <div className="accounts-workspace">
         <section className="accounts-title-row">
-          <div><span>Financial Register</span><h1>Learner Quick Entry</h1></div>
-          <div className="accounts-period-chip">{filters.term} - {filters.year}</div>
-        </section>
-
-        <p className="accounts-register-source-note">
-          Learner names come directly from the active O-Level and A-Level registers. Enrollment details are read-only in SPESS Accounts.
-        </p>
-
-        <section className="accounts-filter-band" aria-label="Register filters">
-          <label><span>Class</span><select value={filters.classLevel} disabled={loadingMeta} onChange={(e) => updateFilter("classLevel", e.target.value)}>
-            {meta.classes.map((item) => <option key={item.class_level} value={item.class_level}>{item.class_level}</option>)}
-          </select></label>
-          <label><span>Stream</span><select value={filters.stream} disabled={!classStreams.length} onChange={(e) => updateFilter("stream", e.target.value)}>
-            {classStreams.map((stream) => <option key={stream} value={stream}>{stream}</option>)}
-          </select></label>
-          <label><span>Term</span><select value={filters.term} onChange={(e) => updateFilter("term", e.target.value)}>
-            {meta.terms.map((term) => <option key={term} value={term}>{term}</option>)}
-          </select></label>
-          <label><span>Year</span><input type="number" min="2020" max="2100" value={filters.year} onChange={(e) => updateFilter("year", e.target.value)} /></label>
-        </section>
-
-        {notice.text ? <div className={`accounts-notice is-${notice.type}`} role="status">{notice.text}</div> : null}
-
-        <section className="accounts-fee-panel">
-          <div className="accounts-section-heading">
-            <div><span>Stream Setup</span><h2>{filters.classLevel} {filters.stream}</h2></div>
-            <span className={`accounts-state-pill ${feeConfigured ? "is-ready" : ""}`}>{feeConfigured ? "Configured" : "Setup required"}</span>
+          <div className="accounts-title-copy">
+            <span>Finance Office</span>
+            {isBursar ? (
+              <div className="accounts-welcome-row">
+                <div className="accounts-profile-avatar">
+                  {user?.avatar_url ? <img src={user.avatar_url} alt="" /> : <span>{initials}</span>}
+                </div>
+                <p>Hello, <strong>{firstName}</strong></p>
+              </div>
+            ) : null}
+            <h1>Accounts Workspace</h1>
           </div>
-          <div className="accounts-fee-grid">
-            <label><span>Day learner - Term amount</span><div className="accounts-money-input"><b>UGX</b><input type="number" min="0" step="1000" value={feeForm.day} onChange={(e) => setFeeForm((current) => ({ ...current, day: e.target.value }))} /></div></label>
-            <label><span>Boarding learner - Term amount</span><div className="accounts-money-input"><b>UGX</b><input type="number" min="0" step="1000" value={feeForm.boarding} onChange={(e) => setFeeForm((current) => ({ ...current, boarding: e.target.value }))} /></div></label>
-            <button type="button" className="accounts-secondary-button" onClick={saveFees} disabled={savingFees || !filters.stream}>{savingFees ? "Saving..." : "Save Fee Setup"}</button>
+          <div className="accounts-period-chip">
+            {activeView === "quick-entry"
+              ? `${filters.term} - ${filters.year}`
+              : activeView === "audit"
+                ? "Activity log"
+                : activeView === "settings"
+                  ? "Profile settings"
+                : "Choose section"}
           </div>
         </section>
 
-        <section className="accounts-metrics" aria-label="Register summary">
-          <div><span>Learners</span><strong>{totals.learners}</strong></div>
-          <div><span>Amounts Entered</span><strong>{totals.recorded}</strong></div>
-          <div><span>Stream Total</span><strong>{formatMoney(totals.paid)}</strong></div>
-          <div><span>Unsaved Rows</span><strong>{dirtyIds.length}</strong></div>
-        </section>
-
-        <AccountsRegisterPdfButton
-          rows={rows}
-          filters={filters}
-          feeAmounts={feeForm}
-          feeConfigured={feeConfigured}
-          hasUnsavedChanges={dirtyIds.length > 0}
+        <AccountsFundsSummary
+          term={filters.term}
+          year={filters.year}
+          refreshKey={summaryRefreshKey}
         />
 
-        <section className="accounts-register-panel">
-          <div className="accounts-section-heading">
-            <div><span>Quick Entry</span><h2>{filters.classLevel} {filters.stream} Register</h2></div>
-            <span className="accounts-register-count">{visibleRows.length} of {rows.length}</span>
-          </div>
+        <AccountsPortalNav
+          activeView={activeView}
+          canAudit={isOwner}
+          canUseSettings={isBursar}
+          onChange={changePortalView}
+        />
 
-          <div className="accounts-register-tools">
-            <div className="accounts-learner-search">
-              <label className="accounts-visually-hidden" htmlFor="accounts-learner-search">Find a learner</label>
-              <input
-                id="accounts-learner-search"
-                type="search"
-                value={learnerQuery}
-                placeholder="Find learner by name"
-                onChange={(event) => setLearnerQuery(event.target.value)}
-              />
-              {learnerQuery ? (
-                <button type="button" title="Clear learner search" onClick={() => setLearnerQuery("")}>×</button>
-              ) : null}
-            </div>
-            <button type="button" className="accounts-refresh-button" onClick={loadRegister} disabled={loadingRegister}>Refresh</button>
-          </div>
+        {activeView === "quick-entry" ? (
+          <div className="accounts-view-panel" id="accounts-quick-entry-panel">
+            <p className="accounts-register-source-note">
+              Learner names come directly from the active O-Level and A-Level registers. Enrollment details are read-only in SPESS Accounts.
+            </p>
 
-          {loadingRegister ? <div className="accounts-empty-state">Loading learner register...</div> : rows.length ? (
-            <div className="accounts-ledger">
-              <div className="accounts-ledger-head" aria-hidden="true"><span>#</span><span>Learner</span><span>Residence</span><span>Expected</span><span>Paid This Term</span><span>Balance</span></div>
-              {visibleRows.map(({ row, index }) => {
-                const expected = expectedFor(row);
-                const paid = Number(row.amount_paid || 0);
-                const balance = Math.max(0, expected - paid);
-                const isDirty = dirtyIds.includes(Number(row.id));
-                const hasPaymentEntry = row.amount_paid !== "";
-                const isNotPaid = hasPaymentEntry && paid === 0;
-                return (
-                  <article key={`${row.learner_level}-${row.id}`} className={`accounts-ledger-row ${isDirty ? "is-dirty" : ""}`}>
-                    <span className="accounts-row-number">{index + 1}</span>
-                    <div className="accounts-learner-cell"><strong>{row.learner_name}</strong><small>{row.gender || "-"} - ID {row.id}</small></div>
-                    <div className="accounts-residence-toggle" role="group" aria-label={`${row.learner_name} residence`}>
-                      {['Day', 'Boarding'].map((type) => <button key={type} type="button" className={row.residence_type === type ? "is-active" : ""} onClick={() => updateRow(row.id, { residence_type: type })}>{type}</button>)}
-                    </div>
-                    <span className="accounts-expected-cell">{feeConfigured ? formatMoney(expected) : "Not set"}</span>
-                    <div className="accounts-payment-cell">
-                      <span>Payment</span>
-                      <div className="accounts-payment-mode" role="group" aria-label={`${row.learner_name} payment entry mode`}>
-                        <button
-                          type="button"
-                          className={!isNotPaid ? "is-active" : ""}
-                          onClick={() => isNotPaid && updateRow(row.id, { amount_paid: "" })}
-                        >Amount</button>
-                        <button
-                          type="button"
-                          className={isNotPaid ? "is-active is-not-paid" : ""}
-                          onClick={() => updateRow(row.id, { amount_paid: "0" })}
-                        >Not Paid</button>
-                      </div>
-                      {isNotPaid ? (
-                        <div className="accounts-not-paid-value">Not Paid</div>
-                      ) : (
-                        <div className="accounts-money-input">
-                          <b>UGX</b>
-                          <input
-                            type="number"
-                            min="0"
-                            step="1000"
-                            value={row.amount_paid}
-                            onChange={(e) => updateRow(row.id, { amount_paid: e.target.value })}
-                          />
-                        </div>
-                      )}
-                    </div>
-                    <span className={`accounts-balance-cell ${balance === 0 && expected > 0 ? "is-cleared" : ""}`}>{feeConfigured ? formatMoney(balance) : "-"}</span>
-                  </article>
-                );
-              })}
-              {!visibleRows.length ? (
-                <div className="accounts-empty-state accounts-search-empty">
-                  No learner matches “{learnerQuery.trim()}”.
+            <section className="accounts-filter-band" aria-label="Register filters">
+              <label><span>Class</span><select value={filters.classLevel} disabled={loadingMeta} onChange={(e) => updateFilter("classLevel", e.target.value)}>
+                {meta.classes.map((item) => <option key={item.class_level} value={item.class_level}>{item.class_level}</option>)}
+              </select></label>
+              <label><span>Stream</span><select value={filters.stream} disabled={!classStreams.length} onChange={(e) => updateFilter("stream", e.target.value)}>
+                {classStreams.map((stream) => <option key={stream} value={stream}>{stream}</option>)}
+              </select></label>
+              <label><span>Term</span><select value={filters.term} onChange={(e) => updateFilter("term", e.target.value)}>
+                {meta.terms.map((term) => <option key={term} value={term}>{term}</option>)}
+              </select></label>
+              <label><span>Year</span><input type="number" min="2020" max="2100" value={filters.year} onChange={(e) => updateFilter("year", e.target.value)} /></label>
+            </section>
+
+            {notice.text ? <div className={`accounts-notice is-${notice.type}`} role="status">{notice.text}</div> : null}
+
+            <section className={`accounts-fee-panel ${isOwner ? "" : "is-read-only"}`}>
+              <div className="accounts-section-heading">
+                <div><span>{isOwner ? "Stream Setup" : "Owner Fee Setup"}</span><h2>{filters.classLevel} {filters.stream}</h2></div>
+                <span className={`accounts-state-pill ${feeConfigured ? "is-ready" : ""}`}>{feeConfigured ? "Configured" : "Setup required"}</span>
+              </div>
+              {isOwner ? (
+                <div className="accounts-fee-grid">
+                  <label><span>Day learner - Term amount</span><div className="accounts-money-input"><b>UGX</b><input type="number" min="0" step="1000" value={feeForm.day} onChange={(e) => setFeeForm((current) => ({ ...current, day: e.target.value }))} /></div></label>
+                  <label><span>Boarding learner - Term amount</span><div className="accounts-money-input"><b>UGX</b><input type="number" min="0" step="1000" value={feeForm.boarding} onChange={(e) => setFeeForm((current) => ({ ...current, boarding: e.target.value }))} /></div></label>
+                  <button type="button" className="accounts-secondary-button" onClick={saveFees} disabled={savingFees || !filters.stream}>{savingFees ? "Saving..." : "Save Fee Setup"}</button>
                 </div>
-              ) : null}
-            </div>
-          ) : <div className="accounts-empty-state">No active learners were found in this class and stream.</div>}
-        </section>
+              ) : (
+                <div className="accounts-fee-rates" aria-label="Owner configured fee rates">
+                  <div><span>Day learner</span><strong>{feeConfigured ? formatMoney(feeForm.day) : "Not configured"}</strong></div>
+                  <div><span>Boarding learner</span><strong>{feeConfigured ? formatMoney(feeForm.boarding) : "Not configured"}</strong></div>
+                </div>
+              )}
+            </section>
+
+            <section className="accounts-metrics" aria-label="Register summary">
+              <div><span>Learners</span><strong>{totals.learners}</strong></div>
+              <div><span>Amounts Entered</span><strong>{totals.recorded}</strong></div>
+              <div><span>Stream Total</span><strong>{formatMoney(totals.paid)}</strong></div>
+              <div><span>Unsaved Rows</span><strong>{dirtyIds.length}</strong></div>
+            </section>
+
+            <AccountsRegisterPdfButton
+              rows={rows}
+              filters={filters}
+              feeAmounts={feeForm}
+              feeConfigured={feeConfigured}
+              hasUnsavedChanges={dirtyIds.length > 0}
+            />
+
+            <section className="accounts-register-panel">
+              <div className="accounts-section-heading">
+                <div>
+                  <span>Quick Entry</span>
+                  <h2>{filters.classLevel} {filters.stream} Register</h2>
+                  {latestPaymentSave ? (
+                    <p className="accounts-register-last-save">
+                      Last saved by <strong>{latestPaymentSave.savedBy}</strong> · {formatSavedAt(latestPaymentSave.savedAt)}
+                    </p>
+                  ) : null}
+                </div>
+                <span className="accounts-register-count">{visibleRows.length} of {rows.length}</span>
+              </div>
+
+              <div className="accounts-register-tools">
+                <div className="accounts-learner-search">
+                  <label className="accounts-visually-hidden" htmlFor="accounts-learner-search">Find a learner</label>
+                  <input
+                    id="accounts-learner-search"
+                    type="search"
+                    value={learnerQuery}
+                    placeholder="Find learner by name"
+                    onChange={(event) => setLearnerQuery(event.target.value)}
+                  />
+                  {learnerQuery ? (
+                    <button type="button" title="Clear learner search" onClick={() => setLearnerQuery("")}>×</button>
+                  ) : null}
+                </div>
+                <button type="button" className="accounts-refresh-button" onClick={loadRegister} disabled={loadingRegister}>Refresh</button>
+              </div>
+
+              {loadingRegister ? <div className="accounts-empty-state">Loading learner register...</div> : rows.length ? (
+                <div className="accounts-ledger">
+                  <div className="accounts-ledger-head" aria-hidden="true"><span>#</span><span>Learner</span><span>Residence</span><span>Expected</span><span>Paid This Term</span><span>Balance</span></div>
+                  {visibleRows.map(({ row, index }) => {
+                    const expected = expectedFor(row);
+                    const paid = Number(row.amount_paid || 0);
+                    const balance = Math.max(0, expected - paid);
+                    const isDirty = dirtyIds.includes(Number(row.id));
+                    const hasPaymentEntry = row.amount_paid !== "";
+                    const isNotPaid = hasPaymentEntry && paid === 0;
+                    return (
+                      <article key={`${row.learner_level}-${row.id}`} className={`accounts-ledger-row ${isDirty ? "is-dirty" : ""}`}>
+                        <span className="accounts-row-number">{index + 1}</span>
+                        <div className="accounts-learner-cell">
+                          <button
+                            type="button"
+                            className="accounts-learner-name-button"
+                            onClick={() => setSelectedLearner(row)}
+                          >
+                            {row.learner_name}
+                          </button>
+                          <small>{row.gender || "-"} - ID {row.id}</small>
+                          {row.payment_updated_by && row.payment_updated_at ? (
+                            <small className="accounts-last-saved">
+                              Last saved by <b>{row.payment_updated_by}</b> · {formatSavedAt(row.payment_updated_at)}
+                            </small>
+                          ) : null}
+                        </div>
+                        <div className="accounts-residence-toggle" role="group" aria-label={`${row.learner_name} residence`}>
+                          {['Day', 'Boarding'].map((type) => <button key={type} type="button" className={row.residence_type === type ? "is-active" : ""} onClick={() => updateRow(row.id, { residence_type: type })}>{type}</button>)}
+                        </div>
+                        <span className="accounts-expected-cell">{feeConfigured ? formatMoney(expected) : "Not set"}</span>
+                        <div className="accounts-payment-cell">
+                          <span>Payment</span>
+                          <div className="accounts-payment-mode" role="group" aria-label={`${row.learner_name} payment entry mode`}>
+                            <button
+                              type="button"
+                              className={!isNotPaid ? "is-active" : ""}
+                              onClick={() => isNotPaid && updateRow(row.id, { amount_paid: "" })}
+                            >Amount</button>
+                            <button
+                              type="button"
+                              className={isNotPaid ? "is-active is-not-paid" : ""}
+                              onClick={() => updateRow(row.id, { amount_paid: "0" })}
+                            >Not Paid</button>
+                          </div>
+                          {isNotPaid ? (
+                            <div className="accounts-not-paid-value">Not Paid</div>
+                          ) : (
+                            <div className="accounts-money-input">
+                              <b>UGX</b>
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                pattern="[0-9,]*"
+                                autoComplete="off"
+                                aria-label={`${row.learner_name} amount paid this term`}
+                                value={formatMoneyInput(row.amount_paid)}
+                                onChange={(e) => updateRow(row.id, {
+                                  amount_paid: normalizeMoneyInput(e.target.value),
+                                })}
+                              />
+                            </div>
+                          )}
+                        </div>
+                        <span className={`accounts-balance-cell ${balance === 0 && expected > 0 ? "is-cleared" : ""}`}>{feeConfigured ? formatMoney(balance) : "-"}</span>
+                      </article>
+                    );
+                  })}
+                  {!visibleRows.length ? (
+                    <div className="accounts-empty-state accounts-search-empty">
+                      No learner matches “{learnerQuery.trim()}”.
+                    </div>
+                  ) : null}
+                </div>
+              ) : <div className="accounts-empty-state">No active learners were found in this class and stream.</div>}
+            </section>
+          </div>
+        ) : activeView === "settings" && isBursar ? (
+          <div id="accounts-settings-panel">
+            <AccountsProfileSettings user={user} onProfileChange={updateProfile} />
+          </div>
+        ) : activeView === "audit" && isOwner ? (
+          <div id="accounts-audit-panel"><AccountsAuditPanel isOwner={isOwner} /></div>
+        ) : null}
       </div>
 
-      <div className="accounts-save-dock">
-        <span>{dirtyIds.length ? `${dirtyIds.length} unsaved row${dirtyIds.length === 1 ? "" : "s"}` : "Register saved"}</span>
-        <button type="button" className="accounts-primary-button" onClick={savePayments} disabled={savingPayments || !feeConfigured || !dirtyIds.length}>{savingPayments ? "Saving..." : "Save Accounts"}</button>
-      </div>
+      {activeView === "quick-entry" ? (
+        <div className="accounts-save-dock">
+          <span>{dirtyIds.length ? `${dirtyIds.length} unsaved row${dirtyIds.length === 1 ? "" : "s"}` : "Register saved"}</span>
+          <button type="button" className="accounts-primary-button" onClick={savePayments} disabled={savingPayments || !feeConfigured || !dirtyIds.length}>{savingPayments ? "Saving..." : "Save Accounts"}</button>
+        </div>
+      ) : null}
+
+      {selectedLearner ? (
+        <AccountsLearnerHistoryModal
+          learner={selectedLearner}
+          onClose={() => setSelectedLearner(null)}
+        />
+      ) : null}
     </main>
   );
 }

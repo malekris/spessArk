@@ -757,13 +757,13 @@ autoTable(doc, {
           7: { cellWidth: COLUMN_WIDTH * 0.085, halign: "center" },
           8: { cellWidth: COLUMN_WIDTH * 0.06, halign: "center" },
           9: {
-            cellWidth: COLUMN_WIDTH * 0.11,
+            cellWidth: COLUMN_WIDTH * 0.14,
             overflow: "linebreak",
             halign: "left",
             cellPadding: { left: 2, right: 2, top: 2, bottom: 2 },
           },
           10: {
-            cellWidth: COLUMN_WIDTH * 0.17,
+            cellWidth: COLUMN_WIDTH * 0.14,
             overflow: "ellipsize",
             halign: "center",
             cellPadding: { left: 2, right: 2, top: 2, bottom: 2 },
@@ -785,13 +785,13 @@ autoTable(doc, {
         8: { cellWidth: COLUMN_WIDTH * 0.08, halign: "center" },
         9: { cellWidth: COLUMN_WIDTH * 0.055, halign: "center" },
         10: {
-          cellWidth: COLUMN_WIDTH * 0.105,
+          cellWidth: COLUMN_WIDTH * 0.14,
           overflow: "linebreak",
           halign: "left",
           cellPadding: { left: 2, right: 2, top: 2, bottom: 2 },
         },
         11: {
-          cellWidth: COLUMN_WIDTH * 0.155,
+          cellWidth: COLUMN_WIDTH * 0.12,
           overflow: "ellipsize",
           halign: "center",
           cellPadding: { left: 2, right: 2, top: 2, bottom: 2 },

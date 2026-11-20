@@ -1,16 +1,22 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
+  ACCOUNTS_IDLE_EXPIRY_KEY,
+  ACCOUNTS_LOGOUT_SIGNAL_KEY,
   accountsRequest,
   clearAccountsAuth,
   getAccountsToken,
   getAccountsUser,
+  readAccountsIdleExpiry,
   setAccountsUser,
+  writeAccountsIdleExpiry,
 } from "../api";
+import useIdleSessionPrompt from "../../../hooks/useIdleSessionPrompt";
 import AccountsAuditPanel from "../components/AccountsAuditPanel";
 import AccountsBursarActivitySummary from "../components/AccountsBursarActivitySummary";
 import AccountsCorrectionAlerts from "../components/AccountsCorrectionAlerts";
 import AccountsFundsSummary from "../components/AccountsFundsSummary";
+import AccountsIdleWarning from "../components/AccountsIdleWarning";
 import AccountsLearnerHistoryModal from "../components/AccountsLearnerHistoryModal";
 import AccountsOutstandingBalances from "../components/AccountsOutstandingBalances";
 import AccountsPortalNav from "../components/AccountsPortalNav";
@@ -33,6 +39,9 @@ const moneyFormatter = new Intl.NumberFormat("en-UG", {
 
 const formatMoney = (value) => moneyFormatter.format(Number(value || 0));
 const ACCOUNTS_THEME_KEY = "spessAccountsTheme";
+const ACCOUNTS_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
+const ACCOUNTS_IDLE_WARNING_MS = 60 * 1000;
+const ignoreAccountsSessionSignal = () => {};
 const getInitialAccountsTheme = () => {
   const savedTheme = window.localStorage.getItem(ACCOUNTS_THEME_KEY);
   if (["light", "dark"].includes(savedTheme)) return savedTheme;
@@ -54,6 +63,21 @@ const formatSavedAt = (value) => {
 
 export default function AccountsDashboard() {
   const navigate = useNavigate();
+  const handleIdleTimeout = useCallback(() => {
+    clearAccountsAuth();
+    navigate("/ark/accounts-login?reason=idle-timeout", { replace: true });
+  }, [navigate]);
+  const { promptVisible, secondsRemaining, renewSession, logoutNow } = useIdleSessionPrompt({
+    onTimeout: handleIdleTimeout,
+    idleMs: ACCOUNTS_IDLE_TIMEOUT_MS,
+    warningMs: ACCOUNTS_IDLE_WARNING_MS,
+    idleExpiryKey: ACCOUNTS_IDLE_EXPIRY_KEY,
+    logoutSignalKey: ACCOUNTS_LOGOUT_SIGNAL_KEY,
+    readIdleExpiry: readAccountsIdleExpiry,
+    writeIdleExpiry: writeAccountsIdleExpiry,
+    notifySessionExpired: ignoreAccountsSessionSignal,
+    suspendWhenHiddenOnMobile: false,
+  });
   const [user, setUser] = useState(() => getAccountsUser());
   const isOwner = ["accounts_owner", "accounts_admin"].includes(user?.role);
   const isBursar = user?.role === "accounts_bursar";
@@ -551,6 +575,14 @@ export default function AccountsDashboard() {
           onThemeChange={changeTheme}
           onProfileChange={updateProfile}
           onClose={() => setSettingsOpen(false)}
+        />
+      ) : null}
+
+      {promptVisible ? (
+        <AccountsIdleWarning
+          secondsRemaining={secondsRemaining}
+          onLogout={logoutNow}
+          onRenew={renewSession}
         />
       ) : null}
     </main>

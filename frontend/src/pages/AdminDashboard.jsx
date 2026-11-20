@@ -23,6 +23,7 @@ import LearnerMovementCard from "../components/admin-dashboard/LearnerMovementCa
 import AdminPopulationSummary from "../components/admin-dashboard/AdminPopulationSummary";
 import OLevelReportReadinessCard from "../components/admin-dashboard/OLevelReportReadinessCard";
 import TeacherLoginNoticeSettings from "../components/admin-dashboard/TeacherLoginNoticeSettings";
+import TeacherAccountProvisionForm from "../components/admin-dashboard/TeacherAccountProvisionForm";
 import NoticeboardScoreSheetCard from "../components/admin-dashboard/NoticeboardScoreSheetCard";
 import SpessParentsPanel from "../components/SpessParentsPanel";
 import "../components/admin-dashboard/AdminDashboardPulseCards.css";
@@ -660,6 +661,7 @@ export default function AdminDashboard() {
   const [teachers, setTeachers] = useState([]);
   const [teacherForm, setTeacherForm] = useState({ name: "", email: "", subject1: "", subject2: "" });
   const [teacherError, setTeacherError] = useState("");
+  const [teacherNotice, setTeacherNotice] = useState("");
   const [loadingTeachers, setLoadingTeachers] = useState(false);
   const [savingTeacher, setSavingTeacher] = useState(false);
   const [deletingTeacherId, setDeletingTeacherId] = useState(null);
@@ -1154,12 +1156,13 @@ export default function AdminDashboard() {
   const handleAddTeacher = async (e) => {
     e?.preventDefault();
     const { name, email, subject1, subject2 } = teacherForm;
-    if (!name || !email || !subject1 || !subject2) {
-      setTeacherError("Please fill in all fields before saving.");
+    if (!name.trim() || !email.trim()) {
+      setTeacherError("Teacher name and email are required.");
       return;
     }
     setSavingTeacher(true);
     setTeacherError("");
+    setTeacherNotice("");
     try {
       const created = await adminFetch("/api/teachers", { method: "POST", body: { name, email, subject1, subject2 } });
       const teacherToAdd = {
@@ -1179,6 +1182,10 @@ export default function AdminDashboard() {
       };
       setTeachers((p) => [teacherToAdd, ...p]);
       setTeacherForm({ name: "", email: "", subject1: "", subject2: "" });
+      setTeacherNotice(
+        created.message ||
+          "Teacher account created. They can now use First login / Set password on the teacher login screen."
+      );
     } catch (err) {
       console.error("Error adding teacher:", err);
       setTeacherError(err.message || "Could not add teacher.");
@@ -2122,6 +2129,8 @@ export default function AdminDashboard() {
   const handleTeacherInputChange = (e) => {
     const { name, value } = e.target;
     setTeacherForm((p) => ({ ...p, [name]: value }));
+    setTeacherError("");
+    setTeacherNotice("");
   };
 
   const handleStudentInputChange = (e) => {
@@ -3463,16 +3472,28 @@ export default function AdminDashboard() {
           </div>
 
           {teacherError && <div className="panel-alert panel-alert-error">{teacherError}</div>}
+          {teacherNotice && <div className="panel-alert panel-alert-success">{teacherNotice}</div>}
 
           <div className="panel-grid">
             <div className="panel-card">
               <div className="panel-card-header">
                 <div>
-                  <h3>Teacher Access Snapshot</h3>
+                  <h3>Create Teacher Account</h3>
                   <p className="muted-text" style={{ margin: "0.2rem 0 0" }}>
-                    Teacher accounts are now self-registered. This panel is for quick visibility and management only.
+                    Provision access here before a new teacher sets their password.
                   </p>
                 </div>
+              </div>
+
+              <TeacherAccountProvisionForm
+                form={teacherForm}
+                saving={savingTeacher}
+                onChange={handleTeacherInputChange}
+                onSubmit={handleAddTeacher}
+              />
+
+              <div className="panel-card-header" style={{ marginTop: "1.35rem" }}>
+                <h3>Teacher Access Snapshot</h3>
               </div>
 
               <div

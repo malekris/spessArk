@@ -229,9 +229,9 @@ function TeacherLogin() {
         <button
           type="button"
           className="auth-gold-btn"
-          onClick={() => navigate("/ark/teacher-signup")}
+          onClick={() => navigate("/ark/teacher-forgot")}
         >
-          ✨ First time? Create Account
+          First login? Set your password
         </button>
       </div>
     </div>

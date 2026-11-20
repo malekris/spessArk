@@ -32,8 +32,9 @@ export default function useIdleSessionPrompt({
   readIdleExpiry = readAdminIdleExpiry,
   writeIdleExpiry = writeAdminIdleExpiry,
   notifySessionExpired = notifyAdminSessionExpired,
+  suspendWhenHiddenOnMobile = true,
 }) {
-  const persistentMobileSession = isMobileSessionDevice();
+  const persistentMobileSession = suspendWhenHiddenOnMobile && isMobileSessionDevice();
   const warningTimerRef = useRef(null);
   const logoutTimerRef = useRef(null);
   const countdownTimerRef = useRef(null);

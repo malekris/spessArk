@@ -1,6 +1,8 @@
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:5001";
 const ACCOUNTS_TOKEN_KEY = "accountsAdminToken";
 const ACCOUNTS_USER_KEY = "accountsAdminUser";
+export const ACCOUNTS_IDLE_EXPIRY_KEY = "SPESS_ACCOUNTS_IDLE_EXPIRES_AT";
+export const ACCOUNTS_LOGOUT_SIGNAL_KEY = "SPESS_ACCOUNTS_LOGOUT_SIGNAL";
 
 // Finance sessions are intentionally tab-scoped. Persistent local storage made
 // the Owner portal reopen without asking for its password on later visits.
@@ -31,6 +33,18 @@ export const clearAccountsAuth = () => {
   sessionStorage.removeItem(ACCOUNTS_USER_KEY);
   localStorage.removeItem(ACCOUNTS_TOKEN_KEY);
   localStorage.removeItem(ACCOUNTS_USER_KEY);
+  sessionStorage.removeItem(ACCOUNTS_IDLE_EXPIRY_KEY);
+};
+
+export const readAccountsIdleExpiry = () => {
+  const expiry = Number(sessionStorage.getItem(ACCOUNTS_IDLE_EXPIRY_KEY) || 0);
+  return Number.isFinite(expiry) && expiry > 0 ? expiry : 0;
+};
+
+export const writeAccountsIdleExpiry = (expiresAt) => {
+  const expiry = Number(expiresAt);
+  if (!Number.isFinite(expiry) || expiry <= 0) return;
+  sessionStorage.setItem(ACCOUNTS_IDLE_EXPIRY_KEY, String(expiry));
 };
 
 export async function accountsRequest(path, options = {}) {

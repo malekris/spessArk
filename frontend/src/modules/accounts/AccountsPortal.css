@@ -505,6 +505,23 @@
 .accounts-settings-drawer .accounts-password-editor { padding: 1rem 0 0; border-top: 1px solid var(--accounts-line); border-left: 0; }
 .accounts-owner-settings-note { margin: 1rem; padding: .9rem 1rem; border-left: 3px solid #58a6d8; border-radius: 6px; background: #fff; color: var(--accounts-muted); font-size: .75rem; font-weight: 750; line-height: 1.5; }
 
+.accounts-idle-overlay { position: fixed; inset: 0; z-index: 120; display: grid; place-items: end center; padding-top: 3rem; background: rgba(8,20,16,.7); backdrop-filter: blur(8px); }
+.accounts-idle-dialog { width: 100%; padding: 1.2rem; border: 1px solid #d6dfda; border-bottom: 0; border-top: 4px solid var(--accounts-gold); border-radius: 8px 8px 0 0; background: #fff; color: #17211d; box-shadow: 0 -24px 70px rgba(8,20,16,.28); }
+.accounts-idle-badge { display: inline-flex; align-items: center; gap: .42rem; color: #7b5c0d; font-size: .65rem; font-weight: 950; text-transform: uppercase; }
+.accounts-idle-badge span { width: 8px; height: 8px; border-radius: 50%; background: #d2a82d; box-shadow: 0 0 0 4px rgba(210,168,45,.15); }
+.accounts-idle-dialog h2 { margin: .75rem 0 0; font-size: 1.3rem; line-height: 1.15; }
+.accounts-idle-dialog p { margin: .55rem 0 0; color: #64716b; font-size: .8rem; line-height: 1.55; }
+.accounts-idle-dialog p strong { color: #7f1d1d; }
+.accounts-idle-countdown { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin-top: 1rem; }
+.accounts-idle-countdown strong { color: #a93636; font-size: 1.2rem; font-variant-numeric: tabular-nums; }
+.accounts-idle-countdown span { color: #68756e; font-size: .65rem; font-weight: 850; }
+.accounts-idle-meter { height: 6px; margin-top: .5rem; overflow: hidden; border-radius: 3px; background: #e6ebe8; }
+.accounts-idle-meter span { height: 100%; display: block; background: #a93636; transition: width 1s linear; }
+.accounts-idle-actions { display: grid; grid-template-columns: 1fr 1.3fr; gap: .55rem; margin-top: 1.1rem; }
+.accounts-idle-actions button { min-height: 48px; border-radius: 6px; font: inherit; font-size: .75rem; font-weight: 900; cursor: pointer; }
+.accounts-idle-actions .is-logout { border: 1px solid #d4aeae; background: #fff5f5; color: #8f2828; }
+.accounts-idle-actions .is-renew { border: 1px solid var(--accounts-green); background: var(--accounts-green); color: #fff; }
+
 .accounts-app.theme-dark {
   --accounts-ink: #edf4f0;
   --accounts-muted: #a2b0a9;
@@ -589,6 +606,12 @@
 .accounts-app.theme-dark .accounts-theme-toggle button { color: #a9b7b0; }
 .accounts-app.theme-dark .accounts-theme-toggle button.is-active { background: #26382f; color: #fff; box-shadow: none; }
 .accounts-app.theme-dark .accounts-avatar-editor { border-color: #35483f; background: #1a2922; }
+.accounts-app.theme-dark .accounts-idle-dialog { border-color: #3b5047; background: #121f1a; color: #f3f7f5; }
+.accounts-app.theme-dark .accounts-idle-dialog p { color: #a5b3ac; }
+.accounts-app.theme-dark .accounts-idle-dialog p strong { color: #f1a2a2; }
+.accounts-app.theme-dark .accounts-idle-countdown span { color: #a5b3ac; }
+.accounts-app.theme-dark .accounts-idle-meter { background: #2b3d35; }
+.accounts-app.theme-dark .accounts-idle-actions .is-logout { border-color: #734444; background: #2d1b1b; color: #f1b2b2; }
 
 @media (max-width: 420px) {
   .accounts-app-brand small { max-width: 135px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -658,6 +681,8 @@
   .accounts-settings-overlay { align-items: stretch; justify-content: flex-end; }
   .accounts-settings-drawer { width: min(520px, 100%); max-height: none; border-width: 0 0 0 1px; border-radius: 8px 0 0 8px; box-shadow: -24px 0 70px rgba(8,20,16,.25); }
   .accounts-settings-drawer-header { padding: 1.2rem; }
+  .accounts-idle-overlay { place-items: center; padding: 1.5rem; }
+  .accounts-idle-dialog { width: min(100%, 470px); padding: 1.4rem; border-bottom-width: 1px; border-radius: 8px; box-shadow: 0 26px 80px rgba(8,20,16,.34); }
   .accounts-appearance-settings,
   .accounts-settings-drawer > .accounts-settings-panel,
   .accounts-owner-settings-note { margin: 1.2rem; }

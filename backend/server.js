@@ -46,7 +46,10 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { extractClientIp, logAuditEvent } from "./utils/auditLogger.js";
 import { getSessionExpiry, resolveRequestedSessionMode } from "./utils/deviceSession.js";
-import { sendTeacherPasswordChangedEmail } from "./utils/email.js";
+import {
+  sendTeacherAccountProvisionedEmail,
+  sendTeacherPasswordChangedEmail,
+} from "./utils/email.js";
 import { sendDatabaseDumpFile } from "./utils/databaseDumpDelivery.js";
 import { ensureMarksArchiveTablesReady, archiveOLevelMarks } from "./utils/marksArchive.js";
 import { captureAdminYearSnapshot, queueAdminYearSnapshotRefresh } from "./services/adminYearSnapshotService.js";
@@ -1859,16 +1862,18 @@ app.post("/api/admin/teachers", authAdmin, async (req, res) => {
 app.post("/api/teachers", authAdmin, async (req, res) => {
   try {
     const { name, email, subject1, subject2 } = req.body;
+    const normalizedName = String(name || "").trim();
+    const normalizedEmail = String(email || "").trim().toLowerCase();
 
-    if (!name || !email) {
+    if (!normalizedName || !normalizedEmail) {
       return res.status(400).json({
         message: "Name and email are required",
       });
     }
 
     const [existing] = await pool.query(
-      "SELECT id FROM teachers WHERE email = ?",
-      [email]
+      "SELECT id FROM teachers WHERE LOWER(TRIM(email)) = ? LIMIT 1",
+      [normalizedEmail]
     );
 
     if (existing.length > 0) {
@@ -1877,10 +1882,23 @@ app.post("/api/teachers", authAdmin, async (req, res) => {
       });
     }
 
+    // The random placeholder cannot be used to log in and is replaced only
+    // after the teacher completes the verified email-code password flow.
+    const placeholderPasswordHash = await bcrypt.hash(
+      crypto.randomBytes(48).toString("hex"),
+      12
+    );
     const [result] = await pool.query(
-      `INSERT INTO teachers (name, email, subject1, subject2)
-       VALUES (?, ?, ?, ?)`,
-      [name, email, subject1 || null, subject2 || null]
+      `INSERT INTO teachers
+        (name, email, subject1, subject2, password_hash, is_verified)
+       VALUES (?, ?, ?, ?, ?, 1)`,
+      [
+        normalizedName,
+        normalizedEmail,
+        subject1 || null,
+        subject2 || null,
+        placeholderPasswordHash,
+      ]
     );
 
     const [rows] = await pool.query(
@@ -1889,8 +1907,30 @@ app.post("/api/teachers", authAdmin, async (req, res) => {
       [result.insertId]
     );
 
+    const teacher = rows[0];
     queueAdminYearSnapshotRefresh(pool, "teacher-create");
-    res.status(201).json(rows[0]);
+    await logAuditEvent({
+      userId: Number(req.admin?.id) || 1,
+      userRole: "admin",
+      action: "CREATE_TEACHER_ACCOUNT",
+      entityType: "teacher",
+      entityId: teacher.id,
+      description: `Created teacher account for ${normalizedName} (${normalizedEmail})`,
+      ipAddress: extractClientIp(req),
+    });
+
+    Promise.resolve()
+      .then(() => sendTeacherAccountProvisionedEmail(normalizedEmail, normalizedName))
+      .catch((emailError) => {
+        console.warn("Teacher account setup email failed:", emailError.message);
+      });
+
+    res.status(201).json({
+      ...teacher,
+      setup_required: true,
+      message:
+        "Teacher account created. They can use First login / Set password on the teacher login screen.",
+    });
   } catch (err) {
     console.error("Error adding teacher:", err);
     res.status(500).json({ message: "Failed to add teacher" });

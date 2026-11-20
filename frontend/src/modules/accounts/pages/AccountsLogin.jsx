@@ -26,7 +26,11 @@ export default function AccountsLogin() {
   const [resetForm, setResetForm] = useState({ email: "", code: "", password: "", confirmPassword: "" });
   const [resetCodeSent, setResetCodeSent] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState({ type: "", text: "" });
+  const [message, setMessage] = useState(() => (
+    new URLSearchParams(window.location.search).get("reason") === "idle-timeout"
+      ? { type: "success", text: "You were signed out after 15 minutes of inactivity." }
+      : { type: "", text: "" }
+  ));
 
   useEffect(() => {
     document.title = "SPESS Accounts | Login";

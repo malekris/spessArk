@@ -176,6 +176,46 @@ export async function sendWelcomeEmail(email, name = "") {
   }
 }
 
+export async function sendTeacherAccountProvisionedEmail(email, name = "") {
+  const appBaseUrl = String(
+    process.env.PUBLIC_APP_URL || "https://stphillipsequatorial.com"
+  ).replace(/\/+$/, "");
+  const passwordSetupUrl = `${appBaseUrl}/ark/teacher-forgot`;
+
+  return sendWithRetry(
+    {
+      from: "SPESS ARK <no-reply@stphillipsequatorial.com>",
+      to: email,
+      subject: "Set up your SPESS ARK teacher account",
+      html: `
+        <div style="font-family:Arial,sans-serif;background:#f3f7f4;padding:30px;color:#1f2937;">
+          <div style="max-width:600px;margin:auto;background:#ffffff;padding:34px;border-radius:16px;box-shadow:0 15px 40px rgba(0,0,0,0.08);">
+            <div style="text-align:center;margin-bottom:20px;">
+              <img src="${appBaseUrl}/badge.png" alt="St. Phillips badge" style="height:86px;" />
+            </div>
+            <h2 style="margin:0 0 16px;color:#14532d;">Welcome${name ? `, ${name}` : ""}</h2>
+            <p style="font-size:15px;line-height:1.7;">
+              The school administrator has created your SPESS ARK teacher account using this email address.
+            </p>
+            <p style="font-size:15px;line-height:1.7;">
+              Use the secure button below, enter this email address, and request a verification code to create your password.
+            </p>
+            <div style="margin:28px 0;text-align:center;">
+              <a href="${passwordSetupUrl}" style="display:inline-block;background:#166534;color:#ffffff;text-decoration:none;padding:14px 24px;border-radius:10px;font-weight:700;">
+                Set My Password
+              </a>
+            </div>
+            <p style="font-size:13px;line-height:1.6;color:#6b7280;">
+              If you were not expecting this account, contact the school administrator and do not continue.
+            </p>
+          </div>
+        </div>
+      `,
+    },
+    2
+  );
+}
+
 export async function sendVineWelcomeEmail(email, username) {
   console.log("📧 Sending VINE welcome email to:", email);
 

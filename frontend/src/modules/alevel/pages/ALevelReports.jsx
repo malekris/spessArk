@@ -1858,6 +1858,17 @@ export async function generateAlevelPDF(data, meta, options = {}) {
     return rows;
   };
 
+  const countNotSubmittedCells = (rows = []) =>
+    rows.reduce(
+      (total, row) =>
+        total +
+        row.reduce((rowTotal, cell) => {
+          const value = typeof cell === "object" && cell !== null ? cell.content : cell;
+          return rowTotal + (String(value || "").trim() === "Not Submitted" ? 1 : 0);
+        }, 0),
+      0
+    );
+
   const renderMidParentReport = (student) => {
     const { learner, principals, subsidiaries, totals, comments } = student;
     const margin = 14;
@@ -2253,64 +2264,105 @@ doc.setFont("helvetica", "normal");
 doc.text(formatAlevelCombination(learner.combination), 110 + w + gap, y + 12);
 
 
+    const principalRows = buildSubjectRows(principals);
+    const subsidiaryRows = buildSubjectRows(subsidiaries);
+    const usesCompactIncompleteLayout =
+      countNotSubmittedCells(principalRows) + countNotSubmittedCells(subsidiaryRows) >= 5;
+    const resultTableStyles = usesCompactIncompleteLayout
+      ? {
+          fontSize: 7.2,
+          cellPadding: { top: 0.9, right: 0.7, bottom: 0.9, left: 0.7 },
+          minCellHeight: 5.4,
+          lineColor: [15, 23, 42],
+          lineWidth: 0.15,
+          textColor: 0,
+          fillColor: [255, 255, 255],
+          valign: "middle",
+          overflow: "linebreak",
+        }
+      : {
+          fontSize: 8.4,
+          cellPadding: 1.8,
+          lineColor: [15, 23, 42],
+          lineWidth: 0.15,
+          textColor: 0,
+          fillColor: [255, 255, 255],
+        };
+    const resultTableColumnStyles = usesCompactIncompleteLayout
+      ? {
+          0: { cellWidth: 20, fontStyle: "bold" },
+          1: { cellWidth: 12, halign: "center" },
+          2: { cellWidth: 19, halign: "center" },
+          3: { cellWidth: 19, halign: "center" },
+          4: { cellWidth: 16, halign: "center" },
+          5: { cellWidth: 18, halign: "center" },
+          6: { cellWidth: 22, halign: "center" },
+          7: { cellWidth: 11, halign: "center" },
+          8: { cellWidth: 43 },
+        }
+      : undefined;
+    const resultTableHeadStyles = usesCompactIncompleteLayout
+      ? {
+          fillColor: [255, 255, 255],
+          textColor: 0,
+          fontStyle: "bold",
+          fontSize: 7,
+          cellPadding: { top: 1.1, right: 0.7, bottom: 1.1, left: 0.7 },
+          lineColor: [15, 23, 42],
+          lineWidth: 0.18,
+          valign: "middle",
+        }
+      : {
+          fillColor: [255, 255, 255],
+          textColor: 0,
+          fontStyle: "bold",
+          lineColor: [15, 23, 42],
+          lineWidth: 0.18,
+        };
+    const compactResultTableGeometry = usesCompactIncompleteLayout
+      ? {
+          margin: { left: 15, right: 15 },
+          tableWidth: pageWidth - 30,
+          columnStyles: resultTableColumnStyles,
+          rowPageBreak: "avoid",
+        }
+      : {};
+    const resultTableGap = usesCompactIncompleteLayout ? 3.5 : 6;
+
     autoTable(doc, {
       startY: y + 20,
+      ...compactResultTableGeometry,
       head: subjectTableHead,
-      body: buildSubjectRows(principals),
+      body: principalRows,
       theme: "grid",
-      styles: {
-        fontSize: 8.4,
-        cellPadding: 1.8,
-        lineColor: [15, 23, 42],
-        lineWidth: 0.15,
-        textColor: 0,
-        fillColor: [255, 255, 255],
-      },
-      headStyles: {
-        fillColor: [255, 255, 255],
-        textColor: 0,
-        fontStyle: "bold",
-        lineColor: [15, 23, 42],
-        lineWidth: 0.18,
-      },
-      alternateRowStyles: { fillColor: [255, 255, 255] }
+      styles: resultTableStyles,
+      headStyles: resultTableHeadStyles,
+      alternateRowStyles: { fillColor: [255, 255, 255] },
 
     });
 
-    let nextY = doc.lastAutoTable.finalY + 6;
+    let nextY = doc.lastAutoTable.finalY + resultTableGap;
     doc.setFont("helvetica", "bold");
     doc.text(`Total Principal Subjects Points: ${totals.principal}`, 15, nextY);
     doc.setFont("helvetica", "normal"); // reset after
 
     autoTable(doc, {
-      startY: nextY + 6,
+      startY: nextY + resultTableGap,
+      ...compactResultTableGeometry,
       head: subjectTableHead,
-      body: buildSubjectRows(subsidiaries),
+      body: subsidiaryRows,
       theme: "grid",
-      styles: {
-        fontSize: 8.4,
-        cellPadding: 1.8,
-        lineColor: [15, 23, 42],
-        lineWidth: 0.15,
-        textColor: 0,
-        fillColor: [255, 255, 255],
-      },
-      headStyles: {
-        fillColor: [255, 255, 255],
-        textColor: 0,
-        fontStyle: "bold",
-        lineColor: [15, 23, 42],
-        lineWidth: 0.18,
-      },
-      alternateRowStyles: { fillColor: [255, 255, 255] }
+      styles: resultTableStyles,
+      headStyles: resultTableHeadStyles,
+      alternateRowStyles: { fillColor: [255, 255, 255] },
 
     });
 
-    nextY = doc.lastAutoTable.finalY + 6;
+    nextY = doc.lastAutoTable.finalY + resultTableGap;
     doc.setFont("helvetica", "bold");
     doc.text(`Total Subsidiary Points: ${totals.subsidiary}`, 15, nextY);
     doc.text(`TOTAL POINTS: ${totals.overall}`, 110, nextY);
-    let commentY = nextY + 10;
+    let commentY = nextY + (usesCompactIncompleteLayout ? 7 : 10);
     doc.setFont("helvetica", "normal"); // reset after
 
     doc.setFontSize(10);
@@ -2335,7 +2387,7 @@ doc.text(comments.headTeacher, 15 + w + gap, commentY + 16);
 
 doc.text("Signature: ____________________________", 15, commentY + 22);
 
-let tableStartY = commentY + 32;
+let tableStartY = commentY + (usesCompactIncompleteLayout ? 29 : 32);
 
 /* =========================
    REVISED UNEB GRADING TABLE

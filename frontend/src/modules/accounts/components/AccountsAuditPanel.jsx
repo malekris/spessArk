@@ -5,6 +5,7 @@ import AccountsStaffManager from "./AccountsStaffManager";
 const ACTION_LABELS = {
   ACCOUNTS_LOGIN: "Signed in",
   ACCOUNTS_REGISTRATION: "Requested bursar access",
+  ACCOUNTS_CREATE_BURSAR: "Created bursar account",
   ACCOUNTS_STAFF_STATUS: "Changed bursar access",
   ACCOUNTS_PASSWORD_RESET: "Reset bursar password",
   ACCOUNTS_PASSWORD_CHANGE: "Changed bursar password",

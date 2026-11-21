@@ -368,6 +368,37 @@ export async function sendAccountsResetCodeEmail(email, code) {
   await sendWithRetry(payload, 2);
 }
 
+export async function sendAccountsAccountProvisionedEmail(email, name = "") {
+  const appBaseUrl = String(
+    process.env.PUBLIC_APP_URL || "https://stphillipsequatorial.com"
+  ).replace(/\/+$/, "");
+  const setupUrl = `${appBaseUrl}/ark/accounts-login?mode=reset&email=${encodeURIComponent(email)}`;
+  const payload = {
+    from: "SPESS Accounts <no-reply@stphillipsequatorial.com>",
+    to: email,
+    subject: "Set up your SPESS Accounts bursar access",
+    html: `
+      <div style="font-family:Arial,sans-serif;background:#eef2f0;padding:30px;">
+        <div style="max-width:600px;margin:auto;background:#ffffff;padding:32px;border:1px solid #d9e1dd;border-top:5px solid #126149;border-radius:8px;">
+          <div style="text-align:center;margin-bottom:18px;">
+            <img src="${appBaseUrl}/badge.png" alt="St. Phillips badge" style="height:82px;" />
+          </div>
+          <p style="margin:0;color:#b88a18;font-size:12px;font-weight:800;text-transform:uppercase;">Finance Office</p>
+          <h2 style="margin:8px 0 14px;color:#17211d;">Welcome${name ? `, ${name}` : ""}</h2>
+          <p style="color:#495650;line-height:1.7;">The Accounts Owner has created your SPESS Accounts bursar account using this email address.</p>
+          <p style="color:#495650;line-height:1.7;">Use the secure button below to request a verification code and create your password.</p>
+          <div style="margin:26px 0;text-align:center;">
+            <a href="${setupUrl}" style="display:inline-block;background:#126149;color:#ffffff;text-decoration:none;padding:14px 24px;border-radius:8px;font-weight:800;">Set My Password</a>
+          </div>
+          <p style="color:#64716b;font-size:13px;line-height:1.6;">If you were not expecting this account, do not continue and contact the Accounts Owner.</p>
+        </div>
+      </div>
+    `,
+  };
+
+  await sendWithRetry(payload, 2);
+}
+
 function buildTeacherAccountNoticeShell({ title, bodyHtml }) {
   return `
     <div style="font-family: Arial, sans-serif; background:#f8fafc; padding:30px;">

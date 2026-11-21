@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { accountsRequest } from "../api";
+import AccountsStaffProvisionForm from "./AccountsStaffProvisionForm";
 
 const formatDate = (value) => {
   if (!value) return "Never";
@@ -70,6 +71,13 @@ export default function AccountsStaffManager({ onChanged }) {
         </div>
       </div>
 
+      <AccountsStaffProvisionForm
+        onCreated={async () => {
+          await loadStaff();
+          onChanged?.();
+        }}
+      />
+
       {error ? <div className="accounts-audit-error" role="alert">{error}</div> : null}
       {loading && !staff.length ? (
         <div className="accounts-empty-state">Loading bursar accounts...</div>
@@ -108,7 +116,7 @@ export default function AccountsStaffManager({ onChanged }) {
           })}
         </div>
       ) : (
-        <div className="accounts-empty-state">No bursar has registered yet.</div>
+        <div className="accounts-empty-state">No bursar accounts have been created yet.</div>
       )}
     </section>
   );

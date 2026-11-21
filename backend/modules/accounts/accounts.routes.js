@@ -9,7 +9,10 @@ import { createDatabaseRateLimit } from "../../middleware/databaseRateLimit.js";
 import { getJwtSecret, requireSecret } from "../../config/security.js";
 import { getSessionExpiry, resolveRequestedSessionMode } from "../../utils/deviceSession.js";
 import { extractClientIp, logAuditEvent } from "../../utils/auditLogger.js";
-import { sendAccountsResetCodeEmail } from "../../utils/email.js";
+import {
+  sendAccountsAccountProvisionedEmail,
+  sendAccountsResetCodeEmail,
+} from "../../utils/email.js";
 import {
   deleteAccountsAvatar,
   isAccountsAvatarStorageReady,
@@ -35,11 +38,6 @@ const limitAccountsLogin = createDatabaseRateLimit(() => pool, {
   namespace: "accounts-login",
   max: 5,
   account: (req) => req.body?.username,
-});
-const limitAccountsRegistration = createDatabaseRateLimit(() => pool, {
-  namespace: "accounts-registration",
-  max: 5,
-  account: (req) => req.body?.email,
 });
 const limitAccountsReset = createDatabaseRateLimit(() => pool, {
   namespace: "accounts-password-reset",
@@ -488,44 +486,10 @@ router.post("/login", limitAccountsLogin, async (req, res) => {
   }
 });
 
-router.post("/register", limitAccountsRegistration, async (req, res) => {
-  const name = String(req.body?.name || "").trim().slice(0, 160);
-  const email = normalizeAccountsEmail(req.body?.email);
-  const password = String(req.body?.password || "");
-  if (name.length < 2 || !isValidAccountsEmail(email) || !isValidAccountsPassword(password)) {
-    return res.status(400).json({
-      message: "Enter a valid name, email, and password of at least 12 characters.",
-    });
-  }
-
-  try {
-    await ensureAccountsSchemaReady();
-    const passwordHash = await bcrypt.hash(password, 12);
-    const [result] = await pool.query(
-      `INSERT INTO accounts_users (name, email, password_hash, status)
-       VALUES (?, ?, ?, 'pending')`,
-      [name, email, passwordHash]
-    );
-    await logAuditEvent({
-      userId: ACCOUNTS_AUDIT_STAFF_OFFSET + Number(result.insertId),
-      userRole: "admin",
-      action: "ACCOUNTS_REGISTRATION",
-      entityType: "system",
-      entityId: Number(result.insertId),
-      description: `${name} submitted an Accounts access request (${email})`,
-      ipAddress: extractClientIp(req),
-    });
-    return res.status(201).json({
-      status: "pending",
-      message: "Registration received. The Accounts Owner must approve your access.",
-    });
-  } catch (error) {
-    if (error?.code === "ER_DUP_ENTRY") {
-      return res.status(409).json({ message: "An Accounts registration already exists for this email." });
-    }
-    console.error("Accounts registration error:", error);
-    return res.status(500).json({ message: "Failed to create Accounts registration" });
-  }
+router.post("/register", (_req, res) => {
+  return res.status(403).json({
+    message: "Bursar self-registration is disabled. Contact the Accounts Owner.",
+  });
 });
 
 router.post("/forgot-password", limitAccountsReset, async (req, res) => {
@@ -764,6 +728,63 @@ router.get("/staff", requireAccountsOwner, async (_req, res) => {
   } catch (error) {
     console.error("Accounts staff fetch error:", error);
     return res.status(500).json({ message: "Failed to load bursar access requests" });
+  }
+});
+
+router.post("/staff", requireAccountsOwner, async (req, res) => {
+  const name = String(req.body?.name || "").trim().slice(0, 160);
+  const email = normalizeAccountsEmail(req.body?.email);
+  if (name.length < 2 || !isValidAccountsEmail(email)) {
+    return res.status(400).json({ message: "Enter a valid bursar name and email address." });
+  }
+
+  try {
+    await ensureAccountsSchemaReady();
+    const placeholderPasswordHash = await bcrypt.hash(
+      crypto.randomBytes(48).toString("hex"),
+      12
+    );
+    const [result] = await pool.query(
+      `INSERT INTO accounts_users
+        (name, email, password_hash, status, approved_by, approved_at)
+       VALUES (?, ?, ?, 'active', ?, NOW())`,
+      [
+        name,
+        email,
+        placeholderPasswordHash,
+        req.accountsAdmin?.username || "Accounts Owner",
+      ]
+    );
+    const staffId = Number(result.insertId);
+    await logAccountsAudit(
+      req,
+      "CREATE_BURSAR",
+      `Created bursar account for ${name} (${email})`,
+      staffId
+    );
+
+    Promise.resolve()
+      .then(() => sendAccountsAccountProvisionedEmail(email, name))
+      .catch((emailError) => {
+        console.warn("Accounts setup email failed:", emailError?.message || emailError);
+      });
+
+    return res.status(201).json({
+      staff: {
+        id: staffId,
+        name,
+        email,
+        status: "active",
+      },
+      message:
+        "Bursar account created. They can use First Login / Reset to set their password.",
+    });
+  } catch (error) {
+    if (error?.code === "ER_DUP_ENTRY") {
+      return res.status(409).json({ message: "A bursar account already exists for this email." });
+    }
+    console.error("Accounts staff creation error:", error);
+    return res.status(500).json({ message: "Failed to create bursar account" });
   }
 });
 

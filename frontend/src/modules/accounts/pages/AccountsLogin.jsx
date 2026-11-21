@@ -20,10 +20,15 @@ async function publicAccountsRequest(path, body) {
 
 export default function AccountsLogin() {
   const navigate = useNavigate();
-  const [mode, setMode] = useState("login");
+  const initialParams = new URLSearchParams(window.location.search);
+  const [mode, setMode] = useState(initialParams.get("mode") === "reset" ? "reset" : "login");
   const [loginForm, setLoginForm] = useState({ username: "", password: "" });
-  const [registerForm, setRegisterForm] = useState({ name: "", email: "", password: "", confirmPassword: "" });
-  const [resetForm, setResetForm] = useState({ email: "", code: "", password: "", confirmPassword: "" });
+  const [resetForm, setResetForm] = useState({
+    email: initialParams.get("email") || "",
+    code: "",
+    password: "",
+    confirmPassword: "",
+  });
   const [resetCodeSent, setResetCodeSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState(() => (
@@ -57,29 +62,6 @@ export default function AccountsLogin() {
       navigate("/ark/accounts", { replace: true });
     } catch (error) {
       setMessage({ type: "error", text: error.message || "Accounts login failed" });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleRegister = async (event) => {
-    event.preventDefault();
-    setMessage({ type: "", text: "" });
-    if (registerForm.password !== registerForm.confirmPassword) {
-      setMessage({ type: "error", text: "The bursar passwords do not match." });
-      return;
-    }
-    try {
-      setLoading(true);
-      const body = await publicAccountsRequest("/register", {
-        name: registerForm.name,
-        email: registerForm.email,
-        password: registerForm.password,
-      });
-      setRegisterForm({ name: "", email: "", password: "", confirmPassword: "" });
-      setMessage({ type: "success", text: body.message });
-    } catch (error) {
-      setMessage({ type: "error", text: error.message || "Registration failed" });
     } finally {
       setLoading(false);
     }
@@ -135,8 +117,7 @@ export default function AccountsLogin() {
         <div className="accounts-login-copy"><span>Finance Office</span><h1>SPESS Accounts</h1><p>St. Phillip&apos;s Equatorial Secondary School</p></div>
         <div className="accounts-auth-modes" role="tablist" aria-label="Accounts access">
           <button type="button" role="tab" aria-selected={mode === "login"} className={mode === "login" ? "is-active" : ""} onClick={() => changeMode("login")}>Sign in</button>
-          <button type="button" role="tab" aria-selected={mode === "register"} className={mode === "register" ? "is-active" : ""} onClick={() => changeMode("register")}>Register</button>
-          <button type="button" role="tab" aria-selected={mode === "reset"} className={mode === "reset" ? "is-active" : ""} onClick={() => changeMode("reset")}>Reset</button>
+          <button type="button" role="tab" aria-selected={mode === "reset"} className={mode === "reset" ? "is-active" : ""} onClick={() => changeMode("reset")}>First Login / Reset</button>
         </div>
 
         {mode === "login" ? <form onSubmit={handleLogin} className="accounts-login-form">
@@ -144,15 +125,6 @@ export default function AccountsLogin() {
           <label><span>Password</span><input type="password" autoComplete="current-password" value={loginForm.password} onChange={(event) => setLoginForm((current) => ({ ...current, password: event.target.value }))} /></label>
           {message.text ? <div className={`accounts-auth-message is-${message.type}`} role="status">{message.text}</div> : null}
           <button type="submit" className="accounts-primary-button" disabled={loading}>{loading ? "Opening Accounts..." : "Open Accounts"}</button>
-        </form> : null}
-
-        {mode === "register" ? <form onSubmit={handleRegister} className="accounts-login-form">
-          <label><span>Full Name</span><input type="text" autoComplete="name" value={registerForm.name} onChange={(event) => setRegisterForm((current) => ({ ...current, name: event.target.value }))} /></label>
-          <label><span>Email</span><input type="email" autoComplete="email" value={registerForm.email} onChange={(event) => setRegisterForm((current) => ({ ...current, email: event.target.value }))} /></label>
-          <label><span>Password</span><input type="password" minLength="12" autoComplete="new-password" value={registerForm.password} onChange={(event) => setRegisterForm((current) => ({ ...current, password: event.target.value }))} /></label>
-          <label><span>Confirm Password</span><input type="password" minLength="12" autoComplete="new-password" value={registerForm.confirmPassword} onChange={(event) => setRegisterForm((current) => ({ ...current, confirmPassword: event.target.value }))} /></label>
-          {message.text ? <div className={`accounts-auth-message is-${message.type}`} role="status">{message.text}</div> : null}
-          <button type="submit" className="accounts-primary-button" disabled={loading}>{loading ? "Submitting..." : "Request Bursar Access"}</button>
         </form> : null}
 
         {mode === "reset" ? <form onSubmit={resetCodeSent ? resetPassword : requestResetCode} className="accounts-login-form">

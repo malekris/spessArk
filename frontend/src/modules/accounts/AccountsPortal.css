@@ -31,7 +31,7 @@
 .accounts-login-form label > span, .accounts-fee-grid label > span, .accounts-filter-band label > span { color: #495650; font-size: .73rem; font-weight: 900; text-transform: uppercase; }
 .accounts-login-form input, .accounts-filter-band input, .accounts-filter-band select, .accounts-money-input input { width: 100%; box-sizing: border-box; border: 1px solid #cbd5d0; background: #fff; color: var(--accounts-ink); padding: .88rem; font: inherit; font-weight: 750; outline: none; }
 .accounts-login-form input:focus, .accounts-filter-band input:focus, .accounts-filter-band select:focus, .accounts-money-input:focus-within { border-color: var(--accounts-green); box-shadow: 0 0 0 3px rgba(18,97,73,.13); }
-.accounts-auth-modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; margin-top: 1.35rem; padding: 3px; border-radius: 7px; background: #e8eeeb; }
+.accounts-auth-modes { display: grid; grid-template-columns: repeat(2, 1fr); gap: 3px; margin-top: 1.35rem; padding: 3px; border-radius: 7px; background: #e8eeeb; }
 .accounts-auth-modes button { min-width: 0; min-height: 42px; border: 0; border-radius: 5px; background: transparent; color: #5b6862; font: inherit; font-size: .76rem; font-weight: 900; cursor: pointer; }
 .accounts-auth-modes button.is-active { background: #fff; color: var(--accounts-green-dark); box-shadow: 0 2px 7px rgba(23,33,29,.1); }
 .accounts-auth-message { padding: .78rem .85rem; border: 1px solid var(--accounts-line); border-left-width: 4px; border-radius: 6px; font-size: .8rem; font-weight: 800; line-height: 1.45; }
@@ -218,6 +218,18 @@
 .accounts-staff-heading h3 { margin: .2rem 0 0; font-size: 1.3rem; }
 .accounts-staff-counts { display: flex; flex-wrap: wrap; gap: .45rem; }
 .accounts-staff-counts span { padding: .4rem .55rem; border: 1px solid var(--accounts-line); border-radius: 5px; background: #f6f8f7; color: var(--accounts-muted); font-size: .68rem; font-weight: 900; text-transform: uppercase; }
+.accounts-staff-provision { display: grid; gap: .75rem; margin: 0 0 1rem; padding: .9rem; border: 1px solid #bdd7cc; border-top: 4px solid var(--accounts-green); border-radius: 8px; background: #f4faf7; }
+.accounts-staff-provision-copy span, .accounts-staff-provision-copy strong, .accounts-staff-provision-copy p { display: block; }
+.accounts-staff-provision-copy span { color: var(--accounts-gold); font-size: .66rem; font-weight: 950; text-transform: uppercase; }
+.accounts-staff-provision-copy strong { margin-top: .2rem; color: var(--accounts-green-dark); font-size: 1rem; }
+.accounts-staff-provision-copy p { margin: .3rem 0 0; color: var(--accounts-muted); font-size: .74rem; line-height: 1.5; }
+.accounts-staff-provision label { display: grid; gap: .35rem; color: var(--accounts-muted); font-size: .7rem; font-weight: 900; }
+.accounts-staff-provision input { width: 100%; min-height: 44px; border: 1px solid var(--accounts-line); border-radius: 6px; padding: .7rem .75rem; background: #fff; color: var(--accounts-ink); font: inherit; }
+.accounts-staff-provision > button { min-height: 46px; border: 1px solid var(--accounts-green); border-radius: 6px; background: var(--accounts-green); color: #fff; font: inherit; font-size: .75rem; font-weight: 950; cursor: pointer; }
+.accounts-staff-provision > button:disabled { opacity: .55; cursor: not-allowed; }
+.accounts-staff-provision-message { padding: .7rem .8rem; border-radius: 6px; font-size: .72rem; font-weight: 850; line-height: 1.45; }
+.accounts-staff-provision-message.is-success { border: 1px solid #a9d1c0; background: #e9f7f1; color: #145c45; }
+.accounts-staff-provision-message.is-error { border: 1px solid #e1b2b2; background: #fff1f1; color: #8b2929; }
 .accounts-staff-list { display: grid; gap: .65rem; }
 .accounts-staff-card { min-width: 0; padding: .8rem; border: 1px solid var(--accounts-line); border-radius: 7px; background: #fbfcfb; }
 .accounts-staff-identity { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .65rem; min-width: 0; }
@@ -569,6 +581,9 @@
 .accounts-app.theme-dark .accounts-history-entry,
 .accounts-app.theme-dark .accounts-audit-entry-copy,
 .accounts-app.theme-dark .accounts-staff-card { border-color: #30433a; background: #18251f; }
+.accounts-app.theme-dark .accounts-staff-provision { border-color: #355b4c; background: #14231d; }
+.accounts-app.theme-dark .accounts-staff-provision-copy strong { color: #9bd4bc; }
+.accounts-app.theme-dark .accounts-staff-provision input { border-color: #3b5047; background: #101a16; color: #edf4f0; }
 .accounts-app.theme-dark .accounts-transactions-list { border-color: #30433a; }
 .accounts-app.theme-dark .accounts-transaction-row + .accounts-transaction-row { border-color: #30433a; }
 .accounts-app.theme-dark .accounts-transaction-copy strong,
@@ -644,6 +659,9 @@
   .accounts-funds-stat strong { font-size: 1.05rem; }
   .accounts-portal-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .accounts-portal-card { padding: 1.15rem; }
+  .accounts-staff-provision { grid-template-columns: repeat(2, minmax(0, 1fr)) auto; align-items: end; }
+  .accounts-staff-provision-copy, .accounts-staff-provision-message { grid-column: 1 / -1; }
+  .accounts-staff-provision > button { min-width: 190px; padding: 0 1rem; }
   .accounts-filter-band { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .accounts-fee-grid { grid-template-columns: 1fr 1fr auto; align-items: end; }
   .accounts-metrics { grid-template-columns: repeat(4, 1fr); }

@@ -366,7 +366,7 @@ export async function sendAccountsResetCodeEmail(email, code) {
   };
 
   await sendWithRetry(payload, 2);
-}
+}   
 
 export async function sendAccountsAccountProvisionedEmail(email, name = "") {
   const appBaseUrl = String(

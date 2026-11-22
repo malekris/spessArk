@@ -33,6 +33,31 @@ const formatReportDateValue = (value) => {
   return parsed.toLocaleDateString("en-GB");
 };
 
+const formatLongReportDateValue = (value) => {
+  if (!value) return "__________";
+  const raw = String(value).trim();
+  if (!raw) return "__________";
+  const parsed = new Date(`${raw}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return raw;
+
+  const day = parsed.getDate();
+  const lastTwoDigits = day % 100;
+  const ordinalSuffix =
+    lastTwoDigits >= 11 && lastTwoDigits <= 13
+      ? "th"
+      : day % 10 === 1
+        ? "st"
+        : day % 10 === 2
+          ? "nd"
+          : day % 10 === 3
+            ? "rd"
+            : "th";
+  const weekday = parsed.toLocaleDateString("en-GB", { weekday: "long" });
+  const month = parsed.toLocaleDateString("en-GB", { month: "long" });
+
+  return `${weekday} ${day}${ordinalSuffix} ${month} ${parsed.getFullYear()}`;
+};
+
 const addDaysToDateKey = (dateKey, days) => {
   const parsed = new Date(`${String(dateKey || "").trim()}T00:00:00`);
   if (Number.isNaN(parsed.getTime())) return "";
@@ -2434,7 +2459,16 @@ if (midOnly) {
   doc.text(`MID marks only • ${meta.term} ${meta.year}`, 47, afterTablesY);
 } else {
   doc.text(`This term ended on: ${formatReportDateValue(meta?.termEndedOn)}`, 15, afterTablesY);
-  doc.text(`Next term begins on: ${formatReportDateValue(meta?.nextTermBeginsOn)}`, 110, afterTablesY);
+  const nextTermDateLine = `Next term begins on: ${formatLongReportDateValue(meta?.nextTermBeginsOn)}`;
+  const nextTermDateX = 105;
+  const nextTermDateMaxWidth = pageWidth - nextTermDateX - 15;
+  let nextTermDateFontSize = 9;
+  while (doc.getTextWidth(nextTermDateLine) > nextTermDateMaxWidth && nextTermDateFontSize > 7) {
+    nextTermDateFontSize -= 0.25;
+    doc.setFontSize(nextTermDateFontSize);
+  }
+  doc.text(nextTermDateLine, nextTermDateX, afterTablesY);
+  doc.setFontSize(9);
 
   autoTable(doc, {
     startY: afterTablesY + 4.5,

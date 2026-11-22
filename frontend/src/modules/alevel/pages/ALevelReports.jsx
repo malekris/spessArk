@@ -2400,7 +2400,18 @@ w = doc.getTextWidth("Class Teacher's Comment:");
 doc.setFont("helvetica", "normal");
 doc.text(comments.classTeacher, 15 + w + gap, commentY);
 
-doc.text("Signature: ____________________________", 15, commentY + 6);
+const isS5PromotionReport =
+  String(learner.class || "").replace(/\s+/g, "").toUpperCase() === "S5" &&
+  String(meta?.term || "").replace(/\s+/g, "").toUpperCase() === "TERM3";
+
+if (isS5PromotionReport) {
+  doc.setFont("helvetica", "bold");
+  doc.text("Promoted to S6.", 15, commentY + 6);
+  doc.setFont("helvetica", "normal");
+  doc.text("Signature: ____________________________", 110, commentY + 6);
+} else {
+  doc.text("Signature: ____________________________", 15, commentY + 6);
+}
 
 // Head Teacher Comment
 doc.setFont("helvetica", "bold");

@@ -21,6 +21,7 @@ import {
 import {
   ACCOUNTS_CLASSES,
   ACCOUNTS_TERMS,
+  buildFeesUpdateTracker,
   buildPaymentTransaction,
   getLearnerLevelForClass,
   isValidAccountsEmail,
@@ -1170,6 +1171,71 @@ router.get("/insights/bursar-activity", async (_req, res) => {
   } catch (error) {
     console.error("Accounts bursar activity error:", error);
     return res.status(500).json({ message: "Failed to load bursar activity" });
+  }
+});
+
+router.get("/insights/fees-update-tracker", requireAccountsOwner, async (req, res) => {
+  const period = parseInsightPeriod(req.query);
+  if (!period) return res.status(400).json({ message: "Choose a valid term and year" });
+
+  try {
+    await ensureAccountsSchemaReady();
+    res.set("Cache-Control", "private, no-store");
+    const [rows] = await pool.query(
+      `SELECT
+         active_register.learner_level,
+         active_register.learner_id,
+         active_register.learner_name,
+         active_register.class_level,
+         active_register.stream,
+         CASE WHEN payments.amount_paid IS NULL THEN 0 ELSE 1 END AS is_updated,
+         payments.amount_paid,
+         COALESCE(staff.name, NULLIF(payments.updated_by, '')) AS updated_by,
+         payments.updated_at
+       FROM (
+         SELECT
+           'O_LEVEL' AS learner_level,
+           id AS learner_id,
+           name AS learner_name,
+           UPPER(TRIM(class_level)) AS class_level,
+           TRIM(stream) AS stream
+         FROM students
+         WHERE COALESCE(NULLIF(status, ''), 'active') = 'active'
+           AND UPPER(TRIM(class_level)) IN ('S1','S2','S3','S4')
+
+         UNION ALL
+
+         SELECT
+           'A_LEVEL' AS learner_level,
+           id AS learner_id,
+           TRIM(CONCAT_WS(' ', first_name, NULLIF(last_name, ''))) AS learner_name,
+           UPPER(SUBSTRING_INDEX(TRIM(stream), ' ', 1)) AS class_level,
+           TRIM(SUBSTRING(TRIM(stream), LENGTH(SUBSTRING_INDEX(TRIM(stream), ' ', 1)) + 1)) AS stream
+         FROM alevel_learners
+         WHERE COALESCE(NULLIF(status, ''), 'active') = 'active'
+           AND UPPER(SUBSTRING_INDEX(TRIM(stream), ' ', 1)) IN ('S5','S6')
+       ) active_register
+       LEFT JOIN accounts_learner_payments payments
+         ON payments.learner_level = active_register.learner_level
+        AND payments.learner_id = active_register.learner_id
+        AND payments.academic_year = ?
+        AND payments.term = ?
+       LEFT JOIN accounts_users staff
+         ON LOWER(staff.email) = LOWER(payments.updated_by)
+       WHERE active_register.stream <> ''
+       ORDER BY FIELD(active_register.class_level, 'S1','S2','S3','S4','S5','S6'),
+         active_register.stream, active_register.learner_name, active_register.learner_id`,
+      [period.year, period.term]
+    );
+
+    return res.json({
+      term: period.term,
+      year: period.year,
+      ...buildFeesUpdateTracker(rows || []),
+    });
+  } catch (error) {
+    console.error("Accounts fees update tracker error:", error);
+    return res.status(500).json({ message: "Failed to load the fees update tracker" });
   }
 });
 

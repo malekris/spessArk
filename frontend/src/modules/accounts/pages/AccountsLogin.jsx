@@ -33,7 +33,7 @@ export default function AccountsLogin() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState(() => (
     new URLSearchParams(window.location.search).get("reason") === "idle-timeout"
-      ? { type: "success", text: "You were signed out after 15 minutes of inactivity." }
+      ? { type: "success", text: "You were signed out after being inactive." }
       : { type: "", text: "" }
   ));
 

@@ -58,6 +58,106 @@ export const buildPaymentTransaction = (previousAmount, nextAmount) => {
   };
 };
 
+const getUpdateStatus = (updated, total) => {
+  if (!updated) return "untouched";
+  return updated >= total ? "complete" : "in_progress";
+};
+
+export const buildFeesUpdateTracker = (rows = []) => {
+  const classesByName = new Map();
+
+  for (const row of rows) {
+    const classLevel = normalizeAccountsClass(row?.class_level);
+    const streamName = String(row?.stream || "").trim();
+    if (!classLevel || !streamName) continue;
+
+    if (!classesByName.has(classLevel)) {
+      classesByName.set(classLevel, {
+        class_level: classLevel,
+        total_learners: 0,
+        updated_learners: 0,
+        streams: new Map(),
+      });
+    }
+    const classGroup = classesByName.get(classLevel);
+
+    if (!classGroup.streams.has(streamName)) {
+      classGroup.streams.set(streamName, {
+        stream: streamName,
+        total_learners: 0,
+        updated_learners: 0,
+        learners: [],
+      });
+    }
+    const streamGroup = classGroup.streams.get(streamName);
+    const updated = Boolean(Number(row?.is_updated));
+    const learner = {
+      learner_level: row?.learner_level,
+      learner_id: Number(row?.learner_id),
+      learner_name: String(row?.learner_name || "").trim(),
+      updated,
+      amount_paid: updated ? Number(row?.amount_paid || 0) : null,
+      updated_by: updated ? row?.updated_by || null : null,
+      updated_at: updated ? row?.updated_at || null : null,
+    };
+
+    streamGroup.learners.push(learner);
+    streamGroup.total_learners += 1;
+    classGroup.total_learners += 1;
+    if (updated) {
+      streamGroup.updated_learners += 1;
+      classGroup.updated_learners += 1;
+    }
+  }
+
+  const classes = ACCOUNTS_CLASSES
+    .map((classLevel) => classesByName.get(classLevel))
+    .filter(Boolean)
+    .map((classGroup) => {
+      const streams = Array.from(classGroup.streams.values()).map((stream) => ({
+        ...stream,
+        untouched_learners: stream.total_learners - stream.updated_learners,
+        completion_percent: stream.total_learners
+          ? Math.round((stream.updated_learners / stream.total_learners) * 100)
+          : 0,
+        status: getUpdateStatus(stream.updated_learners, stream.total_learners),
+      }));
+      return {
+        class_level: classGroup.class_level,
+        total_learners: classGroup.total_learners,
+        updated_learners: classGroup.updated_learners,
+        untouched_learners: classGroup.total_learners - classGroup.updated_learners,
+        completion_percent: classGroup.total_learners
+          ? Math.round((classGroup.updated_learners / classGroup.total_learners) * 100)
+          : 0,
+        status: getUpdateStatus(classGroup.updated_learners, classGroup.total_learners),
+        streams,
+      };
+    });
+
+  const summary = classes.reduce((result, classGroup) => {
+    result.total_learners += classGroup.total_learners;
+    result.updated_learners += classGroup.updated_learners;
+    result.untouched_learners += classGroup.untouched_learners;
+    result[`${classGroup.status}_classes`] += 1;
+    return result;
+  }, {
+    total_classes: classes.length,
+    complete_classes: 0,
+    in_progress_classes: 0,
+    untouched_classes: 0,
+    total_learners: 0,
+    updated_learners: 0,
+    untouched_learners: 0,
+  });
+
+  summary.completion_percent = summary.total_learners
+    ? Math.round((summary.updated_learners / summary.total_learners) * 100)
+    : 0;
+
+  return { classes, summary };
+};
+
 export const safeCredentialEquals = (provided, expected) => {
   const providedBuffer = Buffer.from(String(provided || ""));
   const expectedBuffer = Buffer.from(String(expected || ""));

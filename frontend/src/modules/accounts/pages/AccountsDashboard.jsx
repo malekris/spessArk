@@ -12,10 +12,12 @@ import {
   writeAccountsIdleExpiry,
 } from "../api";
 import useIdleSessionPrompt from "../../../hooks/useIdleSessionPrompt";
+import { isMobileSessionDevice } from "../../../utils/deviceSession";
 import AccountsAuditPanel from "../components/AccountsAuditPanel";
 import AccountsBursarActivitySummary from "../components/AccountsBursarActivitySummary";
 import AccountsCorrectionAlerts from "../components/AccountsCorrectionAlerts";
 import AccountsFundsSummary from "../components/AccountsFundsSummary";
+import AccountsFeesUpdateTracker from "../components/AccountsFeesUpdateTracker";
 import AccountsIdleWarning from "../components/AccountsIdleWarning";
 import AccountsLearnerHistoryModal from "../components/AccountsLearnerHistoryModal";
 import AccountsOutstandingBalances from "../components/AccountsOutstandingBalances";
@@ -39,7 +41,8 @@ const moneyFormatter = new Intl.NumberFormat("en-UG", {
 
 const formatMoney = (value) => moneyFormatter.format(Number(value || 0));
 const ACCOUNTS_THEME_KEY = "spessAccountsTheme";
-const ACCOUNTS_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
+const ACCOUNTS_DESKTOP_IDLE_TIMEOUT_MS = 5 * 60 * 1000;
+const ACCOUNTS_MOBILE_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 const ACCOUNTS_IDLE_WARNING_MS = 60 * 1000;
 const ignoreAccountsSessionSignal = () => {};
 const getInitialAccountsTheme = () => {
@@ -63,13 +66,16 @@ const formatSavedAt = (value) => {
 
 export default function AccountsDashboard() {
   const navigate = useNavigate();
+  const accountsIdleTimeoutMs = isMobileSessionDevice()
+    ? ACCOUNTS_MOBILE_IDLE_TIMEOUT_MS
+    : ACCOUNTS_DESKTOP_IDLE_TIMEOUT_MS;
   const handleIdleTimeout = useCallback(() => {
     clearAccountsAuth();
     navigate("/ark/accounts-login?reason=idle-timeout", { replace: true });
   }, [navigate]);
   const { promptVisible, secondsRemaining, renewSession, logoutNow } = useIdleSessionPrompt({
     onTimeout: handleIdleTimeout,
-    idleMs: ACCOUNTS_IDLE_TIMEOUT_MS,
+    idleMs: accountsIdleTimeoutMs,
     warningMs: ACCOUNTS_IDLE_WARNING_MS,
     idleExpiryKey: ACCOUNTS_IDLE_EXPIRY_KEY,
     logoutSignalKey: ACCOUNTS_LOGOUT_SIGNAL_KEY,
@@ -530,6 +536,15 @@ export default function AccountsDashboard() {
               <p>Live collections, balances, corrections and finance-team activity in one place.</p>
             </div>
             <div className="accounts-insights-grid">
+              {isOwner ? (
+                <AccountsFeesUpdateTracker
+                  filters={filters}
+                  terms={meta.terms}
+                  refreshKey={summaryRefreshKey}
+                  onPeriodChange={updateFilter}
+                  onSelectLearner={setSelectedLearner}
+                />
+              ) : null}
               <AccountsTodayCollections refreshKey={summaryRefreshKey} />
               <AccountsBursarActivitySummary refreshKey={summaryRefreshKey} />
               <AccountsOutstandingBalances

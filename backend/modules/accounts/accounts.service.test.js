@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  buildFeesUpdateTracker,
   buildPaymentTransaction,
   getLearnerLevelForClass,
   isValidAccountsEmail,
@@ -58,6 +59,28 @@ test("describes payment changes for the transaction ledger", () => {
     amountChange: -50_000,
   });
   assert.equal(buildPaymentTransaction(50_000, 50_000), null);
+});
+
+test("groups fee updates by class and keeps Not Paid learners updated", () => {
+  const tracker = buildFeesUpdateTracker([
+    { learner_level: "O_LEVEL", learner_id: 1, learner_name: "A", class_level: "S1", stream: "North", is_updated: 1, amount_paid: 0 },
+    { learner_level: "O_LEVEL", learner_id: 2, learner_name: "B", class_level: "S1", stream: "North", is_updated: 0, amount_paid: null },
+    { learner_level: "A_LEVEL", learner_id: 3, learner_name: "C", class_level: "S5", stream: "Arts", is_updated: 0, amount_paid: null },
+  ]);
+
+  assert.deepEqual(tracker.summary, {
+    total_classes: 2,
+    complete_classes: 0,
+    in_progress_classes: 1,
+    untouched_classes: 1,
+    total_learners: 3,
+    updated_learners: 1,
+    untouched_learners: 2,
+    completion_percent: 33,
+  });
+  assert.equal(tracker.classes[0].status, "in_progress");
+  assert.equal(tracker.classes[0].streams[0].learners[0].updated, true);
+  assert.equal(tracker.classes[1].status, "untouched");
 });
 
 test("resolves learner level and compares credentials safely", () => {

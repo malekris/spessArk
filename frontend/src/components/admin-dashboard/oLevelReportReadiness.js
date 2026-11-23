@@ -1,4 +1,12 @@
 import { normalizeDashboardTerm } from "./dashboardCardUtils.js";
+import { getOLevelMarkEntryColumns } from "../../utils/oLevelYearAssessmentPolicy.js";
+
+const COMPONENT_LABELS = {
+  AOI1: "AOI 1",
+  AOI2: "AOI 2",
+  AOI3: "AOI 3",
+  EXAM80: "/80",
+};
 
 export const O_LEVEL_REPORT_STREAMS = [
   { classLevel: "S1", stream: "North" },
@@ -31,7 +39,9 @@ const normalizeAoi = (value) => {
     .trim()
     .toUpperCase()
     .replace(/[\s_-]+/g, "");
-  return ["AOI1", "AOI2", "AOI3"].includes(normalized) ? normalized : "";
+  if (["AOI1", "AOI2", "AOI3"].includes(normalized)) return normalized;
+  if (["/80", "80", "EXAM80"].includes(normalized)) return "EXAM80";
+  return "";
 };
 
 const streamKey = (classLevel, stream) =>
@@ -65,6 +75,14 @@ export function buildOLevelReportReadiness({
 } = {}) {
   const selectedTerm = normalizeDashboardTerm(term);
   const selectedYear = Number(academicYear);
+  const expectedComponentKeys = getOLevelMarkEntryColumns(selectedTerm, selectedYear);
+  const printRequiredComponentKeys =
+    selectedTerm === "Term 3" ? expectedComponentKeys : ["AOI1", "AOI2"];
+  const components = expectedComponentKeys.map((key) => ({
+    key,
+    label: COMPONENT_LABELS[key] || key,
+    requiredForPrint: printRequiredComponentKeys.includes(key),
+  }));
   const groups = new Map(
     O_LEVEL_REPORT_STREAMS.map(({ classLevel, stream }) => [
       streamKey(classLevel, stream),
@@ -123,14 +141,21 @@ export function buildOLevelReportReadiness({
         .filter(([subjectKey]) => !group.submittedComponents.get(subjectKey)?.has(component))
         .map(([, subject]) => subject);
 
-    const missingAoi1 = missingFor("AOI1");
-    const missingAoi2 = missingFor("AOI2");
-    const missingAoi3 = missingFor("AOI3");
-    const aoi1Submitted = expectedTotal - missingAoi1.length;
-    const aoi2Submitted = expectedTotal - missingAoi2.length;
-    const aoi3Submitted = expectedTotal - missingAoi3.length;
-    const printReady = expectedTotal > 0 && missingAoi1.length === 0 && missingAoi2.length === 0;
-    const fullyComplete = printReady && missingAoi3.length === 0;
+    const missingByComponent = Object.fromEntries(
+      expectedComponentKeys.map((component) => [component, missingFor(component)])
+    );
+    const submittedByComponent = Object.fromEntries(
+      expectedComponentKeys.map((component) => [
+        component,
+        expectedTotal - missingByComponent[component].length,
+      ])
+    );
+    const printReady =
+      expectedTotal > 0 &&
+      printRequiredComponentKeys.every((component) => missingByComponent[component].length === 0);
+    const fullyComplete =
+      expectedTotal > 0 &&
+      expectedComponentKeys.every((component) => missingByComponent[component].length === 0);
     const status =
       expectedTotal === 0
         ? "setup"
@@ -145,12 +170,8 @@ export function buildOLevelReportReadiness({
       stream: group.stream,
       key: streamKey(group.classLevel, group.stream),
       expectedTotal,
-      aoi1Submitted,
-      aoi2Submitted,
-      aoi3Submitted,
-      missingAoi1,
-      missingAoi2,
-      missingAoi3,
+      submittedByComponent,
+      missingByComponent,
       printReady,
       fullyComplete,
       status,
@@ -160,17 +181,32 @@ export function buildOLevelReportReadiness({
   const trackedStreams = streams.filter((row) => row.expectedTotal > 0);
   const expectedSubjectSlots = trackedStreams.reduce((sum, row) => sum + row.expectedTotal, 0);
   const requiredSubmitted = trackedStreams.reduce(
-    (sum, row) => sum + row.aoi1Submitted + row.aoi2Submitted,
+    (sum, row) =>
+      sum +
+      printRequiredComponentKeys.reduce(
+        (componentSum, component) => componentSum + row.submittedByComponent[component],
+        0
+      ),
     0
   );
   const allSubmitted = trackedStreams.reduce(
-    (sum, row) => sum + row.aoi1Submitted + row.aoi2Submitted + row.aoi3Submitted,
+    (sum, row) =>
+      sum +
+      expectedComponentKeys.reduce(
+        (componentSum, component) => componentSum + row.submittedByComponent[component],
+        0
+      ),
     0
   );
 
   return {
     term: selectedTerm,
     academicYear: selectedYear,
+    components,
+    requiredComponentLabels: components
+      .filter((component) => component.requiredForPrint)
+      .map((component) => component.label),
+    completeComponentLabels: components.map((component) => component.label),
     streams,
     totalStreams: streams.length,
     trackedStreams: trackedStreams.length,
@@ -178,7 +214,10 @@ export function buildOLevelReportReadiness({
     fullyCompleteStreams: trackedStreams.filter((row) => row.fullyComplete).length,
     blockedStreams: trackedStreams.filter((row) => row.status === "blocked").length,
     setupStreams: streams.filter((row) => row.status === "setup").length,
-    requiredCoverage: toPercent(requiredSubmitted, expectedSubjectSlots * 2),
-    completeCoverage: toPercent(allSubmitted, expectedSubjectSlots * 3),
+    requiredCoverage: toPercent(
+      requiredSubmitted,
+      expectedSubjectSlots * printRequiredComponentKeys.length
+    ),
+    completeCoverage: toPercent(allSubmitted, expectedSubjectSlots * expectedComponentKeys.length),
   };
 }

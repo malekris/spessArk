@@ -16,6 +16,7 @@ import {
 } from "../services/reportSubjectRegistration.js";
 import {
   calculateOLevelYearCoursework,
+  getOLevelMarkEntryComponents,
   getOLevelYearAssessmentPolicy,
   isOLevelYearSubjectComplete,
 } from "../services/oLevelYearAssessmentPolicy.js";
@@ -89,11 +90,17 @@ const NORMALIZED_AOI_SQL = (columnName) => `
   END
 `;
 
-const O_LEVEL_COMPONENTS_BY_TERM = {
-  "Term 1": ["AOI 1", "AOI 2", "AOI 3"],
-  "Term 2": ["AOI 1", "AOI 2", "AOI 3"],
-  "Term 3": ["/80"],
+const O_LEVEL_COMPONENT_LABELS = {
+  AOI1: "AOI 1",
+  AOI2: "AOI 2",
+  AOI3: "AOI 3",
+  EXAM80: "/80",
 };
+
+const getExpectedOLevelComponents = (term, academicYear) =>
+  getOLevelMarkEntryComponents(normalizeTermLabel(term), academicYear).map(
+    (component) => O_LEVEL_COMPONENT_LABELS[component] || component
+  );
 
 const normalizeSubjectKey = (value) => String(value || "").trim().toLowerCase();
 
@@ -1225,7 +1232,7 @@ router.get("/readiness-incomplete-details", authAdmin, async (req, res) => {
       });
     });
 
-    const expectedComponents = O_LEVEL_COMPONENTS_BY_TERM[term] || ["AOI 1", "AOI 2", "AOI 3"];
+    const expectedComponents = getExpectedOLevelComponents(term, year);
 
     const rows = learners.map((learner) => {
       const registeredSubjects = parseStoredSubjects(learner.subjects);

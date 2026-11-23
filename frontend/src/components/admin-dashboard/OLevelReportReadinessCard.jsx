@@ -58,7 +58,7 @@ export default function OLevelReportReadinessCard({
           <span className="o-readiness-eyebrow">O-Level printing checkpoint</span>
           <h2>Report Readiness</h2>
           <p>
-            {readiness.term} {readiness.academicYear}: AOI 1 and AOI 2 are required before a stream is print ready. AOI 3 marks full end-of-term completion.
+            {readiness.term} {readiness.academicYear}: {readiness.requiredComponentLabels.join(", ")} {readiness.requiredComponentLabels.length === 1 ? "is" : "are"} required before a stream is print ready.
           </p>
         </div>
         <span className={`o-readiness-overall ${allTrackedStreamsReady ? "is-ready" : "is-attention"}`}>
@@ -70,7 +70,7 @@ export default function OLevelReportReadinessCard({
         <div>
           <span>Required coverage</span>
           <strong>{readiness.requiredCoverage}%</strong>
-          <small>AOI 1 + AOI 2</small>
+          <small>{readiness.requiredComponentLabels.join(" + ")}</small>
         </div>
         <div>
           <span>Print-ready streams</span>
@@ -80,7 +80,7 @@ export default function OLevelReportReadinessCard({
         <div>
           <span>Fully complete</span>
           <strong>{readiness.fullyCompleteStreams}</strong>
-          <small>AOI 1 + AOI 2 + AOI 3</small>
+          <small>{readiness.completeComponentLabels.join(" + ")}</small>
         </div>
         <div>
           <span>Action required</span>
@@ -98,36 +98,37 @@ export default function OLevelReportReadinessCard({
       <div className="o-readiness-stream-list" role="list" aria-label="Readiness by O-Level stream">
         {readiness.streams.map((row) => (
           <details className={`o-readiness-stream is-${row.status}`} key={row.key} role="listitem">
-            <summary>
+            <summary style={{ "--o-readiness-component-count": readiness.components.length }}>
               <div className="o-readiness-stream-name">
                 <strong>{row.classLevel} {row.stream}</strong>
                 <small>{row.expectedTotal} assigned subjects</small>
               </div>
               <span className={`o-readiness-status is-${row.status}`}>{STATUS_LABELS[row.status]}</span>
-              <div className="o-readiness-aoi">
-                <span>AOI 1</span>
-                <strong>{row.aoi1Submitted}/{row.expectedTotal}</strong>
-              </div>
-              <div className="o-readiness-aoi">
-                <span>AOI 2</span>
-                <strong>{row.aoi2Submitted}/{row.expectedTotal}</strong>
-              </div>
-              <div className="o-readiness-aoi is-final">
-                <span>AOI 3</span>
-                <strong>{row.aoi3Submitted}/{row.expectedTotal}</strong>
-              </div>
+              {readiness.components.map((component, index) => (
+                <div
+                  className={`o-readiness-aoi ${index === readiness.components.length - 1 ? "is-final" : ""}`}
+                  key={component.key}
+                >
+                  <span>{component.label}</span>
+                  <strong>{row.submittedByComponent[component.key]}/{row.expectedTotal}</strong>
+                </div>
+              ))}
             </summary>
 
             <div className="o-readiness-gaps">
               {row.status === "setup" ? (
                 <p>No active subject assignments were found for this stream. Assign its teachers before relying on report readiness.</p>
               ) : row.fullyComplete ? (
-                <p>Every assigned subject has AOI 1, AOI 2 and AOI 3. This stream is fully complete.</p>
+                <p>Every assigned subject has {readiness.completeComponentLabels.join(", ")}. This stream is fully complete.</p>
               ) : (
                 <>
-                  <SubjectList label="Missing AOI 1 (blocks printing)" subjects={row.missingAoi1} />
-                  <SubjectList label="Missing AOI 2 (blocks printing)" subjects={row.missingAoi2} />
-                  <SubjectList label="AOI 3 outstanding" subjects={row.missingAoi3} />
+                  {readiness.components.map((component) => (
+                    <SubjectList
+                      key={component.key}
+                      label={`Missing ${component.label}${component.requiredForPrint ? " (blocks printing)" : ""}`}
+                      subjects={row.missingByComponent[component.key]}
+                    />
+                  ))}
                 </>
               )}
             </div>

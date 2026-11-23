@@ -86,7 +86,10 @@ export default function AccountsFundsSummary({ term, year, refreshKey = 0 }) {
           <div className="accounts-funds-stat is-entries">
             <span>Recorded learners</span>
             <strong>{visibleLoading ? "-" : Number(visibleSummary?.recorded_entries || 0).toLocaleString("en-UG")}</strong>
-            {!visibleLoading && Number(visibleSummary?.not_paid_entries || 0) > 0 ? <small>{visibleSummary.not_paid_entries} marked Not Paid</small> : null}
+          </div>
+          <div className="accounts-funds-stat is-not-paid">
+            <span>Marked Not Paid</span>
+            <strong>{visibleLoading ? "-" : Number(visibleSummary?.not_paid_entries || 0).toLocaleString("en-UG")}</strong>
           </div>
         </div>
       )}

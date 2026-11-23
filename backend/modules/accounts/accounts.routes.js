@@ -941,7 +941,7 @@ router.get("/funds-summary", async (req, res) => {
          COALESCE(SUM(COALESCE(amount_paid, 0)), 0) AS totalCollected,
          COALESCE(SUM(CASE WHEN residence_type = 'Day' THEN COALESCE(amount_paid, 0) ELSE 0 END), 0) AS dayCollected,
          COALESCE(SUM(CASE WHEN residence_type = 'Boarding' THEN COALESCE(amount_paid, 0) ELSE 0 END), 0) AS hostelCollected,
-         SUM(CASE WHEN amount_paid IS NOT NULL THEN 1 ELSE 0 END) AS recordedEntries,
+         SUM(CASE WHEN amount_paid > 0 THEN 1 ELSE 0 END) AS recordedEntries,
          SUM(CASE WHEN amount_paid = 0 THEN 1 ELSE 0 END) AS notPaidEntries,
          MAX(updated_at) AS updatedAt
        FROM accounts_learner_payments

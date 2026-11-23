@@ -67,7 +67,7 @@ export default function AccountsFeesUpdateTracker({ filters, terms = [], refresh
   const summary = data.summary || {};
 
   return (
-    <section className="accounts-insight-card accounts-update-tracker is-wide">
+    <section className="accounts-tracker-panel accounts-update-tracker" id="accounts-tracker-panel">
       <header>
         <div><span>Owner Oversight</span><h3>Fees Update Tracker</h3></div>
         <strong>{summary.completion_percent || 0}%</strong>

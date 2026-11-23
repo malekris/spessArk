@@ -12,6 +12,12 @@ const PORTAL_VIEWS = [
     description: "Review collections, balances and staff activity.",
   },
   {
+    id: "tracker",
+    eyebrow: "Owner oversight",
+    title: "Fees Tracker",
+    description: "Track updated and untouched learners by class.",
+  },
+  {
     id: "audit",
     eyebrow: "Account history",
     title: "Audit",
@@ -21,7 +27,7 @@ const PORTAL_VIEWS = [
 
 export default function AccountsPortalNav({ activeView, canAudit, onChange }) {
   const visibleViews = PORTAL_VIEWS.filter((view) => {
-    if (view.id === "audit") return canAudit;
+    if (["tracker", "audit"].includes(view.id)) return canAudit;
     return true;
   });
 

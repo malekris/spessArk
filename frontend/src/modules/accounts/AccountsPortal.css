@@ -121,6 +121,7 @@
 .accounts-portal-card::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--portal-accent); }
 .accounts-portal-card.is-quick-entry { --portal-accent: #36b98a; }
 .accounts-portal-card.is-insights { --portal-accent: #d2a82d; }
+.accounts-portal-card.is-tracker { --portal-accent: #4b94c5; }
 .accounts-portal-card.is-settings { --portal-accent: #58a6d8; }
 .accounts-portal-card.is-audit { --portal-accent: #d36d78; }
 .accounts-portal-card:hover { border-color: color-mix(in srgb, var(--portal-accent) 50%, #2b4037); transform: translateY(-2px); box-shadow: 0 17px 34px rgba(17,26,22,.22); }
@@ -410,7 +411,11 @@
 .accounts-search-transaction-list article > strong.is-negative, .accounts-correction-list article > strong { color: var(--accounts-danger); }
 .accounts-search-transaction-list article > small, .accounts-correction-list article > small { grid-column: 1 / -1; margin-top: .2rem; color: #748078; font-size: .61rem; }
 
-.accounts-update-tracker { --insight-accent: #4b94c5; }
+.accounts-tracker-panel { min-width: 0; padding: 1rem; border: 1px solid var(--accounts-line); border-top: 4px solid #4b94c5; border-radius: 8px; background: #f4f7f5; box-shadow: var(--accounts-shadow); }
+.accounts-tracker-panel > header { display: flex; align-items: flex-end; justify-content: space-between; gap: .75rem; padding-bottom: .8rem; border-bottom: 1px solid var(--accounts-line); }
+.accounts-tracker-panel > header span { color: #3379aa; font-size: .66rem; font-weight: 950; text-transform: uppercase; }
+.accounts-tracker-panel > header h3 { margin: .15rem 0 0; font-size: 1.2rem; }
+.accounts-tracker-panel > header > strong { flex: 0 0 auto; padding: .38rem .52rem; border-radius: 5px; background: #e8f2f8; color: #245f88; font-size: .72rem; }
 .accounts-tracker-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .55rem; margin-top: .8rem; }
 .accounts-tracker-summary > div { min-width: 0; padding: .72rem; border: 1px solid var(--accounts-line); border-radius: 6px; background: #f8faf9; }
 .accounts-tracker-summary > div.is-alert { border-color: #e0b1b1; background: #fff6f6; }
@@ -614,15 +619,18 @@
 .accounts-app.theme-dark .accounts-audit-panel,
 .accounts-app.theme-dark .accounts-settings-panel,
 .accounts-app.theme-dark .accounts-insights-panel,
+.accounts-app.theme-dark .accounts-tracker-panel,
 .accounts-app.theme-dark .accounts-insight-card { border-color: #30433a; background: #131f1a; color: #edf4f0; box-shadow: 0 13px 28px rgba(0,0,0,.19); }
 .accounts-app.theme-dark .accounts-funds-header,
 .accounts-app.theme-dark .accounts-recent-transactions-header,
+.accounts-app.theme-dark .accounts-tracker-panel > header,
 .accounts-app.theme-dark .accounts-insight-card > header { border-color: #30433a; }
 .accounts-app.theme-dark .accounts-funds-header h2,
 .accounts-app.theme-dark .accounts-recent-transactions-header h2,
 .accounts-app.theme-dark .accounts-portal-copy strong,
 .accounts-app.theme-dark .accounts-section-heading h2,
 .accounts-app.theme-dark .accounts-insights-heading h2,
+.accounts-app.theme-dark .accounts-tracker-panel h3,
 .accounts-app.theme-dark .accounts-insight-card h3 { color: #f4f8f6; }
 .accounts-app.theme-dark .accounts-funds-stat,
 .accounts-app.theme-dark .accounts-metrics div { border-color: #354a40; background: #192720; color: #edf4f0; box-shadow: none; }
@@ -774,6 +782,7 @@
   .accounts-settings-drawer > .accounts-settings-panel,
   .accounts-owner-settings-note { margin: 1.2rem; }
   .accounts-insights-panel { padding: 1.25rem; }
+  .accounts-tracker-panel { padding: 1.25rem; }
   .accounts-insights-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
   .accounts-insight-card.is-wide { grid-column: 1 / -1; }
   .accounts-tracker-summary { grid-template-columns: repeat(4, minmax(0, 1fr)); }

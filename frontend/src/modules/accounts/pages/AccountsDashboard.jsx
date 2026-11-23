@@ -344,6 +344,8 @@ export default function AccountsDashboard() {
               ? `${filters.term} - ${filters.year}`
               : activeView === "insights"
                 ? "Financial intelligence"
+              : activeView === "tracker"
+                ? `${filters.term} ${filters.year} tracker`
               : activeView === "audit"
                 ? "Activity log"
                 : "Choose section"}
@@ -528,6 +530,14 @@ export default function AccountsDashboard() {
               ) : <div className="accounts-empty-state">No active learners were found in this class and stream.</div>}
             </section>
           </div>
+        ) : activeView === "tracker" && isOwner ? (
+          <AccountsFeesUpdateTracker
+            filters={filters}
+            terms={meta.terms}
+            refreshKey={summaryRefreshKey}
+            onPeriodChange={updateFilter}
+            onSelectLearner={setSelectedLearner}
+          />
         ) : activeView === "insights" ? (
           <div className="accounts-insights-panel" id="accounts-insights-panel">
             <div className="accounts-insights-heading">
@@ -536,15 +546,6 @@ export default function AccountsDashboard() {
               <p>Live collections, balances, corrections and finance-team activity in one place.</p>
             </div>
             <div className="accounts-insights-grid">
-              {isOwner ? (
-                <AccountsFeesUpdateTracker
-                  filters={filters}
-                  terms={meta.terms}
-                  refreshKey={summaryRefreshKey}
-                  onPeriodChange={updateFilter}
-                  onSelectLearner={setSelectedLearner}
-                />
-              ) : null}
               <AccountsTodayCollections refreshKey={summaryRefreshKey} />
               <AccountsBursarActivitySummary refreshKey={summaryRefreshKey} />
               <AccountsOutstandingBalances

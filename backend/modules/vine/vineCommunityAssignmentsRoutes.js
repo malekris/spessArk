@@ -1,8 +1,10 @@
 import express from "express";
-import { Readable } from "node:stream";
+import { ZipArchive } from "archiver";
+import { PassThrough, Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import {
   buildAttachmentContentDisposition,
+  buildUniqueSubmissionArchiveEntries,
   isSubmissionFinalized,
   sanitizeSubmissionFilename,
 } from "./vineSubmissionFiles.js";
@@ -814,6 +816,126 @@ router.get("/communities/:id/assignments/:assignmentId/submissions/:submissionId
     console.error("Download legacy practical submission file error:", err);
     if (!res.headersSent) {
       return res.status(500).json({ message: "Failed to download submitted file" });
+    }
+    res.destroy(err);
+  }
+});
+
+router.get("/communities/:id/assignments/:assignmentId/submissions/:submissionId/files/archive", authenticate, async (req, res) => {
+  try {
+    await ensureCommunitySchema();
+    const userId = Number(req.user.id);
+    const communityId = Number(req.params.id);
+    const assignmentId = Number(req.params.assignmentId);
+    const submissionId = Number(req.params.submissionId);
+    if (!communityId || !assignmentId || !submissionId) {
+      return res.status(400).json({ message: "Invalid archive request" });
+    }
+
+    const role = String(await getCommunityRole(communityId, userId) || "").toLowerCase();
+    if (role !== "owner") {
+      return res.status(403).json({ message: "Only the community owner can download submission archives" });
+    }
+
+    const [[submission]] = await db.query(
+      `
+      SELECT
+        s.id,
+        s.attachment_url,
+        s.attachment_name,
+        s.attachment_mime,
+        u.username,
+        u.display_name,
+        a.assignment_type
+      FROM vine_community_submissions s
+      JOIN vine_users u ON u.id = s.user_id
+      JOIN vine_community_assignments a ON a.id = s.assignment_id AND a.community_id = s.community_id
+      WHERE s.id = ?
+        AND s.assignment_id = ?
+        AND s.community_id = ?
+      LIMIT 1
+      `,
+      [submissionId, assignmentId, communityId]
+    );
+    if (!submission) return res.status(404).json({ message: "Submission not found" });
+    if (String(submission.assignment_type || "").toLowerCase() !== "practical") {
+      return res.status(400).json({ message: "Only practical submissions contain downloadable file archives" });
+    }
+
+    const [storedFiles] = await db.query(
+      `
+      SELECT file_url, file_name, file_mime
+      FROM vine_community_submission_files
+      WHERE submission_id = ?
+        AND assignment_id = ?
+        AND community_id = ?
+      ORDER BY created_at ASC, id ASC
+      `,
+      [submissionId, assignmentId, communityId]
+    );
+    const files = storedFiles.length > 0
+      ? storedFiles
+      : submission.attachment_url
+        ? [{
+            file_url: submission.attachment_url,
+            file_name: submission.attachment_name,
+            file_mime: submission.attachment_mime,
+          }]
+        : [];
+    if (files.length === 0) {
+      return res.status(404).json({ message: "This learner has no submitted files to archive" });
+    }
+
+    const learnerName = sanitizeSubmissionFilename(
+      submission.display_name || submission.username,
+      `learner-${submissionId}`
+    ).replace(/\.zip$/i, "");
+    const archiveFilename = `${learnerName}.zip`;
+    const archiveEntries = buildUniqueSubmissionArchiveEntries(files);
+    const archive = new ZipArchive({ zlib: { level: 6 } });
+    const skippedFiles = [];
+
+    res.status(200);
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", buildAttachmentContentDisposition(archiveFilename));
+    res.setHeader("Cache-Control", "private, no-store");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    const archiveOutput = pipeline(archive, res);
+
+    for (const file of archiveEntries) {
+      const sourceUrl = String(file.file_url || "").trim();
+      if (!sourceUrl || !isStoredSubmissionUrl(sourceUrl)) {
+        skippedFiles.push(`${file.archive_name}: stored location is unavailable`);
+        continue;
+      }
+
+      try {
+        const upstream = await fetch(sourceUrl);
+        if (!upstream.ok || !upstream.body) {
+          skippedFiles.push(`${file.archive_name}: download returned ${upstream.status}`);
+          continue;
+        }
+        const entryStream = new PassThrough();
+        archive.append(entryStream, { name: file.archive_name });
+        await pipeline(Readable.fromWeb(upstream.body), entryStream);
+      } catch {
+        skippedFiles.push(`${file.archive_name}: download failed`);
+      }
+    }
+
+    if (skippedFiles.length > 0) {
+      archive.append(
+        `Some submitted files could not be included:\n\n${skippedFiles.join("\n")}\n`,
+        { name: "DOWNLOAD_ERRORS.txt" }
+      );
+    }
+
+    await archive.finalize();
+    await archiveOutput;
+  } catch (err) {
+    console.error("Download practical submission archive error:", err);
+    if (!res.headersSent) {
+      return res.status(500).json({ message: "Failed to create the submission archive" });
     }
     res.destroy(err);
   }

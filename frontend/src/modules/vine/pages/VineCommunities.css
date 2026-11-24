@@ -3996,6 +3996,49 @@
   cursor: not-allowed;
 }
 
+.assignment-submission-archive-row {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.assignment-submission-archive-btn {
+  min-height: 38px;
+  padding: 8px 13px;
+  border: 1px solid #166534;
+  border-radius: 8px;
+  background: #166534;
+  color: #fff;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 900;
+  cursor: pointer;
+  box-shadow: 0 9px 18px rgba(22, 101, 52, 0.18);
+}
+
+.assignment-submission-archive-btn:hover:not(:disabled) {
+  background: #14532d;
+}
+
+.assignment-submission-archive-btn:disabled {
+  cursor: wait;
+  opacity: 0.66;
+}
+
+.assignment-submission-archive-row small {
+  color: #64748b;
+  font-size: 0.75rem;
+  font-weight: 750;
+}
+
+@media (max-width: 560px) {
+  .assignment-submission-archive-btn {
+    width: 100%;
+  }
+}
+
 .assignment-grade-shell {
   margin-top: 12px;
   padding: 12px;

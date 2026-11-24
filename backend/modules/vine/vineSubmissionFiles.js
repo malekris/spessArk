@@ -27,3 +27,25 @@ export const buildAttachmentContentDisposition = (filename) => {
   return `attachment; filename="${asciiName}"; filename*=UTF-8''${encodedName}`;
 };
 
+export const buildUniqueSubmissionArchiveEntries = (files = []) => {
+  const usedNames = new Set();
+
+  return (Array.isArray(files) ? files : []).map((file, index) => {
+    const safeName = sanitizeSubmissionFilename(file?.file_name, `submitted-file-${index + 1}`);
+    const extensionIndex = safeName.lastIndexOf(".");
+    const hasExtension = extensionIndex > 0 && extensionIndex < safeName.length - 1;
+    const stem = hasExtension ? safeName.slice(0, extensionIndex) : safeName;
+    const extension = hasExtension ? safeName.slice(extensionIndex) : "";
+    let archiveName = safeName;
+    let duplicateNumber = 2;
+
+    while (usedNames.has(archiveName.toLowerCase())) {
+      archiveName = `${stem} (${duplicateNumber})${extension}`;
+      duplicateNumber += 1;
+    }
+
+    usedNames.add(archiveName.toLowerCase());
+    return { ...file, archive_name: archiveName };
+  });
+};
+

@@ -1908,6 +1908,55 @@ export default function VineCommunities() {
     }
   };
 
+  const downloadPracticalSubmissionArchive = async ({ assignmentId, submissionId, learnerName }) => {
+    if (!activeCommunity?.id || !assignmentId || !submissionId) return;
+    const downloadKey = `archive-${submissionId}`;
+    if (downloadingSubmissionFileKey === downloadKey) return;
+    setDownloadingSubmissionFileKey(downloadKey);
+
+    try {
+      const res = await fetch(
+        `${API}/api/vine/communities/${activeCommunity.id}/assignments/${assignmentId}/submissions/${submissionId}/files/archive`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        showCommunitySuccessModal(
+          "Archive unavailable",
+          data.message || "The learner's submitted files could not be packaged.",
+          { kicker: "ZIP not downloaded", tone: "warning", buttonLabel: "Close" }
+        );
+        return;
+      }
+
+      const safeLearnerName = String(learnerName || "learner-submission")
+        .replace(/[\\/:*?"<>|]/g, "-")
+        .split("")
+        .filter((character) => character.charCodeAt(0) >= 32 && character.charCodeAt(0) !== 127)
+        .join("")
+        .trim()
+        .replace(/\.zip$/i, "") || "learner-submission";
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = `${safeLearnerName}.zip`;
+      link.style.display = "none";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    } catch {
+      showCommunitySuccessModal(
+        "Download failed",
+        "The ZIP archive could not be downloaded. Please try again.",
+        { kicker: "Connection interrupted", tone: "warning", buttonLabel: "Close" }
+      );
+    } finally {
+      setDownloadingSubmissionFileKey("");
+    }
+  };
+
   const requestPracticalSubmissionFileDelete = ({
     assignmentId,
     fileId = null,
@@ -5734,6 +5783,25 @@ export default function VineCommunities() {
                                             </button>
                                           </div>
                                           <div className="assignment-body">{s.content || "No content"}</div>
+                                          {String(a.assignment_type || "").toLowerCase() === "practical" && submissionFilesCount > 0 && (
+                                            <div className="assignment-submission-archive-row">
+                                              <button
+                                                type="button"
+                                                className="assignment-submission-archive-btn"
+                                                onClick={() => downloadPracticalSubmissionArchive({
+                                                  assignmentId: a.id,
+                                                  submissionId: s.id,
+                                                  learnerName: s.display_name || s.username,
+                                                })}
+                                                disabled={downloadingSubmissionFileKey === `archive-${s.id}`}
+                                              >
+                                                {downloadingSubmissionFileKey === `archive-${s.id}`
+                                                  ? "Preparing ZIP..."
+                                                  : `Download all ${submissionFilesCount} files`}
+                                              </button>
+                                              <small>One ZIP named after {s.display_name || s.username}</small>
+                                            </div>
+                                          )}
                                           {Array.isArray(s.submission_files) && s.submission_files.length > 0 ? (
                                             <div className="assignment-attachment">
                                               {s.submission_files.map((f, i) => (

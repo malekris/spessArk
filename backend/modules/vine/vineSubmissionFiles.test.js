@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   buildAttachmentContentDisposition,
+  buildUniqueSubmissionArchiveEntries,
   isSubmissionFinalized,
   sanitizeSubmissionFilename,
 } from "./vineSubmissionFiles.js";
@@ -23,5 +24,23 @@ test("builds a download header with ASCII and UTF-8 filename support", () => {
   const header = buildAttachmentContentDisposition("Mugisha's Résumé.pdf");
   assert.match(header, /^attachment; filename="/);
   assert.match(header, /filename\*=UTF-8''Mugisha%27s%20R%C3%A9sum%C3%A9\.pdf$/);
+});
+
+test("archive entries preserve safe names and number duplicates", () => {
+  const entries = buildUniqueSubmissionArchiveEntries([
+    { file_name: "ICT Practical.xlsx" },
+    { file_name: "ICT Practical.xlsx" },
+    { file_name: "../ICT Practical.xlsx" },
+    { file_name: "Notes" },
+    { file_name: "Notes" },
+  ]);
+
+  assert.deepEqual(entries.map((entry) => entry.archive_name), [
+    "ICT Practical.xlsx",
+    "ICT Practical (2).xlsx",
+    "ICT Practical (3).xlsx",
+    "Notes",
+    "Notes (2)",
+  ]);
 });
 

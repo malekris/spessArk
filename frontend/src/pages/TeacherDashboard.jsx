@@ -7,6 +7,7 @@ import useIdleSessionPrompt from "../hooks/useIdleSessionPrompt";
 import { useNavigate } from "react-router-dom";
 import { plainFetch } from "../lib/api";
 import ArkMaintenancePage from "../components/ArkMaintenancePage";
+import TeacherConnectionState from "../components/teacher-dashboard/TeacherConnectionState";
 import TeacherLoginNotice from "../components/teacher-dashboard/TeacherLoginNotice";
 import { loadPdfTools } from "../utils/loadPdfTools";
 import {
@@ -82,6 +83,17 @@ const formatColumnLabel = (column) => {
   if (!column) return "—";
   return column === "EXAM80" ? "/80 (END)" : column;
 };
+
+const comparableMarkValue = (score, status) => {
+  if (status === "Missed" || score === "Missed") return "Missed";
+  if (score === undefined || score === null || score === "") return undefined;
+  const numericScore = Number(score);
+  return Number.isFinite(numericScore) ? numericScore : score;
+};
+
+const markValuesMatch = (left, right) =>
+  comparableMarkValue(left, left === "Missed" ? "Missed" : "Present") ===
+  comparableMarkValue(right, right === "Missed" ? "Missed" : "Present");
 
 const normalizeOperationalTerm = (value) => {
   const raw = String(value || "").trim().toLowerCase();
@@ -272,6 +284,12 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
     }
   });
   const [maintenance, setMaintenance] = useState(null);
+  const [connectionIssue, setConnectionIssue] = useState(() =>
+    typeof navigator !== "undefined" && navigator.onLine === false
+      ? { kind: "offline", detectedAt: Date.now() }
+      : null
+  );
+  const [connectionRetrying, setConnectionRetrying] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem("teacherToken");
@@ -350,13 +368,36 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
   }, [onLogout]);
 
   const fetchWithTeacherAuth = useCallback(async (input, init = {}) => {
-    const res = await fetch(input, init);
+    const requestStartedAt = Date.now();
+    let res;
+    try {
+      res = await fetch(input, init);
+    } catch (error) {
+      setConnectionIssue({
+        kind: typeof navigator !== "undefined" && navigator.onLine === false ? "offline" : "outage",
+        detectedAt: Date.now(),
+      });
+      throw error;
+    }
+
     if (res.status === 401) {
       notifyTeacherSessionExpired({
         source: "teacher-fetch",
         reason: "token-invalid",
       });
-      throw new Error("Teacher session expired. Please sign in again.");
+      const error = new Error("Teacher session expired. Please sign in again.");
+      error.status = 401;
+      throw error;
+    }
+
+    if ([502, 503, 504].includes(res.status)) {
+      setConnectionIssue({ kind: "outage", detectedAt: Date.now() });
+    } else if (res.ok) {
+      setConnectionIssue((current) =>
+        current?.kind === "outage" && current.detectedAt <= requestStartedAt
+          ? null
+          : current
+      );
     }
     return res;
   }, []);
@@ -371,6 +412,7 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
   const [focusedColumn, setFocusedColumn] = useState(null);
   const [assignmentStatuses, setAssignmentStatuses] = useState({});
   const [assignmentStatusesLoading, setAssignmentStatusesLoading] = useState(false);
+  const [portalRefreshKey, setPortalRefreshKey] = useState(0);
   const [recentActivity, setRecentActivity] = useState({
     assignment: null,
     save: null,
@@ -381,7 +423,7 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
     normalizeSchoolCalendar(DEFAULT_SCHOOL_CALENDAR)
   );
 
-  const [examType, setExamType] = useState("MID"); // For A-Level
+  const examType = "MID"; // Kept for the existing A-Level marks payload contract.
   // ----------------------------
   // Marks (AOI / A-Level) state
   // ----------------------------
@@ -402,6 +444,62 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
   const [pendingMissedConfirmation, setPendingMissedConfirmation] = useState(null);
   const [showMarksSavedModal, setShowMarksSavedModal] = useState(false);
   const [marksSavedSummary, setMarksSavedSummary] = useState(null);
+
+  const retryTeacherConnection = useCallback(async ({ showProgress = true } = {}) => {
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      setConnectionIssue({ kind: "offline", detectedAt: Date.now() });
+      return false;
+    }
+
+    if (showProgress) setConnectionRetrying(true);
+    try {
+      const response = await fetch(`${API_BASE}/api/system/maintenance`, {
+        cache: "no-store",
+        headers: { Accept: "application/json" },
+      });
+      if (!response.ok) throw new Error(`Connection check failed (${response.status})`);
+
+      const settings = await response.json().catch(() => null);
+      if (settings?.enabled) setMaintenance(settings);
+      setConnectionIssue(null);
+      setPortalRefreshKey((value) => value + 1);
+      return true;
+    } catch (error) {
+      console.warn("Teacher connection check failed:", error);
+      setConnectionIssue({
+        kind: typeof navigator !== "undefined" && navigator.onLine === false ? "offline" : "outage",
+        detectedAt: Date.now(),
+      });
+      return false;
+    } finally {
+      if (showProgress) setConnectionRetrying(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const handleOffline = () => {
+      setConnectionIssue({ kind: "offline", detectedAt: Date.now() });
+      setConnectionRetrying(false);
+    };
+    const handleOnline = () => {
+      retryTeacherConnection({ showProgress: false });
+    };
+
+    window.addEventListener("offline", handleOffline);
+    window.addEventListener("online", handleOnline);
+    return () => {
+      window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("online", handleOnline);
+    };
+  }, [retryTeacherConnection]);
+
+  useEffect(() => {
+    if (!connectionIssue || connectionIssue.kind === "offline") return undefined;
+    const timerId = window.setInterval(() => {
+      retryTeacherConnection({ showProgress: false });
+    }, 15_000);
+    return () => window.clearInterval(timerId);
+  }, [connectionIssue, retryTeacherConnection]);
 
   useEffect(() => {
     if (!teacher) return;
@@ -536,7 +634,10 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
               ),
               fetchWithTeacherAuth(
                 `${API_BASE}${marksPath}`,
-                { headers: { Authorization: `Bearer ${token}` } }
+                {
+                  cache: "no-store",
+                  headers: { Authorization: `Bearer ${token}` },
+                }
               ),
             ]);
 
@@ -638,13 +739,17 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
 
     // O-Level assignments
     fetchWithTeacherAuth(`${API_BASE}/api/teachers/assignments`, {
+      cache: "no-store",
       headers: { Authorization: `Bearer ${token}` },
     })
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error(`Assignments unavailable (${r.status})`);
+        return r.json();
+      })
       .then((d) =>
         setAssignments(groupOLevelOptionalTeacherAssignments(Array.isArray(d) ? d : []))
       )
-      .catch(() => setAssignments([]));
+      .catch((error) => console.warn("O-Level assignments refresh failed:", error));
 
     // A-Level assignments (robust multi-route fetch for mixed deployments)
     (async () => {
@@ -660,6 +765,7 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
         for (const ep of endpoints) {
           try {
             const res = await fetchWithTeacherAuth(`${API_BASE}${ep}`, {
+              cache: "no-store",
               headers: { Authorization: `Bearer ${token}` },
             });
             if (!res.ok) continue;
@@ -672,6 +778,7 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
               ? body.data
               : [];
             collected.push(...rows);
+            if (rows.length > 0) break;
           } catch {
             // try next endpoint
           }
@@ -722,11 +829,22 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
           ).values()
         );
         setALevelAssignments(groupSubIctTeacherAssignments(finalRows));
-      } catch {
-        setALevelAssignments([]);
+      } catch (error) {
+        console.warn("A-Level assignments refresh failed:", error);
       }
     })();
-  }, [fetchWithTeacherAuth, teacher?.id, teacher?.name, teacher?.email]);
+  }, [fetchWithTeacherAuth, portalRefreshKey, teacher?.id, teacher?.name, teacher?.email]);
+
+  useEffect(() => {
+    const refreshRestoredPortal = (event) => {
+      if (event.persisted) {
+        setPortalRefreshKey((value) => value + 1);
+      }
+    };
+
+    window.addEventListener("pageshow", refreshRestoredPortal);
+    return () => window.removeEventListener("pageshow", refreshRestoredPortal);
+  }, []);
 
   useEffect(() => {
     document.title = "Teacher Dashboard | SPESS ARK";
@@ -746,35 +864,9 @@ export default function TeacherDashboard({ teacher: initialTeacher, onLogout }) 
     loadAssignmentStatuses();
   }, [loadAssignmentStatuses]);
 
-  // Reload the live roster when an assignment changes and whenever a teacher
-  // returns to an already-open dashboard after an administrator edits learners.
-useEffect(() => {
-  if (!selectedAssignment) return undefined;
-
-  let refreshTimer;
-  const refreshSelectedAssignment = () => {
-    window.clearTimeout(refreshTimer);
-    refreshTimer = window.setTimeout(() => {
-      if (document.visibilityState === "visible") {
-        loadStudentsAndMarks(selectedAssignment);
-      }
-    }, 120);
-  };
-
-  refreshSelectedAssignment();
-  window.addEventListener("focus", refreshSelectedAssignment);
-  document.addEventListener("visibilitychange", refreshSelectedAssignment);
-
-  return () => {
-    window.clearTimeout(refreshTimer);
-    window.removeEventListener("focus", refreshSelectedAssignment);
-    document.removeEventListener("visibilitychange", refreshSelectedAssignment);
-  };
-}, [selectedAssignment, marksTerm, marksYear]);
-
-useEffect(() => {
-  setLearnerSearch("");
-}, [selectedAssignment?.id, selectedAssignment?.isAlevel]);
+  useEffect(() => {
+    setLearnerSearch("");
+  }, [selectedAssignment?.id, selectedAssignment?.isAlevel]);
 
   const closeSettingsModal = useCallback(() => {
     setShowChangePassword(false);
@@ -797,7 +889,7 @@ useEffect(() => {
   // ============================
   // API: load students & marks (handles O-Level AOIs and A-Level MID/EOT)
   // ============================
-  const loadStudentsAndMarks = async (assignment) => {
+  const loadStudentsAndMarks = useCallback(async (assignment) => {
     const isAlevel = assignment.isAlevel === true;
     const isCombinedSubIct = isAlevel && assignment.isCombinedSubIct === true;
     const isCombinedOLevelOptional =
@@ -850,7 +942,10 @@ useEffect(() => {
         const marksPath = isCombinedSubIct
           ? `/api/alevel/teachers/alevel-combined-sub-ict/marks?${params}`
           : `/api/alevel/teachers/alevel-marks?${params}`;
-        const resMarks = await fetchWithTeacherAuth(`${API_BASE}${marksPath}`, { headers: { Authorization: `Bearer ${token}` } });
+        const resMarks = await fetchWithTeacherAuth(`${API_BASE}${marksPath}`, {
+          cache: "no-store",
+          headers: { Authorization: `Bearer ${token}` },
+        });
         if (resMarks.ok) marks = await resMarks.json();
         else console.warn("A-Level marks warning:", await resMarks.text());
       } else {
@@ -863,7 +958,10 @@ useEffect(() => {
         const marksPath = isCombinedOLevelOptional
           ? `/api/teachers/combined-optional/marks?${params}`
           : `/api/teachers/marks?${params}`;
-        const resMarks = await fetchWithTeacherAuth(`${API_BASE}${marksPath}`, { headers: { Authorization: `Bearer ${token}` } });
+        const resMarks = await fetchWithTeacherAuth(`${API_BASE}${marksPath}`, {
+          cache: "no-store",
+          headers: { Authorization: `Bearer ${token}` },
+        });
         if (resMarks.ok) marks = await resMarks.json();
         else console.warn("O-Level marks warning:", await resMarks.text());
       }
@@ -921,7 +1019,14 @@ useEffect(() => {
     } finally {
       setMarksLoading(false);
     }
-  };
+  }, [fetchWithTeacherAuth, marksTerm, marksYear]);
+
+  // Load the live roster when the teacher opens an assignment or changes session.
+  // Avoid focus-triggered reloads because they can overwrite unsaved mark entry.
+  useEffect(() => {
+    if (!selectedAssignment) return;
+    loadStudentsAndMarks(selectedAssignment);
+  }, [loadStudentsAndMarks, selectedAssignment]);
 
   // ----------------------------
   // Change password handler
@@ -1238,7 +1343,13 @@ useEffect(() => {
           const autoMissed = autoMissedCells.has(`${s.id}_${aoi}`);
           const score = autoMissed ? "Missed" : marksByAoi[aoi];
           const status = autoMissed ? "Missed" : statusByAoi[aoi];
-          const hadSavedValue = initialStudentMarks[s.id]?.[aoi] !== undefined;
+          const initialValue = initialStudentMarks[s.id]?.[aoi];
+          const hadSavedValue = initialValue !== undefined;
+          const currentValue = comparableMarkValue(score, status);
+
+          if (markValuesMatch(currentValue, initialValue)) {
+            continue;
+          }
 
           const scoreTouched = score !== undefined && score !== null && score !== "" && score !== "Missed";
           const statusTouched = status === "Missed";
@@ -1306,6 +1417,7 @@ useEffect(() => {
         savedAt: new Date().toISOString(),
       };
 
+      setMarksError("");
       setMarksSaving(true);
 
       const isCombinedSubIct = isAlevel && selectedAssignment.isCombinedSubIct === true;
@@ -1339,13 +1451,34 @@ useEffect(() => {
         ? { assignmentId: selectedAssignment.id, year: Number(marksYear), term: marksTerm, examType, marks: payload, clearMarks }
         : { assignmentId: selectedAssignment.id, year: Number(marksYear), term: marksTerm, marks: payload, clearMarks };
 
-      const res = await fetchWithTeacherAuth(`${API_BASE}${endpoint}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify(payloadBody),
-      });
+      let res;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          res = await fetchWithTeacherAuth(`${API_BASE}${endpoint}`, {
+            method: "POST",
+            cache: "no-store",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify(payloadBody),
+          });
+        } catch (error) {
+          if (attempt === 0 && !error?.status) {
+            await new Promise((resolve) => window.setTimeout(resolve, 700));
+            continue;
+          }
+          throw error;
+        }
 
-      if (!res.ok) {
+        if (attempt === 0 && [502, 503, 504].includes(res.status)) {
+          await new Promise((resolve) => window.setTimeout(resolve, 700));
+          continue;
+        }
+        break;
+      }
+
+      if (!res?.ok) {
         let errorMessage = "Failed to save marks";
         try {
           const err = await res.json();
@@ -1361,14 +1494,65 @@ useEffect(() => {
         throw new Error(errorMessage);
       }
 
-      await loadStudentsAndMarks(selectedAssignment);
-      await loadAssignmentStatuses();
+      const savedMarksByStudent = new Map();
+      payload.forEach((entry) => {
+        if (!savedMarksByStudent.has(entry.studentId)) {
+          savedMarksByStudent.set(entry.studentId, {});
+        }
+        savedMarksByStudent.get(entry.studentId)[entry.aoi] = entry.score;
+      });
+      const clearedMarksByStudent = new Map();
+      clearMarks.forEach((entry) => {
+        if (!clearedMarksByStudent.has(entry.studentId)) {
+          clearedMarksByStudent.set(entry.studentId, new Set());
+        }
+        clearedMarksByStudent.get(entry.studentId).add(entry.aoi);
+      });
+      const applyCommittedMarks = (previous) => {
+        const next = Object.fromEntries(
+          Object.entries(previous || {}).map(([studentId, marksByColumn]) => [
+            studentId,
+            { ...(marksByColumn || {}) },
+          ])
+        );
+        students.forEach((student) => {
+          next[student.id] = { ...(next[student.id] || {}) };
+          clearedMarksByStudent.get(student.id)?.forEach((aoi) => {
+            delete next[student.id][aoi];
+          });
+          Object.entries(savedMarksByStudent.get(student.id) || {}).forEach(([aoi, score]) => {
+            next[student.id][aoi] = score;
+          });
+        });
+        return next;
+      };
+
+      setStudentMarks(applyCommittedMarks);
+      setInitialStudentMarks(applyCommittedMarks);
+      setStudentStatus((previous) => {
+        const next = Object.fromEntries(
+          Object.entries(previous || {}).map(([studentId, statusByColumn]) => [
+            studentId,
+            { ...(statusByColumn || {}) },
+          ])
+        );
+        payload.forEach((entry) => {
+          next[entry.studentId] = { ...(next[entry.studentId] || {}) };
+          next[entry.studentId][entry.aoi] = entry.score === "Missed" ? "Missed" : "Present";
+        });
+        clearMarks.forEach((entry) => {
+          next[entry.studentId] = { ...(next[entry.studentId] || {}) };
+          next[entry.studentId][entry.aoi] = "Present";
+        });
+        return next;
+      });
       setMarksSavedSummary(saveSummary);
       setRecentActivity((previous) => ({
         ...previous,
         save: saveSummary,
       }));
       setShowMarksSavedModal(true);
+      loadAssignmentStatuses();
     } catch (err) {
       console.error("Save marks error:", err);
       setMarksError(err.message);
@@ -1854,6 +2038,11 @@ useEffect(() => {
 
   return (
     <div className="admin-root teacher-root">
+      <TeacherConnectionState
+        issue={connectionIssue}
+        retrying={connectionRetrying}
+        onRetry={() => retryTeacherConnection()}
+      />
       <TeacherLoginNotice apiBase={API_BASE} request={fetchWithTeacherAuth} />
       {isPortrait && <div className="panel-alert">📱 Rotate your phone for better mark entry</div>}
       <header
@@ -2313,6 +2502,10 @@ useEffect(() => {
                       }}
                       onClick={() => {
                         const obj = { ...a, isAlevel: false };
+                        setStudents([]);
+                        setStudentMarks({});
+                        setInitialStudentMarks({});
+                        setStudentStatus({});
                         setSelectedAssignment(obj);
                         setMarksSavedSummary(null);
                         setRecentActivity((previous) => ({
@@ -2325,7 +2518,6 @@ useEffect(() => {
                             openedAt: new Date().toISOString(),
                           },
                         }));
-                        loadStudentsAndMarks(obj);
                       }}
                     >
                       <td>
@@ -2431,6 +2623,10 @@ useEffect(() => {
                     onClick={() => {
                       const derivedClass = a.class_level || a.stream?.split(" ")[0] || "A-Level";
                       const obj = { ...a, class_level: derivedClass, isAlevel: true };
+                      setStudents([]);
+                      setStudentMarks({});
+                      setInitialStudentMarks({});
+                      setStudentStatus({});
                       setSelectedAssignment(obj);
                       setMarksSavedSummary(null);
                       setRecentActivity((previous) => ({
@@ -2443,7 +2639,6 @@ useEffect(() => {
                           openedAt: new Date().toISOString(),
                         },
                       }));
-                      loadStudentsAndMarks(obj);
                     }}
                   >
                       <td>

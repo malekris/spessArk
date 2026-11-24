@@ -260,11 +260,19 @@ async function authTeacher(req, res, next) {
     return res.status(401).json({ message: "No token provided" });
   }
 
+  let decoded;
   try {
-    const decoded = jwt.verify(
-      token,
-      getJwtSecret()
-    );
+    decoded = jwt.verify(token, getJwtSecret());
+  } catch (err) {
+    console.warn("Teacher token verification failed:", err?.message || err);
+    return res.status(401).json({ message: "Invalid or expired token" });
+  }
+
+  if (decoded?.resetOnly || decoded?.purpose === "password_reset" || decoded?.role !== "teacher") {
+    return res.status(401).json({ message: "Invalid or expired token" });
+  }
+
+  try {
     await ensureTeacherAccountLifecycleColumns(pool);
     const [[teacherAccount]] = await pool.query(
       `SELECT id
@@ -282,9 +290,13 @@ async function authTeacher(req, res, next) {
       });
     }
     req.teacher = decoded;
-    next();
-  } catch {
-    return res.status(401).json({ message: "Invalid or expired token" });
+    return next();
+  } catch (err) {
+    console.error("Teacher account status check failed:", err);
+    return res.status(503).json({
+      code: "TEACHER_AUTH_CHECK_UNAVAILABLE",
+      message: "Teacher session check is temporarily unavailable. Please retry.",
+    });
   }
 }
 //AdminAuth route//
@@ -2893,17 +2905,21 @@ app.post("/api/teacher/marks", authTeacher, async (req, res) => {
     const marksAction =
       hasExistingMarks || clearMarks.length > 0 ? "UPDATE_MARKS" : "SUBMIT_MARKS";
     const marksVerb = marksAction === "UPDATE_MARKS" ? "Updated" : "Submitted";
-    await logAuditEvent({
-      userId: teacherId,
-      userRole: "teacher",
-      action: marksAction,
-      entityType: "marks",
-      entityId: assignmentId,
-      description: `${marksVerb} ${assignmentSubject} marks for ${assignmentRow.class_level} ${assignmentRow.stream} (${term} ${year})`,
-      ipAddress: extractClientIp(req),
-    });
+    try {
+      await logAuditEvent({
+        userId: teacherId,
+        userRole: "teacher",
+        action: marksAction,
+        entityType: "marks",
+        entityId: assignmentId,
+        description: `${marksVerb} ${assignmentSubject} marks for ${assignmentRow.class_level} ${assignmentRow.stream} (${term} ${year})`,
+        ipAddress: extractClientIp(req),
+      });
+    } catch (auditError) {
+      console.error("Marks saved but audit logging failed:", auditError);
+    }
 
-    res.json({ message: "Marks saved successfully" });
+    res.json({ message: "Marks saved successfully", savedEntries: marks.length, clearedEntries: clearMarks.length });
   } catch (err) {
     if (conn) {
       try {
@@ -3343,15 +3359,19 @@ app.post("/api/teachers/combined-optional/marks", authTeacher, async (req, res) 
     conn.release();
     conn = null;
 
-    await logAuditEvent({
-      userId: teacherId,
-      userRole: "teacher",
-      action: "UPDATE_MARKS",
-      entityType: "marks",
-      entityId: Number(context.assignments[0].id),
-      description: `Saved combined ${context.subject} marks for ${context.classLevel} ${streams.join(" + ")} (${term} ${year})`,
-      ipAddress: extractClientIp(req),
-    });
+    try {
+      await logAuditEvent({
+        userId: teacherId,
+        userRole: "teacher",
+        action: "UPDATE_MARKS",
+        entityType: "marks",
+        entityId: Number(context.assignments[0].id),
+        description: `Saved combined ${context.subject} marks for ${context.classLevel} ${streams.join(" + ")} (${term} ${year})`,
+        ipAddress: extractClientIp(req),
+      });
+    } catch (auditError) {
+      console.error("Combined optional marks saved but audit logging failed:", auditError);
+    }
 
     return res.json({ message: "Combined optional-subject marks saved successfully" });
   } catch (err) {
@@ -3509,21 +3529,79 @@ app.post("/api/teachers/marks", authTeacher, async (req, res) => {
 
     const allowedAois = getOLevelMarkEntryComponents(term, year);
 
-    // clear explicitly emptied marks first
-    for (const m of clearMarks) {
-      const aoi = (m.aoi || "").trim().toUpperCase();
-      const sid = Number(m.studentId);
-
-      if (!aoi || !allowedAois.includes(aoi) || !Number.isInteger(sid) || sid <= 0) {
+    const normalizedClearMarks = [];
+    for (const mark of clearMarks) {
+      const aoi = String(mark?.aoi || "").trim().toUpperCase();
+      const studentId = Number(mark?.studentId);
+      if (!allowedAois.includes(aoi) || !Number.isInteger(studentId) || studentId <= 0) {
         await conn.rollback();
         return res.status(400).json({ message: "Invalid clearMarks payload" });
       }
-
-      if (!registeredIdsSet.has(sid)) {
+      if (!registeredIdsSet.has(studentId)) {
         await conn.rollback();
-        return res.status(400).json({ message: `Student ${sid} is not registered for ${assignmentSubject}` });
+        return res.status(400).json({ message: `Student ${studentId} is not registered for ${assignmentSubject}` });
+      }
+      normalizedClearMarks.push({ studentId, aoi });
+    }
+
+    const normalizedMarks = [];
+    for (const mark of marks) {
+      const aoi = String(mark?.aoi || "").trim().toUpperCase();
+      const studentId = Number(mark?.studentId);
+      const isMissed = mark?.score === "Missed";
+
+      if (!allowedAois.includes(aoi)) {
+        await conn.rollback();
+        return res.status(400).json({
+          message: `Each mark must include a valid AOI (${allowedAois.join(", ")})`,
+        });
+      }
+      if (!Number.isInteger(studentId) || !registeredIdsSet.has(studentId)) {
+        await conn.rollback();
+        return res.status(400).json({ message: `Student ${studentId} is not registered for ${assignmentSubject}` });
       }
 
+      const score = isMissed ? null : Number(mark?.score);
+      if (
+        !isMissed &&
+        (mark?.score === "" ||
+          mark?.score === null ||
+          mark?.score === undefined ||
+          !Number.isFinite(score))
+      ) {
+        await conn.rollback();
+        return res.status(400).json({ message: "Present students must have a valid score" });
+      }
+      if (!isMissed && aoi === "EXAM80" && (score < 0 || score > 80)) {
+        await conn.rollback();
+        return res.status(400).json({ message: "EXAM80 score must be between 0 and 80" });
+      }
+      if (!isMissed && aoi !== "EXAM80" && (score < 0.9 || score > 3.0)) {
+        await conn.rollback();
+        return res.status(400).json({ message: "AOI score must be between 0.9 and 3.0" });
+      }
+
+      normalizedMarks.push({ studentId, aoi, score, isMissed });
+    }
+
+    const uniqueByAssessment = (entries) =>
+      Array.from(
+        new Map(entries.map((entry) => [`${entry.studentId}:${entry.aoi}`, entry])).values()
+      );
+    const upsertEntries = uniqueByAssessment(normalizedMarks);
+    const upsertKeys = new Set(upsertEntries.map((entry) => `${entry.studentId}:${entry.aoi}`));
+    const clearEntries = uniqueByAssessment(normalizedClearMarks).filter(
+      (entry) => !upsertKeys.has(`${entry.studentId}:${entry.aoi}`)
+    );
+    const assessmentFilter = (entries) => ({
+      sql: entries
+        .map(() => "(m.student_id = ? AND CAST(m.aoi_label AS CHAR) = ?)")
+        .join(" OR "),
+      params: entries.flatMap((entry) => [entry.studentId, entry.aoi]),
+    });
+
+    if (clearEntries.length > 0) {
+      const filter = assessmentFilter(clearEntries);
       await archiveOLevelMarks(conn, {
         whereSql: `
           m.assignment_id IN (
@@ -3533,18 +3611,23 @@ app.post("/api/teachers/marks", authTeacher, async (req, res) => {
               AND ta_slot.stream = ?
               AND LOWER(TRIM(ta_slot.subject)) = LOWER(TRIM(?))
           )
-          AND m.student_id = ?
           AND m.year = ?
           AND m.term = ?
-          AND CAST(m.aoi_label AS CHAR) = ?
+          AND (${filter.sql})
         `,
-        params: [assignmentRow.class_level, assignmentRow.stream, assignmentSubject, sid, year, term, aoi],
+        params: [
+          assignmentRow.class_level,
+          assignmentRow.stream,
+          assignmentSubject,
+          year,
+          term,
+          ...filter.params,
+        ],
         deletedByUserId: teacherId,
         deletedByRole: "teacher",
-        deleteReason: `Teacher cleared ${aoi} for ${assignmentSubject} in ${term} ${year}`,
+        deleteReason: `Teacher cleared marks for ${assignmentSubject} in ${term} ${year}`,
         sourceAction: "CLEAR_MARKS",
       });
-
       await conn.query(
         `DELETE m
          FROM marks m
@@ -3552,55 +3635,22 @@ app.post("/api/teachers/marks", authTeacher, async (req, res) => {
          WHERE ta.class_level = ?
            AND ta.stream = ?
            AND LOWER(TRIM(ta.subject)) = LOWER(TRIM(?))
-           AND m.student_id = ?
            AND m.year = ?
            AND m.term = ?
-           AND m.aoi_label = ?`,
-        [assignmentRow.class_level, assignmentRow.stream, assignmentSubject, sid, year, term, aoi]
+           AND (${filter.sql})`,
+        [
+          assignmentRow.class_level,
+          assignmentRow.stream,
+          assignmentSubject,
+          year,
+          term,
+          ...filter.params,
+        ]
       );
     }
 
-    // validate and upsert marks using transaction connection
-    for (const m of marks) {
-      const isMissed = m.score === "Missed";
-      const aoi = (m.aoi || "").trim().toUpperCase();
-
-      if (!aoi || !allowedAois.includes(aoi)) {
-        await conn.rollback();
-        return res.status(400).json({
-          message: `Each mark must include a valid AOI (${allowedAois.join(", ")})`,
-        });
-      }
-
-      const sid = Number(m.studentId);
-      if (!registeredIdsSet.has(sid)) {
-        await conn.rollback();
-        return res.status(400).json({ message: `Student ${sid} is not registered for ${assignmentSubject}` });
-      }
-
-      if (!isMissed) {
-        if (
-          m.score === "" ||
-          m.score === null ||
-          m.score === undefined ||
-          Number.isNaN(Number(m.score))
-        ) {
-          await conn.rollback();
-          return res.status(400).json({ message: "Present students must have a valid score" });
-        }
-
-        const scoreNum = Number(m.score);
-        if (aoi === "EXAM80") {
-          if (scoreNum < 0 || scoreNum > 80) {
-            await conn.rollback();
-            return res.status(400).json({ message: "EXAM80 score must be between 0 and 80" });
-          }
-        } else if (scoreNum < 0.9 || scoreNum > 3.0) {
-          await conn.rollback();
-          return res.status(400).json({ message: "AOI score must be between 0.9 and 3.0" });
-        }
-      }
-
+    if (upsertEntries.length > 0) {
+      const filter = assessmentFilter(upsertEntries);
       await archiveOLevelMarks(conn, {
         whereSql: `
           m.assignment_id <> ?
@@ -3611,18 +3661,24 @@ app.post("/api/teachers/marks", authTeacher, async (req, res) => {
               AND ta_slot.stream = ?
               AND LOWER(TRIM(ta_slot.subject)) = LOWER(TRIM(?))
           )
-          AND m.student_id = ?
           AND m.year = ?
           AND m.term = ?
-          AND CAST(m.aoi_label AS CHAR) = ?
+          AND (${filter.sql})
         `,
-        params: [assignmentId, assignmentRow.class_level, assignmentRow.stream, assignmentSubject, sid, year, term, aoi],
+        params: [
+          assignmentId,
+          assignmentRow.class_level,
+          assignmentRow.stream,
+          assignmentSubject,
+          year,
+          term,
+          ...filter.params,
+        ],
         deletedByUserId: teacherId,
         deletedByRole: "teacher",
-        deleteReason: `Teacher updated carried-over ${aoi} for ${assignmentSubject} in ${term} ${year}`,
+        deleteReason: `Teacher updated carried-over marks for ${assignmentSubject} in ${term} ${year}`,
         sourceAction: "REPLACE_HANDOVER_MARK",
       });
-
       await conn.query(
         `DELETE m
          FROM marks m
@@ -3631,36 +3687,47 @@ app.post("/api/teachers/marks", authTeacher, async (req, res) => {
            AND ta.class_level = ?
            AND ta.stream = ?
            AND LOWER(TRIM(ta.subject)) = LOWER(TRIM(?))
-           AND m.student_id = ?
            AND m.year = ?
            AND m.term = ?
-           AND m.aoi_label = ?`,
-        [assignmentId, assignmentRow.class_level, assignmentRow.stream, assignmentSubject, sid, year, term, aoi]
-      );
-
-      await conn.query(
-        `
-        INSERT INTO marks
-          (teacher_id, assignment_id, student_id, score, status, year, term, aoi_label)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE
-          score = VALUES(score),
-          status = VALUES(status),
-          year = VALUES(year),
-          term = VALUES(term),
-          teacher_id = VALUES(teacher_id)
-        `,
+           AND (${filter.sql})`,
         [
-          teacherId,
           assignmentId,
-          sid,
-          isMissed ? null : Number(m.score),
-          isMissed ? "Missed" : "Present",
+          assignmentRow.class_level,
+          assignmentRow.stream,
+          assignmentSubject,
           year,
           term,
-          aoi,
+          ...filter.params,
         ]
       );
+
+      const chunkSize = 200;
+      for (let offset = 0; offset < upsertEntries.length; offset += chunkSize) {
+        const chunk = upsertEntries.slice(offset, offset + chunkSize);
+        const valueSql = chunk.map(() => "(?, ?, ?, ?, ?, ?, ?, ?)").join(", ");
+        const valueParams = chunk.flatMap((entry) => [
+          teacherId,
+          assignmentId,
+          entry.studentId,
+          entry.score,
+          entry.isMissed ? "Missed" : "Present",
+          year,
+          term,
+          entry.aoi,
+        ]);
+        await conn.query(
+          `INSERT INTO marks
+            (teacher_id, assignment_id, student_id, score, status, year, term, aoi_label)
+           VALUES ${valueSql}
+           ON DUPLICATE KEY UPDATE
+            score = VALUES(score),
+            status = VALUES(status),
+            year = VALUES(year),
+            term = VALUES(term),
+            teacher_id = VALUES(teacher_id)`,
+          valueParams
+        );
+      }
     }
 
     await conn.commit();
@@ -3670,24 +3737,41 @@ app.post("/api/teachers/marks", authTeacher, async (req, res) => {
     const marksAction =
       hasExistingMarks || clearMarks.length > 0 ? "UPDATE_MARKS" : "SUBMIT_MARKS";
     const marksVerb = marksAction === "UPDATE_MARKS" ? "Updated" : "Submitted";
-    await logAuditEvent({
-      userId: teacherId,
-      userRole: "teacher",
-      action: marksAction,
-      entityType: "marks",
-      entityId: assignmentId,
-      description: `${marksVerb} ${assignmentSubject} marks for ${assignmentRow.class_level} ${assignmentRow.stream} (${term} ${year})`,
-      ipAddress: extractClientIp(req),
-    });
+    try {
+      await logAuditEvent({
+        userId: teacherId,
+        userRole: "teacher",
+        action: marksAction,
+        entityType: "marks",
+        entityId: assignmentId,
+        description: `${marksVerb} ${assignmentSubject} marks for ${assignmentRow.class_level} ${assignmentRow.stream} (${term} ${year})`,
+        ipAddress: extractClientIp(req),
+      });
+    } catch (auditError) {
+      console.error("Marks saved but audit logging failed:", auditError);
+    }
 
-    res.json({ message: "Marks saved successfully" });
+    res.json({ message: "Marks saved successfully", savedEntries: marks.length, clearedEntries: clearMarks.length });
   } catch (err) {
     if (conn) {
       try { await conn.rollback(); } catch (e) { console.error("Rollback error:", e); }
       conn.release();
     }
     console.error("❌ Save marks error (plural):", err);
-    res.status(500).json({ message: "Failed to save marks" });
+    const retryableCodes = new Set([
+      "ER_LOCK_DEADLOCK",
+      "ER_LOCK_WAIT_TIMEOUT",
+      "PROTOCOL_CONNECTION_LOST",
+      "ECONNRESET",
+      "ETIMEDOUT",
+    ]);
+    const retryable = retryableCodes.has(err?.code);
+    res.status(retryable ? 503 : 500).json({
+      code: retryable ? "MARKS_SAVE_RETRYABLE" : "MARKS_SAVE_FAILED",
+      message: retryable
+        ? "The marks service was briefly busy. Please retry the save."
+        : "Failed to save marks",
+    });
   }
 });
 

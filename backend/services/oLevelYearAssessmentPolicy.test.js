@@ -69,14 +69,26 @@ test("standard years continue to use all three Term 3 AOIs", () => {
   assert.equal(calculateOLevelYearCoursework(perfect, 2027).coursework20, 20);
 });
 
-test("2026 eligibility ignores AOI 3 but still requires the first eight AOIs and the /80 exam", () => {
+test("2026 positioning uses only Term 3 AOI 1, AOI 2 and the /80 exam", () => {
   const emergencyRow = {
     ...completeRow,
+    T1_AOI1: null,
+    T1_AOI1_status: "Missed",
+    T2_AOI2: null,
+    T2_AOI2_status: "Missed",
     AOI3: null,
     AOI3_status: "Missed",
   };
 
   assert.equal(isOLevelYearSubjectComplete(emergencyRow, 2026), true);
   assert.equal(isOLevelYearSubjectComplete({ ...emergencyRow, AOI2: null }, 2026), false);
+  assert.equal(
+    isOLevelYearSubjectComplete({ ...emergencyRow, AOI1_status: "Missed" }, 2026),
+    false
+  );
+  assert.equal(
+    isOLevelYearSubjectComplete({ ...emergencyRow, EXAM80_status: "Missed" }, 2026),
+    false
+  );
   assert.equal(isOLevelYearSubjectComplete(emergencyRow, 2027), false);
 });

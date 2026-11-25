@@ -10,8 +10,6 @@ export const EMERGENCY_TWO_AOI_ACADEMIC_YEAR = 2026;
 
 const TERM_1_SCORE_KEYS = ["T1_AOI1", "T1_AOI2", "T1_AOI3"];
 const TERM_2_SCORE_KEYS = ["T2_AOI1", "T2_AOI2", "T2_AOI3"];
-const TERM_1_STATUS_KEYS = ["T1_AOI1_status", "T1_AOI2_status", "T1_AOI3_status"];
-const TERM_2_STATUS_KEYS = ["T2_AOI1_status", "T2_AOI2_status", "T2_AOI3_status"];
 
 const hasRecordedScore = (value) => value !== null && value !== undefined && value !== "";
 const isMissedStatus = (value) => String(value || "").trim().toLowerCase() === "missed";
@@ -86,18 +84,17 @@ export const calculateOLevelYearCoursework = (row, academicYear) => {
 export const isOLevelYearSubjectComplete = (row, academicYear) => {
   const policy = getOLevelYearAssessmentPolicy(academicYear);
   const requiredScoreKeys = [
-    ...TERM_1_SCORE_KEYS,
-    ...TERM_2_SCORE_KEYS,
     ...policy.term3ScoreKeys,
     "EXAM80",
   ];
   const requiredStatusKeys = [
-    ...TERM_1_STATUS_KEYS,
-    ...TERM_2_STATUS_KEYS,
     ...policy.term3StatusKeys,
     "EXAM80_status",
   ];
 
+  // Position eligibility is based on the reporting term only. Earlier AOIs still
+  // contribute to annual coursework and can lower the final score, but a missed
+  // assessment from Term 1 or Term 2 must not erase a complete Term 3 ranking.
   return (
     requiredScoreKeys.every((key) => hasRecordedScore(row?.[key])) &&
     !requiredStatusKeys.some((key) => isMissedStatus(row?.[key]))

@@ -638,9 +638,9 @@ const formatCell = (v, digits = 2) =>
   v === null || v === undefined || v === "" || Number.isNaN(Number(v))
     ? ""
     : Number(v).toFixed(digits);
-const formatAoiCell = (value, status) => {
-  if (String(status || "").toLowerCase() === "missed") return "X";
-  return formatCell(value, 1);
+const formatAoiCell = (value, status, digits = 1) => {
+  if (String(status || "").trim().toLowerCase() === "missed") return "X";
+  return formatCell(value, digits);
 };
 const displayMissedAsX = (value, fallback = "") => {
   if (value === null || value === undefined || value === "") return fallback;
@@ -696,7 +696,7 @@ const tableData = isEndOfYear
       formatAoiCell(s.AOI2, s.AOI2_status),
       formatCell(s.average, 2),
       formatCell(s.percent20, 2),
-      formatCell(s.percent80, 2),
+      formatAoiCell(s.percent80, s.EXAM80_status, 2),
       formatCell(s.percent100, 2),
       s.grade || "",
       s.remark || "",
@@ -709,7 +709,7 @@ const tableData = isEndOfYear
       formatAoiCell(s.AOI3, s.AOI3_status),
       formatCell(s.average, 2),
       formatCell(s.percent20, 2),
-      formatCell(s.percent80, 2),
+      formatAoiCell(s.percent80, s.EXAM80_status, 2),
       formatCell(s.percent100, 2),
       s.grade || "",
       s.remark || "",

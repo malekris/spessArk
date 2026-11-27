@@ -48,6 +48,14 @@ test("builds the contribution heading with only the reporting period", () => {
     buildFeeContributionTitle({ term: "3", year: 2026 }),
     "FEES CONTRIBUTIONS (Term 3 2026)"
   );
+  assert.equal(
+    buildFeeContributionTitle({ term: "Term 1", year: 2026 }),
+    "FEES CONTRIBUTIONS (Term 1 2026)"
+  );
+  assert.equal(
+    buildFeeContributionTitle({ term: "2", year: 2026 }),
+    "FEES CONTRIBUTIONS (Term 2 2026)"
+  );
 });
 
 test("shows Nil when a learner has cleared the full fee balance", () => {

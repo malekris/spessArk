@@ -138,15 +138,15 @@ const safeAnalyticsQuery = async (executor, sql, params = []) => {
   }
 };
 
-const loadOLevelAccountsPayments = async (academicYear) => {
+const loadOLevelAccountsPayments = async (academicYear, term) => {
   try {
     const [rows] = await pool.query(
       `SELECT learner_id, residence_type, amount_paid
        FROM accounts_learner_payments
        WHERE learner_level = 'O_LEVEL'
          AND academic_year = ?
-         AND term = 'Term 3'`,
-      [academicYear]
+         AND term = ?`,
+      [academicYear, normalizeTermLabel(term)]
     );
     return new Map((rows || []).map((row) => [Number(row.learner_id), row]));
   } catch (error) {
@@ -423,10 +423,8 @@ router.get("/term", authAdmin, async (req, res) => {
       });
     }
 
-    // 🔧 Normalize term (UI sends 1 / 2)
-    let normalizedTerm = term;
-    if (term === "1") normalizedTerm = "Term 1";
-    if (term === "2") normalizedTerm = "Term 2";
+    // Normalize numeric, Roman numeral, and full term labels from the UI.
+    const normalizedTerm = normalizeTermLabel(term);
 
     const normalizeStream = (v) => String(v || "").trim().toLowerCase();
     const wantedStream = normalizeStream(stream);
@@ -507,6 +505,10 @@ router.get("/term", authAdmin, async (req, res) => {
     );
 
     const reportRows = (rows || []).filter(isReportRowForRegisteredSubject);
+    const accountsPaymentsByStudent = await loadOLevelAccountsPayments(
+      yearParam,
+      normalizedTerm
+    );
 
     // ✅ SINGLE processed block (average + remark)
     const processedAll = reportRows.map((r) => {
@@ -528,10 +530,14 @@ router.get("/term", authAdmin, async (req, res) => {
         else if (average >= 2.5) remark = "OUTSTANDING";
       }
 
+      const accountsPayment = accountsPaymentsByStudent.get(Number(r.student_id));
+
       return {
         ...r,
         average,
         remark,
+        accounts_residence_type: accountsPayment?.residence_type || "Day",
+        accounts_amount_paid: accountsPayment?.amount_paid ?? null,
       };
     });
 
@@ -670,7 +676,7 @@ router.get("/year", authAdmin, async (req, res) => {
     };
 
     const reportRows = (rows || []).filter(isReportRowForRegisteredSubject);
-    const accountsPaymentsByStudent = await loadOLevelAccountsPayments(yearParam);
+    const accountsPaymentsByStudent = await loadOLevelAccountsPayments(yearParam, "Term 3");
 
     const processedAll = reportRows.map((r) => {
       const { term3Average, coursework20 } = calculateOLevelYearCoursework(r, yearParam);
@@ -840,12 +846,18 @@ router.get("/mini-aoi1", authAdmin, async (req, res) => {
       (row) => hasRecordedScore(row.AOI1) || isMissedStatus(row.AOI1_status)
     );
     const reportRows = filterRowsByCurrentSubjectRegistration(reconciledReportRows);
+    const accountsPaymentsByStudent = await loadOLevelAccountsPayments(
+      yearParam,
+      normalizedTerm
+    );
 
     const processedAll = reportRows.map((row) => {
       const registeredSubjects = parseStoredSubjects(row.registered_subjects);
       const normalizedAoiStatus = hasRecordedScore(row.AOI1)
         ? "Present"
         : row.AOI1_status;
+      const accountsPayment = accountsPaymentsByStudent.get(Number(row.student_id));
+
       return {
         ...row,
         AOI1: hasRecordedScore(row.AOI1) ? Number(row.AOI1) : null,
@@ -853,6 +865,8 @@ router.get("/mini-aoi1", authAdmin, async (req, res) => {
         remark: formatMiniRemark(row.AOI1, normalizedAoiStatus),
         registered_subjects_list: registeredSubjects,
         registered_subjects_count: registeredSubjects.length,
+        accounts_residence_type: accountsPayment?.residence_type || "Day",
+        accounts_amount_paid: accountsPayment?.amount_paid ?? null,
       };
     });
 

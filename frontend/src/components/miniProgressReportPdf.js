@@ -1,5 +1,10 @@
 import badge from "../assets/badge.png";
 import { loadPdfTools } from "../utils/loadPdfTools";
+import {
+  buildEndOfYearFeeCells,
+  buildFeeContributionTitle,
+  getEndOfYearFeeSummary,
+} from "../modules/accounts/endOfYearFees";
 
 const calculateAge = (dob) => {
   if (!dob) return "-";
@@ -262,6 +267,8 @@ const groupMiniReportRows = (rows = []) => {
         stream_position: row.stream_position ?? null,
         stream_total: Number(row.stream_total || 0),
         position_status: row.position_status || "INELIGIBLE",
+        accounts_residence_type: row.accounts_residence_type || "Day",
+        accounts_amount_paid: row.accounts_amount_paid ?? null,
         subjects: [],
       });
     }
@@ -401,6 +408,10 @@ export default async function generateMiniProgressReportPdf(rows, meta = {}, opt
 
   for (let index = 0; index < grouped.length; index += 1) {
     const student = grouped[index];
+    const termFeeSummary = getEndOfYearFeeSummary({
+      residenceType: student.accounts_residence_type,
+      amountPaid: student.accounts_amount_paid,
+    });
     if (index > 0) doc.addPage();
 
     if (badgeImage) {
@@ -766,19 +777,60 @@ export default async function generateMiniProgressReportPdf(rows, meta = {}, opt
       doc.text(label, centerX, scaleTopY + 5.6, { align: "center" });
     });
 
+    autoTable(doc, {
+      startY: scaleTopY + performanceTableHeight + 3,
+      margin: { left: pageMargin, right: pageMargin },
+      tableWidth: contentWidth,
+      head: [[{
+        content: buildFeeContributionTitle({ term: termLabel, year: yearLabel }),
+        colSpan: 4,
+        styles: {
+          halign: "left",
+          fontSize: 8.4,
+          fontStyle: "bold",
+          fillColor: [236, 236, 236],
+          textColor: colors.ink,
+        },
+      }]],
+      body: [buildEndOfYearFeeCells(termFeeSummary)],
+      styles: {
+        font: "helvetica",
+        fontSize: 8.2,
+        fontStyle: "bold",
+        cellPadding: { top: 1.2, right: 1.2, bottom: 1.2, left: 1.2 },
+        lineColor: colors.line,
+        lineWidth: 0.25,
+        textColor: colors.ink,
+        fillColor: colors.soft,
+        valign: "middle",
+        overflow: "linebreak",
+      },
+      columnStyles: {
+        0: { cellWidth: contentWidth * 0.22 },
+        1: { cellWidth: contentWidth * 0.3 },
+        2: { cellWidth: contentWidth * 0.23 },
+        3: { cellWidth: contentWidth * 0.25 },
+      },
+      pageBreak: "avoid",
+      rowPageBreak: "avoid",
+      theme: "grid",
+    });
+
+    const feeTableEndY = doc.lastAutoTable?.finalY || scaleTopY + performanceTableHeight;
+
     doc.setTextColor(...colors.muted);
     doc.setFont("helvetica", "italic");
     doc.setFontSize(7.4);
     doc.text(
       "Report not valid without school stamp.",
       pageMargin,
-      scaleTopY + performanceTableHeight + 4.2,
+      feeTableEndY + 3.6,
     );
     doc.setFont("helvetica", "normal");
     doc.text(
       `This term ends on: ${formatDateOnly(meta.termEndedOn)}`,
       pageMargin,
-      scaleTopY + performanceTableHeight + 8.2
+      feeTableEndY + 7.2
     );
 
     doc.setTextColor(...colors.muted);

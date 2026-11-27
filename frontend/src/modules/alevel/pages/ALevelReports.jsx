@@ -1896,6 +1896,10 @@ export async function generateAlevelPDF(data, meta, options = {}) {
 
   const renderMidParentReport = (student) => {
     const { learner, principals, subsidiaries, totals, comments } = student;
+    const termFeeSummary = getEndOfYearFeeSummary({
+      residenceType: learner.accountsResidenceType,
+      amountPaid: learner.accountsAmountPaid,
+    });
     const margin = 14;
     const contentWidth = pageWidth - margin * 2;
     const colors = {
@@ -2148,6 +2152,49 @@ export async function generateAlevelPDF(data, meta, options = {}) {
       pageBreak: "avoid",
     });
 
+    const feeTableY = (doc.lastAutoTable?.finalY || referenceY) + 3;
+    autoTable(doc, {
+      startY: feeTableY,
+      margin: { left: margin, right: margin },
+      tableWidth: contentWidth,
+      head: [[{
+        content: buildFeeContributionTitle({
+          term: meta?.term,
+          year: meta?.year,
+        }),
+        colSpan: 4,
+        styles: {
+          halign: "left",
+          fontSize: 8.4,
+          fontStyle: "bold",
+          fillColor: [236, 236, 236],
+          textColor: colors.ink,
+        },
+      }]],
+      body: [buildEndOfYearFeeCells(termFeeSummary)],
+      styles: {
+        font: "helvetica",
+        fontSize: 8.2,
+        fontStyle: "bold",
+        cellPadding: { top: 1.2, right: 1.2, bottom: 1.2, left: 1.2 },
+        lineColor: colors.line,
+        lineWidth: 0.2,
+        textColor: colors.ink,
+        fillColor: colors.soft,
+        valign: "middle",
+        overflow: "linebreak",
+      },
+      columnStyles: {
+        0: { cellWidth: contentWidth * 0.22 },
+        1: { cellWidth: contentWidth * 0.3 },
+        2: { cellWidth: contentWidth * 0.23 },
+        3: { cellWidth: contentWidth * 0.25 },
+      },
+      pageBreak: "avoid",
+      rowPageBreak: "avoid",
+      theme: "grid",
+    });
+
     const footerY = pageHeight - 13;
     doc.setTextColor(...colors.muted);
     doc.setFont("helvetica", "italic");
@@ -2155,7 +2202,7 @@ export async function generateAlevelPDF(data, meta, options = {}) {
     doc.text(
       "A-E: principal subjects. P-F: subsidiary subjects. MID marks only. Report not valid without school stamp.",
       pageWidth / 2,
-      Math.min((doc.lastAutoTable?.finalY || referenceY) + 5, footerY - 3),
+      Math.min((doc.lastAutoTable?.finalY || feeTableY) + 4, footerY - 3),
       { align: "center" }
     );
     doc.setDrawColor(...colors.gold);

@@ -526,7 +526,7 @@ const calculatedPositionMeta =
     for (const [index, student] of studentList.entries()) {
     if (!firstPage) doc.addPage();
     firstPage = false;
-    const endOfYearFeeSummary = getEndOfYearFeeSummary({
+    const termFeeSummary = getEndOfYearFeeSummary({
       residenceType: student.info.accounts_residence_type,
       amountPaid: student.info.accounts_amount_paid,
     });
@@ -609,7 +609,7 @@ doc.text("NAME", infoLeftX + 2, infoStartY);
 doc.text("AGE", infoLeftX + 2, infoStartY + 5.2);
 doc.text("CLASS", infoRightX + 2, infoStartY);
 doc.text("STREAM", infoRightX + 2, infoStartY + 5.2);
-if (isEndOfYear) doc.text("SECTION", infoRightX + 42, infoStartY + 5.2);
+doc.text("SECTION", infoRightX + 42, infoStartY + 5.2);
 
 // Values
 doc.setFont("helvetica", "normal");
@@ -622,15 +622,13 @@ doc.text(
 
 doc.text(student.info.class_level || "—", infoRightX + 22, infoStartY);
 doc.text(student.info.stream || "—", infoRightX + 22, infoStartY + 5.2);
-if (isEndOfYear) {
-  doc.setFontSize(9.2);
-  doc.text(
-    formatAccountsSection(endOfYearFeeSummary.residence),
-    infoRightX + 60,
-    infoStartY + 5.2
-  );
-  doc.setFontSize(10);
-}
+doc.setFontSize(9.2);
+doc.text(
+  formatAccountsSection(termFeeSummary.residence),
+  infoRightX + 60,
+  infoStartY + 5.2
+);
+doc.setFontSize(10);
 /* ===========================
    SUBJECT TABLE DATA (REQUIRED)
 =========================== */
@@ -1154,12 +1152,10 @@ const ineligibleNoteLines = showIneligibleFootnote
 // 25 mm bottom margin, which pushed an otherwise fitting term-date and fee
 // section onto a nearly empty continuation page for learners with long tables.
 const termDatesLineHeight = RHYTHM * 0.9;
-const feeTableHeight = isEndOfYear ? 16.5 : 0;
-const afterFeeGap = isEndOfYear
-  ? showIneligibleFootnote
-    ? ineligibleNoteGap
-    : RHYTHM * 0.35
-  : 0;
+const feeTableHeight = 16.5;
+const afterFeeGap = showIneligibleFootnote
+  ? ineligibleNoteGap
+  : RHYTHM * 0.35;
 const ineligibleNoteHeight = showIneligibleFootnote
   ? ineligibleNoteLines.length * ineligibleNoteLineHeight
   : 0;
@@ -1173,7 +1169,7 @@ const footerMetaBlockHeight =
 // The generated footer sits at 10 mm from the page edge. A 16 mm clearance
 // leaves a clean visual gap while allowing this compact final block to remain
 // with the learner's report instead of creating a misleading extra page.
-ensureSpace(footerMetaBlockHeight, isEndOfYear ? 16 : 25);
+ensureSpace(footerMetaBlockHeight, 16);
 
 /* ===========================
    TERM DATES
@@ -1194,8 +1190,7 @@ doc.text(formatReportDateValue(meta?.nextTermBeginsOn), termDatesRightX + 35, da
 
 currentY += RHYTHM * 0.9;
 
-if (isEndOfYear) {
-  autoTable(doc, {
+autoTable(doc, {
     startY: currentY,
     margin: { left: getColumnX() },
     tableWidth: termDatesWidth,
@@ -1213,7 +1208,7 @@ if (isEndOfYear) {
         textColor: [0, 0, 0],
       },
     }]],
-    body: [buildEndOfYearFeeCells(endOfYearFeeSummary)],
+    body: [buildEndOfYearFeeCells(termFeeSummary)],
     styles: buildTableStyles({
       fontSize: 9.5,
       fontStyle: "bold",
@@ -1229,11 +1224,10 @@ if (isEndOfYear) {
       3: { cellWidth: termDatesWidth * 0.25 },
     },
     theme: "grid",
-  });
-  currentY =
-    doc.lastAutoTable.finalY +
-    (showIneligibleFootnote ? ineligibleNoteGap : RHYTHM * 0.35);
-}
+});
+currentY =
+  doc.lastAutoTable.finalY +
+  (showIneligibleFootnote ? ineligibleNoteGap : RHYTHM * 0.35);
 
 if (showIneligibleFootnote) {
   doc.setFont("helvetica", "bold");

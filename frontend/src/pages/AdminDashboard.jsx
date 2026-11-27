@@ -26,6 +26,7 @@ import TeacherLoginNoticeSettings from "../components/admin-dashboard/TeacherLog
 import TeacherAccountProvisionForm from "../components/admin-dashboard/TeacherAccountProvisionForm";
 import NoticeboardScoreSheetCard from "../components/admin-dashboard/NoticeboardScoreSheetCard";
 import SpessParentsPanel from "../components/SpessParentsPanel";
+import ForeverLibraryPanel from "../components/admin-dashboard/ForeverLibraryPanel";
 import "../components/admin-dashboard/AdminDashboardPulseCards.css";
 import { loadPdfTools } from "../utils/loadPdfTools";
 import {
@@ -698,6 +699,10 @@ export default function AdminDashboard() {
   const [loadingMarksSets, setLoadingMarksSets] = useState(false);
   const [loadingMarksDetail, setLoadingMarksDetail] = useState(false);
   const [marksError, setMarksError] = useState("");
+  const [marksNotice, setMarksNotice] = useState("");
+  const [editingMarkId, setEditingMarkId] = useState(null);
+  const [savingMarkId, setSavingMarkId] = useState(null);
+  const [markOverrideDraft, setMarkOverrideDraft] = useState({ status: "Present", score: "" });
   const [marksArchiveSets, setMarksArchiveSets] = useState([]);
   const [loadingMarksArchive, setLoadingMarksArchive] = useState(false);
   const [marksArchiveError, setMarksArchiveError] = useState("");
@@ -758,6 +763,12 @@ export default function AdminDashboard() {
       icon: "📕",
       route: "/admin/reports/year",
       cardClassName: "admin-card-year-reports",
+    },
+    {
+      title: "Forever Library",
+      subtitle: "Preserve reports before promotion",
+      icon: "FL",
+      cardClassName: "admin-card-forever-library",
     },
     {
       title: "Learner Promotion",
@@ -2042,6 +2053,8 @@ export default function AdminDashboard() {
     if (!returnOnly) {
       setLoadingMarksDetail(true);
       setMarksError("");
+      setMarksNotice("");
+      setEditingMarkId(null);
       setMarksDetail([]);
     }
   
@@ -2226,6 +2239,74 @@ export default function AdminDashboard() {
     }
     const numericScore = Number(row.score);
     return Number.isFinite(numericScore) ? String(row.score) : String(row.score);
+  };
+
+  const startMarkOverride = (row) => {
+    const missed = String(row?.status || "").toLowerCase() === "missed";
+    setEditingMarkId(Number(row.mark_id));
+    setMarkOverrideDraft({
+      status: missed ? "Missed" : "Present",
+      score: missed || row?.score === null || row?.score === undefined ? "" : String(row.score),
+    });
+    setMarksError("");
+    setMarksNotice("");
+  };
+
+  const cancelMarkOverride = () => {
+    setEditingMarkId(null);
+    setMarkOverrideDraft({ status: "Present", score: "" });
+  };
+
+  const saveMarkOverride = async (row) => {
+    const markId = Number(row?.mark_id);
+    if (!Number.isInteger(markId) || markId <= 0) {
+      setMarksError("This score cannot be edited because its mark record is unavailable.");
+      return;
+    }
+
+    const component = String(row?.aoi_label || "").trim().toUpperCase();
+    const isMissed = markOverrideDraft.status === "Missed";
+    const numericScore = Number(markOverrideDraft.score);
+    if (!isMissed) {
+      if (markOverrideDraft.score === "" || !Number.isFinite(numericScore)) {
+        setMarksError("Enter a valid score or choose Missed.");
+        return;
+      }
+      if (component === "EXAM80" && (numericScore < 0 || numericScore > 80)) {
+        setMarksError("/80 score must be between 0 and 80.");
+        return;
+      }
+      if (component !== "EXAM80" && (numericScore < 0.9 || numericScore > 3)) {
+        setMarksError("AOI score must be between 0.9 and 3.0.");
+        return;
+      }
+    }
+
+    setSavingMarkId(markId);
+    setMarksError("");
+    setMarksNotice("");
+    try {
+      const data = await adminFetch(`/api/admin/marks/${markId}`, {
+        method: "PATCH",
+        body: {
+          status: markOverrideDraft.status,
+          score: isMissed ? null : numericScore,
+        },
+      });
+
+      setMarksDetail((current) => current.map((candidate) =>
+        Number(candidate.mark_id) === markId
+          ? { ...candidate, ...(data?.mark || {}) }
+          : candidate
+      ));
+      setMarksNotice(data?.message || "Score updated successfully.");
+      cancelMarkOverride();
+    } catch (err) {
+      console.error("Admin mark override failed:", err);
+      setMarksError(err.message || "Could not update this score.");
+    } finally {
+      setSavingMarkId(null);
+    }
   };
 
   /* ---------- Export helpers (CSV / PDF) ---------- */
@@ -4179,6 +4260,7 @@ export default function AdminDashboard() {
           </div>
     
           {marksError && <div className="panel-alert panel-alert-error">{marksError}</div>}
+          {marksNotice && <div className="panel-alert panel-alert-success">{marksNotice}</div>}
 
           <NoticeboardScoreSheetCard
             classOptions={classOptionsForMarksheet}
@@ -4442,6 +4524,8 @@ export default function AdminDashboard() {
                               setSelectedGroup(group);
                               setSelectedAoi(null);
                               setMarksDetail([]);
+                              setEditingMarkId(null);
+                              setMarksNotice("");
                             }}
                             style={{ cursor: "pointer" }}
                           >
@@ -4502,7 +4586,7 @@ export default function AdminDashboard() {
               <div className="panel-card-header">
                 <div>
                   <h3>Marks Preview</h3>
-                  <p className="download-marks-subtitle">Preview the scores first, then export the current view cleanly to CSV or PDF.</p>
+                  <p className="download-marks-subtitle">Review or override a submitted score, then export the current view to CSV or PDF.</p>
                 </div>
     
                 {selectedAoi && marksDetail.length > 0 && (
@@ -4547,6 +4631,8 @@ export default function AdminDashboard() {
                         setSelectedAoi("ALL");
                         setLoadingMarksDetail(true);
                         setMarksDetail([]);
+                        setEditingMarkId(null);
+                        setMarksNotice("");
     
                         try {
                           const combined = [];
@@ -4618,11 +4704,17 @@ export default function AdminDashboard() {
                             <th>Stream</th>
                             {selectedAoi === "ALL" && <th>AOI</th>}
                             <th>Score</th>
+                            <th><span className="visually-hidden">Override actions</span></th>
                           </tr>
                         </thead>
                         <tbody>
-                          {marksDetail.map((row, i) => (
-                            <tr key={i}>
+                          {marksDetail.map((row, i) => {
+                            const isEditing = editingMarkId === Number(row.mark_id);
+                            const isSaving = savingMarkId === Number(row.mark_id);
+                            const isExam80 = String(row.aoi_label || "").trim().toUpperCase() === "EXAM80";
+
+                            return (
+                            <tr key={row.mark_id || `${row.student_id}-${row.aoi_label}-${i}`} className={isEditing ? "download-marks-override-row" : ""}>
                               <td>
                                 <div className="download-marks-subject-name">{row.student_name}</div>
                               </td>
@@ -4634,12 +4726,76 @@ export default function AdminDashboard() {
                                 </td>
                               )}
                               <td>
-                                <span className="download-marks-score-chip">
-                                  {formatMarksDetailScore(row)}
-                                </span>
+                                {isEditing ? (
+                                  <div className="download-marks-override-editor">
+                                    <select
+                                      aria-label={`Score status for ${row.student_name}`}
+                                      value={markOverrideDraft.status}
+                                      onChange={(event) => setMarkOverrideDraft((current) => ({
+                                        ...current,
+                                        status: event.target.value,
+                                      }))}
+                                      disabled={isSaving}
+                                    >
+                                      <option value="Present">Present</option>
+                                      <option value="Missed">Missed</option>
+                                    </select>
+                                    <input
+                                      type="number"
+                                      inputMode="decimal"
+                                      aria-label={`New score for ${row.student_name}`}
+                                      min={isExam80 ? 0 : 0.9}
+                                      max={isExam80 ? 80 : 3}
+                                      step={isExam80 ? 1 : 0.1}
+                                      value={markOverrideDraft.score}
+                                      placeholder={isExam80 ? "0-80" : "0.9-3.0"}
+                                      onChange={(event) => setMarkOverrideDraft((current) => ({
+                                        ...current,
+                                        score: event.target.value,
+                                      }))}
+                                      disabled={isSaving || markOverrideDraft.status === "Missed"}
+                                      autoFocus
+                                    />
+                                  </div>
+                                ) : (
+                                  <span className="download-marks-score-chip">
+                                    {formatMarksDetailScore(row)}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="download-marks-override-actions">
+                                {isEditing ? (
+                                  <div className="download-marks-override-buttons">
+                                    <button
+                                      type="button"
+                                      className="primary-btn"
+                                      onClick={() => saveMarkOverride(row)}
+                                      disabled={isSaving}
+                                    >
+                                      {isSaving ? "Saving…" : "Save"}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="ghost-btn"
+                                      onClick={cancelMarkOverride}
+                                      disabled={isSaving}
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    className="download-marks-override-button"
+                                    onClick={() => startMarkOverride(row)}
+                                  >
+                                    Override
+                                  </button>
+                                )}
                               </td>
                             </tr>
-                          ))}
+                          );
+                          })}
                         </tbody>
                       </table>
                     </div>
@@ -4787,6 +4943,23 @@ export default function AdminDashboard() {
             <button className="panel-close" type="button" onClick={() => setActiveSection("")}>✕ Close</button>
           </div>
           <EndOfTermReports mode="year" />
+        </section>
+      );
+    }
+    if (activeSection === "Forever Library") {
+      return (
+        <section className="panel">
+          <div className="panel-header">
+            <div>
+              <h2>Forever Library</h2>
+              <p>Preserve final O-Level report PDFs by year, class, stream and reporting period.</p>
+            </div>
+            <button className="panel-close" onClick={() => setActiveSection("")}>
+              ✕ Close
+            </button>
+          </div>
+
+          <ForeverLibraryPanel defaultYear={dashboardOperationalYear} />
         </section>
       );
     }

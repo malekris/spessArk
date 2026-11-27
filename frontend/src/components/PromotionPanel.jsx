@@ -27,6 +27,7 @@ export default function PromotionPanel({ onPromotionComplete }) {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState("");
   const [previewData, setPreviewData] = useState(null);
+  const [archiveReadiness, setArchiveReadiness] = useState(null);
   const [subjectSelections, setSubjectSelections] = useState({});
 
   const [executeLoading, setExecuteLoading] = useState(false);
@@ -74,6 +75,7 @@ export default function PromotionPanel({ onPromotionComplete }) {
     setForm((previous) => ({ ...previous, [field]: value }));
     if (field === "classLevel" || field === "stream" || field === "academicYear") {
       setPreviewData(null);
+      setArchiveReadiness(null);
       setExecuteResult(null);
       setSubjectSelections({});
       setPreviewError("");
@@ -110,6 +112,19 @@ export default function PromotionPanel({ onPromotionComplete }) {
       });
       const data = await adminFetch(`/api/admin/promotions/preview?${params.toString()}`);
       setPreviewData(data);
+      const archiveParams = new URLSearchParams({
+        year: form.academicYear.trim(),
+        classLevel: form.classLevel,
+        stream: form.stream,
+      });
+      const readiness = await adminFetch(
+        `/api/admin/report-archives/readiness?${archiveParams.toString()}`
+      ).catch((archiveError) => ({
+        complete: false,
+        missingPeriods: ["TERM_1", "TERM_2", "END_OF_YEAR"],
+        message: archiveError.message || "Forever Library readiness could not be checked.",
+      }));
+      setArchiveReadiness(readiness);
       const initialSelections = {};
       if (form.classLevel === "S2") {
         (data?.learners || []).forEach((learner) => {
@@ -123,6 +138,7 @@ export default function PromotionPanel({ onPromotionComplete }) {
     } catch (err) {
       console.error("Promotion preview error:", err);
       setPreviewData(null);
+      setArchiveReadiness(null);
       setPreviewError(err.message || "Failed to load preview.");
     } finally {
       setPreviewLoading(false);
@@ -314,7 +330,12 @@ export default function PromotionPanel({ onPromotionComplete }) {
                 const transitionMessage = isS2Transition
                   ? `Promote ${promotionLearners.length} learners to S3 with the selected nine-subject profiles?`
                   : "Execute promotion for this class and stream?";
-                if (!window.confirm(transitionMessage)) return;
+                const archiveWarning = archiveReadiness?.complete
+                  ? ""
+                  : `\n\nForever Library is incomplete. Missing: ${(archiveReadiness?.missingPeriods || [])
+                      .map((period) => period === "END_OF_YEAR" ? "End of Year" : period.replace("_", " "))
+                      .join(", ") || "archive status unavailable"}. Continue only if this promotion cannot wait.`;
+                if (!window.confirm(`${transitionMessage}${archiveWarning}`)) return;
                 handleExecute();
               }}
               disabled={
@@ -331,6 +352,22 @@ export default function PromotionPanel({ onPromotionComplete }) {
 
           {previewError && <div className="panel-alert panel-alert-error">{previewError}</div>}
           {executeError && <div className="panel-alert panel-alert-error">{executeError}</div>}
+
+          {previewData && archiveReadiness && (
+            <div className={`promotion-archive-readiness ${archiveReadiness.complete ? "is-complete" : "is-incomplete"}`}>
+              <div>
+                <strong>{archiveReadiness.complete ? "Forever Library complete" : "Archive before promotion"}</strong>
+                <span>
+                  {archiveReadiness.complete
+                    ? "Term 1, Term 2 and End-of-Year PDFs are preserved for this stream."
+                    : `Missing: ${(archiveReadiness.missingPeriods || [])
+                        .map((period) => period === "END_OF_YEAR" ? "End of Year" : period.replace("_", " "))
+                        .join(", ") || "readiness unavailable"}.`}
+                </span>
+              </div>
+              <b>{archiveReadiness.archivedCount || 0} / {archiveReadiness.expectedCount || 3}</b>
+            </div>
+          )}
 
           {executeResult && (
             <div className="promotion-result-banner">

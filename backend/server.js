@@ -20,6 +20,7 @@ import adminAuditLogsRoutes from "./routes/adminAuditLogs.js";
 import adminPromotionRoutes from "./routes/adminPromotionRoutes.js";
 import adminEmisRegistrationRoutes from "./routes/adminEmisRegistrationRoutes.js";
 import adminOptionalSubjectPredictorRoutes from "./routes/adminOptionalSubjectPredictorRoutes.js";
+import createAdminReportArchiveRoutes from "./routes/adminReportArchiveRoutes.js";
 import authAdmin, {
   requireAdminReauth,
   signAdminReauthToken,
@@ -73,6 +74,7 @@ import { ensureAlevelPromotionSchemaReady } from "./services/alevelPromotionServ
 import { ensureParentPortalSchemaReady } from "./services/parentPortalService.js";
 import { ensureSiteVisitSchemaReady } from "./services/siteVisitService.js";
 import { getOLevelMarkEntryComponents } from "./services/oLevelYearAssessmentPolicy.js";
+import { normalizeAdminMarkOverride } from "./services/adminMarkOverrideService.js";
 import { validateCombinedOLevelOptionalAssignments } from "./services/combinedOLevelOptionalAssignments.js";
 import {
   acknowledgeTeacherLoginNotice,
@@ -761,6 +763,7 @@ if (dbUrl) {
 export const pool = mysql.createPool(poolConfig);
 export const db = pool;//alias, no behavior change
 
+app.use("/api/admin", createAdminReportArchiveRoutes(pool));
 app.use("/api/admin/timetable", createTimetableRoutes(pool));
 app.use("/api", createParentPortalRoutes(pool));
 app.use("/api/public", createPublicSiteVisitRoutes(pool));
@@ -2528,6 +2531,8 @@ app.get("/api/admin/marks-detail", authAdmin, async (req, res) => {
     const [rows] = await pool.query(
       `
       SELECT
+        m.id AS mark_id,
+        m.assignment_id,
         s.id AS student_id,
         s.name AS student_name,
         s.gender,
@@ -2554,6 +2559,127 @@ app.get("/api/admin/marks-detail", authAdmin, async (req, res) => {
   } catch (err) {
     console.error("Error loading admin marks detail:", err);
     res.status(500).json({ message: "Failed to load marks detail" });
+  }
+});
+
+// ===============================
+// ADMIN -> MARK OVERRIDE
+// ===============================
+app.patch("/api/admin/marks/:markId", authAdmin, async (req, res) => {
+  const markId = Number(req.params.markId);
+  let conn;
+
+  if (!Number.isInteger(markId) || markId <= 0) {
+    return res.status(400).json({ message: "A valid mark is required." });
+  }
+
+  try {
+    conn = await pool.getConnection();
+    await conn.beginTransaction();
+
+    const [[mark]] = await conn.query(
+      `
+      SELECT
+        m.id AS mark_id,
+        m.assignment_id,
+        m.teacher_id,
+        m.student_id,
+        m.score,
+        m.status,
+        m.term,
+        m.year,
+        m.aoi_label,
+        s.name AS student_name,
+        s.gender,
+        s.class_level,
+        s.stream,
+        ta.subject
+      FROM marks m
+      JOIN students s ON s.id = m.student_id
+      JOIN teacher_assignments ta ON ta.id = m.assignment_id
+      WHERE m.id = ?
+      FOR UPDATE
+      `,
+      [markId]
+    );
+
+    if (!mark) {
+      await conn.rollback();
+      return res.status(404).json({ message: "That mark no longer exists." });
+    }
+
+    let override;
+    try {
+      override = normalizeAdminMarkOverride({
+        component: mark.aoi_label,
+        status: req.body?.status,
+        score: req.body?.score,
+      });
+    } catch (validationError) {
+      await conn.rollback();
+      return res.status(400).json({ message: validationError.message });
+    }
+
+    const { component, score: nextScore, status: nextStatus } = override;
+    const oldStatus = String(mark.status || "").trim() || (mark.score === null ? "Missed" : "Present");
+    const oldScore = mark.score === null || mark.score === undefined ? null : Number(mark.score);
+    const scoreUnchanged = oldScore === nextScore || (oldScore === null && nextScore === null);
+    const statusUnchanged = oldStatus.toLowerCase() === nextStatus.toLowerCase();
+
+    if (!scoreUnchanged || !statusUnchanged) {
+      await conn.query(
+        `UPDATE marks SET score = ?, status = ? WHERE id = ?`,
+        [nextScore, nextStatus, markId]
+      );
+    }
+
+    await conn.commit();
+
+    const displayValue = (score, status) =>
+      String(status || "").toLowerCase() === "missed" || score === null
+        ? "Missed"
+        : String(score);
+
+    if (!scoreUnchanged || !statusUnchanged) {
+      await logAuditEvent({
+        userId: Number(req.admin?.id) || 1,
+        userRole: "admin",
+        action: "ADMIN_OVERRIDE_MARK",
+        entityType: "marks",
+        entityId: markId,
+        description: `Overrode ${mark.subject} ${component} for ${mark.student_name} (${mark.class_level} ${mark.stream}, ${mark.term} ${mark.year}): ${displayValue(oldScore, oldStatus)} -> ${displayValue(nextScore, nextStatus)}`,
+        ipAddress: extractClientIp(req),
+      });
+      queueAdminYearSnapshotRefresh(pool, "admin-mark-override");
+    }
+
+    res.json({
+      message: scoreUnchanged && statusUnchanged
+        ? "No score change was needed."
+        : `${mark.student_name}'s ${component} score was updated.`,
+      mark: {
+        mark_id: markId,
+        assignment_id: mark.assignment_id,
+        student_id: mark.student_id,
+        student_name: mark.student_name,
+        gender: mark.gender,
+        class_level: mark.class_level,
+        stream: mark.stream,
+        score: nextScore,
+        status: nextStatus,
+        term: mark.term,
+        year: mark.year,
+        aoi_label: component,
+      },
+    });
+  } catch (err) {
+    if (conn) {
+      try { await conn.rollback(); } catch (rollbackError) { console.error("Rollback error:", rollbackError); }
+    }
+    console.error("Admin mark override error:", err);
+    res.status(500).json({ message: "Failed to override mark." });
+  } finally {
+    if (conn) conn.release();
   }
 });
 

@@ -392,6 +392,12 @@ export default function ForeverLibraryPanel({ defaultYear }) {
 
   const openArchive = async (archive, download = false) => {
     const previewWindow = download ? null : window.open("", "_blank");
+    if (previewWindow) {
+      previewWindow.document.title = `Opening ${archive.originalFilename || "archived report"}`;
+      previewWindow.document.body.style.cssText =
+        "margin:0;min-height:100vh;display:grid;place-items:center;background:#111827;color:#e5e7eb;font:600 15px system-ui,sans-serif";
+      previewWindow.document.body.textContent = "Loading archived report...";
+    }
     setOpeningId(archive.id);
     setError("");
     try {
@@ -403,7 +409,12 @@ export default function ForeverLibraryPanel({ defaultYear }) {
         const payload = await response.json().catch(() => null);
         throw new Error(payload?.message || "Archived PDF could not be opened.");
       }
-      const blobUrl = URL.createObjectURL(await response.blob());
+      const receivedBlob = await response.blob();
+      if (!receivedBlob.size) throw new Error("The archived PDF is empty.");
+      const pdfBlob = receivedBlob.type === "application/pdf"
+        ? receivedBlob
+        : new Blob([receivedBlob], { type: "application/pdf" });
+      const blobUrl = URL.createObjectURL(pdfBlob);
       if (download) {
         const link = document.createElement("a");
         link.href = blobUrl;
@@ -411,12 +422,49 @@ export default function ForeverLibraryPanel({ defaultYear }) {
         document.body.appendChild(link);
         link.click();
         link.remove();
+        window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
       } else if (previewWindow) {
-        previewWindow.location.href = blobUrl;
+        const previewDocument = previewWindow.document;
+        previewDocument.title = archive.originalFilename || "Forever Library Report";
+        previewDocument.body.replaceChildren();
+        previewDocument.body.style.cssText =
+          "margin:0;height:100vh;overflow:hidden;background:#111827;color:#f8fafc;font-family:system-ui,sans-serif";
+
+        const toolbar = previewDocument.createElement("header");
+        toolbar.style.cssText =
+          "height:58px;box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:0 18px;background:#0f172a;border-bottom:1px solid #334155";
+
+        const title = previewDocument.createElement("strong");
+        title.textContent = `${archive.classLevel} ${archive.stream} - ${periodLabel(archive.reportPeriod)}`;
+        title.style.cssText = "min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
+
+        const downloadLink = previewDocument.createElement("a");
+        downloadLink.href = blobUrl;
+        downloadLink.download = archive.originalFilename || "archived-report.pdf";
+        downloadLink.textContent = "Download PDF";
+        downloadLink.style.cssText =
+          "flex:0 0 auto;padding:9px 13px;border-radius:7px;background:#2563eb;color:white;text-decoration:none;font-weight:800";
+
+        const frame = previewDocument.createElement("iframe");
+        frame.src = blobUrl;
+        frame.title = archive.originalFilename || "Archived report PDF";
+        frame.style.cssText = "display:block;width:100%;height:calc(100vh - 58px);border:0;background:white";
+
+        toolbar.append(title, downloadLink);
+        previewDocument.body.append(toolbar, frame);
+        previewWindow.focus();
+
+        const cleanupStartedAt = Date.now();
+        const cleanupTimer = window.setInterval(() => {
+          if (previewWindow.closed || Date.now() - cleanupStartedAt > 60 * 60 * 1000) {
+            window.clearInterval(cleanupTimer);
+            URL.revokeObjectURL(blobUrl);
+          }
+        }, 2_000);
       } else {
-        window.open(blobUrl, "_blank");
+        URL.revokeObjectURL(blobUrl);
+        throw new Error("The report preview was blocked. Allow pop-ups and try View again.");
       }
-      window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
     } catch (openError) {
       previewWindow?.close();
       setError(openError.message || "Archived PDF could not be opened.");

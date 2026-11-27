@@ -2528,7 +2528,19 @@ app.get("/api/admin/marks-detail", authAdmin, async (req, res) => {
     const normTerm = term.trim();
     const normAoi = aoi.trim().toUpperCase();
 
-    const [rows] = await pool.query(
+    await ensureStudentLifecycleColumns(pool);
+    const [[assignment]] = await pool.query(
+      `SELECT id, teacher_id, subject, class_level, stream
+       FROM teacher_assignments
+       WHERE id = ?`,
+      [assignmentId]
+    );
+
+    if (!assignment) {
+      return res.status(404).json({ message: "Assignment not found." });
+    }
+
+    const [savedRows] = await pool.query(
       `
       SELECT
         m.id AS mark_id,
@@ -2542,7 +2554,8 @@ app.get("/api/admin/marks-detail", authAdmin, async (req, res) => {
         m.status,
         m.term,
         m.year,
-        m.aoi_label
+        m.aoi_label,
+        'saved' AS entry_state
       FROM marks m
       JOIN students s ON s.id = m.student_id
       WHERE
@@ -2550,15 +2563,232 @@ app.get("/api/admin/marks-detail", authAdmin, async (req, res) => {
         AND m.term = ?
         AND m.year = ?
         AND m.aoi_label = ?
-      ORDER BY s.name
+      ORDER BY m.id DESC
       `,
       [assignmentId, normTerm, year, normAoi]
+    );
+
+    const [candidateRows] = await pool.query(
+      `SELECT id AS student_id, name AS student_name, gender, class_level, stream
+       FROM students
+       WHERE class_level = ?
+         AND stream = ?
+         AND COALESCE(NULLIF(status, ''), 'active') = 'active'
+       ORDER BY name`,
+      [assignment.class_level, assignment.stream]
+    );
+
+    const candidateIds = candidateRows.map((row) => Number(row.student_id));
+    const registeredIds = await getRegisteredStudentIdsForSubject(
+      pool,
+      candidateIds,
+      assignment.subject,
+      year
+    );
+
+    const [participationRows] = await pool.query(
+      `SELECT DISTINCT m.student_id
+       FROM marks m
+       JOIN teacher_assignments ta ON ta.id = m.assignment_id
+       WHERE ta.class_level = ?
+         AND ta.stream = ?
+         AND LOWER(TRIM(ta.subject)) = LOWER(TRIM(?))
+         AND m.term = ?
+         AND m.year = ?`,
+      [assignment.class_level, assignment.stream, assignment.subject, normTerm, year]
+    );
+    participationRows.forEach((row) => registeredIds.add(Number(row.student_id)));
+
+    const rowsByStudent = new Map();
+    savedRows.forEach((row) => {
+      const studentId = Number(row.student_id);
+      if (!rowsByStudent.has(studentId)) rowsByStudent.set(studentId, row);
+    });
+
+    candidateRows.forEach((student) => {
+      const studentId = Number(student.student_id);
+      if (!registeredIds.has(studentId) || rowsByStudent.has(studentId)) return;
+      rowsByStudent.set(studentId, {
+        mark_id: null,
+        assignment_id: assignmentId,
+        ...student,
+        score: null,
+        status: null,
+        term: normTerm,
+        year,
+        aoi_label: normAoi,
+        entry_state: "not_entered",
+      });
+    });
+
+    const rows = Array.from(rowsByStudent.values()).sort((left, right) =>
+      String(left.student_name || "").localeCompare(String(right.student_name || ""))
     );
 
     res.json(rows);
   } catch (err) {
     console.error("Error loading admin marks detail:", err);
     res.status(500).json({ message: "Failed to load marks detail" });
+  }
+});
+
+// Create a mark where the teacher did not submit any entry for the learner.
+app.post("/api/admin/marks/override", authAdmin, async (req, res) => {
+  const assignmentId = Number(req.body?.assignmentId);
+  const studentId = Number(req.body?.studentId);
+  const year = Number(req.body?.year);
+  const term = String(req.body?.term || "").trim();
+  const requestedComponent = String(req.body?.aoi || "").trim().toUpperCase();
+  let conn;
+
+  if (
+    !Number.isInteger(assignmentId) || assignmentId <= 0 ||
+    !Number.isInteger(studentId) || studentId <= 0 ||
+    !Number.isInteger(year) || year <= 0 ||
+    !term || !requestedComponent
+  ) {
+    return res.status(400).json({ message: "Assignment, learner, term, year and assessment are required." });
+  }
+
+  try {
+    conn = await pool.getConnection();
+    await conn.beginTransaction();
+    await ensureStudentLifecycleColumns(conn);
+
+    const [[assignment]] = await conn.query(
+      `SELECT id, teacher_id, subject, class_level, stream
+       FROM teacher_assignments
+       WHERE id = ?
+       FOR UPDATE`,
+      [assignmentId]
+    );
+    if (!assignment) {
+      await conn.rollback();
+      return res.status(404).json({ message: "Assignment not found." });
+    }
+
+    const [[student]] = await conn.query(
+      `SELECT id AS student_id, name AS student_name, gender, class_level, stream
+       FROM students
+       WHERE id = ?
+         AND class_level = ?
+         AND stream = ?
+         AND COALESCE(NULLIF(status, ''), 'active') = 'active'
+       FOR UPDATE`,
+      [studentId, assignment.class_level, assignment.stream]
+    );
+    if (!student) {
+      await conn.rollback();
+      return res.status(400).json({ message: "The learner is not active in this assignment's class and stream." });
+    }
+
+    const allowedComponents = getOLevelMarkEntryComponents(term, year);
+    if (!allowedComponents.includes(requestedComponent)) {
+      await conn.rollback();
+      return res.status(400).json({
+        message: `${requestedComponent} is not available for ${term} ${year}.`,
+      });
+    }
+
+    const registeredIds = await getRegisteredStudentIdsForSubject(
+      conn,
+      [studentId],
+      assignment.subject,
+      year
+    );
+    if (!registeredIds.has(studentId)) {
+      const [[participation]] = await conn.query(
+        `SELECT m.id
+         FROM marks m
+         JOIN teacher_assignments ta ON ta.id = m.assignment_id
+         WHERE m.student_id = ?
+           AND ta.class_level = ?
+           AND ta.stream = ?
+           AND LOWER(TRIM(ta.subject)) = LOWER(TRIM(?))
+           AND m.term = ?
+           AND m.year = ?
+         LIMIT 1`,
+        [studentId, assignment.class_level, assignment.stream, assignment.subject, term, year]
+      );
+      if (!participation) {
+        await conn.rollback();
+        return res.status(400).json({ message: `The learner is not registered for ${assignment.subject}.` });
+      }
+    }
+
+    let override;
+    try {
+      override = normalizeAdminMarkOverride({
+        component: requestedComponent,
+        status: req.body?.status,
+        score: req.body?.score,
+      });
+    } catch (validationError) {
+      await conn.rollback();
+      return res.status(400).json({ message: validationError.message });
+    }
+
+    const [result] = await conn.query(
+      `INSERT INTO marks
+        (teacher_id, assignment_id, student_id, score, status, year, term, aoi_label)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+        id = LAST_INSERT_ID(id),
+        score = VALUES(score),
+        status = VALUES(status),
+        teacher_id = VALUES(teacher_id)`,
+      [
+        assignment.teacher_id,
+        assignmentId,
+        studentId,
+        override.score,
+        override.status,
+        year,
+        term,
+        override.component,
+      ]
+    );
+    const markId = Number(result.insertId);
+
+    await conn.commit();
+
+    await logAuditEvent({
+      userId: Number(req.admin?.id) || 1,
+      userRole: "admin",
+      action: "ADMIN_CREATE_MISSING_MARK",
+      entityType: "marks",
+      entityId: markId || assignmentId,
+      description: `Entered previously unsubmitted ${assignment.subject} ${override.component} for ${student.student_name} (${student.class_level} ${student.stream}, ${term} ${year}): ${override.status === "Missed" ? "Missed" : override.score}`,
+      ipAddress: extractClientIp(req),
+    });
+    queueAdminYearSnapshotRefresh(pool, "admin-create-missing-mark");
+
+    return res.json({
+      message: `${student.student_name}'s ${override.component} score was entered.`,
+      mark: {
+        mark_id: markId,
+        assignment_id: assignmentId,
+        student_id: studentId,
+        student_name: student.student_name,
+        gender: student.gender,
+        class_level: student.class_level,
+        stream: student.stream,
+        score: override.score,
+        status: override.status,
+        term,
+        year,
+        aoi_label: override.component,
+        entry_state: "saved",
+      },
+    });
+  } catch (err) {
+    if (conn) {
+      try { await conn.rollback(); } catch (rollbackError) { console.error("Rollback error:", rollbackError); }
+    }
+    console.error("Admin missing mark override error:", err);
+    return res.status(500).json({ message: "Failed to enter the missing mark." });
+  } finally {
+    if (conn) conn.release();
   }
 });
 

@@ -2233,6 +2233,7 @@ export default function AdminDashboard() {
 
   const formatMarksDetailScore = (row) => {
     if (!row) return "";
+    if (row.entry_state === "not_entered") return "Not entered";
     if (String(row.status || "").toLowerCase() === "missed") return "Missed";
     if (row.score === null || row.score === undefined || row.score === "") {
       return row.aoi_label ? "Missed" : "";
@@ -2241,9 +2242,15 @@ export default function AdminDashboard() {
     return Number.isFinite(numericScore) ? String(row.score) : String(row.score);
   };
 
+  const getMarkOverrideRowKey = (row) => {
+    const markId = Number(row?.mark_id);
+    if (Number.isInteger(markId) && markId > 0) return `mark-${markId}`;
+    return `new-${row?.assignment_id}-${row?.student_id}-${String(row?.aoi_label || "").trim().toUpperCase()}`;
+  };
+
   const startMarkOverride = (row) => {
     const missed = String(row?.status || "").toLowerCase() === "missed";
-    setEditingMarkId(Number(row.mark_id));
+    setEditingMarkId(getMarkOverrideRowKey(row));
     setMarkOverrideDraft({
       status: missed ? "Missed" : "Present",
       score: missed || row?.score === null || row?.score === undefined ? "" : String(row.score),
@@ -2259,8 +2266,14 @@ export default function AdminDashboard() {
 
   const saveMarkOverride = async (row) => {
     const markId = Number(row?.mark_id);
-    if (!Number.isInteger(markId) || markId <= 0) {
-      setMarksError("This score cannot be edited because its mark record is unavailable.");
+    const hasSavedMark = Number.isInteger(markId) && markId > 0;
+    const assignmentId = Number(row?.assignment_id);
+    const studentId = Number(row?.student_id);
+    if (!hasSavedMark && (
+      !Number.isInteger(assignmentId) || assignmentId <= 0 ||
+      !Number.isInteger(studentId) || studentId <= 0
+    )) {
+      setMarksError("This learner's assignment record is unavailable.");
       return;
     }
 
@@ -2282,20 +2295,35 @@ export default function AdminDashboard() {
       }
     }
 
-    setSavingMarkId(markId);
+    const savingKey = getMarkOverrideRowKey(row);
+    setSavingMarkId(savingKey);
     setMarksError("");
     setMarksNotice("");
     try {
-      const data = await adminFetch(`/api/admin/marks/${markId}`, {
-        method: "PATCH",
-        body: {
+      const data = await adminFetch(
+        hasSavedMark ? `/api/admin/marks/${markId}` : "/api/admin/marks/override",
+        {
+          method: hasSavedMark ? "PATCH" : "POST",
+          body: {
+            ...(!hasSavedMark ? {
+              assignmentId,
+              studentId,
+              term: row.term,
+              year: row.year,
+              aoi: component,
+            } : {}),
           status: markOverrideDraft.status,
           score: isMissed ? null : numericScore,
-        },
-      });
+          },
+        }
+      );
 
       setMarksDetail((current) => current.map((candidate) =>
-        Number(candidate.mark_id) === markId
+        (hasSavedMark && Number(candidate.mark_id) === markId) ||
+        (!hasSavedMark &&
+          Number(candidate.assignment_id) === assignmentId &&
+          Number(candidate.student_id) === studentId &&
+          String(candidate.aoi_label || "").toUpperCase() === component)
           ? { ...candidate, ...(data?.mark || {}) }
           : candidate
       ));
@@ -4709,9 +4737,11 @@ export default function AdminDashboard() {
                         </thead>
                         <tbody>
                           {marksDetail.map((row, i) => {
-                            const isEditing = editingMarkId === Number(row.mark_id);
-                            const isSaving = savingMarkId === Number(row.mark_id);
+                            const rowOverrideKey = getMarkOverrideRowKey(row);
+                            const isEditing = editingMarkId === rowOverrideKey;
                             const isExam80 = String(row.aoi_label || "").trim().toUpperCase() === "EXAM80";
+                            const isSaving = savingMarkId === rowOverrideKey;
+                            const isNotEntered = row.entry_state === "not_entered";
 
                             return (
                             <tr key={row.mark_id || `${row.student_id}-${row.aoi_label}-${i}`} className={isEditing ? "download-marks-override-row" : ""}>
@@ -4758,7 +4788,7 @@ export default function AdminDashboard() {
                                     />
                                   </div>
                                 ) : (
-                                  <span className="download-marks-score-chip">
+                                  <span className={`download-marks-score-chip ${isNotEntered ? "is-not-entered" : ""}`}>
                                     {formatMarksDetailScore(row)}
                                   </span>
                                 )}
@@ -4789,7 +4819,7 @@ export default function AdminDashboard() {
                                     className="download-marks-override-button"
                                     onClick={() => startMarkOverride(row)}
                                   >
-                                    Override
+                                    {isNotEntered ? "Enter score" : "Override"}
                                   </button>
                                 )}
                               </td>
